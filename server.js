@@ -71,9 +71,14 @@ const verificarToken = (req, res, next) => {
 // API: Autenticación (Login)
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
+    const ADMIN_USER = process.env.ADMIN_USER || 'admin';
+    const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
-    // Usuario y contraseña quemados para la demostración
-    if (username === 'admin' && password === 'Cinte2026*') {
+    if (!ADMIN_PASSWORD) {
+        console.error('⚠️ ADMIN_PASSWORD no configurada en .env');
+        return res.status(500).json({ error: 'Servidor no configurado' });
+    }
+    if (username === ADMIN_USER && password === ADMIN_PASSWORD) {
         const token = jwt.sign({ username, role: 'admin' }, SECRET_KEY, { expiresIn: EXPIRES_IN });
         return res.json({ success: true, token });
     }
