@@ -6,6 +6,9 @@ export default function FormularioNovedad() {
     cedula: '',
     correo: '',
     tipo: '',
+    // —— nuevos campos ——
+    cliente: '',
+    lider: '',
     // ---- Hora Extra ----
     fecha: '',       // fecha única para Hora Extra
     horaInicio: '',  // HH:mm (24h)
@@ -23,13 +26,11 @@ export default function FormularioNovedad() {
 
   const isHoraExtra = formData.tipo === 'Hora Extra';
 
-  // --- cálculo automático (ya no permite cruce de medianoche por tu regla de fin > inicio) ---
+  // --- cálculo automático (sin cruce de medianoche, fin > inicio) ---
   const horasCalculadas = useMemo(() => {
     if (!isHoraExtra) return 0;
     const { fecha, horaInicio, horaFin } = formData;
     if (!fecha || !horaInicio || !horaFin) return 0;
-
-    // Validación estricta: fin debe ser MAYOR que inicio
     if (horaFin <= horaInicio) return 0;
 
     const [Y, M, D] = fecha.split('-').map(Number);
@@ -40,34 +41,32 @@ export default function FormularioNovedad() {
     const end   = new Date(Y, M - 1, D, h2, m2, 0);
 
     const hours = (end.getTime() - start.getTime()) / 36e5;
-    return Math.max(0, Math.round(hours * 100) / 100); // redondeo 2 decimales
+    return Math.max(0, Math.round(hours * 100) / 100);
   }, [isHoraExtra, formData.fecha, formData.horaInicio, formData.horaFin]);
 
   // Helpers de validación
   const isValidDateOrder = (start, end) => {
     if (!start || !end) return true;
-    return end >= start; // se permite igual día; usa ">" si quieres obligar > estrictamente
+    return end >= start; // permite mismo día
   };
 
   const isValidTimeOrder = (start, end) => {
     if (!start || !end) return true;
-    return end > start; // estricto: fin debe ser mayor
+    return end > start; // fin estrictamente mayor
   };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-
-    // limpiar mensajes si el usuario cambia algo
     if (status.type) setStatus({ type: '', text: '' });
 
     setFormData((prev) => {
       const next = { ...prev, [name]: value };
 
-      // UX: si cambia fechaInicio, y fechaFin quedó menor, la vaciamos
+      // UX: si cambia fechaInicio y fechaFin queda menor, vaciar fechaFin
       if (name === 'fechaInicio' && next.fechaFin && next.fechaFin < value) {
         next.fechaFin = '';
       }
-      // UX: si cambia horaInicio, y horaFin quedó menor/igual, la vaciamos
+      // UX: si cambia horaInicio y horaFin queda menor/igual, vaciar horaFin
       if (name === 'horaInicio' && next.horaFin && next.horaFin <= value) {
         next.horaFin = '';
       }
@@ -78,11 +77,17 @@ export default function FormularioNovedad() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // --- Validaciones previas al envío ---
+    // — Validaciones mínimas —
     if (!formData.nombre?.trim() || !formData.cedula?.trim() || !formData.tipo) {
-      setStatus({ type: 'error', text: '❌ Completa los campos obligatorios.' });
+      setStatus({ type: 'error', text: '❌ Completa los campos obligatorios: Nombre, Cédula y Tipo.' });
       return;
     }
+
+    // (Opcional) Si quieres hacer Cliente y Líder obligatorios, descomenta:
+    // if (!formData.cliente?.trim() || !formData.lider?.trim()) {
+    //   setStatus({ type: 'error', text: '❌ Completa Cliente y Líder.' });
+    //   return;
+    // }
 
     if (isHoraExtra) {
       // Validación de fecha + horas (24h)
@@ -111,11 +116,15 @@ export default function FormularioNovedad() {
 
     try {
       const payload = new FormData();
+      // campos existentes
       payload.append('nombre', formData.nombre);
       payload.append('cedula', formData.cedula);
       payload.append('correoSolicitante', formData.correo);
       payload.append('tipoNovedad', formData.tipo);
       payload.append('tipoHoraExtra', formData.tipoJornada);
+      // —— nuevos campos ——
+      payload.append('cliente', formData.cliente || '');
+      payload.append('lider', formData.lider || '');
 
       // Archivo
       const fileInput = document.getElementById('soporte');
@@ -129,8 +138,7 @@ export default function FormularioNovedad() {
         payload.append('horaInicio', formData.horaInicio);
         payload.append('horaFin', formData.horaFin);
         payload.append('cantidadHoras', String(horasCalculadas || 0));
-
-        // Compat: si el backend espera fechaInicio/fechaFin:
+        // Compatibilidad con backend antiguo
         payload.append('fechaInicio', formData.fecha || 'N/A');
         payload.append('fechaFin', formData.fecha || 'N/A');
       } else {
@@ -152,6 +160,8 @@ export default function FormularioNovedad() {
           cedula: '',
           correo: '',
           tipo: '',
+          cliente: '',
+          lider: '',
           fecha: '',
           horaInicio: '',
           horaFin: '',
@@ -180,6 +190,7 @@ export default function FormularioNovedad() {
 
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
             {/* Nombre */}
             <div className="flex flex-col gap-2">
               <label className="text-sm font-semibold text-[#9fb3c8]">
@@ -248,6 +259,31 @@ export default function FormularioNovedad() {
               </select>
             </div>
 
+            {/* ====== NUEVOS: Cliente y Líder ====== */}
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold text-[#9fb3c8]">Cliente</label>
+              <input
+                name="cliente"
+                value={formData.cliente}
+                onChange={handleChange}
+                type="text"
+                placeholder="Nombre del cliente / cuenta"
+                className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold text-[#9fb3c8]">Líder</label>
+              <input
+                name="lider"
+                value={formData.lider}
+                onChange={handleChange}
+                type="text"
+                placeholder="Nombre del líder / responsable"
+                className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+              />
+            </div>
+
             {/* ====== CONDICIONAL ====== */}
             {isHoraExtra ? (
               // ---------- HORA EXTRA ----------
@@ -293,7 +329,7 @@ export default function FormularioNovedad() {
                     onChange={handleChange}
                     type="time"
                     step="60"
-                    min={formData.horaInicio || undefined} // ayuda visual: bloquea menores
+                    min={formData.horaInicio || undefined}
                     pattern="^([01]\\d|2[0-3]):[0-5]\\d$"
                     className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all"
                   />
@@ -346,10 +382,10 @@ export default function FormularioNovedad() {
                     value={formData.fechaFin}
                     onChange={handleChange}
                     type="date"
-                    min={formData.fechaInicio || undefined} // ayuda visual: bloquea menores
+                    min={formData.fechaInicio || undefined}
                     className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all [color-scheme:dark]"
                   />
-                  {!isValidDateOrder(formData.fechaInicio, formData.fechaFin) && (
+                  {formData.fechaFin && !isValidDateOrder(formData.fechaInicio, formData.fechaFin) && (
                     <small className="text-[#ff6b6b]">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>
                   )}
                 </div>
