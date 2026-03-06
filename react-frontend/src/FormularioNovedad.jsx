@@ -90,7 +90,9 @@ export default function FormularioNovedad() {
                             <label className="text-sm font-semibold text-[#9fb3c8]">Tipo de Novedad <span className="text-[#1fc76a]">*</span></label>
                             <select required name="tipo" value={formData.tipo} onChange={handleChange} className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all">
                                 <option value="">Selecciona...</option>
-                                <option value="Incapacidad">Incapacidad</option>
+                                <option value="Incapacidad">Incapacidad</option> 
+                                <option value="Apoyo">Apoyo</option>
+                                <option value="Apoyo Standby">Apoyo Standby</option>
                                 <option value="Vacaciones">Vacaciones</option>
                                 <option value="Hora Extra">Hora Extra</option>
                                 <option value="Licencia de Luto">Licencia de Luto</option>
