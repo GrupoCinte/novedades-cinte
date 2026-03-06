@@ -1,12 +1,20 @@
 import { useMemo, useState } from 'react';
 
+// --- restricciones de adjunto (frontend) ---
+const ALLOWED_MIME = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+]);
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
+
 export default function FormularioNovedad() {
   const [formData, setFormData] = useState({
     nombre: '',
     cedula: '',
     correo: '',
     tipo: '',
-    // —— nuevos campos ——
+    // nuevos
     cliente: '',
     lider: '',
     // ---- Hora Extra ----
@@ -74,6 +82,34 @@ export default function FormularioNovedad() {
     });
   };
 
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // 1) Tamaño
+    if (file.size > MAX_FILE_BYTES) {
+      setStatus({
+        type: 'error',
+        text: '❌ El archivo supera 5MB. Adjunta un archivo de máximo 5MB.',
+      });
+      e.target.value = ''; // limpia el input
+      return;
+    }
+
+    // 2) Tipo
+    if (!ALLOWED_MIME.has(file.type)) {
+      setStatus({
+        type: 'error',
+        text: '❌ Tipo de archivo no permitido. Solo PDF, JPG o PNG.',
+      });
+      e.target.value = '';
+      return;
+    }
+
+    // válido → limpia error si lo había
+    if (status.type === 'error') setStatus({ type: '', text: '' });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -83,7 +119,7 @@ export default function FormularioNovedad() {
       return;
     }
 
-    // (Opcional) Si quieres hacer Cliente y Líder obligatorios, descomenta:
+    // (Opcional) si quieres Cliente/Líder obligatorios, descomenta:
     // if (!formData.cliente?.trim() || !formData.lider?.trim()) {
     //   setStatus({ type: 'error', text: '❌ Completa Cliente y Líder.' });
     //   return;
@@ -122,7 +158,7 @@ export default function FormularioNovedad() {
       payload.append('correoSolicitante', formData.correo);
       payload.append('tipoNovedad', formData.tipo);
       payload.append('tipoHoraExtra', formData.tipoJornada);
-      // —— nuevos campos ——
+      // nuevos
       payload.append('cliente', formData.cliente || '');
       payload.append('lider', formData.lider || '');
 
@@ -138,7 +174,7 @@ export default function FormularioNovedad() {
         payload.append('horaInicio', formData.horaInicio);
         payload.append('horaFin', formData.horaFin);
         payload.append('cantidadHoras', String(horasCalculadas || 0));
-        // Compatibilidad con backend antiguo
+        // Compatibilidad con backend antiguo (si aún espera estos campos)
         payload.append('fechaInicio', formData.fecha || 'N/A');
         payload.append('fechaFin', formData.fecha || 'N/A');
       } else {
@@ -190,7 +226,6 @@ export default function FormularioNovedad() {
 
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
             {/* Nombre */}
             <div className="flex flex-col gap-2">
               <label className="text-sm font-semibold text-[#9fb3c8]">
@@ -259,7 +294,7 @@ export default function FormularioNovedad() {
               </select>
             </div>
 
-            {/* ====== NUEVOS: Cliente y Líder ====== */}
+            {/* Nuevos: Cliente y Líder */}
             <div className="flex flex-col gap-2">
               <label className="text-sm font-semibold text-[#9fb3c8]">Cliente</label>
               <input
@@ -408,11 +443,13 @@ export default function FormularioNovedad() {
             {/* Soporte / Adjunto */}
             <div className="col-span-1 md:col-span-2 flex flex-col gap-2">
               <label className="text-sm font-semibold text-[#9fb3c8]">
-                Soporte / Adjunto (PDF, JPG, PNG)
+                Soporte / Adjunto (PDF, JPG, PNG) — máx. 5MB
               </label>
               <input
                 type="file"
                 id="soporte"
+                accept=".pdf,.jpg,.jpeg,.png"
+                onChange={handleFileChange}
                 className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#2a90ff]/10 file:text-[#2a90ff] hover:file:bg-[#2a90ff]/20 cursor-pointer"
               />
             </div>
@@ -444,3 +481,4 @@ export default function FormularioNovedad() {
     </div>
   );
 }
+``
