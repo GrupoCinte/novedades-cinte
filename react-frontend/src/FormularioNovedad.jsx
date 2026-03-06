@@ -13,7 +13,7 @@ export default function FormularioNovedad() {
     // ---- Otros tipos ----
     fechaInicio: '',
     fechaFin: '',
-    // ---- Campos comunes / actuales ----
+    // ---- Comunes ----
     cantidadHoras: '',
     tipoJornada: 'Diurna',
   });
@@ -23,35 +23,89 @@ export default function FormularioNovedad() {
 
   const isHoraExtra = formData.tipo === 'Hora Extra';
 
-  // --- cálculo de horas en formato decimal, soporta cruce de medianoche ---
+  // --- cálculo automático (ya no permite cruce de medianoche por tu regla de fin > inicio) ---
   const horasCalculadas = useMemo(() => {
     if (!isHoraExtra) return 0;
     const { fecha, horaInicio, horaFin } = formData;
     if (!fecha || !horaInicio || !horaFin) return 0;
+
+    // Validación estricta: fin debe ser MAYOR que inicio
+    if (horaFin <= horaInicio) return 0;
 
     const [Y, M, D] = fecha.split('-').map(Number);
     const [h1, m1] = horaInicio.split(':').map(Number);
     const [h2, m2] = horaFin.split(':').map(Number);
 
     const start = new Date(Y, M - 1, D, h1, m1, 0);
-    let end = new Date(Y, M - 1, D, h2, m2, 0);
-    // si la hora fin es menor/igual a inicio, asumimos que cruza medianoche
-    if (end <= start) {
-      end = new Date(Y, M - 1, D + 1, h2, m2, 0);
-    }
+    const end   = new Date(Y, M - 1, D, h2, m2, 0);
+
     const hours = (end.getTime() - start.getTime()) / 36e5;
     return Math.max(0, Math.round(hours * 100) / 100); // redondeo 2 decimales
   }, [isHoraExtra, formData.fecha, formData.horaInicio, formData.horaFin]);
 
+  // Helpers de validación
+  const isValidDateOrder = (start, end) => {
+    if (!start || !end) return true;
+    return end >= start; // se permite igual día; usa ">" si quieres obligar > estrictamente
+  };
+
+  const isValidTimeOrder = (start, end) => {
+    if (!start || !end) return true;
+    return end > start; // estricto: fin debe ser mayor
+  };
+
   const handleChange = (e) => {
-    setFormData(prev => ({
-      ...prev,
-      [e.target.name]: e.target.value
-    }));
+    const { name, value } = e.target;
+
+    // limpiar mensajes si el usuario cambia algo
+    if (status.type) setStatus({ type: '', text: '' });
+
+    setFormData((prev) => {
+      const next = { ...prev, [name]: value };
+
+      // UX: si cambia fechaInicio, y fechaFin quedó menor, la vaciamos
+      if (name === 'fechaInicio' && next.fechaFin && next.fechaFin < value) {
+        next.fechaFin = '';
+      }
+      // UX: si cambia horaInicio, y horaFin quedó menor/igual, la vaciamos
+      if (name === 'horaInicio' && next.horaFin && next.horaFin <= value) {
+        next.horaFin = '';
+      }
+      return next;
+    });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // --- Validaciones previas al envío ---
+    if (!formData.nombre?.trim() || !formData.cedula?.trim() || !formData.tipo) {
+      setStatus({ type: 'error', text: '❌ Completa los campos obligatorios.' });
+      return;
+    }
+
+    if (isHoraExtra) {
+      // Validación de fecha + horas (24h)
+      if (!formData.fecha || !formData.horaInicio || !formData.horaFin) {
+        setStatus({ type: 'error', text: '❌ Completa Fecha, Hora Inicio y Hora Fin.' });
+        return;
+      }
+      if (!isValidTimeOrder(formData.horaInicio, formData.horaFin)) {
+        setStatus({ type: 'error', text: '❌ La Hora Fin no puede ser menor o igual que la Hora Inicio.' });
+        return;
+      }
+    } else {
+      // Validación de calendario
+      if (!formData.fechaInicio) {
+        setStatus({ type: 'error', text: '❌ La Fecha Inicio es obligatoria.' });
+        return;
+      }
+      if (formData.fechaFin && !isValidDateOrder(formData.fechaInicio, formData.fechaFin)) {
+        setStatus({ type: 'error', text: '❌ La Fecha Fin no puede ser menor que la Fecha Inicio.' });
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     setStatus({ type: 'wait', text: 'Procesando envío...' });
 
@@ -70,17 +124,17 @@ export default function FormularioNovedad() {
       }
 
       if (isHoraExtra) {
-        // —— Hora Extra: enviamos fecha + horas (24h) y cantidad calculada ——
+        // —— Hora Extra: fecha + horas (24h) + cantidad calculada ——
         payload.append('fecha', formData.fecha);
         payload.append('horaInicio', formData.horaInicio);
         payload.append('horaFin', formData.horaFin);
         payload.append('cantidadHoras', String(horasCalculadas || 0));
 
-        // Compatibilidad: si tu backend aún espera estos campos
+        // Compat: si el backend espera fechaInicio/fechaFin:
         payload.append('fechaInicio', formData.fecha || 'N/A');
         payload.append('fechaFin', formData.fecha || 'N/A');
       } else {
-        // —— Otros tipos: mantenemos calendario y cantidadHoras manual (si aplica) ——
+        // —— Otros tipos: calendario clásico ——
         payload.append('fechaInicio', formData.fechaInicio);
         payload.append('fechaFin', formData.fechaFin || 'N/A');
         payload.append('cantidadHoras', formData.cantidadHoras || 0);
@@ -93,7 +147,6 @@ export default function FormularioNovedad() {
 
       if (res.ok) {
         setStatus({ type: 'success', text: '✅ ¡Guardado con éxito!' });
-        // reset conservando tipoJornada por comodidad
         setFormData({
           nombre: '',
           cedula: '',
@@ -127,7 +180,6 @@ export default function FormularioNovedad() {
 
         <form onSubmit={handleSubmit}>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
             {/* Nombre */}
             <div className="flex flex-col gap-2">
               <label className="text-sm font-semibold text-[#9fb3c8]">
@@ -196,10 +248,10 @@ export default function FormularioNovedad() {
               </select>
             </div>
 
-            {/* ====== BLOQUE CONDICIONAL ====== */}
+            {/* ====== CONDICIONAL ====== */}
             {isHoraExtra ? (
               // ---------- HORA EXTRA ----------
-              <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-top-4 duration-300">
+              <>
                 <div className="flex flex-col gap-2">
                   <label className="text-sm font-semibold text-[#9fb3c8]">
                     Fecha <span className="text-[#1fc76a]">*</span>
@@ -241,13 +293,14 @@ export default function FormularioNovedad() {
                     onChange={handleChange}
                     type="time"
                     step="60"
+                    min={formData.horaInicio || undefined} // ayuda visual: bloquea menores
                     pattern="^([01]\\d|2[0-3]):[0-5]\\d$"
                     className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all"
                   />
                 </div>
 
                 {/* Jornada */}
-                <div className="flex flex-col gap-2 md:col-span-3">
+                <div className="flex flex-col gap-2 md:col-span-2">
                   <label className="text-sm font-semibold text-[#9fb3c8]">Jornada</label>
                   <select
                     name="tipoJornada"
@@ -261,12 +314,14 @@ export default function FormularioNovedad() {
                 </div>
 
                 {/* Info de horas calculadas */}
-                <div className="md:col-span-3 text-[#9fb3c8]">
-                  {horasCalculadas > 0
-                    ? `Horas calculadas: ${horasCalculadas}`
-                    : 'Completa fecha y horas para calcular la cantidad.'}
+                <div className="md:col-span-2 text-[#9fb3c8]">
+                  {formData.horaInicio && formData.horaFin && formData.horaFin <= formData.horaInicio
+                    ? '⚠️ La Hora Fin debe ser mayor que la Hora Inicio.'
+                    : horasCalculadas > 0
+                      ? `Horas calculadas: ${horasCalculadas}`
+                      : 'Completa fecha y horas para calcular la cantidad.'}
                 </div>
-              </div>
+              </>
             ) : (
               // ---------- OTROS TIPOS ----------
               <>
@@ -291,11 +346,15 @@ export default function FormularioNovedad() {
                     value={formData.fechaFin}
                     onChange={handleChange}
                     type="date"
+                    min={formData.fechaInicio || undefined} // ayuda visual: bloquea menores
                     className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all [color-scheme:dark]"
                   />
+                  {!isValidDateOrder(formData.fechaInicio, formData.fechaFin) && (
+                    <small className="text-[#ff6b6b]">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>
+                  )}
                 </div>
 
-                {/* (Opcional) Cantidad de Horas manual para otros tipos */}
+                {/* (Opcional) Cantidad de Horas manual */}
                 <div className="flex flex-col gap-2 md:col-span-2">
                   <label className="text-sm font-semibold text-[#9fb3c8]">Cantidad de Horas</label>
                   <input
