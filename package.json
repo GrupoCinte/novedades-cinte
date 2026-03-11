@@ -4,7 +4,8 @@
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.1.0",
+    "multer": "^2.1.1",
+    "vite": "^7.3.1",
     "xlsx": "^0.18.5"
   }
 }

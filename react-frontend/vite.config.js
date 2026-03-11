@@ -9,7 +9,10 @@ export default defineConfig({
     port: 5175,
     allowedHosts: true,
     proxy: {
-      '/api': 'http://localhost:3005'
-    }
+    '/api':    { target: 'http://localhost:3005', changeOrigin: true },
+    '/assets': { target: 'http://localhost:3005', changeOrigin: true }
+  }
+
+
   }
 })
