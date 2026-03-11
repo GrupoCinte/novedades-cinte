@@ -6,11 +6,17 @@ import Dashboard from './Dashboard';
 import FormularioNovedad from './FormularioNovedad';
 import Login from './Login';
 
+// Recuperación
 import ForgotPassword from './ForgotPassword';
 import ResetPassword from './ResetPassword';
 import ChangePassword from './ChangePassword';
 
-// Helpers auth
+// NUEVAS PÁGINAS DE REGISTRO
+import RegisterEmail from './RegisterEmail';
+import VerifyCode from './VerifyCode';
+import RegisterForm from './RegisterForm';
+
+// Helpers
 function readAuth() {
   try { return JSON.parse(localStorage.getItem('cinteAuth') || 'null'); }
   catch { return null; }
@@ -28,9 +34,11 @@ export default function App() {
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
 
-  // Sincroniza estado si cambias sesión en otra pestaña
+  // Sincroniza el estado cuando cambias sesión en otra pestaña
   useEffect(() => {
-    const onStorage = (e) => { if (e.key === 'cinteAuth') setAuth(readAuth()); };
+    const onStorage = (e) => {
+      if (e.key === 'cinteAuth') setAuth(readAuth());
+    };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
@@ -38,14 +46,17 @@ export default function App() {
   const handleLogout = () => {
     setAuth(null);
     localStorage.removeItem('cinteAuth');
-    navigate('/admin'); // volver al login
+    navigate('/admin');
   };
 
-  const onLoggedIn = (authData) => setAuth(authData);
+  const onLoggedIn = (authData) => {
+    setAuth(authData);
+    navigate('/admin', { replace: true });
+  };
 
   return (
     <div className="h-screen overflow-hidden flex flex-col">
-      {/* Header */}
+      {/* HEADER */}
       <header className="bg-[#0f2437]/95 px-8 py-3 border-b border-[#21405f] flex justify-between items-center sticky top-0 z-50">
         <div className="flex items-center gap-3">
           <img src="http://localhost:3005/assets/logo-cinte.png" className="h-11" alt="CINTE" />
@@ -53,7 +64,7 @@ export default function App() {
         </div>
 
         <nav className="flex gap-2 items-center">
-          {/* Botón Dashboard → SIEMPRE apunta a /admin */}
+          {/* Dashboard */}
           <Link
             to="/admin"
             className={`px-4 py-2 rounded-md font-semibold transition-colors ${
@@ -96,16 +107,13 @@ export default function App() {
         </nav>
       </header>
 
-      {/* Contenido */}
+      {/* CONTENIDO */}
       <main className={`flex-1 ${isAdminRoute ? 'overflow-hidden flex flex-col' : 'p-6 md:p-10 container mx-auto'}`}>
         <Routes>
-          {/* Pública: radicación */}
+          {/* FORMULARIO PÚBLICO */}
           <Route path="/" element={<FormularioNovedad />} />
 
-          {/* 👇 Mejora opción 4:
-                /admin → si NO hay token: Login
-                         si SÍ hay token: SIEMPRE Dashboard (no redirige al formulario)
-           */}
+          {/* LOGIN Y DASHBOARD */}
           <Route
             path="/admin"
             element={
@@ -115,11 +123,16 @@ export default function App() {
             }
           />
 
-          {/* Recuperación de contraseña */}
+          {/* REGISTRO */}
+          <Route path="/admin/register" element={<RegisterEmail />} />
+          <Route path="/admin/verify" element={<VerifyCode />} />
+          <Route path="/admin/register-data" element={<RegisterForm />} />
+
+          {/* RECUPERACIÓN */}
           <Route path="/admin/forgot" element={<ForgotPassword />} />
           <Route path="/admin/reset" element={<ResetPassword />} />
 
-          {/* Cambiar contraseña (protegida) */}
+          {/* CAMBIAR CONTRASEÑA */}
           <Route
             path="/perfil/cambiar-clave"
             element={

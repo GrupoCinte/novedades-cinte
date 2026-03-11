@@ -114,11 +114,29 @@ export default function Login({ setAuth }) {
             {loading ? 'Verificando...' : 'Iniciar Sesión'}
           </button>
 
-          <div className="mt-1 text-right">
-            <Link to="/admin/forgot" className="text-sm text-[#2a90ff] hover:underline">
-              ¿Olvidaste tu contraseña?
-            </Link>
-          </div>
+      {/* LINKS DEBAJO DE LOS CAMPOS */}
+<div className="flex justify-between mt-3 text-sm">
+
+  {/* Izquierda: REGISTRO */}
+  <Link
+    to="/admin/register"
+    className="text-[#2a90ff] hover:underline"
+  >
+   No tienes cuenta? Regístrate
+  </Link>
+
+  {/* Derecha: OLVIDÓ CONTRASEÑA */}
+  <Link
+    to="/admin/forgot"
+    className="text-[#2a90ff] hover:underline"
+  >
+    ¿Olvidaste tu contraseña?
+  </Link>
+
+</div>
+          
+
+
         </form>
       </div>
     </div>
