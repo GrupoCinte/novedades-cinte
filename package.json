@@ -1,11 +1,35 @@
 {
+  "name": "novedades-cinte-backend",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test tests/server.unit.test.js",
+    "test:integration": "node --test tests/api.integration.test.js",
+    "test:rbac": "node --test tests/rbac.integration.test.js",
+    "test:all": "node --test tests/server.unit.test.js && node --test tests/api.integration.test.js && node --test tests/rbac.integration.test.js"
+  },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1006.0",
+    "@aws-sdk/s3-request-presigner": "^3.1006.0",
+    "aws-jwt-verify": "^5.1.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.3.1",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.0",
-    "vite": "^7.3.1",
+    "pg": "^8.20.0",
     "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@vitest/coverage-v8": "^4.1.0",
+    "jsdom": "^28.1.0",
+    "supertest": "^7.2.2",
+    "vitest": "^4.1.0"
   }
 }
