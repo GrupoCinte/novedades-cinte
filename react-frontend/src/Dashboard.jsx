@@ -1,19 +1,76 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid, BarChart, Bar } from 'recharts';
-import { Check, X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, Loader2, ChevronLeft, ChevronRight, Code2 } from 'lucide-react';
+import { Check, X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, Loader2, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu } from 'lucide-react';
 import ChatWidget from './ChatWidget';
+import { getNovedadRule } from './novedadRules';
 
-export default function Dashboard({ token }) {
+export default function Dashboard({ token, onLogout }) {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [soporteModal, setSoporteModal] = useState(null);
     const [activeTab, setActiveTab] = useState('Inicio');
     const [changingState, setChangingState] = useState({});  // { [creadoEn]: true/false }
     const [stateError, setStateError] = useState(null);
+    const [soporteLoading, setSoporteLoading] = useState(false);
+    const parseJwt = (rawToken) => {
+        try {
+            const payload = rawToken.split('.')[1];
+            const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+            return JSON.parse(atob(normalized));
+        } catch {
+            return {};
+        }
+    };
+    const resolveRoleFromClaims = (claims = {}) => {
+        const direct = String(claims.role || '').toLowerCase();
+        if (direct) return direct;
+        const groupsClaim = claims['cognito:groups'];
+        const groups = Array.isArray(groupsClaim) ? groupsClaim : (groupsClaim ? [groupsClaim] : []);
+        const normalized = groups.map((g) => String(g || '').toLowerCase());
+        const priority = ['super_admin', 'admin_ch', 'team_ch', 'admin_ops', 'gp', 'nomina', 'sst'];
+        return priority.find((role) => normalized.includes(role)) || '';
+    };
+    const authFromStorage = (() => {
+        try {
+            return JSON.parse(localStorage.getItem('cinteAuth') || 'null');
+        } catch {
+            return null;
+        }
+    })();
+    const tokenClaims = parseJwt(token);
+    const currentRole = resolveRoleFromClaims(tokenClaims) || resolveRoleFromClaims(authFromStorage?.claims || {});
+    const currentRoleLabel = currentRole ? String(currentRole).replace(/_/g, ' ').toUpperCase() : 'SIN ROL';
+    const currentEmail = String(tokenClaims.email || authFromStorage?.user?.email || authFromStorage?.claims?.email || 'sin-correo').toLowerCase();
+    const PANEL_POLICY = {
+        super_admin: ['dashboard', 'calendar', 'gestion', 'admin'],
+        admin_ch: ['dashboard', 'calendar', 'gestion'],
+        team_ch: ['dashboard', 'calendar', 'gestion'],
+        admin_ops: ['dashboard', 'calendar'],
+        gp: ['dashboard', 'calendar', 'gestion'],
+        nomina: ['dashboard', 'calendar', 'gestion'],
+        sst: ['dashboard', 'calendar', 'gestion']
+    };
+    const tabPanelMap = {
+        Inicio: 'dashboard',
+        'Análisis Avanzado': 'dashboard',
+        Calendario: 'calendar',
+        Gestión: 'gestion'
+    };
+    const allowedPanels = PANEL_POLICY[currentRole] || [];
+    const canAccessPanel = (panel) => allowedPanels.includes(panel);
+    const canApproveItem = (item) => {
+        if (!item || item.estado !== 'Pendiente') return false;
+        if (currentRole === 'super_admin') return true;
+        const rule = getNovedadRule(item.tipoNovedad);
+        return Array.isArray(rule.approvers) && rule.approvers.includes(currentRole);
+    };
 
     // Calendar State
     const [currentMonth, setCurrentMonth] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     const [selectedDayItems, setSelectedDayItems] = useState(null);
+    const [calendarView, setCalendarView] = useState('monthly');
+    const [currentDay, setCurrentDay] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
 
     // Dashboard (Inicio) date filters
     const [fMes, setFMes] = useState('');         // '' = todos, '0'-'11' = ene-dic
@@ -24,6 +81,18 @@ export default function Dashboard({ token }) {
     const [fTipo, setFTipo] = useState('');
     const [fEstado, setFEstado] = useState('');
     const [fCorreo, setFCorreo] = useState('');
+    const [sortBy, setSortBy] = useState('creadoEn');
+    const [sortDir, setSortDir] = useState('desc');
+    const [pageSize, setPageSize] = useState(10);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [gestionItems, setGestionItems] = useState([]);
+    const [gestionPagination, setGestionPagination] = useState({
+        page: 1,
+        limit: 10,
+        total: 0,
+        totalPages: 1
+    });
+    const navigate = useNavigate();
 
     const loadData = async () => {
         setLoading(true);
@@ -41,9 +110,44 @@ export default function Dashboard({ token }) {
         }
     };
 
+    const loadGestionData = async (page = currentPage, limit = pageSize) => {
+        setLoading(true);
+        try {
+            const params = {
+                page: String(page),
+                limit: String(limit),
+                sortBy: String(sortBy || 'creadoEn'),
+                sortDir: String(sortDir || 'desc')
+            };
+            if (fTipo) params.tipo = fTipo;
+            if (fEstado) params.estado = fEstado;
+            if (fCorreo) params.correo = fCorreo;
+            const query = new URLSearchParams(params).toString();
+            const res = await fetch(`/api/novedades?${query}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error('No autorizado');
+            const data = await res.json();
+            setGestionItems(data.items || []);
+            setGestionPagination({
+                page: Number(data?.pagination?.page || page || 1),
+                limit: Number(data?.pagination?.limit || limit || pageSize),
+                total: Number(data?.pagination?.total || 0),
+                totalPages: Number(data?.pagination?.totalPages || 1)
+            });
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     useEffect(() => {
         loadData();
     }, []);
+    useEffect(() => {
+        loadGestionData(currentPage, pageSize);
+    }, [currentPage, pageSize, fTipo, fEstado, fCorreo, sortBy, sortDir]);
 
     const changeState = async (id, nuevoEstado) => {
         // Marcar esta fila como "cargando"
@@ -64,6 +168,7 @@ export default function Dashboard({ token }) {
             console.log('[changeState] Respuesta data:', data);
             if (res.ok) {
                 await loadData();
+                await loadGestionData(currentPage, pageSize);
             } else {
                 const errMsg = data?.error || `Error ${res.status}`;
                 console.error('[changeState] Error del servidor:', errMsg);
@@ -74,6 +179,35 @@ export default function Dashboard({ token }) {
             setStateError('Error de conexión con el servidor. Verifica que el backend esté corriendo en :3005');
         } finally {
             setChangingState(prev => ({ ...prev, [id]: false }));
+        }
+    };
+
+    const openSupport = async (it) => {
+        const localPath = it?.soporteRuta || '';
+        const s3Key = it?.soporteKey || '';
+        const fallback = localPath || s3Key;
+        if (!fallback) return;
+
+        if (localPath) {
+            const isPdf = localPath.toLowerCase().endsWith('.pdf');
+            setSoporteModal({ url: `http://localhost:3005${localPath}`, isPdf });
+            return;
+        }
+
+        setSoporteLoading(true);
+        try {
+            const res = await fetch(`/api/soportes/url?key=${encodeURIComponent(s3Key)}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const json = await res.json();
+            if (!res.ok || !json?.url) throw new Error(json?.error || 'No se pudo abrir soporte');
+            const isPdf = String(s3Key).toLowerCase().endsWith('.pdf');
+            setSoporteModal({ url: json.url, isPdf });
+        } catch (err) {
+            console.error(err);
+            setStateError(err?.message || 'No se pudo obtener la URL del soporte');
+        } finally {
+            setSoporteLoading(false);
         }
     };
 
@@ -147,12 +281,20 @@ export default function Dashboard({ token }) {
         : Array.from({ length: 10 }).map(() => ({ val: Math.random() * 10 }));
 
     // ── Gestión table filters ─────────────────────────────────────────────────
-    const filteredItems = items.filter(it => {
-        if (fTipo && it.tipoNovedad !== fTipo) return false;
-        if (fEstado && it.estado !== fEstado) return false;
-        if (fCorreo && !it.correoSolicitante?.toLowerCase().includes(fCorreo.toLowerCase())) return false;
-        return true;
-    }).reverse();
+    const sortedItems = gestionItems;
+
+    const totalPages = Math.max(1, Number(gestionPagination.totalPages || 1));
+    const safePage = Math.min(currentPage, totalPages);
+    const pagedItems = sortedItems;
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [fTipo, fEstado, fCorreo, sortBy, sortDir, pageSize]);
+    useEffect(() => {
+        if (currentPage > totalPages) {
+            setCurrentPage(totalPages);
+        }
+    }, [currentPage, totalPages]);
 
     const pendientesCount = items.filter(i => i.estado === 'Pendiente').length;
     // KPI Impacto financiero ficticio baseado en el número de novedades
@@ -178,6 +320,8 @@ export default function Dashboard({ token }) {
         acc[dStr].push(it);
         return acc;
     }, {});
+    const currentDayStr = currentDay.toISOString().slice(0, 10);
+    const dailyItems = itemsByDate[currentDayStr] || [];
 
     const getTypeColor = (tipo) => {
         if (!tipo) return 'text-slate-400 bg-slate-400/20 border-slate-400/50';
@@ -191,43 +335,141 @@ export default function Dashboard({ token }) {
     };
     // -----------------------
 
-    const exportCSV = () => {
-        if (filteredItems.length === 0) return;
-        const headers = ["Fecha Creación", "Nombre", "Cédula", "Correo", "Tipo Novedad", "Fecha Inicio", "Fecha Fin", "Horas", "Turno", "Estado"];
-        const rows = filteredItems.map(it => [
-            new Date(it.creadoEn).toLocaleString('es-ES'),
-            it.nombre,
-            it.cedula,
-            it.correoSolicitante || '',
-            it.tipoNovedad,
-            it.fechaInicio || '',
-            it.fechaFin || '',
-            it.cantidadHoras || '0',
-            it.tipoHoraExtra || 'N/A',
-            it.estado
-        ]);
-        const csvContent = [headers.join(","), ...rows.map(row => row.map(v => `"${v}"`).join(","))].join("\n");
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement("a");
-        link.href = URL.createObjectURL(blob);
-        link.download = `novedades_reporte_${new Date().toISOString().slice(0, 10)}.csv`;
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+    const exportCSV = async () => {
+        try {
+            const params = {
+                sortBy: String(sortBy || 'creadoEn'),
+                sortDir: String(sortDir || 'desc')
+            };
+            if (fTipo) params.tipo = fTipo;
+            if (fEstado) params.estado = fEstado;
+            if (fCorreo) params.correo = fCorreo;
+            const query = new URLSearchParams(params).toString();
+            const res = await fetch(`/api/novedades/export-csv?${query}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (!res.ok) {
+                const payload = await res.json().catch(() => ({}));
+                throw new Error(payload?.error || payload?.message || `Error ${res.status} exportando CSV`);
+            }
+            const blob = await res.blob();
+            const disposition = res.headers.get('content-disposition') || '';
+            const match = disposition.match(/filename="?([^"]+)"?/i);
+            const filename = (match && match[1]) ? match[1] : `novedades_reporte_${new Date().toISOString().slice(0, 10)}.csv`;
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(link.href);
+        } catch (err) {
+            setStateError(err?.message || 'No se pudo exportar el reporte CSV.');
+        }
+    };
+
+    const handleSidebarLogout = () => {
+        if (onLogout) {
+            onLogout();
+            return;
+        }
+        localStorage.removeItem('cinteAuth');
+        navigate('/admin', { replace: true });
     };
 
     // Sidebar
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const navItems = [
         { id: 'Inicio', icon: LayoutDashboard, label: 'Inicio (Dashboard)' },
         { id: 'Calendario', icon: Calendar, label: 'Calendario' },
         { id: 'Análisis Avanzado', icon: TrendingUp, label: 'Análisis Avanzado' },
         { id: 'Gestión', icon: Briefcase, label: 'Gestión de Novedades' },
-    ];
+    ].filter((item) => canAccessPanel(tabPanelMap[item.id]));
+
+    useEffect(() => {
+        const allowedTabs = navItems.map((n) => n.id);
+        if (!allowedTabs.includes(activeTab)) {
+            setActiveTab(allowedTabs[0] || 'Calendario');
+        }
+    }, [activeTab, navItems]);
+    useEffect(() => {
+        setMobileMenuOpen(false);
+    }, [activeTab]);
 
     return (
         <div className="flex h-full w-full bg-[#0f172a] text-slate-200 overflow-hidden font-sans">
+
+            {/* ───────── MOBILE SIDEBAR ───────── */}
+            <button
+                onClick={() => setMobileMenuOpen(true)}
+                className="md:hidden fixed top-24 left-4 z-40 w-10 h-10 rounded-lg bg-[#1e293b] border border-slate-700 text-slate-200 flex items-center justify-center shadow-lg"
+                aria-label="Abrir menú"
+            >
+                <Menu size={18} />
+            </button>
+            {mobileMenuOpen && (
+                <div
+                    className="md:hidden fixed inset-0 bg-black/50 z-40"
+                    onClick={() => setMobileMenuOpen(false)}
+                />
+            )}
+            <aside
+                className={`md:hidden fixed top-0 left-0 h-full w-72 bg-[#1e293b] border-r border-slate-700/50 z-50 shadow-2xl transform transition-transform duration-300 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                    }`}
+            >
+                <div className="p-4 border-b border-slate-700/50 flex items-center justify-between">
+                    <div>
+                        <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Sistema Análisis</p>
+                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Novedades CINTE</p>
+                    </div>
+                    <button
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center"
+                        aria-label="Cerrar menú"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
+                <nav className="p-3 flex flex-col gap-2">
+                    {navItems.map((item) => {
+                        const Icon = item.icon;
+                        const active = activeTab === item.id;
+                        return (
+                            <button
+                                key={`mobile-${item.id}`}
+                                onClick={() => setActiveTab(item.id)}
+                                className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${active ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700/50'
+                                    }`}
+                            >
+                                <Icon size={17} />
+                                <span>{item.label}</span>
+                            </button>
+                        );
+                    })}
+                </nav>
+                <div className="mt-auto p-4 border-t border-slate-700/50">
+                    <p className="text-[10px] font-black text-slate-300 truncate">{currentEmail}</p>
+                    <p className="text-[10px] text-blue-400 font-semibold uppercase">{currentRoleLabel}</p>
+                    <div className="mt-3 flex flex-col gap-2">
+                        <button
+                            onClick={() => navigate('/perfil/cambiar-clave')}
+                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-700/60 transition-all text-xs font-semibold"
+                        >
+                            <KeyRound size={14} />
+                            Cambiar contraseña
+                        </button>
+                        <button
+                            onClick={handleSidebarLogout}
+                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition-all text-xs font-semibold"
+                        >
+                            <LogOut size={14} />
+                            Cerrar sesión
+                        </button>
+                    </div>
+                </div>
+            </aside>
 
             {/* ───────── SIDEBAR COLAPSABLE ───────── */}
             <aside
@@ -297,29 +539,61 @@ export default function Dashboard({ token }) {
                                     <Code2 size={13} className="text-blue-400" />
                                 </div>
                                 <div className="overflow-hidden">
-                                    <p className="text-[10px] font-black text-slate-300 whitespace-nowrap leading-tight">Luis Miguel Correa</p>
-                                    <p className="text-[9px] text-blue-400 font-semibold whitespace-nowrap leading-tight">Arquitecto de IA &amp; Data</p>
+                                    <p className="text-[10px] font-black text-slate-300 whitespace-nowrap leading-tight truncate">{currentEmail}</p>
+                                    <p className="text-[9px] text-blue-400 font-semibold whitespace-nowrap leading-tight">{currentRoleLabel}</p>
                                 </div>
                             </div>
                             <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest text-center border-t border-slate-700/50 pt-2">
                                 Consultores Grupo CINTE · V1.0
                             </p>
+                            <div className="border-t border-slate-700/50 pt-2 flex flex-col gap-2">
+                                <button
+                                    onClick={() => navigate('/perfil/cambiar-clave')}
+                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/60 transition-all text-xs font-semibold"
+                                >
+                                    <KeyRound size={14} />
+                                    Cambiar contraseña
+                                </button>
+                                <button
+                                    onClick={handleSidebarLogout}
+                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-500/30 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all text-xs font-semibold"
+                                >
+                                    <LogOut size={14} />
+                                    Cerrar sesión
+                                </button>
+                            </div>
                         </div>
                     ) : (
-                        <div className="flex justify-center" title="Luis Miguel Correa - Arquitecto de IA &amp; Data">
-                            <div className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
-                                <Code2 size={13} className="text-blue-400" />
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="flex justify-center" title={`${currentEmail} - ${currentRoleLabel}`}>
+                                <div className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+                                    <Code2 size={13} className="text-blue-400" />
+                                </div>
                             </div>
+                            <button
+                                onClick={() => navigate('/perfil/cambiar-clave')}
+                                title="Cambiar contraseña"
+                                className="w-7 h-7 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/60 flex items-center justify-center transition-all"
+                            >
+                                <KeyRound size={13} />
+                            </button>
+                            <button
+                                onClick={handleSidebarLogout}
+                                title="Cerrar sesión"
+                                className="w-7 h-7 rounded-lg border border-rose-500/40 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 flex items-center justify-center transition-all"
+                            >
+                                <LogOut size={13} />
+                            </button>
                         </div>
                     )}
                 </div>
             </aside>
 
             {/* Main Content Area */}
-            <main className="flex-1 overflow-y-auto p-6 md:p-10 relative scroll-smooth bg-[#0f172a]">
+            <main className="flex-1 overflow-y-auto p-6 pt-16 md:pt-10 md:p-10 relative scroll-smooth bg-[#0f172a]">
 
                 {/* ---------- INICIO (DASHBOARD) ---------- */}
-                {activeTab === 'Inicio' && (
+                {activeTab === 'Inicio' && canAccessPanel('dashboard') && (
                     <div className="flex flex-col gap-6 animate-in fade-in duration-300">
 
                         {/* ── Filtros: Período + Tipo de Novedad ── */}
@@ -557,7 +831,7 @@ export default function Dashboard({ token }) {
                 )}
 
                 {/* ---------- GESTIÓN ---------- */}
-                {activeTab === 'Gestión' && (
+                {activeTab === 'Gestión' && canAccessPanel('gestion') && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-20 flex flex-col h-full">
                         {/* Banner de error de acción */}
                         {stateError && (
@@ -582,6 +856,20 @@ export default function Dashboard({ token }) {
                                         <option value="Rechazado">Rechazados</option>
                                     </select>
                                     <input type="text" placeholder="Buscar correo..." value={fCorreo} onChange={(e) => setFCorreo(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-500 min-w-[180px]" />
+                                    <select onChange={e => setSortBy(e.target.value)} value={sortBy} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                                        <option value="creadoEn">Ordenar: Fecha creación</option>
+                                        <option value="estado">Ordenar: Estado</option>
+                                        <option value="tipoNovedad">Ordenar: Tipo</option>
+                                    </select>
+                                    <select onChange={e => setSortDir(e.target.value)} value={sortDir} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                                        <option value="desc">Descendente</option>
+                                        <option value="asc">Ascendente</option>
+                                    </select>
+                                    <select onChange={e => setPageSize(Number(e.target.value))} value={pageSize} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                                        <option value={10}>10 por página</option>
+                                        <option value={20}>20 por página</option>
+                                        <option value={50}>50 por página</option>
+                                    </select>
 
                                     <div className="flex-1"></div>
 
@@ -601,24 +889,33 @@ export default function Dashboard({ token }) {
                                             <th className="p-4 font-semibold">F. Inicio</th>
                                             <th className="p-4 font-semibold text-center">Horas</th>
                                             <th className="p-4 font-semibold">Estado</th>
+                                            <th className="p-4 font-semibold">Decisión</th>
                                             <th className="p-4 pr-6 font-semibold text-right">Acciones</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-700/50 text-sm">
                                         {loading ? (
-                                            <tr><td colSpan="7" className="p-12 text-center text-slate-500 font-medium">Cargando base de datos...</td></tr>
-                                        ) : filteredItems.length === 0 ? (
-                                            <tr><td colSpan="7" className="p-12 text-center text-slate-500 font-medium">No se encontraron registros.</td></tr>
+                                            <tr><td colSpan="8" className="p-12 text-center text-slate-500 font-medium">Cargando base de datos...</td></tr>
+                                        ) : sortedItems.length === 0 ? (
+                                            <tr><td colSpan="8" className="p-12 text-center text-slate-500 font-medium">No se encontraron registros.</td></tr>
                                         ) : (
-                                            filteredItems.map(it => {
+                                            pagedItems.map(it => {
                                                 const cread = new Date(it.creadoEn);
                                                 const validCread = isNaN(cread.getTime()) ? '-' : cread.toLocaleDateString('es-ES');
+                                                const aprobado = it.aprobadoEn ? new Date(it.aprobadoEn) : null;
+                                                const aprobadoTxt = aprobado && !isNaN(aprobado.getTime())
+                                                    ? aprobado.toLocaleString('es-ES')
+                                                    : '';
+                                                const rechazado = it.rechazadoEn ? new Date(it.rechazadoEn) : null;
+                                                const rechazadoTxt = rechazado && !isNaN(rechazado.getTime())
+                                                    ? rechazado.toLocaleString('es-ES')
+                                                    : '';
                                                 return (
                                                     <tr key={it.creadoEn} className="hover:bg-slate-800/80 transition-colors">
                                                         <td className="p-4 pl-6 text-slate-400">{validCread}</td>
                                                         <td className="p-4 font-semibold text-slate-200">{it.nombre}</td>
                                                         <td className="p-4 text-slate-400">
-                                                            <span className="bg-slate-800 px-2 py-1 rounded text-xs border border-slate-700">{it.tipoNovedad}</span>
+                                                            <span className={`px-2 py-1 rounded text-xs border ${getTypeColor(it.tipoNovedad)}`}>{it.tipoNovedad}</span>
                                                         </td>
                                                         <td className="p-4 text-slate-300">{it.fechaInicio || '-'}</td>
                                                         <td className="p-4 text-slate-400 text-center">
@@ -632,18 +929,35 @@ export default function Dashboard({ token }) {
                                                                 {it.estado}
                                                             </span>
                                                         </td>
+                                                        <td className="p-4 text-xs text-slate-300">
+                                                            {it.estado === 'Aprobado'
+                                                                ? (
+                                                                    <div className="flex flex-col">
+                                                                        <span>{aprobadoTxt || '-'}</span>
+                                                                        <span className="text-[10px] uppercase text-slate-400">{it.aprobadoPorRol || '-'}</span>
+                                                                    </div>
+                                                                )
+                                                                : it.estado === 'Rechazado'
+                                                                    ? (
+                                                                        <div className="flex flex-col">
+                                                                            <span>{rechazadoTxt || '-'}</span>
+                                                                            <span className="text-[10px] uppercase text-slate-400">{it.rechazadoPorRol || '-'}</span>
+                                                                        </div>
+                                                                    )
+                                                                : '-'}
+                                                        </td>
                                                         <td className="p-4 pr-6">
                                                             <div className="flex gap-2 justify-end items-center">
-                                                                {it.soporteRuta && (
+                                                                {(it.soporteRuta || it.soporteKey) && (
                                                                     <div className="flex items-center gap-1.5 mr-2">
                                                                         <span title="Documento validado por IA" className="text-blue-500 animate-pulse"><BadgeCheck size={16} /></span>
-                                                                        <button onClick={() => setSoporteModal(it.soporteRuta)} className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-blue-600/20 text-slate-300 hover:text-blue-400 border border-slate-700 hover:border-blue-500/50 rounded-lg transition-all shadow-sm text-xs font-medium">
+                                                                        <button onClick={() => openSupport(it)} className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-blue-600/20 text-slate-300 hover:text-blue-400 border border-slate-700 hover:border-blue-500/50 rounded-lg transition-all shadow-sm text-xs font-medium">
                                                                             <Eye size={14} /> Ver
                                                                         </button>
                                                                     </div>
                                                                 )}
 
-                                                                {it.estado === 'Pendiente' ? (
+                                                                {canApproveItem(it) ? (
                                                                     <>
                                                                         {changingState[it.creadoEn] ? (
                                                                             <div className="w-7 h-7 flex items-center justify-center text-slate-400">
@@ -661,7 +975,9 @@ export default function Dashboard({ token }) {
                                                                         )}
                                                                     </>
                                                                 ) : (
-                                                                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-widest px-2">Auditado</span>
+                                                                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-widest px-2">
+                                                                        {it.estado === 'Pendiente' ? 'Solo lectura' : 'Auditado'}
+                                                                    </span>
                                                                 )}
                                                             </div>
                                                         </td>
@@ -671,13 +987,35 @@ export default function Dashboard({ token }) {
                                         )}
                                     </tbody>
                                 </table>
+                                {!loading && sortedItems.length > 0 && (
+                                    <div className="sticky bottom-0 bg-[#1e293b] border-t border-slate-700/50 px-4 py-3 flex items-center justify-between text-xs text-slate-300">
+                                        <span>Mostrando {pagedItems.length} de {gestionPagination.total || 0} registros</span>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                                                disabled={safePage <= 1}
+                                                className="px-3 py-1 rounded border border-slate-600 disabled:opacity-40"
+                                            >
+                                                Anterior
+                                            </button>
+                                            <span>Página {safePage} de {totalPages}</span>
+                                            <button
+                                                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                                                disabled={safePage >= totalPages}
+                                                className="px-3 py-1 rounded border border-slate-600 disabled:opacity-40"
+                                            >
+                                                Siguiente
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
                 )}
 
                 {/* ---------- CALENDARIO INTERACTIVO ---------- */}
-                {activeTab === 'Calendario' && (
+                {activeTab === 'Calendario' && canAccessPanel('calendar') && (
                     <div className="animate-in fade-in zoom-in-95 duration-300 pb-20 flex flex-col h-full bg-[#1e293b] rounded-2xl border border-slate-700/50 shadow-lg overflow-hidden">
                         <div className="p-6 border-b border-slate-700/50 flex justify-between items-center sticky top-0 bg-[#1e293b] z-10">
                             <div>
@@ -686,64 +1024,120 @@ export default function Dashboard({ token }) {
                                 </h2>
                                 <p className="text-sm text-slate-400 mt-1">Vista interactiva mensual de las novedades del talento</p>
                             </div>
-                            <div className="flex gap-4 items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
-                                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="px-3 py-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-all text-sm font-medium">&larr; Ant.</button>
-                                <span className="text-slate-200 font-bold min-w-[120px] text-center capitalize">
-                                    {currentMonth.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
-                                </span>
-                                <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="px-3 py-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-all text-sm font-medium">Sig. &rarr;</button>
+                            <div className="flex gap-3 items-center">
+                                <div className="flex items-center bg-slate-900 rounded-lg p-1 border border-slate-700">
+                                    <button
+                                        onClick={() => setCalendarView('monthly')}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${calendarView === 'monthly' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
+                                    >
+                                        Mensual
+                                    </button>
+                                    <button
+                                        onClick={() => setCalendarView('daily')}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${calendarView === 'daily' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
+                                    >
+                                        Diaria
+                                    </button>
+                                </div>
+                                {calendarView === 'monthly' ? (
+                                    <div className="flex gap-4 items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
+                                        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="px-3 py-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-all text-sm font-medium">&larr; Ant.</button>
+                                        <span className="text-slate-200 font-bold min-w-[120px] text-center capitalize">
+                                            {currentMonth.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
+                                        </span>
+                                        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="px-3 py-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-all text-sm font-medium">Sig. &rarr;</button>
+                                    </div>
+                                ) : (
+                                    <div className="flex gap-4 items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
+                                        <button onClick={() => setCurrentDay(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 1))} className="px-3 py-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-all text-sm font-medium">&larr; Ant.</button>
+                                        <span className="text-slate-200 font-bold min-w-[160px] text-center capitalize">
+                                            {currentDay.toLocaleDateString('es-ES', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+                                        </span>
+                                        <button onClick={() => setCurrentDay(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 1))} className="px-3 py-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-all text-sm font-medium">Sig. &rarr;</button>
+                                    </div>
+                                )}
                             </div>
                         </div>
 
                         <div className="flex-1 p-6 overflow-auto">
-                            <div className="grid grid-cols-7 gap-px rounded-xl overflow-hidden bg-slate-700/50 border border-slate-700/50 h-full min-h-[500px]">
-                                {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(day => (
-                                    <div key={day} className="bg-[#1e293b] text-center py-2 text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-700/50">
-                                        {day}
-                                    </div>
-                                ))}
-
-                                {calendarDays.map((dateObj, i) => {
-                                    if (!dateObj) return <div key={`empty-${i}`} className="bg-[#1e293b]/50 min-h-[100px]" />;
-
-                                    const dayDateStr = dateObj.toISOString().slice(0, 10);
-                                    const dayItems = itemsByDate[dayDateStr] || [];
-                                    const isToday = new Date().toISOString().slice(0, 10) === dayDateStr;
-
-                                    return (
-                                        <div key={dayDateStr}
-                                            onClick={() => dayItems.length > 0 && setSelectedDayItems({ date: dateObj, items: dayItems })}
-                                            className={`bg-[#1e293b] min-h-[100px] p-2 flex flex-col gap-1 transition-colors border-b border-r border-slate-700/50 last:border-r-0 ${dayItems.length > 0 ? 'cursor-pointer hover:bg-slate-800' : ''
-                                                } ${isToday ? 'bg-blue-900/10' : ''}`}>
-
-                                            <div className="flex justify-between items-center mb-1">
-                                                <span className={`w-7 h-7 flex items-center justify-center rounded-full text-sm font-bold ${isToday ? 'bg-blue-600 text-white shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'text-slate-400'
-                                                    }`}>
-                                                    {dateObj.getDate()}
-                                                </span>
-                                                {dayItems.length > 0 && (
-                                                    <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-bold border border-slate-700">
-                                                        {dayItems.length} reg.
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            <div className="flex flex-col gap-1 overflow-y-auto overflow-x-hidden max-h-[80px] custom-scrollbar">
-                                                {dayItems.slice(0, 4).map((it, idx) => (
-                                                    <div key={idx} className={`text-[10px] leading-tight px-1.5 py-1 rounded truncate border ${getTypeColor(it.tipoNovedad)}`}>
-                                                        {it.nombre.split(' ')[0]} - {it.tipoNovedad}
-                                                    </div>
-                                                ))}
-                                                {dayItems.length > 4 && (
-                                                    <div className="text-[10px] text-center text-slate-500 font-bold mt-0.5">
-                                                        + {dayItems.length - 4} más
-                                                    </div>
-                                                )}
-                                            </div>
+                            {calendarView === 'monthly' ? (
+                                <div className="grid grid-cols-7 gap-px rounded-xl overflow-hidden bg-slate-700/50 border border-slate-700/50 h-full min-h-[500px]">
+                                    {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(day => (
+                                        <div key={day} className="bg-[#1e293b] text-center py-2 text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-700/50">
+                                            {day}
                                         </div>
-                                    )
-                                })}
-                            </div>
+                                    ))}
+
+                                    {calendarDays.map((dateObj, i) => {
+                                        if (!dateObj) return <div key={`empty-${i}`} className="bg-[#1e293b]/50 min-h-[100px]" />;
+
+                                        const dayDateStr = dateObj.toISOString().slice(0, 10);
+                                        const dayItems = itemsByDate[dayDateStr] || [];
+                                        const isToday = new Date().toISOString().slice(0, 10) === dayDateStr;
+
+                                        return (
+                                            <div key={dayDateStr}
+                                                onClick={() => dayItems.length > 0 && setSelectedDayItems({ date: dateObj, items: dayItems })}
+                                                className={`bg-[#1e293b] min-h-[100px] p-2 flex flex-col gap-1 transition-colors border-b border-r border-slate-700/50 last:border-r-0 ${dayItems.length > 0 ? 'cursor-pointer hover:bg-slate-800' : ''
+                                                    } ${isToday ? 'bg-blue-900/10' : ''}`}>
+
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className={`w-7 h-7 flex items-center justify-center rounded-full text-sm font-bold ${isToday ? 'bg-blue-600 text-white shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'text-slate-400'
+                                                        }`}>
+                                                        {dateObj.getDate()}
+                                                    </span>
+                                                    {dayItems.length > 0 && (
+                                                        <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-bold border border-slate-700">
+                                                            {dayItems.length} reg.
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex flex-col gap-1 overflow-y-auto overflow-x-hidden max-h-[80px] custom-scrollbar">
+                                                    {dayItems.slice(0, 4).map((it, idx) => (
+                                                        <div key={idx} className={`text-[10px] leading-tight px-1.5 py-1 rounded truncate border ${getTypeColor(it.tipoNovedad)}`}>
+                                                            {it.nombre.split(' ')[0]} - {it.tipoNovedad}
+                                                        </div>
+                                                    ))}
+                                                    {dayItems.length > 4 && (
+                                                        <div className="text-[10px] text-center text-slate-500 font-bold mt-0.5">
+                                                            + {dayItems.length - 4} más
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="bg-[#0f172a] rounded-xl border border-slate-700/50 p-4 md:p-5">
+                                    <h3 className="text-base md:text-lg font-bold text-white mb-4">
+                                        Novedades del día: {currentDay.toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
+                                    </h3>
+                                    {dailyItems.length === 0 ? (
+                                        <div className="text-slate-400 text-sm bg-slate-800/60 border border-slate-700 rounded-lg p-4">
+                                            No hay novedades registradas para este día.
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col gap-3">
+                                            {dailyItems.map((it, idx) => (
+                                                <div key={`${it.creadoEn}-${idx}`} className={`p-3 rounded-lg border ${getTypeColor(it.tipoNovedad)}`}>
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div>
+                                                            <p className="font-semibold text-white">{it.nombre}</p>
+                                                            <p className="text-xs text-slate-300">{it.tipoNovedad} · Estado: {it.estado}</p>
+                                                        </div>
+                                                        <div className="text-xs text-slate-300 text-right">
+                                                            <p>{it.fechaInicio || '-'}</p>
+                                                            <p>{it.cantidadHoras || 0}h</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Legend */}
                             <div className="mt-6 flex flex-wrap gap-4 items-center justify-center text-xs text-slate-400">
@@ -759,7 +1153,7 @@ export default function Dashboard({ token }) {
                 )}
 
                 {/* ---------- ANÁLISIS AVANZADO ---------- */}
-                {activeTab === 'Análisis Avanzado' && (
+                {activeTab === 'Análisis Avanzado' && canAccessPanel('dashboard') && (
                     <div className="animate-in fade-in zoom-in-95 duration-300 pb-20 flex flex-col h-full gap-6">
                         <div className="bg-[#1e293b] p-6 rounded-2xl border border-slate-700/50 shadow-lg">
                             <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
@@ -1017,8 +1411,8 @@ export default function Dashboard({ token }) {
                                         </div>
                                     </div>
 
-                                    {it.soporteRuta && (
-                                        <button onClick={() => { setSelectedDayItems(null); setSoporteModal(it.soporteRuta); }} className="md:ml-2 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 px-3 py-2 rounded-lg transition-all flex items-center justify-center gap-2 text-sm font-medium">
+                                    {(it.soporteRuta || it.soporteKey) && (
+                                        <button onClick={() => { setSelectedDayItems(null); openSupport(it); }} className="md:ml-2 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 px-3 py-2 rounded-lg transition-all flex items-center justify-center gap-2 text-sm font-medium">
                                             <Eye size={16} /> Ver Soporte
                                         </button>
                                     )}
@@ -1042,10 +1436,12 @@ export default function Dashboard({ token }) {
                             </h2>
                         </div>
                         <div className="w-full flex-1 md:min-h-[60vh] rounded-xl overflow-hidden border border-slate-700 bg-black/40 p-1 relative">
-                            {soporteModal.toLowerCase().endsWith('.pdf') ? (
-                                <iframe src={`http://localhost:3005${soporteModal}`} className="w-full h-[65vh] rounded" title="Visor PDF" />
+                            {soporteLoading ? (
+                                <div className="w-full h-[65vh] flex items-center justify-center text-slate-300">Cargando soporte...</div>
+                            ) : soporteModal?.isPdf ? (
+                                <iframe src={soporteModal.url} className="w-full h-[65vh] rounded" title="Visor PDF" />
                             ) : (
-                                <img src={`http://localhost:3005${soporteModal}`} alt="Soporte" className="w-full h-[65vh] object-contain rounded" />
+                                <img src={soporteModal?.url} alt="Soporte" className="w-full h-[65vh] object-contain rounded" />
                             )}
                         </div>
                     </div>
