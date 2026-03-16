@@ -1,8 +1,25 @@
 # Dependencias
 node_modules/
+react-frontend/node_modules/
 
-# Variables de entorno (¡NO subir!)
+# Variables de entorno (NO subir)
 .env
+.env.*
+react-frontend/.env
+react-frontend/.env.*
+!.env.example
+!react-frontend/.env.example
+
+# Artefactos de build/test/reportes
+react-frontend/dist/
+react-frontend/coverage/
+react-frontend/playwright-report/
+react-frontend/test-results/
+react-frontend/.vite/
+tests/
+react-frontend/src/test/
+react-frontend/e2e/
+docs/
 
 # Archivos de sistema
 .DS_Store
