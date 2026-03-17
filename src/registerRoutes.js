@@ -562,9 +562,22 @@ function registerRoutes(deps) {
             const { id, nuevoEstado } = req.body || {};
             const estado = normalizeEstado(nuevoEstado);
             const actorSub = String(req.user?.sub || '').trim();
-            const actorUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
+            const actorUserIdRaw = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
                 ? actorSub
                 : null;
+
+            let actorUserId = null;
+            if (actorUserIdRaw || req.user?.email) {
+                try {
+                    const uq = await pool.query(
+                        'SELECT id FROM users WHERE id = $1 OR email = $2 LIMIT 1',
+                        [actorUserIdRaw, req.user?.email || '']
+                    );
+                    actorUserId = uq.rows[0]?.id || null;
+                } catch {
+                    actorUserId = null;
+                }
+            }
 
             let q;
             if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''))) {
