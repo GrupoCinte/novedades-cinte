@@ -153,7 +153,7 @@ function App() {
     <div className="h-screen overflow-hidden flex flex-col">
       <header className="bg-[#0f2437]/95 px-8 py-3 border-b border-[#21405f] flex justify-between items-center sticky top-0 z-50 relative">
         <div className="flex items-center">
-          <img src="http://localhost:3005/assets/logo-cinte-header.png" className="h-16 w-auto" alt="CINTE" />
+          <img src="/assets/logo-cinte-header.png" className="h-16 w-auto" alt="CINTE" />
         </div>
         <div className="hidden md:flex lg:hidden absolute left-1/2 -translate-x-1/2 text-[15px] font-extrabold text-[#2a90ff] tracking-wide uppercase text-center whitespace-nowrap">
           {headerTitle}

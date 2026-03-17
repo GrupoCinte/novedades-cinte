@@ -487,8 +487,7 @@ export default function FormularioNovedad() {
                                         <a
                                             key={fmt.href}
                                             href={fmt.href}
-                                            target="_blank"
-                                            rel="noreferrer"
+                                            download
                                             className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#2a90ff]/40 text-[#2a90ff] hover:bg-[#2a90ff]/10 transition-all"
                                         >
                                             Descargar: {fmt.label}
