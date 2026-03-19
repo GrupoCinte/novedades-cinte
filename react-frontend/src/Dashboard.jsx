@@ -1513,8 +1513,8 @@ export default function Dashboard({ token, onLogout }) {
                             <button onClick={() => setGestionDetailItem(null)} className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-700/50 transition-all text-sm">Cerrar</button>
                             {canApproveItem(gestionDetailItem) && (
                                 <>
-                                    <button onClick={async () => { await changeState(gestionDetailItem.creadoEn, 'Rechazado'); setGestionDetailItem(null); }} className="px-4 py-2 rounded-lg border border-rose-500/40 text-rose-400 hover:bg-rose-500/10 transition-all text-sm">Rechazar</button>
-                                    <button onClick={async () => { await changeState(gestionDetailItem.creadoEn, 'Aprobado'); setGestionDetailItem(null); }} className="px-4 py-2 rounded-lg border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-all text-sm">Aceptar</button>
+                                    <button onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Rechazado'); setGestionDetailItem(null); }} className="px-4 py-2 rounded-lg border border-rose-500/40 text-rose-400 hover:bg-rose-500/10 transition-all text-sm">Rechazar</button>
+                                    <button onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Aprobado'); setGestionDetailItem(null); }} className="px-4 py-2 rounded-lg border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-all text-sm">Aceptar</button>
                                 </>
                             )}
                         </div>
