@@ -10,7 +10,7 @@ export default function Dashboard({ token, onLogout }) {
     const [loading, setLoading] = useState(true);
     const [soporteModal, setSoporteModal] = useState(null);
     const [activeTab, setActiveTab] = useState('Inicio');
-    const [changingState, setChangingState] = useState({});  // { [id]: true/false }
+    const [changingState, setChangingState] = useState({});  // { [creadoEn]: true/false }
     const [stateError, setStateError] = useState(null);
     const [soporteLoading, setSoporteLoading] = useState(false);
     const parseJwt = (rawToken) => {
@@ -190,9 +190,7 @@ export default function Dashboard({ token, onLogout }) {
 
         if (localPath) {
             const isPdf = localPath.toLowerCase().endsWith('.pdf');
-            // Usar ruta relativa para que funcione en local y en despliegue (EC2/Caddy),
-            // evitando hardcodear localhost.
-            setSoporteModal({ url: localPath, isPdf });
+            setSoporteModal({ url: `http://localhost:3005${localPath}`, isPdf });
             return;
         }
 
@@ -913,7 +911,7 @@ export default function Dashboard({ token, onLogout }) {
                                                     ? rechazado.toLocaleString('es-ES')
                                                     : '';
                                                 return (
-                                                    <tr key={it.id || it.creadoEn} className="hover:bg-slate-800/80 transition-colors">
+                                                    <tr key={it.creadoEn} className="hover:bg-slate-800/80 transition-colors">
                                                         <td className="p-4 pl-6 text-slate-400">{validCread}</td>
                                                         <td className="p-4 font-semibold text-slate-200">{it.nombre}</td>
                                                         <td className="p-4 text-slate-400">
@@ -961,16 +959,16 @@ export default function Dashboard({ token, onLogout }) {
 
                                                                 {canApproveItem(it) ? (
                                                                     <>
-                                                                        {changingState[it.id] ? (
+                                                                        {changingState[it.creadoEn] ? (
                                                                             <div className="w-7 h-7 flex items-center justify-center text-slate-400">
                                                                                 <Loader2 size={16} className="animate-spin" />
                                                                             </div>
                                                                         ) : (
                                                                             <>
-                                                                                <button onClick={() => changeState(it.id, 'Aprobado')} className="w-7 h-7 flex items-center justify-center bg-slate-800 hover:bg-emerald-500/20 text-emerald-500 border border-slate-700 hover:border-emerald-500/50 rounded-lg transition-all" title="Aprobar Solicitud">
+                                                                                <button onClick={() => changeState(it.creadoEn, 'Aprobado')} className="w-7 h-7 flex items-center justify-center bg-slate-800 hover:bg-emerald-500/20 text-emerald-500 border border-slate-700 hover:border-emerald-500/50 rounded-lg transition-all" title="Aprobar Solicitud">
                                                                                     <Check size={16} strokeWidth={3} />
                                                                                 </button>
-                                                                                <button onClick={() => changeState(it.id, 'Rechazado')} className="w-7 h-7 flex items-center justify-center bg-slate-800 hover:bg-rose-500/20 text-rose-500 border border-slate-700 hover:border-rose-500/50 rounded-lg transition-all" title="Rechazar Solicitud">
+                                                                                <button onClick={() => changeState(it.creadoEn, 'Rechazado')} className="w-7 h-7 flex items-center justify-center bg-slate-800 hover:bg-rose-500/20 text-rose-500 border border-slate-700 hover:border-rose-500/50 rounded-lg transition-all" title="Rechazar Solicitud">
                                                                                     <X size={16} strokeWidth={3} />
                                                                                 </button>
                                                                             </>
