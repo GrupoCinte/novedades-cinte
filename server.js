@@ -228,6 +228,7 @@ const {
     ensureUserRoleEnumValues,
     ensureClientesLideresTable,
     ensureNovedadesIndexes,
+    ensureNovedadesHourSplitColumns,
     migrateClientesLideresFromExcelIfNeeded,
     getClientesList,
     getLideresByCliente,
@@ -292,7 +293,8 @@ registerRoutes({
     normalizeEstado,
     canRoleApproveType,
     FRONTEND_URL,
-    POLICY
+    POLICY,
+    xlsx
 });
 
 startServer({
@@ -301,6 +303,7 @@ startServer({
     ensureUserRoleEnumValues,
     ensureClientesLideresTable,
     ensureNovedadesIndexes,
+    ensureNovedadesHourSplitColumns,
     migrateExcelIfNeeded,
     migrateClientesLideresFromExcelIfNeeded,
     PORT,

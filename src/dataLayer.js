@@ -59,9 +59,23 @@ function createDataLayer(deps) {
             await pool.query('CREATE INDEX IF NOT EXISTS idx_novedades_estado ON novedades(estado)');
             await pool.query('CREATE INDEX IF NOT EXISTS idx_novedades_tipo ON novedades(tipo_novedad)');
             await pool.query('CREATE INDEX IF NOT EXISTS idx_novedades_correo ON novedades(correo_solicitante)');
+            await pool.query('CREATE INDEX IF NOT EXISTS idx_novedades_cliente ON novedades(cliente)');
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[DB] Permisos insuficientes para crear indices en novedades. Se continúa sin cambios de índice.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureNovedadesHourSplitColumns() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_diurnas NUMERIC(8,2) NOT NULL DEFAULT 0');
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_nocturnas NUMERIC(8,2) NOT NULL DEFAULT 0');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para agregar columnas de desglose horario. Se continúa sin migración de columnas.');
                 return;
             }
             throw error;
@@ -141,6 +155,7 @@ function createDataLayer(deps) {
         const tipo = String(options?.tipo || '').trim();
         const estado = String(options?.estado || '').trim();
         const correo = String(options?.correo || '').trim().toLowerCase();
+        const cliente = String(options?.cliente || '').trim().toLowerCase();
         const sortByRaw = String(options?.sortBy || '').trim();
         const sortDirRaw = String(options?.sortDir || '').trim().toLowerCase();
         const sortBy = ['creadoEn', 'estado', 'tipoNovedad'].includes(sortByRaw) ? sortByRaw : 'creadoEn';
@@ -163,6 +178,10 @@ function createDataLayer(deps) {
             params.push(`%${correo}%`);
             whereParts.push(`lower(coalesce(correo_solicitante, '')) LIKE $${params.length}`);
         }
+        if (cliente) {
+            params.push(`%${cliente}%`);
+            whereParts.push(`lower(coalesce(cliente, '')) LIKE $${params.length}`);
+        }
         const orderColumnMap = {
             creadoEn: 'creado_en',
             estado: 'estado',
@@ -174,7 +193,7 @@ function createDataLayer(deps) {
         const q = await pool.query(
             `SELECT
                 id, nombre, cedula, correo_solicitante, cliente, lider, tipo_novedad, area,
-                fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin, cantidad_horas, tipo_hora_extra,
+                fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin, cantidad_horas, tipo_hora_extra, horas_diurnas, horas_nocturnas,
                 soporte_ruta, estado, creado_en, aprobado_en, aprobado_por_rol, rechazado_en, rechazado_por_rol
              FROM novedades
              ${whereSql}
@@ -188,6 +207,7 @@ function createDataLayer(deps) {
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
         ensureNovedadesIndexes,
+        ensureNovedadesHourSplitColumns,
         migrateClientesLideresFromExcelIfNeeded,
         getClientesList,
         getLideresByCliente,
