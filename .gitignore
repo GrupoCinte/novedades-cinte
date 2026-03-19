@@ -32,10 +32,6 @@ npm-debug.log*
 # Archivos temporales
 *.tmp
 *.temp
-*.pem
-prod_*.js
-*_remoto.js
-root-check.png
 
 # Carpeta de uploads generados
 assets/uploads/

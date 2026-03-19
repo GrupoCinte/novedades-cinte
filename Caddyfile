@@ -1,0 +1,7 @@
+:80 {
+  @api path /api/*
+  @backend_assets path /assets/uploads/* /assets/formats/* /assets/logo-cinte.png /assets/logo-cinte-header.png
+  reverse_proxy @api backend:3005
+  reverse_proxy @backend_assets backend:3005
+  reverse_proxy frontend:80
+}
