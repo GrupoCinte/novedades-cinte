@@ -1,16 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid, BarChart, Bar } from 'recharts';
-import { Check, X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, Loader2, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu } from 'lucide-react';
+import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet } from 'lucide-react';
 import ChatWidget from './ChatWidget';
-import { getNovedadRule } from './novedadRules';
+import { getNovedadRule, NOVEDAD_TYPES } from './novedadRules';
 
 export default function Dashboard({ token, onLogout }) {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [soporteModal, setSoporteModal] = useState(null);
     const [activeTab, setActiveTab] = useState('Inicio');
-    const [changingState, setChangingState] = useState({});  // { [creadoEn]: true/false }
     const [stateError, setStateError] = useState(null);
     const [soporteLoading, setSoporteLoading] = useState(false);
     const parseJwt = (rawToken) => {
@@ -81,6 +80,7 @@ export default function Dashboard({ token, onLogout }) {
     const [fTipo, setFTipo] = useState('');
     const [fEstado, setFEstado] = useState('');
     const [fCorreo, setFCorreo] = useState('');
+    const [fCliente, setFCliente] = useState('');
     const [sortBy, setSortBy] = useState('creadoEn');
     const [sortDir, setSortDir] = useState('desc');
     const [pageSize, setPageSize] = useState(10);
@@ -92,6 +92,7 @@ export default function Dashboard({ token, onLogout }) {
         total: 0,
         totalPages: 1
     });
+    const [gestionDetailItem, setGestionDetailItem] = useState(null);
     const navigate = useNavigate();
 
     const loadData = async () => {
@@ -122,6 +123,7 @@ export default function Dashboard({ token, onLogout }) {
             if (fTipo) params.tipo = fTipo;
             if (fEstado) params.estado = fEstado;
             if (fCorreo) params.correo = fCorreo;
+            if (fCliente) params.cliente = fCliente;
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades?${query}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -147,11 +149,9 @@ export default function Dashboard({ token, onLogout }) {
     }, []);
     useEffect(() => {
         loadGestionData(currentPage, pageSize);
-    }, [currentPage, pageSize, fTipo, fEstado, fCorreo, sortBy, sortDir]);
+    }, [currentPage, pageSize, fTipo, fEstado, fCorreo, fCliente, sortBy, sortDir]);
 
     const changeState = async (id, nuevoEstado) => {
-        // Marcar esta fila como "cargando"
-        setChangingState(prev => ({ ...prev, [id]: true }));
         setStateError(null);
         console.log('[changeState] Iniciando cambio de estado:', { id, nuevoEstado, token: token ? '✅ token presente' : '❌ SIN TOKEN' });
         try {
@@ -177,35 +177,100 @@ export default function Dashboard({ token, onLogout }) {
         } catch (err) {
             console.error('[changeState] Error de red/fetch:', err);
             setStateError('Error de conexión con el servidor. Verifica que el backend esté corriendo en :3005');
-        } finally {
-            setChangingState(prev => ({ ...prev, [id]: false }));
         }
     };
 
-    const openSupport = async (it) => {
-        const localPath = it?.soporteRuta || '';
-        const s3Key = it?.soporteKey || '';
-        const fallback = localPath || s3Key;
-        if (!fallback) return;
+    const detectSupportType = (pathOrKey = '') => {
+        const lower = String(pathOrKey || '').toLowerCase();
+        if (lower.endsWith('.pdf')) return 'pdf';
+        if (lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png')) return 'image';
+        if (lower.endsWith('.xls') || lower.endsWith('.xlsx')) return 'excel';
+        return 'other';
+    };
 
-        if (localPath) {
-            const isPdf = localPath.toLowerCase().endsWith('.pdf');
-            setSoporteModal({ url: `http://localhost:3005${localPath}`, isPdf });
-            return;
-        }
+    const buildSupportList = (it) => {
+        const raw = Array.isArray(it?.soportes) && it.soportes.length > 0
+            ? it.soportes
+            : [it?.soporteRuta || it?.soporteKey || ''].filter(Boolean);
+        return raw.map((entry, index) => {
+            const key = String(entry || '');
+            const type = detectSupportType(key);
+            return {
+                id: `${it?.id || it?.creadoEn || 'novedad'}-${index}`,
+                key,
+                type,
+                isLocal: key.startsWith('/assets/'),
+                name: key.split('/').pop() || `soporte_${index + 1}`
+            };
+        });
+    };
 
+    const fetchSupportUrl = async (support) => {
+        if (support.isLocal) return support.key;
+        const res = await fetch(`/api/soportes/url?key=${encodeURIComponent(support.key)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        const json = await res.json();
+        if (!res.ok || !json?.url) throw new Error(json?.error || 'No se pudo abrir soporte');
+        return json.url;
+    };
+
+    const fetchExcelPreview = async (support) => {
+        const res = await fetch(`/api/soportes/preview?key=${encodeURIComponent(support.key)}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        const json = await res.json();
+        if (!res.ok || !json?.ok) throw new Error(json?.error || 'No se pudo previsualizar el Excel');
+        return json;
+    };
+
+    const openSupport = async (it, supportToOpen = null) => {
+        const supports = buildSupportList(it);
+        if (supports.length === 0) return;
+        const selected = supportToOpen || supports[0];
         setSoporteLoading(true);
         try {
-            const res = await fetch(`/api/soportes/url?key=${encodeURIComponent(s3Key)}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            const json = await res.json();
-            if (!res.ok || !json?.url) throw new Error(json?.error || 'No se pudo abrir soporte');
-            const isPdf = String(s3Key).toLowerCase().endsWith('.pdf');
-            setSoporteModal({ url: json.url, isPdf });
+            const url = await fetchSupportUrl(selected);
+            const modal = {
+                supports,
+                currentKey: selected.key,
+                currentType: selected.type,
+                currentName: selected.name,
+                currentUrl: url,
+                excelPreview: null
+            };
+            if (selected.type === 'excel') {
+                modal.excelPreview = await fetchExcelPreview(selected).catch(() => null);
+            }
+            setSoporteModal(modal);
         } catch (err) {
             console.error(err);
-            setStateError(err?.message || 'No se pudo obtener la URL del soporte');
+            setStateError(err?.message || 'No se pudo obtener el soporte');
+        } finally {
+            setSoporteLoading(false);
+        }
+    };
+
+    const openSupportFromModal = async (support) => {
+        if (!soporteModal) return;
+        setSoporteLoading(true);
+        try {
+            const url = await fetchSupportUrl(support);
+            const nextModal = {
+                ...soporteModal,
+                currentKey: support.key,
+                currentType: support.type,
+                currentName: support.name,
+                currentUrl: url,
+                excelPreview: null
+            };
+            if (support.type === 'excel') {
+                nextModal.excelPreview = await fetchExcelPreview(support).catch(() => null);
+            }
+            setSoporteModal(nextModal);
+        } catch (err) {
+            console.error(err);
+            setStateError(err?.message || 'No se pudo abrir el soporte seleccionado');
         } finally {
             setSoporteLoading(false);
         }
@@ -289,7 +354,7 @@ export default function Dashboard({ token, onLogout }) {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [fTipo, fEstado, fCorreo, sortBy, sortDir, pageSize]);
+    }, [fTipo, fEstado, fCorreo, fCliente, sortBy, sortDir, pageSize]);
     useEffect(() => {
         if (currentPage > totalPages) {
             setCurrentPage(totalPages);
@@ -313,11 +378,48 @@ export default function Dashboard({ token, onLogout }) {
     for (let i = 0; i < firstDay; i++) calendarDays.push(null);
     for (let i = 1; i <= daysInMonth; i++) calendarDays.push(new Date(year, month, i));
 
+    const toIsoDate = (input) => {
+        if (!input) return '';
+        const asString = String(input);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(asString)) return asString;
+        const parsed = new Date(asString);
+        if (Number.isNaN(parsed.getTime())) return '';
+        return parsed.toISOString().slice(0, 10);
+    };
+
+    const expandDateRangeInclusive = (startRaw, endRaw) => {
+        const startIso = toIsoDate(startRaw);
+        const endIso = toIsoDate(endRaw) || startIso;
+        if (!startIso) return [];
+        if (!endIso || endIso < startIso) return [startIso];
+
+        const dates = [];
+        const cursor = new Date(`${startIso}T00:00:00`);
+        const end = new Date(`${endIso}T00:00:00`);
+        while (cursor <= end) {
+            dates.push(cursor.toISOString().slice(0, 10));
+            cursor.setDate(cursor.getDate() + 1);
+        }
+        return dates;
+    };
+
     const itemsByDate = items.reduce((acc, it) => {
-        // Asumiendo que usamos fechaInicio o fecha de creacion si no hay para localizarlos
-        const dStr = it.fechaInicio ? it.fechaInicio : new Date(it.creadoEn).toISOString().slice(0, 10);
-        if (!acc[dStr]) acc[dStr] = [];
-        acc[dStr].push(it);
+        const startDate = it.fechaInicio || toIsoDate(it.creadoEn);
+        const endDate = it.fechaFin || startDate;
+        const range = expandDateRangeInclusive(startDate, endDate);
+
+        if (range.length === 0) {
+            const fallback = toIsoDate(it.creadoEn);
+            if (!fallback) return acc;
+            if (!acc[fallback]) acc[fallback] = [];
+            acc[fallback].push(it);
+            return acc;
+        }
+
+        for (const dayIso of range) {
+            if (!acc[dayIso]) acc[dayIso] = [];
+            acc[dayIso].push(it);
+        }
         return acc;
     }, {});
     const currentDayStr = currentDay.toISOString().slice(0, 10);
@@ -344,6 +446,7 @@ export default function Dashboard({ token, onLogout }) {
             if (fTipo) params.tipo = fTipo;
             if (fEstado) params.estado = fEstado;
             if (fCorreo) params.correo = fCorreo;
+            if (fCliente) params.cliente = fCliente;
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades/export-csv?${query}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -590,11 +693,11 @@ export default function Dashboard({ token, onLogout }) {
             </aside>
 
             {/* Main Content Area */}
-            <main className="flex-1 overflow-y-auto p-6 pt-16 md:pt-10 md:p-10 relative scroll-smooth bg-[#0f172a]">
+            <main className="flex-1 overflow-y-auto p-4 pt-14 md:pt-6 md:p-6 relative scroll-smooth bg-[#0f172a]">
 
                 {/* ---------- INICIO (DASHBOARD) ---------- */}
                 {activeTab === 'Inicio' && canAccessPanel('dashboard') && (
-                    <div className="flex flex-col gap-6 animate-in fade-in duration-300">
+                    <div className="flex flex-col gap-5 animate-in fade-in duration-300 min-h-[calc(100vh-9.5rem)]">
 
                         {/* ── Filtros: Período + Tipo de Novedad ── */}
                         <div className="flex flex-col gap-3 bg-[#1e293b] border border-slate-700/50 rounded-2xl px-5 py-4 shadow-lg">
@@ -661,11 +764,12 @@ export default function Dashboard({ token, onLogout }) {
                                 <span className="text-xs font-bold uppercase tracking-widest text-slate-500 whitespace-nowrap">Tipo:</span>
                                 {[
                                     { label: 'Todos', value: '', cls: 'border-slate-600 text-slate-300 bg-slate-800', activeCls: 'bg-slate-600 border-slate-400 text-white' },
-                                    { label: 'Incapacidad', value: 'Incapacidad', cls: 'border-rose-500/30 text-rose-400 bg-rose-500/10', activeCls: 'bg-rose-500 border-rose-400 text-white' },
-                                    { label: 'Vacaciones', value: 'Vacaciones', cls: 'border-amber-500/30 text-amber-400 bg-amber-500/10', activeCls: 'bg-amber-500 border-amber-400 text-white' },
-                                    { label: 'Permiso', value: 'Permiso', cls: 'border-blue-500/30 text-blue-400 bg-blue-500/10', activeCls: 'bg-blue-600 border-blue-400 text-white' },
-                                    { label: 'Hora extra', value: 'Hora extra', cls: 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10', activeCls: 'bg-emerald-600 border-emerald-400 text-white' },
-                                    { label: 'Licencia', value: 'Licencia', cls: 'border-purple-500/30 text-purple-400 bg-purple-500/10', activeCls: 'bg-purple-600 border-purple-400 text-white' },
+                                    ...NOVEDAD_TYPES.map((tipo) => ({
+                                        label: tipo,
+                                        value: tipo,
+                                        cls: 'border-slate-600 text-slate-300 bg-slate-800',
+                                        activeCls: 'bg-blue-600 border-blue-400 text-white'
+                                    }))
                                 ].map(chip => {
                                     const isActive = fTipoInicio === chip.value;
                                     return (
@@ -727,7 +831,7 @@ export default function Dashboard({ token, onLogout }) {
                             <div className="bg-[#1e293b] rounded-2xl p-6 border border-slate-700/50 shadow-lg">
                                 <div className="flex justify-between items-start">
                                     <div>
-                                        <p className="text-slate-400 text-sm font-medium">Alertas Pendientes</p>
+                                        <p className="text-slate-400 text-sm font-medium">Novedades pendientes por aprobación</p>
                                         <h3 className="text-3xl font-bold text-rose-500 mt-1">{pendientesCount}</h3>
                                     </div>
                                     <div className="bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
@@ -784,27 +888,46 @@ export default function Dashboard({ token, onLogout }) {
                         </div>
 
                         {/* Grid inferior 2 Cols */}
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-20">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-6">
 
                             <div className="bg-[#1e293b] rounded-2xl p-6 border border-slate-700/50 shadow-lg">
                                 <h2 className="text-lg font-bold text-white mb-6">Distribución por Tipología</h2>
-                                <div className="h-64 w-full">
+                                <div className="h-72 w-full">
                                     <ResponsiveContainer>
-                                        <PieChart>
-                                            <Pie data={typeData} innerRadius={70} outerRadius={95} paddingAngle={2} dataKey="value" stroke="none">
-                                                {typeData.map((entry, index) => (
-                                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                        <BarChart
+                                            data={[...typeData].sort((a, b) => b.value - a.value)}
+                                            layout="vertical"
+                                            margin={{ top: 4, right: 8, bottom: 4, left: 8 }}
+                                        >
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} horizontal={false} />
+                                            <XAxis type="number" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
+                                            <YAxis
+                                                dataKey="name"
+                                                type="category"
+                                                width={170}
+                                                stroke="#94a3b8"
+                                                fontSize={11}
+                                                interval={0}
+                                                tickLine={false}
+                                                axisLine={false}
+                                            />
+                                            <Tooltip
+                                                cursor={{ fill: '#334155', opacity: 0.15 }}
+                                                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '10px' }}
+                                                formatter={(value, name, props) => [value, props?.payload?.name || name]}
+                                            />
+                                            <Bar dataKey="value" radius={[0, 6, 6, 0]}>
+                                                {[...typeData].sort((a, b) => b.value - a.value).map((entry, index) => (
+                                                    <Cell key={`bar-tipologia-${entry.name}-${index}`} fill={COLORS[index % COLORS.length]} />
                                                 ))}
-                                            </Pie>
-                                            <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '8px' }} itemStyle={{ color: '#fff' }} />
-                                            <Legend iconType="circle" wrapperStyle={{ fontSize: '13px', paddingTop: '20px' }} />
-                                        </PieChart>
+                                            </Bar>
+                                        </BarChart>
                                     </ResponsiveContainer>
                                 </div>
                             </div>
 
                             <div className="bg-[#1e293b] rounded-2xl p-6 border border-slate-700/50 shadow-lg">
-                                <h2 className="text-lg font-bold text-white mb-6">Top 5 Empleados</h2>
+                                <h2 className="text-lg font-bold text-white mb-6">Top 5 empleados con más novedades</h2>
                                 <div className="flex flex-col gap-4">
                                     {topEmpleados.length === 0 ? (
                                         <p className="text-center text-slate-400 mt-10">Generando analíticas...</p>
@@ -832,7 +955,7 @@ export default function Dashboard({ token, onLogout }) {
 
                 {/* ---------- GESTIÓN ---------- */}
                 {activeTab === 'Gestión' && canAccessPanel('gestion') && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-20 flex flex-col h-full">
+                    <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-2 flex flex-col h-[calc(100vh-8.5rem)] md:h-[calc(100vh-7.5rem)]">
                         {/* Banner de error de acción */}
                         {stateError && (
                             <div className="mb-4 flex items-center gap-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 px-4 py-3 rounded-xl text-sm font-medium">
@@ -841,8 +964,8 @@ export default function Dashboard({ token, onLogout }) {
                                 <button onClick={() => setStateError(null)} className="ml-auto text-rose-400 hover:text-rose-300"><X size={14} /></button>
                             </div>
                         )}
-                        <div className="bg-[#1e293b] border border-slate-700/50 rounded-2xl shadow-lg flex flex-col flex-1 overflow-hidden">
-                            <div className="p-6 border-b border-slate-700/50 bg-[#1e293b] sticky top-0 z-20">
+                        <div className="bg-[#1e293b] border border-slate-700/50 rounded-2xl shadow-lg flex flex-col h-full overflow-hidden">
+                            <div className="p-4 border-b border-slate-700/50 bg-[#1e293b] sticky top-0 z-20">
                                 <h2 className="text-xl font-bold text-white mb-4">Gestión Operativa de Novedades</h2>
                                 <div className="flex flex-wrap gap-3 items-center">
                                     <select onChange={e => setFTipo(e.target.value)} value={fTipo} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
@@ -856,6 +979,7 @@ export default function Dashboard({ token, onLogout }) {
                                         <option value="Rechazado">Rechazados</option>
                                     </select>
                                     <input type="text" placeholder="Buscar correo..." value={fCorreo} onChange={(e) => setFCorreo(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-500 min-w-[180px]" />
+                                    <input type="text" placeholder="Filtrar cliente..." value={fCliente} onChange={(e) => setFCliente(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-500 min-w-[180px]" />
                                     <select onChange={e => setSortBy(e.target.value)} value={sortBy} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                                         <option value="creadoEn">Ordenar: Fecha creación</option>
                                         <option value="estado">Ordenar: Estado</option>
@@ -879,116 +1003,92 @@ export default function Dashboard({ token, onLogout }) {
                                 </div>
                             </div>
 
-                            <div className="w-full overflow-x-auto overflow-y-auto flex-1 bg-[#0f172a]/50">
-                                <table className="w-full text-left border-collapse whitespace-nowrap min-w-[800px]">
-                                    <thead>
-                                        <tr className="bg-[#1e293b] text-slate-400 text-xs uppercase tracking-wider sticky top-0 z-10 shadow-sm border-b border-slate-700/50">
-                                            <th className="p-4 pl-6 font-semibold">Creado</th>
-                                            <th className="p-4 font-semibold">Nombre</th>
-                                            <th className="p-4 font-semibold">Tipo</th>
-                                            <th className="p-4 font-semibold">F. Inicio</th>
-                                            <th className="p-4 font-semibold text-center">Horas</th>
-                                            <th className="p-4 font-semibold">Estado</th>
-                                            <th className="p-4 font-semibold">Decisión</th>
-                                            <th className="p-4 pr-6 font-semibold text-right">Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-700/50 text-sm">
-                                        {loading ? (
-                                            <tr><td colSpan="8" className="p-12 text-center text-slate-500 font-medium">Cargando base de datos...</td></tr>
-                                        ) : sortedItems.length === 0 ? (
-                                            <tr><td colSpan="8" className="p-12 text-center text-slate-500 font-medium">No se encontraron registros.</td></tr>
-                                        ) : (
-                                            pagedItems.map(it => {
-                                                const cread = new Date(it.creadoEn);
-                                                const validCread = isNaN(cread.getTime()) ? '-' : cread.toLocaleDateString('es-ES');
-                                                const aprobado = it.aprobadoEn ? new Date(it.aprobadoEn) : null;
-                                                const aprobadoTxt = aprobado && !isNaN(aprobado.getTime())
-                                                    ? aprobado.toLocaleString('es-ES')
-                                                    : '';
-                                                const rechazado = it.rechazadoEn ? new Date(it.rechazadoEn) : null;
-                                                const rechazadoTxt = rechazado && !isNaN(rechazado.getTime())
-                                                    ? rechazado.toLocaleString('es-ES')
-                                                    : '';
-                                                return (
-                                                    <tr key={it.creadoEn} className="hover:bg-slate-800/80 transition-colors">
-                                                        <td className="p-4 pl-6 text-slate-400">{validCread}</td>
-                                                        <td className="p-4 font-semibold text-slate-200">{it.nombre}</td>
-                                                        <td className="p-4 text-slate-400">
-                                                            <span className={`px-2 py-1 rounded text-xs border ${getTypeColor(it.tipoNovedad)}`}>{it.tipoNovedad}</span>
-                                                        </td>
-                                                        <td className="p-4 text-slate-300">{it.fechaInicio || '-'}</td>
-                                                        <td className="p-4 text-slate-400 text-center">
-                                                            {it.cantidadHoras || 0}h
-                                                        </td>
-                                                        <td className="p-4">
-                                                            <span className={`inline-flex px-2 py-1 rounded-md text-[11px] font-bold border uppercase tracking-wider ${it.estado === 'Aprobado' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                                                                it.estado === 'Rechazado' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                                                                    'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                                                                }`}>
-                                                                {it.estado}
-                                                            </span>
-                                                        </td>
-                                                        <td className="p-4 text-xs text-slate-300">
-                                                            {it.estado === 'Aprobado'
-                                                                ? (
-                                                                    <div className="flex flex-col">
-                                                                        <span>{aprobadoTxt || '-'}</span>
-                                                                        <span className="text-[10px] uppercase text-slate-400">{it.aprobadoPorRol || '-'}</span>
-                                                                    </div>
-                                                                )
-                                                                : it.estado === 'Rechazado'
+                            <div className="w-full flex-1 min-h-0 bg-[#0f172a]/50 flex flex-col">
+                                <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
+                                    <table className="w-full text-left border-collapse whitespace-nowrap min-w-[900px] md:min-w-full">
+                                        <thead>
+                                            <tr className="bg-[#1e293b] text-slate-400 text-xs uppercase tracking-wider sticky top-0 z-10 shadow-sm border-b border-slate-700/50">
+                                                <th className="p-4 pl-6 font-semibold">Creado</th>
+                                                <th className="p-4 font-semibold">Nombre</th>
+                                                <th className="p-4 font-semibold">Cliente</th>
+                                                <th className="p-4 font-semibold">Tipo</th>
+                                                <th className="p-4 font-semibold">F. Inicio</th>
+                                                <th className="p-4 font-semibold text-center">Horas</th>
+                                                <th className="p-4 font-semibold">Estado</th>
+                                                <th className="p-4 font-semibold">Aprobado por</th>
+                                                <th className="p-4 pr-6 font-semibold text-right">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-700/50 text-sm">
+                                            {loading ? (
+                                                <tr><td colSpan="9" className="p-12 text-center text-slate-500 font-medium">Cargando base de datos...</td></tr>
+                                            ) : sortedItems.length === 0 ? (
+                                                <tr><td colSpan="9" className="p-12 text-center text-slate-500 font-medium">No se encontraron registros.</td></tr>
+                                            ) : (
+                                                pagedItems.map(it => {
+                                                    const cread = new Date(it.creadoEn);
+                                                    const validCread = isNaN(cread.getTime()) ? '-' : cread.toLocaleDateString('es-ES');
+                                                    const aprobado = it.aprobadoEn ? new Date(it.aprobadoEn) : null;
+                                                    const aprobadoTxt = aprobado && !isNaN(aprobado.getTime())
+                                                        ? aprobado.toLocaleString('es-ES')
+                                                        : '';
+                                                    const rechazado = it.rechazadoEn ? new Date(it.rechazadoEn) : null;
+                                                    const rechazadoTxt = rechazado && !isNaN(rechazado.getTime())
+                                                        ? rechazado.toLocaleString('es-ES')
+                                                        : '';
+                                                    return (
+                                                        <tr key={it.creadoEn} className="hover:bg-slate-800/80 transition-colors">
+                                                            <td className="p-4 pl-6 text-slate-400">{validCread}</td>
+                                                            <td className="p-4 font-semibold text-slate-200">{it.nombre}</td>
+                                                            <td className="p-4 text-slate-300">{it.cliente || '-'}</td>
+                                                            <td className="p-4 text-slate-400">
+                                                                <span className={`px-2 py-1 rounded text-xs border ${getTypeColor(it.tipoNovedad)}`}>{it.tipoNovedad}</span>
+                                                            </td>
+                                                            <td className="p-4 text-slate-300">{it.fechaInicio || '-'}</td>
+                                                            <td className="p-4 text-slate-400 text-center">
+                                                                {it.cantidadHoras || 0}h
+                                                            </td>
+                                                            <td className="p-4">
+                                                                <span className={`inline-flex px-2 py-1 rounded-md text-[11px] font-bold border uppercase tracking-wider ${it.estado === 'Aprobado' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                                                                    it.estado === 'Rechazado' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                                                        'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                                                    }`}>
+                                                                    {it.estado}
+                                                                </span>
+                                                            </td>
+                                                            <td className="p-4 text-xs text-slate-300">
+                                                                {it.estado === 'Aprobado'
                                                                     ? (
                                                                         <div className="flex flex-col">
-                                                                            <span>{rechazadoTxt || '-'}</span>
-                                                                            <span className="text-[10px] uppercase text-slate-400">{it.rechazadoPorRol || '-'}</span>
+                                                                            <span>{aprobadoTxt || '-'}</span>
+                                                                            <span className="text-[10px] uppercase text-slate-400">{it.aprobadoPorRol || '-'}</span>
                                                                         </div>
                                                                     )
-                                                                : '-'}
-                                                        </td>
-                                                        <td className="p-4 pr-6">
-                                                            <div className="flex gap-2 justify-end items-center">
-                                                                {(it.soporteRuta || it.soporteKey) && (
-                                                                    <div className="flex items-center gap-1.5 mr-2">
-                                                                        <span title="Documento validado por IA" className="text-blue-500 animate-pulse"><BadgeCheck size={16} /></span>
-                                                                        <button onClick={() => openSupport(it)} className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-blue-600/20 text-slate-300 hover:text-blue-400 border border-slate-700 hover:border-blue-500/50 rounded-lg transition-all shadow-sm text-xs font-medium">
-                                                                            <Eye size={14} /> Ver
-                                                                        </button>
-                                                                    </div>
-                                                                )}
-
-                                                                {canApproveItem(it) ? (
-                                                                    <>
-                                                                        {changingState[it.creadoEn] ? (
-                                                                            <div className="w-7 h-7 flex items-center justify-center text-slate-400">
-                                                                                <Loader2 size={16} className="animate-spin" />
+                                                                    : it.estado === 'Rechazado'
+                                                                        ? (
+                                                                            <div className="flex flex-col">
+                                                                                <span>{rechazadoTxt || '-'}</span>
+                                                                                <span className="text-[10px] uppercase text-slate-400">{it.rechazadoPorRol || '-'}</span>
                                                                             </div>
-                                                                        ) : (
-                                                                            <>
-                                                                                <button onClick={() => changeState(it.creadoEn, 'Aprobado')} className="w-7 h-7 flex items-center justify-center bg-slate-800 hover:bg-emerald-500/20 text-emerald-500 border border-slate-700 hover:border-emerald-500/50 rounded-lg transition-all" title="Aprobar Solicitud">
-                                                                                    <Check size={16} strokeWidth={3} />
-                                                                                </button>
-                                                                                <button onClick={() => changeState(it.creadoEn, 'Rechazado')} className="w-7 h-7 flex items-center justify-center bg-slate-800 hover:bg-rose-500/20 text-rose-500 border border-slate-700 hover:border-rose-500/50 rounded-lg transition-all" title="Rechazar Solicitud">
-                                                                                    <X size={16} strokeWidth={3} />
-                                                                                </button>
-                                                                            </>
-                                                                        )}
-                                                                    </>
-                                                                ) : (
-                                                                    <span className="text-[10px] text-slate-500 uppercase font-bold tracking-widest px-2">
-                                                                        {it.estado === 'Pendiente' ? 'Solo lectura' : 'Auditado'}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )
-                                            })
-                                        )}
-                                    </tbody>
-                                </table>
+                                                                        )
+                                                                    : '-'}
+                                                            </td>
+                                                            <td className="p-4 pr-6">
+                                                                <div className="flex gap-2 justify-end items-center">
+                                                                    <button onClick={() => setGestionDetailItem(it)} className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-blue-600/20 text-slate-300 hover:text-blue-400 border border-slate-700 hover:border-blue-500/50 rounded-lg transition-all shadow-sm text-xs font-medium">
+                                                                        <Eye size={14} /> Ver detalle
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    )
+                                                })
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
                                 {!loading && sortedItems.length > 0 && (
-                                    <div className="sticky bottom-0 bg-[#1e293b] border-t border-slate-700/50 px-4 py-3 flex items-center justify-between text-xs text-slate-300">
+                                    <div className="bg-[#1e293b] border-t border-slate-700/50 px-4 py-3 flex items-center justify-between text-xs text-slate-300">
                                         <span>Mostrando {pagedItems.length} de {gestionPagination.total || 0} registros</span>
                                         <div className="flex items-center gap-2">
                                             <button
@@ -1093,15 +1193,13 @@ export default function Dashboard({ token, onLogout }) {
                                                     )}
                                                 </div>
 
-                                                <div className="flex flex-col gap-1 overflow-y-auto overflow-x-hidden max-h-[80px] custom-scrollbar">
-                                                    {dayItems.slice(0, 4).map((it, idx) => (
-                                                        <div key={idx} className={`text-[10px] leading-tight px-1.5 py-1 rounded truncate border ${getTypeColor(it.tipoNovedad)}`}>
-                                                            {it.nombre.split(' ')[0]} - {it.tipoNovedad}
-                                                        </div>
-                                                    ))}
-                                                    {dayItems.length > 4 && (
-                                                        <div className="text-[10px] text-center text-slate-500 font-bold mt-0.5">
-                                                            + {dayItems.length - 4} más
+                                                <div className="mt-auto">
+                                                    {dayItems.length > 0 && (
+                                                        <div className={`text-[10px] leading-tight px-2 py-1 rounded border font-semibold text-center ${isToday
+                                                            ? 'text-blue-300 bg-blue-500/15 border-blue-500/40'
+                                                            : 'text-slate-300 bg-slate-800 border-slate-700'
+                                                            }`}>
+                                                            {isToday ? `Hoy: ${dayItems.length} novedades` : `${dayItems.length} novedades`}
                                                         </div>
                                                     )}
                                                 </div>
@@ -1360,6 +1458,70 @@ export default function Dashboard({ token, onLogout }) {
             {/* Chat Widget IA — fuera del main para que sea fixed global */}
             <ChatWidget ctx={{ pendientesCount, totalItems: items.length, dashItems: dashItems.length }} />
 
+            {gestionDetailItem && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/90 backdrop-blur p-4 animate-in fade-in duration-200" onClick={() => setGestionDetailItem(null)}>
+                    <div className="relative bg-[#1e293b] border border-slate-700 rounded-2xl w-full max-w-4xl md:max-h-[88vh] flex flex-col p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-between items-start mb-4 border-b border-slate-700/50 pb-4">
+                            <div>
+                                <h2 className="text-2xl font-bold text-white">Detalle de novedad</h2>
+                                <p className="text-slate-400 mt-1 text-sm">{gestionDetailItem.tipoNovedad} · {gestionDetailItem.estado}</p>
+                            </div>
+                            <button onClick={() => setGestionDetailItem(null)} className="bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-500 border border-slate-700 hover:border-rose-500/50 rounded-lg transition-all w-10 h-10 flex items-center justify-center">
+                                <X size={20} strokeWidth={2.5} />
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-200 overflow-y-auto pr-1">
+                            <div><span className="text-slate-400">Nombre:</span> {gestionDetailItem.nombre}</div>
+                            <div><span className="text-slate-400">Cédula:</span> {gestionDetailItem.cedula}</div>
+                            <div><span className="text-slate-400">Correo:</span> {gestionDetailItem.correoSolicitante || '-'}</div>
+                            <div><span className="text-slate-400">Cliente:</span> {gestionDetailItem.cliente || '-'}</div>
+                            <div><span className="text-slate-400">Líder:</span> {gestionDetailItem.lider || '-'}</div>
+                            <div><span className="text-slate-400">Estado:</span> {gestionDetailItem.estado}</div>
+                            <div><span className="text-slate-400">Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
+                            <div><span className="text-slate-400">Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
+                            <div><span className="text-slate-400">Cantidad horas:</span> {gestionDetailItem.cantidadHoras || 0}</div>
+                            <div><span className="text-slate-400">Horas diurnas:</span> {gestionDetailItem.horasDiurnas || 0}</div>
+                            <div><span className="text-slate-400">Horas nocturnas:</span> {gestionDetailItem.horasNocturnas || 0}</div>
+                            <div><span className="text-slate-400">Clasificación:</span> {gestionDetailItem.tipoHoraExtra || '-'}</div>
+                        </div>
+
+                        <div className="mt-5 border-t border-slate-700/50 pt-4">
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-3">Soportes</h3>
+                            {buildSupportList(gestionDetailItem).length === 0 ? (
+                                <p className="text-sm text-slate-500">Sin soportes adjuntos.</p>
+                            ) : (
+                                <div className="flex flex-wrap gap-2">
+                                    {buildSupportList(gestionDetailItem).map((support) => (
+                                        <button
+                                            key={support.id}
+                                            onClick={() => openSupport(gestionDetailItem, support)}
+                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-800 hover:border-blue-500/50 hover:text-blue-300 transition-all text-xs"
+                                        >
+                                            {support.type === 'pdf' && <FileText size={14} />}
+                                            {support.type === 'image' && <FileImage size={14} />}
+                                            {support.type === 'excel' && <FileSpreadsheet size={14} />}
+                                            {support.type === 'other' && <Eye size={14} />}
+                                            Visualizar: {support.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-6 border-t border-slate-700/50 pt-4 flex flex-wrap justify-end gap-2">
+                            <button onClick={() => setGestionDetailItem(null)} className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-700/50 transition-all text-sm">Cerrar</button>
+                            {canApproveItem(gestionDetailItem) && (
+                                <>
+                                    <button onClick={async () => { await changeState(gestionDetailItem.creadoEn, 'Rechazado'); setGestionDetailItem(null); }} className="px-4 py-2 rounded-lg border border-rose-500/40 text-rose-400 hover:bg-rose-500/10 transition-all text-sm">Rechazar</button>
+                                    <button onClick={async () => { await changeState(gestionDetailItem.creadoEn, 'Aprobado'); setGestionDetailItem(null); }} className="px-4 py-2 rounded-lg border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-all text-sm">Aceptar</button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Modal de Detalle de Día */}
             {selectedDayItems && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/90 backdrop-blur tracking-wide p-4 animate-in fade-in duration-200" onClick={() => setSelectedDayItems(null)}>
@@ -1435,13 +1597,65 @@ export default function Dashboard({ token, onLogout }) {
                                 <BadgeCheck className="text-blue-500" size={22} /> Documento Analizado por IA
                             </h2>
                         </div>
+                        {Array.isArray(soporteModal?.supports) && soporteModal.supports.length > 1 && (
+                            <div className="w-full mb-3 flex flex-wrap gap-2">
+                                {soporteModal.supports.map((support) => (
+                                    <button
+                                        key={support.id}
+                                        onClick={() => openSupportFromModal(support)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs border transition-all ${soporteModal.currentKey === support.key
+                                            ? 'border-blue-500/60 text-blue-300 bg-blue-500/10'
+                                            : 'border-slate-700 text-slate-300 hover:border-blue-500/40 hover:text-blue-300'
+                                            }`}
+                                    >
+                                        {support.name}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                         <div className="w-full flex-1 md:min-h-[60vh] rounded-xl overflow-hidden border border-slate-700 bg-black/40 p-1 relative">
                             {soporteLoading ? (
                                 <div className="w-full h-[65vh] flex items-center justify-center text-slate-300">Cargando soporte...</div>
-                            ) : soporteModal?.isPdf ? (
-                                <iframe src={soporteModal.url} className="w-full h-[65vh] rounded" title="Visor PDF" />
+                            ) : soporteModal?.currentType === 'pdf' ? (
+                                <iframe src={soporteModal.currentUrl} className="w-full h-[65vh] rounded" title="Visor PDF" />
+                            ) : soporteModal?.currentType === 'image' ? (
+                                <img src={soporteModal?.currentUrl} alt="Soporte" className="w-full h-[65vh] object-contain rounded" />
+                            ) : soporteModal?.currentType === 'excel' ? (
+                                soporteModal?.excelPreview?.rows?.length ? (
+                                    <div className="w-full h-[65vh] overflow-auto bg-slate-950 rounded p-3">
+                                        <p className="text-xs text-slate-400 mb-3">
+                                            Hoja: {soporteModal.excelPreview.sheetName} · Filas mostradas: {soporteModal.excelPreview.rows.length}
+                                            {soporteModal.excelPreview.truncated ? ' (previsualización parcial)' : ''}
+                                        </p>
+                                        <table className="w-full text-xs text-slate-200 border-collapse">
+                                            <tbody>
+                                                {soporteModal.excelPreview.rows.map((row, idx) => (
+                                                    <tr key={`excel-row-${idx}`} className="border-b border-slate-800">
+                                                        {(Array.isArray(row) ? row : []).map((cell, cidx) => (
+                                                            <td key={`excel-cell-${idx}-${cidx}`} className="px-2 py-1 border-r border-slate-800 align-top">
+                                                                {String(cell ?? '')}
+                                                            </td>
+                                                        ))}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                ) : (
+                                    <div className="w-full h-[65vh] flex flex-col items-center justify-center gap-2 text-slate-300">
+                                        <p>No fue posible previsualizar este Excel.</p>
+                                        <a href={soporteModal.currentUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded border border-blue-500/40 text-blue-300 hover:bg-blue-500/10 transition-all text-sm">
+                                            Descargar archivo
+                                        </a>
+                                    </div>
+                                )
                             ) : (
-                                <img src={soporteModal?.url} alt="Soporte" className="w-full h-[65vh] object-contain rounded" />
+                                <div className="w-full h-[65vh] flex flex-col items-center justify-center gap-2 text-slate-300">
+                                    <p>No hay visor embebido para este tipo de archivo.</p>
+                                    <a href={soporteModal.currentUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded border border-blue-500/40 text-blue-300 hover:bg-blue-500/10 transition-all text-sm">
+                                        Abrir/Descargar archivo
+                                    </a>
+                                </div>
                             )}
                         </div>
                     </div>

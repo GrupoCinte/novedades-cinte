@@ -75,6 +75,30 @@ const NOVELTY_RULES = {
         approvers: ['admin_ch', 'team_ch'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'nomina']
     },
+    hora_extra: {
+        displayName: 'Hora Extra',
+        requiredMinSupports: 0,
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina', 'sst']
+    },
+    apoyo: {
+        displayName: 'Apoyo',
+        requiredMinSupports: 0,
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+    },
+    apoyo_standby: {
+        displayName: 'Apoyo Standby',
+        requiredMinSupports: 0,
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+    },
+    bonos: {
+        displayName: 'Bonos',
+        requiredMinSupports: 0,
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+    },
     permiso_compensatorio_tiempo: {
         displayName: 'Permiso compensatorio en tiempo',
         requiredMinSupports: 1,
@@ -126,6 +150,12 @@ function normalizeNovedadTypeKey(value = '') {
         'permisos no remunerados': 'permiso_no_remunerado',
         'vacaciones en tiempo': 'vacaciones_tiempo',
         'vacaciones en dinero': 'vacaciones_dinero',
+        'hora extra': 'hora_extra',
+        apoyo: 'apoyo',
+        'apoyo standby': 'apoyo_standby',
+        'apoyo stand by': 'apoyo_standby',
+        bono: 'bonos',
+        bonos: 'bonos',
         'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo'
     };
     return map[compact] || '';

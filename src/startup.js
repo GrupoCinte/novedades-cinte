@@ -7,6 +7,7 @@ async function startServer(deps) {
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
         ensureNovedadesIndexes,
+        ensureNovedadesHourSplitColumns,
         migrateExcelIfNeeded,
         migrateClientesLideresFromExcelIfNeeded,
         PORT,
@@ -24,6 +25,7 @@ async function startServer(deps) {
     await ensureUserRoleEnumValues();
     await ensureClientesLideresTable();
     await ensureNovedadesIndexes();
+    await ensureNovedadesHourSplitColumns();
     await migrateExcelIfNeeded();
     await migrateClientesLideresFromExcelIfNeeded();
 

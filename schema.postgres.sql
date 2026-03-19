@@ -84,6 +84,8 @@ CREATE TABLE IF NOT EXISTS novedades (
   fecha_inicio          DATE NOT NULL,
   fecha_fin             DATE NULL,
   cantidad_horas        NUMERIC(8,2) NOT NULL DEFAULT 0,
+  horas_diurnas         NUMERIC(8,2) NOT NULL DEFAULT 0,
+  horas_nocturnas       NUMERIC(8,2) NOT NULL DEFAULT 0,
   tipo_hora_extra       TEXT NULL,
 
   -- Soporte
