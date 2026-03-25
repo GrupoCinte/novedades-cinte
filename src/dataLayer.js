@@ -1,5 +1,3 @@
-const path = require('path');
-
 function createDataLayer(deps) {
     const {
         pool,
@@ -10,8 +8,6 @@ function createDataLayer(deps) {
         normalizeCedula,
         canRoleViewType
     } = deps;
-
-    const COLABORADORES_SEED_JSON = path.join(__dirname, 'data', 'colaboradores-seed.json');
 
     async function ensureUserRoleEnumValues() {
         const enumStatements = [
@@ -176,50 +172,6 @@ function createDataLayer(deps) {
         }
     }
 
-    /**
-     * Carga única desde JSON versionado (generado una vez desde Excel; el .xlsx no se usa en runtime).
-     */
-    async function seedColaboradoresFromSeedIfNeeded() {
-        await ensureColaboradoresTable();
-        const countQ = await pool.query('SELECT COUNT(*)::int AS c FROM colaboradores');
-        if ((countQ.rows[0]?.c || 0) > 0) return;
-        if (!fs.existsSync(COLABORADORES_SEED_JSON)) {
-            console.warn('[Colaboradores] No hay seed JSON:', COLABORADORES_SEED_JSON);
-            return;
-        }
-        let arr;
-        try {
-            arr = JSON.parse(fs.readFileSync(COLABORADORES_SEED_JSON, 'utf8'));
-        } catch (e) {
-            console.error('[Colaboradores] Seed JSON inválido:', e.message);
-            return;
-        }
-        if (!Array.isArray(arr) || arr.length === 0) return;
-
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
-            for (const row of arr) {
-                const c = normalizeCedula(row.cedula);
-                const n = normalizeCatalogValue(row.nombre);
-                if (!c || !n) continue;
-                await client.query(
-                    `INSERT INTO colaboradores (cedula, nombre, activo)
-                     VALUES ($1, $2, TRUE)
-                     ON CONFLICT (cedula) DO UPDATE SET nombre = EXCLUDED.nombre, activo = TRUE, updated_at = NOW()`,
-                    [c, n]
-                );
-            }
-            await client.query('COMMIT');
-            console.log(`[Colaboradores] Seed aplicado: ${arr.length} filas desde JSON (sin Excel en runtime).`);
-        } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-        } finally {
-            client.release();
-        }
-    }
-
     async function ensureCinteLeonardoPair() {
         await ensureClientesLideresTable();
         await pool.query(
@@ -300,7 +252,6 @@ function createDataLayer(deps) {
         ensureNovedadesHourSplitColumns,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
-        seedColaboradoresFromSeedIfNeeded,
         ensureCinteLeonardoPair,
         getColaboradorByCedula,
         getClientesList,
