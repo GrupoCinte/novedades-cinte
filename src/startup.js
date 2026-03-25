@@ -11,7 +11,6 @@ async function startServer(deps) {
         migrateExcelIfNeeded,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
-        seedColaboradoresFromSeedIfNeeded,
         ensureCinteLeonardoPair,
         PORT,
         COGNITO_ENABLED,
@@ -32,7 +31,6 @@ async function startServer(deps) {
     await migrateExcelIfNeeded();
     await migrateClientesLideresFromExcelIfNeeded();
     await ensureColaboradoresTable();
-    await seedColaboradoresFromSeedIfNeeded();
     await ensureCinteLeonardoPair();
 
     app.listen(PORT, () => {
