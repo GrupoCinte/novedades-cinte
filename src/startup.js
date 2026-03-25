@@ -10,6 +10,9 @@ async function startServer(deps) {
         ensureNovedadesHourSplitColumns,
         migrateExcelIfNeeded,
         migrateClientesLideresFromExcelIfNeeded,
+        ensureColaboradoresTable,
+        seedColaboradoresFromSeedIfNeeded,
+        ensureCinteLeonardoPair,
         PORT,
         COGNITO_ENABLED,
         COGNITO_REGION,
@@ -28,6 +31,9 @@ async function startServer(deps) {
     await ensureNovedadesHourSplitColumns();
     await migrateExcelIfNeeded();
     await migrateClientesLideresFromExcelIfNeeded();
+    await ensureColaboradoresTable();
+    await seedColaboradoresFromSeedIfNeeded();
+    await ensureCinteLeonardoPair();
 
     app.listen(PORT, () => {
         console.log(`Servidor listo en http://localhost:${PORT}`);

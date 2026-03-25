@@ -33,6 +33,11 @@ function normalizeCatalogValue(value = '') {
         .trim();
 }
 
+/** Solo dígitos; vacío si no hay números (cédulas sin puntos ni comas). */
+function normalizeCedula(value = '') {
+    return String(value || '').replace(/\D/g, '');
+}
+
 function normalizeEstado(value) {
     const v = String(value || '').trim().toLowerCase();
     if (v === 'aprobado') return 'Aprobado';
@@ -90,6 +95,7 @@ module.exports = {
     parseTimeOrNull,
     parseIsoOrNull,
     normalizeCatalogValue,
+    normalizeCedula,
     normalizeEstado,
     isStrongPassword,
     sanitizeSegment,

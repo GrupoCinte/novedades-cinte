@@ -55,13 +55,22 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- ========= Catalogo Clientes-Lideres =========
 CREATE TABLE IF NOT EXISTS clientes_lideres (
-  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  cliente             TEXT NOT NULL,
-  lider               TEXT NOT NULL,
-  activo              BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_clientes_lideres UNIQUE (cliente, lider)
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cliente             TEXT NOT NULL,
+    lider               TEXT NOT NULL,
+    activo              BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_clientes_lideres UNIQUE (cliente, lider)
+);
+
+-- Directorio de colaboradores (cédula normalizada: solo dígitos). Seed desde JSON en arranque.
+CREATE TABLE IF NOT EXISTS colaboradores (
+    cedula              TEXT PRIMARY KEY,
+    nombre              TEXT NOT NULL,
+    activo              BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ========= Novedades (reemplaza datos_novedades.xlsx) =========
@@ -155,6 +164,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_users_role_area ON users(role, area);
 CREATE INDEX IF NOT EXISTS idx_clientes_lideres_cliente ON clientes_lideres(cliente);
 CREATE INDEX IF NOT EXISTS idx_clientes_lideres_activo ON clientes_lideres(activo);
+CREATE INDEX IF NOT EXISTS idx_colaboradores_activo ON colaboradores(activo);
 CREATE INDEX IF NOT EXISTS idx_novedades_area_estado ON novedades(area, estado);
 CREATE INDEX IF NOT EXISTS idx_novedades_tipo ON novedades(tipo_novedad);
 CREATE INDEX IF NOT EXISTS idx_novedades_fecha_inicio ON novedades(fecha_inicio);

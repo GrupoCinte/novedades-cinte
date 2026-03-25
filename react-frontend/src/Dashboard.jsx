@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, CartesianGrid, BarChart, Bar } from 'recharts';
 import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet } from 'lucide-react';
@@ -81,6 +81,8 @@ export default function Dashboard({ token, onLogout }) {
     const [fEstado, setFEstado] = useState('');
     const [fCorreo, setFCorreo] = useState('');
     const [fCliente, setFCliente] = useState('');
+    const [fClienteCalendario, setFClienteCalendario] = useState('');
+    const [calendarClientesList, setCalendarClientesList] = useState([]);
     const [sortBy, setSortBy] = useState('creadoEn');
     const [sortDir, setSortDir] = useState('desc');
     const [pageSize, setPageSize] = useState(10);
@@ -146,6 +148,19 @@ export default function Dashboard({ token, onLogout }) {
 
     useEffect(() => {
         loadData();
+    }, []);
+
+    useEffect(() => {
+        const loadCalClientes = async () => {
+            try {
+                const res = await fetch('/api/catalogos/clientes');
+                const json = await res.json();
+                if (res.ok && Array.isArray(json.items)) setCalendarClientesList(json.items);
+            } catch (err) {
+                console.error(err);
+            }
+        };
+        loadCalClientes();
     }, []);
     useEffect(() => {
         loadGestionData(currentPage, pageSize);
@@ -403,7 +418,12 @@ export default function Dashboard({ token, onLogout }) {
         return dates;
     };
 
-    const itemsByDate = items.reduce((acc, it) => {
+    const calendarSourceItems = useMemo(() => {
+        if (!fClienteCalendario) return items;
+        return items.filter((it) => String(it.cliente || '').trim() === fClienteCalendario);
+    }, [items, fClienteCalendario]);
+
+    const itemsByDate = calendarSourceItems.reduce((acc, it) => {
         const startDate = it.fechaInicio || toIsoDate(it.creadoEn);
         const endDate = it.fechaFin || startDate;
         const range = expandDateRangeInclusive(startDate, endDate);
@@ -1124,7 +1144,18 @@ export default function Dashboard({ token, onLogout }) {
                                 </h2>
                                 <p className="text-sm text-slate-400 mt-1">Vista interactiva mensual de las novedades del talento</p>
                             </div>
-                            <div className="flex gap-3 items-center">
+                            <div className="flex flex-wrap gap-3 items-center justify-end">
+                                <select
+                                    value={fClienteCalendario}
+                                    onChange={(e) => setFClienteCalendario(e.target.value)}
+                                    className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 max-w-[220px]"
+                                    aria-label="Filtrar por cliente"
+                                >
+                                    <option value="">Todos los clientes</option>
+                                    {calendarClientesList.map((c) => (
+                                        <option key={c} value={c}>{c}</option>
+                                    ))}
+                                </select>
                                 <div className="flex items-center bg-slate-900 rounded-lg p-1 border border-slate-700">
                                     <button
                                         onClick={() => setCalendarView('monthly')}

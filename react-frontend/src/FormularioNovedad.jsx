@@ -35,6 +35,10 @@ export default function FormularioNovedad() {
     const [clientes, setClientes] = useState([]);
     const [lideres, setLideres] = useState([]);
     const [loadingCatalogos, setLoadingCatalogos] = useState(false);
+    const [colaboradorVerificado, setColaboradorVerificado] = useState(false);
+    const [verificandoCedula, setVerificandoCedula] = useState(false);
+
+    const normalizeCedulaInput = (value) => String(value || '').replace(/\D/g, '');
 
     const isHoraExtra = formData.tipo === 'Hora Extra';
     const rule = useMemo(() => getNovedadRule(formData.tipo), [formData.tipo]);
@@ -158,6 +162,12 @@ export default function FormularioNovedad() {
 
     const handleChange = (e) => {
         const { name, value } = e.target;
+        if (name === 'cedula') {
+            const digits = normalizeCedulaInput(value);
+            setColaboradorVerificado(false);
+            setFormData({ ...formData, cedula: digits, nombre: '' });
+            return;
+        }
         if (name === 'cliente') {
             setFormData({ ...formData, cliente: value, lider: '' });
             return;
@@ -197,6 +207,32 @@ export default function FormularioNovedad() {
             return;
         }
         setFormData({ ...formData, [name]: value });
+    };
+
+    const handleComprobarCedula = async () => {
+        const c = normalizeCedulaInput(formData.cedula);
+        if (!c) {
+            setStatus({ type: 'error', text: '❌ Ingresa una cédula (solo números, sin puntos ni comas).' });
+            return;
+        }
+        setVerificandoCedula(true);
+        setStatus({ type: '', text: '' });
+        try {
+            const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data?.error || 'Cédula no registrada');
+            }
+            setFormData((prev) => ({ ...prev, cedula: data.cedula || c, nombre: data.nombre || '' }));
+            setColaboradorVerificado(true);
+            setStatus({ type: 'success', text: '✅ Colaborador verificado.' });
+        } catch (err) {
+            setColaboradorVerificado(false);
+            setFormData((prev) => ({ ...prev, nombre: '' }));
+            setStatus({ type: 'error', text: `❌ ${err?.message || 'No se pudo verificar la cédula.'}` });
+        } finally {
+            setVerificandoCedula(false);
+        }
     };
 
     useEffect(() => {
@@ -306,6 +342,10 @@ export default function FormularioNovedad() {
             setStatus({ type: 'error', text: '❌ Debes seleccionar cliente y lider.' });
             return;
         }
+        if (!colaboradorVerificado || !normalizeCedulaInput(formData.cedula) || !String(formData.nombre || '').trim()) {
+            setStatus({ type: 'error', text: '❌ Debes comprobar la cédula y tener un colaborador válido antes de enviar.' });
+            return;
+        }
         if (esIncapacidad && formData.fechaInicio && formData.fechaInicio > todayIso) {
             setStatus({ type: 'error', text: '❌ Incapacidad no puede tener Fecha Inicio futura.' });
             return;
@@ -412,6 +452,7 @@ export default function FormularioNovedad() {
                     fechaFin: '',
                     diasSolicitados: ''
                 });
+                setColaboradorVerificado(false);
                 setSelectedFiles([]);
                 setLideres([]);
                 // Limpiar mensaje de éxito después de unos segundos
@@ -437,14 +478,42 @@ export default function FormularioNovedad() {
 
                     <form onSubmit={handleSubmit}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="flex flex-col gap-2">
-                            <label className="text-sm font-semibold text-[#9fb3c8]">Nombre y Apellido <span className="text-[#1fc76a]">*</span></label>
-                            <input required name="nombre" value={formData.nombre} onChange={handleChange} type="text" placeholder="Ej: Kevin Ovalle" className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]" />
+                        <div className="flex flex-col gap-2 md:col-span-2">
+                            <label className="text-sm font-semibold text-[#9fb3c8]">Cédula <span className="text-[#1fc76a]">*</span></label>
+                            <p className="text-xs text-[#6b8aa8]">Ingresa la cédula solo con números, sin puntos ni comas.</p>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                    required
+                                    name="cedula"
+                                    value={formData.cedula}
+                                    onChange={handleChange}
+                                    type="text"
+                                    inputMode="numeric"
+                                    autoComplete="off"
+                                    placeholder="Ej: 1234567890"
+                                    className="flex-1 bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleComprobarCedula}
+                                    disabled={verificandoCedula}
+                                    className="px-4 py-3 rounded-lg bg-[#2a90ff] text-white font-semibold hover:bg-[#1f7ae0] disabled:opacity-50 transition-all"
+                                >
+                                    {verificandoCedula ? 'Comprobando...' : 'Comprobar'}
+                                </button>
+                            </div>
                         </div>
 
-                        <div className="flex flex-col gap-2">
-                            <label className="text-sm font-semibold text-[#9fb3c8]">Cédula <span className="text-[#1fc76a]">*</span></label>
-                            <input required name="cedula" value={formData.cedula} onChange={handleChange} type="number" placeholder="Documento de identidad" className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]" />
+                        <div className="flex flex-col gap-2 md:col-span-2">
+                            <label className="text-sm font-semibold text-[#9fb3c8]">Nombre y Apellido <span className="text-[#1fc76a]">*</span></label>
+                            <input
+                                readOnly
+                                name="nombre"
+                                value={formData.nombre}
+                                type="text"
+                                placeholder={colaboradorVerificado ? '' : 'Se completará al comprobar la cédula'}
+                                className="bg-[#121f2e] border border-[#21405f] text-white p-3 rounded-lg placeholder-[#3c566e] cursor-not-allowed"
+                            />
                         </div>
 
                         <div className="flex flex-col gap-2">
