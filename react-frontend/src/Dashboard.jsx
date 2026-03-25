@@ -230,6 +230,29 @@ export default function Dashboard({ token, onLogout }) {
         return json.url;
     };
 
+    const downloadSupport = async (support) => {
+        if (!support) return;
+        try {
+            const url = await fetchSupportUrl(support);
+            const safeName = String(support.name || '').trim() || 'archivo';
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = safeName;
+            a.rel = 'noreferrer';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+        } catch (err) {
+            // Fallback: si el atributo download no funciona por CORS/signed URL, abrimos.
+            try {
+                const url = await fetchSupportUrl(support);
+                window.open(url, '_blank', 'noopener,noreferrer');
+            } catch (e2) {
+                setStateError(err?.message || e2?.message || 'No se pudo descargar el archivo');
+            }
+        }
+    };
+
     const fetchExcelPreview = async (support) => {
         const res = await fetch(`/api/soportes/preview?key=${encodeURIComponent(support.key)}`, {
             headers: { Authorization: `Bearer ${token}` }
@@ -290,6 +313,10 @@ export default function Dashboard({ token, onLogout }) {
             setSoporteLoading(false);
         }
     };
+
+    const soporteModalCurrentSupport = Array.isArray(soporteModal?.supports)
+        ? soporteModal.supports.find((s) => s.key === soporteModal.currentKey) || null
+        : null;
 
     // ── Dashboard filter helper ──────────────────────────────────────────────
     // Helper: get the reference date for an item (fechaInicio preferred, else creadoEn)
@@ -1524,17 +1551,29 @@ export default function Dashboard({ token, onLogout }) {
                             ) : (
                                 <div className="flex flex-wrap gap-2">
                                     {buildSupportList(gestionDetailItem).map((support) => (
-                                        <button
+                                        <div
                                             key={support.id}
-                                            onClick={() => openSupport(gestionDetailItem, support)}
-                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-800 hover:border-blue-500/50 hover:text-blue-300 transition-all text-xs"
+                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-800 hover:border-blue-500/50 transition-all text-xs"
                                         >
-                                            {support.type === 'pdf' && <FileText size={14} />}
-                                            {support.type === 'image' && <FileImage size={14} />}
-                                            {support.type === 'excel' && <FileSpreadsheet size={14} />}
-                                            {support.type === 'other' && <Eye size={14} />}
-                                            Visualizar: {support.name}
-                                        </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => openSupport(gestionDetailItem, support)}
+                                                className="inline-flex items-center gap-2 px-0 py-0 rounded-lg border-none bg-transparent hover:text-blue-300"
+                                            >
+                                                {support.type === 'pdf' && <FileText size={14} />}
+                                                {support.type === 'image' && <FileImage size={14} />}
+                                                {support.type === 'excel' && <FileSpreadsheet size={14} />}
+                                                {support.type === 'other' && <Eye size={14} />}
+                                                <span className="whitespace-nowrap">Visualizar: {support.name}</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => downloadSupport(support)}
+                                                className="px-2 py-1 rounded-lg border border-blue-500/30 text-blue-300 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all"
+                                            >
+                                                Descargar
+                                            </button>
+                                        </div>
                                     ))}
                                 </div>
                             )}
@@ -1627,20 +1666,38 @@ export default function Dashboard({ token, onLogout }) {
                             <h2 className="text-xl font-bold text-white flex items-center gap-2">
                                 <BadgeCheck className="text-blue-500" size={22} /> Documento Analizado por IA
                             </h2>
+                            {soporteModalCurrentSupport && (
+                                <button
+                                    type="button"
+                                    onClick={() => downloadSupport(soporteModalCurrentSupport)}
+                                    className="px-3 py-2 rounded-lg border border-blue-500/30 text-blue-300 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all text-sm font-medium"
+                                >
+                                    Descargar
+                                </button>
+                            )}
                         </div>
                         {Array.isArray(soporteModal?.supports) && soporteModal.supports.length > 1 && (
                             <div className="w-full mb-3 flex flex-wrap gap-2">
                                 {soporteModal.supports.map((support) => (
-                                    <button
-                                        key={support.id}
-                                        onClick={() => openSupportFromModal(support)}
-                                        className={`px-3 py-1.5 rounded-lg text-xs border transition-all ${soporteModal.currentKey === support.key
-                                            ? 'border-blue-500/60 text-blue-300 bg-blue-500/10'
-                                            : 'border-slate-700 text-slate-300 hover:border-blue-500/40 hover:text-blue-300'
-                                            }`}
-                                    >
-                                        {support.name}
-                                    </button>
+                                    <div key={support.id} className="inline-flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => openSupportFromModal(support)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs border transition-all ${soporteModal.currentKey === support.key
+                                                ? 'border-blue-500/60 text-blue-300 bg-blue-500/10'
+                                                : 'border-slate-700 text-slate-300 hover:border-blue-500/40 hover:text-blue-300'
+                                                }`}
+                                        >
+                                            {support.name}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => downloadSupport(support)}
+                                            className="px-2 py-1 rounded-lg border border-blue-500/30 text-blue-300 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all text-xs"
+                                        >
+                                            Descargar
+                                        </button>
+                                    </div>
                                 ))}
                             </div>
                         )}
@@ -1675,17 +1732,25 @@ export default function Dashboard({ token, onLogout }) {
                                 ) : (
                                     <div className="w-full h-[65vh] flex flex-col items-center justify-center gap-2 text-slate-300">
                                         <p>No fue posible previsualizar este Excel.</p>
-                                        <a href={soporteModal.currentUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded border border-blue-500/40 text-blue-300 hover:bg-blue-500/10 transition-all text-sm">
+                                        <button
+                                            type="button"
+                                            onClick={() => downloadSupport(soporteModalCurrentSupport)}
+                                            className="px-3 py-2 rounded border border-blue-500/40 text-blue-300 hover:bg-blue-500/10 transition-all text-sm"
+                                        >
                                             Descargar archivo
-                                        </a>
+                                        </button>
                                     </div>
                                 )
                             ) : (
                                 <div className="w-full h-[65vh] flex flex-col items-center justify-center gap-2 text-slate-300">
                                     <p>No hay visor embebido para este tipo de archivo.</p>
-                                    <a href={soporteModal.currentUrl} target="_blank" rel="noreferrer" className="px-3 py-2 rounded border border-blue-500/40 text-blue-300 hover:bg-blue-500/10 transition-all text-sm">
-                                        Abrir/Descargar archivo
-                                    </a>
+                                    <button
+                                        type="button"
+                                        onClick={() => downloadSupport(soporteModalCurrentSupport)}
+                                        className="px-3 py-2 rounded border border-blue-500/40 text-blue-300 hover:bg-blue-500/10 transition-all text-sm"
+                                    >
+                                        Descargar archivo
+                                    </button>
                                 </div>
                             )}
                         </div>
