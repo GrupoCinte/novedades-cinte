@@ -5,6 +5,8 @@ function registerRoutes(deps) {
         forgotLimiter,
         submitLimiter,
         catalogLimiter,
+        normalizeCedula,
+        getColaboradorByCedula,
         verificarToken,
         isStrongPassword,
         COGNITO_ENABLED,
@@ -497,6 +499,23 @@ function registerRoutes(deps) {
         }
     });
 
+    app.get('/api/catalogos/colaborador', catalogLimiter, async (req, res) => {
+        try {
+            const cedula = normalizeCedula(req.query?.cedula || '');
+            if (!cedula) {
+                return res.status(400).json({ ok: false, error: 'Cédula requerida (solo números, sin puntos ni comas).' });
+            }
+            const row = await getColaboradorByCedula(cedula);
+            if (!row) {
+                return res.status(404).json({ ok: false, error: 'Cédula no registrada en el directorio de colaboradores.' });
+            }
+            return res.json({ ok: true, cedula: row.cedula, nombre: row.nombre });
+        } catch (error) {
+            console.error('Error catalogo colaborador:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo consultar el colaborador' });
+        }
+    });
+
     app.post('/api/enviar-novedad', submitLimiter, upload.any(), async (req, res) => {
         try {
             const body = req.body || {};
@@ -567,6 +586,19 @@ function registerRoutes(deps) {
                 return res.status(400).json({ ok: false, error: 'El lider no pertenece al cliente seleccionado.' });
             }
 
+            const cedulaNorm = normalizeCedula(body.cedula || '');
+            if (!cedulaNorm) {
+                return res.status(400).json({ ok: false, error: 'Cédula inválida. Usa solo números, sin puntos ni comas.' });
+            }
+            const colaborador = await getColaboradorByCedula(cedulaNorm);
+            if (!colaborador) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'La cédula no está registrada en el directorio de colaboradores. No se puede enviar la novedad.'
+                });
+            }
+            const nombreColaborador = String(colaborador.nombre || '').trim();
+
             const fecha = parseDateOrNull(body.fecha);
             const horaInicio = parseTimeOrNull(body.horaInicio);
             const horaFin = parseTimeOrNull(body.horaFin);
@@ -634,8 +666,8 @@ function registerRoutes(deps) {
                     $13, $14, $15, $16, $17, 'Pendiente'::novedad_estado
                 )`,
                 [
-                    String(body.nombre || '').trim(),
-                    String(body.cedula || '').trim(),
+                    nombreColaborador,
+                    cedulaNorm,
                     String(body.correoSolicitante || '').trim() || null,
                     cliente,
                     lider,

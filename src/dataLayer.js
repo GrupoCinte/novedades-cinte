@@ -1,3 +1,5 @@
+const path = require('path');
+
 function createDataLayer(deps) {
     const {
         pool,
@@ -5,8 +7,11 @@ function createDataLayer(deps) {
         xlsx,
         CLIENTES_LIDERES_XLSX_PATH,
         normalizeCatalogValue,
+        normalizeCedula,
         canRoleViewType
     } = deps;
+
+    const COLABORADORES_SEED_JSON = path.join(__dirname, 'data', 'colaboradores-seed.json');
 
     async function ensureUserRoleEnumValues() {
         const enumStatements = [
@@ -150,6 +155,91 @@ function createDataLayer(deps) {
         return;
     }
 
+    async function ensureColaboradoresTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS colaboradores (
+                    cedula TEXT PRIMARY KEY,
+                    nombre TEXT NOT NULL,
+                    activo BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query('CREATE INDEX IF NOT EXISTS idx_colaboradores_activo ON colaboradores(activo)');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Colaboradores] Permisos insuficientes para crear tabla colaboradores.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Carga única desde JSON versionado (generado una vez desde Excel; el .xlsx no se usa en runtime).
+     */
+    async function seedColaboradoresFromSeedIfNeeded() {
+        await ensureColaboradoresTable();
+        const countQ = await pool.query('SELECT COUNT(*)::int AS c FROM colaboradores');
+        if ((countQ.rows[0]?.c || 0) > 0) return;
+        if (!fs.existsSync(COLABORADORES_SEED_JSON)) {
+            console.warn('[Colaboradores] No hay seed JSON:', COLABORADORES_SEED_JSON);
+            return;
+        }
+        let arr;
+        try {
+            arr = JSON.parse(fs.readFileSync(COLABORADORES_SEED_JSON, 'utf8'));
+        } catch (e) {
+            console.error('[Colaboradores] Seed JSON inválido:', e.message);
+            return;
+        }
+        if (!Array.isArray(arr) || arr.length === 0) return;
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            for (const row of arr) {
+                const c = normalizeCedula(row.cedula);
+                const n = normalizeCatalogValue(row.nombre);
+                if (!c || !n) continue;
+                await client.query(
+                    `INSERT INTO colaboradores (cedula, nombre, activo)
+                     VALUES ($1, $2, TRUE)
+                     ON CONFLICT (cedula) DO UPDATE SET nombre = EXCLUDED.nombre, activo = TRUE, updated_at = NOW()`,
+                    [c, n]
+                );
+            }
+            await client.query('COMMIT');
+            console.log(`[Colaboradores] Seed aplicado: ${arr.length} filas desde JSON (sin Excel en runtime).`);
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+
+    async function ensureCinteLeonardoPair() {
+        await ensureClientesLideresTable();
+        await pool.query(
+            `INSERT INTO clientes_lideres (cliente, lider, activo)
+             VALUES ('CINTE', 'Leonardo Rojas', TRUE)
+             ON CONFLICT (cliente, lider)
+             DO UPDATE SET activo = TRUE, updated_at = NOW()`
+        );
+    }
+
+    async function getColaboradorByCedula(cedulaRaw) {
+        const c = normalizeCedula(cedulaRaw);
+        if (!c) return null;
+        const q = await pool.query(
+            `SELECT cedula, nombre FROM colaboradores WHERE activo = TRUE AND cedula = $1 LIMIT 1`,
+            [c]
+        );
+        return q.rows[0] || null;
+    }
+
     async function getScopedNovedades(scope, options = {}) {
         const role = scope?.role || '';
         const tipo = String(options?.tipo || '').trim();
@@ -209,6 +299,10 @@ function createDataLayer(deps) {
         ensureNovedadesIndexes,
         ensureNovedadesHourSplitColumns,
         migrateClientesLideresFromExcelIfNeeded,
+        ensureColaboradoresTable,
+        seedColaboradoresFromSeedIfNeeded,
+        ensureCinteLeonardoPair,
+        getColaboradorByCedula,
         getClientesList,
         getLideresByCliente,
         migrateExcelIfNeeded,
