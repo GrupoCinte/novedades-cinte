@@ -3,6 +3,7 @@ const POLICY = {
     admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
     team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
     admin_ops: { panels: ['dashboard', 'calendar'] },
+    comercial: { panels: ['comercial'] },
     gp: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
     nomina: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
     sst: { panels: ['dashboard', 'calendar', 'gestion'] }
@@ -127,6 +128,7 @@ function getAreaFromRole(role) {
     if (role === 'super_admin') return 'Global';
     if (role === 'admin_ch' || role === 'team_ch') return 'Capital Humano';
     if (role === 'admin_ops' || role === 'gp') return 'Operaciones';
+    if (role === 'comercial') return 'Comercial';
     if (role === 'nomina' || role === 'sst') return 'Capital Humano';
     return '';
 }

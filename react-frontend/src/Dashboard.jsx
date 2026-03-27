@@ -4,6 +4,7 @@ import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveCont
 import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet } from 'lucide-react';
 import ChatWidget from './ChatWidget';
 import { getNovedadRule, NOVEDAD_TYPES } from './novedadRules';
+import ROLE_PRIORITY from './constants/rolePriority.json';
 
 export default function Dashboard({ token, onLogout }) {
     const [items, setItems] = useState([]);
@@ -27,8 +28,7 @@ export default function Dashboard({ token, onLogout }) {
         const groupsClaim = claims['cognito:groups'];
         const groups = Array.isArray(groupsClaim) ? groupsClaim : (groupsClaim ? [groupsClaim] : []);
         const normalized = groups.map((g) => String(g || '').toLowerCase());
-        const priority = ['super_admin', 'admin_ch', 'team_ch', 'admin_ops', 'gp', 'nomina', 'sst'];
-        return priority.find((role) => normalized.includes(role)) || '';
+        return ROLE_PRIORITY.find((role) => normalized.includes(role)) || '';
     };
     const authFromStorage = (() => {
         try {
@@ -46,6 +46,7 @@ export default function Dashboard({ token, onLogout }) {
         admin_ch: ['dashboard', 'calendar', 'gestion'],
         team_ch: ['dashboard', 'calendar', 'gestion'],
         admin_ops: ['dashboard', 'calendar'],
+        comercial: [],
         gp: ['dashboard', 'calendar', 'gestion'],
         nomina: ['dashboard', 'calendar', 'gestion'],
         sst: ['dashboard', 'calendar', 'gestion']
