@@ -156,7 +156,7 @@ function App() {
 
   const onLoggedIn = (authData) => setAuth(authData);
   const headerTitle = (auth?.token && isAdminRoute)
-    ? 'SISTEMA UNIFICADO DE GESTIÓN DE NOVEDADES LABORALES'
+    ? 'SISTEMA UNIFICADO DE GESTIÓN'
     : 'PORTAL DE RADICACIÓN DE NOVEDADES';
   return (
     <div className="h-screen overflow-hidden flex flex-col">

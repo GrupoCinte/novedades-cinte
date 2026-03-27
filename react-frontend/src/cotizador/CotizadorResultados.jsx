@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 function money(value, moneda = 'COP') {
     const n = Number(value || 0);
     if (moneda === 'USD') return `US$ ${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
@@ -5,7 +7,68 @@ function money(value, moneda = 'COP') {
     return `$ ${Math.round(n).toLocaleString('es-CO')}`;
 }
 
-export default function CotizadorResultados({ cotizacion, onGuardar, guardando, onDescargarPdf, descargandoPdf }) {
+export default function CotizadorResultados({
+    cotizacion,
+    token,
+    onGuardar,
+    guardando,
+    onDescargarPdf,
+    descargandoPdf
+}) {
+    const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [previewError, setPreviewError] = useState('');
+
+    useEffect(() => {
+        if (!cotizacion?.resultados?.length || !token) {
+            setPdfPreviewUrl((prev) => {
+                if (prev) URL.revokeObjectURL(prev);
+                return null;
+            });
+            setPreviewLoading(false);
+            setPreviewError('');
+            return;
+        }
+
+        let cancelled = false;
+        let createdUrl = null;
+
+        (async () => {
+            setPreviewLoading(true);
+            setPreviewError('');
+            try {
+                const res = await fetch('/api/cotizador/pdf', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ ...cotizacion, download: false })
+                });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err?.error || `Error PDF (${res.status})`);
+                }
+                const blob = await res.blob();
+                if (cancelled) return;
+                createdUrl = URL.createObjectURL(blob);
+                setPdfPreviewUrl((prev) => {
+                    if (prev) URL.revokeObjectURL(prev);
+                    return createdUrl;
+                });
+            } catch (e) {
+                if (!cancelled) setPreviewError(e.message || 'No se pudo generar la vista previa');
+            } finally {
+                if (!cancelled) setPreviewLoading(false);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+            if (createdUrl) URL.revokeObjectURL(createdUrl);
+        };
+    }, [cotizacion, token]);
+
     if (!cotizacion?.resultados?.length) {
         return (
             <div className="bg-[#1e293b] border border-slate-700 rounded-xl p-4 text-slate-400">
@@ -15,9 +78,14 @@ export default function CotizadorResultados({ cotizacion, onGuardar, guardando, 
     }
 
     return (
-        <div className="bg-[#1e293b] border border-slate-700 rounded-xl p-4">
-            <div className="flex items-center justify-between gap-2 mb-3">
-                <h3 className="text-white font-bold">Resultados</h3>
+        <div className="bg-[#1e293b] border border-slate-700 rounded-xl p-4 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                    <h3 className="text-white font-bold">Resultados</h3>
+                    {cotizacion.codigo ? (
+                        <p className="text-xs text-emerald-400/90 mt-1 font-semibold">{cotizacion.codigo}</p>
+                    ) : null}
+                </div>
                 <div className="flex items-center gap-2">
                     <button
                         type="button"
@@ -36,6 +104,20 @@ export default function CotizadorResultados({ cotizacion, onGuardar, guardando, 
                         {guardando ? 'Guardando...' : 'Guardar cotización'}
                     </button>
                 </div>
+            </div>
+            <div className="rounded-lg border border-slate-600 overflow-hidden bg-slate-900/50">
+                <div className="px-3 py-2 border-b border-slate-700 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+                    Vista previa PDF
+                </div>
+                {previewError && (
+                    <div className="p-3 text-sm text-rose-300 border-b border-slate-700">{previewError}</div>
+                )}
+                {previewLoading && !pdfPreviewUrl && (
+                    <div className="h-[420px] flex items-center justify-center text-slate-500 text-sm">Generando vista previa…</div>
+                )}
+                {pdfPreviewUrl ? (
+                    <iframe title="Vista previa cotización" src={pdfPreviewUrl} className="w-full h-[min(520px,65vh)] border-0 bg-slate-200" />
+                ) : null}
             </div>
             <div className="overflow-auto">
                 <table className="w-full text-sm">
@@ -66,4 +148,3 @@ export default function CotizadorResultados({ cotizacion, onGuardar, guardando, 
         </div>
     );
 }
-

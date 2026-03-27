@@ -94,10 +94,15 @@ export default function CotizadorPage({ token, embedded = false }) {
         setGuardando(true);
         setError('');
         try {
-            await api('/api/cotizador/guardar', token, {
+            const data = await api('/api/cotizador/guardar', token, {
                 method: 'POST',
                 body: JSON.stringify(cotizacion)
             });
+            setCotizacion((prev) =>
+                prev && data?.id
+                    ? { ...prev, id: data.id, codigo: data.codigo || prev.codigo, fecha: data.fecha || prev.fecha }
+                    : prev
+            );
             await loadAll();
         } catch (e) {
             setError(e.message);
@@ -130,7 +135,7 @@ export default function CotizadorPage({ token, embedded = false }) {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify(cotizacion)
+                body: JSON.stringify({ ...cotizacion, download: true })
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({}));
@@ -144,7 +149,9 @@ export default function CotizadorPage({ token, embedded = false }) {
             }
             const blob = await res.blob();
             const url = URL.createObjectURL(blob);
-            const fileName = `cotizacion_${String(cotizacion?.cliente || 'cliente').replace(/[^\w\-]+/g, '_')}.pdf`;
+            const fileName = cotizacion?.codigo
+                ? `${String(cotizacion.codigo).replace(/[^\w\-]+/g, '_')}.pdf`
+                : `cotizacion_${String(cotizacion?.cliente || 'cliente').replace(/[^\w\-]+/g, '_')}.pdf`;
             const a = document.createElement('a');
             a.href = url;
             a.download = fileName;
@@ -156,6 +163,91 @@ export default function CotizadorPage({ token, embedded = false }) {
             setError(e.message || 'No se pudo descargar el PDF');
         } finally {
             setDescargandoPdf(false);
+        }
+    };
+
+    const onHistorialPdf = async (it, mode) => {
+        if (!token || it?.id == null) return;
+        if (!Array.isArray(it?.resultados) || it.resultados.length === 0) {
+            setError('Esta cotización no tiene resultados para generar el PDF.');
+            return;
+        }
+
+        /** Ventana abierta en el mismo “tick” del click; si se hace después del await, muchos navegadores bloquean. */
+        let previewTab = null;
+        if (mode !== 'download') {
+            previewTab = window.open('about:blank', '_blank');
+            if (!previewTab) {
+                setError('El navegador bloqueó la ventana emergente. Permite ventanas para este sitio e inténtalo de nuevo.');
+                return;
+            }
+            try {
+                previewTab.document.title = 'Cargando PDF…';
+            } catch {
+                // ignorar (origen distinto al abrir)
+            }
+        }
+
+        setError('');
+        try {
+            const res = await fetch('/api/cotizador/pdf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    cliente: it.cliente,
+                    nit: it.nit,
+                    comercial: it.comercial,
+                    plazo: it.plazo,
+                    margen: it.margen,
+                    meses: it.meses,
+                    moneda: it.moneda,
+                    nombre_moneda: it.nombre_moneda,
+                    tasa_conversion: it.tasa_conversion,
+                    codigo: it.codigo,
+                    factores_he: it.factores_he,
+                    resultados: it.resultados,
+                    download: mode === 'download'
+                })
+            });
+            if (!res.ok) {
+                previewTab?.close();
+                const err = await res.json().catch(() => ({}));
+                if (res.status === 429) {
+                    throw new Error(err?.error || 'Límite temporal de PDF alcanzado. Espera unos minutos.');
+                }
+                throw new Error(err?.error || `No se pudo generar el PDF (HTTP ${res.status})`);
+            }
+            const blob = await res.blob();
+            if (!blob.size) {
+                previewTab?.close();
+                throw new Error('El servidor devolvió un PDF vacío.');
+            }
+            const url = URL.createObjectURL(blob);
+            const base = it.codigo ? String(it.codigo).replace(/[^\w\-]+/g, '_') : `cotizacion_${it.id}`;
+            if (mode === 'download') {
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${base}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } else if (previewTab) {
+                previewTab.location.href = url;
+                window.setTimeout(() => URL.revokeObjectURL(url), 300_000);
+            } else {
+                URL.revokeObjectURL(url);
+            }
+        } catch (e) {
+            try {
+                previewTab?.close();
+            } catch {
+                /* noop */
+            }
+            setError(e.message || 'Error con el PDF del historial');
         }
     };
 
@@ -172,12 +264,19 @@ export default function CotizadorPage({ token, embedded = false }) {
                 <CotizadorForm catalogos={catalogos || {}} form={form} setForm={setForm} onCotizar={onCotizar} loading={loading} />
                 <CotizadorResultados
                     cotizacion={cotizacion}
+                    token={token}
                     onGuardar={onGuardar}
                     guardando={guardando}
                     onDescargarPdf={onDescargarPdf}
                     descargandoPdf={descargandoPdf}
                 />
-                <CotizadorHistorial historial={historial} onDelete={onDelete} deletingId={deletingId} />
+                <CotizadorHistorial
+                    historial={historial}
+                    token={token}
+                    onDelete={onDelete}
+                    deletingId={deletingId}
+                    onHistorialPdf={onHistorialPdf}
+                />
                 <CotizadorDashboard dashboard={dashboard} />
             </div>
         </div>
