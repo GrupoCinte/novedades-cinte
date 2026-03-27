@@ -83,6 +83,18 @@ const allowedCorsOrigins = new Set([
     'http://localhost:5175',
     'http://127.0.0.1:5175'
 ]);
+try {
+    const parsedFrontend = new URL(FRONTEND_URL);
+    const host = parsedFrontend.hostname || '';
+    if (host.startsWith('www.')) {
+        const nakedHost = host.replace(/^www\./, '');
+        allowedCorsOrigins.add(`${parsedFrontend.protocol}//${nakedHost}`);
+    } else if (host && host.includes('.')) {
+        allowedCorsOrigins.add(`${parsedFrontend.protocol}//www.${host}`);
+    }
+} catch {
+    // Ignorar FRONTEND_URL malformado y conservar la lista base.
+}
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
