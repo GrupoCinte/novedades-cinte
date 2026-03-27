@@ -12,7 +12,7 @@ function registerCotizadorRoutes(deps) {
         cotizadorStore
     } = deps;
 
-    const guard = [verificarToken, allowAnyPanel(['dashboard', 'gestion'])];
+    const guard = [verificarToken, allowAnyPanel(['dashboard', 'gestion', 'comercial', 'admin'])];
 
     app.get('/api/cotizador/catalogos', ...guard, catalogLimiter, async (req, res) => {
         try {

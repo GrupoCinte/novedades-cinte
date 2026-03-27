@@ -9,6 +9,7 @@ import ChangePassword from './ChangePassword';
 import ComercialModule from './ComercialModule';
 import ContratacionModule from './ContratacionModule';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
+import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
 import { cognitoGetCurrentAuthData, cognitoSignOut } from './cognitoAuth';
 import ROLE_PRIORITY from './constants/rolePriority.json';
 
@@ -92,6 +93,8 @@ function App() {
   const isComercialRoute = location.pathname.startsWith('/admin/comercial');
   const isContratacionRoute = location.pathname.startsWith('/admin/contratacion');
   const showContratacionNav = auth?.token && userHasContratacionPanel(auth.token);
+  const showNovedadesNav = auth?.token && userHasNovedadesAdminAccess(auth.token);
+  const showComercialNav = auth?.token && userHasCotizadorAccess(auth.token);
 
   const handleLogout = useCallback(() => {
     cognitoSignOut();
@@ -171,28 +174,32 @@ function App() {
       </header>
       {auth?.token && isAdminRoute && (
         <div className="bg-[#0b1b2b] border-b border-[#1d3751] px-4 md:px-8 py-2 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => navigate('/admin')}
-            className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
-              !isComercialRoute && !isContratacionRoute
-                ? 'bg-blue-600 text-white'
-                : 'bg-[#162a3d] text-[#9fb3c8] hover:text-white hover:bg-[#1e364d]'
-            }`}
-          >
-            Gestión de Novedades
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate('/admin/comercial')}
-            className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
-              isComercialRoute
-                ? 'bg-emerald-600 text-white'
-                : 'bg-[#162a3d] text-[#9fb3c8] hover:text-white hover:bg-[#1e364d]'
-            }`}
-          >
-            Módulo Comercial
-          </button>
+          {showNovedadesNav ? (
+            <button
+              type="button"
+              onClick={() => navigate('/admin')}
+              className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
+                !isComercialRoute && !isContratacionRoute
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-[#162a3d] text-[#9fb3c8] hover:text-white hover:bg-[#1e364d]'
+              }`}
+            >
+              Gestión de Novedades
+            </button>
+          ) : null}
+          {showComercialNav ? (
+            <button
+              type="button"
+              onClick={() => navigate('/admin/comercial')}
+              className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
+                isComercialRoute
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-[#162a3d] text-[#9fb3c8] hover:text-white hover:bg-[#1e364d]'
+              }`}
+            >
+              Módulo Comercial
+            </button>
+          ) : null}
           {showContratacionNav ? (
             <button
               type="button"
@@ -212,7 +219,22 @@ function App() {
       <main className={`flex-1 ${isAdminRoute ? 'overflow-hidden flex flex-col' : 'w-full overflow-y-auto p-6 md:p-10 bg-[#0f2437]'}`}>
         <Routes>
           <Route path="/" element={<FormularioNovedad />} />
-          <Route path="/admin" element={auth?.token ? <Dashboard token={auth.token} onLogout={handleLogout} /> : <Login setAuth={onLoggedIn} />} />
+          <Route
+            path="/admin"
+            element={
+              auth?.token ? (
+                userHasNovedadesAdminAccess(auth.token) ? (
+                  <Dashboard token={auth.token} onLogout={handleLogout} />
+                ) : userHasCotizadorAccess(auth.token) ? (
+                  <Navigate to="/admin/comercial" replace />
+                ) : (
+                  <Navigate to="/" replace />
+                )
+              ) : (
+                <Login setAuth={onLoggedIn} />
+              )
+            }
+          />
           <Route path="/admin/forgot" element={<ForgotPassword />} />
           <Route path="/admin/reset" element={<ResetPassword />} />
           <Route
@@ -227,7 +249,14 @@ function App() {
             path="/admin/comercial"
             element={(
               <ProtectedRoute>
-                <ComercialModule token={auth?.token || ''} onLogout={handleLogout} />
+                {(() => {
+                  const token = readAuth()?.token || '';
+                  return userHasCotizadorAccess(token) ? (
+                    <ComercialModule token={token} onLogout={handleLogout} />
+                  ) : (
+                    <Navigate to="/admin" replace />
+                  );
+                })()}
               </ProtectedRoute>
             )}
           />

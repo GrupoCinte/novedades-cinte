@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Lock, User, Eye, EyeOff } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { cognitoCompleteNewPassword, cognitoSignIn } from './cognitoAuth';
+import ROLE_PRIORITY from './constants/rolePriority.json';
 
 export default function Login({ setAuth }) {
     const [username, setUsername] = useState('');
@@ -121,13 +122,11 @@ export default function Login({ setAuth }) {
                             className="w-full bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all"
                         >
                             <option value="">Mi rol asignado</option>
-                            <option value="super_admin">SUPER ADMIN</option>
-                            <option value="admin_ch">ADMIN CH</option>
-                            <option value="admin_ops">ADMIN OPS</option>
-                            <option value="gp">GP</option>
-                            <option value="team_ch">TEAM CH</option>
-                            <option value="nomina">NOMINA</option>
-                            <option value="sst">SST</option>
+                            {ROLE_PRIORITY.map((role) => (
+                                <option key={role} value={role}>
+                                    {String(role).replace(/_/g, ' ').toUpperCase()}
+                                </option>
+                            ))}
                         </select>
                         <small className="text-[#9fb3c8] text-xs">
                             Solo usuarios con rol base <strong>super_admin</strong> pueden asumir un rol distinto.
