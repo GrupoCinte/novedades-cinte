@@ -1,4 +1,5 @@
 const path = require('path');
+const { initContratacionRealtime } = require('./contratacion/initContratacionRealtime');
 
 async function startServer(deps) {
     const {
@@ -33,7 +34,7 @@ async function startServer(deps) {
     await ensureColaboradoresTable();
     await ensureCinteLeonardoPair();
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
         console.log(`Servidor listo en http://localhost:${PORT}`);
         console.log(`DB conectada a ${process.env.DB_NAME || 'novedades_cinte'} (${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432})`);
         if (COGNITO_ENABLED) {
@@ -60,6 +61,12 @@ async function startServer(deps) {
         }
         console.log(`Carpeta assets: ${path.join(process.cwd(), 'assets')}`);
     });
+
+    try {
+        initContratacionRealtime(server);
+    } catch (e) {
+        console.error('Contratación IA (realtime): no se pudo inicializar:', e.message);
+    }
 }
 
 module.exports = { startServer };

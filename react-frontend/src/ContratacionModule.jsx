@@ -1,0 +1,266 @@
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+    ChevronLeft,
+    ChevronRight,
+    Code2,
+    KeyRound,
+    LogOut,
+    Menu,
+    X,
+    Users,
+    History,
+    BarChart3
+} from 'lucide-react';
+import Layout from './contratacion/components/Layout';
+import ActiveCandidates from './contratacion/components/ActiveCandidates';
+import HistoryCandidates from './contratacion/components/HistoryCandidates';
+import MetricsDashboard from './contratacion/components/MetricsDashboard';
+import useMonitorData from './contratacion/hooks/useMonitorData';
+import { getContratacionPermissions } from './contratacion/contratacionAccess';
+
+export { userHasContratacionPanel } from './contratacion/contratacionAccess';
+
+function ContratacionDashboard({ token, currentView, onNavigate }) {
+    const { canEliminarCandidato } = useMemo(() => getContratacionPermissions(token), [token]);
+    const data = useMonitorData(token);
+
+    return (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <Layout
+                currentView={currentView}
+                onNavigate={onNavigate}
+                isConnected={data.isConnected}
+                lastUpdate={data.lastUpdate}
+                activeCount={data.activeExecutions.length}
+                historyCount={data.historyExecutions.length}
+                hideTabNav
+            >
+                <AnimatePresence mode="wait">
+                    <motion.div
+                        key={currentView}
+                        initial={{ opacity: 0, y: 14 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        transition={{ duration: 0.22 }}
+                        className="min-h-0"
+                    >
+                        {currentView === 'active' && (
+                            <ActiveCandidates
+                                executions={data.activeExecutions}
+                                totalMonitorCount={data.executions.length}
+                                metrics={data.metrics}
+                                loading={data.loading}
+                                error={data.error}
+                                isConnected={data.isConnected}
+                                refetch={data.refetch}
+                                authToken={token}
+                                canEliminarCandidato={canEliminarCandidato}
+                                dynamoConfigured={data.dynamoConfigured}
+                            />
+                        )}
+                        {currentView === 'history' && (
+                            <HistoryCandidates executions={data.historyExecutions} metrics={data.metrics} loading={data.loading} />
+                        )}
+                        {currentView === 'metrics' && (
+                            <MetricsDashboard metrics={data.metrics} loading={data.loading} executions={data.activeExecutions} />
+                        )}
+                    </motion.div>
+                </AnimatePresence>
+            </Layout>
+        </div>
+    );
+}
+
+export default function ContratacionModule({ token, onLogout }) {
+    const navigate = useNavigate();
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [navView, setNavView] = useState('active');
+
+    const authFromStorage = (() => {
+        try {
+            return JSON.parse(localStorage.getItem('cinteAuth') || 'null');
+        } catch {
+            return null;
+        }
+    })();
+    const currentEmail = String(authFromStorage?.user?.email || authFromStorage?.claims?.email || 'sin-correo').toLowerCase();
+    const currentRoleLabel = String(authFromStorage?.user?.role || authFromStorage?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
+
+    const handleSidebarLogout = () => {
+        if (onLogout) {
+            onLogout();
+            return;
+        }
+        localStorage.removeItem('cinteAuth');
+        navigate('/admin', { replace: true });
+    };
+
+    const sidebarNav = [
+        { id: 'active', label: 'Activos', icon: Users },
+        { id: 'history', label: 'Historial', icon: History },
+        { id: 'metrics', label: 'Métricas', icon: BarChart3 }
+    ];
+
+    return (
+        <div className="flex h-full w-full overflow-hidden bg-[#0f172a] font-sans text-slate-200">
+            <button
+                type="button"
+                onClick={() => setMobileMenuOpen(true)}
+                className="fixed left-4 top-24 z-40 flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700 bg-[#1e293b] text-slate-200 shadow-lg md:hidden"
+                aria-label="Abrir menú contratación"
+            >
+                <Menu size={18} />
+            </button>
+            {mobileMenuOpen ? (
+                <div className="fixed inset-0 z-40 bg-black/50 md:hidden" onClick={() => setMobileMenuOpen(false)} />
+            ) : null}
+
+            <aside
+                className={`fixed left-0 top-0 z-50 h-full w-72 border-r border-slate-700/50 bg-[#1e293b] shadow-2xl transition-transform duration-300 md:hidden ${
+                    mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                }`}
+            >
+                <div className="flex items-center justify-between border-b border-slate-700/50 p-4">
+                    <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-violet-400">Módulo de Capital Humano</p>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Onboarding</p>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setMobileMenuOpen(false)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-300"
+                        aria-label="Cerrar menú"
+                    >
+                        <X size={16} />
+                    </button>
+                </div>
+                <nav className="flex flex-col gap-2 p-3">
+                    {sidebarNav.map(({ id, label, icon: Icon }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => {
+                                setNavView(id);
+                                setMobileMenuOpen(false);
+                            }}
+                            className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
+                                navView === id ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-slate-700/60'
+                            }`}
+                        >
+                            <Icon size={17} />
+                            <span>{label}</span>
+                        </button>
+                    ))}
+                </nav>
+                <div className="mt-auto border-t border-slate-700/50 p-4">
+                    <p className="truncate text-[10px] font-black text-slate-300">{currentEmail}</p>
+                    <p className="text-[10px] font-semibold uppercase text-violet-400">{currentRoleLabel}</p>
+                </div>
+            </aside>
+
+            <aside
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-hidden bg-[#1e293b] shadow-2xl transition-all duration-300 ease-in-out md:flex ${
+                    sidebarOpen ? 'w-64' : 'w-16'
+                }`}
+            >
+                <div className={`flex items-center border-b border-slate-700/50 ${sidebarOpen ? 'justify-between px-5 py-4' : 'justify-center py-4'}`}>
+                    {sidebarOpen ? (
+                        <div className="overflow-hidden">
+                            <p className="whitespace-nowrap text-[10px] font-black uppercase leading-tight tracking-widest text-violet-400">Módulo de Capital Humano</p>
+                            <p className="whitespace-nowrap text-[10px] font-bold uppercase leading-tight tracking-widest text-slate-400">Onboarding</p>
+                        </div>
+                    ) : null}
+                    <button
+                        type="button"
+                        onClick={() => setSidebarOpen((o) => !o)}
+                        title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
+                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 transition-all hover:border-violet-500/50 hover:text-violet-400"
+                    >
+                        {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+                    </button>
+                </div>
+
+                <nav className="mt-1 flex flex-1 flex-col gap-1 p-2">
+                    {sidebarNav.map(({ id, label, icon: Icon }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => setNavView(id)}
+                            title={!sidebarOpen ? label : undefined}
+                            className={`flex items-center gap-3 rounded-xl text-left text-sm font-medium transition-all ${
+                                sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
+                            } ${
+                                navView === id
+                                    ? 'bg-violet-600 text-white shadow-[0_4px_12px_rgba(139,92,246,0.35)]'
+                                    : 'text-slate-300 hover:bg-slate-700/50'
+                            }`}
+                        >
+                            <Icon size={18} className="flex-shrink-0" />
+                            {sidebarOpen ? <span className="truncate">{label}</span> : null}
+                        </button>
+                    ))}
+                </nav>
+
+                <div className={`border-t border-slate-700/50 ${sidebarOpen ? 'p-4' : 'p-2'}`}>
+                    {sidebarOpen ? (
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2">
+                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-violet-500/30 bg-violet-600/20">
+                                    <Code2 size={13} className="text-violet-400" />
+                                </div>
+                                <div className="min-w-0 overflow-hidden">
+                                    <p className="truncate text-[10px] font-black leading-tight text-slate-300">{currentEmail}</p>
+                                    <p className="truncate text-[9px] font-semibold leading-tight text-violet-400">{currentRoleLabel}</p>
+                                </div>
+                            </div>
+                            <div className="flex flex-col gap-2 border-t border-slate-700/50 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => navigate('/perfil/cambiar-clave')}
+                                    className="flex w-full items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 transition-all hover:bg-slate-700/60 hover:text-white"
+                                >
+                                    <KeyRound size={14} />
+                                    Cambiar contraseña
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSidebarLogout}
+                                    className="flex w-full items-center gap-2 rounded-lg border border-rose-500/30 px-3 py-2 text-xs font-semibold text-rose-400 transition-all hover:bg-rose-500/10 hover:text-rose-300"
+                                >
+                                    <LogOut size={14} />
+                                    Cerrar sesión
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => navigate('/perfil/cambiar-clave')}
+                                title="Cambiar contraseña"
+                                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-700/60"
+                            >
+                                <KeyRound size={13} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleSidebarLogout}
+                                title="Cerrar sesión"
+                                className="flex h-7 w-7 items-center justify-center rounded-lg border border-rose-500/40 text-rose-400 hover:bg-rose-500/10"
+                            >
+                                <LogOut size={13} />
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </aside>
+
+            <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                <ContratacionDashboard token={token} currentView={navView} onNavigate={setNavView} />
+            </section>
+        </div>
+    );
+}
