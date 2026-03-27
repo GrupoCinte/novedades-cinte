@@ -1,5 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+
+const EcosistemaApp = lazy(() => import('./ecosistema/EcosistemaApp'));
 import Dashboard from './Dashboard';
 import FormularioNovedad from './FormularioNovedad';
 import Login from './Login';
@@ -89,6 +91,8 @@ function App() {
   });
   const navigate = useNavigate();
   const location = useLocation();
+  const isEcosistemaRoute = location.pathname.startsWith('/ecosistema');
+  const ecosistemaMockEnabled = import.meta.env.VITE_ENABLE_ECOSISTEMA_MOCK !== 'false';
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isComercialRoute = location.pathname.startsWith('/admin/comercial');
   const isContratacionRoute = location.pathname.startsWith('/admin/contratacion');
@@ -160,6 +164,7 @@ function App() {
     : 'PORTAL DE RADICACIÓN DE NOVEDADES';
   return (
     <div className="h-screen overflow-hidden flex flex-col">
+      {!isEcosistemaRoute ? (
       <header className="bg-[#0f2437]/95 px-8 py-3 border-b border-[#21405f] flex justify-between items-center sticky top-0 z-50 relative">
         <div className="flex items-center">
           <img src="/assets/logo-cinte-header.png" className="h-16 w-auto" alt="CINTE" />
@@ -172,7 +177,8 @@ function App() {
         </div>
         <div className="hidden lg:flex w-[220px]" />
       </header>
-      {auth?.token && isAdminRoute && (
+      ) : null}
+      {auth?.token && isAdminRoute && !isEcosistemaRoute && (
         <div className="bg-[#0b1b2b] border-b border-[#1d3751] px-4 md:px-8 py-2 flex flex-wrap items-center gap-2">
           {showNovedadesNav ? (
             <button
@@ -216,8 +222,28 @@ function App() {
         </div>
       )}
 
-      <main className={`flex-1 ${isAdminRoute ? 'overflow-hidden flex flex-col' : 'w-full overflow-y-auto p-6 md:p-10 bg-[#0f2437]'}`}>
+      <main
+        className={`flex-1 min-h-0 ${
+          isEcosistemaRoute
+            ? 'overflow-hidden flex flex-col bg-[#0b1220]'
+            : isAdminRoute
+              ? 'overflow-hidden flex flex-col'
+              : 'w-full overflow-y-auto p-6 md:p-10 bg-[#0f2437]'
+        }`}
+      >
         <Routes>
+          <Route
+            path="/ecosistema/*"
+            element={
+              ecosistemaMockEnabled ? (
+                <Suspense fallback={<div className="flex-1 flex items-center justify-center text-slate-500 text-sm p-8">Cargando mock Ecosistema…</div>}>
+                  <EcosistemaApp />
+                </Suspense>
+              ) : (
+                <Navigate to="/" replace />
+              )
+            }
+          />
           <Route path="/" element={<FormularioNovedad />} />
           <Route
             path="/admin"
