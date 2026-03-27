@@ -40,7 +40,7 @@ function registerCotizadorRoutes(deps) {
         try {
             const payload = req.body || {};
             const row = await cotizadorStore.saveCotizacion(payload);
-            return res.json({ ok: true, id: row.id, fecha: row.fecha });
+            return res.json({ ok: true, id: row.id, codigo: row.codigo, fecha: row.fecha });
         } catch (error) {
             console.error('Error cotizador/guardar:', error);
             return res.status(500).json({ ok: false, error: 'No se pudo guardar la cotización' });
@@ -78,17 +78,54 @@ function registerCotizadorRoutes(deps) {
         }
     });
 
+    app.get('/api/cotizador/pdf/:id', ...guard, pdfLimiter, async (req, res) => {
+        try {
+            const id = Number(req.params.id);
+            if (!Number.isFinite(id)) {
+                return res.status(400).json({ ok: false, error: 'Identificador de cotización inválido' });
+            }
+            const row = await cotizadorStore.getCotizacionById(id);
+            if (!row?.resultados?.length) {
+                return res.status(404).json({ ok: false, error: 'Cotización no encontrada o sin resultados' });
+            }
+            const payload = {
+                cliente: row.cliente,
+                nit: row.nit,
+                comercial: row.comercial,
+                plazo: row.plazo,
+                margen: row.margen,
+                meses: row.meses,
+                moneda: row.moneda,
+                codigo: row.codigo || '',
+                resultados: row.resultados
+            };
+            const pdfBuffer = await buildCotizacionPdfBuffer(payload);
+            const baseName = row.codigo ? `${String(row.codigo).replace(/[^\w\-]+/g, '_')}.pdf` : `cotizacion_${id}.pdf`;
+            const download = String(req.query.download || '') === '1' || String(req.query.download || '').toLowerCase() === 'true';
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `${download ? 'attachment' : 'inline'}; filename="${baseName}"`);
+            return res.send(pdfBuffer);
+        } catch (error) {
+            console.error('Error cotizador/pdf/:id:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo generar el PDF de la cotización' });
+        }
+    });
+
     app.post('/api/cotizador/pdf', ...guard, pdfLimiter, async (req, res) => {
         try {
-            const payload = req.body || {};
+            const raw = req.body || {};
+            const wantDownload = Boolean(raw.download);
+            const payload = { ...raw };
+            delete payload.download;
             if (!Array.isArray(payload?.resultados) || payload.resultados.length === 0) {
                 return res.status(400).json({ ok: false, error: 'No hay resultados para generar el PDF' });
             }
             const pdfBuffer = await buildCotizacionPdfBuffer(payload);
             const safeClient = String(payload?.cliente || 'cliente').replace(/[^\w\-]+/g, '_').slice(0, 50) || 'cliente';
-            const fileName = `cotizacion_${safeClient}_${Date.now()}.pdf`;
+            const codigo = String(payload?.codigo || '').trim();
+            const fileName = codigo ? `${codigo.replace(/[^\w\-]+/g, '_')}.pdf` : `cotizacion_${safeClient}_${Date.now()}.pdf`;
             res.setHeader('Content-Type', 'application/pdf');
-            res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+            res.setHeader('Content-Disposition', `${wantDownload ? 'attachment' : 'inline'}; filename="${fileName}"`);
             return res.send(pdfBuffer);
         } catch (error) {
             console.error('Error cotizador/pdf:', error);

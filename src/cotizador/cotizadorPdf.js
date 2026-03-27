@@ -27,10 +27,15 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
         const margenPct = Number(cotizacion?.margen || 0) * 100;
         const meses = Number(cotizacion?.meses || 1);
         const resultados = Array.isArray(cotizacion?.resultados) ? cotizacion.resultados : [];
+        const refCodigo = String(cotizacion?.codigo || '').trim();
 
         doc.fontSize(18).fillColor('#0f2437').text('COTIZACION COMERCIAL - CINTE', { align: 'left' });
         doc.moveDown(0.3);
         doc.fontSize(10).fillColor('#475569').text(`Fecha de generacion: ${fmtDate()}`);
+        if (refCodigo) {
+            doc.fontSize(11).fillColor('#0f2437').text(`Referencia: ${refCodigo}`);
+            doc.moveDown(0.2);
+        }
         doc.moveDown(1);
 
         doc.fontSize(11).fillColor('#111827').text(`Cliente: ${cliente}`);
