@@ -7,9 +7,13 @@
     "test": "node --test tests/server.unit.test.js",
     "test:integration": "node --test tests/api.integration.test.js",
     "test:rbac": "node --test tests/rbac.integration.test.js",
-    "test:all": "node --test tests/server.unit.test.js && node --test tests/api.integration.test.js && node --test tests/rbac.integration.test.js"
+    "test:contratacion": "node --test tests/contratacion.integration.test.js",
+    "test:all": "node --test tests/server.unit.test.js && node --test tests/api.integration.test.js && node --test tests/rbac.integration.test.js && node --test tests/contratacion.integration.test.js"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.1006.0",
+    "@aws-sdk/client-dynamodb-streams": "^3.1006.0",
+    "@aws-sdk/lib-dynamodb": "^3.1006.0",
     "@aws-sdk/client-s3": "^3.1006.0",
     "@aws-sdk/s3-request-presigner": "^3.1006.0",
     "aws-jwt-verify": "^5.1.1",
@@ -20,8 +24,11 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.0",
+    "pdfkit": "^0.18.0",
     "pg": "^8.20.0",
-    "xlsx": "^0.18.5"
+    "ws": "^8.18.3",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

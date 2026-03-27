@@ -6,6 +6,9 @@ import Login from './Login';
 import ForgotPassword from './ForgotPassword';
 import ResetPassword from './ResetPassword';
 import ChangePassword from './ChangePassword';
+import ComercialModule from './ComercialModule';
+import ContratacionModule from './ContratacionModule';
+import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { cognitoGetCurrentAuthData, cognitoSignOut } from './cognitoAuth';
 import ROLE_PRIORITY from './constants/rolePriority.json';
 
@@ -86,6 +89,9 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith('/admin');
+  const isComercialRoute = location.pathname.startsWith('/admin/comercial');
+  const isContratacionRoute = location.pathname.startsWith('/admin/contratacion');
+  const showContratacionNav = auth?.token && userHasContratacionPanel(auth.token);
 
   const handleLogout = useCallback(() => {
     cognitoSignOut();
@@ -163,6 +169,45 @@ function App() {
         </div>
         <div className="hidden lg:flex w-[220px]" />
       </header>
+      {auth?.token && isAdminRoute && (
+        <div className="bg-[#0b1b2b] border-b border-[#1d3751] px-4 md:px-8 py-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/admin')}
+            className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
+              !isComercialRoute && !isContratacionRoute
+                ? 'bg-blue-600 text-white'
+                : 'bg-[#162a3d] text-[#9fb3c8] hover:text-white hover:bg-[#1e364d]'
+            }`}
+          >
+            Gestión de Novedades
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/admin/comercial')}
+            className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
+              isComercialRoute
+                ? 'bg-emerald-600 text-white'
+                : 'bg-[#162a3d] text-[#9fb3c8] hover:text-white hover:bg-[#1e364d]'
+            }`}
+          >
+            Módulo Comercial
+          </button>
+          {showContratacionNav ? (
+            <button
+              type="button"
+              onClick={() => navigate('/admin/contratacion')}
+              className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
+                isContratacionRoute
+                  ? 'bg-violet-600 text-white'
+                  : 'bg-[#162a3d] text-[#9fb3c8] hover:text-white hover:bg-[#1e364d]'
+              }`}
+            >
+              Módulo de Capital Humano Onboarding
+            </button>
+          ) : null}
+        </div>
+      )}
 
       <main className={`flex-1 ${isAdminRoute ? 'overflow-hidden flex flex-col' : 'w-full overflow-y-auto p-6 md:p-10 bg-[#0f2437]'}`}>
         <Routes>
@@ -178,6 +223,27 @@ function App() {
               </ProtectedRoute>
             )}
           />
+          <Route
+            path="/admin/comercial"
+            element={(
+              <ProtectedRoute>
+                <ComercialModule token={auth?.token || ''} onLogout={handleLogout} />
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/contratacion"
+            element={(
+              <ProtectedRoute>
+                {auth?.token && userHasContratacionPanel(auth.token) ? (
+                  <ContratacionModule token={auth.token} onLogout={handleLogout} />
+                ) : (
+                  <Navigate to="/admin" replace />
+                )}
+              </ProtectedRoute>
+            )}
+          />
+          <Route path="/admin/cotizador" element={<Navigate to="/admin/comercial" replace />} />
           <Route path="*" element={<Navigate to={auth?.token ? '/admin' : '/'} replace />} />
         </Routes>
       </main>

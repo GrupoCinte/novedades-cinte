@@ -1,10 +1,10 @@
 const POLICY = {
-    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin'], viewAllAreas: true },
-    admin_ch: { panels: ['dashboard', 'calendar', 'gestion'] },
-    team_ch: { panels: ['dashboard', 'calendar', 'gestion'] },
+    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion'], viewAllAreas: true },
+    admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
+    team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
     admin_ops: { panels: ['dashboard', 'calendar'] },
-    gp: { panels: ['dashboard', 'calendar', 'gestion'] },
-    nomina: { panels: ['dashboard', 'calendar', 'gestion'] },
+    gp: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
+    nomina: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
     sst: { panels: ['dashboard', 'calendar', 'gestion'] }
 };
 
