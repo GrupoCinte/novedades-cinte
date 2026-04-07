@@ -48,7 +48,7 @@ async function main() {
         console.error('No existe:', excelPath);
         process.exit(1);
     }
-    const store = createCotizadorStore({ pool, fs });
+    const store = createCotizadorStore({ pool });
     await store.ensureReady();
     const aliasRows = await store.getImportAliases();
 
