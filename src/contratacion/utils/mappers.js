@@ -143,7 +143,5 @@ function mapDynamoItemToExecution(data) {
 }
 
 module.exports = {
-    normalizeStatus,
-    mapStatusToId,
     mapDynamoItemToExecution
 };

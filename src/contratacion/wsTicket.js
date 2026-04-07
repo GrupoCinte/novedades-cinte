@@ -28,6 +28,5 @@ function verifyContratacionWsTicket(wsSecret, token) {
 
 module.exports = {
     signContratacionWsTicket,
-    verifyContratacionWsTicket,
-    CLAIM_TYP
+    verifyContratacionWsTicket
 };

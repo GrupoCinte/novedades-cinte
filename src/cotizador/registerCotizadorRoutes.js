@@ -1,5 +1,6 @@
 const { calcularCotizacion, generarDashboardData } = require('./cotizadorEngine');
 const { buildCotizacionPdfBuffer } = require('./cotizadorPdf');
+const { resolveCargosLista } = require('./resolveCargosLista');
 
 function registerCotizadorRoutes(deps) {
     const {
@@ -9,7 +10,8 @@ function registerCotizadorRoutes(deps) {
         adminActionLimiter,
         pdfLimiter,
         catalogLimiter,
-        cotizadorStore
+        cotizadorStore,
+        getClientesList
     } = deps;
 
     const guard = [verificarToken, allowAnyPanel(['dashboard', 'gestion', 'comercial', 'admin'])];
@@ -24,11 +26,43 @@ function registerCotizadorRoutes(deps) {
         }
     });
 
+    /** Clientes = mismos que el formulario de novedades (`clientes_lideres`), no solo JSON del cotizador. */
+    app.get('/api/cotizador/clientes-formulario', ...guard, catalogLimiter, async (req, res) => {
+        try {
+            if (typeof getClientesList !== 'function') {
+                return res.status(500).json({ ok: false, error: 'Catálogo de clientes no disponible' });
+            }
+            const names = await getClientesList();
+            const items = (Array.isArray(names) ? names : []).map((n) => ({
+                nombre: String(n || '').trim(),
+                nit: ''
+            })).filter((x) => x.nombre);
+            return res.json({ ok: true, items });
+        } catch (error) {
+            console.error('Error cotizador/clientes-formulario:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudieron cargar clientes' });
+        }
+    });
+
     app.post('/api/cotizador/cotizar', ...guard, adminActionLimiter, async (req, res) => {
         try {
             const payload = req.body || {};
             const catalogos = await cotizadorStore.getCatalogos();
-            const result = calcularCotizacion(payload, catalogos);
+            const cargos = resolveCargosLista(catalogos, payload?.cliente);
+            const cliente = String(payload?.cliente || '').trim();
+            const perfilesBody = Array.isArray(payload?.perfiles) ? payload.perfiles : [];
+            const permiteSinTarifasCatalogo = perfilesBody.some(
+                (p) =>
+                    String(p?.modo || '').toUpperCase() === 'MANUAL' &&
+                    String(p?.cargo_manual || '').trim().length > 0
+            );
+            if (cliente && cargos.length === 0 && !permiteSinTarifasCatalogo) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Sin tarifas configuradas para el cliente seleccionado.'
+                });
+            }
+            const result = calcularCotizacion(payload, { ...catalogos, cargos });
             return res.json({ ok: true, ...result });
         } catch (error) {
             const status = Number(error?.status || 500);

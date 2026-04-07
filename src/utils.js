@@ -93,7 +93,6 @@ function decodeJwtPayload(token) {
 module.exports = {
     parseDateOrNull,
     parseTimeOrNull,
-    parseIsoOrNull,
     normalizeCatalogValue,
     normalizeCedula,
     normalizeEstado,

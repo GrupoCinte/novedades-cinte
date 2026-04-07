@@ -198,7 +198,6 @@ module.exports = {
     normalizeRoleOrNull,
     resolveRoleFromGroups,
     getAreaFromRole,
-    normalizeNovedadTypeKey,
     getNovedadRuleByType,
     canRoleViewType,
     canRoleApproveType,

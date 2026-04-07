@@ -431,7 +431,8 @@ registerCotizadorRoutes({
     adminActionLimiter,
     pdfLimiter,
     catalogLimiter,
-    cotizadorStore
+    cotizadorStore,
+    getClientesList
 });
 
 registerContratacionRoutes({

@@ -58,7 +58,7 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
         doc.text('Cant.', cols[1], y, { width: 40, align: 'right' });
         doc.text('Tarifa Mes', cols[2], y, { width: 90, align: 'right' });
         doc.text('Tarifa Hora', cols[3], y, { width: 80, align: 'right' });
-        doc.text('Modo', cols[4], y, { width: 70, align: 'right' });
+        doc.text('Subtotal', cols[4], y, { width: 85, align: 'right' });
         y += 16;
         doc.moveTo(startX, y - 4).lineTo(555, y - 4).strokeColor('#cbd5e1').stroke();
 
@@ -71,13 +71,14 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
             }
             const cant = Number(item?.cantidad || 1);
             const tarifaMes = Number(item?.tarifa_mes || 0);
-            total += tarifaMes * cant * meses;
+            const subtotal = tarifaMes * cant * meses;
+            total += subtotal;
 
             doc.fontSize(9).text(String(item?.cargo || '-'), cols[0], y, { width: 180 });
             doc.text(String(cant), cols[1], y, { width: 40, align: 'right' });
             doc.text(money(tarifaMes, moneda), cols[2], y, { width: 90, align: 'right' });
             doc.text(money(item?.tarifa_hora || 0, moneda), cols[3], y, { width: 80, align: 'right' });
-            doc.text(String(item?.modo || 'AUTO'), cols[4], y, { width: 70, align: 'right' });
+            doc.text(money(subtotal, moneda), cols[4], y, { width: 85, align: 'right' });
             y += 16;
         }
 

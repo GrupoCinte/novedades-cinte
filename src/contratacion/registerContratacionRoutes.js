@@ -203,4 +203,4 @@ function registerContratacionRoutes(deps) {
     );
 }
 
-module.exports = { registerContratacionRoutes, buildKpiBaseline, createDynamoDocClient };
+module.exports = { registerContratacionRoutes };

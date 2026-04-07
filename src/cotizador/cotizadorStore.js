@@ -3,6 +3,8 @@ const path = require('path');
 function createCotizadorStore(deps) {
     const { pool, fs } = deps;
     const seedPath = path.join(process.cwd(), 'data', 'cotizador', 'catalogos.json');
+    /** DDL + seed solo al arrancar el proceso; no repetir en cada GET (evita locks y sensación de “reinicios”). */
+    let initDone = false;
 
     function mapCotizacionRow(r) {
         const fromResumen = (r.resumen && typeof r.resumen === 'object') ? r.resumen : {};
@@ -57,7 +59,11 @@ function createCotizadorStore(deps) {
             await pool.query(`UPDATE cotizador_cotizaciones SET codigo = $1 WHERE id = $2`, [codigo, row.id]);
         }
 
-        await pool.query(`SELECT setval('cotizador_public_code_seq', $1::bigint, true)`, [Math.max(nextNum, 0)]);
+        if (nextNum <= 0) {
+            await pool.query(`SELECT setval('cotizador_public_code_seq', 1, false)`);
+        } else {
+            await pool.query(`SELECT setval('cotizador_public_code_seq', $1::bigint, true)`, [nextNum]);
+        }
     }
 
     async function ensureSchema() {
@@ -97,6 +103,44 @@ function createCotizadorStore(deps) {
         await pool.query('CREATE INDEX IF NOT EXISTS idx_cotizador_cotizaciones_created_at ON cotizador_cotizaciones(created_at DESC)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_cotizador_items_cotizacion ON cotizador_cotizacion_items(cotizacion_id)');
         await ensureCodigoYSecuencia();
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS cotizador_import_alias (
+                hoja_excel TEXT PRIMARY KEY,
+                tipo TEXT NOT NULL CHECK (tipo IN ('MAPEO', 'DIRECTV', 'CREAR')),
+                cliente TEXT NOT NULL,
+                pais_directv TEXT NULL,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        `);
+    }
+
+    /** Valores por defecto del import Excel (editar en BD: UPDATE/INSERT en cotizador_import_alias). */
+    async function seedCotizadorImportAliasDefaults() {
+        const filas = [
+            ['AVC - Gou Payments', 'MAPEO', 'AVC', null],
+            ['Banco Falabella', 'MAPEO', 'FALABELLA BANCO', null],
+            ['Banco Occidente', 'MAPEO', 'BANCO DE OCCIDENTE', null],
+            ['Consorcio EPS', 'MAPEO', 'CONSORCIO', null],
+            ['Dichter', 'CREAR', 'DICHTER', null],
+            ['Directv Chile', 'DIRECTV', 'DIRECTV', 'Chile'],
+            ['Directv Peru', 'DIRECTV', 'DIRECTV', 'Perú'],
+            ['Directv Colombia', 'DIRECTV', 'DIRECTV', 'Colombia'],
+            ['Experian Colombia', 'MAPEO', 'EXPERIAN', null],
+            ['IBM Peru', 'CREAR', 'IBM PERU', null],
+            ['Inchcape', 'CREAR', 'INCHCAPE', null],
+            ['Plurall', 'CREAR', 'PLURALL', null],
+            ['Seguros Alfa', 'MAPEO', 'ALFA', null],
+            ['Seguros Falabella', 'MAPEO', 'AGENCIA DE SEGUROS FALABELLA', null],
+            ['TransUnión Chile', 'CREAR', 'TRANSUNIÓN CHILE', null]
+        ];
+        for (const [hoja, tipo, cliente, pais] of filas) {
+            await pool.query(
+                `INSERT INTO cotizador_import_alias (hoja_excel, tipo, cliente, pais_directv)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (hoja_excel) DO NOTHING`,
+                [hoja, tipo, cliente, pais]
+            );
+        }
     }
 
     async function seedCatalogosIfEmpty() {
@@ -105,24 +149,57 @@ function createCotizadorStore(deps) {
         if (!fs.existsSync(seedPath)) return;
         const raw = await fs.promises.readFile(seedPath, 'utf8');
         const seed = JSON.parse(raw);
-        const keys = ['clientes', 'cargos', 'comerciales', 'parametros', 'equipos', 'gto_vinculacion', 'staff_cinte', 'factores_he'];
+        const keys = [
+            'clientes',
+            'cargos',
+            'cargos_por_cliente',
+            'comerciales',
+            'parametros',
+            'equipos',
+            'gto_vinculacion',
+            'staff_cinte',
+            'factores_he'
+        ];
         for (const key of keys) {
+            const fallback = key === 'cargos_por_cliente' ? {} : key === 'cargos' ? [] : null;
             await pool.query(
                 `INSERT INTO cotizador_catalogos (key, payload, updated_at)
                  VALUES ($1, $2::jsonb, NOW())
                  ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-                [key, JSON.stringify(seed?.[key] ?? null)]
+                [key, JSON.stringify(seed?.[key] ?? fallback)]
             );
         }
     }
 
+    async function ensureCargosPorClienteKey() {
+        const r = await pool.query(`SELECT 1 FROM cotizador_catalogos WHERE key = 'cargos_por_cliente' LIMIT 1`);
+        if (r.rowCount > 0) return;
+        await pool.query(
+            `INSERT INTO cotizador_catalogos (key, payload, updated_at) VALUES ('cargos_por_cliente', '{}'::jsonb, NOW())`
+        );
+    }
+
     async function ensureReady() {
+        if (initDone) return;
         await ensureSchema();
         await seedCatalogosIfEmpty();
+        await ensureCargosPorClienteKey();
+        await seedCotizadorImportAliasDefaults();
+        initDone = true;
+    }
+
+    async function getImportAliases() {
+        await ensureReady();
+        const q = await pool.query(
+            `SELECT hoja_excel, tipo, cliente, pais_directv FROM cotizador_import_alias ORDER BY hoja_excel ASC`
+        );
+        return q.rows;
     }
 
     async function getCatalogos() {
         await ensureReady();
+        /** Garantiza la fila aunque el proceso arrancara con código viejo o sin pasar por ensureReady completo. */
+        await ensureCargosPorClienteKey();
         const q = await pool.query('SELECT key, payload FROM cotizador_catalogos');
         const out = {};
         for (const row of q.rows) out[row.key] = row.payload;
@@ -243,8 +320,8 @@ function createCotizadorStore(deps) {
 
     return {
         ensureReady,
-        ensureSchema,
         getCatalogos,
+        getImportAliases,
         getHistorial,
         getCotizacionById,
         saveCotizacion,

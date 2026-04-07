@@ -11,7 +11,7 @@ import ContratacionModule from './ContratacionModule';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
 import { cognitoGetCurrentAuthData, cognitoSignOut } from './cognitoAuth';
-import ROLE_PRIORITY from './constants/rolePriority.json';
+
 
 function readAuth() {
   try {
@@ -65,16 +65,6 @@ function ProtectedRoute({ children }) {
     return <Navigate to="/admin" replace />;
   }
   return children;
-}
-
-function resolveRoleFromAuth(auth) {
-  const directRole = auth?.user?.role || auth?.claims?.role || '';
-  if (directRole) return String(directRole).toLowerCase();
-
-  const groupsClaim = auth?.claims?.['cognito:groups'];
-  const groups = Array.isArray(groupsClaim) ? groupsClaim : (groupsClaim ? [groupsClaim] : []);
-  const normalizedGroups = groups.map((g) => String(g || '').toLowerCase());
-  return ROLE_PRIORITY.find((role) => normalizedGroups.includes(role)) || '';
 }
 
 function App() {

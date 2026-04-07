@@ -142,11 +142,31 @@ function calcularCotizacion(payload, catalogos) {
     }
 
     for (const p of perfiles) {
-        const idx = Number(p?.indice);
-        if (!Number.isInteger(idx) || idx < 0 || idx >= cargos.length) continue;
+        const modoPerfil = String(p?.modo || 'AUTO').toUpperCase();
         const cantidad = Math.max(1, Number(p?.cantidad || 1));
+        let cargoData;
+
+        if (modoPerfil === 'MANUAL') {
+            const nombreCargo = String(p?.cargo_manual || '').trim();
+            if (!nombreCargo) continue;
+            cargoData = {
+                cargo: nombreCargo,
+                salario: 0,
+                auxilios: 0,
+                plan_compl: 0,
+                aux_transporte: 0,
+                ss: 0,
+                prestaciones: 0,
+                equipo_tipo: '1'
+            };
+        } else {
+            const idx = Number(p?.indice);
+            if (!Number.isInteger(idx) || idx < 0 || idx >= cargos.length) continue;
+            cargoData = cargos[idx];
+        }
+
         const item = calcularTarifa({
-            cargoData: cargos[idx],
+            cargoData,
             parametros,
             equipos,
             gtoVinculacion: safeNumber(catalogos?.gto_vinculacion),
@@ -154,11 +174,17 @@ function calcularCotizacion(payload, catalogos) {
             plazo: String(payload?.plazo || '45'),
             margen,
             moneda: String(payload?.moneda || 'COP'),
-            modo: String(p?.modo || 'AUTO'),
+            modo: modoPerfil === 'MANUAL' ? 'MANUAL' : 'AUTO',
             salarioManual: p?.salario_manual
         });
         item.cantidad = cantidad;
         resultados.push(item);
+    }
+
+    if (resultados.length === 0) {
+        const err = new Error('No hay perfiles válidos para cotizar');
+        err.status = 400;
+        throw err;
     }
 
     return {
@@ -255,10 +281,8 @@ function generarDashboardData(historial = []) {
 }
 
 module.exports = {
-    safeNumber,
     calcularSsDinamico,
     calcularPrestacionesDinamico,
-    calcularTarifa,
     calcularCotizacion,
     generarDashboardData
 };
