@@ -4,11 +4,12 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test tests/server.unit.test.js",
-    "test:integration": "node --test tests/api.integration.test.js",
+    "test": "node --test tests/cotizador.resolveCargosLista.test.js tests/clienteNombreMatch.test.js",
     "test:rbac": "node --test tests/rbac.integration.test.js",
-    "test:contratacion": "node --test tests/contratacion.integration.test.js",
-    "test:all": "node --test tests/server.unit.test.js && node --test tests/api.integration.test.js && node --test tests/rbac.integration.test.js && node --test tests/contratacion.integration.test.js"
+    "test:all": "node --test tests/cotizador.resolveCargosLista.test.js tests/clienteNombreMatch.test.js tests/rbac.integration.test.js",
+    "import:cotizador-cargos": "node scripts/import-cotizador-cargos-excel.js",
+    "audit:cotizador-cargos": "node scripts/audit-cotizador-cargos-bd.js",
+    "smoke:cotizador": "node scripts/smoke-cotizador-getCatalogos.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1006.0",
@@ -30,13 +31,5 @@
     "xlsx": "^0.18.5",
     "zod": "^3.24.2"
   },
-  "devDependencies": {
-    "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
-    "@vitest/coverage-v8": "^4.1.0",
-    "jsdom": "^28.1.0",
-    "supertest": "^7.2.2",
-    "vitest": "^4.1.0"
-  }
+  "devDependencies": {}
 }

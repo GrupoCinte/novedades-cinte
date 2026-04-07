@@ -1,6 +1,4 @@
-function money(value) {
-    return `$ ${Math.round(Number(value || 0)).toLocaleString('es-CO')}`;
-}
+import { formatMoney } from './salarioFormat';
 
 export default function CotizadorHistorial({
     historial,
@@ -38,7 +36,7 @@ export default function CotizadorHistorial({
                                     <td className="py-2">{it.cliente || '-'}</td>
                                     <td className="py-2">{it.comercial || '-'}</td>
                                     <td className="py-2 text-right">
-                                        {it.resultados?.length || 0} ({money(total)})
+                                        {it.resultados?.length || 0} ({formatMoney(total)})
                                     </td>
                                     <td className="py-2 text-right whitespace-nowrap">
                                         <button

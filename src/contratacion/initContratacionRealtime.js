@@ -77,4 +77,4 @@ function shutdownContratacionRealtime() {
     }
 }
 
-module.exports = { initContratacionRealtime, shutdownContratacionRealtime };
+module.exports = { initContratacionRealtime };

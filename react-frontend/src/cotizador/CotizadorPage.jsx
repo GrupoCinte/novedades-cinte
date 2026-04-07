@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { resolveCargosLista } from './resolveCargosLista';
+import { parseSalarioLoose } from './salarioFormat';
 import CotizadorForm from './CotizadorForm';
 import CotizadorResultados from './CotizadorResultados';
 import CotizadorHistorial from './CotizadorHistorial';
@@ -13,8 +15,15 @@ async function api(path, token, options = {}) {
             ...(options.headers || {})
         }
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data?.ok === false) throw new Error(data?.error || 'Error en cotizador');
+    if (!res.ok) {
+        let msg = `Error HTTP ${res.status}`;
+        try {
+            const j = await res.json();
+            if (j?.error) msg = j.error;
+        } catch { /* body not JSON */ }
+        throw new Error(msg);
+    }
+    const data = await res.json();
     return data;
 }
 
@@ -24,6 +33,7 @@ export default function CotizadorPage({ token, embedded = false }) {
     const [deletingId, setDeletingId] = useState(null);
     const [descargandoPdf, setDescargandoPdf] = useState(false);
     const [catalogos, setCatalogos] = useState(null);
+    const [clientesLista, setClientesLista] = useState([]);
     const [historial, setHistorial] = useState([]);
     const [dashboard, setDashboard] = useState({});
     const [error, setError] = useState('');
@@ -36,36 +46,26 @@ export default function CotizadorPage({ token, embedded = false }) {
         margenPct: 30,
         meses: 12,
         moneda: 'COP',
-        perfiles: [{ indice: 0, cantidad: 1, modo: 'AUTO', salario_manual: '' }]
+        perfiles: [{ indice: 0, cantidad: 1, modo: 'AUTO', salario_manual: '', cargo_manual: '' }]
     });
 
-    const payload = useMemo(() => {
-        const margen = Number(form.margenPct || 0) / 100;
-        const clienteObj = (catalogos?.clientes || []).find((c) => c.nombre === form.cliente) || {};
-        return {
-            cliente: form.cliente,
-            nit: clienteObj.nit || '',
-            comercial: form.comercial,
-            plazo: form.plazo,
-            margen,
-            meses: Number(form.meses || 1),
-            moneda: form.moneda,
-            tasa_conversion: Number(catalogos?.parametros?.monedas?.[form.moneda]?.tasa || 1),
-            nombre_moneda: catalogos?.parametros?.monedas?.[form.moneda]?.nombre || form.moneda,
-            perfiles: form.perfiles
-        };
-    }, [form, catalogos]);
+    const cargosResueltos = useMemo(
+        () => resolveCargosLista(catalogos || {}, form.cliente),
+        [catalogos, form.cliente]
+    );
 
     const loadAll = async () => {
         if (!token) return;
-        const [cat, his, dash] = await Promise.all([
+        const [cat, his, dash, cli] = await Promise.all([
             api('/api/cotizador/catalogos', token),
             api('/api/cotizador/historial', token),
-            api('/api/cotizador/dashboard', token)
+            api('/api/cotizador/dashboard', token),
+            api('/api/cotizador/clientes-formulario', token).catch(() => ({ items: [] }))
         ]);
         setCatalogos(cat);
         setHistorial(Array.isArray(his.items) ? his.items : []);
         setDashboard(dash || {});
+        setClientesLista(Array.isArray(cli.items) ? cli.items : []);
     };
 
     useEffect(() => {
@@ -77,13 +77,34 @@ export default function CotizadorPage({ token, embedded = false }) {
         setError('');
         setLoading(true);
         try {
+            const margen = Number(form.margenPct || 0) / 100;
+            const lista = clientesLista.length > 0 ? clientesLista : (catalogos?.clientes || []);
+            const clienteObj = lista.find((c) => c.nombre === form.cliente) || {};
+            const perfilesNorm = (form.perfiles || []).map((p) => {
+                if (String(p?.modo || 'AUTO').toUpperCase() === 'MANUAL') {
+                    return { ...p, salario_manual: parseSalarioLoose(p.salario_manual) };
+                }
+                return p;
+            });
+            const body = {
+                cliente: form.cliente,
+                nit: clienteObj.nit || '',
+                comercial: form.comercial,
+                plazo: form.plazo,
+                margen,
+                meses: Number(form.meses || 1),
+                moneda: form.moneda,
+                tasa_conversion: Number(catalogos?.parametros?.monedas?.[form.moneda]?.tasa || 1),
+                nombre_moneda: catalogos?.parametros?.monedas?.[form.moneda]?.nombre || form.moneda,
+                perfiles: perfilesNorm
+            };
             const out = await api('/api/cotizador/cotizar', token, {
                 method: 'POST',
-                body: JSON.stringify(payload)
+                body: JSON.stringify(body)
             });
             setCotizacion(out);
         } catch (e) {
-            setError(e.message);
+            setError(e?.message || String(e));
         } finally {
             setLoading(false);
         }
@@ -173,7 +194,6 @@ export default function CotizadorPage({ token, embedded = false }) {
             return;
         }
 
-        /** Ventana abierta en el mismo “tick” del click; si se hace después del await, muchos navegadores bloquean. */
         let previewTab = null;
         if (mode !== 'download') {
             previewTab = window.open('about:blank', '_blank');
@@ -184,7 +204,7 @@ export default function CotizadorPage({ token, embedded = false }) {
             try {
                 previewTab.document.title = 'Cargando PDF…';
             } catch {
-                // ignorar (origen distinto al abrir)
+                // ignorar
             }
         }
 
@@ -261,7 +281,15 @@ export default function CotizadorPage({ token, embedded = false }) {
             </div>
             {error && <div className="mb-4 border border-rose-500/30 bg-rose-900/20 text-rose-200 rounded p-3">{error}</div>}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                <CotizadorForm catalogos={catalogos || {}} form={form} setForm={setForm} onCotizar={onCotizar} loading={loading} />
+                <CotizadorForm
+                    catalogos={catalogos || {}}
+                    cargosResueltos={cargosResueltos}
+                    clientesLista={clientesLista}
+                    form={form}
+                    setForm={setForm}
+                    onCotizar={onCotizar}
+                    loading={loading}
+                />
                 <CotizadorResultados
                     cotizacion={cotizacion}
                     token={token}
@@ -282,4 +310,3 @@ export default function CotizadorPage({ token, embedded = false }) {
         </div>
     );
 }
-

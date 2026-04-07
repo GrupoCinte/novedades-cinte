@@ -1,11 +1,5 @@
 import { useEffect, useState } from 'react';
-
-function money(value, moneda = 'COP') {
-    const n = Number(value || 0);
-    if (moneda === 'USD') return `US$ ${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
-    if (moneda === 'CLP') return `CLP ${Math.round(n).toLocaleString('es-CL')}`;
-    return `$ ${Math.round(n).toLocaleString('es-CO')}`;
-}
+import { formatMoney } from './salarioFormat';
 
 export default function CotizadorResultados({
     cotizacion,
@@ -128,20 +122,25 @@ export default function CotizadorResultados({
                             <th className="text-right py-2">Tarifa mes</th>
                             <th className="text-right py-2">Tarifa día</th>
                             <th className="text-right py-2">Tarifa hora</th>
-                            <th className="text-right py-2">Modo</th>
+                            <th className="text-right py-2">Subtotal</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {cotizacion.resultados.map((r, idx) => (
-                            <tr key={`${r.cargo}-${idx}`} className="border-b border-slate-800 text-slate-200">
-                                <td className="py-2">{r.cargo}</td>
-                                <td className="py-2 text-right">{r.cantidad}</td>
-                                <td className="py-2 text-right">{money(r.tarifa_mes, r.moneda)}</td>
-                                <td className="py-2 text-right">{money(r.tarifa_dia, r.moneda)}</td>
-                                <td className="py-2 text-right">{money(r.tarifa_hora, r.moneda)}</td>
-                                <td className="py-2 text-right">{r.modo}</td>
-                            </tr>
-                        ))}
+                        {cotizacion.resultados.map((r, idx) => {
+                            const cant = Number(r.cantidad || 1);
+                            const meses = Number(cotizacion.meses || 1);
+                            const subtotal = Number(r.tarifa_mes || 0) * cant * meses;
+                            return (
+                                <tr key={`${r.cargo}-${idx}`} className="border-b border-slate-800 text-slate-200">
+                                    <td className="py-2">{r.cargo}</td>
+                                    <td className="py-2 text-right">{r.cantidad}</td>
+                                    <td className="py-2 text-right">{formatMoney(r.tarifa_mes, r.moneda)}</td>
+                                    <td className="py-2 text-right">{formatMoney(r.tarifa_dia, r.moneda)}</td>
+                                    <td className="py-2 text-right">{formatMoney(r.tarifa_hora, r.moneda)}</td>
+                                    <td className="py-2 text-right font-semibold">{formatMoney(subtotal, r.moneda)}</td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>

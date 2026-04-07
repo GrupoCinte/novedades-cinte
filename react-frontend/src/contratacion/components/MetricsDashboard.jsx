@@ -162,7 +162,7 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
                         className="mt-4 rounded-xl border p-4"
                         style={{
                             borderColor: (stageColors[selected?.stageKey] || '#08bdc6') + '55',
-                            background: 'rgba(15, 23, 42, 0.35)',
+                            background: 'rgba(15,36,55,0.2)',
                         }}
                     >
                         <p className="text-[11px] uppercase tracking-wider text-[rgba(159,179,200,0.95)]">
