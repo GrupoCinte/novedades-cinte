@@ -5,6 +5,8 @@ function registerRoutes(deps) {
         forgotLimiter,
         submitLimiter,
         catalogLimiter,
+        normalizeCedula,
+        getColaboradorByCedula,
         verificarToken,
         isStrongPassword,
         COGNITO_ENABLED,
@@ -46,8 +48,86 @@ function registerRoutes(deps) {
         normalizeEstado,
         canRoleApproveType,
         FRONTEND_URL,
-        POLICY
+        POLICY,
+        xlsx
     } = deps;
+
+    const HORA_DIURNA_INICIO_MIN = 6 * 60;
+    const HORA_NOCTURNA_INICIO_MIN = 19 * 60;
+
+    function parseDateAtUtcStart(value) {
+        if (!value) return null;
+        const dateValue = new Date(`${value}T00:00:00Z`);
+        if (Number.isNaN(dateValue.getTime())) return null;
+        return dateValue;
+    }
+
+    function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
+        const start = parseDateAtUtcStart(startDateRaw);
+        const end = parseDateAtUtcStart(endDateRaw);
+        if (!start || !end || end < start) return 0;
+        let count = 0;
+        const cursor = new Date(start);
+        while (cursor <= end) {
+            const day = cursor.getUTCDay();
+            if (day !== 0 && day !== 6) count += 1; // Sunday/Saturday excluded.
+            cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        return count;
+    }
+
+    function toUtcMs(dateRaw, timeRaw) {
+        if (!dateRaw || !timeRaw) return null;
+        const normalizedTime = String(timeRaw).slice(0, 8);
+        const dateMs = Date.parse(`${dateRaw}T${normalizedTime}Z`);
+        return Number.isNaN(dateMs) ? null : dateMs;
+    }
+
+    function calculateHourSplit(dateStartRaw, timeStartRaw, dateEndRaw, timeEndRaw) {
+        const startMs = toUtcMs(dateStartRaw, timeStartRaw);
+        const endMs = toUtcMs(dateEndRaw, timeEndRaw);
+        if (startMs === null || endMs === null || endMs <= startMs) {
+            return { total: 0, diurnas: 0, nocturnas: 0 };
+        }
+
+        let diurnasMin = 0;
+        let nocturnasMin = 0;
+        const minuteMs = 60 * 1000;
+        for (let tick = startMs; tick < endMs; tick += minuteMs) {
+            const current = new Date(tick);
+            const minuteOfDay = (current.getUTCHours() * 60) + current.getUTCMinutes();
+            if (minuteOfDay >= HORA_DIURNA_INICIO_MIN && minuteOfDay < HORA_NOCTURNA_INICIO_MIN) {
+                diurnasMin += 1;
+            } else {
+                nocturnasMin += 1;
+            }
+        }
+
+        const diurnas = Number((diurnasMin / 60).toFixed(2));
+        const nocturnas = Number((nocturnasMin / 60).toFixed(2));
+        return {
+            total: Number(((diurnasMin + nocturnasMin) / 60).toFixed(2)),
+            diurnas,
+            nocturnas
+        };
+    }
+
+    function resolveHoraExtraLabel(diurnas, nocturnas) {
+        if (diurnas > 0 && nocturnas > 0) return 'Mixta';
+        if (diurnas > 0) return 'Diurna';
+        if (nocturnas > 0) return 'Nocturna';
+        return null;
+    }
+
+    async function streamToBuffer(stream) {
+        if (!stream) return Buffer.alloc(0);
+        if (Buffer.isBuffer(stream)) return stream;
+        const chunks = [];
+        for await (const chunk of stream) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        return Buffer.concat(chunks);
+    }
 
     app.post('/api/login', authLimiter, async (req, res) => {
         try {
@@ -329,9 +409,10 @@ function registerRoutes(deps) {
             const tipo = String(req.query.tipo || '').trim();
             const estado = String(req.query.estado || '').trim();
             const correo = String(req.query.correo || '').trim();
+            const cliente = String(req.query.cliente || '').trim();
             const sortBy = String(req.query.sortBy || '').trim();
             const sortDir = String(req.query.sortDir || '').trim();
-            const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, sortBy, sortDir });
+            const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, cliente, sortBy, sortDir });
             const page = Math.max(1, Number(req.query.page || 1));
             const limitRaw = Number(req.query.limit || 0);
             const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 0;
@@ -363,21 +444,25 @@ function registerRoutes(deps) {
             const tipo = String(req.query.tipo || '').trim();
             const estado = String(req.query.estado || '').trim();
             const correo = String(req.query.correo || '').trim();
+            const cliente = String(req.query.cliente || '').trim();
             const sortBy = String(req.query.sortBy || '').trim();
             const sortDir = String(req.query.sortDir || '').trim();
-            const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, sortBy, sortDir });
+            const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, cliente, sortBy, sortDir });
             const items = rows.map(toClientNovedad);
-            const headers = ['Fecha Creación', 'Nombre', 'Cédula', 'Correo', 'Tipo Novedad', 'Fecha Inicio', 'Fecha Fin', 'Horas', 'Turno', 'Estado'];
+            const headers = ['Fecha Creación', 'Nombre', 'Cédula', 'Correo', 'Cliente', 'Tipo Novedad', 'Fecha Inicio', 'Fecha Fin', 'Horas', 'Horas Diurnas', 'Horas Nocturnas', 'Turno', 'Estado'];
             const csvEscape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
             const csvRows = items.map((it) => [
                 new Date(it.creadoEn).toLocaleString('es-ES'),
                 it.nombre,
                 it.cedula,
                 it.correoSolicitante || '',
+                it.cliente || '',
                 it.tipoNovedad,
                 it.fechaInicio || '',
                 it.fechaFin || '',
                 it.cantidadHoras || '0',
+                it.horasDiurnas || '0',
+                it.horasNocturnas || '0',
                 it.tipoHoraExtra || 'N/A',
                 it.estado
             ]);
@@ -411,6 +496,23 @@ function registerRoutes(deps) {
         } catch (error) {
             console.error('Error catalogo lideres:', error);
             return res.status(500).json({ ok: false, error: 'No se pudo consultar catalogo de lideres' });
+        }
+    });
+
+    app.get('/api/catalogos/colaborador', catalogLimiter, async (req, res) => {
+        try {
+            const cedula = normalizeCedula(req.query?.cedula || '');
+            if (!cedula) {
+                return res.status(400).json({ ok: false, error: 'Cédula requerida (solo números, sin puntos ni comas).' });
+            }
+            const row = await getColaboradorByCedula(cedula);
+            if (!row) {
+                return res.status(404).json({ ok: false, error: 'Cédula no registrada en el directorio de colaboradores.' });
+            }
+            return res.json({ ok: true, cedula: row.cedula, nombre: row.nombre });
+        } catch (error) {
+            console.error('Error catalogo colaborador:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo consultar el colaborador' });
         }
     });
 
@@ -468,7 +570,6 @@ function registerRoutes(deps) {
                 archivoRuta = JSON.stringify(rutasSoporte);
             }
             const area = inferAreaFromNovedad(body);
-            const cantidadHoras = Number(body.cantidadHoras || 0) || 0;
             const cliente = normalizeCatalogValue(body.cliente || '');
             const lider = normalizeCatalogValue(body.lider || '');
             if (!cliente || !lider) {
@@ -485,26 +586,88 @@ function registerRoutes(deps) {
                 return res.status(400).json({ ok: false, error: 'El lider no pertenece al cliente seleccionado.' });
             }
 
+            const cedulaNorm = normalizeCedula(body.cedula || '');
+            if (!cedulaNorm) {
+                return res.status(400).json({ ok: false, error: 'Cédula inválida. Usa solo números, sin puntos ni comas.' });
+            }
+            const colaborador = await getColaboradorByCedula(cedulaNorm);
+            if (!colaborador) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'La cédula no está registrada en el directorio de colaboradores. No se puede enviar la novedad.'
+                });
+            }
+            const nombreColaborador = String(colaborador.nombre || '').trim();
+
             const fecha = parseDateOrNull(body.fecha);
             const horaInicio = parseTimeOrNull(body.horaInicio);
             const horaFin = parseTimeOrNull(body.horaFin);
             const fechaInicio = parseDateOrNull(body.fechaInicio) || fecha;
             const fechaFin = parseDateOrNull(body.fechaFin);
+            const novedadTypeKey = rule?.key || '';
+            const todayUtc = new Date().toISOString().slice(0, 10);
+
+            if (!fechaInicio) {
+                return res.status(400).json({ ok: false, error: 'Fecha Inicio es obligatoria.' });
+            }
+            if (fechaFin && fechaFin < fechaInicio) {
+                return res.status(400).json({ ok: false, error: 'Fecha Fin no puede ser menor a Fecha Inicio.' });
+            }
+            if (novedadTypeKey === 'incapacidad' && fechaInicio > todayUtc) {
+                return res.status(400).json({ ok: false, error: 'Incapacidad no puede tener Fecha Inicio futura.' });
+            }
+
+            let cantidadHoras = Number(body.cantidadHoras || 0) || 0;
+            let horasDiurnas = Number(body.horasDiurnas || 0) || 0;
+            let horasNocturnas = Number(body.horasNocturnas || 0) || 0;
+            let tipoHoraExtra = String(body.tipoHoraExtra || '').trim() || null;
+
+            if (novedadTypeKey === 'vacaciones_tiempo') {
+                if (!fechaFin) {
+                    return res.status(400).json({ ok: false, error: 'Vacaciones en tiempo requiere Fecha Fin.' });
+                }
+                const businessDays = countBusinessDaysInclusive(fechaInicio, fechaFin);
+                if (businessDays <= 0) {
+                    return res.status(400).json({ ok: false, error: 'El rango de fechas no contiene días hábiles para vacaciones.' });
+                }
+                cantidadHoras = businessDays;
+            }
+
+            if (novedadTypeKey === 'vacaciones_dinero') {
+                if (!fechaFin) {
+                    return res.status(400).json({ ok: false, error: 'Vacaciones en dinero requiere Fecha Fin.' });
+                }
+                cantidadHoras = 0;
+            }
+
+            if (novedadTypeKey === 'hora_extra') {
+                if (!horaInicio || !horaFin || !fechaInicio || !fechaFin) {
+                    return res.status(400).json({ ok: false, error: 'Hora Extra requiere Fecha Inicio/Fin y Hora Inicio/Fin.' });
+                }
+                const split = calculateHourSplit(fechaInicio, horaInicio, fechaFin, horaFin);
+                if (split.total <= 0) {
+                    return res.status(400).json({ ok: false, error: 'La fecha/hora fin debe ser mayor a la fecha/hora inicio.' });
+                }
+                cantidadHoras = split.total;
+                horasDiurnas = split.diurnas;
+                horasNocturnas = split.nocturnas;
+                tipoHoraExtra = resolveHoraExtraLabel(horasDiurnas, horasNocturnas);
+            }
 
             await pool.query(
                 `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
-                    cantidad_horas, tipo_hora_extra, soporte_ruta, estado
+                    cantidad_horas, horas_diurnas, horas_nocturnas, tipo_hora_extra, soporte_ruta, estado
                 )
                 VALUES (
                     $1, $2, $3, $4, $5, $6, $7::user_area,
                     $8::date, $9::time, $10::time, $11::date, $12::date,
-                    $13, $14, $15, 'Pendiente'::novedad_estado
+                    $13, $14, $15, $16, $17, 'Pendiente'::novedad_estado
                 )`,
                 [
-                    String(body.nombre || '').trim(),
-                    String(body.cedula || '').trim(),
+                    nombreColaborador,
+                    cedulaNorm,
                     String(body.correoSolicitante || '').trim() || null,
                     cliente,
                     lider,
@@ -516,7 +679,9 @@ function registerRoutes(deps) {
                     fechaInicio,
                     fechaFin,
                     cantidadHoras,
-                    String(body.tipoHoraExtra || '').trim() || null,
+                    horasDiurnas,
+                    horasNocturnas,
+                    tipoHoraExtra,
                     archivoRuta
                 ]
             );
@@ -557,14 +722,76 @@ function registerRoutes(deps) {
         }
     });
 
+    app.get('/api/soportes/preview', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), async (req, res) => {
+        try {
+            const key = String(req.query.key || '').trim();
+            if (!key) return res.status(400).json({ ok: false, error: 'Key de soporte requerida' });
+            const lower = key.toLowerCase();
+            if (!(lower.endsWith('.xls') || lower.endsWith('.xlsx'))) {
+                return res.status(400).json({ ok: false, error: 'La previsualización aplica solo para Excel (XLS/XLSX).' });
+            }
+
+            let workbookBuffer = null;
+            if (key.startsWith('/assets/')) {
+                const safePath = path.posix.normalize(key.replace(/\\/g, '/'));
+                if (!safePath.startsWith('/assets/uploads/')) {
+                    return res.status(400).json({ ok: false, error: 'Clave de soporte inválida' });
+                }
+                const absolutePath = path.join(process.cwd(), safePath.replace(/^\/+/, ''));
+                workbookBuffer = await fs.promises.readFile(absolutePath);
+            } else {
+                if (!s3Client) {
+                    return res.status(400).json({ ok: false, error: 'S3 no está configurado en backend' });
+                }
+                const s3Out = await s3Client.send(new GetObjectCommand({
+                    Bucket: S3_BUCKET_NAME,
+                    Key: key
+                }));
+                workbookBuffer = await streamToBuffer(s3Out.Body);
+            }
+
+            const workbook = xlsx.read(workbookBuffer, { type: 'buffer' });
+            const sheetName = workbook.SheetNames?.[0];
+            if (!sheetName) {
+                return res.status(404).json({ ok: false, error: 'El archivo Excel no contiene hojas.' });
+            }
+            const sheet = workbook.Sheets[sheetName];
+            const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+            const limited = rows.slice(0, 100).map((row) => (Array.isArray(row) ? row.slice(0, 20) : []));
+            return res.json({
+                ok: true,
+                sheetName,
+                rows: limited,
+                totalRows: rows.length,
+                truncated: rows.length > 100
+            });
+        } catch (error) {
+            console.error('Error previsualizando Excel:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo previsualizar el archivo Excel.' });
+        }
+    });
+
     app.post('/api/actualizar-estado', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
         try {
             const { id, nuevoEstado } = req.body || {};
             const estado = normalizeEstado(nuevoEstado);
             const actorSub = String(req.user?.sub || '').trim();
-            const actorUserId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
+            const actorUserIdRaw = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
                 ? actorSub
                 : null;
+
+            let actorUserId = null;
+            if (actorUserIdRaw || req.user?.email) {
+                try {
+                    const uq = await pool.query(
+                        'SELECT id FROM users WHERE id = $1 OR email = $2 LIMIT 1',
+                        [actorUserIdRaw, req.user?.email || '']
+                    );
+                    actorUserId = uq.rows[0]?.id || null;
+                } catch {
+                    actorUserId = null;
+                }
+            }
 
             let q;
             if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''))) {

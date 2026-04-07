@@ -12,6 +12,7 @@ const ALLOWED_ATTACHMENT_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.xls',
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 export default function FormularioNovedad() {
+    const todayIso = new Date().toISOString().slice(0, 10);
     const [formData, setFormData] = useState({
         nombre: '',
         cedula: '',
@@ -23,7 +24,6 @@ export default function FormularioNovedad() {
         horaInicio: '',
         horaFin: '',
         cantidadHoras: '',
-        tipoJornada: 'Diurna',
         fechaInicio: '',
         fechaFin: '',
         diasSolicitados: ''
@@ -35,6 +35,10 @@ export default function FormularioNovedad() {
     const [clientes, setClientes] = useState([]);
     const [lideres, setLideres] = useState([]);
     const [loadingCatalogos, setLoadingCatalogos] = useState(false);
+    const [colaboradorVerificado, setColaboradorVerificado] = useState(false);
+    const [verificandoCedula, setVerificandoCedula] = useState(false);
+
+    const normalizeCedulaInput = (value) => String(value || '').replace(/\D/g, '');
 
     const isHoraExtra = formData.tipo === 'Hora Extra';
     const rule = useMemo(() => getNovedadRule(formData.tipo), [formData.tipo]);
@@ -43,6 +47,9 @@ export default function FormularioNovedad() {
     const requiereAdjunto = requiredDocsCount > 0;
     const minSupportsRequired = requiereAdjunto ? 1 : 0;
     const requiereDias = Boolean(rule.requiresDayCount);
+    const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays);
+    const esVacacionesDinero = formData.tipo === 'Vacaciones en dinero';
+    const esIncapacidad = formData.tipo === 'Incapacidad';
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
     const usaBloqueHoras = isHoraExtra || requiereLapsoHora;
 
@@ -63,6 +70,18 @@ export default function FormularioNovedad() {
         return d.getTime();
     };
 
+    const countBusinessDaysInclusive = (startDateRaw, endDateRaw) => {
+        if (!startDateRaw || !endDateRaw || endDateRaw < startDateRaw) return 0;
+        const start = new Date(`${startDateRaw}T00:00:00`);
+        const end = new Date(`${endDateRaw}T00:00:00`);
+        let count = 0;
+        for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+            const day = cursor.getDay();
+            if (day !== 0 && day !== 6) count += 1;
+        }
+        return count;
+    };
+
     const horasCalculadas = useMemo(() => {
         if (!usaBloqueHoras) return 0;
         const inicioMs = buildDateTimeMs(formData.fechaInicio, formData.horaInicio);
@@ -70,6 +89,37 @@ export default function FormularioNovedad() {
         if (inicioMs === null || finMs === null || finMs <= inicioMs) return 0;
         return Number(((finMs - inicioMs) / (1000 * 60 * 60)).toFixed(2));
     }, [usaBloqueHoras, formData.fechaInicio, formData.fechaFin, formData.horaInicio, formData.horaFin]);
+
+    const hourBreakdown = useMemo(() => {
+        if (!isHoraExtra) return { diurnas: 0, nocturnas: 0, label: '' };
+        const inicioMs = buildDateTimeMs(formData.fechaInicio, formData.horaInicio);
+        const finMs = buildDateTimeMs(formData.fechaFin, formData.horaFin);
+        if (inicioMs === null || finMs === null || finMs <= inicioMs) return { diurnas: 0, nocturnas: 0, label: '' };
+
+        let diurnasMin = 0;
+        let nocturnasMin = 0;
+        for (let tick = inicioMs; tick < finMs; tick += 60 * 1000) {
+            const current = new Date(tick);
+            const minuteOfDay = (current.getHours() * 60) + current.getMinutes();
+            if (minuteOfDay >= 360 && minuteOfDay < 1140) {
+                diurnasMin += 1;
+            } else {
+                nocturnasMin += 1;
+            }
+        }
+        const diurnas = Number((diurnasMin / 60).toFixed(2));
+        const nocturnas = Number((nocturnasMin / 60).toFixed(2));
+        let label = '';
+        if (diurnas > 0 && nocturnas > 0) label = 'Mixta';
+        else if (diurnas > 0) label = 'Diurna';
+        else if (nocturnas > 0) label = 'Nocturna';
+        return { diurnas, nocturnas, label };
+    }, [isHoraExtra, formData.fechaInicio, formData.fechaFin, formData.horaInicio, formData.horaFin]);
+
+    const diasHabilesCalculados = useMemo(() => {
+        if (!autocalculaDiasHabiles) return 0;
+        return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin);
+    }, [autocalculaDiasHabiles, formData.fechaInicio, formData.fechaFin]);
 
     const opcionesHoraMilitar = useMemo(() => {
         const opciones = [];
@@ -112,6 +162,12 @@ export default function FormularioNovedad() {
 
     const handleChange = (e) => {
         const { name, value } = e.target;
+        if (name === 'cedula') {
+            const digits = normalizeCedulaInput(value);
+            setColaboradorVerificado(false);
+            setFormData({ ...formData, cedula: digits, nombre: '' });
+            return;
+        }
         if (name === 'cliente') {
             setFormData({ ...formData, cliente: value, lider: '' });
             return;
@@ -126,10 +182,57 @@ export default function FormularioNovedad() {
         }
         if (name === 'fechaInicio') {
             const resetFechaFin = formData.fechaFin && formData.fechaFin < value;
-            setFormData({ ...formData, fechaInicio: value, fechaFin: resetFechaFin ? '' : formData.fechaFin });
+            const nextFechaFin = resetFechaFin ? '' : formData.fechaFin;
+            const nextDias = autocalculaDiasHabiles ? String(countBusinessDaysInclusive(value, nextFechaFin)) : formData.diasSolicitados;
+            setFormData({ ...formData, fechaInicio: value, fechaFin: nextFechaFin, diasSolicitados: nextDias });
+            return;
+        }
+        if (name === 'fechaFin') {
+            const nextDias = autocalculaDiasHabiles ? String(countBusinessDaysInclusive(formData.fechaInicio, value)) : formData.diasSolicitados;
+            setFormData({ ...formData, fechaFin: value, diasSolicitados: nextDias });
+            return;
+        }
+        if (name === 'tipo') {
+            const nextRule = getNovedadRule(value);
+            const nextRequiereDias = Boolean(nextRule.requiresDayCount);
+            const nextAutoDias = Boolean(nextRule.autoBusinessDays);
+            const nextDias = nextAutoDias
+                ? String(countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin))
+                : (nextRequiereDias ? formData.diasSolicitados : '');
+            setFormData({
+                ...formData,
+                tipo: value,
+                diasSolicitados: nextDias
+            });
             return;
         }
         setFormData({ ...formData, [name]: value });
+    };
+
+    const handleComprobarCedula = async () => {
+        const c = normalizeCedulaInput(formData.cedula);
+        if (!c) {
+            setStatus({ type: 'error', text: '❌ Ingresa una cédula (solo números, sin puntos ni comas).' });
+            return;
+        }
+        setVerificandoCedula(true);
+        setStatus({ type: '', text: '' });
+        try {
+            const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`);
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                throw new Error(data?.error || 'Cédula no registrada');
+            }
+            setFormData((prev) => ({ ...prev, cedula: data.cedula || c, nombre: data.nombre || '' }));
+            setColaboradorVerificado(true);
+            setStatus({ type: 'success', text: '✅ Colaborador verificado.' });
+        } catch (err) {
+            setColaboradorVerificado(false);
+            setFormData((prev) => ({ ...prev, nombre: '' }));
+            setStatus({ type: 'error', text: `❌ ${err?.message || 'No se pudo verificar la cédula.'}` });
+        } finally {
+            setVerificandoCedula(false);
+        }
     };
 
     useEffect(() => {
@@ -174,6 +277,14 @@ export default function FormularioNovedad() {
         };
         loadLideres();
     }, [formData.cliente]);
+
+    useEffect(() => {
+        if (!autocalculaDiasHabiles) return;
+        const next = String(diasHabilesCalculados);
+        if (formData.diasSolicitados !== next) {
+            setFormData((prev) => ({ ...prev, diasSolicitados: next }));
+        }
+    }, [autocalculaDiasHabiles, diasHabilesCalculados, formData.diasSolicitados]);
 
     const getAttachmentError = (file) => {
         if (!file) return null;
@@ -231,6 +342,14 @@ export default function FormularioNovedad() {
             setStatus({ type: 'error', text: '❌ Debes seleccionar cliente y lider.' });
             return;
         }
+        if (!colaboradorVerificado || !normalizeCedulaInput(formData.cedula) || !String(formData.nombre || '').trim()) {
+            setStatus({ type: 'error', text: '❌ Debes comprobar la cédula y tener un colaborador válido antes de enviar.' });
+            return;
+        }
+        if (esIncapacidad && formData.fechaInicio && formData.fechaInicio > todayIso) {
+            setStatus({ type: 'error', text: '❌ Incapacidad no puede tener Fecha Inicio futura.' });
+            return;
+        }
 
         if (requiereAdjunto && selectedFiles.length < minSupportsRequired) {
             setStatus({
@@ -247,8 +366,18 @@ export default function FormularioNovedad() {
             }
         }
 
-        if (requiereDias && !(Number(formData.diasSolicitados) > 0)) {
+        if (autocalculaDiasHabiles && !(diasHabilesCalculados > 0)) {
+            setStatus({ type: 'error', text: '❌ El rango seleccionado no contiene dias hábiles (lunes a viernes).' });
+            return;
+        }
+
+        if (requiereDias && !autocalculaDiasHabiles && !(Number(formData.diasSolicitados) > 0)) {
             setStatus({ type: 'error', text: '❌ Debes diligenciar una cantidad de dias valida.' });
+            return;
+        }
+
+        if (esVacacionesDinero && !formData.fechaFin) {
+            setStatus({ type: 'error', text: '❌ Vacaciones en dinero requiere Fecha Fin.' });
             return;
         }
 
@@ -277,7 +406,6 @@ export default function FormularioNovedad() {
             payload.append('cliente', formData.cliente || '');
             payload.append('lider', formData.lider || '');
             payload.append('tipoNovedad', formData.tipo);
-            payload.append('tipoHoraExtra', formData.tipoJornada);
 
             if (usaBloqueHoras) {
                 payload.append('fecha', formData.fechaInicio);
@@ -286,10 +414,14 @@ export default function FormularioNovedad() {
                 payload.append('fechaInicio', formData.fechaInicio);
                 payload.append('fechaFin', formData.fechaFin);
                 payload.append('cantidadHoras', String(requiereLapsoHora ? horasCalculadas : horasCalculadas));
+                payload.append('horasDiurnas', String(hourBreakdown.diurnas || 0));
+                payload.append('horasNocturnas', String(hourBreakdown.nocturnas || 0));
+                payload.append('tipoHoraExtra', hourBreakdown.label || '');
             } else {
                 payload.append('fechaInicio', formData.fechaInicio);
                 payload.append('fechaFin', formData.fechaFin || 'N/A');
-                payload.append('cantidadHoras', requiereDias ? (formData.diasSolicitados || 0) : (formData.cantidadHoras || 0));
+                const diasValue = autocalculaDiasHabiles ? diasHabilesCalculados : Number(formData.diasSolicitados || 0);
+                payload.append('cantidadHoras', requiereDias ? diasValue : (formData.cantidadHoras || 0));
             }
 
             for (const file of selectedFiles) {
@@ -316,11 +448,11 @@ export default function FormularioNovedad() {
                     horaInicio: '',
                     horaFin: '',
                     cantidadHoras: '',
-                    tipoJornada: 'Diurna',
                     fechaInicio: '',
                     fechaFin: '',
                     diasSolicitados: ''
                 });
+                setColaboradorVerificado(false);
                 setSelectedFiles([]);
                 setLideres([]);
                 // Limpiar mensaje de éxito después de unos segundos
@@ -346,14 +478,42 @@ export default function FormularioNovedad() {
 
                     <form onSubmit={handleSubmit}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="flex flex-col gap-2">
-                            <label className="text-sm font-semibold text-[#9fb3c8]">Nombre y Apellido <span className="text-[#1fc76a]">*</span></label>
-                            <input required name="nombre" value={formData.nombre} onChange={handleChange} type="text" placeholder="Ej: Kevin Ovalle" className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]" />
+                        <div className="flex flex-col gap-2 md:col-span-2">
+                            <label className="text-sm font-semibold text-[#9fb3c8]">Cédula <span className="text-[#1fc76a]">*</span></label>
+                            <p className="text-xs text-[#6b8aa8]">Ingresa la cédula solo con números, sin puntos ni comas.</p>
+                            <div className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                    required
+                                    name="cedula"
+                                    value={formData.cedula}
+                                    onChange={handleChange}
+                                    type="text"
+                                    inputMode="numeric"
+                                    autoComplete="off"
+                                    placeholder="Ej: 1234567890"
+                                    className="flex-1 bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleComprobarCedula}
+                                    disabled={verificandoCedula}
+                                    className="px-4 py-3 rounded-lg bg-[#2a90ff] text-white font-semibold hover:bg-[#1f7ae0] disabled:opacity-50 transition-all"
+                                >
+                                    {verificandoCedula ? 'Comprobando...' : 'Comprobar'}
+                                </button>
+                            </div>
                         </div>
 
-                        <div className="flex flex-col gap-2">
-                            <label className="text-sm font-semibold text-[#9fb3c8]">Cédula <span className="text-[#1fc76a]">*</span></label>
-                            <input required name="cedula" value={formData.cedula} onChange={handleChange} type="number" placeholder="Documento de identidad" className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]" />
+                        <div className="flex flex-col gap-2 md:col-span-2">
+                            <label className="text-sm font-semibold text-[#9fb3c8]">Nombre y Apellido <span className="text-[#1fc76a]">*</span></label>
+                            <input
+                                readOnly
+                                name="nombre"
+                                value={formData.nombre}
+                                type="text"
+                                placeholder={colaboradorVerificado ? '' : 'Se completará al comprobar la cédula'}
+                                className="bg-[#121f2e] border border-[#21405f] text-white p-3 rounded-lg placeholder-[#3c566e] cursor-not-allowed"
+                            />
                         </div>
 
                         <div className="flex flex-col gap-2">
@@ -368,7 +528,6 @@ export default function FormularioNovedad() {
                                 {NOVEDAD_TYPES.map((tipo) => (
                                     <option key={tipo} value={tipo}>{tipo}</option>
                                 ))}
-                                <option value="Hora Extra">Hora Extra</option>
                             </select>
                         </div>
 
@@ -396,7 +555,7 @@ export default function FormularioNovedad() {
                             <div className="col-span-1 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-top-4 duration-300">
                                 <div className="flex flex-col gap-2">
                                     <label className="text-sm font-semibold text-[#9fb3c8]">Fecha Inicio <span className="text-[#1fc76a]">*</span></label>
-                                    <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all [color-scheme:dark]" />
+                                    <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all [color-scheme:dark]" />
                                 </div>
                                 <div className="flex flex-col gap-2">
                                     <label className="text-sm font-semibold text-[#9fb3c8]">Hora Inicio (24h) <span className="text-[#1fc76a]">*</span></label>
@@ -421,13 +580,6 @@ export default function FormularioNovedad() {
                                     </select>
                                 </div>
                                 <div className="flex flex-col gap-2">
-                                    <label className="text-sm font-semibold text-[#9fb3c8]">Jornada</label>
-                                    <select name="tipoJornada" value={formData.tipoJornada} onChange={handleChange} className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all">
-                                        <option value="Diurna">Diurna</option>
-                                        <option value="Nocturna">Nocturna</option>
-                                    </select>
-                                </div>
-                                <div className="flex flex-col gap-2">
                                     <label className="text-sm font-semibold text-[#9fb3c8]">Cantidad de Horas (Automático)</label>
                                     <input name="cantidadHoras" value={horasCalculadas || ''} readOnly type="text" placeholder="0" className="bg-[#0d1e2e] border border-[#21405f] text-[#9fb3c8] p-3 rounded-lg focus:outline-none transition-all" />
                                 </div>
@@ -446,22 +598,25 @@ export default function FormularioNovedad() {
                             <>
                                 <div className="flex flex-col gap-2">
                                     <label className="text-sm font-semibold text-[#9fb3c8]">Fecha Inicio <span className="text-[#1fc76a]">*</span></label>
-                                    <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all [color-scheme:dark]" />
+                                    <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all [color-scheme:dark]" />
                                 </div>
 
                                 <div className="flex flex-col gap-2">
-                                    <label className="text-sm font-semibold text-[#9fb3c8]">Fecha Fin</label>
-                                    <input name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all [color-scheme:dark]" />
+                                    <label className="text-sm font-semibold text-[#9fb3c8]">Fecha Fin {(autocalculaDiasHabiles || esVacacionesDinero) && <span className="text-[#1fc76a]">*</span>}</label>
+                                    <input required={autocalculaDiasHabiles || esVacacionesDinero} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all [color-scheme:dark]" />
                                     {fechaFinInvalida && (
                                         <small className="text-[#ff6b6b]">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>
                                     )}
                                 </div>
                             </>
                         )}
-                        {requiereDias && (
+                        {requiereDias && !esVacacionesDinero && (
                             <div className="flex flex-col gap-2">
                                 <label className="text-sm font-semibold text-[#9fb3c8]">Dias solicitados <span className="text-[#1fc76a]">*</span></label>
-                                <input required={requiereDias} min="1" name="diasSolicitados" value={formData.diasSolicitados} onChange={handleChange} type="number" placeholder="Ej: 2" className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]" />
+                                <input required={requiereDias} min="1" name="diasSolicitados" value={autocalculaDiasHabiles ? diasHabilesCalculados : formData.diasSolicitados} onChange={handleChange} readOnly={autocalculaDiasHabiles} type="number" placeholder="Ej: 2" className="bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e] read-only:bg-[#0d1e2e] read-only:text-[#9fb3c8]" />
+                                {autocalculaDiasHabiles && (
+                                    <small className="text-[#9fb3c8]">Calculado automáticamente sin sábados ni domingos (incluye inicio y fin).</small>
+                                )}
                             </div>
                         )}
 
@@ -487,8 +642,7 @@ export default function FormularioNovedad() {
                                         <a
                                             key={fmt.href}
                                             href={fmt.href}
-                                            target="_blank"
-                                            rel="noreferrer"
+                                            download
                                             className="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#2a90ff]/40 text-[#2a90ff] hover:bg-[#2a90ff]/10 transition-all"
                                         >
                                             Descargar: {fmt.label}

@@ -35,3 +35,18 @@ npm-debug.log*
 
 # Carpeta de uploads generados
 assets/uploads/
+
+# Datos locales/sensibles del proyecto
+data/
+*.xlsx
+
+# Documentación/manuales (solo README permitido)
+*.md
+!README.md
+!**/README.md
+
+# Scripts y migraciones locales
+migrations/
+*.sql
+*.sh
+*.ps1

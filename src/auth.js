@@ -75,7 +75,7 @@ function createAuthHelpers(deps) {
         const roleFromClaims = normalizeRoleOrNull(claims['custom:role'] || claims.role);
         const role = roleFromGroups || roleFromClaims || '';
         if (!role) {
-            const err = new Error('Usuario Cognito sin rol asignado. Agrega el usuario a un grupo (super_admin/admin_ch/team_ch/admin_ops/gp/nomina/sst).');
+            const err = new Error('Usuario Cognito sin rol asignado. Agrega el usuario a un grupo (super_admin/admin_ch/team_ch/admin_ops/gp/comercial/nomina/sst).');
             err.status = 403;
             throw err;
         }
@@ -181,6 +181,21 @@ function createAuthHelpers(deps) {
         };
     }
 
+    function allowRoles(roles) {
+        const allowed = new Set(
+            (Array.isArray(roles) ? roles : [])
+                .map((r) => normalizeRoleOrNull(r))
+                .filter(Boolean)
+        );
+        return (req, res, next) => {
+            const role = normalizeRoleOrNull(req.user?.role);
+            if (!role || !allowed.has(role)) {
+                return res.status(403).json({ ok: false, error: 'Sin permisos para esta operación' });
+            }
+            return next();
+        };
+    }
+
     function applyScope(req, res, next) {
         const role = req.user?.role || '';
         const conf = POLICY[role] || {};
@@ -202,6 +217,7 @@ function createAuthHelpers(deps) {
         verificarToken,
         allowPanel,
         allowAnyPanel,
+        allowRoles,
         applyScope
     };
 }

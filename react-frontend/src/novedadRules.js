@@ -9,7 +9,7 @@ export const NOVEDAD_RULES = {
   },
   'Calamidad domestica': {
     requiredDocuments: ['Soporte de calamidad', 'Formato de permiso'],
-    formatLinks: [{ label: 'Formato permiso (Excel)', href: '/assets/formats/formato_permiso_general.xlsx' }],
+    formatLinks: [],
     approvers: ['admin_ch', 'team_ch'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp'],
     requiresDayCount: true,
@@ -73,27 +73,60 @@ export const NOVEDAD_RULES = {
   },
   'Vacaciones en tiempo': {
     requiredDocuments: [],
-    formatLinks: [{ label: 'Solicitud vacaciones tiempo (Excel)', href: '/assets/formats/formato_vacaciones_tiempo.xlsx' }],
+    formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
     approvers: ['gp'],
     viewers: ['super_admin', 'gp', 'nomina'],
     requiresDayCount: true,
-    requiresTimeRange: false
+    requiresTimeRange: false,
+    autoBusinessDays: true
   },
   'Vacaciones en dinero': {
     requiredDocuments: ['Solicitud firmada manuscrita'],
-    formatLinks: [{ label: 'Solicitud vacaciones dinero (Excel)', href: '/assets/formats/formato_vacaciones_dinero.xlsx' }],
+    formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
     approvers: ['admin_ch', 'team_ch'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'nomina'],
-    requiresDayCount: true,
+    requiresDayCount: false,
     requiresTimeRange: false
   },
   'Permiso compensatorio en tiempo': {
     requiredDocuments: ['Formato de permiso compensatorio'],
-    formatLinks: [{ label: 'Formato compensatorio (Excel)', href: '/assets/formats/formato_permiso_compensatorio.xlsx' }],
+    formatLinks: [],
     approvers: ['gp'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false
+  },
+  Apoyo: {
+    requiredDocuments: [],
+    formatLinks: [],
+    approvers: ['gp'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina'],
+    requiresDayCount: false,
+    requiresTimeRange: false
+  },
+  'Apoyo Standby': {
+    requiredDocuments: [],
+    formatLinks: [],
+    approvers: ['gp'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina'],
+    requiresDayCount: false,
+    requiresTimeRange: false
+  },
+  Bonos: {
+    requiredDocuments: [],
+    formatLinks: [],
+    approvers: ['gp'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina'],
+    requiresDayCount: false,
+    requiresTimeRange: false
+  },
+  'Hora Extra': {
+    requiredDocuments: [],
+    formatLinks: [],
+    approvers: ['gp'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina', 'sst'],
+    requiresDayCount: false,
+    requiresTimeRange: true
   }
 };
 
@@ -106,7 +139,8 @@ export function getNovedadRule(tipo) {
     approvers: [],
     viewers: ['super_admin'],
     requiresDayCount: false,
-    requiresTimeRange: false
+    requiresTimeRange: false,
+    autoBusinessDays: false
   };
 }
 
