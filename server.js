@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const helmet = require('helmet');
 const cors = require('cors');
-const rateLimit = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const { CognitoJwtVerifier } = require('aws-jwt-verify');
@@ -26,6 +26,7 @@ const {
     parseDateOrNull,
     parseTimeOrNull,
     normalizeCatalogValue,
+    normalizeCedula,
     normalizeEstado,
     isStrongPassword,
     sanitizeSegment,
@@ -36,9 +37,13 @@ const {
 const { createAuthHelpers } = require('./src/auth');
 const { toClientNovedad } = require('./src/novedadesMapper');
 const { createDataLayer } = require('./src/dataLayer');
+const { createCotizadorStore } = require('./src/cotizador/cotizadorStore');
+const { registerCotizadorRoutes } = require('./src/cotizador/registerCotizadorRoutes');
+const { registerContratacionRoutes } = require('./src/contratacion/registerContratacionRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3005;
+const isProduction = process.env.NODE_ENV === 'production';
 
 const SECRET_KEY = (process.env.JWT_SECRET || '').trim();
 if (!SECRET_KEY) {
@@ -51,6 +56,7 @@ if (process.env.NODE_ENV !== 'production' && SECRET_KEY.length < 32) {
     console.warn('[SECURITY] JWT_SECRET tiene menos de 32 caracteres (recomendado para desarrollo: >= 32).');
 }
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5175';
+const ALLOW_TRYCLOUDFLARE_DEV = String(process.env.ALLOW_TRYCLOUDFLARE_DEV || 'true').toLowerCase() === 'true';
 const COGNITO_ENABLED = String(process.env.COGNITO_ENABLED || 'false').toLowerCase() === 'true';
 if (!COGNITO_ENABLED) {
     throw new Error('FATAL: COGNITO_ENABLED=true es obligatorio. La autenticación local fue eliminada.');
@@ -77,11 +83,46 @@ const allowedCorsOrigins = new Set([
     'http://localhost:5175',
     'http://127.0.0.1:5175'
 ]);
+try {
+    const parsedFrontend = new URL(FRONTEND_URL);
+    const host = parsedFrontend.hostname || '';
+    if (host.startsWith('www.')) {
+        const nakedHost = host.replace(/^www\./, '');
+        allowedCorsOrigins.add(`${parsedFrontend.protocol}//${nakedHost}`);
+    } else if (host && host.includes('.')) {
+        allowedCorsOrigins.add(`${parsedFrontend.protocol}//www.${host}`);
+    }
+} catch {
+    // Ignorar FRONTEND_URL malformado y conservar la lista base.
+}
 
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
 app.use(helmet({
-    contentSecurityPolicy: false,
-    crossOriginEmbedderPolicy: false
+    // En producción activamos CSP para reducir superficie XSS.
+    contentSecurityPolicy: isProduction ? {
+        useDefaults: true,
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", 'data:', 'blob:'],
+            connectSrc: ["'self'"],
+            fontSrc: ["'self'", 'data:'],
+            objectSrc: ["'none'"],
+            frameAncestors: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"]
+        }
+    } : false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: isProduction ? { policy: 'same-origin' } : false,
+    hsts: isProduction ? {
+        maxAge: 15552000, // 180 dias
+        includeSubDomains: true,
+        preload: true
+    } : false,
+    referrerPolicy: { policy: 'no-referrer' }
 }));
 app.use(cors({
     origin(origin, callback) {
@@ -89,7 +130,7 @@ app.use(cors({
         if (allowedCorsOrigins.has(origin)) return callback(null, true);
         try {
             const parsed = new URL(origin);
-            if (parsed.hostname.endsWith('.trycloudflare.com')) {
+            if (!isProduction && ALLOW_TRYCLOUDFLARE_DEV && parsed.hostname.endsWith('.trycloudflare.com')) {
                 return callback(null, true);
             }
         } catch {
@@ -109,8 +150,21 @@ const AUTH_RATE_LIMIT_WINDOW_MIN = Number(process.env.AUTH_RATE_LIMIT_WINDOW_MIN
 const AUTH_RATE_LIMIT_MAX = Number(process.env.AUTH_RATE_LIMIT_MAX || 10);
 const FORGOT_RATE_LIMIT_WINDOW_MIN = Number(process.env.FORGOT_RATE_LIMIT_WINDOW_MIN || 60);
 const FORGOT_RATE_LIMIT_MAX = Number(process.env.FORGOT_RATE_LIMIT_MAX || 5);
-const FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN = Number(process.env.FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN || 60);
-const FORM_SUBMIT_RATE_LIMIT_MAX = Number(process.env.FORM_SUBMIT_RATE_LIMIT_MAX || 10);
+const PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN = Number(process.env.PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN || process.env.FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN || 60);
+const PUBLIC_FORM_SUBMIT_RATE_LIMIT_MAX = Number(process.env.PUBLIC_FORM_SUBMIT_RATE_LIMIT_MAX || process.env.FORM_SUBMIT_RATE_LIMIT_MAX || 10);
+const ADMIN_ACTION_RATE_LIMIT_WINDOW_MIN = Number(process.env.ADMIN_ACTION_RATE_LIMIT_WINDOW_MIN || 60);
+const ADMIN_ACTION_RATE_LIMIT_MAX = Number(process.env.ADMIN_ACTION_RATE_LIMIT_MAX || 200);
+const PDF_RATE_LIMIT_WINDOW_MIN = Number(process.env.PDF_RATE_LIMIT_WINDOW_MIN || 10);
+const PDF_RATE_LIMIT_MAX = Number(process.env.PDF_RATE_LIMIT_MAX || 120);
+
+/** Tras verificarToken, agrupa por usuario; sin auth (rutas públicas) usa IP (IPv6 seguro vía ipKeyGenerator). */
+function rateLimitKeyByUserOrIp(req) {
+    const u = req.user;
+    const id = (u && (u.sub || u.email || u.username)) ? String(u.sub || u.email || u.username) : '';
+    if (id) return `u:${id}`;
+    const rawIp = req.ip || '127.0.0.1';
+    return `ip:${ipKeyGenerator(rawIp)}`;
+}
 
 const authLimiter = rateLimit({
     windowMs: AUTH_RATE_LIMIT_WINDOW_MIN * 60 * 1000,
@@ -129,11 +183,30 @@ const forgotLimiter = rateLimit({
 });
 
 const submitLimiter = rateLimit({
-    windowMs: FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN * 60 * 1000,
-    max: FORM_SUBMIT_RATE_LIMIT_MAX,
+    windowMs: PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN * 60 * 1000,
+    max: PUBLIC_FORM_SUBMIT_RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders: false,
-    message: { ok: false, error: `Demasiados envíos. Espera ${FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN} minutos.` }
+    message: {
+        ok: false,
+        error: `Demasiados envíos al formulario público de novedades. Espera ${PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN} minutos.`
+    }
+});
+const adminActionLimiter = rateLimit({
+    windowMs: ADMIN_ACTION_RATE_LIMIT_WINDOW_MIN * 60 * 1000,
+    max: ADMIN_ACTION_RATE_LIMIT_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKeyByUserOrIp,
+    message: { ok: false, error: `Demasiadas acciones en el sistema (cotizador/gestión). Espera ${ADMIN_ACTION_RATE_LIMIT_WINDOW_MIN} minutos.` }
+});
+const pdfLimiter = rateLimit({
+    windowMs: PDF_RATE_LIMIT_WINDOW_MIN * 60 * 1000,
+    max: PDF_RATE_LIMIT_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKeyByUserOrIp,
+    message: { ok: false, error: `Demasiadas descargas de PDF. Espera ${PDF_RATE_LIMIT_WINDOW_MIN} minutos.` }
 });
 const CATALOG_RATE_LIMIT_WINDOW_MIN = Number(process.env.CATALOG_RATE_LIMIT_WINDOW_MIN || 5);
 const CATALOG_RATE_LIMIT_MAX = Number(process.env.CATALOG_RATE_LIMIT_MAX || 120);
@@ -142,8 +215,54 @@ const catalogLimiter = rateLimit({
     max: CATALOG_RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: rateLimitKeyByUserOrIp,
     message: { ok: false, error: 'Demasiadas consultas de catálogo. Intenta de nuevo en unos minutos.' }
 });
+
+const CONTRATACION_RATE_WINDOW_MIN = Number(process.env.CONTRATACION_RATE_LIMIT_WINDOW_MIN || 15);
+const CONTRATACION_MONITOR_MAX = Number(process.env.CONTRATACION_MONITOR_RATE_LIMIT_MAX || 120);
+const CONTRATACION_USERS_EMAIL_MAX = Number(process.env.CONTRATACION_USERS_BY_EMAIL_RATE_LIMIT_MAX || 120);
+const CONTRATACION_ELIMINAR_MAX = Number(process.env.CONTRATACION_ELIMINAR_RATE_LIMIT_MAX || 60);
+const CONTRATACION_WS_TOKEN_MAX = Number(process.env.CONTRATACION_WS_TOKEN_RATE_LIMIT_MAX || 60);
+
+const contratacionMonitorLimiter = rateLimit({
+    windowMs: CONTRATACION_RATE_WINDOW_MIN * 60 * 1000,
+    max: CONTRATACION_MONITOR_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKeyByUserOrIp,
+    message: { success: false, message: 'Demasiadas solicitudes al monitor. Intente más tarde.' }
+});
+
+const contratacionUsersByEmailLimiter = rateLimit({
+    windowMs: CONTRATACION_RATE_WINDOW_MIN * 60 * 1000,
+    max: CONTRATACION_USERS_EMAIL_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKeyByUserOrIp,
+    message: { success: false, message: 'Demasiadas consultas por email. Intente más tarde.' }
+});
+
+const contratacionEliminarLimiter = rateLimit({
+    windowMs: CONTRATACION_RATE_WINDOW_MIN * 60 * 1000,
+    max: CONTRATACION_ELIMINAR_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKeyByUserOrIp,
+    message: { success: false, message: 'Demasiadas solicitudes de eliminación. Intente más tarde.' }
+});
+
+const contratacionWsTokenLimiter = rateLimit({
+    windowMs: CONTRATACION_RATE_WINDOW_MIN * 60 * 1000,
+    max: CONTRATACION_WS_TOKEN_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKeyByUserOrIp,
+    message: { success: false, message: 'Demasiadas solicitudes de ticket WebSocket. Intente más tarde.' }
+});
+
+const CONTRATACION_WS_TICKET_TTL_SEC = Number(process.env.CONTRATACION_WS_TICKET_TTL_SEC || 300);
+const contratacionWsSecret = (process.env.CONTRATACION_WS_SECRET || SECRET_KEY || '').trim();
 
 const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
@@ -191,6 +310,7 @@ const {
     verificarToken,
     allowPanel,
     allowAnyPanel,
+    allowRoles,
     applyScope
 } = createAuthHelpers({
     jwt,
@@ -228,7 +348,11 @@ const {
     ensureUserRoleEnumValues,
     ensureClientesLideresTable,
     ensureNovedadesIndexes,
+    ensureNovedadesHourSplitColumns,
     migrateClientesLideresFromExcelIfNeeded,
+    ensureColaboradoresTable,
+    ensureCinteLeonardoPair,
+    getColaboradorByCedula,
     getClientesList,
     getLideresByCliente,
     migrateExcelIfNeeded,
@@ -239,11 +363,13 @@ const {
     xlsx,
     CLIENTES_LIDERES_XLSX_PATH,
     normalizeCatalogValue,
+    normalizeCedula,
     canRoleViewType
 });
 
 const { registerRoutes } = require('./src/registerRoutes');
 const { startServer } = require('./src/startup');
+const cotizadorStore = createCotizadorStore({ pool });
 
 registerRoutes({
     app,
@@ -251,6 +377,8 @@ registerRoutes({
     forgotLimiter,
     submitLimiter,
     catalogLimiter,
+    normalizeCedula,
+    getColaboradorByCedula,
     verificarToken,
     isStrongPassword,
     COGNITO_ENABLED,
@@ -292,7 +420,32 @@ registerRoutes({
     normalizeEstado,
     canRoleApproveType,
     FRONTEND_URL,
-    POLICY
+    POLICY,
+    xlsx
+});
+
+registerCotizadorRoutes({
+    app,
+    verificarToken,
+    allowAnyPanel,
+    adminActionLimiter,
+    pdfLimiter,
+    catalogLimiter,
+    cotizadorStore,
+    getClientesList
+});
+
+registerContratacionRoutes({
+    app,
+    verificarToken,
+    allowPanel,
+    allowRoles,
+    contratacionMonitorLimiter,
+    contratacionUsersByEmailLimiter,
+    contratacionEliminarLimiter,
+    contratacionWsTokenLimiter,
+    wsSecret: contratacionWsSecret,
+    wsTicketTtlSec: CONTRATACION_WS_TICKET_TTL_SEC
 });
 
 startServer({
@@ -301,8 +454,11 @@ startServer({
     ensureUserRoleEnumValues,
     ensureClientesLideresTable,
     ensureNovedadesIndexes,
+    ensureNovedadesHourSplitColumns,
     migrateExcelIfNeeded,
     migrateClientesLideresFromExcelIfNeeded,
+    ensureColaboradoresTable,
+    ensureCinteLeonardoPair,
     PORT,
     COGNITO_ENABLED,
     COGNITO_REGION,

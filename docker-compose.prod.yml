@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: novedades_cinte
+      POSTGRES_USER: cinte_app
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -U cinte_app -d novedades_cinte"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [nc_net]
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./assets:/app/assets
+    networks: [nc_net]
+
+  frontend:
+    build:
+      context: ./react-frontend
+      dockerfile: Dockerfile.frontend
+    restart: unless-stopped
+    networks: [nc_net]
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    networks: [nc_net]
+
+networks:
+  nc_net:
+
+volumes:
+  pgdata:

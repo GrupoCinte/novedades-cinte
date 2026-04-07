@@ -1,10 +1,11 @@
 const POLICY = {
-    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin'], viewAllAreas: true },
-    admin_ch: { panels: ['dashboard', 'calendar', 'gestion'] },
-    team_ch: { panels: ['dashboard', 'calendar', 'gestion'] },
+    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion'], viewAllAreas: true },
+    admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
+    team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
     admin_ops: { panels: ['dashboard', 'calendar'] },
-    gp: { panels: ['dashboard', 'calendar', 'gestion'] },
-    nomina: { panels: ['dashboard', 'calendar', 'gestion'] },
+    comercial: { panels: ['comercial'] },
+    gp: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
+    nomina: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
     sst: { panels: ['dashboard', 'calendar', 'gestion'] }
 };
 
@@ -75,6 +76,30 @@ const NOVELTY_RULES = {
         approvers: ['admin_ch', 'team_ch'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'nomina']
     },
+    hora_extra: {
+        displayName: 'Hora Extra',
+        requiredMinSupports: 0,
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina', 'sst']
+    },
+    apoyo: {
+        displayName: 'Apoyo',
+        requiredMinSupports: 0,
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+    },
+    apoyo_standby: {
+        displayName: 'Apoyo Standby',
+        requiredMinSupports: 0,
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+    },
+    bonos: {
+        displayName: 'Bonos',
+        requiredMinSupports: 0,
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+    },
     permiso_compensatorio_tiempo: {
         displayName: 'Permiso compensatorio en tiempo',
         requiredMinSupports: 1,
@@ -103,6 +128,7 @@ function getAreaFromRole(role) {
     if (role === 'super_admin') return 'Global';
     if (role === 'admin_ch' || role === 'team_ch') return 'Capital Humano';
     if (role === 'admin_ops' || role === 'gp') return 'Operaciones';
+    if (role === 'comercial') return 'Comercial';
     if (role === 'nomina' || role === 'sst') return 'Capital Humano';
     return '';
 }
@@ -126,6 +152,12 @@ function normalizeNovedadTypeKey(value = '') {
         'permisos no remunerados': 'permiso_no_remunerado',
         'vacaciones en tiempo': 'vacaciones_tiempo',
         'vacaciones en dinero': 'vacaciones_dinero',
+        'hora extra': 'hora_extra',
+        apoyo: 'apoyo',
+        'apoyo standby': 'apoyo_standby',
+        'apoyo stand by': 'apoyo_standby',
+        bono: 'bonos',
+        bonos: 'bonos',
         'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo'
     };
     return map[compact] || '';
@@ -166,7 +198,6 @@ module.exports = {
     normalizeRoleOrNull,
     resolveRoleFromGroups,
     getAreaFromRole,
-    normalizeNovedadTypeKey,
     getNovedadRuleByType,
     canRoleViewType,
     canRoleApproveType,

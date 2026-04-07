@@ -5,6 +5,7 @@ function createDataLayer(deps) {
         xlsx,
         CLIENTES_LIDERES_XLSX_PATH,
         normalizeCatalogValue,
+        normalizeCedula,
         canRoleViewType
     } = deps;
 
@@ -59,9 +60,23 @@ function createDataLayer(deps) {
             await pool.query('CREATE INDEX IF NOT EXISTS idx_novedades_estado ON novedades(estado)');
             await pool.query('CREATE INDEX IF NOT EXISTS idx_novedades_tipo ON novedades(tipo_novedad)');
             await pool.query('CREATE INDEX IF NOT EXISTS idx_novedades_correo ON novedades(correo_solicitante)');
+            await pool.query('CREATE INDEX IF NOT EXISTS idx_novedades_cliente ON novedades(cliente)');
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[DB] Permisos insuficientes para crear indices en novedades. Se continúa sin cambios de índice.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureNovedadesHourSplitColumns() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_diurnas NUMERIC(8,2) NOT NULL DEFAULT 0');
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_nocturnas NUMERIC(8,2) NOT NULL DEFAULT 0');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para agregar columnas de desglose horario. Se continúa sin migración de columnas.');
                 return;
             }
             throw error;
@@ -136,11 +151,53 @@ function createDataLayer(deps) {
         return;
     }
 
+    async function ensureColaboradoresTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS colaboradores (
+                    cedula TEXT PRIMARY KEY,
+                    nombre TEXT NOT NULL,
+                    activo BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query('CREATE INDEX IF NOT EXISTS idx_colaboradores_activo ON colaboradores(activo)');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Colaboradores] Permisos insuficientes para crear tabla colaboradores.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureCinteLeonardoPair() {
+        await ensureClientesLideresTable();
+        await pool.query(
+            `INSERT INTO clientes_lideres (cliente, lider, activo)
+             VALUES ('CINTE', 'Leonardo Rojas', TRUE)
+             ON CONFLICT (cliente, lider)
+             DO UPDATE SET activo = TRUE, updated_at = NOW()`
+        );
+    }
+
+    async function getColaboradorByCedula(cedulaRaw) {
+        const c = normalizeCedula(cedulaRaw);
+        if (!c) return null;
+        const q = await pool.query(
+            `SELECT cedula, nombre FROM colaboradores WHERE activo = TRUE AND cedula = $1 LIMIT 1`,
+            [c]
+        );
+        return q.rows[0] || null;
+    }
+
     async function getScopedNovedades(scope, options = {}) {
         const role = scope?.role || '';
         const tipo = String(options?.tipo || '').trim();
         const estado = String(options?.estado || '').trim();
         const correo = String(options?.correo || '').trim().toLowerCase();
+        const cliente = String(options?.cliente || '').trim().toLowerCase();
         const sortByRaw = String(options?.sortBy || '').trim();
         const sortDirRaw = String(options?.sortDir || '').trim().toLowerCase();
         const sortBy = ['creadoEn', 'estado', 'tipoNovedad'].includes(sortByRaw) ? sortByRaw : 'creadoEn';
@@ -163,6 +220,10 @@ function createDataLayer(deps) {
             params.push(`%${correo}%`);
             whereParts.push(`lower(coalesce(correo_solicitante, '')) LIKE $${params.length}`);
         }
+        if (cliente) {
+            params.push(`%${cliente}%`);
+            whereParts.push(`lower(coalesce(cliente, '')) LIKE $${params.length}`);
+        }
         const orderColumnMap = {
             creadoEn: 'creado_en',
             estado: 'estado',
@@ -174,7 +235,7 @@ function createDataLayer(deps) {
         const q = await pool.query(
             `SELECT
                 id, nombre, cedula, correo_solicitante, cliente, lider, tipo_novedad, area,
-                fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin, cantidad_horas, tipo_hora_extra,
+                fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin, cantidad_horas, tipo_hora_extra, horas_diurnas, horas_nocturnas,
                 soporte_ruta, estado, creado_en, aprobado_en, aprobado_por_rol, rechazado_en, rechazado_por_rol
              FROM novedades
              ${whereSql}
@@ -188,7 +249,11 @@ function createDataLayer(deps) {
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
         ensureNovedadesIndexes,
+        ensureNovedadesHourSplitColumns,
         migrateClientesLideresFromExcelIfNeeded,
+        ensureColaboradoresTable,
+        ensureCinteLeonardoPair,
+        getColaboradorByCedula,
         getClientesList,
         getLideresByCliente,
         migrateExcelIfNeeded,

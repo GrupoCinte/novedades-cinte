@@ -1,3 +1,17 @@
+function decodePossiblyMisencodedText(value) {
+    const raw = String(value || '');
+    if (!raw) return '';
+    // Recover common mojibake produced by UTF-8 bytes interpreted as latin1.
+    if (/[ÃÂ]/.test(raw)) {
+        try {
+            return Buffer.from(raw, 'latin1').toString('utf8');
+        } catch {
+            return raw;
+        }
+    }
+    return raw;
+}
+
 function toClientNovedad(row) {
     const soporteStored = String(row.soporte_ruta || '');
     let soportes = [];
@@ -19,12 +33,12 @@ function toClientNovedad(row) {
     const isLocalSupport = soportePrincipal.startsWith('/assets/');
     return {
         id: row.id,
-        nombre: row.nombre,
+        nombre: decodePossiblyMisencodedText(row.nombre),
         cedula: row.cedula,
-        correoSolicitante: row.correo_solicitante || '',
-        cliente: row.cliente || '',
-        lider: row.lider || '',
-        tipoNovedad: row.tipo_novedad,
+        correoSolicitante: decodePossiblyMisencodedText(row.correo_solicitante || ''),
+        cliente: decodePossiblyMisencodedText(row.cliente || ''),
+        lider: decodePossiblyMisencodedText(row.lider || ''),
+        tipoNovedad: decodePossiblyMisencodedText(row.tipo_novedad),
         area: row.area,
         fecha: row.fecha ? row.fecha.toISOString().slice(0, 10) : '',
         horaInicio: row.hora_inicio ? String(row.hora_inicio).slice(0, 5) : '',
@@ -32,6 +46,8 @@ function toClientNovedad(row) {
         fechaInicio: row.fecha_inicio ? row.fecha_inicio.toISOString().slice(0, 10) : '',
         fechaFin: row.fecha_fin ? row.fecha_fin.toISOString().slice(0, 10) : '',
         cantidadHoras: Number(row.cantidad_horas || 0),
+        horasDiurnas: Number(row.horas_diurnas || 0),
+        horasNocturnas: Number(row.horas_nocturnas || 0),
         tipoHoraExtra: row.tipo_hora_extra || '',
         soporteRuta: isLocalSupport ? soportePrincipal : '',
         soporteKey: isLocalSupport ? '' : soportePrincipal,
