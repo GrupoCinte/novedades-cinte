@@ -159,8 +159,6 @@ function createCotizadorStore(deps) {
 
     async function getCatalogos() {
         await ensureReady();
-        /** Garantiza la fila aunque el proceso arrancara con código viejo o sin pasar por ensureReady completo. */
-        await ensureCargosPorClienteKey();
         const q = await pool.query('SELECT key, payload FROM cotizador_catalogos');
         const out = {};
         for (const row of q.rows) out[row.key] = row.payload;
