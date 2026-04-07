@@ -3,7 +3,6 @@
  * Uso: node scripts/smoke-cotizador-getCatalogos.js
  */
 require('dotenv').config({ override: true });
-const fs = require('fs');
 const { Pool } = require('pg');
 const { createCotizadorStore } = require('../src/cotizador/cotizadorStore');
 
@@ -22,7 +21,7 @@ const pool = new Pool({
 });
 
 async function main() {
-    const store = createCotizadorStore({ pool, fs });
+    const store = createCotizadorStore({ pool });
     const cat = await store.getCatalogos();
     const cpp = cat.cargos_por_cliente;
     const keys = Object.keys(cat).sort();

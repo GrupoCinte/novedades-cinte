@@ -1,8 +1,7 @@
-const path = require('path');
+// Data lives entirely in PostgreSQL — no JSON seed files
 
 function createCotizadorStore(deps) {
-    const { pool, fs } = deps;
-    const seedPath = path.join(process.cwd(), 'data', 'cotizador', 'catalogos.json');
+    const { pool } = deps;
     /** DDL + seed solo al arrancar el proceso; no repetir en cada GET (evita locks y sensación de “reinicios”). */
     let initDone = false;
 
@@ -143,47 +142,9 @@ function createCotizadorStore(deps) {
         }
     }
 
-    async function seedCatalogosIfEmpty() {
-        const q = await pool.query('SELECT COUNT(*)::int AS c FROM cotizador_catalogos');
-        if ((q.rows[0]?.c || 0) > 0) return;
-        if (!fs.existsSync(seedPath)) return;
-        const raw = await fs.promises.readFile(seedPath, 'utf8');
-        const seed = JSON.parse(raw);
-        const keys = [
-            'clientes',
-            'cargos',
-            'cargos_por_cliente',
-            'comerciales',
-            'parametros',
-            'equipos',
-            'gto_vinculacion',
-            'staff_cinte',
-            'factores_he'
-        ];
-        for (const key of keys) {
-            const fallback = key === 'cargos_por_cliente' ? {} : key === 'cargos' ? [] : null;
-            await pool.query(
-                `INSERT INTO cotizador_catalogos (key, payload, updated_at)
-                 VALUES ($1, $2::jsonb, NOW())
-                 ON CONFLICT (key) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()`,
-                [key, JSON.stringify(seed?.[key] ?? fallback)]
-            );
-        }
-    }
-
-    async function ensureCargosPorClienteKey() {
-        const r = await pool.query(`SELECT 1 FROM cotizador_catalogos WHERE key = 'cargos_por_cliente' LIMIT 1`);
-        if (r.rowCount > 0) return;
-        await pool.query(
-            `INSERT INTO cotizador_catalogos (key, payload, updated_at) VALUES ('cargos_por_cliente', '{}'::jsonb, NOW())`
-        );
-    }
-
     async function ensureReady() {
         if (initDone) return;
         await ensureSchema();
-        await seedCatalogosIfEmpty();
-        await ensureCargosPorClienteKey();
         await seedCotizadorImportAliasDefaults();
         initDone = true;
     }

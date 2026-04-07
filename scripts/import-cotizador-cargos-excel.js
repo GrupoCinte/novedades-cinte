@@ -168,7 +168,7 @@ async function main() {
         process.exit(1);
     }
 
-    const cotizadorStore = createCotizadorStore({ pool, fs });
+    const cotizadorStore = createCotizadorStore({ pool });
     await cotizadorStore.ensureReady();
     const aliasRows = await cotizadorStore.getImportAliases();
     const crearNombres = [...new Set(aliasRows.filter((r) => r.tipo === 'CREAR').map((r) => r.cliente))];

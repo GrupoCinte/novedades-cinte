@@ -369,7 +369,7 @@ const {
 
 const { registerRoutes } = require('./src/registerRoutes');
 const { startServer } = require('./src/startup');
-const cotizadorStore = createCotizadorStore({ pool, fs });
+const cotizadorStore = createCotizadorStore({ pool });
 
 registerRoutes({
     app,
