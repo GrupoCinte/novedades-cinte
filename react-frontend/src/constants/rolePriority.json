@@ -1,10 +1,9 @@
 [
   "super_admin",
+  "cac",
   "admin_ch",
   "team_ch",
-  "admin_ops",
   "gp",
-  "comercial",
   "nomina",
-  "sst"
+  "comercial"
 ]

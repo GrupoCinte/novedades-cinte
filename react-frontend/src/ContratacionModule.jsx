@@ -105,7 +105,7 @@ export default function ContratacionModule({ token, onLogout }) {
     ];
 
     return (
-        <div className="flex h-full w-full overflow-hidden bg-[#0f172a] font-sans text-slate-200">
+        <div className="flex h-full w-full overflow-hidden bg-[#04141E] font-body text-slate-200">
             <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
@@ -119,19 +119,19 @@ export default function ContratacionModule({ token, onLogout }) {
             ) : null}
 
             <aside
-                className={`fixed left-0 top-0 z-50 h-full w-72 border-r border-slate-700/50 bg-[#1e293b] shadow-2xl transition-transform duration-300 md:hidden ${
+                className={`fixed left-0 top-0 z-50 h-full w-72 border-r border-[#1a3a56]/50 bg-[#0b1e30] shadow-2xl transition-transform duration-300 md:hidden ${
                     mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}
             >
-                <div className="flex items-center justify-between border-b border-slate-700/50 p-4">
+                <div className="flex items-center justify-between border-b border-[#1a3a56]/50 p-4">
                     <div>
-                        <p className="text-[10px] font-black uppercase tracking-widest text-violet-400">Módulo de Capital Humano</p>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Onboarding</p>
+                        <p className="text-[10px] font-heading font-black uppercase tracking-widest text-[#65BCF7]">Módulo de Capital Humano</p>
+                        <p className="text-[10px] font-body font-bold uppercase tracking-widest text-slate-400">Onboarding</p>
                     </div>
                     <button
                         type="button"
                         onClick={() => setMobileMenuOpen(false)}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-300"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#1a3a56] bg-[#04141E] text-slate-300"
                         aria-label="Cerrar menú"
                     >
                         <X size={16} />
@@ -146,8 +146,8 @@ export default function ContratacionModule({ token, onLogout }) {
                                 setNavView(id);
                                 setMobileMenuOpen(false);
                             }}
-                            className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${
-                                navView === id ? 'bg-violet-600 text-white' : 'text-slate-300 hover:bg-slate-700/60'
+                            className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
+                                navView === id ? 'bg-[#2F7BB8] text-white' : 'text-slate-300 hover:bg-[#0f2942]/60'
                             }`}
                         >
                             <Icon size={17} />
@@ -155,29 +155,29 @@ export default function ContratacionModule({ token, onLogout }) {
                         </button>
                     ))}
                 </nav>
-                <div className="mt-auto border-t border-slate-700/50 p-4">
-                    <p className="truncate text-[10px] font-black text-slate-300">{currentEmail}</p>
-                    <p className="text-[10px] font-semibold uppercase text-violet-400">{currentRoleLabel}</p>
+                <div className="mt-auto border-t border-[#1a3a56]/50 p-4">
+                    <p className="truncate text-[10px] font-body font-black text-slate-300">{currentEmail}</p>
+                    <p className="text-[10px] font-body font-semibold uppercase text-[#65BCF7]">{currentRoleLabel}</p>
                 </div>
             </aside>
 
             <aside
-                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-hidden bg-[#1e293b] shadow-2xl transition-all duration-300 ease-in-out md:flex ${
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-hidden bg-[#0b1e30] shadow-2xl transition-all duration-300 ease-in-out md:flex ${
                     sidebarOpen ? 'w-64' : 'w-16'
                 }`}
             >
-                <div className={`flex items-center border-b border-slate-700/50 ${sidebarOpen ? 'justify-between px-5 py-4' : 'justify-center py-4'}`}>
+                <div className={`flex items-center border-b border-[#1a3a56]/50 ${sidebarOpen ? 'justify-between px-5 py-4' : 'justify-center py-4'}`}>
                     {sidebarOpen ? (
                         <div className="overflow-hidden">
-                            <p className="whitespace-nowrap text-[10px] font-black uppercase leading-tight tracking-widest text-violet-400">Módulo de Capital Humano</p>
-                            <p className="whitespace-nowrap text-[10px] font-bold uppercase leading-tight tracking-widest text-slate-400">Onboarding</p>
+                            <p className="whitespace-nowrap text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">Módulo de Capital Humano</p>
+                            <p className="whitespace-nowrap text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">Onboarding</p>
                         </div>
                     ) : null}
                     <button
                         type="button"
                         onClick={() => setSidebarOpen((o) => !o)}
                         title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
-                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 transition-all hover:border-violet-500/50 hover:text-violet-400"
+                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#1a3a56] bg-[#04141E] text-slate-400 transition-all hover:border-[#2F7BB8]/50 hover:text-[#65BCF7]"
                     >
                         {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
                     </button>
@@ -190,12 +190,12 @@ export default function ContratacionModule({ token, onLogout }) {
                             type="button"
                             onClick={() => setNavView(id)}
                             title={!sidebarOpen ? label : undefined}
-                            className={`flex items-center gap-3 rounded-xl text-left text-sm font-medium transition-all ${
+                            className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
                                 sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
                             } ${
                                 navView === id
-                                    ? 'bg-violet-600 text-white shadow-[0_4px_12px_rgba(139,92,246,0.35)]'
-                                    : 'text-slate-300 hover:bg-slate-700/50'
+                                    ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.35)]'
+                                    : 'text-slate-300 hover:bg-[#0f2942]/50'
                             }`}
                         >
                             <Icon size={18} className="flex-shrink-0" />
@@ -204,16 +204,16 @@ export default function ContratacionModule({ token, onLogout }) {
                     ))}
                 </nav>
 
-                <div className={`border-t border-slate-700/50 ${sidebarOpen ? 'p-4' : 'p-2'}`}>
+                <div className={`border-t border-[#1a3a56]/50 ${sidebarOpen ? 'p-4' : 'p-2'}`}>
                     {sidebarOpen ? (
                         <div className="space-y-2">
                             <div className="flex items-center gap-2">
-                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-violet-500/30 bg-violet-600/20">
-                                    <Code2 size={13} className="text-violet-400" />
+                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
+                                    <Code2 size={13} className="text-[#65BCF7]" />
                                 </div>
                                 <div className="min-w-0 overflow-hidden">
-                                    <p className="truncate text-[10px] font-black leading-tight text-slate-300">{currentEmail}</p>
-                                    <p className="truncate text-[9px] font-semibold leading-tight text-violet-400">{currentRoleLabel}</p>
+                                    <p className="truncate text-[10px] font-body font-black leading-tight text-slate-300">{currentEmail}</p>
+                                    <p className="truncate text-[9px] font-body font-semibold leading-tight text-[#65BCF7]">{currentRoleLabel}</p>
                                 </div>
                             </div>
                             <div className="flex flex-col gap-2 border-t border-slate-700/50 pt-2">

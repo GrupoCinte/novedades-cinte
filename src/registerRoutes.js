@@ -1,3 +1,27 @@
+const { normalizeNovedadTypeKey } = require('./rbac');
+
+function parseMontoCopFromBody(raw) {
+    if (raw == null) return NaN;
+    const s = String(raw)
+        .replace(/\$/g, '')
+        .replace(/\s/g, '')
+        .trim();
+    if (!s) return NaN;
+    const lastComma = s.lastIndexOf(',');
+    let normalized;
+    if (lastComma >= 0) {
+        const whole = s.slice(0, lastComma).replace(/\./g, '').replace(/[^\d]/g, '');
+        const frac = s.slice(lastComma + 1).replace(/[^\d]/g, '').slice(0, 2);
+        if (!whole && !frac) return NaN;
+        normalized = frac !== '' ? `${whole || '0'}.${frac}` : whole;
+    } else {
+        normalized = s.replace(/\./g, '').replace(/[^\d]/g, '');
+    }
+    if (normalized === '' || normalized === '.') return NaN;
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : NaN;
+}
+
 function registerRoutes(deps) {
     const {
         app,
@@ -183,7 +207,8 @@ function registerRoutes(deps) {
             }
             const baseUser = buildUserFromCognitoClaims(claims);
             const effectiveRole = resolveEffectiveRole(baseUser.role, roleRequested);
-            const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole);
+            const loginIdentity = String(identity || '').trim();
+            const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
             return res.json({
                 ok: true,
                 token: appAuth.token,
@@ -251,7 +276,8 @@ function registerRoutes(deps) {
             }
             const baseUser = buildUserFromCognitoClaims(claims);
             const effectiveRole = resolveEffectiveRole(baseUser.role, roleRequested);
-            const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole);
+            const loginIdentity = username;
+            const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
             return res.json({
                 ok: true,
                 token: appAuth.token,
@@ -439,8 +465,9 @@ function registerRoutes(deps) {
         }
     });
 
-    app.get('/api/novedades/export-csv', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
+    app.get('/api/novedades/export-excel', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
         try {
+            const ExcelJS = require('exceljs');
             const tipo = String(req.query.tipo || '').trim();
             const estado = String(req.query.estado || '').trim();
             const correo = String(req.query.correo || '').trim();
@@ -449,31 +476,100 @@ function registerRoutes(deps) {
             const sortDir = String(req.query.sortDir || '').trim();
             const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, cliente, sortBy, sortDir });
             const items = rows.map(toClientNovedad);
-            const headers = ['Fecha Creación', 'Nombre', 'Cédula', 'Correo', 'Cliente', 'Tipo Novedad', 'Fecha Inicio', 'Fecha Fin', 'Horas', 'Horas Diurnas', 'Horas Nocturnas', 'Turno', 'Estado'];
-            const csvEscape = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-            const csvRows = items.map((it) => [
-                new Date(it.creadoEn).toLocaleString('es-ES'),
-                it.nombre,
-                it.cedula,
-                it.correoSolicitante || '',
-                it.cliente || '',
-                it.tipoNovedad,
-                it.fechaInicio || '',
-                it.fechaFin || '',
-                it.cantidadHoras || '0',
-                it.horasDiurnas || '0',
-                it.horasNocturnas || '0',
-                it.tipoHoraExtra || 'N/A',
-                it.estado
-            ]);
-            const csvContent = [headers.map(csvEscape).join(','), ...csvRows.map((row) => row.map(csvEscape).join(','))].join('\n');
-            const filename = `novedades_reporte_${new Date().toISOString().slice(0, 10)}.csv`;
-            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-            return res.status(200).send(`\uFEFF${csvContent}`);
+
+            const columns = [
+                { header: 'Fecha Creación', key: 'fechaCreacion', width: 20 },
+                { header: 'Nombre', key: 'nombre', width: 28 },
+                { header: 'Cédula', key: 'cedula', width: 14 },
+                { header: 'Correo', key: 'correo', width: 30 },
+                { header: 'Cliente', key: 'cliente', width: 22 },
+                { header: 'Tipo Novedad', key: 'tipoNovedad', width: 24 },
+                { header: 'Fecha Inicio', key: 'fechaInicio', width: 14 },
+                { header: 'Fecha Fin', key: 'fechaFin', width: 14 },
+                { header: 'Horas', key: 'horas', width: 10 },
+                { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
+                { header: 'Estado', key: 'estado', width: 14 },
+                { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 },
+                { header: 'Aprobado / rechazado por (correo)', key: 'aprobadoPorCorreo', width: 32 }
+            ];
+
+            const wb = new ExcelJS.Workbook();
+            wb.creator = 'CINTE Novedades';
+            wb.created = new Date();
+            const ws = wb.addWorksheet('Reporte Novedades');
+            ws.columns = columns;
+
+            const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF004D87' } };
+            const headerFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11, name: 'Montserrat' };
+            const thinBorder = {
+                top: { style: 'thin', color: { argb: 'FF1A3A56' } },
+                left: { style: 'thin', color: { argb: 'FF1A3A56' } },
+                bottom: { style: 'thin', color: { argb: 'FF1A3A56' } },
+                right: { style: 'thin', color: { argb: 'FF1A3A56' } }
+            };
+
+            const headerRow = ws.getRow(1);
+            headerRow.eachCell((cell) => {
+                cell.fill = headerFill;
+                cell.font = headerFont;
+                cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                cell.border = thinBorder;
+            });
+            headerRow.height = 24;
+
+            for (const it of items) {
+                const correoActor = it.estado === 'Rechazado' ? (it.rechazadoPorCorreo || '') : (it.aprobadoPorCorreo || '');
+                ws.addRow({
+                    fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+                    nombre: it.nombre || '',
+                    cedula: it.cedula || '',
+                    correo: it.correoSolicitante || '',
+                    cliente: it.cliente || '',
+                    tipoNovedad: it.tipoNovedad || '',
+                    fechaInicio: it.fechaInicio || '',
+                    fechaFin: it.fechaFin || '',
+                    horas: it.cantidadHoras || '0',
+                    valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
+                    estado: it.estado || '',
+                    asignadoRoles: it.asignacionRolesEtiqueta || '—',
+                    aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
+                });
+            }
+
+            ws.eachRow((row, rowNum) => {
+                if (rowNum === 1) return;
+                row.eachCell((cell) => {
+                    cell.border = thinBorder;
+                    cell.alignment = { vertical: 'middle' };
+                    cell.font = { size: 10, name: 'Montserrat' };
+                });
+            });
+
+            columns.forEach((col, idx) => {
+                let maxLen = col.header.length;
+                ws.getColumn(idx + 1).eachCell({ includeEmpty: false }, (cell) => {
+                    const len = String(cell.value || '').length;
+                    if (len > maxLen) maxLen = len;
+                });
+                ws.getColumn(idx + 1).width = Math.min(maxLen + 4, 50);
+            });
+
+            ws.autoFilter = { from: 'A1', to: `${String.fromCharCode(64 + columns.length)}1` };
+
+            const filename = `novedades_reporte_${new Date().toISOString().slice(0, 10)}.xlsx`;
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            res.setHeader(
+                'Content-Disposition',
+                `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+            );
+            await wb.xlsx.write(res);
+            res.end();
         } catch (error) {
-            console.error('Error exportando novedades CSV:', error);
-            return res.status(500).json({ ok: false, error: 'Error exportando reporte CSV' });
+            console.error('Error exportando novedades Excel:', error);
+            if (!res.headersSent) {
+                return res.status(500).json({ ok: false, error: 'Error exportando reporte Excel' });
+            }
         }
     });
 
@@ -604,7 +700,7 @@ function registerRoutes(deps) {
             const horaFin = parseTimeOrNull(body.horaFin);
             const fechaInicio = parseDateOrNull(body.fechaInicio) || fecha;
             const fechaFin = parseDateOrNull(body.fechaFin);
-            const novedadTypeKey = rule?.key || '';
+            const novedadTypeKey = String(rule?.key || normalizeNovedadTypeKey(tipoNovedad) || '');
             const todayUtc = new Date().toISOString().slice(0, 10);
 
             if (!fechaInicio) {
@@ -654,16 +750,27 @@ function registerRoutes(deps) {
                 tipoHoraExtra = resolveHoraExtraLabel(horasDiurnas, horasNocturnas);
             }
 
+            let montoCop = null;
+            if (novedadTypeKey === 'bonos') {
+                const rawMonto = body.montoCop ?? body.montoBono ?? body.valorBonificacion;
+                const parsed = parseMontoCopFromBody(rawMonto);
+                if (!Number.isFinite(parsed) || parsed <= 0) {
+                    return res.status(400).json({ ok: false, error: 'Bonos requiere un valor en pesos mayor a cero.' });
+                }
+                montoCop = Number(parsed.toFixed(2));
+                cantidadHoras = 0;
+            }
+
             await pool.query(
                 `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
-                    cantidad_horas, horas_diurnas, horas_nocturnas, tipo_hora_extra, soporte_ruta, estado
+                    cantidad_horas, horas_diurnas, horas_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, estado
                 )
                 VALUES (
                     $1, $2, $3, $4, $5, $6, $7::user_area,
                     $8::date, $9::time, $10::time, $11::date, $12::date,
-                    $13, $14, $15, $16, $17, 'Pendiente'::novedad_estado
+                    $13, $14, $15, $16, $17, $18, 'Pendiente'::novedad_estado
                 )`,
                 [
                     nombreColaborador,
@@ -682,7 +789,8 @@ function registerRoutes(deps) {
                     horasDiurnas,
                     horasNocturnas,
                     tipoHoraExtra,
-                    archivoRuta
+                    archivoRuta,
+                    montoCop
                 ]
             );
             return res.json({ ok: true, success: true });
@@ -821,17 +929,48 @@ function registerRoutes(deps) {
                 return res.status(403).json({ ok: false, error: 'Este rol no puede aprobar/rechazar este tipo de novedad' });
             }
 
+            const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
+            // 1) Correo explícito del cliente (= el mismo que muestra el panel). Sesión ya validada con verificarToken.
+            const fromBody = String((req.body || {}).actorEmail || '').trim();
+            let actorEmail = emailOk(fromBody) ? fromBody : '';
+            // 2) Usuario derivado del token en servidor
+            if (!actorEmail) {
+                actorEmail = String(req.user?.email || '').trim();
+                if (!emailOk(actorEmail) && String(req.user?.username || '').includes('@')) {
+                    actorEmail = String(req.user.username).trim();
+                }
+            }
+            // 3) Payload JWT sin re-verificar (mismo Bearer ya validado)
+            if (!actorEmail) {
+                const payload = decodeJwtPayload(req.authToken) || {};
+                const un = String(payload.username || '').trim();
+                const cognitoU = String(payload['cognito:username'] || '').trim();
+                actorEmail =
+                    String(payload.email || '').trim()
+                    || (emailOk(payload.preferred_username) ? String(payload.preferred_username).trim() : '')
+                    || (un.includes('@') ? un : '')
+                    || (cognitoU.includes('@') ? cognitoU : '')
+                    || '';
+            }
+            if (!actorEmail) {
+                console.warn('[actualizar-estado] actorEmail vacío tras fallbacks', {
+                    sub: req.user?.sub,
+                    role: req.user?.role
+                });
+            }
             await pool.query(
                 `UPDATE novedades
                  SET estado = $1::novedad_estado,
                      aprobado_en = CASE WHEN $1::novedad_estado = 'Aprobado' THEN NOW() ELSE NULL END,
                      aprobado_por_rol = CASE WHEN $1::novedad_estado = 'Aprobado' THEN $2::user_role ELSE NULL END,
                      aprobado_por_user_id = CASE WHEN $1::novedad_estado = 'Aprobado' THEN $3::uuid ELSE NULL END,
+                     aprobado_por_email = CASE WHEN $1::novedad_estado = 'Aprobado' THEN NULLIF($4::text, '') ELSE NULL END,
                      rechazado_en = CASE WHEN $1::novedad_estado = 'Rechazado' THEN NOW() ELSE NULL END,
                      rechazado_por_rol = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $2::user_role ELSE NULL END,
-                     rechazado_por_user_id = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $3::uuid ELSE NULL END
-                 WHERE id = $4::uuid`,
-                [estado, req.user.role, actorUserId, item.id]
+                     rechazado_por_user_id = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $3::uuid ELSE NULL END,
+                     rechazado_por_email = CASE WHEN $1::novedad_estado = 'Rechazado' THEN NULLIF($4::text, '') ELSE NULL END
+                 WHERE id = $5::uuid`,
+                [estado, req.user.role, actorUserId, actorEmail, item.id]
             );
 
             await pool.query(
@@ -840,7 +979,11 @@ function registerRoutes(deps) {
                 [item.id, normalizeEstado(item.estado), estado, actorUserId, req.user.role]
             );
 
-            return res.json({ ok: true, success: true });
+            return res.json({
+                ok: true,
+                success: true,
+                persistedEmail: estado === 'Aprobado' || estado === 'Rechazado' ? actorEmail || null : null
+            });
         } catch (error) {
             console.error('Error al actualizar estado:', error);
             return res.status(500).json({ ok: false, error: 'Error al actualizar' });

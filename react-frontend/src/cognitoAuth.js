@@ -97,7 +97,3 @@ export async function cognitoChangePassword(currentPassword, newPassword) {
 export function cognitoSignOut() {
     // Backend stateless con JWT: basta con limpiar storage del cliente.
 }
-
-export async function cognitoGetCurrentAuthData() {
-    return null;
-}

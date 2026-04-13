@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
 import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet } from 'lucide-react';
 import ChatWidget from './ChatWidget';
-import { getNovedadRule, NOVEDAD_TYPES } from './novedadRules';
+import { getNovedadRule, NOVEDAD_TYPES, formatCantidadNovedad, formatDiasCount, getCantidadMedidaKind, getCantidadDetalleEtiqueta, getDiasEfectivosNovedad, getAsignacionGestionNovedad } from './novedadRules';
 
 export default function Dashboard({ token, onLogout }) {
     const [items, setItems] = useState([]);
@@ -27,7 +27,7 @@ export default function Dashboard({ token, onLogout }) {
         const groupsClaim = claims['cognito:groups'];
         const groups = Array.isArray(groupsClaim) ? groupsClaim : (groupsClaim ? [groupsClaim] : []);
         const normalized = groups.map((g) => String(g || '').toLowerCase());
-        const priority = ['super_admin', 'admin_ch', 'team_ch', 'admin_ops', 'gp', 'nomina', 'sst'];
+        const priority = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial'];
         return priority.find((role) => normalized.includes(role)) || '';
     };
     const authFromStorage = (() => {
@@ -42,13 +42,13 @@ export default function Dashboard({ token, onLogout }) {
     const currentRoleLabel = currentRole ? String(currentRole).replace(/_/g, ' ').toUpperCase() : 'SIN ROL';
     const currentEmail = String(tokenClaims.email || authFromStorage?.user?.email || authFromStorage?.claims?.email || 'sin-correo').toLowerCase();
     const PANEL_POLICY = {
-        super_admin: ['dashboard', 'calendar', 'gestion', 'admin'],
-        admin_ch: ['dashboard', 'calendar', 'gestion'],
-        team_ch: ['dashboard', 'calendar', 'gestion'],
-        admin_ops: ['dashboard', 'calendar'],
-        gp: ['dashboard', 'calendar', 'gestion'],
-        nomina: ['dashboard', 'calendar', 'gestion'],
-        sst: ['dashboard', 'calendar', 'gestion']
+        super_admin: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial'],
+        cac: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
+        admin_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
+        team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
+        gp: ['dashboard', 'calendar', 'gestion', 'contratacion'],
+        nomina: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
+        comercial: ['comercial']
     };
     const tabPanelMap = {
         Inicio: 'dashboard',
@@ -166,22 +166,49 @@ export default function Dashboard({ token, onLogout }) {
         loadGestionData(currentPage, pageSize);
     }, [currentPage, pageSize, fTipo, fEstado, fCorreo, fCliente, sortBy, sortDir]);
 
+    const leerCorreoSesionParaApi = () => {
+        const candidatos = [];
+        try {
+            const auth = JSON.parse(localStorage.getItem('cinteAuth') || 'null');
+            if (auth?.user?.email) candidatos.push(auth.user.email);
+            if (auth?.claims?.email) candidatos.push(auth.claims.email);
+        } catch { /* ignore */ }
+        candidatos.push(tokenClaims?.email, tokenClaims?.preferred_username);
+        for (const c of candidatos) {
+            const s = String(c || '').trim();
+            if (s.includes('@')) return s;
+        }
+        return '';
+    };
+
     const changeState = async (id, nuevoEstado) => {
         setStateError(null);
         console.log('[changeState] Iniciando cambio de estado:', { id, nuevoEstado, token: token ? '✅ token presente' : '❌ SIN TOKEN' });
         try {
+            const actorEmail = leerCorreoSesionParaApi();
             const res = await fetch('/api/actualizar-estado', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ id, nuevoEstado })
+                body: JSON.stringify({
+                    id,
+                    nuevoEstado,
+                    actorEmail
+                })
             });
             console.log('[changeState] Respuesta status:', res.status);
             const data = await res.json();
             console.log('[changeState] Respuesta data:', data);
             if (res.ok) {
+                const pe = String(data?.persistedEmail || '').trim();
+                const rowId = String(id || '').trim();
+                if (pe.includes('@') && rowId) {
+                    try {
+                        sessionStorage.setItem(`novedadActorEmail:${rowId}`, pe);
+                    } catch { /* ignore */ }
+                }
                 await loadData();
                 await loadGestionData(currentPage, pageSize);
             } else {
@@ -390,6 +417,43 @@ export default function Dashboard({ token, onLogout }) {
     // ── Gestión table filters ─────────────────────────────────────────────────
     const sortedItems = gestionItems;
 
+    /** Roles asignados: API + mismo criterio que el formulario si el mapper no resolvió el tipo. */
+    const asignacionEtiquetaForItem = (it) => {
+        const api = it?.asignacionRolesEtiqueta;
+        if (api && api !== '—') return api;
+        const { rolesEtiqueta } = getAsignacionGestionNovedad(it?.tipoNovedad || '');
+        return rolesEtiqueta && rolesEtiqueta !== '—' ? rolesEtiqueta : (api || '—');
+    };
+
+    /** Columna «Aprobado por»: solo correo; nunca mostrar roles u otro texto. */
+    const soloCorreoActor = (raw) => {
+        const s = String(raw || '').trim();
+        if (!s.includes('@')) return '—';
+        return s;
+    };
+
+    const correoAprobadoMostrar = (it) => {
+        const db = soloCorreoActor(it?.aprobadoPorCorreo);
+        if (db !== '—') return db;
+        if (it?.estado !== 'Aprobado' || !it?.id) return '—';
+        try {
+            const cached = String(sessionStorage.getItem(`novedadActorEmail:${it.id}`) || '').trim();
+            if (cached.includes('@')) return cached;
+        } catch { /* ignore */ }
+        return '—';
+    };
+
+    const correoRechazadoMostrar = (it) => {
+        const db = soloCorreoActor(it?.rechazadoPorCorreo);
+        if (db !== '—') return db;
+        if (it?.estado !== 'Rechazado' || !it?.id) return '—';
+        try {
+            const cached = String(sessionStorage.getItem(`novedadActorEmail:${it.id}`) || '').trim();
+            if (cached.includes('@')) return cached;
+        } catch { /* ignore */ }
+        return '—';
+    };
+
     const totalPages = Math.max(1, Number(gestionPagination.totalPages || 1));
     const safePage = Math.min(currentPage, totalPages);
     const pagedItems = sortedItems;
@@ -484,7 +548,7 @@ export default function Dashboard({ token, onLogout }) {
     };
     // -----------------------
 
-    const exportCSV = async () => {
+    const exportExcel = async () => {
         try {
             const params = {
                 sortBy: String(sortBy || 'creadoEn'),
@@ -495,17 +559,18 @@ export default function Dashboard({ token, onLogout }) {
             if (fCorreo) params.correo = fCorreo;
             if (fCliente) params.cliente = fCliente;
             const query = new URLSearchParams(params).toString();
-            const res = await fetch(`/api/novedades/export-csv?${query}`, {
+            const res = await fetch(`/api/novedades/export-excel?${query}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (!res.ok) {
                 const payload = await res.json().catch(() => ({}));
-                throw new Error(payload?.error || payload?.message || `Error ${res.status} exportando CSV`);
+                throw new Error(payload?.error || payload?.message || `Error ${res.status} exportando Excel`);
             }
-            const blob = await res.blob();
+            const buf = await res.arrayBuffer();
+            const blob = new Blob([buf], { type: 'application/octet-stream' });
             const disposition = res.headers.get('content-disposition') || '';
             const match = disposition.match(/filename="?([^"]+)"?/i);
-            const filename = (match && match[1]) ? match[1] : `novedades_reporte_${new Date().toISOString().slice(0, 10)}.csv`;
+            const filename = (match && match[1]) ? match[1] : `novedades_reporte_${new Date().toISOString().slice(0, 10)}.xlsx`;
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
             link.download = filename;
@@ -515,7 +580,7 @@ export default function Dashboard({ token, onLogout }) {
             document.body.removeChild(link);
             URL.revokeObjectURL(link.href);
         } catch (err) {
-            setStateError(err?.message || 'No se pudo exportar el reporte CSV.');
+            setStateError(err?.message || 'No se pudo exportar el reporte Excel.');
         }
     };
 
@@ -549,12 +614,12 @@ export default function Dashboard({ token, onLogout }) {
     }, [activeTab]);
 
     return (
-        <div className="flex h-full w-full bg-[#0f172a] text-slate-200 overflow-hidden font-sans">
+        <div className="flex h-full w-full bg-[#04141E] text-slate-200 overflow-hidden font-body">
 
             {/* ───────── MOBILE SIDEBAR ───────── */}
             <button
                 onClick={() => setMobileMenuOpen(true)}
-                className="md:hidden fixed top-24 left-4 z-40 w-10 h-10 rounded-lg bg-[#1e293b] border border-slate-700 text-slate-200 flex items-center justify-center shadow-lg"
+                className="md:hidden fixed top-24 left-4 z-40 w-10 h-10 rounded-lg bg-[#0b1e30] border border-[#1a3a56] text-slate-200 flex items-center justify-center shadow-lg"
                 aria-label="Abrir menú"
             >
                 <Menu size={18} />
@@ -566,17 +631,17 @@ export default function Dashboard({ token, onLogout }) {
                 />
             )}
             <aside
-                className={`md:hidden fixed top-0 left-0 h-full w-72 bg-[#1e293b] border-r border-slate-700/50 z-50 shadow-2xl transform transition-transform duration-300 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                className={`md:hidden fixed top-0 left-0 h-full w-72 bg-[#0b1e30] border-r border-[#1a3a56]/50 z-50 shadow-2xl transform transition-transform duration-300 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                     }`}
             >
-                <div className="p-4 border-b border-slate-700/50 flex items-center justify-between">
+                <div className="p-4 border-b border-[#1a3a56]/50 flex items-center justify-between">
                     <div>
-                        <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Sistema Análisis</p>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Novedades CINTE</p>
+                        <p className="text-[10px] font-heading font-black text-[#65BCF7] uppercase tracking-widest">Sistema Análisis</p>
+                        <p className="text-[10px] font-body font-bold text-slate-400 uppercase tracking-widest">Novedades CINTE</p>
                     </div>
                     <button
                         onClick={() => setMobileMenuOpen(false)}
-                        className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 flex items-center justify-center"
+                        className="w-8 h-8 rounded-lg bg-[#04141E] border border-[#1a3a56] text-slate-300 flex items-center justify-center"
                         aria-label="Cerrar menú"
                     >
                         <X size={16} />
@@ -590,7 +655,7 @@ export default function Dashboard({ token, onLogout }) {
                             <button
                                 key={`mobile-${item.id}`}
                                 onClick={() => setActiveTab(item.id)}
-                                className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition-all ${active ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700/50'
+                                className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${active ? 'bg-[#2F7BB8] text-white' : 'text-slate-300 hover:bg-[#0f2942]/50'
                                     }`}
                             >
                                 <Icon size={17} />
@@ -599,9 +664,9 @@ export default function Dashboard({ token, onLogout }) {
                         );
                     })}
                 </nav>
-                <div className="mt-auto p-4 border-t border-slate-700/50">
-                    <p className="text-[10px] font-black text-slate-300 truncate">{currentEmail}</p>
-                    <p className="text-[10px] text-blue-400 font-semibold uppercase">{currentRoleLabel}</p>
+                <div className="mt-auto p-4 border-t border-[#1a3a56]/50">
+                    <p className="text-[10px] font-body font-black text-slate-300 truncate">{currentEmail}</p>
+                    <p className="text-[10px] text-[#65BCF7] font-body font-semibold uppercase">{currentRoleLabel}</p>
                     <div className="mt-3 flex flex-col gap-2">
                         <button
                             onClick={() => navigate('/perfil/cambiar-clave')}
@@ -624,19 +689,18 @@ export default function Dashboard({ token, onLogout }) {
             {/* ───────── SIDEBAR COLAPSABLE ───────── */}
             <aside
                 className={`
-                    bg-[#1e293b] flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10
+                    bg-[#0b1e30] flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10
                     transition-all duration-300 ease-in-out overflow-hidden
                     ${sidebarOpen ? 'w-64' : 'w-16'}
                 `}
             >
-                {/* Header + toggle */}
-                <div className={`border-b border-slate-700/50 flex items-center ${sidebarOpen ? 'px-5 py-4 justify-between' : 'px-0 py-4 justify-center'}`}>
+                <div className={`border-b border-[#1a3a56]/50 flex items-center ${sidebarOpen ? 'px-5 py-4 justify-between' : 'px-0 py-4 justify-center'}`}>
                     {sidebarOpen && (
                         <div className="overflow-hidden">
-                            <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest whitespace-nowrap leading-tight">
+                            <p className="text-[10px] font-heading font-black text-[#65BCF7] uppercase tracking-widest whitespace-nowrap leading-tight">
                                 Sistema Análisis
                             </p>
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap leading-tight">
+                            <p className="text-[10px] font-body font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap leading-tight">
                                 Novedades CINTE
                             </p>
                         </div>
@@ -644,13 +708,12 @@ export default function Dashboard({ token, onLogout }) {
                     <button
                         onClick={() => setSidebarOpen(o => !o)}
                         title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
-                        className="flex items-center justify-center w-7 h-7 rounded-lg bg-slate-800 hover:bg-blue-600/20 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 transition-all flex-shrink-0"
+                        className="flex items-center justify-center w-7 h-7 rounded-lg bg-[#04141E] hover:bg-[#2F7BB8]/20 border border-[#1a3a56] hover:border-[#2F7BB8]/50 text-slate-400 hover:text-[#65BCF7] transition-all flex-shrink-0"
                     >
                         {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
                     </button>
                 </div>
 
-                {/* Nav items */}
                 <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
                     {navItems.map(item => {
                         const Icon = item.icon;
@@ -661,11 +724,11 @@ export default function Dashboard({ token, onLogout }) {
                                 onClick={() => setActiveTab(item.id)}
                                 title={!sidebarOpen ? item.label : undefined}
                                 className={`
-                                    flex items-center gap-3 rounded-xl transition-all font-medium text-sm text-left
+                                    flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left
                                     ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'}
                                     ${active
-                                        ? 'bg-blue-600 shadow-[0_4px_12px_rgba(59,130,246,0.3)] text-white'
-                                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+                                        ? 'bg-[#2F7BB8] shadow-[0_4px_12px_rgba(47,123,184,0.3)] text-white'
+                                        : 'text-slate-400 hover:text-slate-200 hover:bg-[#0f2942]/50'
                                     }
                                 `}
                             >
@@ -680,33 +743,32 @@ export default function Dashboard({ token, onLogout }) {
                     })}
                 </nav>
 
-                {/* Footer */}
-                <div className={`border-t border-slate-700/50 ${sidebarOpen ? 'p-4' : 'p-2'}`}>
+                <div className={`border-t border-[#1a3a56]/50 ${sidebarOpen ? 'p-4' : 'p-2'}`}>
                     {sidebarOpen ? (
                         <div className="space-y-2">
                             <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center flex-shrink-0">
-                                    <Code2 size={13} className="text-blue-400" />
+                                <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center flex-shrink-0">
+                                    <Code2 size={13} className="text-[#65BCF7]" />
                                 </div>
                                 <div className="overflow-hidden">
-                                    <p className="text-[10px] font-black text-slate-300 whitespace-nowrap leading-tight truncate">{currentEmail}</p>
-                                    <p className="text-[9px] text-blue-400 font-semibold whitespace-nowrap leading-tight">{currentRoleLabel}</p>
+                                    <p className="text-[10px] font-body font-black text-slate-300 whitespace-nowrap leading-tight truncate">{currentEmail}</p>
+                                    <p className="text-[9px] text-[#65BCF7] font-body font-semibold whitespace-nowrap leading-tight">{currentRoleLabel}</p>
                                 </div>
                             </div>
-                            <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest text-center border-t border-slate-700/50 pt-2">
+                            <p className="text-[9px] text-slate-600 font-body font-bold uppercase tracking-widest text-center border-t border-[#1a3a56]/50 pt-2">
                                 Consultores Grupo CINTE · V1.0
                             </p>
-                            <div className="border-t border-slate-700/50 pt-2 flex flex-col gap-2">
+                            <div className="border-t border-[#1a3a56]/50 pt-2 flex flex-col gap-2">
                                 <button
                                     onClick={() => navigate('/perfil/cambiar-clave')}
-                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/60 transition-all text-xs font-semibold"
+                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1a3a56] text-slate-300 hover:text-white hover:bg-[#0f2942]/60 transition-all text-xs font-body font-semibold"
                                 >
                                     <KeyRound size={14} />
                                     Cambiar contraseña
                                 </button>
                                 <button
                                     onClick={handleSidebarLogout}
-                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-500/30 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all text-xs font-semibold"
+                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-500/30 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all text-xs font-body font-semibold"
                                 >
                                     <LogOut size={14} />
                                     Cerrar sesión
@@ -716,14 +778,14 @@ export default function Dashboard({ token, onLogout }) {
                     ) : (
                         <div className="flex flex-col items-center gap-2">
                             <div className="flex justify-center" title={`${currentEmail} - ${currentRoleLabel}`}>
-                                <div className="w-7 h-7 rounded-lg bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
-                                    <Code2 size={13} className="text-blue-400" />
+                                <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center">
+                                    <Code2 size={13} className="text-[#65BCF7]" />
                                 </div>
                             </div>
                             <button
                                 onClick={() => navigate('/perfil/cambiar-clave')}
                                 title="Cambiar contraseña"
-                                className="w-7 h-7 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/60 flex items-center justify-center transition-all"
+                                className="w-7 h-7 rounded-lg border border-[#1a3a56] text-slate-300 hover:text-white hover:bg-[#0f2942]/60 flex items-center justify-center transition-all"
                             >
                                 <KeyRound size={13} />
                             </button>
@@ -740,7 +802,7 @@ export default function Dashboard({ token, onLogout }) {
             </aside>
 
             {/* Main Content Area */}
-            <main className="flex-1 overflow-y-auto p-4 pt-14 md:pt-6 md:p-6 relative scroll-smooth bg-[#0f172a]">
+            <main className="flex-1 overflow-y-auto p-4 pt-14 md:pt-6 md:p-6 relative scroll-smooth bg-[#04141E]">
 
                 {/* ---------- INICIO (DASHBOARD) ---------- */}
                 {activeTab === 'Inicio' && canAccessPanel('dashboard') && (
@@ -749,13 +811,13 @@ export default function Dashboard({ token, onLogout }) {
                         {/* ── Filtros: Período + Tipo de Novedad ── */}
                         <div className="flex flex-col gap-3 bg-[#1e293b] border border-slate-700/50 rounded-2xl px-5 py-4 shadow-lg">
 
-                            {/* Fila 1: Mes / Día / Tipo */}
+                            {/* Fila 1: Mes / Día / Tipo (desplegable) */}
                             <div className="flex flex-wrap items-center gap-3">
                                 <div className="flex items-center gap-2">
                                     <Calendar size={16} className="text-blue-400" />
                                     <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Filtrar por período</span>
                                 </div>
-                                <div className="flex-1 h-px bg-slate-700/50" />
+                                <div className="flex-1 h-px bg-slate-700/50 min-w-[1rem]" />
 
                                 {/* Mes */}
                                 <div className="flex items-center gap-2">
@@ -787,6 +849,26 @@ export default function Dashboard({ token, onLogout }) {
                                     </select>
                                 </div>
 
+                                {/* Tipo — a la derecha del Día */}
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs text-slate-500 font-semibold uppercase tracking-wider whitespace-nowrap">Tipo</label>
+                                    <select
+                                        value={fTipoInicio}
+                                        onChange={(e) => setFTipoInicio(e.target.value)}
+                                        className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-1.5 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer min-w-[12rem] max-w-[20rem]"
+                                    >
+                                        <option value="">Todos los tipos</option>
+                                        {NOVEDAD_TYPES.map((tipo) => {
+                                            const n = items.filter((i) => i.tipoNovedad === tipo).length;
+                                            return (
+                                                <option key={tipo} value={tipo} title={`${n} en el total cargado`}>
+                                                    {tipo}{n > 0 ? ` (${n})` : ''}
+                                                </option>
+                                            );
+                                        })}
+                                    </select>
+                                </div>
+
                                 {/* Botón limpiar */}
                                 {(fMes !== '' || fDia !== '' || fTipoInicio !== '') && (
                                     <button
@@ -804,37 +886,6 @@ export default function Dashboard({ token, onLogout }) {
                                         {dashItems.length} de {items.length} registros
                                     </span>
                                 </div>
-                            </div>
-
-                            {/* Fila 2: Chips tipo de novedad */}
-                            <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-slate-700/40">
-                                <span className="text-xs font-bold uppercase tracking-widest text-slate-500 whitespace-nowrap">Tipo:</span>
-                                {[
-                                    { label: 'Todos', value: '', cls: 'border-slate-600 text-slate-300 bg-slate-800', activeCls: 'bg-slate-600 border-slate-400 text-white' },
-                                    ...NOVEDAD_TYPES.map((tipo) => ({
-                                        label: tipo,
-                                        value: tipo,
-                                        cls: 'border-slate-600 text-slate-300 bg-slate-800',
-                                        activeCls: 'bg-blue-600 border-blue-400 text-white'
-                                    }))
-                                ].map(chip => {
-                                    const isActive = fTipoInicio === chip.value;
-                                    return (
-                                        <button
-                                            key={chip.value}
-                                            onClick={() => setFTipoInicio(chip.value)}
-                                            className={`text-xs font-bold px-3 py-1.5 rounded-full border transition-all ${isActive ? chip.activeCls : chip.cls + ' hover:opacity-80'
-                                                }`}
-                                        >
-                                            {chip.label}
-                                            {chip.value !== '' && (
-                                                <span className="ml-1.5 opacity-70 font-normal">
-                                                    ({items.filter(i => i.tipoNovedad === chip.value).length})
-                                                </span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
                             </div>
                         </div>
 
@@ -1044,8 +1095,8 @@ export default function Dashboard({ token, onLogout }) {
 
                                     <div className="flex-1"></div>
 
-                                    <button onClick={exportCSV} className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm transition-all flex items-center gap-2 shadow-sm font-medium">
-                                        <Download size={16} /> Exportar Reporte CSV
+                                    <button onClick={exportExcel} className="bg-[#2F7BB8] hover:bg-[#004D87] text-white px-4 py-2 rounded-lg text-sm transition-all flex items-center gap-2 shadow-sm font-body font-medium">
+                                        <Download size={16} /> Exportar Reporte Excel
                                     </button>
                                 </div>
                             </div>
@@ -1060,17 +1111,18 @@ export default function Dashboard({ token, onLogout }) {
                                                 <th className="p-4 font-semibold">Cliente</th>
                                                 <th className="p-4 font-semibold">Tipo</th>
                                                 <th className="p-4 font-semibold">F. Inicio</th>
-                                                <th className="p-4 font-semibold text-center">Horas</th>
+                                                <th className="p-4 font-semibold text-center">Cantidad</th>
                                                 <th className="p-4 font-semibold">Estado</th>
+                                                <th className="p-4 font-semibold">Asignado a</th>
                                                 <th className="p-4 font-semibold">Aprobado por</th>
                                                 <th className="p-4 pr-6 font-semibold text-right">Acciones</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-700/50 text-sm">
                                             {loading ? (
-                                                <tr><td colSpan="9" className="p-12 text-center text-slate-500 font-medium">Cargando base de datos...</td></tr>
+                                                <tr><td colSpan="10" className="p-12 text-center text-slate-500 font-medium">Cargando base de datos...</td></tr>
                                             ) : sortedItems.length === 0 ? (
-                                                <tr><td colSpan="9" className="p-12 text-center text-slate-500 font-medium">No se encontraron registros.</td></tr>
+                                                <tr><td colSpan="10" className="p-12 text-center text-slate-500 font-medium">No se encontraron registros.</td></tr>
                                             ) : (
                                                 pagedItems.map(it => {
                                                     const cread = new Date(it.creadoEn);
@@ -1084,7 +1136,7 @@ export default function Dashboard({ token, onLogout }) {
                                                         ? rechazado.toLocaleString('es-ES')
                                                         : '';
                                                     return (
-                                                        <tr key={it.creadoEn} className="hover:bg-slate-800/80 transition-colors">
+                                                        <tr key={it.id ? String(it.id) : `${it.creadoEn}-${it.cedula}-${it.nombre}`} className="hover:bg-slate-800/80 transition-colors">
                                                             <td className="p-4 pl-6 text-slate-400">{validCread}</td>
                                                             <td className="p-4 font-semibold text-slate-200">{it.nombre}</td>
                                                             <td className="p-4 text-slate-300">{it.cliente || '-'}</td>
@@ -1093,7 +1145,7 @@ export default function Dashboard({ token, onLogout }) {
                                                             </td>
                                                             <td className="p-4 text-slate-300">{it.fechaInicio || '-'}</td>
                                                             <td className="p-4 text-slate-400 text-center">
-                                                                {it.cantidadHoras || 0}h
+                                                                {formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it)}
                                                             </td>
                                                             <td className="p-4">
                                                                 <span className={`inline-flex px-2 py-1 rounded-md text-[11px] font-bold border uppercase tracking-wider ${it.estado === 'Aprobado' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
@@ -1103,22 +1155,25 @@ export default function Dashboard({ token, onLogout }) {
                                                                     {it.estado}
                                                                 </span>
                                                             </td>
-                                                            <td className="p-4 text-xs text-slate-300">
+                                                            <td className="p-4 text-xs text-slate-300 max-w-[240px] align-top !whitespace-normal">
+                                                                <span className="text-slate-200 leading-snug block break-words" title={asignacionEtiquetaForItem(it)}>{asignacionEtiquetaForItem(it)}</span>
+                                                            </td>
+                                                            <td className="p-4 text-xs text-slate-300 max-w-[220px] align-top !whitespace-normal">
                                                                 {it.estado === 'Aprobado'
                                                                     ? (
-                                                                        <div className="flex flex-col">
-                                                                            <span>{aprobadoTxt || '-'}</span>
-                                                                            <span className="text-[10px] uppercase text-slate-400">{it.aprobadoPorRol || '-'}</span>
+                                                                        <div className="flex flex-col gap-0.5">
+                                                                            <span className="text-slate-500">{aprobadoTxt || '-'}</span>
+                                                                            <span className="break-all font-medium text-slate-100">{correoAprobadoMostrar(it)}</span>
                                                                         </div>
                                                                     )
                                                                     : it.estado === 'Rechazado'
                                                                         ? (
-                                                                            <div className="flex flex-col">
-                                                                                <span>{rechazadoTxt || '-'}</span>
-                                                                                <span className="text-[10px] uppercase text-slate-400">{it.rechazadoPorRol || '-'}</span>
+                                                                            <div className="flex flex-col gap-0.5">
+                                                                                <span className="text-slate-500">{rechazadoTxt || '-'}</span>
+                                                                                <span className="break-all font-medium text-slate-100">{correoRechazadoMostrar(it)}</span>
                                                                             </div>
                                                                         )
-                                                                    : '-'}
+                                                                    : '—'}
                                                             </td>
                                                             <td className="p-4 pr-6">
                                                                 <div className="flex gap-2 justify-end items-center">
@@ -1285,7 +1340,7 @@ export default function Dashboard({ token, onLogout }) {
                                                         </div>
                                                         <div className="text-xs text-slate-300 text-right">
                                                             <p>{it.fechaInicio || '-'}</p>
-                                                            <p>{it.cantidadHoras || 0}h</p>
+                                                            <p>{formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it)}</p>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1396,11 +1451,17 @@ export default function Dashboard({ token, onLogout }) {
                                     {(() => {
                                         const riesgoMap = {};
                                         items.forEach(it => {
-                                            if (!riesgoMap[it.nombre]) riesgoMap[it.nombre] = { puntos: 0, horas: 0, novedades: 0 };
-                                            riesgoMap[it.nombre].horas += Number(it.cantidadHoras) || 0;
+                                            if (!riesgoMap[it.nombre]) riesgoMap[it.nombre] = { puntos: 0, sumHoras: 0, sumDias: 0, novedades: 0 };
+                                            const kind = getCantidadMedidaKind(it.tipoNovedad);
+                                            const v = Number(it.cantidadHoras) || 0;
+                                            if (kind === 'hours') riesgoMap[it.nombre].sumHoras += v;
+                                            else if (kind === 'days') {
+                                                riesgoMap[it.nombre].sumDias += getDiasEfectivosNovedad(it.tipoNovedad, it.cantidadHoras, it.fechaInicio, it.fechaFin);
+                                            }
                                             riesgoMap[it.nombre].novedades += 1;
-                                            if (it.tipoNovedad === 'Incapacidad') riesgoMap[it.nombre].puntos += 5;
-                                            else if (it.tipoNovedad === 'Hora extra') riesgoMap[it.nombre].puntos += 3;
+                                            const tipoNorm = String(it.tipoNovedad || '').toLowerCase();
+                                            if (tipoNorm.includes('incapacidad')) riesgoMap[it.nombre].puntos += 5;
+                                            else if (tipoNorm.includes('extra')) riesgoMap[it.nombre].puntos += 3;
                                             else riesgoMap[it.nombre].puntos += 1;
                                         });
                                         const ranking = Object.keys(riesgoMap)
@@ -1435,7 +1496,16 @@ export default function Dashboard({ token, onLogout }) {
                                                         </div>
                                                         <div>
                                                             <p className="text-slate-200 font-bold text-sm leading-tight">{r.nombre}</p>
-                                                            <p className="text-slate-500 text-xs">{r.novedades} novedad{r.novedades !== 1 ? 'es' : ''} · {r.horas}h acumuladas</p>
+                                                            <p className="text-slate-500 text-xs">
+                                                                {r.novedades} novedad{r.novedades !== 1 ? 'es' : ''}
+                                                                {' · '}
+                                                                {(() => {
+                                                                    const parts = [];
+                                                                    if (r.sumHoras > 0) parts.push(`${r.sumHoras}h`);
+                                                                    if (r.sumDias > 0) parts.push(formatDiasCount(r.sumDias));
+                                                                    return parts.length ? parts.join(' · ') : 'sin horas/días acumulados';
+                                                                })()}
+                                                            </p>
                                                         </div>
                                                     </div>
                                                     <div className="flex flex-col items-end gap-1">
@@ -1536,12 +1606,19 @@ export default function Dashboard({ token, onLogout }) {
                             <div><span className="text-slate-400">Cliente:</span> {gestionDetailItem.cliente || '-'}</div>
                             <div><span className="text-slate-400">Líder:</span> {gestionDetailItem.lider || '-'}</div>
                             <div><span className="text-slate-400">Estado:</span> {gestionDetailItem.estado}</div>
+                            <div><span className="text-slate-400">Asignado a (roles):</span> {asignacionEtiquetaForItem(gestionDetailItem)}</div>
+                            {gestionDetailItem.estado === 'Aprobado' && (
+                                <div><span className="text-slate-400">Aprobado por (correo):</span> {correoAprobadoMostrar(gestionDetailItem)}</div>
+                            )}
+                            {gestionDetailItem.estado === 'Rechazado' && (
+                                <div><span className="text-slate-400">Rechazado por (correo):</span> {correoRechazadoMostrar(gestionDetailItem)}</div>
+                            )}
                             <div><span className="text-slate-400">Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
                             <div><span className="text-slate-400">Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
-                            <div><span className="text-slate-400">Cantidad horas:</span> {gestionDetailItem.cantidadHoras || 0}</div>
-                            <div><span className="text-slate-400">Horas diurnas:</span> {gestionDetailItem.horasDiurnas || 0}</div>
-                            <div><span className="text-slate-400">Horas nocturnas:</span> {gestionDetailItem.horasNocturnas || 0}</div>
-                            <div><span className="text-slate-400">Clasificación:</span> {gestionDetailItem.tipoHoraExtra || '-'}</div>
+                            <div><span className="text-slate-400">{getCantidadDetalleEtiqueta(gestionDetailItem.tipoNovedad)}:</span> {formatCantidadNovedad(gestionDetailItem.tipoNovedad, gestionDetailItem.cantidadHoras, gestionDetailItem)}</div>
+                            {String(gestionDetailItem.tipoHoraExtra || '').trim() !== '' && (
+                                <div><span className="text-slate-400">Clasificación:</span> {gestionDetailItem.tipoHoraExtra}</div>
+                            )}
                         </div>
 
                         <div className="mt-5 border-t border-slate-700/50 pt-4">
@@ -1632,11 +1709,16 @@ export default function Dashboard({ token, onLogout }) {
                                             {!it.fechaInicio && !it.fechaFin ? 'Fecha no especificada' : ''}
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            {Number(it.cantidadHoras) > 0 && (
-                                                <span className="text-xs text-blue-400 font-bold">
-                                                    {it.cantidadHoras}h {it.tipoHoraExtra ? `(${it.tipoHoraExtra})` : ''}
-                                                </span>
-                                            )}
+                                            {(() => {
+                                                const qtyTxt = formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it);
+                                                if (qtyTxt === '—') return null;
+                                                return (
+                                                    <span className="text-xs text-blue-400 font-bold">
+                                                        {qtyTxt}
+                                                        {getCantidadMedidaKind(it.tipoNovedad) === 'hours' && it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : ''}
+                                                    </span>
+                                                );
+                                            })()}
                                             <span className={`text-[10px] uppercase tracking-widest font-black px-1.5 py-0.5 rounded ${it.estado === 'Aprobado' ? 'text-emerald-400 bg-emerald-500/10' : it.estado === 'Rechazado' ? 'text-rose-400 bg-rose-500/10' : 'text-amber-400 bg-amber-500/10'}`}>
                                                 {it.estado}
                                             </span>
