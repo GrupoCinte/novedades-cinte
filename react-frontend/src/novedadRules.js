@@ -1,81 +1,83 @@
+import { formatMontoCOPLocale } from './copMoneyFormat';
+
 export const NOVEDAD_RULES = {
   Incapacidad: {
     requiredDocuments: ['Historia clinica', 'Incapacidad'],
     formatLinks: [],
-    approvers: [],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp', 'nomina', 'sst'],
+    approvers: ['admin_ch', 'team_ch', 'cac'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
   'Calamidad domestica': {
     requiredDocuments: ['Soporte de calamidad', 'Formato de permiso'],
     formatLinks: [],
-    approvers: ['admin_ch', 'team_ch'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp'],
+    approvers: ['admin_ch', 'team_ch', 'cac'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp'],
     requiresDayCount: true,
     requiresTimeRange: false
   },
   'Permiso remunerado': {
     requiredDocuments: ['Soporte adjunto', 'Formato permiso Excel'],
     formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
-    approvers: ['admin_ch', 'team_ch'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp'],
+    approvers: ['admin_ch', 'team_ch', 'cac'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
   'Licencia de luto': {
     requiredDocuments: ['Registro civil consultor', 'Soporte parentesco', 'Acta de defuncion'],
     formatLinks: [],
-    approvers: ['admin_ch', 'team_ch'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp', 'nomina'],
+    approvers: ['admin_ch', 'team_ch', 'cac'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
   'Licencia de paternidad': {
     requiredDocuments: ['Certificado nacido vivo', 'Registro civil bebe', 'Semanas de gestacion'],
     formatLinks: [],
-    approvers: ['admin_ch', 'team_ch', 'nomina', 'gp'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'nomina', 'gp'],
+    approvers: ['admin_ch', 'team_ch', 'cac'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina', 'gp'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
   'Licencia de maternidad': {
     requiredDocuments: ['Incapacidad', 'Registro civil nacido vivo', 'Semanas de gestacion'],
     formatLinks: [],
-    approvers: ['admin_ch', 'team_ch', 'nomina'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'nomina', 'gp'],
+    approvers: ['admin_ch', 'team_ch', 'cac'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina', 'gp'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
   'Licencia remunerada': {
     requiredDocuments: ['Soporte de ausencia'],
     formatLinks: [],
-    approvers: ['admin_ch', 'team_ch', 'gp'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp'],
+    approvers: ['admin_ch', 'team_ch', 'cac'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
   'Licencia no remunerada': {
     requiredDocuments: [],
     formatLinks: [],
-    approvers: ['gp'],
-    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina'],
+    approvers: ['gp', 'cac'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false
   },
   'Permiso no remunerado': {
     requiredDocuments: [],
     formatLinks: [],
-    approvers: ['gp'],
-    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina'],
+    approvers: ['gp', 'cac'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: true
   },
   'Vacaciones en tiempo': {
     requiredDocuments: [],
     formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
-    approvers: ['gp'],
-    viewers: ['super_admin', 'gp', 'nomina'],
+    approvers: ['gp', 'admin_ch', 'team_ch', 'cac'],
+    viewers: ['super_admin', 'gp', 'nomina', 'admin_ch', 'team_ch', 'cac'],
     requiresDayCount: true,
     requiresTimeRange: false,
     autoBusinessDays: true
@@ -83,48 +85,51 @@ export const NOVEDAD_RULES = {
   'Vacaciones en dinero': {
     requiredDocuments: ['Solicitud firmada manuscrita'],
     formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
-    approvers: ['admin_ch', 'team_ch'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'nomina'],
-    requiresDayCount: false,
-    requiresTimeRange: false
+    approvers: ['admin_ch', 'team_ch', 'cac', 'nomina'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina'],
+    /* El backend guarda cantidad_horas = 0; la medida visible son días hábiles del rango. */
+    requiresDayCount: true,
+    requiresTimeRange: false,
+    autoBusinessDays: true
   },
   'Permiso compensatorio en tiempo': {
     requiredDocuments: ['Formato de permiso compensatorio'],
     formatLinks: [],
-    approvers: ['gp'],
-    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina'],
+    approvers: ['gp', 'cac'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
   Apoyo: {
     requiredDocuments: [],
     formatLinks: [],
-    approvers: ['gp'],
-    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina'],
+    approvers: ['gp', 'cac'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
   'Apoyo Standby': {
     requiredDocuments: [],
     formatLinks: [],
-    approvers: ['gp'],
-    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina'],
+    approvers: ['gp', 'cac'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
   Bonos: {
     requiredDocuments: [],
     formatLinks: [],
-    approvers: ['gp'],
-    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina'],
+    approvers: ['gp', 'cac'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
-    requiresTimeRange: false
+    requiresTimeRange: false,
+    requiresMonetaryAmount: true
   },
   'Hora Extra': {
     requiredDocuments: [],
     formatLinks: [],
     approvers: ['gp'],
-    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina', 'sst'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: true
   }
@@ -132,15 +137,185 @@ export const NOVEDAD_RULES = {
 
 export const NOVEDAD_TYPES = Object.keys(NOVEDAD_RULES);
 
+/** Claves internas (rbac / posibles filas legacy) → nombre canónico en NOVEDAD_RULES. */
+const TIPO_ALIAS_SNAKE = {
+  vacaciones_tiempo: 'Vacaciones en tiempo',
+  vacaciones_en_tiempo: 'Vacaciones en tiempo',
+  vacaciones_dinero: 'Vacaciones en dinero',
+  vacaciones_en_dinero: 'Vacaciones en dinero',
+  calamidad_domestica: 'Calamidad domestica',
+  permiso_remunerado: 'Permiso remunerado',
+  licencia_luto: 'Licencia de luto',
+  licencia_paternidad: 'Licencia de paternidad',
+  licencia_maternidad: 'Licencia de maternidad',
+  licencia_remunerada: 'Licencia remunerada',
+  licencia_no_remunerada: 'Licencia no remunerada',
+  permiso_no_remunerado: 'Permiso no remunerado',
+  permiso_compensatorio_tiempo: 'Permiso compensatorio en tiempo',
+  incapacidad: 'Incapacidad',
+  hora_extra: 'Hora Extra',
+  apoyo: 'Apoyo',
+  apoyo_standby: 'Apoyo Standby',
+  bonos: 'Bonos',
+  bono: 'Bonos'
+};
+
+/** Días hábiles entre fechas YYYY-MM-DD (lun–vie), alineado con Formulario y registerRoutes. */
+export function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
+  if (!startDateRaw || !endDateRaw || endDateRaw < startDateRaw) return 0;
+  const start = new Date(`${startDateRaw}T00:00:00`);
+  const end = new Date(`${endDateRaw}T00:00:00`);
+  let count = 0;
+  for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    const day = cursor.getDay();
+    if (day !== 0 && day !== 6) count += 1;
+  }
+  return count;
+}
+
+/** Prioriza cantidad guardada; si es 0 y hay rango, infiere días hábiles (Vacaciones en dinero, etc.). */
+export function getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin) {
+  const kind = getCantidadMedidaKind(tipoNovedad);
+  if (kind !== 'days') return 0;
+  const n = Number(cantidadRaw) || 0;
+  if (n > 0) return n;
+  if (fechaInicio && fechaFin) return countBusinessDaysInclusive(fechaInicio, fechaFin);
+  return 0;
+}
+
+/** Normaliza para comparar tipos guardados en BD con claves de NOVEDAD_RULES (mayúsculas, acentos). */
+function foldTipo(value) {
+  return String(value || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Resuelve el texto de tipo_novedad al nombre canónico de NOVEDAD_RULES.
+ * Cubre variantes de mayúsculas, acentos y etiquetas cortas usadas en datos legacy/demo.
+ */
+export function resolveCanonicalNovedadTipo(tipoRaw) {
+  const raw = String(tipoRaw || '').trim();
+  if (!raw) return raw;
+  if (NOVEDAD_RULES[raw]) return raw;
+  const snakeKey = raw.replace(/[\s-]+/g, '_').replace(/_+/g, '_').toLowerCase();
+  if (TIPO_ALIAS_SNAKE[snakeKey]) return TIPO_ALIAS_SNAKE[snakeKey];
+  const f = foldTipo(raw);
+  const byFold = NOVEDAD_TYPES.find((k) => foldTipo(k) === f);
+  if (byFold) return byFold;
+  if (f === 'vacaciones') return 'Vacaciones en tiempo';
+  if (f === 'vacaciones en tiempo') return 'Vacaciones en tiempo';
+  if (f === 'vacaciones en dinero') return 'Vacaciones en dinero';
+  /* Etiqueta corta en datos demo/legacy; el flujo de horas coincide con Permiso no remunerado. */
+  if (f === 'permiso') return 'Permiso no remunerado';
+  return raw;
+}
+
 export function getNovedadRule(tipo) {
-  return NOVEDAD_RULES[tipo] || {
+  const canon = resolveCanonicalNovedadTipo(tipo);
+  const raw = NOVEDAD_RULES[canon];
+  const fallback = {
     requiredDocuments: [],
     formatLinks: [],
     approvers: [],
     viewers: ['super_admin'],
     requiresDayCount: false,
     requiresTimeRange: false,
-    autoBusinessDays: false
+    autoBusinessDays: false,
+    requiresMonetaryAmount: false,
+    gestionPermiso: 'CRUD',
   };
+  if (!raw) return fallback;
+  return {
+    ...raw,
+    gestionPermiso: raw.gestionPermiso || 'CRUD',
+  };
+}
+
+/** Etiquetas para UI de gestión (asignación por rol). */
+export const ETIQUETA_ROL_APROBADOR = {
+  super_admin: 'Super Admin',
+  cac: 'CAC (Capital Humano)',
+  admin_ch: 'Admin Capital Humano',
+  team_ch: 'Equipo Capital Humano',
+  gp: 'Gestión de proyectos',
+  nomina: 'Nómina',
+  comercial: 'Comercial',
+};
+
+/** Roles aprobadores + permiso en módulo gestión (p. ej. CRUD), según reglas del tipo. */
+export function getAsignacionGestionNovedad(tipoNovedad) {
+  const rule = getNovedadRule(tipoNovedad);
+  const approvers = Array.isArray(rule.approvers) ? rule.approvers : [];
+  const seen = new Set();
+  const labels = [];
+  for (const r of approvers) {
+    if (seen.has(r)) continue;
+    seen.add(r);
+    labels.push(
+      ETIQUETA_ROL_APROBADOR[r] || String(r).replace(/_/g, ' '),
+    );
+  }
+  return {
+    rolesEtiqueta:
+      labels.length > 0 ? labels.join(' · ') : '—',
+    permisoGestion: rule.gestionPermiso || 'CRUD',
+  };
+}
+
+/** Alineado con FormularioNovedad: cantidad_horas almacena horas o días según el tipo. */
+export function getCantidadMedidaKind(tipoNovedad) {
+  const rule = getNovedadRule(tipoNovedad);
+  if (rule.requiresTimeRange) return 'hours';
+  if (rule.requiresMonetaryAmount) return 'money';
+  if (rule.requiresDayCount || rule.autoBusinessDays) return 'days';
+  return 'neutral';
+}
+
+/** Texto compacto para cantidades en días (UI en español). */
+export function formatDiasCount(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v === 0) return '—';
+  if (v === 1) return '1 día';
+  return `${v} días`;
+}
+
+/**
+ * @param {object} [context] registro de novedad o { fechaInicio, fechaFin } para inferir días cuando cantidad_horas es 0
+ */
+export function formatCantidadNovedad(tipoNovedad, cantidadRaw, context = null) {
+  const n = Number(cantidadRaw);
+  const kind = getCantidadMedidaKind(tipoNovedad);
+  const fechaInicio = context?.fechaInicio || context?.fecha_inicio || '';
+  const fechaFin = context?.fechaFin || context?.fecha_fin || '';
+  if (kind === 'hours') {
+    if (!Number.isFinite(n) || n === 0) return '—';
+    return `${n}h`;
+  }
+  if (kind === 'days') {
+    const dias = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin);
+    return formatDiasCount(dias);
+  }
+  if (kind === 'money') {
+    let m = context?.montoCop != null && context.montoCop !== '' ? Number(context.montoCop) : NaN;
+    if ((!Number.isFinite(m) || m <= 0) && Number(cantidadRaw) > 0) {
+      m = Number(cantidadRaw);
+    }
+    if (!Number.isFinite(m) || m <= 0) return '—';
+    return formatMontoCOPLocale(m);
+  }
+  if (!Number.isFinite(n) || n === 0) return '—';
+  return String(n);
+}
+
+export function getCantidadDetalleEtiqueta(tipoNovedad) {
+  const kind = getCantidadMedidaKind(tipoNovedad);
+  if (kind === 'hours') return 'Total horas';
+  if (kind === 'days') return 'Días solicitados';
+  if (kind === 'money') return 'Valor (COP)';
+  return 'Cantidad';
 }
 

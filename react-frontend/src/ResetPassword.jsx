@@ -39,10 +39,10 @@ export default function ResetPassword() {
 
   return (
     <div className="flex justify-center items-center w-full min-h-[60vh] animate-in fade-in zoom-in duration-300">
-      <div className="bg-[#0f2437] border border-[#21405f] rounded-2xl p-8 md:p-12 w-full max-w-md shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#2a90ff] to-[#1fc76a]" />
+      <div className="bg-[#04141E]/90 backdrop-blur-xl border border-[#1a3a56] rounded-2xl p-8 md:p-12 w-full max-w-md shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#004D87] to-[#65BCF7]" />
         <div className="text-center mb-8">
-          <div className="bg-[#162a3d] border border-[#21405f] w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="bg-[#0b1e30]/80 border border-[#1a3a56] w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
             <Lock className="text-[#1fc76a]" size={28} />
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">Restablecer contraseña</h1>
@@ -58,7 +58,7 @@ export default function ResetPassword() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="usuario@empresa.com"
-              className="w-full bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+              className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
             />
           </div>
 
@@ -70,7 +70,7 @@ export default function ResetPassword() {
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="Código enviado por Cognito"
-              className="w-full bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+              className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
             />
           </div>
 
@@ -86,7 +86,7 @@ export default function ResetPassword() {
                 value={pw}
                 onChange={(e) => setPw(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-[#162a3d] border border-[#21405f] text-white p-3 pl-10 pr-10 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+                className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 pl-10 pr-10 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
               />
               <button
                 type="button"
@@ -111,7 +111,7 @@ export default function ResetPassword() {
                 value={pw2}
                 onChange={(e) => setPw2(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-[#162a3d] border border-[#21405f] text-white p-3 pl-10 pr-10 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+                className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 pl-10 pr-10 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
               />
               <button
                 type="button"
@@ -125,7 +125,7 @@ export default function ResetPassword() {
           </div>
 
           {!!msg && (
-            <div className="bg-[#1a2b3b] border border-[#21405f] text-[#9fb3c8] text-sm p-3 rounded-lg">
+            <div className="bg-[#1a2b3b] border border-[#1a3a56] text-[#9fb3c8] text-sm p-3 rounded-lg">
               {msg}
             </div>
           )}
@@ -133,7 +133,7 @@ export default function ResetPassword() {
           <button
             disabled={loading}
             type="submit"
-            className="w-full mt-1 bg-[#2a90ff] hover:bg-[#1a7ae0] disabled:bg-[#21405f] disabled:text-[#9fb3c8] text-white font-bold py-3.5 px-6 rounded-lg transition-colors shadow-lg hover:shadow-[#2a90ff]/20"
+            className="w-full mt-1 bg-gradient-to-r from-[#004D87] to-[#2F7BB8] hover:from-[#004D87] hover:to-[#088DC6] disabled:opacity-50 disabled:text-[#9fb3c8] text-white font-bold py-3.5 px-6 rounded-lg transition-colors shadow-lg hover:shadow-[#2a90ff]/20"
           >
             {loading ? 'Guardando...' : 'Restablecer'}
           </button>

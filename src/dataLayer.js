@@ -12,7 +12,8 @@ function createDataLayer(deps) {
     async function ensureUserRoleEnumValues() {
         const enumStatements = [
             { role: 'nomina', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'nomina'` },
-            { role: 'sst', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'sst'` }
+            { role: 'sst', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'sst'` },
+            { role: 'cac', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'cac'` }
         ];
         for (const item of enumStatements) {
             try {
@@ -77,6 +78,31 @@ function createDataLayer(deps) {
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[DB] Permisos insuficientes para agregar columnas de desglose horario. Se continúa sin migración de columnas.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureNovedadesMontoCopColumn() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS monto_cop NUMERIC(16,2) NULL');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para agregar monto_cop en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureNovedadesApproverEmailColumns() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS aprobado_por_email TEXT NULL');
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS rechazado_por_email TEXT NULL');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para agregar aprobado_por_email / rechazado_por_email.');
                 return;
             }
             throw error;
@@ -206,23 +232,23 @@ function createDataLayer(deps) {
         const params = [];
         if (!scope?.canViewAllAreas && Array.isArray(scope?.areas) && scope.areas.length > 0) {
             params.push(scope.areas);
-            whereParts.push(`(area IS NULL OR area::text = ANY($${params.length}::text[]))`);
+            whereParts.push(`(nov.area IS NULL OR nov.area::text = ANY($${params.length}::text[]))`);
         }
         if (tipo) {
             params.push(tipo);
-            whereParts.push(`tipo_novedad = $${params.length}`);
+            whereParts.push(`nov.tipo_novedad = $${params.length}`);
         }
         if (estado) {
             params.push(estado);
-            whereParts.push(`estado = $${params.length}::novedad_estado`);
+            whereParts.push(`nov.estado = $${params.length}::novedad_estado`);
         }
         if (correo) {
             params.push(`%${correo}%`);
-            whereParts.push(`lower(coalesce(correo_solicitante, '')) LIKE $${params.length}`);
+            whereParts.push(`lower(coalesce(nov.correo_solicitante, '')) LIKE $${params.length}`);
         }
         if (cliente) {
             params.push(`%${cliente}%`);
-            whereParts.push(`lower(coalesce(cliente, '')) LIKE $${params.length}`);
+            whereParts.push(`lower(coalesce(nov.cliente, '')) LIKE $${params.length}`);
         }
         const orderColumnMap = {
             creadoEn: 'creado_en',
@@ -234,12 +260,16 @@ function createDataLayer(deps) {
         const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
         const q = await pool.query(
             `SELECT
-                id, nombre, cedula, correo_solicitante, cliente, lider, tipo_novedad, area,
-                fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin, cantidad_horas, tipo_hora_extra, horas_diurnas, horas_nocturnas,
-                soporte_ruta, estado, creado_en, aprobado_en, aprobado_por_rol, rechazado_en, rechazado_por_rol
-             FROM novedades
+                nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.tipo_novedad, nov.area,
+                nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas,
+                nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
+                COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
+                COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
+             FROM novedades nov
+             LEFT JOIN users ua ON nov.aprobado_por_user_id = ua.id
+             LEFT JOIN users ur ON nov.rechazado_por_user_id = ur.id
              ${whereSql}
-             ORDER BY ${orderColumn} ${orderDirection}, creado_en DESC`,
+             ORDER BY nov.${orderColumn} ${orderDirection}, nov.creado_en DESC`,
             params
         );
         return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad));
@@ -250,6 +280,8 @@ function createDataLayer(deps) {
         ensureClientesLideresTable,
         ensureNovedadesIndexes,
         ensureNovedadesHourSplitColumns,
+        ensureNovedadesMontoCopColumn,
+        ensureNovedadesApproverEmailColumns,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureCinteLeonardoPair,

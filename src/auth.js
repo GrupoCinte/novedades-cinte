@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const { decodeJwtPayload } = require('./utils');
 
 function createAuthHelpers(deps) {
     const {
@@ -34,22 +35,29 @@ function createAuthHelpers(deps) {
         return base;
     }
 
-    function buildAuthUserByRole(baseUser = {}, effectiveRole = '') {
+    function buildAuthUserByRole(baseUser = {}, effectiveRole = '', loginIdentity = '') {
         const role = normalizeRoleOrNull(effectiveRole || baseUser.role) || '';
         const area = getAreaFromRole(role);
+        const login = String(loginIdentity || '').trim();
+        const emailRaw = String(baseUser.email || '').trim();
+        const usernameRaw = String(baseUser.username || '').trim();
+        const email =
+            emailRaw
+            || (usernameRaw.includes('@') ? usernameRaw : '')
+            || (login.includes('@') ? login : '');
         return {
             id: baseUser.sub || baseUser.id || '',
-            email: baseUser.email || '',
-            username: baseUser.username || '',
-            name: baseUser.name || baseUser.full_name || '',
+            email,
+            username: usernameRaw || login || emailRaw,
+            name: baseUser.name || baseUser.full_name || email || usernameRaw,
             role,
             area,
             panels: POLICY[role]?.panels || []
         };
     }
 
-    function issueAppTokenFromCognito(baseUser = {}, authResult = {}, effectiveRole = '') {
-        const user = buildAuthUserByRole(baseUser, effectiveRole);
+    function issueAppTokenFromCognito(baseUser = {}, authResult = {}, effectiveRole = '', loginIdentity = '') {
+        const user = buildAuthUserByRole(baseUser, effectiveRole, loginIdentity);
         const expiresInSec = Number(authResult.ExpiresIn || 3600);
         const token = jwt.sign(
             {
@@ -75,16 +83,19 @@ function createAuthHelpers(deps) {
         const roleFromClaims = normalizeRoleOrNull(claims['custom:role'] || claims.role);
         const role = roleFromGroups || roleFromClaims || '';
         if (!role) {
-            const err = new Error('Usuario Cognito sin rol asignado. Agrega el usuario a un grupo (super_admin/admin_ch/team_ch/admin_ops/gp/comercial/nomina/sst).');
+            const err = new Error('Usuario Cognito sin rol asignado. Agrega el usuario a un grupo (super_admin/cac/admin_ch/team_ch/gp/comercial/nomina).');
             err.status = 403;
             throw err;
         }
         const area = getAreaFromRole(role);
+        const cognitoUsername = String(claims['cognito:username'] || '').trim();
+        const emailClaim = String(claims.email || claims['email'] || '').trim();
+        const emailResolved = emailClaim || (cognitoUsername.includes('@') ? cognitoUsername : '');
         return {
             sub: claims.sub,
-            email: claims.email || '',
-            username: claims['cognito:username'] || claims.email || '',
-            name: claims.name || claims.email || '',
+            email: emailResolved,
+            username: cognitoUsername || emailClaim || '',
+            name: claims.name || emailResolved || cognitoUsername || '',
             role,
             area,
             panels: POLICY[role]?.panels || [],
@@ -153,7 +164,19 @@ function createAuthHelpers(deps) {
                     throw new Error('Token de aplicación inválido');
                 }
             }
-            req.user = userClaims;
+            const payloadFromToken = decodeJwtPayload(token) || {};
+            const emailNorm =
+                String(userClaims.email || '').trim()
+                || (String(userClaims.username || '').includes('@') ? String(userClaims.username).trim() : '')
+                || String(payloadFromToken.email || '').trim()
+                || (String(payloadFromToken.preferred_username || '').includes('@')
+                    ? String(payloadFromToken.preferred_username).trim()
+                    : '')
+                || (String(payloadFromToken.username || '').includes('@') ? String(payloadFromToken.username).trim() : '')
+                || (String(payloadFromToken['cognito:username'] || '').includes('@')
+                    ? String(payloadFromToken['cognito:username']).trim()
+                    : '');
+            req.user = { ...userClaims, email: emailNorm };
             return next();
         } catch {
             return res.status(403).json({ ok: false, error: 'Token invalido o expirado.' });

@@ -65,10 +65,10 @@ export default function ForgotPassword() {
 
   return (
     <div className="flex justify-center items-start w-full h-full overflow-y-auto py-6 animate-in fade-in zoom-in duration-300">
-      <div className="bg-[#0f2437] border border-[#21405f] rounded-2xl p-8 md:p-12 w-full max-w-md shadow-2xl relative overflow-hidden max-h-[calc(100vh-10rem)] overflow-y-auto">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#2a90ff] to-[#1fc76a]" />
+      <div className="bg-[#04141E]/90 backdrop-blur-xl border border-[#1a3a56] rounded-2xl p-8 md:p-12 w-full max-w-md shadow-2xl relative overflow-hidden max-h-[calc(100vh-10rem)] overflow-y-auto">
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#004D87] to-[#65BCF7]" />
         <div className="text-center mb-8">
-          <div className="bg-[#162a3d] border border-[#21405f] w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className="bg-[#0b1e30]/80 border border-[#1a3a56] w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
             <Mail className="text-[#1fc76a]" size={28} />
           </div>
           <h1 className="text-2xl font-bold text-white mb-2">Recuperar contraseña</h1>
@@ -89,7 +89,7 @@ export default function ForgotPassword() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="usuario@empresa.com"
-                  className="w-full bg-[#162a3d] border border-[#21405f] text-white p-3 pl-10 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+                  className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 pl-10 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
                 />
               </div>
             </div>
@@ -97,7 +97,7 @@ export default function ForgotPassword() {
             <button
               disabled={sendingCode || resetting}
               type="submit"
-              className="w-full mt-1 bg-[#2a90ff] hover:bg-[#1a7ae0] disabled:bg-[#21405f] disabled:text-[#9fb3c8] text-white font-bold py-3.5 px-6 rounded-lg transition-colors shadow-lg hover:shadow-[#2a90ff]/20"
+              className="w-full mt-1 bg-gradient-to-r from-[#004D87] to-[#2F7BB8] hover:from-[#004D87] hover:to-[#088DC6] disabled:opacity-50 disabled:text-[#9fb3c8] text-white font-bold py-3.5 px-6 rounded-lg transition-colors shadow-lg hover:shadow-[#2a90ff]/20"
             >
               {sendingCode ? 'Enviando...' : 'Enviar código'}
             </button>
@@ -105,40 +105,40 @@ export default function ForgotPassword() {
 
           <div className="flex flex-col gap-2">
             {!!msg && (
-              <div className="bg-[#1a2b3b] border border-[#21405f] text-[#9fb3c8] text-sm p-3 rounded-lg break-all">
+              <div className="bg-[#1a2b3b] border border-[#1a3a56] text-[#9fb3c8] text-sm p-3 rounded-lg break-all">
                 {msg}
               </div>
             )}
           </div>
 
           {showResetForm && (
-            <form onSubmit={onConfirmReset} className="mt-2 p-4 rounded-lg border border-[#21405f] bg-[#162a3d]/60 flex flex-col gap-3">
+            <form onSubmit={onConfirmReset} className="mt-2 p-4 rounded-lg border border-[#1a3a56] bg-[#0b1e30]/60 flex flex-col gap-3">
               <div className="text-sm text-[#9fb3c8] font-semibold">Completar recuperación con código</div>
               <input
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="Código recibido por correo"
-                className="w-full bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+                className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
               />
               <input
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Nueva contraseña"
-                className="w-full bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+                className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
               />
               <input
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirmar nueva contraseña"
-                className="w-full bg-[#162a3d] border border-[#21405f] text-white p-3 rounded-lg focus:outline-none focus:border-[#2a90ff] focus:ring-2 focus:ring-[#2a90ff]/20 transition-all placeholder-[#3c566e]"
+                className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
               />
               <button
                 type="submit"
                 disabled={sendingCode || resetting}
-                className="w-full bg-[#1fc76a] hover:bg-[#18a85a] disabled:bg-[#21405f] disabled:text-[#9fb3c8] text-white font-bold py-3 rounded-lg transition-colors"
+                className="w-full bg-[#1fc76a] hover:bg-[#18a85a] disabled:opacity-50 disabled:text-[#9fb3c8] text-white font-bold py-3 rounded-lg transition-colors"
               >
                 {resetting ? 'Procesando...' : 'Confirmar código y cambiar contraseña'}
               </button>
