@@ -151,7 +151,7 @@ const AUTH_RATE_LIMIT_MAX = Number(process.env.AUTH_RATE_LIMIT_MAX || 10);
 const FORGOT_RATE_LIMIT_WINDOW_MIN = Number(process.env.FORGOT_RATE_LIMIT_WINDOW_MIN || 60);
 const FORGOT_RATE_LIMIT_MAX = Number(process.env.FORGOT_RATE_LIMIT_MAX || 5);
 const PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN = Number(process.env.PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN || process.env.FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN || 60);
-const PUBLIC_FORM_SUBMIT_RATE_LIMIT_MAX = Number(process.env.PUBLIC_FORM_SUBMIT_RATE_LIMIT_MAX || process.env.FORM_SUBMIT_RATE_LIMIT_MAX || 10);
+const PUBLIC_FORM_SUBMIT_RATE_LIMIT_MAX = Number(process.env.PUBLIC_FORM_SUBMIT_RATE_LIMIT_MAX || process.env.FORM_SUBMIT_RATE_LIMIT_MAX || 30);
 const ADMIN_ACTION_RATE_LIMIT_WINDOW_MIN = Number(process.env.ADMIN_ACTION_RATE_LIMIT_WINDOW_MIN || 60);
 const ADMIN_ACTION_RATE_LIMIT_MAX = Number(process.env.ADMIN_ACTION_RATE_LIMIT_MAX || 200);
 const PDF_RATE_LIMIT_WINDOW_MIN = Number(process.env.PDF_RATE_LIMIT_WINDOW_MIN || 10);
@@ -349,6 +349,8 @@ const {
     ensureClientesLideresTable,
     ensureNovedadesIndexes,
     ensureNovedadesHourSplitColumns,
+    ensureNovedadesMontoCopColumn,
+    ensureNovedadesApproverEmailColumns,
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,
     ensureCinteLeonardoPair,
@@ -455,6 +457,8 @@ startServer({
     ensureClientesLideresTable,
     ensureNovedadesIndexes,
     ensureNovedadesHourSplitColumns,
+    ensureNovedadesMontoCopColumn,
+    ensureNovedadesApproverEmailColumns,
     migrateExcelIfNeeded,
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,

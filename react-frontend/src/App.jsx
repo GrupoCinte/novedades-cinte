@@ -10,7 +10,7 @@ import ComercialModule from './ComercialModule';
 import ContratacionModule from './ContratacionModule';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
-import { cognitoGetCurrentAuthData, cognitoSignOut } from './cognitoAuth';
+import { cognitoSignOut } from './cognitoAuth';
 
 
 function readAuth() {
@@ -79,12 +79,15 @@ function App() {
   });
   const navigate = useNavigate();
   const location = useLocation();
+  const isFormularioPublico = location.pathname === '/';
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isComercialRoute = location.pathname.startsWith('/admin/comercial');
   const isContratacionRoute = location.pathname.startsWith('/admin/contratacion');
   const showContratacionNav = auth?.token && userHasContratacionPanel(auth.token);
   const showNovedadesNav = auth?.token && userHasNovedadesAdminAccess(auth.token);
   const showComercialNav = auth?.token && userHasCotizadorAccess(auth.token);
+  /** Login / forgot / reset: sin cabecera global para usar viewport completo. */
+  const showGlobalHeader = !isFormularioPublico && !(isAdminRoute && !auth?.token);
 
   const handleLogout = useCallback(() => {
     cognitoSignOut();
@@ -126,52 +129,36 @@ function App() {
     return () => clearTimeout(timer);
   }, [auth?.token, handleLogout]);
 
-  // Rehidrata sesión desde Cognito en recargas/pestañas nuevas
-  useEffect(() => {
-    if (auth?.token) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const authData = await cognitoGetCurrentAuthData();
-        if (!cancelled && authData?.token && isTokenValid(authData.token)) {
-          localStorage.setItem('cinteAuth', JSON.stringify(authData));
-          setAuth(authData);
-        }
-      } catch {
-        // No interrumpir la UI si no hay sesión Cognito activa.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [auth?.token]);
-
   const onLoggedIn = (authData) => setAuth(authData);
   const headerTitle = (auth?.token && isAdminRoute)
     ? 'SISTEMA UNIFICADO DE GESTIÓN'
     : 'PORTAL DE RADICACIÓN DE NOVEDADES';
   return (
     <div className="h-screen overflow-hidden flex flex-col">
-      <header className="bg-[#0f2437]/95 px-8 py-3 border-b border-[#21405f] flex justify-between items-center sticky top-0 z-50 relative">
+      {showGlobalHeader && (
+      <header className="bg-[#04141E]/95 backdrop-blur-md px-8 py-3 border-b border-[#1a3a56] flex justify-between items-center sticky top-0 z-50 relative">
         <div className="flex items-center">
           <img src="/assets/logo-cinte-header.png" className="h-16 w-auto" alt="CINTE" />
         </div>
-        <div className="hidden md:flex lg:hidden absolute left-1/2 -translate-x-1/2 text-[15px] font-extrabold text-[#2a90ff] tracking-wide uppercase text-center whitespace-nowrap">
+        <div className="hidden md:flex lg:hidden absolute left-1/2 -translate-x-1/2 text-[15px] font-heading font-extrabold text-[#65BCF7] tracking-wide uppercase text-center whitespace-nowrap">
           {headerTitle}
         </div>
-        <div className="hidden lg:flex absolute left-1/2 -translate-x-1/2 text-[24px] font-extrabold text-[#9fb3c8] tracking-wide uppercase text-center whitespace-nowrap">
+        <div className="hidden lg:flex absolute left-1/2 -translate-x-1/2 text-[24px] font-heading font-extrabold text-[#9fb3c8] tracking-wide uppercase text-center whitespace-nowrap">
           {headerTitle}
         </div>
         <div className="hidden lg:flex w-[220px]" />
       </header>
+      )}
       {auth?.token && isAdminRoute && (
-        <div className="bg-[#0b1b2b] border-b border-[#1d3751] px-4 md:px-8 py-2 flex flex-wrap items-center gap-2">
+        <div className="bg-[#04141E]/90 border-b border-[#1a3a56] px-4 md:px-8 py-2 flex flex-wrap items-center gap-2 font-body">
           {showNovedadesNav ? (
             <button
               type="button"
               onClick={() => navigate('/admin')}
               className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
                 !isComercialRoute && !isContratacionRoute
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-[#162a3d] text-[#9fb3c8] hover:text-white hover:bg-[#1e364d]'
+                  ? 'bg-[#2F7BB8] text-white'
+                  : 'bg-[#0b1e30] text-[#9fb3c8] hover:text-white hover:bg-[#0f2942]'
               }`}
             >
               Gestión de Novedades
@@ -183,8 +170,8 @@ function App() {
               onClick={() => navigate('/admin/comercial')}
               className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
                 isComercialRoute
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-[#162a3d] text-[#9fb3c8] hover:text-white hover:bg-[#1e364d]'
+                  ? 'bg-[#088DC6] text-white'
+                  : 'bg-[#0b1e30] text-[#9fb3c8] hover:text-white hover:bg-[#0f2942]'
               }`}
             >
               Módulo Comercial
@@ -196,8 +183,8 @@ function App() {
               onClick={() => navigate('/admin/contratacion')}
               className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
                 isContratacionRoute
-                  ? 'bg-violet-600 text-white'
-                  : 'bg-[#162a3d] text-[#9fb3c8] hover:text-white hover:bg-[#1e364d]'
+                  ? 'bg-[#004D87] text-white'
+                  : 'bg-[#0b1e30] text-[#9fb3c8] hover:text-white hover:bg-[#0f2942]'
               }`}
             >
               Módulo de Capital Humano Onboarding
@@ -206,7 +193,7 @@ function App() {
         </div>
       )}
 
-      <main className={`flex-1 ${isAdminRoute ? 'overflow-hidden flex flex-col' : 'w-full overflow-y-auto p-6 md:p-10 bg-[#0f2437]'}`}>
+      <main className={`flex-1 ${isFormularioPublico ? 'overflow-hidden' : isAdminRoute ? 'overflow-hidden flex flex-col' : 'w-full overflow-y-auto p-6 md:p-10 bg-[#04141E]'}`}>
         <Routes>
           <Route path="/" element={<FormularioNovedad />} />
           <Route

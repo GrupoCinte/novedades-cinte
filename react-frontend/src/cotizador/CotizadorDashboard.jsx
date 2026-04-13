@@ -3,30 +3,30 @@ export default function CotizadorDashboard({ dashboard }) {
     const ultimas = Array.isArray(dashboard?.ultimas) ? dashboard.ultimas : [];
 
     return (
-        <div className="bg-[#1e293b] border border-slate-700 rounded-xl p-4">
-            <h3 className="text-white font-bold mb-3">Dashboard cotizador</h3>
+        <div className="bg-[#0b1e30] border border-[#1a3a56] rounded-xl p-4 font-body">
+            <h3 className="text-white font-heading font-bold mb-3">Dashboard cotizador</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <div className="bg-slate-900/50 border border-slate-700 rounded p-3">
+                <div className="bg-[#04141E]/50 border border-[#1a3a56] rounded p-3">
                     <p className="text-xs text-slate-400">Cotizaciones</p>
                     <p className="text-xl font-bold text-white">{dashboard?.total_cot || 0}</p>
                 </div>
-                <div className="bg-slate-900/50 border border-slate-700 rounded p-3">
+                <div className="bg-[#04141E]/50 border border-[#1a3a56] rounded p-3">
                     <p className="text-xs text-slate-400">Perfiles cotizados</p>
                     <p className="text-xl font-bold text-white">{dashboard?.total_perfiles || 0}</p>
                 </div>
-                <div className="bg-slate-900/50 border border-slate-700 rounded p-3">
+                <div className="bg-[#04141E]/50 border border-[#1a3a56] rounded p-3">
                     <p className="text-xs text-slate-400">Modo AUTO</p>
                     <p className="text-xl font-bold text-white">{dashboard?.modo_stats?.AUTO || 0}</p>
                 </div>
-                <div className="bg-slate-900/50 border border-slate-700 rounded p-3">
+                <div className="bg-[#04141E]/50 border border-[#1a3a56] rounded p-3">
                     <p className="text-xs text-slate-400">Modo MANUAL</p>
                     <p className="text-xl font-bold text-white">{dashboard?.modo_stats?.MANUAL || 0}</p>
                 </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-slate-900/40 border border-slate-700 rounded p-3">
-                    <p className="text-slate-300 font-semibold mb-2">Top cargos</p>
+                <div className="bg-[#04141E]/40 border border-[#1a3a56] rounded p-3">
+                    <p className="text-slate-300 font-subtitle font-semibold mb-2">Top cargos</p>
                     <ul className="text-sm text-slate-300 space-y-1">
                         {top.length === 0 && <li className="text-slate-500">Sin datos aún</li>}
                         {top.map(([cargo, count]) => (
@@ -37,8 +37,8 @@ export default function CotizadorDashboard({ dashboard }) {
                         ))}
                     </ul>
                 </div>
-                <div className="bg-slate-900/40 border border-slate-700 rounded p-3">
-                    <p className="text-slate-300 font-semibold mb-2">Últimas cotizaciones</p>
+                <div className="bg-[#04141E]/40 border border-[#1a3a56] rounded p-3">
+                    <p className="text-slate-300 font-subtitle font-semibold mb-2">Últimas cotizaciones</p>
                     <ul className="text-sm text-slate-300 space-y-1 max-h-[220px] overflow-auto">
                         {ultimas.length === 0 && <li className="text-slate-500">Sin datos aún</li>}
                         {ultimas.map((it) => (
