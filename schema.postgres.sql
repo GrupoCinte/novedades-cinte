@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS novedades (
   horas_diurnas         NUMERIC(8,2) NOT NULL DEFAULT 0,
   horas_nocturnas       NUMERIC(8,2) NOT NULL DEFAULT 0,
   tipo_hora_extra       TEXT NULL,
+  monto_cop             NUMERIC(16,2) NULL,
 
   -- Soporte
   soporte_ruta          TEXT NULL,
@@ -107,10 +108,12 @@ CREATE TABLE IF NOT EXISTS novedades (
 
   aprobado_por_user_id  UUID NULL REFERENCES users(id),
   aprobado_por_rol      user_role NULL,
+  aprobado_por_email    TEXT NULL,
   aprobado_en           TIMESTAMPTZ NULL,
 
   rechazado_por_user_id UUID NULL REFERENCES users(id),
   rechazado_por_rol     user_role NULL,
+  rechazado_por_email   TEXT NULL,
   rechazado_en          TIMESTAMPTZ NULL,
 
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),

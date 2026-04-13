@@ -1,110 +1,109 @@
 const POLICY = {
-    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion'], viewAllAreas: true },
-    admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
-    team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
-    admin_ops: { panels: ['dashboard', 'calendar'] },
+    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial'], viewAllAreas: true },
+    cac: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] },
+    admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] },
+    team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] },
     comercial: { panels: ['comercial'] },
     gp: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
-    nomina: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
-    sst: { panels: ['dashboard', 'calendar', 'gestion'] }
+    nomina: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] }
 };
 
 const NOVELTY_RULES = {
     incapacidad: {
         displayName: 'Incapacidad',
         requiredMinSupports: 1,
-        approvers: [],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp', 'nomina', 'sst']
+        approvers: ['admin_ch', 'team_ch', 'cac'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     calamidad_domestica: {
         displayName: 'Calamidad domestica',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp']
+        approvers: ['admin_ch', 'team_ch', 'cac'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp']
     },
     permiso_remunerado: {
         displayName: 'Permiso remunerado',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp']
+        approvers: ['admin_ch', 'team_ch', 'cac'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp']
     },
     licencia_luto: {
         displayName: 'Licencia de luto',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp', 'nomina']
+        approvers: ['admin_ch', 'team_ch', 'cac'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     licencia_paternidad: {
         displayName: 'Licencia de paternidad',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'nomina', 'gp'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'nomina', 'gp']
+        approvers: ['admin_ch', 'team_ch', 'cac'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina', 'gp']
     },
     licencia_maternidad: {
         displayName: 'Licencia de maternidad',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'nomina'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'nomina', 'gp']
+        approvers: ['admin_ch', 'team_ch', 'cac'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina', 'gp']
     },
     licencia_remunerada: {
         displayName: 'Licencia remunerada',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'gp'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'gp']
+        approvers: ['admin_ch', 'team_ch', 'cac'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp']
     },
     licencia_no_remunerada: {
         displayName: 'Licencia no remunerada',
         requiredMinSupports: 0,
-        approvers: ['gp'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+        approvers: ['gp', 'cac'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     permiso_no_remunerado: {
         displayName: 'Permiso no remunerado',
         requiredMinSupports: 0,
-        approvers: ['gp'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+        approvers: ['gp', 'cac'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     vacaciones_tiempo: {
         displayName: 'Vacaciones en tiempo',
         requiredMinSupports: 0,
-        approvers: ['gp'],
-        viewers: ['super_admin', 'gp', 'nomina']
+        approvers: ['gp', 'admin_ch', 'team_ch', 'cac'],
+        viewers: ['super_admin', 'gp', 'nomina', 'admin_ch', 'team_ch', 'cac']
     },
     vacaciones_dinero: {
         displayName: 'Vacaciones en dinero',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'nomina']
+        approvers: ['admin_ch', 'team_ch', 'cac', 'nomina'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     hora_extra: {
         displayName: 'Hora Extra',
         requiredMinSupports: 0,
         approvers: ['gp'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina', 'sst']
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     apoyo: {
         displayName: 'Apoyo',
         requiredMinSupports: 0,
-        approvers: ['gp'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+        approvers: ['gp', 'cac'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     apoyo_standby: {
         displayName: 'Apoyo Standby',
         requiredMinSupports: 0,
-        approvers: ['gp'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+        approvers: ['gp', 'cac'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     bonos: {
         displayName: 'Bonos',
         requiredMinSupports: 0,
-        approvers: ['gp'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+        approvers: ['gp', 'cac'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     permiso_compensatorio_tiempo: {
         displayName: 'Permiso compensatorio en tiempo',
         requiredMinSupports: 1,
-        approvers: ['gp'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'nomina']
+        approvers: ['gp', 'cac'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     }
 };
 
@@ -126,16 +125,20 @@ function resolveRoleFromGroups(groups = []) {
 
 function getAreaFromRole(role) {
     if (role === 'super_admin') return 'Global';
-    if (role === 'admin_ch' || role === 'team_ch') return 'Capital Humano';
-    if (role === 'admin_ops' || role === 'gp') return 'Operaciones';
+    if (role === 'admin_ch' || role === 'team_ch' || role === 'cac') return 'Capital Humano';
+    if (role === 'gp') return 'Operaciones';
     if (role === 'comercial') return 'Comercial';
-    if (role === 'nomina' || role === 'sst') return 'Capital Humano';
+    if (role === 'nomina') return 'Financiero';
     return '';
 }
 
 function normalizeNovedadTypeKey(value = '') {
-    const raw = String(value || '').trim().toLowerCase();
-    const compact = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const cleaned = String(value || '')
+        .replace(/\u00A0/g, ' ')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .trim();
+    const raw = cleaned.toLowerCase();
+    const compact = raw.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
     const map = {
         incapacidad: 'incapacidad',
         'calamidad domestica': 'calamidad_domestica',
@@ -152,6 +155,8 @@ function normalizeNovedadTypeKey(value = '') {
         'permisos no remunerados': 'permiso_no_remunerado',
         'vacaciones en tiempo': 'vacaciones_tiempo',
         'vacaciones en dinero': 'vacaciones_dinero',
+        vacaciones: 'vacaciones_tiempo',
+        permiso: 'permiso_no_remunerado',
         'hora extra': 'hora_extra',
         apoyo: 'apoyo',
         'apoyo standby': 'apoyo_standby',
@@ -160,13 +165,34 @@ function normalizeNovedadTypeKey(value = '') {
         bonos: 'bonos',
         'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo'
     };
-    return map[compact] || '';
+    if (map[compact]) return map[compact];
+    const snake = compact.replace(/[\s-]+/g, '_').replace(/_+/g, '_');
+    if (NOVELTY_RULES[snake]) return snake;
+    const snakeAliases = {
+        vacaciones_en_tiempo: 'vacaciones_tiempo',
+        vacaciones_en_dinero: 'vacaciones_dinero',
+        permisos_no_remunerados: 'permiso_no_remunerado'
+    };
+    const aliased = snakeAliases[snake];
+    if (aliased && NOVELTY_RULES[aliased]) return aliased;
+    for (const [ruleKey, rule] of Object.entries(NOVELTY_RULES)) {
+        const dn = String(rule.displayName || '')
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (dn && dn === compact) return ruleKey;
+    }
+    return '';
 }
 
 function getNovedadRuleByType(typeName = '') {
     const key = normalizeNovedadTypeKey(typeName);
     if (!key) return null;
-    return { key, ...(NOVELTY_RULES[key] || {}) };
+    const base = NOVELTY_RULES[key] || {};
+    return { key, ...base, gestionPermiso: base.gestionPermiso || 'CRUD' };
 }
 
 function canRoleViewType(role = '', typeName = '') {
@@ -185,7 +211,7 @@ function canRoleApproveType(role = '', typeName = '') {
 
 function inferAreaFromNovedad(payload = {}) {
     const explicitArea = String(payload.area || '').trim();
-    if (explicitArea === 'Capital Humano' || explicitArea === 'Operaciones') return explicitArea;
+    if (explicitArea === 'Capital Humano' || explicitArea === 'Operaciones' || explicitArea === 'Financiero') return explicitArea;
     const tipo = String(payload.tipoNovedad || payload.tipo || '').toLowerCase();
     if (tipo.includes('incapacidad') || tipo.includes('licencia')) return 'Capital Humano';
     return 'Operaciones';
@@ -198,6 +224,7 @@ module.exports = {
     normalizeRoleOrNull,
     resolveRoleFromGroups,
     getAreaFromRole,
+    normalizeNovedadTypeKey,
     getNovedadRuleByType,
     canRoleViewType,
     canRoleApproveType,

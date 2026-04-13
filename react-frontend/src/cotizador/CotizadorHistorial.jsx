@@ -8,8 +8,8 @@ export default function CotizadorHistorial({
     onHistorialPdf
 }) {
     return (
-        <div className="bg-[#1e293b] border border-slate-700 rounded-xl p-4">
-            <h3 className="text-white font-bold mb-3">Historial cotizador</h3>
+        <div className="bg-[#0b1e30] border border-[#1a3a56] rounded-xl p-4 font-body">
+            <h3 className="text-white font-heading font-bold mb-3">Historial cotizador</h3>
             <div className="overflow-auto max-h-[380px]">
                 <table className="w-full text-sm">
                     <thead>

@@ -2,9 +2,8 @@ import ROLE_PRIORITY from '../constants/rolePriority.json';
 
 /**
  * Alineado con src/rbac.js POLICY: quién puede ver el módulo Contratación IA.
- * (admin_ops y sst no tienen panel contratacion.)
  */
-const ROLES_WITH_CONTRATACION_PANEL = new Set(['super_admin', 'admin_ch', 'team_ch', 'nomina', 'gp']);
+const ROLES_WITH_CONTRATACION_PANEL = new Set(['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina', 'gp']);
 
 function decodeJwtPayload(token) {
     try {

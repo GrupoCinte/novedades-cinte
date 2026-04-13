@@ -45,7 +45,7 @@ const INTENTS = [
         icon: '📥',
         category: 'proceso',
         response: () =>
-            'Para exportar el reporte en **CSV**:\n\n1. Ve a la sección **Gestión de Novedades**\n2. Aplica los filtros que necesites (tipo, estado, correo)\n3. Haz clic en el botón **"Exportar Reporte CSV"** (azul, arriba a la derecha)\n4. El archivo se descargará automáticamente.',
+            'Para exportar el reporte en **Excel**:\n\n1. Ve a la sección **Gestión de Novedades**\n2. Aplica los filtros que necesites (tipo, estado, correo)\n3. Haz clic en el botón **"Exportar Reporte Excel"** (azul, arriba a la derecha)\n4. El archivo .xlsx se descargará automáticamente con columnas organizadas.',
     },
     {
         id: 'filtrar',

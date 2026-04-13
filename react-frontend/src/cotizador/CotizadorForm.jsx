@@ -119,8 +119,8 @@ export default function CotizadorForm({
     const clientNit = clientes.find((c) => c.nombre === form.cliente)?.nit || '';
 
     return (
-        <div className="bg-[#1e293b] border border-slate-700 rounded-xl p-4">
-            <h3 className="text-white font-bold mb-4">Cotizador</h3>
+        <div className="bg-[#0b1e30] border border-[#1a3a56] rounded-xl p-4 font-body">
+            <h3 className="text-white font-heading font-bold mb-4">Cotizador</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="md:col-span-2">
                     <label className="text-xs text-slate-400">Cliente</label>

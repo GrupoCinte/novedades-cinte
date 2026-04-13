@@ -65,14 +65,14 @@ export default function CotizadorResultados({
 
     if (!cotizacion?.resultados?.length) {
         return (
-            <div className="bg-[#1e293b] border border-slate-700 rounded-xl p-4 text-slate-400">
+            <div className="bg-[#0b1e30] border border-[#1a3a56] rounded-xl p-4 text-slate-400 font-body">
                 Ejecuta una cotización para ver resultados.
             </div>
         );
     }
 
     return (
-        <div className="bg-[#1e293b] border border-slate-700 rounded-xl p-4 space-y-4">
+        <div className="bg-[#0b1e30] border border-[#1a3a56] rounded-xl p-4 space-y-4 font-body">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                     <h3 className="text-white font-bold">Resultados</h3>
