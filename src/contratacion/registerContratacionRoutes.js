@@ -46,9 +46,19 @@ function registerContratacionRoutes(deps) {
 
     const tableName = (process.env.DYNAMODB_TABLE_NAME || '').trim();
     const gsiName = process.env.DYNAMODB_GSI_NAME || 'email';
+    const mockEnabled = String(process.env.CONTRATACION_MOCK_ENABLED || '').toLowerCase() === 'true' || (!process.env.AWS_ACCESS_KEY_ID && !process.env.AWS_SESSION_TOKEN);
     const configured = Boolean(tableName);
-    const docClient = configured ? createDynamoDocClient() : null;
+    const docClient = (configured && !mockEnabled) ? createDynamoDocClient() : null;
     const kpi = buildKpiBaseline();
+
+    // In-memory store for mock deletions/updates during session
+    let mockStore = [
+        { whatsapp_number: '573001112233', nombre_y_apellido: 'Juan Candidato Mock', email: 'juan@candidato.com', status: 'Cargando documentos', puesto: 'Desarrollador Fullstack', edad: 28, canal: 'WhatsApp' },
+        { whatsapp_number: '573004445566', nombre_y_apellido: 'Maria Aspirante Mock', email: 'maria@aspirante.com', status: 'Sagrilaft Pendiente', puesto: 'Analista de Datos', edad: 31, canal: 'Web' },
+        { whatsapp_number: '573007778899', nombre_y_apellido: 'Carlos Proceso Mock', email: 'carlos@proceso.com', status: 'Contactado', puesto: 'Líder Técnico', edad: 35, canal: 'LinkedIn' },
+        { whatsapp_number: '573001010101', nombre_y_apellido: 'Ana Finalista Mock', email: 'ana@finalista.com', status: 'Finalizado', puesto: 'Arquitecto Cloud', edad: 40, canal: 'WhatsApp' },
+        { whatsapp_number: '573002020202', nombre_y_apellido: 'Luis Rechazado Mock', email: 'luis@rechazado.com', status: 'Rechazado', puesto: 'QA Engineer', edad: 25, canal: 'Referido' }
+    ];
 
     const guard = [verificarToken, allowPanel('contratacion')];
 
@@ -60,6 +70,10 @@ function registerContratacionRoutes(deps) {
     }
 
     app.get('/api/contratacion/monitor', ...guard, contratacionMonitorLimiter, async (req, res) => {
+        if (mockEnabled) {
+            const executions = mockStore.map(mapDynamoItemToExecution);
+            return res.json({ success: true, count: executions.length, executions, meta: { mode: 'mock' } });
+        }
         if (!configured || !docClient) return notConfigured(res);
         try {
             const items = await scanAllItems(docClient, tableName);
@@ -160,6 +174,13 @@ function registerContratacionRoutes(deps) {
         contratacionEliminarLimiter,
         validate(eliminarCandidatoSchema),
         async (req, res) => {
+            if (mockEnabled) {
+                const { executionId, obs_eliminado } = req.body;
+                const idx = mockStore.findIndex(m => m.whatsapp_number === executionId);
+                if (idx === -1) return res.status(404).json({ success: false, message: 'No encontrado en mock.' });
+                mockStore[idx] = { ...mockStore[idx], status: 'eliminado', obs_eliminado, ts_eliminado: new Date().toISOString() };
+                return res.json({ success: true, execution: mapDynamoItemToExecution(mockStore[idx]) });
+            }
             if (!configured || !docClient) return notConfigured(res);
             try {
                 const { executionId, obs_eliminado } = req.body;

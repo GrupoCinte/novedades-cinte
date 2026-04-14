@@ -161,7 +161,36 @@ function registerRoutes(deps) {
                 return res.status(400).json({ ok: false, message: 'Credenciales incompletas' });
             }
             if (!COGNITO_ENABLED) {
-                return res.status(503).json({ ok: false, message: 'Autenticación disponible solo vía Cognito.' });
+                const crypto = require('crypto');
+                const hashedInput = crypto.createHash('sha256').update(String(password)).digest('hex');
+                const dbRes = await pool.query(`SELECT * FROM users WHERE email = $1 OR username = $1 LIMIT 1`, [identity]);
+                const dbUser = dbRes.rows[0];
+                if (!dbUser || dbUser.password_hash !== hashedInput) {
+                    return res.status(401).json({ ok: false, message: 'Credenciales inválidas (Modo Local)' });
+                }
+                const effectiveRole = resolveEffectiveRole(dbUser.role, roleRequested);
+                const fakeAuth = { ExpiresIn: 3600 * 8 }; 
+                const baseUser = { 
+                    sub: dbUser.id, 
+                    email: dbUser.email, 
+                    username: dbUser.username, 
+                    name: dbUser.full_name, 
+                    role: dbUser.role,
+                    area: dbUser.area 
+                };
+                const appAuth = issueAppTokenFromCognito(baseUser, fakeAuth, effectiveRole, identity);
+                return res.json({
+                    ok: true,
+                    token: appAuth.token,
+                    expiresIn: appAuth.expiresInSec,
+                    user: appAuth.user,
+                    claims: {
+                        sub: dbUser.id,
+                        email: dbUser.email,
+                        role: appAuth.user.role,
+                        baseRole: dbUser.role
+                    }
+                });
             }
 
             const authParams = {

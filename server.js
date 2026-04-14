@@ -58,14 +58,11 @@ if (process.env.NODE_ENV !== 'production' && SECRET_KEY.length < 32) {
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5175';
 const ALLOW_TRYCLOUDFLARE_DEV = String(process.env.ALLOW_TRYCLOUDFLARE_DEV || 'true').toLowerCase() === 'true';
 const COGNITO_ENABLED = String(process.env.COGNITO_ENABLED || 'false').toLowerCase() === 'true';
-if (!COGNITO_ENABLED) {
-    throw new Error('FATAL: COGNITO_ENABLED=true es obligatorio. La autenticación local fue eliminada.');
-}
 const COGNITO_REGION = (process.env.COGNITO_REGION || '').trim();
 const COGNITO_USER_POOL_ID = (process.env.COGNITO_USER_POOL_ID || '').trim();
 const COGNITO_APP_CLIENT_ID = (process.env.COGNITO_APP_CLIENT_ID || '').trim();
 const COGNITO_APP_CLIENT_SECRET = (process.env.COGNITO_APP_CLIENT_SECRET || '').trim();
-if (!COGNITO_REGION || !COGNITO_USER_POOL_ID || !COGNITO_APP_CLIENT_ID) {
+if (COGNITO_ENABLED && (!COGNITO_REGION || !COGNITO_USER_POOL_ID || !COGNITO_APP_CLIENT_ID)) {
     throw new Error('FATAL: Configuración Cognito incompleta (COGNITO_REGION, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID).');
 }
 const S3_ENABLED = String(process.env.S3_ENABLED || 'false').toLowerCase() === 'true';
