@@ -49,6 +49,13 @@ export default function FormularioNovedad() {
     const [loadingCatalogos, setLoadingCatalogos] = useState(false);
     const [colaboradorVerificado, setColaboradorVerificado] = useState(false);
     const [verificandoCedula, setVerificandoCedula] = useState(false);
+    /** Solo líder precargado desde directorio (correo/cliente se bloquean con otra regla). */
+    const [catalogLocks, setCatalogLocks] = useState({ lider: false });
+
+    /** Tras comprobar cédula, el correo no se edita (valor viene del directorio o queda vacío hasta que lo carguen). */
+    const bloquearCorreo = colaboradorVerificado;
+    /** Cliente bloqueado si ya hay valor (API o selección previa); si el directorio viene vacío se permite elegir una vez. */
+    const bloquearCliente = colaboradorVerificado && Boolean(String(formData.cliente || '').trim());
 
     const normalizeCedulaInput = (value) => String(value || '').replace(/\D/g, '');
 
@@ -135,6 +142,24 @@ export default function FormularioNovedad() {
         return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin);
     }, [autocalculaDiasHabiles, formData.fechaInicio, formData.fechaFin]);
 
+    /** Incluye el cliente del directorio aunque no coincida literalmente con la lista del catálogo (evita <select> en blanco). */
+    const clientesParaSelect = useMemo(() => {
+        const base = clientes.map((x) => String(x));
+        const v = String(formData.cliente || '').trim();
+        if (!v) return base;
+        if (!base.some((x) => x === v)) return [...base, v].sort((a, b) => a.localeCompare(b, 'es'));
+        return base;
+    }, [clientes, formData.cliente]);
+
+    /** Incluye el líder del directorio si el API de líderes no lo devolvió (mismo problema que cliente). */
+    const lideresParaSelect = useMemo(() => {
+        const base = lideres.map((x) => String(x));
+        const v = String(formData.lider || '').trim();
+        if (!v) return base;
+        if (!base.some((x) => x === v)) return [...base, v].sort((a, b) => a.localeCompare(b, 'es'));
+        return base;
+    }, [lideres, formData.lider]);
+
     const opcionesHoraMilitar = useMemo(() => {
         const opciones = [];
         for (let hora = 0; hora < 24; hora += 1) {
@@ -179,9 +204,13 @@ export default function FormularioNovedad() {
         if (name === 'cedula') {
             const digits = normalizeCedulaInput(value);
             setColaboradorVerificado(false);
+            setCatalogLocks({ lider: false });
             setFormData({ ...formData, cedula: digits, nombre: '' });
             return;
         }
+        if (bloquearCorreo && name === 'correo') return;
+        if (bloquearCliente && name === 'cliente') return;
+        if (catalogLocks.lider && colaboradorVerificado && name === 'lider') return;
         if (name === 'cliente') {
             setFormData({ ...formData, cliente: value, lider: '' });
             return;
@@ -242,11 +271,22 @@ export default function FormularioNovedad() {
             if (!res.ok) {
                 throw new Error(data?.error || 'Cédula no registrada');
             }
-            setFormData((prev) => ({ ...prev, cedula: data.cedula || c, nombre: data.nombre || '' }));
+            setFormData((prev) => ({
+                ...prev,
+                cedula: data.cedula || c,
+                nombre: data.nombre || '',
+                correo: String(data.correo ?? '').trim(),
+                cliente: String(data.cliente ?? '').trim(),
+                lider: String(data.lider ?? '').trim()
+            }));
+            setCatalogLocks({
+                lider: Boolean(data.lockLider)
+            });
             setColaboradorVerificado(true);
             setStatus({ type: 'success', text: '✅ Colaborador verificado.' });
         } catch (err) {
             setColaboradorVerificado(false);
+            setCatalogLocks({ lider: false });
             setFormData((prev) => ({ ...prev, nombre: '' }));
             setStatus({ type: 'error', text: `❌ ${err?.message || 'No se pudo verificar la cédula.'}` });
         } finally {
@@ -495,6 +535,7 @@ export default function FormularioNovedad() {
                     montoBono: '$ '
                 });
                 setColaboradorVerificado(false);
+                setCatalogLocks({ lider: false });
                 setSelectedFiles([]);
                 setLideres([]);
                 // Limpiar mensaje de éxito después de unos segundos
@@ -637,20 +678,18 @@ export default function FormularioNovedad() {
                                     )}
 
                                     <div>
-                                        <label className={labelCls}>Nombre y Apellido {reqStar}</label>
-                                        <input
-                                            readOnly
-                                            name="nombre"
-                                            value={formData.nombre}
-                                            type="text"
-                                            placeholder={colaboradorVerificado ? '' : 'Se completará al comprobar la cédula'}
-                                            className={`${inputCls} read-only:bg-[#04141E]/60 read-only:cursor-not-allowed`}
-                                        />
-                                    </div>
-
-                                    <div>
                                         <label className={labelCls}>Correo del Solicitante</label>
-                                        <input name="correo" value={formData.correo} onChange={handleChange} type="email" placeholder="usuario@dominio.com" className={inputCls} />
+                                        <input
+                                            name="correo"
+                                            value={formData.correo}
+                                            onChange={handleChange}
+                                            type="email"
+                                            autoComplete="off"
+                                            readOnly={bloquearCorreo}
+                                            aria-readonly={bloquearCorreo}
+                                            placeholder="usuario@dominio.com"
+                                            className={`${inputCls} ${bloquearCorreo ? 'read-only:bg-[#04141E]/60 read-only:cursor-not-allowed' : ''}`}
+                                        />
                                     </div>
                                 </div>
                             </section>
@@ -671,17 +710,34 @@ export default function FormularioNovedad() {
                                     </div>
                                     <div className="flex flex-col gap-1">
                                         <label className={labelCls}>Cliente {reqStar}</label>
-                                        <select required name="cliente" value={formData.cliente} onChange={handleChange} className={inputCls}>
+                                        <select
+                                            required
+                                            name="cliente"
+                                            value={formData.cliente}
+                                            onChange={handleChange}
+                                            disabled={bloquearCliente}
+                                            className={`${inputCls} ${bloquearCliente ? 'disabled:opacity-80' : ''}`}
+                                        >
                                             <option value="">{loadingCatalogos ? 'Cargando clientes...' : 'Selecciona cliente...'}</option>
-                                            {clientes.map((c) => <option key={c} value={c}>{c}</option>)}
+                                            {clientesParaSelect.map((c) => <option key={c} value={c}>{c}</option>)}
                                         </select>
                                     </div>
                                     <div className="flex flex-col gap-1 md:col-span-2">
                                         <label className={labelCls}>Líder {reqStar}</label>
-                                        <select required name="lider" value={formData.lider} onChange={handleChange} disabled={!formData.cliente} className={`${inputCls} disabled:opacity-50`}>
+                                        <select
+                                            required
+                                            name="lider"
+                                            value={formData.lider}
+                                            onChange={handleChange}
+                                            disabled={!formData.cliente || (catalogLocks.lider && colaboradorVerificado)}
+                                            className={`${inputCls} disabled:opacity-50`}
+                                        >
                                             <option value="">{formData.cliente ? (loadingCatalogos ? 'Cargando líderes...' : 'Selecciona líder...') : 'Selecciona cliente primero'}</option>
-                                            {lideres.map((l) => <option key={l} value={l}>{l}</option>)}
+                                            {lideresParaSelect.map((l) => <option key={l} value={l}>{l}</option>)}
                                         </select>
+                                        {catalogLocks.lider && colaboradorVerificado && (
+                                            <p className="text-xs text-[#4a6f8f] font-body mt-1">Líder según directorio; no editable.</p>
+                                        )}
                                     </div>
                                     {esBonos && (
                                         <div className="flex flex-col gap-1 md:col-span-2 animate-in fade-in duration-300">

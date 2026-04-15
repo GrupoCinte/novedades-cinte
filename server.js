@@ -10,6 +10,8 @@ const multer = require('multer');
 const jwt = require('jsonwebtoken');
 const { CognitoJwtVerifier } = require('aws-jwt-verify');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { LambdaClient } = require('@aws-sdk/client-lambda');
+const { CognitoIdentityProviderClient } = require('@aws-sdk/client-cognito-identity-provider');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const { Pool } = require('pg');
 const {
@@ -40,6 +42,9 @@ const { createDataLayer } = require('./src/dataLayer');
 const { createCotizadorStore } = require('./src/cotizador/cotizadorStore');
 const { registerCotizadorRoutes } = require('./src/cotizador/registerCotizadorRoutes');
 const { registerContratacionRoutes } = require('./src/contratacion/registerContratacionRoutes');
+const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
+const { createEmailNotificationsPublisher } = require('./src/notifications/emailNotificationsPublisher');
+const { createResolveApproverEmailsFromCognito } = require('./src/notifications/resolveApproverEmailsFromCognito');
 
 const app = express();
 const PORT = process.env.PORT || 3005;
@@ -73,6 +78,8 @@ const S3_BUCKET_NAME = (process.env.S3_BUCKET_NAME || '').trim();
 const S3_REGION = (process.env.AWS_REGION || process.env.S3_REGION || COGNITO_REGION || 'us-east-1').trim();
 const S3_SIGNED_URL_TTL_SEC = Number(process.env.S3_SIGNED_URL_TTL_SEC || 300);
 const S3_AUTH_MODE = String(process.env.S3_AUTH_MODE || 'role').toLowerCase(); // role | keys
+const EMAIL_NOTIFICATIONS_ENABLED = String(process.env.EMAIL_NOTIFICATIONS_ENABLED || 'false').toLowerCase() === 'true';
+const EMAIL_LAMBDA_FUNCTION_NAME = String(process.env.EMAIL_LAMBDA_FUNCTION_NAME || '').trim();
 const DB_PASSWORD = (process.env.DB_PASSWORD || '').trim();
 if (!DB_PASSWORD) {
     throw new Error('FATAL: DB_PASSWORD es obligatorio.');
@@ -81,7 +88,12 @@ if (!DB_PASSWORD) {
 const allowedCorsOrigins = new Set([
     FRONTEND_URL,
     'http://localhost:5175',
-    'http://127.0.0.1:5175'
+    'http://127.0.0.1:5175',
+    // Vite elige otro puerto si 5175 está ocupado (p. ej. 5176); el proxy reenvía ese Origin.
+    'http://localhost:5176',
+    'http://127.0.0.1:5176',
+    'http://localhost:5177',
+    'http://127.0.0.1:5177'
 ]);
 try {
     const parsedFrontend = new URL(FRONTEND_URL);
@@ -130,6 +142,12 @@ app.use(cors({
         if (allowedCorsOrigins.has(origin)) return callback(null, true);
         try {
             const parsed = new URL(origin);
+            // En desarrollo, cualquier puerto en localhost / 127.0.0.1 (Vite puede usar 5175, 5176, …).
+            if (!isProduction && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) {
+                if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                    return callback(null, true);
+                }
+            }
             if (!isProduction && ALLOW_TRYCLOUDFLARE_DEV && parsed.hostname.endsWith('.trycloudflare.com')) {
                 return callback(null, true);
             }
@@ -300,6 +318,27 @@ const s3Client = (S3_ENABLED && S3_BUCKET_NAME) ? new S3Client({
         }
     } : {})
 }) : null;
+const lambdaClient = new LambdaClient({ region: S3_REGION });
+const cognitoIdpClient = new CognitoIdentityProviderClient({
+    region: COGNITO_REGION,
+    ...(S3_AUTH_MODE === 'keys' && process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY ? {
+        credentials: {
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+            ...(process.env.AWS_SESSION_TOKEN ? { sessionToken: process.env.AWS_SESSION_TOKEN } : {})
+        }
+    } : {})
+});
+const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
+    cognitoClient: cognitoIdpClient,
+    userPoolId: COGNITO_USER_POOL_ID,
+    getNovedadRuleByType
+});
+const emailNotificationsPublisher = createEmailNotificationsPublisher({
+    lambdaClient,
+    functionName: EMAIL_LAMBDA_FUNCTION_NAME,
+    enabled: EMAIL_NOTIFICATIONS_ENABLED
+});
 
 const {
     resolveEffectiveRole,
@@ -347,16 +386,31 @@ const upload = multer({
 const {
     ensureUserRoleEnumValues,
     ensureClientesLideresTable,
+    ensureClientesLideresGpUserColumn,
     ensureNovedadesIndexes,
     ensureNovedadesHourSplitColumns,
     ensureNovedadesMontoCopColumn,
     ensureNovedadesApproverEmailColumns,
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,
+    ensureColaboradoresDirectoryColumns,
+    ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     getColaboradorByCedula,
     getClientesList,
     getLideresByCliente,
+    listClientesLideresPaged,
+    insertClienteLider,
+    updateClienteLiderById,
+    listColaboradoresPaged,
+    insertColaborador,
+    updateColaboradorByCedula,
+    listGpUsersForDirectorio,
+    insertGpUserPlaceholder,
+    updateGpUserById,
+    resolveOrCreateGpUserIdForColaboradorCedula,
+    clearGpUserReferences,
+    linkGpCognitoSubByEmail,
     migrateExcelIfNeeded,
     getScopedNovedades
 } = createDataLayer({
@@ -366,7 +420,8 @@ const {
     CLIENTES_LIDERES_XLSX_PATH,
     normalizeCatalogValue,
     normalizeCedula,
-    canRoleViewType
+    canRoleViewType,
+    getAreaFromRole
 });
 
 const { registerRoutes } = require('./src/registerRoutes');
@@ -423,7 +478,32 @@ registerRoutes({
     canRoleApproveType,
     FRONTEND_URL,
     POLICY,
-    xlsx
+    xlsx,
+    emailNotificationsPublisher,
+    resolveApproverEmailsForNovedad
+});
+
+registerDirectorioRoutes({
+    app,
+    pool,
+    verificarToken,
+    allowPanel,
+    adminActionLimiter,
+    getLideresByCliente,
+    getAreaFromRole,
+    listClientesLideresPaged,
+    insertClienteLider,
+    updateClienteLiderById,
+    listColaboradoresPaged,
+    insertColaborador,
+    updateColaboradorByCedula,
+    listGpUsersForDirectorio,
+    insertGpUserPlaceholder,
+    updateGpUserById,
+    resolveOrCreateGpUserIdForColaboradorCedula,
+    clearGpUserReferences,
+    linkGpCognitoSubByEmail,
+    normalizeCedula
 });
 
 registerCotizadorRoutes({
@@ -455,6 +535,7 @@ startServer({
     pool,
     ensureUserRoleEnumValues,
     ensureClientesLideresTable,
+    ensureClientesLideresGpUserColumn,
     ensureNovedadesIndexes,
     ensureNovedadesHourSplitColumns,
     ensureNovedadesMontoCopColumn,
@@ -462,6 +543,8 @@ startServer({
     migrateExcelIfNeeded,
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,
+    ensureColaboradoresDirectoryColumns,
+    ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     PORT,
     COGNITO_ENABLED,

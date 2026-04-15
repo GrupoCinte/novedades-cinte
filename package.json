@@ -3,17 +3,22 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node server.js",
+    "tunnel:dev": "powershell -ExecutionPolicy Bypass -File scripts/start-dev-cloudflare.ps1",
     "dev": "node --watch server.js",
     "test": "node --test tests/cotizador.resolveCargosLista.test.js tests/clienteNombreMatch.test.js",
     "test:rbac": "node --test tests/rbac.integration.test.js",
-    "test:all": "node --test tests/cotizador.resolveCargosLista.test.js tests/clienteNombreMatch.test.js tests/rbac.integration.test.js",
+    "test:all": "node --test tests/cotizador.resolveCargosLista.test.js tests/clienteNombreMatch.test.js tests/rbac.integration.test.js tests/resolveApproverEmailsFromCognito.test.js tests/colaboradorDirectory.test.js tests/loginClaimsSerialization.test.js tests/directorioClienteLiderGpSchema.test.js src/notifications/emailNotificationsPublisher.test.js",
+    "import:consultores-activos": "node scripts/import-consultores-activos.js",
+    "generate:merge-sinteticos-sql": "node scripts/generate-merge-sinteticos-sql.js",
     "import:cotizador-cargos": "node scripts/import-cotizador-cargos-excel.js",
     "audit:cotizador-cargos": "node scripts/audit-cotizador-cargos-bd.js",
     "smoke:cotizador": "node scripts/smoke-cotizador-getCatalogos.js"
   },
   "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1030.0",
     "@aws-sdk/client-dynamodb": "^3.1006.0",
     "@aws-sdk/client-dynamodb-streams": "^3.1006.0",
+    "@aws-sdk/client-lambda": "^3.1030.0",
     "@aws-sdk/client-s3": "^3.1006.0",
     "@aws-sdk/lib-dynamodb": "^3.1006.0",
     "@aws-sdk/s3-request-presigner": "^3.1006.0",

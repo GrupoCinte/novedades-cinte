@@ -17,7 +17,9 @@ Sistema unificado para radicacion y gestion de novedades laborales.
 - `src/auth.js`: helpers de autenticacion/autorizacion
 - `src/rbac.js`: politica de roles y reglas por tipo de novedad
 - `src/dataLayer.js`: acceso a datos, migraciones iniciales e indices
+- `src/notifications/emailNotificationsPublisher.js`: publicador desacoplado de eventos de correo a Lambda
 - `react-frontend/src/`: app React (formulario publico + dashboard admin)
+- `lambda/email-transactions/`: Lambda TypeScript para render de emails y envio con SES
 - `tests/`: pruebas backend (unitarias + integracion + matriz RBAC)
 - `react-frontend/src/test/`: pruebas unitarias frontend
 - `react-frontend/e2e/`: pruebas E2E Playwright
@@ -65,6 +67,7 @@ UI: `http://localhost:5175`
 - `npm run dev`: backend en modo watch
 - `npm run start`: backend normal
 - `npm run test:all`: unit + integration + RBAC
+- `node --test src/notifications/emailNotificationsPublisher.test.js`: test unitario del publisher
 
 ### Frontend (`/react-frontend`)
 
@@ -83,6 +86,29 @@ UI: `http://localhost:5175`
 - Tokens sensibles de Cognito no expuestos al frontend en login
 - Cambio de contrasena Cognito gestionado server-side
 - Auditoria de cambios de estado con `actorUserId` desde `req.user.sub`
+
+## Flujo de correos transaccionales (SES + Lambda)
+
+- Trigger: al registrar formulario en `POST /api/enviar-novedad`, el backend publica un evento `form_submitted`.
+- Publicador: `src/notifications/emailNotificationsPublisher.js` invoca Lambda en modo asíncrono (`InvocationType=Event`).
+- Lambda de correo: `lambda/email-transactions/src/handler.ts`.
+- Plantillas React Email:
+  - `UserConfirmationEmail` (confirmación al usuario)
+  - `AdminNotificationEmail` (notificación admin con CTA)
+- Envío paralelo: el handler usa `Promise.all` para enviar ambos correos con SES.
+
+### Variables de entorno para este flujo
+
+Backend (`.env`):
+- `EMAIL_NOTIFICATIONS_ENABLED=true|false`
+- `EMAIL_LAMBDA_FUNCTION_NAME=<nombre-o-arn>`
+- `AWS_REGION=<region>`
+
+Lambda (`email-transactions`):
+- `SES_FROM_EMAIL=<correo-verificado-en-SES>`
+- `EMAIL_ADMIN_TO=<correo-admin>` o `EMAIL_ADMIN_TO_CSV=a@x.com,b@y.com`
+- `ADMIN_PLATFORM_URL=<url-dashboard-admin>`
+- `AWS_REGION=<region>`
 
 ## Que debe ir a Git
 

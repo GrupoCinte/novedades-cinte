@@ -1,5 +1,8 @@
 const path = require('path');
-const { initContratacionRealtime } = require('./contratacion/initContratacionRealtime');
+const {
+    initContratacionRealtime,
+    shutdownContratacionRealtime
+} = require('./contratacion/initContratacionRealtime');
 
 async function startServer(deps) {
     const {
@@ -7,6 +10,7 @@ async function startServer(deps) {
         pool,
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
+        ensureClientesLideresGpUserColumn,
         ensureNovedadesIndexes,
         ensureNovedadesHourSplitColumns,
         ensureNovedadesMontoCopColumn,
@@ -14,6 +18,8 @@ async function startServer(deps) {
         migrateExcelIfNeeded,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
+        ensureColaboradoresDirectoryColumns,
+        ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
         COGNITO_ENABLED,
@@ -29,6 +35,7 @@ async function startServer(deps) {
     await pool.query('SELECT NOW()');
     await ensureUserRoleEnumValues();
     await ensureClientesLideresTable();
+    await ensureClientesLideresGpUserColumn();
     await ensureNovedadesIndexes();
     await ensureNovedadesHourSplitColumns();
     await ensureNovedadesMontoCopColumn();
@@ -36,6 +43,8 @@ async function startServer(deps) {
     await migrateExcelIfNeeded();
     await migrateClientesLideresFromExcelIfNeeded();
     await ensureColaboradoresTable();
+    await ensureColaboradoresDirectoryColumns();
+    await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
 
     const server = app.listen(PORT, () => {
@@ -65,6 +74,40 @@ async function startServer(deps) {
         }
         console.log(`Carpeta assets: ${path.join(process.cwd(), 'assets')}`);
     });
+
+    server.on('error', (err) => {
+        if (err && err.code === 'EADDRINUSE') {
+            console.error(`\n[FATAL] El puerto ${PORT} ya está en uso (otra ventana de npm run dev, o proceso colgado).`);
+            console.error('Cierra esa instancia o libera el puerto.');
+            console.error('Windows (PowerShell): Get-NetTCPConnection -LocalPort ' + PORT + ' | Select OwningProcess');
+            console.error('O clásico: netstat -ano | findstr ":' + PORT + '"  →  taskkill /PID <pid> /F');
+            console.error('Alternativa: define otro PORT en .env y el mismo valor en react-frontend/vite.config.js (proxy target).\n');
+        } else {
+            console.error('[FATAL] Error al escuchar HTTP:', err && err.message ? err.message : err);
+        }
+        process.exit(1);
+    });
+
+    const gracefulShutdown = async (signal) => {
+        try {
+            console.log(`\n${signal}: cerrando servidor…`);
+        } catch {
+            // ignore
+        }
+        shutdownContratacionRealtime();
+        await new Promise((resolve) => {
+            server.close(() => resolve());
+            setTimeout(resolve, 5000).unref();
+        });
+        try {
+            await pool.end();
+        } catch {
+            // ignore
+        }
+        process.exit(0);
+    };
+    process.once('SIGINT', () => gracefulShutdown('SIGINT'));
+    process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
     try {
         initContratacionRealtime(server);

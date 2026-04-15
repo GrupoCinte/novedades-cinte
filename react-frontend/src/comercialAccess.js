@@ -7,6 +7,17 @@ const NOVEDADES_PANELS = new Set(['dashboard', 'calendar', 'gestion', 'admin']);
 
 const COTIZADOR_PANELS = new Set(['comercial', 'dashboard', 'gestion', 'admin']);
 
+/** Debe coincidir con `POLICY` en `src/rbac.js` (fallback si el JWT no trae `panels`). */
+const POLICY_PANELS_BY_ROLE = {
+    super_admin: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial', 'directorio'],
+    cac: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial', 'directorio'],
+    admin_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
+    team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
+    comercial: ['comercial'],
+    gp: ['dashboard', 'calendar', 'gestion', 'contratacion'],
+    nomina: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial']
+};
+
 function decodeJwtPayload(token) {
     try {
         const parts = String(token || '').split('.');
@@ -19,10 +30,16 @@ function decodeJwtPayload(token) {
     }
 }
 
+/**
+ * Paneles efectivos del usuario: claim `panels` del JWT o, si viene vacío, los del rol (mismo criterio que el backend).
+ */
 export function getPanelsFromToken(token) {
     const payload = decodeJwtPayload(token);
     const panels = Array.isArray(payload?.panels) ? payload.panels.map((p) => String(p)) : [];
-    return panels;
+    if (panels.length) return panels;
+    const role = String(payload?.role || '').trim().toLowerCase();
+    const fallback = POLICY_PANELS_BY_ROLE[role];
+    return fallback ? [...fallback] : [];
 }
 
 /** Puede usar el área admin de novedades (Dashboard / calendario / gestión). */

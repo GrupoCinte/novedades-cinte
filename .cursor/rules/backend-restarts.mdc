@@ -1,0 +1,11 @@
+---
+description: Reinicio automático del servidor Node/Express tras cambios de backend o cuando el usuario lo pida.
+alwaysApply: true
+---
+
+# Backend (novedades-cinte)
+
+- Tras modificar `server.js`, `src/**/*.js` del backend, rutas, auth, data layer o dependencias que afecten el API, **reinicia el backend tú mismo** sin pedirlo al usuario: detén el proceso en el puerto `PORT` (por defecto 3005) si sigue activo y vuelve a ejecutar `npm run dev` desde la raíz del repo.
+- Si el usuario pide explícitamente reiniciar el backend o el servidor, hazlo de inmediato de la misma forma.
+- En Windows: localizar PID con `Get-NetTCPConnection -LocalPort <PORT>` o `netstat -ano | findstr ":<PORT>"` y `taskkill /PID <pid> /F` si hace falta; luego `npm run dev` en background desde `c:\Users\pc\Documents\Desarrollos\Novedades\novedades-cinte` (o la ruta raíz del workspace).
+- No asumas que el usuario reiniciará el servidor; trátalo como parte del flujo de entrega cuando el cambio requiera proceso en vivo.
