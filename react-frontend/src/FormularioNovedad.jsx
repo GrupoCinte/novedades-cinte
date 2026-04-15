@@ -64,7 +64,7 @@ export default function FormularioNovedad() {
     const requiredDocuments = rule.requiredDocuments || [];
     const requiredDocsCount = requiredDocuments.length;
     const requiereAdjunto = requiredDocsCount > 0;
-    const minSupportsRequired = requiereAdjunto ? 1 : 0;
+    const minSupportsRequired = requiereAdjunto ? requiredDocsCount : 0;
     const requierePlantillaExcel = Array.isArray(rule.formatLinks) && rule.formatLinks.length > 0;
     const requiereDias = Boolean(rule.requiresDayCount);
     const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays);
@@ -410,13 +410,16 @@ export default function FormularioNovedad() {
             return;
         }
 
-        if (requiereAdjunto && selectedFiles.length < minSupportsRequired) {
+
+        if (requiereAdjunto && selectedFiles.length < requiredDocsCount) {
             setStatus({
                 type: 'error',
-                text: `❌ Debes adjuntar al menos ${minSupportsRequired} soporte(s) para ${formData.tipo}.`
+                text: `❌ Debes adjuntar todos los documentos requeridos: ${requiredDocuments.join(', ')}.`
             });
             return;
         }
+
+
         if (requierePlantillaExcel) {
             if (selectedFiles.length === 0) {
                 setStatus({ type: 'error', text: '❌ Debes adjuntar el formato Excel diligenciado (.xls o .xlsx).' });
