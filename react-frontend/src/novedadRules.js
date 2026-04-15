@@ -11,7 +11,7 @@ export const NOVEDAD_RULES = {
   },
   'Calamidad domestica': {
     requiredDocuments: ['Soporte de calamidad', 'Formato de permiso'],
-    formatLinks: [],
+    formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
     approvers: ['admin_ch', 'team_ch', 'cac'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp'],
     requiresDayCount: true,
@@ -51,7 +51,7 @@ export const NOVEDAD_RULES = {
   },
   'Licencia remunerada': {
     requiredDocuments: ['Soporte de ausencia'],
-    formatLinks: [],
+    formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
     approvers: ['admin_ch', 'team_ch', 'cac'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp'],
     requiresDayCount: false,
@@ -59,7 +59,7 @@ export const NOVEDAD_RULES = {
   },
   'Licencia no remunerada': {
     requiredDocuments: [],
-    formatLinks: [],
+    formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
     approvers: ['gp', 'cac'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: true,

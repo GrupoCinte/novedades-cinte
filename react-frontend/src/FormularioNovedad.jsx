@@ -64,7 +64,7 @@ export default function FormularioNovedad() {
     const requiredDocuments = rule.requiredDocuments || [];
     const requiredDocsCount = requiredDocuments.length;
     const requiereAdjunto = requiredDocsCount > 0;
-    const minSupportsRequired = requiereAdjunto ? 1 : 0;
+    const minSupportsRequired = requiereAdjunto ? requiredDocsCount : 0;
     const requierePlantillaExcel = Array.isArray(rule.formatLinks) && rule.formatLinks.length > 0;
     const requiereDias = Boolean(rule.requiresDayCount);
     const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays);
@@ -82,6 +82,15 @@ export default function FormularioNovedad() {
         const hours = Number(match[1]);
         const minutes = Number(match[2]);
         return (hours * 60) + minutes;
+    };
+
+    const isValidMilitaryTime = (value) => parseMilitaryTimeToMinutes(value) !== null;
+
+    const formatTimeDigitsInput = (rawValue) => {
+        const digits = String(rawValue || '').replace(/\D/g, '').slice(0, 4);
+        if (!digits) return '';
+        if (digits.length <= 2) return digits;
+        return `${digits.slice(0, 2)}:${digits.slice(2)}`;
     };
 
     const buildDateTimeMs = (dateValue, timeValue) => {
@@ -160,27 +169,6 @@ export default function FormularioNovedad() {
         return base;
     }, [lideres, formData.lider]);
 
-    const opcionesHoraMilitar = useMemo(() => {
-        const opciones = [];
-        for (let hora = 0; hora < 24; hora += 1) {
-            for (let minuto = 0; minuto < 60; minuto += 15) {
-                const h = String(hora).padStart(2, '0');
-                const m = String(minuto).padStart(2, '0');
-                opciones.push(`${h}:${m}`);
-            }
-        }
-        return opciones;
-    }, []);
-
-    const opcionesHoraFin = useMemo(() => {
-        const inicio = parseMilitaryTimeToMinutes(formData.horaInicio);
-        if (inicio === null) return opcionesHoraMilitar;
-        const fechaInicio = String(formData.fechaInicio || '');
-        const fechaFin = String(formData.fechaFin || '');
-        if (fechaInicio && fechaFin && fechaFin > fechaInicio) return opcionesHoraMilitar;
-        return opcionesHoraMilitar.filter((hora) => parseMilitaryTimeToMinutes(hora) > inicio);
-    }, [formData.horaInicio, formData.fechaInicio, formData.fechaFin, opcionesHoraMilitar]);
-
     const horaFinInvalida = usaBloqueHoras
         && formData.fechaInicio
         && formData.fechaFin
@@ -188,13 +176,29 @@ export default function FormularioNovedad() {
         && formData.horaFin
         && buildDateTimeMs(formData.fechaFin, formData.horaFin) <= buildDateTimeMs(formData.fechaInicio, formData.horaInicio);
 
+    const horaInicioFormatoInvalido = usaBloqueHoras
+        && Boolean(formData.horaInicio)
+        && !isValidMilitaryTime(formData.horaInicio);
+
+    const horaFinFormatoInvalido = usaBloqueHoras
+        && Boolean(formData.horaFin)
+        && !isValidMilitaryTime(formData.horaFin);
+
     const fechaFinInvalida = !usaBloqueHoras
         && formData.fechaInicio
         && formData.fechaFin
         && formData.fechaFin < formData.fechaInicio;
 
     const bloqueoEnvioHoraExtra = usaBloqueHoras
-        && (!formData.fechaInicio || !formData.fechaFin || !formData.horaInicio || !formData.horaFin || horaFinInvalida);
+        && (
+            !formData.fechaInicio
+            || !formData.fechaFin
+            || !formData.horaInicio
+            || !formData.horaFin
+            || horaInicioFormatoInvalido
+            || horaFinFormatoInvalido
+            || horaFinInvalida
+        );
 
     const bloqueoEnvioFechas = !usaBloqueHoras
         && (!formData.fechaInicio || fechaFinInvalida);
@@ -216,11 +220,17 @@ export default function FormularioNovedad() {
             return;
         }
         if (name === 'horaInicio') {
-            const nuevaHoraInicio = parseMilitaryTimeToMinutes(value);
+            const formattedHoraInicio = formatTimeDigitsInput(value);
+            const nuevaHoraInicio = parseMilitaryTimeToMinutes(formattedHoraInicio);
             const horaFinActual = parseMilitaryTimeToMinutes(formData.horaFin);
             const mismoDia = String(formData.fechaInicio || '') === String(formData.fechaFin || '');
             const resetHoraFin = mismoDia && horaFinActual !== null && nuevaHoraInicio !== null && horaFinActual <= nuevaHoraInicio;
-            setFormData({ ...formData, horaInicio: value, horaFin: resetHoraFin ? '' : formData.horaFin });
+            setFormData({ ...formData, horaInicio: formattedHoraInicio, horaFin: resetHoraFin ? '' : formData.horaFin });
+            return;
+        }
+        if (name === 'horaFin') {
+            const formattedHoraFin = formatTimeDigitsInput(value);
+            setFormData({ ...formData, horaFin: formattedHoraFin });
             return;
         }
         if (name === 'fechaInicio') {
@@ -410,13 +420,16 @@ export default function FormularioNovedad() {
             return;
         }
 
-        if (requiereAdjunto && selectedFiles.length < minSupportsRequired) {
+
+        if (requiereAdjunto && selectedFiles.length < requiredDocsCount) {
             setStatus({
                 type: 'error',
-                text: `❌ Debes adjuntar al menos ${minSupportsRequired} soporte(s) para ${formData.tipo}.`
+                text: `❌ Debes adjuntar todos los documentos requeridos: ${requiredDocuments.join(', ')}.`
             });
             return;
         }
+
+
         if (requierePlantillaExcel) {
             if (selectedFiles.length === 0) {
                 setStatus({ type: 'error', text: '❌ Debes adjuntar el formato Excel diligenciado (.xls o .xlsx).' });
@@ -774,10 +787,16 @@ export default function FormularioNovedad() {
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Inicio (24h) {reqStar}</label>
-                                            <select required={usaBloqueHoras} name="horaInicio" value={formData.horaInicio} onChange={handleChange} className={inputCls}>
-                                                <option value="">Selecciona hora inicio...</option>
-                                                {opcionesHoraMilitar.map((h) => <option key={`i-${h}`} value={h}>{h}</option>)}
-                                            </select>
+                                            <input
+                                                required={usaBloqueHoras}
+                                                name="horaInicio"
+                                                value={formData.horaInicio}
+                                                onChange={handleChange}
+                                                type="text"
+                                                inputMode="numeric"
+                                                placeholder="HH:mm"
+                                                className={inputCls}
+                                            />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {reqStar}</label>
@@ -785,10 +804,16 @@ export default function FormularioNovedad() {
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Fin (24h) {reqStar}</label>
-                                            <select required={usaBloqueHoras} name="horaFin" value={formData.horaFin} onChange={handleChange} className={inputCls}>
-                                                <option value="">Selecciona hora fin...</option>
-                                                {opcionesHoraFin.map((h) => <option key={`f-${h}`} value={h}>{h}</option>)}
-                                            </select>
+                                            <input
+                                                required={usaBloqueHoras}
+                                                name="horaFin"
+                                                value={formData.horaFin}
+                                                onChange={handleChange}
+                                                type="text"
+                                                inputMode="numeric"
+                                                placeholder="HH:mm"
+                                                className={inputCls}
+                                            />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Horas (automático)</label>
@@ -797,6 +822,11 @@ export default function FormularioNovedad() {
                                         <div className="md:col-span-2 text-xs text-[#4a6f8f] font-body">
                                             Formato militar <strong className="text-[#9fb3c8]">HH:mm</strong>. La fecha/hora fin debe ser mayor que la de inicio.
                                         </div>
+                                        {(horaInicioFormatoInvalido || horaFinFormatoInvalido) && (
+                                            <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">
+                                                Formato de hora inválido. Usa formato 24H: HH:mm (ejemplo: 20:00).
+                                            </div>
+                                        )}
                                         {horaFinInvalida && (
                                             <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">
                                                 La fecha/hora fin debe ser mayor que la fecha/hora inicio.

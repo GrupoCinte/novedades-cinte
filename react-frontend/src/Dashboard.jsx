@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
-import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet } from 'lucide-react';
+import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet, Bell } from 'lucide-react';
 import ChatWidget from './ChatWidget';
-import { getNovedadRule, NOVEDAD_TYPES, formatCantidadNovedad, formatDiasCount, getCantidadMedidaKind, getCantidadDetalleEtiqueta, getDiasEfectivosNovedad, getAsignacionGestionNovedad } from './novedadRules';
+import { getNovedadRule, NOVEDAD_TYPES, formatCantidadNovedad, formatDiasCount, getCantidadMedidaKind, getCantidadDetalleEtiqueta, getDiasEfectivosNovedad, getAsignacionGestionNovedad, resolveCanonicalNovedadTipo } from './novedadRules';
 
 export default function Dashboard({ token, onLogout }) {
     const [items, setItems] = useState([]);
@@ -54,7 +54,8 @@ export default function Dashboard({ token, onLogout }) {
         Inicio: 'dashboard',
         'Análisis Avanzado': 'dashboard',
         Calendario: 'calendar',
-        Gestión: 'gestion'
+        Gestión: 'gestion',
+        'Alertas HE': 'gestion'
     };
     const allowedPanels = PANEL_POLICY[currentRole] || [];
     const canAccessPanel = (panel) => allowedPanels.includes(panel);
@@ -81,10 +82,16 @@ export default function Dashboard({ token, onLogout }) {
     const [fEstado, setFEstado] = useState('');
     const [fCorreo, setFCorreo] = useState('');
     const [fCliente, setFCliente] = useState('');
+    const [fCreadoDesde, setFCreadoDesde] = useState('');
+    const [fCreadoHasta, setFCreadoHasta] = useState('');
     const [fClienteCalendario, setFClienteCalendario] = useState('');
     const [calendarClientesList, setCalendarClientesList] = useState([]);
-    const [sortBy, setSortBy] = useState('creadoEn');
-    const [sortDir, setSortDir] = useState('desc');
+    const [horaExtraAlerts, setHoraExtraAlerts] = useState({
+        generatedAt: '',
+        summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, totalAlerts: 0 },
+        dailyAlerts: [],
+        monthlyAlerts: []
+    });
     const [pageSize, setPageSize] = useState(10);
     const [currentPage, setCurrentPage] = useState(1);
     const [gestionItems, setGestionItems] = useState([]);
@@ -95,6 +102,9 @@ export default function Dashboard({ token, onLogout }) {
         totalPages: 1
     });
     const [gestionDetailItem, setGestionDetailItem] = useState(null);
+    const [alertaHeDetailItem, setAlertaHeDetailItem] = useState(null);
+    const alertasHeCount = Number(horaExtraAlerts?.summary?.totalAlerts || 0);
+    const alertasHeBadgeText = alertasHeCount > 99 ? '99+' : String(alertasHeCount);
     const navigate = useNavigate();
 
     const loadData = async () => {
@@ -118,14 +128,14 @@ export default function Dashboard({ token, onLogout }) {
         try {
             const params = {
                 page: String(page),
-                limit: String(limit),
-                sortBy: String(sortBy || 'creadoEn'),
-                sortDir: String(sortDir || 'desc')
+                limit: String(limit)
             };
             if (fTipo) params.tipo = fTipo;
             if (fEstado) params.estado = fEstado;
             if (fCorreo) params.correo = fCorreo;
             if (fCliente) params.cliente = fCliente;
+            if (fCreadoDesde) params.createdFrom = fCreadoDesde;
+            if (fCreadoHasta) params.createdTo = fCreadoHasta;
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades?${query}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -143,6 +153,37 @@ export default function Dashboard({ token, onLogout }) {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadHoraExtraAlerts = async () => {
+        try {
+            const params = {};
+            if (fCreadoDesde) params.createdFrom = fCreadoDesde;
+            if (fCreadoHasta) params.createdTo = fCreadoHasta;
+            const query = new URLSearchParams(params).toString();
+            const url = query ? `/api/novedades/hora-extra-alertas?${query}` : '/api/novedades/hora-extra-alertas';
+            const alertRes = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!alertRes.ok) throw new Error('No se pudieron cargar alertas HE');
+            const alertJson = await alertRes.json();
+            setHoraExtraAlerts(alertJson?.data || {
+                generatedAt: '',
+                summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, totalAlerts: 0 },
+                dailyAlerts: [],
+                monthlyAlerts: [],
+                items: []
+            });
+        } catch (err) {
+            console.error(err);
+            setHoraExtraAlerts({
+                generatedAt: '',
+                summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, totalAlerts: 0 },
+                dailyAlerts: [],
+                monthlyAlerts: [],
+                items: []
+            });
         }
     };
 
@@ -164,7 +205,10 @@ export default function Dashboard({ token, onLogout }) {
     }, []);
     useEffect(() => {
         loadGestionData(currentPage, pageSize);
-    }, [currentPage, pageSize, fTipo, fEstado, fCorreo, fCliente, sortBy, sortDir]);
+    }, [currentPage, pageSize, fTipo, fEstado, fCorreo, fCliente, fCreadoDesde, fCreadoHasta]);
+    useEffect(() => {
+        loadHoraExtraAlerts();
+    }, [fCreadoDesde, fCreadoHasta]);
 
     const leerCorreoSesionParaApi = () => {
         const candidatos = [];
@@ -181,11 +225,12 @@ export default function Dashboard({ token, onLogout }) {
         return '';
     };
 
-    const changeState = async (id, nuevoEstado) => {
+    const changeState = async (id, nuevoEstado, options = {}) => {
         setStateError(null);
         console.log('[changeState] Iniciando cambio de estado:', { id, nuevoEstado, token: token ? '✅ token presente' : '❌ SIN TOKEN' });
         try {
             const actorEmail = leerCorreoSesionParaApi();
+            const fromHoraExtraAlert = Boolean(options?.fromHoraExtraAlert);
             const res = await fetch('/api/actualizar-estado', {
                 method: 'POST',
                 headers: {
@@ -195,7 +240,8 @@ export default function Dashboard({ token, onLogout }) {
                 body: JSON.stringify({
                     id,
                     nuevoEstado,
-                    actorEmail
+                    actorEmail,
+                    fromHoraExtraAlert
                 })
             });
             console.log('[changeState] Respuesta status:', res.status);
@@ -211,6 +257,7 @@ export default function Dashboard({ token, onLogout }) {
                 }
                 await loadData();
                 await loadGestionData(currentPage, pageSize);
+                await loadHoraExtraAlerts();
             } else {
                 const errMsg = data?.error || `Error ${res.status}`;
                 console.error('[changeState] Error del servidor:', errMsg);
@@ -416,6 +463,10 @@ export default function Dashboard({ token, onLogout }) {
 
     // ── Gestión table filters ─────────────────────────────────────────────────
     const sortedItems = gestionItems;
+    const alertItems = useMemo(
+        () => (Array.isArray(horaExtraAlerts?.items) ? horaExtraAlerts.items : []),
+        [horaExtraAlerts]
+    );
 
     /** Roles asignados: API + mismo criterio que el formulario si el mapper no resolvió el tipo. */
     const asignacionEtiquetaForItem = (it) => {
@@ -460,7 +511,7 @@ export default function Dashboard({ token, onLogout }) {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [fTipo, fEstado, fCorreo, fCliente, sortBy, sortDir, pageSize]);
+    }, [fTipo, fEstado, fCorreo, fCliente, fCreadoDesde, fCreadoHasta, pageSize]);
     useEffect(() => {
         if (currentPage > totalPages) {
             setCurrentPage(totalPages);
@@ -550,14 +601,13 @@ export default function Dashboard({ token, onLogout }) {
 
     const exportExcel = async () => {
         try {
-            const params = {
-                sortBy: String(sortBy || 'creadoEn'),
-                sortDir: String(sortDir || 'desc')
-            };
+            const params = {};
             if (fTipo) params.tipo = fTipo;
             if (fEstado) params.estado = fEstado;
             if (fCorreo) params.correo = fCorreo;
             if (fCliente) params.cliente = fCliente;
+            if (fCreadoDesde) params.createdFrom = fCreadoDesde;
+            if (fCreadoHasta) params.createdTo = fCreadoHasta;
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades/export-excel?${query}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -584,6 +634,16 @@ export default function Dashboard({ token, onLogout }) {
         }
     };
 
+    const clearGestionFilters = () => {
+        setFTipo('');
+        setFEstado('');
+        setFCorreo('');
+        setFCliente('');
+        setFCreadoDesde('');
+        setFCreadoHasta('');
+        setCurrentPage(1);
+    };
+
     const handleSidebarLogout = () => {
         if (onLogout) {
             onLogout();
@@ -601,6 +661,7 @@ export default function Dashboard({ token, onLogout }) {
         { id: 'Calendario', icon: Calendar, label: 'Calendario' },
         { id: 'Análisis Avanzado', icon: TrendingUp, label: 'Análisis Avanzado' },
         { id: 'Gestión', icon: Briefcase, label: 'Gestión de Novedades' },
+        { id: 'Alertas HE', icon: Bell, label: 'Alertas HE' },
     ].filter((item) => canAccessPanel(tabPanelMap[item.id]));
 
     useEffect(() => {
@@ -609,9 +670,35 @@ export default function Dashboard({ token, onLogout }) {
             setActiveTab(allowedTabs[0] || 'Calendario');
         }
     }, [activeTab, navItems]);
-    useEffect(() => {
-        setMobileMenuOpen(false);
-    }, [activeTab]);
+    const calculateDiurnaNocturna = (it) => {
+        if (!it.fechaInicio || !it.horaInicio || !it.fechaFin || !it.horaFin) {
+            return { diurnas: it.horasDiurnas || 0, nocturnas: it.horasNocturnas || 0 };
+        }
+        try {
+            const startStr = `${it.fechaInicio}T${it.horaInicio}:00`;
+            const endStr = `${it.fechaFin}T${it.horaFin}:00`;
+            const startMs = new Date(startStr).getTime();
+            const endMs = new Date(endStr).getTime();
+            if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) {
+                return { diurnas: it.horasDiurnas || 0, nocturnas: it.horasNocturnas || 0 };
+            }
+
+            let dMin = 0;
+            let nMin = 0;
+            for (let tick = startMs; tick < endMs; tick += 60000) {
+                const cur = new Date(tick);
+                const m = (cur.getHours() * 60) + cur.getMinutes();
+                if (m >= 360 && m < 1140) dMin++;
+                else nMin++;
+            }
+            return {
+                diurnas: Number((dMin / 60).toFixed(2)),
+                nocturnas: Number((nMin / 60).toFixed(2))
+            };
+        } catch {
+            return { diurnas: it.horasDiurnas || 0, nocturnas: it.horasNocturnas || 0 };
+        }
+    };
 
     return (
         <div className="flex h-full w-full bg-[#04141E] text-slate-200 overflow-hidden font-body">
@@ -660,6 +747,14 @@ export default function Dashboard({ token, onLogout }) {
                             >
                                 <Icon size={17} />
                                 <span>{item.label}</span>
+                                {item.id === 'Alertas HE' && alertasHeCount > 0 ? (
+                                    <span
+                                        title={`${alertasHeCount} alerta(s) pendiente(s)`}
+                                        className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 border border-amber-400/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-300"
+                                    >
+                                        {alertasHeBadgeText}
+                                    </span>
+                                ) : null}
                             </button>
                         );
                     })}
@@ -738,6 +833,14 @@ export default function Dashboard({ token, onLogout }) {
                                         {item.label}
                                     </span>
                                 )}
+                                {sidebarOpen && item.id === 'Alertas HE' && alertasHeCount > 0 ? (
+                                    <span
+                                        title={`${alertasHeCount} alerta(s) pendiente(s)`}
+                                        className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 border border-amber-400/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-300"
+                                    >
+                                        {alertasHeBadgeText}
+                                    </span>
+                                ) : null}
                             </button>
                         );
                     })}
@@ -1077,21 +1180,30 @@ export default function Dashboard({ token, onLogout }) {
                                         <option value="Rechazado">Rechazados</option>
                                     </select>
                                     <input type="text" placeholder="Buscar correo..." value={fCorreo} onChange={(e) => setFCorreo(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-500 min-w-[180px]" />
-                                    <input type="text" placeholder="Filtrar cliente..." value={fCliente} onChange={(e) => setFCliente(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-500 min-w-[180px]" />
-                                    <select onChange={e => setSortBy(e.target.value)} value={sortBy} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                                        <option value="creadoEn">Ordenar: Fecha creación</option>
-                                        <option value="estado">Ordenar: Estado</option>
-                                        <option value="tipoNovedad">Ordenar: Tipo</option>
+                                    <select onChange={(e) => setFCliente(e.target.value)} value={fCliente} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 min-w-[220px]">
+                                        <option value="">Todos los clientes</option>
+                                        {calendarClientesList.map((c) => (
+                                            <option key={c} value={c}>{c}</option>
+                                        ))}
                                     </select>
-                                    <select onChange={e => setSortDir(e.target.value)} value={sortDir} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
-                                        <option value="desc">Descendente</option>
-                                        <option value="asc">Ascendente</option>
-                                    </select>
+                                    <div className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-2 py-1">
+                                        <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Rango de fechas</span>
+                                        <input type="date" value={fCreadoDesde} onChange={(e) => setFCreadoDesde(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-2 py-1 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                                        <span className="text-slate-500 text-xs">a</span>
+                                        <input type="date" value={fCreadoHasta} onChange={(e) => setFCreadoHasta(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-2 py-1 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                                    </div>
                                     <select onChange={e => setPageSize(Number(e.target.value))} value={pageSize} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
                                         <option value={10}>10 por página</option>
                                         <option value={20}>20 por página</option>
                                         <option value={50}>50 por página</option>
                                     </select>
+                                    <button
+                                        type="button"
+                                        onClick={clearGestionFilters}
+                                        className="px-3 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700/60 transition-all text-sm"
+                                    >
+                                        Borrar filtros
+                                    </button>
 
                                     <div className="flex-1"></div>
 
@@ -1126,7 +1238,7 @@ export default function Dashboard({ token, onLogout }) {
                                             ) : (
                                                 pagedItems.map(it => {
                                                     const cread = new Date(it.creadoEn);
-                                                    const validCread = isNaN(cread.getTime()) ? '-' : cread.toLocaleDateString('es-ES');
+                                                    const validCread = isNaN(cread.getTime()) ? '-' : cread.toLocaleString('es-CO');
                                                     const aprobado = it.aprobadoEn ? new Date(it.aprobadoEn) : null;
                                                     const aprobadoTxt = aprobado && !isNaN(aprobado.getTime())
                                                         ? aprobado.toLocaleString('es-ES')
@@ -1148,12 +1260,19 @@ export default function Dashboard({ token, onLogout }) {
                                                                 {formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it)}
                                                             </td>
                                                             <td className="p-4">
-                                                                <span className={`inline-flex px-2 py-1 rounded-md text-[11px] font-bold border uppercase tracking-wider ${it.estado === 'Aprobado' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                                                                    it.estado === 'Rechazado' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                                                                        'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                                                                    }`}>
-                                                                    {it.estado}
-                                                                </span>
+                                                                <div className="flex flex-col gap-1">
+                                                                    <span className={`inline-flex w-fit px-2 py-1 rounded-md text-[11px] font-bold border uppercase tracking-wider ${it.estado === 'Aprobado' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                                                                        it.estado === 'Rechazado' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                                                                            'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                                                        }`}>
+                                                                        {it.estado}
+                                                                    </span>
+                                                                    {it.alertaHeResueltaEstado ? (
+                                                                        <span className="inline-flex w-fit rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-200">
+                                                                            Gestionada por alerta HE: {it.alertaHeResueltaEstado}
+                                                                        </span>
+                                                                    ) : null}
+                                                                </div>
                                                             </td>
                                                             <td className="p-4 text-xs text-slate-300 max-w-[240px] align-top !whitespace-normal">
                                                                 <span className="text-slate-200 leading-snug block break-words" title={asignacionEtiquetaForItem(it)}>{asignacionEtiquetaForItem(it)}</span>
@@ -1209,6 +1328,48 @@ export default function Dashboard({ token, onLogout }) {
                                                 Siguiente
                                             </button>
                                         </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ---------- ALERTAS HE ---------- */}
+                {activeTab === 'Alertas HE' && canAccessPanel('gestion') && (
+                    <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-2 flex flex-col h-[calc(100vh-8.5rem)] md:h-[calc(100vh-7.5rem)]">
+                        <div className="bg-[#1e293b] border border-slate-700/50 rounded-2xl shadow-lg flex flex-col h-full overflow-hidden">
+                            <div className="p-4 border-b border-slate-700/50 bg-[#1e293b] sticky top-0 z-20">
+                                <h2 className="text-xl font-bold text-white">Alertas HE</h2>
+                                <p className="mt-1 text-sm text-slate-400">
+                                    Pendientes: {alertasHeCount} · Diarias: {horaExtraAlerts?.summary?.dailyAlertsCount || 0} · Mensuales: {horaExtraAlerts?.summary?.monthlyAlertsCount || 0}
+                                </p>
+                            </div>
+                            <div className="flex-1 overflow-auto p-4">
+                                {alertItems.length === 0 ? (
+                                    <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-6 text-sm text-slate-400">
+                                        No hay alertas pendientes para el rango seleccionado.
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 gap-3">
+                                        {alertItems.map((it) => (
+                                            <div key={`alert-${it.id}`} className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                                    <div>
+                                                        <p className="text-sm font-semibold text-amber-100">{it.nombre} ({it.cedula})</p>
+                                                        <p className="text-xs text-amber-200/90">{it.cliente || 'Sin cliente'} · {it.tipoNovedad}</p>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setAlertaHeDetailItem(it)}
+                                                        className="rounded-lg border border-amber-300/40 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-400/15"
+                                                    >
+                                                        Ver alerta
+                                                    </button>
+                                                </div>
+                                                <p className="mt-2 text-xs text-amber-100/90">{it.reasonSummary}</p>
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                             </div>
@@ -1615,9 +1776,39 @@ export default function Dashboard({ token, onLogout }) {
                             )}
                             <div><span className="text-slate-400">Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
                             <div><span className="text-slate-400">Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
-                            <div><span className="text-slate-400">{getCantidadDetalleEtiqueta(gestionDetailItem.tipoNovedad)}:</span> {formatCantidadNovedad(gestionDetailItem.tipoNovedad, gestionDetailItem.cantidadHoras, gestionDetailItem)}</div>
-                            {String(gestionDetailItem.tipoHoraExtra || '').trim() !== '' && (
-                                <div><span className="text-slate-400">Clasificación:</span> {gestionDetailItem.tipoHoraExtra}</div>
+                            {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) !== 'Hora Extra' && (
+                                <div><span className="text-slate-400">{getCantidadDetalleEtiqueta(gestionDetailItem.tipoNovedad)}:</span> {formatCantidadNovedad(gestionDetailItem.tipoNovedad, gestionDetailItem.cantidadHoras, gestionDetailItem)}</div>
+                            )}
+                            {gestionDetailItem.alertaHeResueltaEstado ? (
+                                <div className="md:col-span-2 rounded-lg border border-cyan-500/35 bg-cyan-500/10 px-3 py-2 text-cyan-100">
+                                    Alerta HE gestionada: {gestionDetailItem.alertaHeResueltaEstado}
+                                </div>
+                            ) : null}
+
+                            {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) === 'Hora Extra' && (
+                                <div className="md:col-span-2 mt-2 p-4 bg-slate-900/60 rounded-2xl border border-cyan-500/30">
+                                    {(() => {
+                                        const { diurnas, nocturnas } = calculateDiurnaNocturna(gestionDetailItem);
+                                        return (
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                <div className="flex flex-col items-center gap-1 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
+                                                    <span className="text-[10px] uppercase tracking-widest text-cyan-200 font-bold">Diurnas (06:00–18:59)</span>
+                                                    <span className="text-xl font-black text-cyan-300">{diurnas}h</span>
+                                                </div>
+                                                <div className="flex flex-col items-center gap-1 rounded-xl border border-indigo-500/35 bg-indigo-500/10 p-3">
+                                                    <span className="text-[10px] uppercase tracking-widest text-indigo-200 font-bold">Nocturnas (19:00–05:59)</span>
+                                                    <span className="text-xl font-black text-indigo-300">{nocturnas}h</span>
+                                                </div>
+                                                <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+                                                    <div><span className="text-emerald-300 font-semibold">Horas cargadas:</span> {gestionDetailItem.cantidadHoras || 0}h</div>
+                                                    <div><span className="text-emerald-300 font-semibold">Franja cargada:</span> {(gestionDetailItem.horaInicio && gestionDetailItem.horaFin) ? `${gestionDetailItem.horaInicio} - ${gestionDetailItem.horaFin}` : '-'}</div>
+                                                    <div><span className="text-emerald-300 font-semibold">Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
+                                                    <div><span className="text-emerald-300 font-semibold">Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                </div>
                             )}
                         </div>
 
@@ -1664,6 +1855,74 @@ export default function Dashboard({ token, onLogout }) {
                                     <button onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Aprobado'); setGestionDetailItem(null); }} className="px-4 py-2 rounded-lg border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-all text-sm">Aceptar</button>
                                 </>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {alertaHeDetailItem && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/90 backdrop-blur p-4 animate-in fade-in duration-200" onClick={() => setAlertaHeDetailItem(null)}>
+                    <div className="relative bg-[#1e293b] border border-slate-700 rounded-2xl w-full max-w-3xl md:max-h-[88vh] flex flex-col p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-between items-start mb-4 border-b border-slate-700/50 pb-4">
+                            <div>
+                                <h2 className="text-2xl font-bold text-white">Detalle alerta HE</h2>
+                                <p className="text-slate-400 mt-1 text-sm">{alertaHeDetailItem.nombre} ({alertaHeDetailItem.cedula})</p>
+                            </div>
+                            <button onClick={() => setAlertaHeDetailItem(null)} className="bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-500 border border-slate-700 hover:border-rose-500/50 rounded-lg transition-all w-10 h-10 flex items-center justify-center">
+                                <X size={20} strokeWidth={2.5} />
+                            </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-slate-200 overflow-y-auto pr-1">
+                            <div><span className="text-slate-400">Cliente:</span> {alertaHeDetailItem.cliente || '-'}</div>
+                            <div><span className="text-slate-400">Líder:</span> {alertaHeDetailItem.lider || '-'}</div>
+                            <div><span className="text-slate-400">Fecha inicio:</span> {alertaHeDetailItem.fechaInicio || '-'}</div>
+                            <div><span className="text-slate-400">Fecha fin:</span> {alertaHeDetailItem.fechaFin || '-'}</div>
+                            <div><span className="text-slate-400">Franja cargada:</span> {(alertaHeDetailItem.horaInicio && alertaHeDetailItem.horaFin) ? `${alertaHeDetailItem.horaInicio} - ${alertaHeDetailItem.horaFin}` : '-'}</div>
+                            <div><span className="text-slate-400">Horas cargadas:</span> {alertaHeDetailItem.cantidadHoras || 0}h</div>
+                            <div className="md:col-span-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
+                                <span className="font-semibold">Motivo de alerta:</span> {alertaHeDetailItem.reasonSummary || 'Exceso de horas extra sobre topes configurados.'}
+                            </div>
+                            {Array.isArray(alertaHeDetailItem.dailyReasons) && alertaHeDetailItem.dailyReasons.length > 0 && (
+                                <div className="md:col-span-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3">
+                                    <p className="text-cyan-100 font-semibold text-sm">Conteo diario excedido</p>
+                                    {alertaHeDetailItem.dailyReasons.map((r) => (
+                                        <p key={`d-${r.date}`} className="text-xs text-cyan-100/95 mt-1">
+                                            {r.date}: {r.totalHours}h (tope {r.limitHours}h, exceso {r.exceededByHours}h)
+                                        </p>
+                                    ))}
+                                </div>
+                            )}
+                            {Array.isArray(alertaHeDetailItem.monthlyReasons) && alertaHeDetailItem.monthlyReasons.length > 0 && (
+                                <div className="md:col-span-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3">
+                                    <p className="text-indigo-100 font-semibold text-sm">Conteo mensual excedido</p>
+                                    {alertaHeDetailItem.monthlyReasons.map((r) => (
+                                        <p key={`m-${r.month}`} className="text-xs text-indigo-100/95 mt-1">
+                                            {r.month}: {r.totalHours}h (tope {r.limitHours}h, exceso {r.exceededByHours}h)
+                                        </p>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <div className="mt-6 border-t border-slate-700/50 pt-4 flex flex-wrap justify-end gap-2">
+                            <button onClick={() => setAlertaHeDetailItem(null)} className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-700/50 transition-all text-sm">Cerrar</button>
+                            <button
+                                onClick={async () => {
+                                    await changeState(alertaHeDetailItem.id, 'Rechazado', { fromHoraExtraAlert: true });
+                                    setAlertaHeDetailItem(null);
+                                }}
+                                className="px-4 py-2 rounded-lg border border-rose-500/40 text-rose-400 hover:bg-rose-500/10 transition-all text-sm"
+                            >
+                                Rechazar
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    await changeState(alertaHeDetailItem.id, 'Aprobado', { fromHoraExtraAlert: true });
+                                    setAlertaHeDetailItem(null);
+                                }}
+                                className="px-4 py-2 rounded-lg border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-all text-sm"
+                            >
+                                Aprobar
+                            </button>
                         </div>
                     </div>
                 </div>

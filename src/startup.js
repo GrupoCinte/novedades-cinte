@@ -15,6 +15,7 @@ async function startServer(deps) {
         ensureNovedadesHourSplitColumns,
         ensureNovedadesMontoCopColumn,
         ensureNovedadesApproverEmailColumns,
+        ensureNovedadesHoraExtraAlertColumns,
         migrateExcelIfNeeded,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
@@ -40,6 +41,7 @@ async function startServer(deps) {
     await ensureNovedadesHourSplitColumns();
     await ensureNovedadesMontoCopColumn();
     await ensureNovedadesApproverEmailColumns();
+    await ensureNovedadesHoraExtraAlertColumns();
     await migrateExcelIfNeeded();
     await migrateClientesLideresFromExcelIfNeeded();
     await ensureColaboradoresTable();

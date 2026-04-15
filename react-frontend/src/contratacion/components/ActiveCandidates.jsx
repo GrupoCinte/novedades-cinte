@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { motion } from 'framer-motion';
 import CandidateModal from './CandidateModal';
-import TraceabilityKPIs from './TraceabilityKPIs';
 import { normalizeStatus, getTrazabilidadStageKey, TRAZABILIDAD_STAGE_ORDER } from '../hooks/useMonitorData';
 import { TERMINAL_STATUSES_SET } from '../constants/trazabilidad.js';
 
@@ -228,9 +227,24 @@ export default function ActiveCandidates({
     const [pageSize, setPageSize] = useState(20);
     const [page, setPage] = useState(1);
 
+    // Filtros avanzados
+    const [fSoloActivos, setFSoloActivos] = useState(false);
+    const [fFechaDesde, setFFechaDesde] = useState('');
+    const [fFechaHasta, setFFechaHasta] = useState('');
+
+    const hasAdvancedFilters = fSoloActivos || fFechaDesde || fFechaHasta;
+
+    function clearAllFilters() {
+        setSearchTerm('');
+        setStatusFilter('all');
+        setFSoloActivos(false);
+        setFFechaDesde('');
+        setFFechaHasta('');
+    }
+
     useEffect(() => {
         setPage(1);
-    }, [searchTerm, statusFilter, sortBy, sortDir, pageSize]);
+    }, [searchTerm, statusFilter, sortBy, sortDir, pageSize, fSoloActivos, fFechaDesde, fFechaHasta]);
 
     function getSortNumber(execution, key) {
         if (key === 'start') {
@@ -321,7 +335,18 @@ export default function ActiveCandidates({
                 ? true
                 : getTrazabilidadStageKey(ex.realStatus, ex.statusId) === statusFilter;
 
-            return matchesSearch && matchesStatus;
+            // Filtro solo activos (no terminados ni eliminados)
+            const stage = getTrazabilidadStageKey(ex.realStatus, ex.statusId);
+            const isTerminado = stage === 'finalizado' || normalizeStatus(ex.realStatus) === 'eliminado';
+            const matchesSoloActivos = !fSoloActivos || !isTerminado;
+
+            // Filtros de fecha de ingreso del candidato
+            const ingresoTs = ex.fullData?.ts_documentos_recibidos || ex.fullData?.ts_primer_contacto_candidato || ex.timestamp;
+            const ingresoDate = ingresoTs ? new Date(ingresoTs) : null;
+            const matchesFechaDesde = !fFechaDesde || (ingresoDate && ingresoDate >= new Date(fFechaDesde));
+            const matchesFechaHasta = !fFechaHasta || (ingresoDate && ingresoDate <= new Date(fFechaHasta + 'T23:59:59'));
+
+            return matchesSearch && matchesStatus && matchesSoloActivos && matchesFechaDesde && matchesFechaHasta;
         });
 
         return results.sort((a, b) => {
@@ -346,7 +371,7 @@ export default function ActiveCandidates({
             const bTs = getSortNumber(b, 'start');
             return bTs - aTs;
         });
-    }, [preparedExecutions, searchTerm, statusFilter, sortBy, sortDir]);
+    }, [preparedExecutions, searchTerm, statusFilter, sortBy, sortDir, fSoloActivos, fFechaDesde, fFechaHasta]);
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
     const currentPage = Math.min(page, totalPages);
@@ -395,46 +420,125 @@ export default function ActiveCandidates({
                     <code className="rounded bg-black/25 px-1">dynamodb:Scan</code> en esa tabla.
                 </div>
             ) : null}
-            <TraceabilityKPIs metrics={metrics} variant="trazabilidad" />
 
-            <div className="surface-panel p-5">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_auto]">
-                    <div className="relative">
-                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 text-[rgba(159,179,200,0.95)]">
-                            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            {/* ── Barra de Filtros Avanzados ── */}
+            <div className="flex flex-col gap-3 rounded-2xl border border-slate-700/50 bg-[#1e293b] px-5 py-4 shadow-lg">
+
+                {/* Fila 1: Búsqueda + Estado + Filas */}
+                <div className="flex flex-wrap items-center gap-3">
+                    <div className="relative min-w-[200px] flex-1">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                         </div>
                         <input
                             type="text"
-                            className="field-control block w-full py-3 pl-10 pr-3 text-sm"
-                            placeholder="Buscar"
+                            className="w-full rounded-lg border border-slate-600 bg-slate-800 py-1.5 pl-9 pr-3 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            placeholder="Buscar candidato, cargo, email…"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
-                    <select
-                        value={statusFilter}
-                        onChange={(e) => setStatusFilter(e.target.value)}
-                        className="field-control min-w-[220px] px-3 py-3 text-sm"
-                    >
-                        <option value="all">Todos los estados</option>
-                        <option value="cargando">Cargando</option>
-                        <option value="contactado">Contactado</option>
-                        <option value="whatsapp enviado">WhatsApp Enviado</option>
-                        <option value="documentos recibidos">Documentos Recibidos</option>
-                        <option value="sagrilaft enviado">Sagrilaft Enviado</option>
-                        <option value="finalizado">Finalizado</option>
-                    </select>
-                    <select
-                        value={pageSize}
-                        onChange={(e) => setPageSize(Number(e.target.value))}
-                        className="field-control min-w-[130px] px-3 py-3 text-sm"
-                    >
-                        <option value={10}>10 filas</option>
-                        <option value={20}>20 filas</option>
-                        <option value={50}>50 filas</option>
-                    </select>
+
+                    <div className="flex items-center gap-2">
+                        <label className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-slate-500">Estado</label>
+                        <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        >
+                            <option value="all">Todos los estados</option>
+                            <option value="cargando">Cargando</option>
+                            <option value="contactado">Contactado</option>
+                            <option value="whatsapp enviado">WhatsApp Enviado</option>
+                            <option value="documentos recibidos">Documentos Recibidos</option>
+                            <option value="sagrilaft enviado">Sagrilaft Enviado</option>
+                            <option value="finalizado">Finalizado</option>
+                        </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <label className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-slate-500">Filas</label>
+                        <select
+                            value={pageSize}
+                            onChange={(e) => setPageSize(Number(e.target.value))}
+                            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        >
+                            <option value={10}>10</option>
+                            <option value={20}>20</option>
+                            <option value={50}>50</option>
+                        </select>
+                    </div>
+
+                    {/* Badge de resultados */}
+                    <div className="ml-auto flex items-center gap-2">
+                        <span className="text-xs text-slate-500">Mostrando</span>
+                        <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-0.5 text-sm font-bold text-blue-400">
+                            {filtered.length} de {executions.length}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Separador */}
+                <div className="h-px bg-slate-700/50" />
+
+                {/* Fila 2: Filtros avanzados */}
+                <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2">
+                        <svg className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
+                        </svg>
+                        <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Filtros avanzados</span>
+                    </div>
+                    <div className="h-px flex-1 bg-slate-700/50 min-w-[1rem]" />
+
+                    {/* Solo activos toggle */}
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 transition hover:border-blue-500/50">
+                        <input
+                            type="checkbox"
+                            checked={fSoloActivos}
+                            onChange={(e) => setFSoloActivos(e.target.checked)}
+                            className="h-3.5 w-3.5 rounded accent-blue-500"
+                        />
+                        <span className="whitespace-nowrap text-xs font-semibold">Solo activos</span>
+                    </label>
+
+                    {/* Fecha de ingreso desde */}
+                    <div className="flex items-center gap-2">
+                        <label className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-slate-500">Ingreso desde</label>
+                        <input
+                            type="date"
+                            value={fFechaDesde}
+                            onChange={(e) => setFFechaDesde(e.target.value)}
+                            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        />
+                    </div>
+
+                    {/* Fecha de término hasta */}
+                    <div className="flex items-center gap-2">
+                        <label className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-slate-500">Hasta</label>
+                        <input
+                            type="date"
+                            value={fFechaHasta}
+                            onChange={(e) => setFFechaHasta(e.target.value)}
+                            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                        />
+                    </div>
+
+                    {/* Botón limpiar */}
+                    {(searchTerm || statusFilter !== 'all' || hasAdvancedFilters) && (
+                        <button
+                            type="button"
+                            onClick={clearAllFilters}
+                            className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400"
+                        >
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            Limpiar filtros
+                        </button>
+                    )}
                 </div>
             </div>
 
