@@ -38,6 +38,7 @@ function initContratacionRealtime(server) {
     }
 
     const pollerEnabled = String(process.env.CONTRATACION_STREAM_POLLER_ENABLED || '').toLowerCase() === 'true';
+
     if (!pollerEnabled || !tableName || !active.wsServer || active.streamPoller) {
         return active;
     }
