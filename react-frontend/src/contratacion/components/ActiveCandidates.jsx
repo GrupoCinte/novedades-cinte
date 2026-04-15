@@ -227,20 +227,16 @@ export default function ActiveCandidates({
     const [pageSize, setPageSize] = useState(20);
     const [page, setPage] = useState(1);
 
-    // Nuevos filtros avanzados
-    const [fCliente, setFCliente] = useState('');
-    const [fTipoContrato, setFTipoContrato] = useState('');
+    // Filtros avanzados
     const [fSoloActivos, setFSoloActivos] = useState(false);
     const [fFechaDesde, setFFechaDesde] = useState('');
     const [fFechaHasta, setFFechaHasta] = useState('');
 
-    const hasAdvancedFilters = fCliente || fTipoContrato || fSoloActivos || fFechaDesde || fFechaHasta;
+    const hasAdvancedFilters = fSoloActivos || fFechaDesde || fFechaHasta;
 
     function clearAllFilters() {
         setSearchTerm('');
         setStatusFilter('all');
-        setFCliente('');
-        setFTipoContrato('');
         setFSoloActivos(false);
         setFFechaDesde('');
         setFFechaHasta('');
@@ -248,7 +244,7 @@ export default function ActiveCandidates({
 
     useEffect(() => {
         setPage(1);
-    }, [searchTerm, statusFilter, sortBy, sortDir, pageSize, fCliente, fTipoContrato, fSoloActivos, fFechaDesde, fFechaHasta]);
+    }, [searchTerm, statusFilter, sortBy, sortDir, pageSize, fSoloActivos, fFechaDesde, fFechaHasta]);
 
     function getSortNumber(execution, key) {
         if (key === 'start') {
@@ -331,25 +327,6 @@ export default function ActiveCandidates({
         [executions]
     );
 
-    // Opciones dinámicas derivadas de los datos disponibles
-    const clienteOptions = useMemo(() => {
-        const set = new Set();
-        executions.forEach(ex => {
-            const v = ex.fullData?.empresa || ex.fullData?.cliente || ex.fullData?.canal;
-            if (v) set.add(String(v));
-        });
-        return Array.from(set).sort();
-    }, [executions]);
-
-    const tipoContratoOptions = useMemo(() => {
-        const set = new Set();
-        executions.forEach(ex => {
-            const v = ex.fullData?.tipo_contrato || ex.fullData?.tipo || ex.fullData?.documentos;
-            if (v) set.add(String(v));
-        });
-        return Array.from(set).sort();
-    }, [executions]);
-
     const filtered = useMemo(() => {
         const results = preparedExecutions.filter(ex => {
             const q = searchTerm.toLowerCase();
@@ -357,14 +334,6 @@ export default function ActiveCandidates({
             const matchesStatus = statusFilter === 'all'
                 ? true
                 : getTrazabilidadStageKey(ex.realStatus, ex.statusId) === statusFilter;
-
-            // Filtro cliente
-            const exCliente = ex.fullData?.empresa || ex.fullData?.cliente || ex.fullData?.canal || '';
-            const matchesCliente = !fCliente || String(exCliente) === fCliente;
-
-            // Filtro tipo de contrato
-            const exTipo = ex.fullData?.tipo_contrato || ex.fullData?.tipo || ex.fullData?.documentos || '';
-            const matchesTipo = !fTipoContrato || String(exTipo) === fTipoContrato;
 
             // Filtro solo activos (no terminados ni eliminados)
             const stage = getTrazabilidadStageKey(ex.realStatus, ex.statusId);
@@ -377,7 +346,7 @@ export default function ActiveCandidates({
             const matchesFechaDesde = !fFechaDesde || (ingresoDate && ingresoDate >= new Date(fFechaDesde));
             const matchesFechaHasta = !fFechaHasta || (ingresoDate && ingresoDate <= new Date(fFechaHasta + 'T23:59:59'));
 
-            return matchesSearch && matchesStatus && matchesCliente && matchesTipo && matchesSoloActivos && matchesFechaDesde && matchesFechaHasta;
+            return matchesSearch && matchesStatus && matchesSoloActivos && matchesFechaDesde && matchesFechaHasta;
         });
 
         return results.sort((a, b) => {
@@ -402,7 +371,7 @@ export default function ActiveCandidates({
             const bTs = getSortNumber(b, 'start');
             return bTs - aTs;
         });
-    }, [preparedExecutions, searchTerm, statusFilter, sortBy, sortDir, fCliente, fTipoContrato, fSoloActivos, fFechaDesde, fFechaHasta]);
+    }, [preparedExecutions, searchTerm, statusFilter, sortBy, sortDir, fSoloActivos, fFechaDesde, fFechaHasta]);
 
     const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
     const currentPage = Math.min(page, totalPages);
@@ -523,32 +492,6 @@ export default function ActiveCandidates({
                         <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Filtros avanzados</span>
                     </div>
                     <div className="h-px flex-1 bg-slate-700/50 min-w-[1rem]" />
-
-                    {/* Cliente */}
-                    <div className="flex items-center gap-2">
-                        <label className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-slate-500">Cliente</label>
-                        <select
-                            value={fCliente}
-                            onChange={(e) => setFCliente(e.target.value)}
-                            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer min-w-[140px]"
-                        >
-                            <option value="">Todos los clientes</option>
-                            {clienteOptions.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                    </div>
-
-                    {/* Tipo de Contrato */}
-                    <div className="flex items-center gap-2">
-                        <label className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-slate-500">Tipo Contrato</label>
-                        <select
-                            value={fTipoContrato}
-                            onChange={(e) => setFTipoContrato(e.target.value)}
-                            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer min-w-[160px]"
-                        >
-                            <option value="">Todos los tipos</option>
-                            {tipoContratoOptions.map(t => <option key={t} value={t}>{t}</option>)}
-                        </select>
-                    </div>
 
                     {/* Solo activos toggle */}
                     <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 transition hover:border-blue-500/50">

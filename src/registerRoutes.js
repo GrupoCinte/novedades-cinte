@@ -71,6 +71,7 @@ function registerRoutes(deps) {
         allowPanel,
         applyScope,
         getScopedNovedades,
+        getHoraExtraAlerts,
         toClientNovedad,
         allowAnyPanel,
         getClientesList,
@@ -301,36 +302,7 @@ function registerRoutes(deps) {
                 return res.status(400).json({ ok: false, message: 'Credenciales incompletas' });
             }
             if (!COGNITO_ENABLED) {
-                const crypto = require('crypto');
-                const hashedInput = crypto.createHash('sha256').update(String(password)).digest('hex');
-                const dbRes = await pool.query(`SELECT * FROM users WHERE email = $1 OR username = $1 LIMIT 1`, [identity]);
-                const dbUser = dbRes.rows[0];
-                if (!dbUser || dbUser.password_hash !== hashedInput) {
-                    return res.status(401).json({ ok: false, message: 'Credenciales inválidas (Modo Local)' });
-                }
-                const effectiveRole = resolveEffectiveRole(dbUser.role, roleRequested);
-                const fakeAuth = { ExpiresIn: 3600 * 8 }; 
-                const baseUser = { 
-                    sub: dbUser.id, 
-                    email: dbUser.email, 
-                    username: dbUser.username, 
-                    name: dbUser.full_name, 
-                    role: dbUser.role,
-                    area: dbUser.area 
-                };
-                const appAuth = issueAppTokenFromCognito(baseUser, fakeAuth, effectiveRole, identity);
-                return res.json({
-                    ok: true,
-                    token: appAuth.token,
-                    expiresIn: appAuth.expiresInSec,
-                    user: appAuth.user,
-                    claims: {
-                        sub: dbUser.id,
-                        email: dbUser.email,
-                        role: appAuth.user.role,
-                        baseRole: dbUser.role
-                    }
-                });
+                return res.status(503).json({ ok: false, message: 'Cognito no está habilitado en el servidor.' });
             }
 
             const authParams = {
@@ -607,9 +579,9 @@ function registerRoutes(deps) {
             const estado = String(req.query.estado || '').trim();
             const correo = String(req.query.correo || '').trim();
             const cliente = String(req.query.cliente || '').trim();
-            const sortBy = String(req.query.sortBy || '').trim();
-            const sortDir = String(req.query.sortDir || '').trim();
-            const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, cliente, sortBy, sortDir });
+            const createdFrom = String(req.query.createdFrom || '').trim();
+            const createdTo = String(req.query.createdTo || '').trim();
+            const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, cliente, createdFrom, createdTo });
             const page = Math.max(1, Number(req.query.page || 1));
             const limitRaw = Number(req.query.limit || 0);
             const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 0;
@@ -643,9 +615,9 @@ function registerRoutes(deps) {
             const estado = String(req.query.estado || '').trim();
             const correo = String(req.query.correo || '').trim();
             const cliente = String(req.query.cliente || '').trim();
-            const sortBy = String(req.query.sortBy || '').trim();
-            const sortDir = String(req.query.sortDir || '').trim();
-            const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, cliente, sortBy, sortDir });
+            const createdFrom = String(req.query.createdFrom || '').trim();
+            const createdTo = String(req.query.createdTo || '').trim();
+            const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, cliente, createdFrom, createdTo });
             const items = rows.map(toClientNovedad);
 
             const columns = [
@@ -658,6 +630,8 @@ function registerRoutes(deps) {
                 { header: 'Fecha Inicio', key: 'fechaInicio', width: 14 },
                 { header: 'Fecha Fin', key: 'fechaFin', width: 14 },
                 { header: 'Horas', key: 'horas', width: 10 },
+                { header: 'Horas diurnas', key: 'horasDiurnas', width: 14 },
+                { header: 'Horas nocturnas', key: 'horasNocturnas', width: 14 },
                 { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
                 { header: 'Estado', key: 'estado', width: 14 },
                 { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 },
@@ -700,6 +674,8 @@ function registerRoutes(deps) {
                     fechaInicio: it.fechaInicio || '',
                     fechaFin: it.fechaFin || '',
                     horas: it.cantidadHoras || '0',
+                    horasDiurnas: Number(it.horasDiurnas || 0) > 0 ? Number(it.horasDiurnas) : '',
+                    horasNocturnas: Number(it.horasNocturnas || 0) > 0 ? Number(it.horasNocturnas) : '',
                     valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
                     estado: it.estado || '',
                     asignadoRoles: it.asignacionRolesEtiqueta || '—',
@@ -725,7 +701,17 @@ function registerRoutes(deps) {
                 ws.getColumn(idx + 1).width = Math.min(maxLen + 4, 50);
             });
 
-            ws.autoFilter = { from: 'A1', to: `${String.fromCharCode(64 + columns.length)}1` };
+            const excelColName = (index1Based) => {
+                let n = Number(index1Based || 1);
+                let name = '';
+                while (n > 0) {
+                    const rem = (n - 1) % 26;
+                    name = String.fromCharCode(65 + rem) + name;
+                    n = Math.floor((n - 1) / 26);
+                }
+                return name || 'A';
+            };
+            ws.autoFilter = { from: 'A1', to: `${excelColName(columns.length)}1` };
 
             const filename = `novedades_reporte_${new Date().toISOString().slice(0, 10)}.xlsx`;
             res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -741,6 +727,23 @@ function registerRoutes(deps) {
             if (!res.headersSent) {
                 return res.status(500).json({ ok: false, error: 'Error exportando reporte Excel' });
             }
+        }
+    });
+
+    app.get('/api/novedades/hora-extra-alertas', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
+        try {
+            const createdFrom = String(req.query.createdFrom || '').trim();
+            const createdTo = String(req.query.createdTo || '').trim();
+            const data = await getHoraExtraAlerts(req.scope, {
+                createdFrom,
+                createdTo,
+                maxDailyHours: 2,
+                maxMonthlyHours: 48
+            });
+            return res.json({ ok: true, data });
+        } catch (error) {
+            console.error('Error hora-extra-alertas:', error);
+            return res.status(500).json({ ok: false, error: 'Error consultando alertas de hora extra' });
         }
     });
 
@@ -1143,6 +1146,7 @@ function registerRoutes(deps) {
     app.post('/api/actualizar-estado', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
         try {
             const { id, nuevoEstado } = req.body || {};
+            const fromHoraExtraAlert = Boolean(req.body?.fromHoraExtraAlert);
             const estado = normalizeEstado(nuevoEstado);
             const actorSub = String(req.user?.sub || '').trim();
             const actorUserIdRaw = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
@@ -1229,9 +1233,13 @@ function registerRoutes(deps) {
                      rechazado_en = CASE WHEN $1::novedad_estado = 'Rechazado' THEN NOW() ELSE NULL END,
                      rechazado_por_rol = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $2::user_role ELSE NULL END,
                      rechazado_por_user_id = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $3::uuid ELSE NULL END,
-                     rechazado_por_email = CASE WHEN $1::novedad_estado = 'Rechazado' THEN NULLIF($4::text, '') ELSE NULL END
+                     rechazado_por_email = CASE WHEN $1::novedad_estado = 'Rechazado' THEN NULLIF($4::text, '') ELSE NULL END,
+                     alerta_he_origen = CASE WHEN $6::boolean THEN TRUE ELSE alerta_he_origen END,
+                     alerta_he_resuelta_estado = CASE WHEN $6::boolean THEN $1::text ELSE alerta_he_resuelta_estado END,
+                     alerta_he_resuelta_en = CASE WHEN $6::boolean THEN NOW() ELSE alerta_he_resuelta_en END,
+                     alerta_he_resuelta_por_email = CASE WHEN $6::boolean THEN NULLIF($4::text, '') ELSE alerta_he_resuelta_por_email END
                  WHERE id = $5::uuid`,
-                [estado, req.user.role, actorUserId, actorEmail, item.id]
+                [estado, req.user.role, actorUserId, actorEmail, item.id, fromHoraExtraAlert]
             );
 
             await pool.query(
@@ -1284,7 +1292,8 @@ function registerRoutes(deps) {
             return res.json({
                 ok: true,
                 success: true,
-                persistedEmail: estado === 'Aprobado' || estado === 'Rechazado' ? actorEmail || null : null
+                persistedEmail: estado === 'Aprobado' || estado === 'Rechazado' ? actorEmail || null : null,
+                fromHoraExtraAlert
             });
         } catch (error) {
             console.error('Error al actualizar estado:', error);

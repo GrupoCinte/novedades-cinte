@@ -113,6 +113,22 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureNovedadesHoraExtraAlertColumns() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS alerta_he_resuelta_estado TEXT NULL');
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS alerta_he_resuelta_en TIMESTAMPTZ NULL');
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS alerta_he_resuelta_por_email TEXT NULL');
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS alerta_he_origen BOOLEAN NOT NULL DEFAULT FALSE');
+            await pool.query('CREATE INDEX IF NOT EXISTS idx_novedades_alerta_he_resuelta_en ON novedades(alerta_he_resuelta_en)');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para columnas de gestión de alertas HE en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** GP por fila de catálogo (asignación desde módulo administración / cliente). */
     async function ensureClientesLideresGpUserColumn() {
         try {
@@ -827,10 +843,8 @@ function createDataLayer(deps) {
         const estado = String(options?.estado || '').trim();
         const correo = String(options?.correo || '').trim().toLowerCase();
         const cliente = String(options?.cliente || '').trim().toLowerCase();
-        const sortByRaw = String(options?.sortBy || '').trim();
-        const sortDirRaw = String(options?.sortDir || '').trim().toLowerCase();
-        const sortBy = ['creadoEn', 'estado', 'tipoNovedad'].includes(sortByRaw) ? sortByRaw : 'creadoEn';
-        const sortDir = sortDirRaw === 'asc' ? 'asc' : 'desc';
+        const createdFrom = String(options?.createdFrom || '').trim();
+        const createdTo = String(options?.createdTo || '').trim();
         const whereParts = [];
         const params = [];
         if (!scope?.canViewAllAreas && Array.isArray(scope?.areas) && scope.areas.length > 0) {
@@ -863,29 +877,277 @@ function createDataLayer(deps) {
             params.push(`%${cliente}%`);
             whereParts.push(`lower(coalesce(nov.cliente, '')) LIKE $${params.length}`);
         }
-        const orderColumnMap = {
-            creadoEn: 'creado_en',
-            estado: 'estado',
-            tipoNovedad: 'tipo_novedad'
-        };
-        const orderColumn = orderColumnMap[sortBy] || 'creado_en';
-        const orderDirection = sortDir === 'asc' ? 'ASC' : 'DESC';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(createdFrom)) {
+            params.push(createdFrom);
+            whereParts.push(`nov.creado_en::date >= $${params.length}::date`);
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(createdTo)) {
+            params.push(createdTo);
+            whereParts.push(`nov.creado_en::date <= $${params.length}::date`);
+        }
         const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
         const q = await pool.query(
             `SELECT
                 nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.tipo_novedad, nov.area,
                 nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas,
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
+                nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
                 COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
                 COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
              FROM novedades nov
              LEFT JOIN users ua ON nov.aprobado_por_user_id = ua.id
              LEFT JOIN users ur ON nov.rechazado_por_user_id = ur.id
              ${whereSql}
-             ORDER BY nov.${orderColumn} ${orderDirection}, nov.creado_en DESC`,
+             ORDER BY nov.creado_en DESC`,
             params
         );
         return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad));
+    }
+
+    function pad2(value) {
+        return String(value).padStart(2, '0');
+    }
+
+    function toUtcDateKey(ms) {
+        const d = new Date(ms);
+        return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+    }
+
+    function toUtcMsFromDateAndTime(dateRaw, timeRaw) {
+        let datePart = '';
+        if (dateRaw instanceof Date) {
+            datePart = dateRaw.toISOString().slice(0, 10);
+        } else {
+            const raw = String(dateRaw || '').trim();
+            datePart = /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : '';
+        }
+        const timePart = String(timeRaw || '').slice(0, 8);
+        if (!datePart || !timePart) return null;
+        const ms = Date.parse(`${datePart}T${timePart}Z`);
+        return Number.isNaN(ms) ? null : ms;
+    }
+
+    function splitHoursByUtcDay(startMs, endMs) {
+        const byDay = new Map();
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return byDay;
+        let cursor = startMs;
+        while (cursor < endMs) {
+            const current = new Date(cursor);
+            const dayStartMs = Date.UTC(
+                current.getUTCFullYear(),
+                current.getUTCMonth(),
+                current.getUTCDate(),
+                0,
+                0,
+                0,
+                0
+            );
+            const nextDayMs = dayStartMs + (24 * 60 * 60 * 1000);
+            const segmentEnd = Math.min(endMs, nextDayMs);
+            const hours = (segmentEnd - cursor) / (1000 * 60 * 60);
+            const dayKey = toUtcDateKey(dayStartMs);
+            byDay.set(dayKey, (byDay.get(dayKey) || 0) + hours);
+            cursor = segmentEnd;
+        }
+        return byDay;
+    }
+
+    function resolveFallbackDateKeyFromRow(row) {
+        if (row?.fecha_inicio instanceof Date) return row.fecha_inicio.toISOString().slice(0, 10);
+        if (row?.creado_en instanceof Date) return row.creado_en.toISOString().slice(0, 10);
+        const fechaInicioRaw = String(row?.fecha_inicio || '').trim();
+        const creadoRaw = String(row?.creado_en || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(fechaInicioRaw)) return fechaInicioRaw.slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}/.test(creadoRaw)) return creadoRaw.slice(0, 10);
+        return '';
+    }
+
+    function resolveHourSplitByRow(row) {
+        const startMs = toUtcMsFromDateAndTime(row?.fecha_inicio, row?.hora_inicio);
+        const endMs = toUtcMsFromDateAndTime(row?.fecha_fin, row?.hora_fin);
+        let daySplit = splitHoursByUtcDay(startMs, endMs);
+        if (daySplit.size === 0) {
+            const fallbackDate = resolveFallbackDateKeyFromRow(row);
+            if (fallbackDate) {
+                daySplit = new Map([[fallbackDate, Number(row?.cantidad_horas || 0)]]);
+            }
+        }
+        return daySplit;
+    }
+
+    function buildConsultantKey(row) {
+        const cedula = String(row?.cedula || '').trim() || 'sin-cedula';
+        const nombre = String(row?.nombre || '').trim() || 'Sin nombre';
+        return `${cedula}|||${nombre}`;
+    }
+
+    function splitConsultantKey(rawKey) {
+        const [cedula, nombre] = String(rawKey || '').split('|||');
+        return { cedula: cedula || 'sin-cedula', nombre: nombre || 'Sin nombre' };
+    }
+
+    async function getHoraExtraAlerts(scope, options = {}) {
+        const maxDailyHours = Number(options?.maxDailyHours || 2);
+        const maxMonthlyHours = Number(options?.maxMonthlyHours || 48);
+        const createdFrom = String(options?.createdFrom || '').trim();
+        const createdTo = String(options?.createdTo || '').trim();
+        const rows = await getScopedNovedades(scope, {
+            tipo: 'Hora Extra',
+            createdFrom,
+            createdTo
+        });
+
+        const actionableRows = (rows || []).filter((row) => {
+            const estado = String(row?.estado || '');
+            const resolved = row?.alerta_he_resuelta_en != null || String(row?.alerta_he_resuelta_estado || '').trim() !== '';
+            return estado === 'Pendiente' && !resolved;
+        });
+
+        const dailyTotals = new Map();
+        const monthlyTotals = new Map();
+        const rowSplitMap = new Map();
+        for (const row of actionableRows) {
+            const consultantKey = buildConsultantKey(row);
+            const daySplit = resolveHourSplitByRow(row);
+            rowSplitMap.set(String(row.id), { consultantKey, daySplit });
+            for (const [dayKey, hoursRaw] of daySplit.entries()) {
+                const hours = Number(hoursRaw || 0);
+                if (!Number.isFinite(hours) || hours <= 0) continue;
+                const monthKey = dayKey.slice(0, 7);
+                const dayBucketKey = `${consultantKey}@@@${dayKey}`;
+                const monthBucketKey = `${consultantKey}@@@${monthKey}`;
+                dailyTotals.set(dayBucketKey, (dailyTotals.get(dayBucketKey) || 0) + hours);
+                monthlyTotals.set(monthBucketKey, (monthlyTotals.get(monthBucketKey) || 0) + hours);
+            }
+        }
+
+        const exceededDayBuckets = new Map();
+        for (const [bucketKey, totalHoursRaw] of dailyTotals.entries()) {
+            const totalHours = Number(totalHoursRaw || 0);
+            if (totalHours <= maxDailyHours) continue;
+            const [consultantKey, date] = bucketKey.split('@@@', 2);
+            exceededDayBuckets.set(bucketKey, {
+                consultantKey,
+                date,
+                totalHours: Number(totalHours.toFixed(2)),
+                limitHours: maxDailyHours,
+                exceededByHours: Number((totalHours - maxDailyHours).toFixed(2))
+            });
+        }
+
+        const exceededMonthBuckets = new Map();
+        for (const [bucketKey, totalHoursRaw] of monthlyTotals.entries()) {
+            const totalHours = Number(totalHoursRaw || 0);
+            if (totalHours <= maxMonthlyHours) continue;
+            const [consultantKey, month] = bucketKey.split('@@@', 2);
+            exceededMonthBuckets.set(bucketKey, {
+                consultantKey,
+                month,
+                totalHours: Number(totalHours.toFixed(2)),
+                limitHours: maxMonthlyHours,
+                exceededByHours: Number((totalHours - maxMonthlyHours).toFixed(2))
+            });
+        }
+
+        const dailyAlerts = Array.from(exceededDayBuckets.values()).map((it) => {
+            const { cedula, nombre } = splitConsultantKey(it.consultantKey);
+            return {
+                cedula,
+                nombre,
+                date: it.date,
+                totalHours: it.totalHours,
+                limitHours: it.limitHours,
+                exceededByHours: it.exceededByHours
+            };
+        }).sort((a, b) => b.exceededByHours - a.exceededByHours || b.totalHours - a.totalHours);
+
+        const monthlyAlerts = Array.from(exceededMonthBuckets.values()).map((it) => {
+            const { cedula, nombre } = splitConsultantKey(it.consultantKey);
+            return {
+                cedula,
+                nombre,
+                month: it.month,
+                totalHours: it.totalHours,
+                limitHours: it.limitHours,
+                exceededByHours: it.exceededByHours
+            };
+        }).sort((a, b) => b.exceededByHours - a.exceededByHours || b.totalHours - a.totalHours);
+
+        const items = [];
+        for (const row of actionableRows) {
+            const rowInfo = rowSplitMap.get(String(row.id));
+            if (!rowInfo) continue;
+            const { consultantKey, daySplit } = rowInfo;
+            const dailyReasons = [];
+            const monthlyReasonsMap = new Map();
+            for (const [dayKey] of daySplit.entries()) {
+                const dayBucket = `${consultantKey}@@@${dayKey}`;
+                const dayExceeded = exceededDayBuckets.get(dayBucket);
+                if (dayExceeded) {
+                    dailyReasons.push({
+                        date: dayExceeded.date,
+                        totalHours: dayExceeded.totalHours,
+                        limitHours: dayExceeded.limitHours,
+                        exceededByHours: dayExceeded.exceededByHours
+                    });
+                }
+                const monthKey = dayKey.slice(0, 7);
+                const monthBucket = `${consultantKey}@@@${monthKey}`;
+                const monthExceeded = exceededMonthBuckets.get(monthBucket);
+                if (monthExceeded && !monthlyReasonsMap.has(monthKey)) {
+                    monthlyReasonsMap.set(monthKey, {
+                        month: monthExceeded.month,
+                        totalHours: monthExceeded.totalHours,
+                        limitHours: monthExceeded.limitHours,
+                        exceededByHours: monthExceeded.exceededByHours
+                    });
+                }
+            }
+            if (!dailyReasons.length && !monthlyReasonsMap.size) continue;
+            const createdAtIso = row?.creado_en instanceof Date ? row.creado_en.toISOString() : String(row?.creado_en || '');
+            const reasons = [
+                ...dailyReasons.map((d) => `Exceso diario ${d.date}: ${d.totalHours}h (tope ${d.limitHours}h)`),
+                ...Array.from(monthlyReasonsMap.values()).map((m) => `Exceso mensual ${m.month}: ${m.totalHours}h (tope ${m.limitHours}h)`)
+            ];
+            items.push({
+                id: String(row.id),
+                nombre: String(row?.nombre || '').trim(),
+                cedula: String(row?.cedula || '').trim(),
+                cliente: String(row?.cliente || '').trim(),
+                lider: String(row?.lider || '').trim(),
+                tipoNovedad: String(row?.tipo_novedad || '').trim(),
+                estado: String(row?.estado || '').trim(),
+                createdAt: createdAtIso,
+                fechaInicio: row?.fecha_inicio instanceof Date ? row.fecha_inicio.toISOString().slice(0, 10) : String(row?.fecha_inicio || '').slice(0, 10),
+                fechaFin: row?.fecha_fin instanceof Date ? row.fecha_fin.toISOString().slice(0, 10) : String(row?.fecha_fin || '').slice(0, 10),
+                horaInicio: String(row?.hora_inicio || '').slice(0, 5),
+                horaFin: String(row?.hora_fin || '').slice(0, 5),
+                cantidadHoras: Number(row?.cantidad_horas || 0),
+                dailyReasons,
+                monthlyReasons: Array.from(monthlyReasonsMap.values()),
+                reasonSummary: reasons.join(' | ')
+            });
+        }
+
+        items.sort((a, b) => {
+            const aDailyExcess = a.dailyReasons.reduce((sum, r) => sum + Number(r.exceededByHours || 0), 0);
+            const bDailyExcess = b.dailyReasons.reduce((sum, r) => sum + Number(r.exceededByHours || 0), 0);
+            return bDailyExcess - aDailyExcess || Number(b.cantidadHoras || 0) - Number(a.cantidadHoras || 0);
+        });
+
+        return {
+            generatedAt: new Date().toISOString(),
+            summary: {
+                maxDailyHours,
+                maxMonthlyHours,
+                dailyAlertsCount: dailyAlerts.length,
+                monthlyAlertsCount: monthlyAlerts.length,
+                totalAlerts: items.length
+            },
+            dailyAlerts,
+            monthlyAlerts,
+            items
+        };
     }
 
     return {
@@ -896,6 +1158,7 @@ function createDataLayer(deps) {
         ensureNovedadesHourSplitColumns,
         ensureNovedadesMontoCopColumn,
         ensureNovedadesApproverEmailColumns,
+        ensureNovedadesHoraExtraAlertColumns,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
@@ -917,7 +1180,8 @@ function createDataLayer(deps) {
         clearGpUserReferences,
         linkGpCognitoSubByEmail,
         migrateExcelIfNeeded,
-        getScopedNovedades
+        getScopedNovedades,
+        getHoraExtraAlerts
     };
 }
 

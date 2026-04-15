@@ -108,6 +108,10 @@ function toClientNovedad(row) {
         rechazadoEn: row.rechazado_en ? row.rechazado_en.toISOString() : '',
         rechazadoPorRol: row.rechazado_por_rol || '',
         rechazadoPorCorreo: pickEmailLikeOnly(row.rechazado_por_correo),
+        alertaHeOrigen: Boolean(row.alerta_he_origen),
+        alertaHeResueltaEstado: String(row.alerta_he_resuelta_estado || '').trim(),
+        alertaHeResueltaEn: row.alerta_he_resuelta_en ? row.alerta_he_resuelta_en.toISOString() : '',
+        alertaHeResueltaPorCorreo: pickEmailLikeOnly(row.alerta_he_resuelta_por_email),
         asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta
     };
 }
