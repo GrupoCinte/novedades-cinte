@@ -58,7 +58,10 @@ function createAuthHelpers(deps) {
 
     function issueAppTokenFromCognito(baseUser = {}, authResult = {}, effectiveRole = '', loginIdentity = '') {
         const user = buildAuthUserByRole(baseUser, effectiveRole, loginIdentity);
-        const expiresInSec = Number(authResult.ExpiresIn || 3600);
+        let expiresInSec = Number(authResult.ExpiresIn);
+        if (!Number.isFinite(expiresInSec) || expiresInSec <= 0) {
+            expiresInSec = 3600;
+        }
         const token = jwt.sign(
             {
                 sub: user.id,
@@ -148,6 +151,13 @@ function createAuthHelpers(deps) {
             err.status = res.status;
             throw err;
         }
+        // Algunos proxies / respuestas anómalas devuelven 200 con cuerpo de excepción AWS.
+        if (data && data.__type && /Exception$/i.test(String(data.__type))) {
+            const message = data?.message || data?.Message || data.__type;
+            const err = new Error(String(message));
+            err.status = 400;
+            throw err;
+        }
         return data;
     }
 
@@ -223,10 +233,17 @@ function createAuthHelpers(deps) {
         const role = req.user?.role || '';
         const conf = POLICY[role] || {};
         const userArea = (req.user?.area && String(req.user.area).trim()) || '';
+        const subRaw = String(req.user?.sub || '').trim();
+        const emailRaw = String(req.user?.email || '')
+            .trim()
+            .toLowerCase();
+        const isUuidSub = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(subRaw);
         req.scope = {
             role,
             canViewAllAreas: Boolean(conf.viewAllAreas),
-            areas: userArea ? [userArea] : []
+            areas: userArea ? [userArea] : [],
+            gpUserId: role === 'gp' && isUuidSub ? subRaw : null,
+            gpEmail: role === 'gp' && emailRaw ? emailRaw : null
         };
         return next();
     }

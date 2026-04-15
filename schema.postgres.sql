@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS colaboradores (
     cedula              TEXT PRIMARY KEY,
     nombre              TEXT NOT NULL,
     activo              BOOLEAN NOT NULL DEFAULT TRUE,
+    correo_cinte        TEXT NULL,
+    cliente             TEXT NULL,
+    lider_catalogo      TEXT NULL,
+    gp_user_id          UUID NULL REFERENCES users(id) ON DELETE SET NULL,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -83,6 +87,7 @@ CREATE TABLE IF NOT EXISTS novedades (
   correo_solicitante    TEXT NULL,
   cliente               TEXT NULL,
   lider                 TEXT NULL,
+  gp_user_id            UUID NULL REFERENCES users(id) ON DELETE SET NULL,
   tipo_novedad          TEXT NOT NULL,
   area                  user_area NOT NULL,
 
@@ -168,10 +173,12 @@ CREATE INDEX IF NOT EXISTS idx_users_role_area ON users(role, area);
 CREATE INDEX IF NOT EXISTS idx_clientes_lideres_cliente ON clientes_lideres(cliente);
 CREATE INDEX IF NOT EXISTS idx_clientes_lideres_activo ON clientes_lideres(activo);
 CREATE INDEX IF NOT EXISTS idx_colaboradores_activo ON colaboradores(activo);
+CREATE INDEX IF NOT EXISTS idx_colaboradores_gp_user ON colaboradores(gp_user_id) WHERE gp_user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_novedades_area_estado ON novedades(area, estado);
 CREATE INDEX IF NOT EXISTS idx_novedades_tipo ON novedades(tipo_novedad);
 CREATE INDEX IF NOT EXISTS idx_novedades_fecha_inicio ON novedades(fecha_inicio);
 CREATE INDEX IF NOT EXISTS idx_novedades_creado_en ON novedades(creado_en DESC);
+CREATE INDEX IF NOT EXISTS idx_novedades_gp_user ON novedades(gp_user_id) WHERE gp_user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_novedades_aprobado_en ON novedades(aprobado_en DESC);
 CREATE INDEX IF NOT EXISTS idx_novedades_rechazado_en ON novedades(rechazado_en DESC);
 CREATE INDEX IF NOT EXISTS idx_hist_novedad_fecha ON novedad_status_history(novedad_id, changed_at DESC);

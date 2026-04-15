@@ -4,6 +4,31 @@ import { Link, useNavigate } from "react-router-dom";
 import { cognitoCompleteNewPassword, cognitoSignIn } from "./cognitoAuth";
 import ROLE_PRIORITY from "./constants/rolePriority.json";
 
+function jwtRoleFromToken(token) {
+  try {
+    const part = String(token || "").split(".")[1];
+    if (!part) return null;
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const pad = b64.padEnd(b64.length + ((4 - (b64.length % 4)) % 4), "=");
+    const payload = JSON.parse(atob(pad));
+    return payload.role || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Intenta guardar cognito_sub en users para rol gp (no bloquea el login). */
+function tryGpVincularCognitoSelf(token) {
+  if (jwtRoleFromToken(token) !== "gp") return;
+  fetch("/api/directorio/gp/vincular-cognito-self", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  }).catch(() => {});
+}
+
 export default function Login({ setAuth }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -30,6 +55,7 @@ export default function Login({ setAuth }) {
       }
       localStorage.setItem("cinteAuth", JSON.stringify(authData));
       setAuth(authData);
+      tryGpVincularCognitoSelf(authData.token);
       nav("/admin", { replace: true });
     } catch (err) {
       console.error(err);
@@ -87,6 +113,7 @@ export default function Login({ setAuth }) {
       );
       localStorage.setItem("cinteAuth", JSON.stringify(authData));
       setAuth(authData);
+      tryGpVincularCognitoSelf(authData.token);
       nav("/admin", { replace: true });
     } catch (err) {
       console.error(err);

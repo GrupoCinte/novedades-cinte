@@ -1,6 +1,6 @@
 const POLICY = {
-    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial'], viewAllAreas: true },
-    cac: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] },
+    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial', 'directorio'], viewAllAreas: true },
+    cac: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial', 'directorio'] },
     admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] },
     team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] },
     comercial: { panels: ['comercial'] },

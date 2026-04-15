@@ -8,8 +8,29 @@ import ResetPassword from './ResetPassword';
 import ChangePassword from './ChangePassword';
 import ComercialModule from './ComercialModule';
 import ContratacionModule from './ContratacionModule';
+import DirectorioClienteColaboradorModule from './DirectorioClienteColaboradorModule';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
+
+function AdminPortalSinModulos({ onLogout }) {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-[#e6edf3]">
+      <p className="max-w-md text-sm text-[#9fb3c8]">
+        Tu sesión es válida, pero no hay ningún módulo del portal asociado a tu usuario. Si acabas de
+        cambiar de rol en Cognito, vuelve a iniciar sesión. Si el problema continúa, contacta a
+        administración.
+      </p>
+      <button
+        type="button"
+        onClick={onLogout}
+        className="rounded-md bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#25649a]"
+      >
+        Cerrar sesión
+      </button>
+    </div>
+  );
+}
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
+import { userHasDirectorioPanel } from './directorioAccess';
 import { cognitoSignOut } from './cognitoAuth';
 
 
@@ -83,9 +104,11 @@ function App() {
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isComercialRoute = location.pathname.startsWith('/admin/comercial');
   const isContratacionRoute = location.pathname.startsWith('/admin/contratacion');
+  const isDirectorioRoute = location.pathname.startsWith('/admin/directorio');
   const showContratacionNav = auth?.token && userHasContratacionPanel(auth.token);
   const showNovedadesNav = auth?.token && userHasNovedadesAdminAccess(auth.token);
   const showComercialNav = auth?.token && userHasCotizadorAccess(auth.token);
+  const showDirectorioNav = auth?.token && userHasDirectorioPanel(auth.token);
   /** Login / forgot / reset: sin cabecera global para usar viewport completo. */
   const showGlobalHeader = !isFormularioPublico && !(isAdminRoute && !auth?.token);
 
@@ -156,7 +179,7 @@ function App() {
               type="button"
               onClick={() => navigate('/admin')}
               className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
-                !isComercialRoute && !isContratacionRoute
+                !isComercialRoute && !isContratacionRoute && !isDirectorioRoute
                   ? 'bg-[#2F7BB8] text-white'
                   : 'bg-[#0b1e30] text-[#9fb3c8] hover:text-white hover:bg-[#0f2942]'
               }`}
@@ -190,6 +213,19 @@ function App() {
               Módulo de Capital Humano Onboarding
             </button>
           ) : null}
+          {showDirectorioNav ? (
+            <button
+              type="button"
+              onClick={() => navigate('/admin/directorio')}
+              className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
+                isDirectorioRoute
+                  ? 'bg-[#1a5f8a] text-white'
+                  : 'bg-[#0b1e30] text-[#9fb3c8] hover:text-white hover:bg-[#0f2942]'
+              }`}
+            >
+              Módulo de administración
+            </button>
+          ) : null}
         </div>
       )}
 
@@ -204,8 +240,12 @@ function App() {
                   <Dashboard token={auth.token} onLogout={handleLogout} />
                 ) : userHasCotizadorAccess(auth.token) ? (
                   <Navigate to="/admin/comercial" replace />
+                ) : userHasContratacionPanel(auth.token) ? (
+                  <Navigate to="/admin/contratacion" replace />
+                ) : userHasDirectorioPanel(auth.token) ? (
+                  <Navigate to="/admin/directorio" replace />
                 ) : (
-                  <Navigate to="/" replace />
+                  <AdminPortalSinModulos onLogout={handleLogout} />
                 )
               ) : (
                 <Login setAuth={onLoggedIn} />
@@ -246,6 +286,21 @@ function App() {
                 ) : (
                   <Navigate to="/admin" replace />
                 )}
+              </ProtectedRoute>
+            )}
+          />
+          <Route
+            path="/admin/directorio"
+            element={(
+              <ProtectedRoute>
+                {(() => {
+                  const token = readAuth()?.token || '';
+                  return userHasDirectorioPanel(token) ? (
+                    <DirectorioClienteColaboradorModule token={token} onLogout={handleLogout} />
+                  ) : (
+                    <Navigate to="/admin" replace />
+                  );
+                })()}
               </ProtectedRoute>
             )}
           />

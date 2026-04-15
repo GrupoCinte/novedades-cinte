@@ -1,4 +1,31 @@
 const { normalizeNovedadTypeKey } = require('./rbac');
+const { randomUUID } = require('node:crypto');
+const { resolvePostedContactFromColaborador } = require('./colaboradorDirectory');
+const { buildFoldToCanonicoMap, matchExcelClienteABd, foldForMatch } = require('./cotizador/clienteNombreMatch');
+
+/**
+ * Solo campos serializables que el front puede guardar en localStorage; evita 500 si res.json falla
+ * al expandir claims Cognito con estructuras inesperadas.
+ */
+function buildSafeLoginClaimsForClient(claims, appRole, baseRole) {
+    const c = claims && typeof claims === 'object' && !Array.isArray(claims) ? claims : {};
+    const groups = c['cognito:groups'];
+    return {
+        sub: c.sub != null ? String(c.sub) : null,
+        email: c.email != null ? String(c.email) : null,
+        name: c.name != null ? String(c.name) : null,
+        'cognito:username': c['cognito:username'] != null ? String(c['cognito:username']) : null,
+        'cognito:groups': Array.isArray(groups) ? groups.map((g) => String(g)) : null,
+        aud: c.aud != null ? (Array.isArray(c.aud) ? c.aud.map(String) : String(c.aud)) : null,
+        iss: c.iss != null ? String(c.iss) : null,
+        token_use: c.token_use != null ? String(c.token_use) : null,
+        auth_time: typeof c.auth_time === 'number' ? c.auth_time : null,
+        iat: typeof c.iat === 'number' ? c.iat : null,
+        exp: typeof c.exp === 'number' ? c.exp : null,
+        role: appRole,
+        baseRole
+    };
+}
 
 function parseMontoCopFromBody(raw) {
     if (raw == null) return NaN;
@@ -73,11 +100,22 @@ function registerRoutes(deps) {
         canRoleApproveType,
         FRONTEND_URL,
         POLICY,
-        xlsx
+        xlsx,
+        emailNotificationsPublisher,
+        resolveApproverEmailsForNovedad
     } = deps;
 
     const HORA_DIURNA_INICIO_MIN = 6 * 60;
     const HORA_NOCTURNA_INICIO_MIN = 19 * 60;
+
+    function matchFoldToCandidate(raw, candidates) {
+        const f = foldForMatch(raw);
+        if (!f) return null;
+        for (const c of candidates) {
+            if (foldForMatch(c) === f) return c;
+        }
+        return null;
+    }
 
     function parseDateAtUtcStart(value) {
         if (!value) return null;
@@ -141,6 +179,108 @@ function registerRoutes(deps) {
         if (diurnas > 0) return 'Diurna';
         if (nocturnas > 0) return 'Nocturna';
         return null;
+    }
+
+    function buildFormSubmittedNotificationEvent({
+        novedadId,
+        body,
+        nombreColaborador,
+        cliente,
+        lider,
+        tipoNovedad,
+        fechaInicio,
+        fechaFin,
+        cantidadHoras,
+        montoCop,
+        correoSolicitanteResolved
+    }) {
+        const userEmail = String(
+            correoSolicitanteResolved != null && correoSolicitanteResolved !== ''
+                ? correoSolicitanteResolved
+                : body?.correoSolicitante || ''
+        )
+            .trim()
+            .toLowerCase();
+        const adminBaseUrl = String(FRONTEND_URL || '').trim() || 'http://localhost:5175';
+        return {
+            eventType: 'form_submitted',
+            eventId: randomUUID(),
+            occurredAt: new Date().toISOString(),
+            novedadId: String(novedadId || ''),
+            user: {
+                name: String(nombreColaborador || '').trim(),
+                email: userEmail
+            },
+            admin: {
+                actionUrl: `${adminBaseUrl}/admin`
+            },
+            formData: {
+                tipoNovedad: String(tipoNovedad || '').trim(),
+                cliente: String(cliente || '').trim(),
+                lider: String(lider || '').trim(),
+                fechaInicio: fechaInicio || null,
+                fechaFin: fechaFin || null,
+                cantidadHoras: Number(cantidadHoras || 0),
+                montoCop: montoCop == null ? null : Number(montoCop),
+                estado: 'Pendiente'
+            },
+            meta: {
+                source: 'backend-express',
+                env: process.env.NODE_ENV || 'development'
+            }
+        };
+    }
+
+    function buildFormStatusChangedNotificationEvent({
+        novedadId,
+        nombreColaborador,
+        correoSolicitante,
+        cliente,
+        lider,
+        tipoNovedad,
+        fechaInicio,
+        fechaFin,
+        cantidadHoras,
+        montoCop,
+        previousEstado,
+        newEstado,
+        changedByEmail
+    }) {
+        const userEmail = String(correoSolicitante || '').trim().toLowerCase();
+        const adminBaseUrl = String(FRONTEND_URL || '').trim() || 'http://localhost:5175';
+        return {
+            eventType: 'form_status_changed',
+            eventId: randomUUID(),
+            occurredAt: new Date().toISOString(),
+            novedadId: String(novedadId || ''),
+            user: {
+                name: String(nombreColaborador || '').trim(),
+                email: userEmail
+            },
+            admin: {
+                actionUrl: `${adminBaseUrl}/admin`
+            },
+            formData: {
+                tipoNovedad: String(tipoNovedad || '').trim(),
+                cliente: String(cliente || '').trim(),
+                lider: String(lider || '').trim(),
+                fechaInicio: fechaInicio || null,
+                fechaFin: fechaFin || null,
+                cantidadHoras: Number(cantidadHoras || 0),
+                montoCop: montoCop == null ? null : Number(montoCop),
+                estado: String(newEstado || '').trim()
+            },
+            statusChange: {
+                previousEstado: String(previousEstado || '').trim() || 'Pendiente',
+                newEstado: String(newEstado || '').trim(),
+                changedByEmail: String(changedByEmail || '').trim() || null,
+                changedAt: new Date().toISOString()
+            },
+            meta: {
+                source: 'backend-express',
+                env: process.env.NODE_ENV || 'development'
+            }
+        };
     }
 
     async function streamToBuffer(stream) {
@@ -214,19 +354,20 @@ function registerRoutes(deps) {
                 token: appAuth.token,
                 expiresIn: appAuth.expiresInSec,
                 user: appAuth.user,
-                claims: {
-                    ...claims,
-                    role: appAuth.user.role,
-                    baseRole: baseUser.role
-                }
+                claims: buildSafeLoginClaimsForClient(claims, appAuth.user.role, baseUser.role)
             });
         } catch (error) {
             console.error('Error login:', error);
-            const status = Number(error?.status) || 500;
-            if (status >= 400 && status < 500) {
+            const status = Number(error?.status);
+            const isClientError = Number.isFinite(status) && status >= 400 && status < 500;
+            if (isClientError) {
                 return res.status(status).json({ ok: false, message: error.message || 'Error de autenticacion Cognito' });
             }
-            return res.status(500).json({ ok: false, message: 'Error interno' });
+            const expose = String(process.env.NODE_ENV || '').toLowerCase() !== 'production';
+            return res.status(500).json({
+                ok: false,
+                message: expose && error?.message ? String(error.message) : 'Error interno'
+            });
         }
     });
 
@@ -283,19 +424,20 @@ function registerRoutes(deps) {
                 token: appAuth.token,
                 expiresIn: appAuth.expiresInSec,
                 user: appAuth.user,
-                claims: {
-                    ...claims,
-                    role: appAuth.user.role,
-                    baseRole: baseUser.role
-                }
+                claims: buildSafeLoginClaimsForClient(claims, appAuth.user.role, baseUser.role)
             });
         } catch (error) {
             console.error('Error complete-new-password:', error);
-            const status = Number(error?.status) || 500;
-            if (COGNITO_ENABLED && status >= 400 && status < 500) {
+            const status = Number(error?.status);
+            const isClientError = COGNITO_ENABLED && Number.isFinite(status) && status >= 400 && status < 500;
+            if (isClientError) {
                 return res.status(status).json({ ok: false, message: error.message || 'Error completando reto de contraseña' });
             }
-            return res.status(500).json({ ok: false, message: 'Error interno' });
+            const expose = String(process.env.NODE_ENV || '').toLowerCase() !== 'production';
+            return res.status(500).json({
+                ok: false,
+                message: expose && error?.message ? String(error.message) : 'Error interno'
+            });
         }
     });
 
@@ -605,7 +747,36 @@ function registerRoutes(deps) {
             if (!row) {
                 return res.status(404).json({ ok: false, error: 'Cédula no registrada en el directorio de colaboradores.' });
             }
-            return res.json({ ok: true, cedula: row.cedula, nombre: row.nombre });
+            const correo = String(row.correo_cinte || '').trim();
+            const clienteRaw = String(row.cliente || '').trim();
+            const liderRaw = String(row.lider_catalogo || '').trim();
+            const clienteNorm = normalizeCatalogValue(clienteRaw);
+            const liderNorm = normalizeCatalogValue(liderRaw);
+            let clienteOut = clienteNorm;
+            let liderOut = liderNorm;
+            const clientesList = await getClientesList();
+            const { map: foldClienteMap } = buildFoldToCanonicoMap(clientesList);
+            const clienteCanon = matchExcelClienteABd(clienteNorm, foldClienteMap);
+            if (clienteCanon) clienteOut = clienteCanon;
+            const lideresLista = await getLideresByCliente(clienteNorm);
+            if (liderNorm && lideresLista.length > 0) {
+                const liderMatch = matchFoldToCandidate(liderNorm, lideresLista);
+                if (liderMatch) liderOut = liderMatch;
+            }
+            const lockCorreo = Boolean(correo);
+            const lockCliente = Boolean(clienteNorm);
+            const lockLider = Boolean(liderNorm);
+            return res.json({
+                ok: true,
+                cedula: row.cedula,
+                nombre: row.nombre,
+                correo,
+                cliente: clienteOut,
+                lider: liderOut,
+                lockCorreo,
+                lockCliente,
+                lockLider
+            });
         } catch (error) {
             console.error('Error catalogo colaborador:', error);
             return res.status(500).json({ ok: false, error: 'No se pudo consultar el colaborador' });
@@ -666,21 +837,6 @@ function registerRoutes(deps) {
                 archivoRuta = JSON.stringify(rutasSoporte);
             }
             const area = inferAreaFromNovedad(body);
-            const cliente = normalizeCatalogValue(body.cliente || '');
-            const lider = normalizeCatalogValue(body.lider || '');
-            if (!cliente || !lider) {
-                return res.status(400).json({ ok: false, error: 'Cliente y lider son obligatorios.' });
-            }
-            const pair = await pool.query(
-                `SELECT 1
-                 FROM clientes_lideres
-                 WHERE activo = TRUE AND cliente = $1 AND lider = $2
-                 LIMIT 1`,
-                [cliente, lider]
-            );
-            if (!pair.rows[0]) {
-                return res.status(400).json({ ok: false, error: 'El lider no pertenece al cliente seleccionado.' });
-            }
 
             const cedulaNorm = normalizeCedula(body.cedula || '');
             if (!cedulaNorm) {
@@ -694,6 +850,26 @@ function registerRoutes(deps) {
                 });
             }
             const nombreColaborador = String(colaborador.nombre || '').trim();
+
+            const merged = resolvePostedContactFromColaborador(body, colaborador, normalizeCatalogValue);
+            const cliente = merged.cliente;
+            const lider = merged.lider;
+            const correoSolicitanteFinal = merged.correo;
+
+            if (!cliente || !lider) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Cliente y líder son obligatorios. Completa el directorio del colaborador o selecciona cliente y líder válidos.'
+                });
+            }
+            const lideresValidos = await getLideresByCliente(cliente);
+            const liderNormPost = normalizeCatalogValue(lider);
+            const liderOk =
+                Boolean(liderNormPost) &&
+                lideresValidos.some((li) => foldForMatch(li) === foldForMatch(liderNormPost));
+            if (!liderOk) {
+                return res.status(400).json({ ok: false, error: 'El lider no pertenece al cliente seleccionado.' });
+            }
 
             const fecha = parseDateOrNull(body.fecha);
             const horaInicio = parseTimeOrNull(body.horaInicio);
@@ -761,23 +937,27 @@ function registerRoutes(deps) {
                 cantidadHoras = 0;
             }
 
-            await pool.query(
+            const gpUserIdSnapshot = colaborador.gp_user_id || null;
+
+            const insertResult = await pool.query(
                 `INSERT INTO novedades (
-                    nombre, cedula, correo_solicitante, cliente, lider, tipo_novedad, area,
+                    nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
                     cantidad_horas, horas_diurnas, horas_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, estado
                 )
                 VALUES (
-                    $1, $2, $3, $4, $5, $6, $7::user_area,
-                    $8::date, $9::time, $10::time, $11::date, $12::date,
-                    $13, $14, $15, $16, $17, $18, 'Pendiente'::novedad_estado
-                )`,
+                    $1, $2, $3, $4, $5, $6, $7, $8::user_area,
+                    $9::date, $10::time, $11::time, $12::date, $13::date,
+                    $14, $15, $16, $17, $18, $19, 'Pendiente'::novedad_estado
+                )
+                RETURNING id`,
                 [
                     nombreColaborador,
                     cedulaNorm,
-                    String(body.correoSolicitante || '').trim() || null,
+                    correoSolicitanteFinal,
                     cliente,
                     lider,
+                    gpUserIdSnapshot,
                     tipoNovedad,
                     area,
                     fecha,
@@ -793,7 +973,59 @@ function registerRoutes(deps) {
                     montoCop
                 ]
             );
-            return res.json({ ok: true, success: true });
+            const novedadId = insertResult?.rows?.[0]?.id || '';
+            const emailPayload = buildFormSubmittedNotificationEvent({
+                novedadId,
+                body,
+                nombreColaborador,
+                cliente,
+                lider,
+                tipoNovedad,
+                fechaInicio,
+                fechaFin,
+                cantidadHoras,
+                montoCop,
+                correoSolicitanteResolved: correoSolicitanteFinal
+            });
+            try {
+                if (typeof resolveApproverEmailsForNovedad === 'function') {
+                    const { emails, reason, insights } = await resolveApproverEmailsForNovedad(tipoNovedad);
+                    emailPayload.admin.notifyTo = emails;
+                    if (emails.length === 0) {
+                        console.warn(
+                            '[email-notifications] notifyTo vacío desde Cognito; la Lambda no usará EMAIL_ADMIN_TO* (solo correo al solicitante).',
+                            { novedadId, tipoNovedad, reason, insights }
+                        );
+                    }
+                }
+            } catch (resolverErr) {
+                emailPayload.admin.notifyTo = [];
+                console.error('[email-notifications] Error resolviendo correos de approvers (Cognito)', {
+                    novedadId,
+                    tipoNovedad,
+                    message: resolverErr?.message || String(resolverErr)
+                });
+            }
+            try {
+                const publishResult = await emailNotificationsPublisher?.publishFormSubmitted?.(emailPayload);
+                if (publishResult?.accepted) {
+                    console.log('[email-notifications] Evento form_submitted aceptado.', {
+                        eventId: emailPayload.eventId,
+                        requestId: publishResult.requestId
+                    });
+                } else if (!publishResult?.skipped) {
+                    console.warn('[email-notifications] Evento no aceptado.', {
+                        eventId: emailPayload.eventId,
+                        statusCode: publishResult?.statusCode || 0
+                    });
+                }
+            } catch (notifyError) {
+                console.error('[email-notifications] Error publicando evento form_submitted', {
+                    eventId: emailPayload.eventId,
+                    message: notifyError?.message || String(notifyError)
+                });
+            }
+            return res.json({ ok: true, success: true, id: novedadId });
         } catch (error) {
             console.error('Error al guardar:', error);
             return res.status(500).json({ ok: false, error: 'Error al guardar' });
@@ -904,7 +1136,7 @@ function registerRoutes(deps) {
             let q;
             if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''))) {
                 q = await pool.query(
-                    `SELECT id, area, tipo_novedad, estado
+                    `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop
                      FROM novedades
                      WHERE id = $1::uuid
                      LIMIT 1`,
@@ -912,7 +1144,7 @@ function registerRoutes(deps) {
                 );
             } else {
                 q = await pool.query(
-                    `SELECT id, area, tipo_novedad, estado
+                    `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop
                      FROM novedades
                      WHERE creado_en = $1::timestamptz
                      LIMIT 1`,
@@ -978,6 +1210,47 @@ function registerRoutes(deps) {
                  VALUES ($1::uuid, $2::novedad_estado, $3::novedad_estado, $4::uuid, $5::user_role)`,
                 [item.id, normalizeEstado(item.estado), estado, actorUserId, req.user.role]
             );
+
+            const submitterEmail = String(item.correo_solicitante || '').trim().toLowerCase();
+            if (submitterEmail.includes('@') && (estado === 'Aprobado' || estado === 'Rechazado')) {
+                const statusPayload = buildFormStatusChangedNotificationEvent({
+                    novedadId: item.id,
+                    nombreColaborador: item.nombre,
+                    correoSolicitante: submitterEmail,
+                    cliente: item.cliente,
+                    lider: item.lider,
+                    tipoNovedad: item.tipo_novedad,
+                    fechaInicio: item.fecha_inicio,
+                    fechaFin: item.fecha_fin,
+                    cantidadHoras: item.cantidad_horas,
+                    montoCop: item.monto_cop,
+                    previousEstado: normalizeEstado(item.estado),
+                    newEstado: estado,
+                    changedByEmail: actorEmail
+                });
+                try {
+                    const publishResult = await emailNotificationsPublisher?.publishFormStatusChanged?.(statusPayload);
+                    if (publishResult?.accepted) {
+                        console.log('[email-notifications] Evento form_status_changed aceptado.', {
+                            eventId: statusPayload.eventId,
+                            requestId: publishResult.requestId,
+                            novedadId: item.id
+                        });
+                    } else if (!publishResult?.skipped) {
+                        console.warn('[email-notifications] Evento form_status_changed no aceptado.', {
+                            eventId: statusPayload.eventId,
+                            statusCode: publishResult?.statusCode || 0,
+                            novedadId: item.id
+                        });
+                    }
+                } catch (notifyError) {
+                    console.error('[email-notifications] Error publicando evento form_status_changed', {
+                        eventId: statusPayload.eventId,
+                        novedadId: item.id,
+                        message: notifyError?.message || String(notifyError)
+                    });
+                }
+            }
 
             return res.json({
                 ok: true,
