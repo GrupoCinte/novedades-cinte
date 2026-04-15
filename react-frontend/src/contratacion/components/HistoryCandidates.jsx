@@ -45,7 +45,7 @@ function buildMonthlyGrowth(executions) {
         bucket[monthKey].firmas += 1;
     });
     return Object.values(bucket).sort((a, b) => a.monthKey - b.monthKey).map(({ month, firmas }) => ({ month, firmas }));
-}
+}   
 
 function normalizeKey(str) {
     return String(str || '')

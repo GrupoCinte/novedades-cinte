@@ -38,7 +38,9 @@ function initContratacionRealtime(server) {
     }
 
     const pollerEnabled = String(process.env.CONTRATACION_STREAM_POLLER_ENABLED || '').toLowerCase() === 'true';
-    if (!pollerEnabled || !tableName || !active.wsServer || active.streamPoller) {
+    const mockEnabled = String(process.env.CONTRATACION_MOCK_ENABLED || '').toLowerCase() === 'true' || (!process.env.AWS_ACCESS_KEY_ID && !process.env.AWS_SESSION_TOKEN);
+    
+    if (!pollerEnabled || !tableName || !active.wsServer || active.streamPoller || mockEnabled) {
         return active;
     }
 

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
 import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet } from 'lucide-react';
 import ChatWidget from './ChatWidget';
-import { getNovedadRule, NOVEDAD_TYPES, formatCantidadNovedad, formatDiasCount, getCantidadMedidaKind, getCantidadDetalleEtiqueta, getDiasEfectivosNovedad, getAsignacionGestionNovedad } from './novedadRules';
+import { getNovedadRule, NOVEDAD_TYPES, formatCantidadNovedad, formatDiasCount, getCantidadMedidaKind, getCantidadDetalleEtiqueta, getDiasEfectivosNovedad, getAsignacionGestionNovedad, resolveCanonicalNovedadTipo } from './novedadRules';
 
 export default function Dashboard({ token, onLogout }) {
     const [items, setItems] = useState([]);
@@ -609,9 +609,35 @@ export default function Dashboard({ token, onLogout }) {
             setActiveTab(allowedTabs[0] || 'Calendario');
         }
     }, [activeTab, navItems]);
-    useEffect(() => {
-        setMobileMenuOpen(false);
-    }, [activeTab]);
+    const calculateDiurnaNocturna = (it) => {
+        if (!it.fechaInicio || !it.horaInicio || !it.fechaFin || !it.horaFin) {
+            return { diurnas: it.horasDiurnas || 0, nocturnas: it.horasNocturnas || 0 };
+        }
+        try {
+            const startStr = `${it.fechaInicio}T${it.horaInicio}:00`;
+            const endStr = `${it.fechaFin}T${it.horaFin}:00`;
+            const startMs = new Date(startStr).getTime();
+            const endMs = new Date(endStr).getTime();
+            if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) {
+                return { diurnas: it.horasDiurnas || 0, nocturnas: it.horasNocturnas || 0 };
+            }
+
+            let dMin = 0;
+            let nMin = 0;
+            for (let tick = startMs; tick < endMs; tick += 60000) {
+                const cur = new Date(tick);
+                const m = (cur.getHours() * 60) + cur.getMinutes();
+                if (m >= 360 && m < 1140) dMin++;
+                else nMin++;
+            }
+            return {
+                diurnas: Number((dMin / 60).toFixed(2)),
+                nocturnas: Number((nMin / 60).toFixed(2))
+            };
+        } catch {
+            return { diurnas: it.horasDiurnas || 0, nocturnas: it.horasNocturnas || 0 };
+        }
+    };
 
     return (
         <div className="flex h-full w-full bg-[#04141E] text-slate-200 overflow-hidden font-body">
@@ -1618,6 +1644,27 @@ export default function Dashboard({ token, onLogout }) {
                             <div><span className="text-slate-400">{getCantidadDetalleEtiqueta(gestionDetailItem.tipoNovedad)}:</span> {formatCantidadNovedad(gestionDetailItem.tipoNovedad, gestionDetailItem.cantidadHoras, gestionDetailItem)}</div>
                             {String(gestionDetailItem.tipoHoraExtra || '').trim() !== '' && (
                                 <div><span className="text-slate-400">Clasificación:</span> {gestionDetailItem.tipoHoraExtra}</div>
+                            )}
+
+                            {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) === 'Hora Extra' && (
+                                <div className="md:col-span-2 mt-2 p-4 bg-slate-900/50 rounded-2xl border border-slate-700/50 flex items-center justify-around">
+                                    {(() => {
+                                        const { diurnas, nocturnas } = calculateDiurnaNocturna(gestionDetailItem);
+                                        return (
+                                            <>
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Extras Diurnas</span>
+                                                    <span className="text-xl font-black text-emerald-400">{diurnas}h</span>
+                                                </div>
+                                                <div className="w-px h-8 bg-slate-700/50" />
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <span className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Extras Nocturnas</span>
+                                                    <span className="text-xl font-black text-indigo-400">{nocturnas}h</span>
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
+                                </div>
                             )}
                         </div>
 

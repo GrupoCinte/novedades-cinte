@@ -154,7 +154,7 @@ export default function Login({ setAuth }) {
               />
             </div>
             <h1 className="font-heading text-xl font-bold uppercase leading-tight tracking-wide text-white md:text-2xl">
-              Portal unificado de gestión
+               Portal de gestión de novedades
             </h1>
           </div>
 
