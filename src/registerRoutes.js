@@ -1,4 +1,16 @@
 const { normalizeNovedadTypeKey } = require('./rbac');
+const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
+const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
+
+function buildConsultantKeyHeDomingo(row) {
+    const cedula = String(row?.cedula || '').trim() || 'sin-cedula';
+    const nombre = String(row?.nombre || '').trim() || 'Sin nombre';
+    return `${cedula}|||${nombre}`;
+}
+
+function rowIsHoraExtraTipo(row) {
+    return String(row?.tipo_novedad || '').trim().toLowerCase().replace(/\s+/g, ' ') === 'hora extra';
+}
 const { randomUUID } = require('node:crypto');
 const { resolvePostedContactFromColaborador } = require('./colaboradorDirectory');
 const { buildFoldToCanonicoMap, matchExcelClienteABd, foldForMatch } = require('./cotizador/clienteNombreMatch');
@@ -619,6 +631,12 @@ function registerRoutes(deps) {
             const createdTo = String(req.query.createdTo || '').trim();
             const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, cliente, createdFrom, createdTo });
             const items = rows.map(toClientNovedad);
+            const heDomingoDep = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow };
+            const sundaySetsExport = buildSundayReportedSetsFromHeRows(
+                rows.filter(rowIsHoraExtraTipo),
+                buildConsultantKeyHeDomingo,
+                heDomingoDep
+            );
 
             const columns = [
                 { header: 'Fecha Creación', key: 'fechaCreacion', width: 20 },
@@ -632,6 +650,7 @@ function registerRoutes(deps) {
                 { header: 'Horas', key: 'horas', width: 10 },
                 { header: 'Horas diurnas', key: 'horasDiurnas', width: 14 },
                 { header: 'Horas nocturnas', key: 'horasNocturnas', width: 14 },
+                { header: 'Observación HE domingo', key: 'observacionHeDomingo', width: 48 },
                 { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
                 { header: 'Estado', key: 'estado', width: 14 },
                 { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 },
@@ -662,8 +681,17 @@ function registerRoutes(deps) {
             });
             headerRow.height = 24;
 
-            for (const it of items) {
+            for (let i = 0; i < items.length; i++) {
+                const it = items[i];
+                const row = rows[i];
                 const correoActor = it.estado === 'Rechazado' ? (it.rechazadoPorCorreo || '') : (it.aprobadoPorCorreo || '');
+                let observacionHeDomingo = '';
+                if (rowIsHoraExtraTipo(row)) {
+                    observacionHeDomingo = computeHeDomingoObservacionForRow(row, sundaySetsExport, buildConsultantKeyHeDomingo, heDomingoDep);
+                    if (!observacionHeDomingo && String(row.he_domingo_observacion || '').trim()) {
+                        observacionHeDomingo = String(row.he_domingo_observacion || '').trim();
+                    }
+                }
                 ws.addRow({
                     fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
                     nombre: it.nombre || '',
@@ -676,6 +704,7 @@ function registerRoutes(deps) {
                     horas: it.cantidadHoras || '0',
                     horasDiurnas: Number(it.horasDiurnas || 0) > 0 ? Number(it.horasDiurnas) : '',
                     horasNocturnas: Number(it.horasNocturnas || 0) > 0 ? Number(it.horasNocturnas) : '',
+                    observacionHeDomingo,
                     valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
                     estado: it.estado || '',
                     asignadoRoles: it.asignacionRolesEtiqueta || '—',

@@ -112,6 +112,7 @@ function toClientNovedad(row) {
         alertaHeResueltaEstado: String(row.alerta_he_resuelta_estado || '').trim(),
         alertaHeResueltaEn: row.alerta_he_resuelta_en ? row.alerta_he_resuelta_en.toISOString() : '',
         alertaHeResueltaPorCorreo: pickEmailLikeOnly(row.alerta_he_resuelta_por_email),
+        heDomingoObservacion: decodePossiblyMisencodedText(String(row.he_domingo_observacion || '').trim()),
         asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta
     };
 }
