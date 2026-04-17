@@ -88,9 +88,10 @@ export default function Dashboard({ token, onLogout }) {
     const [calendarClientesList, setCalendarClientesList] = useState([]);
     const [horaExtraAlerts, setHoraExtraAlerts] = useState({
         generatedAt: '',
-        summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, totalAlerts: 0 },
+        summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, sundayAlertsCount: 0, totalAlerts: 0 },
         dailyAlerts: [],
-        monthlyAlerts: []
+        monthlyAlerts: [],
+        items: []
     });
     const [pageSize, setPageSize] = useState(10);
     const [currentPage, setCurrentPage] = useState(1);
@@ -103,8 +104,6 @@ export default function Dashboard({ token, onLogout }) {
     });
     const [gestionDetailItem, setGestionDetailItem] = useState(null);
     const [alertaHeDetailItem, setAlertaHeDetailItem] = useState(null);
-    const alertasHeCount = Number(horaExtraAlerts?.summary?.totalAlerts || 0);
-    const alertasHeBadgeText = alertasHeCount > 99 ? '99+' : String(alertasHeCount);
     const navigate = useNavigate();
 
     const loadData = async () => {
@@ -170,7 +169,7 @@ export default function Dashboard({ token, onLogout }) {
             const alertJson = await alertRes.json();
             setHoraExtraAlerts(alertJson?.data || {
                 generatedAt: '',
-                summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, totalAlerts: 0 },
+                summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, sundayAlertsCount: 0, totalAlerts: 0 },
                 dailyAlerts: [],
                 monthlyAlerts: [],
                 items: []
@@ -179,7 +178,7 @@ export default function Dashboard({ token, onLogout }) {
             console.error(err);
             setHoraExtraAlerts({
                 generatedAt: '',
-                summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, totalAlerts: 0 },
+                summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, sundayAlertsCount: 0, totalAlerts: 0 },
                 dailyAlerts: [],
                 monthlyAlerts: [],
                 items: []
@@ -468,6 +467,29 @@ export default function Dashboard({ token, onLogout }) {
         [horaExtraAlerts]
     );
 
+    /** Una fila por tipo de alerta: exceso (ámbar) y domingo (violeta) son tarjetas independientes. */
+    const alertDisplayCards = useMemo(() => {
+        const cards = [];
+        for (const it of alertItems) {
+            const hasExcess = (Array.isArray(it.dailyReasons) && it.dailyReasons.length > 0)
+                || (Array.isArray(it.monthlyReasons) && it.monthlyReasons.length > 0);
+            const hasSun = Array.isArray(it.sundayReasons) && it.sundayReasons.length > 0;
+            if (hasExcess) cards.push({ key: `excess-${it.id}`, variant: 'excess', it });
+            if (hasSun) cards.push({ key: `domingo-${it.id}`, variant: 'domingo', it });
+        }
+        return cards;
+    }, [alertItems]);
+
+    const alertasHeCount = alertDisplayCards.length;
+    const alertasHeBadgeText = alertasHeCount > 99 ? '99+' : String(alertasHeCount);
+    const alertasHeExcesoCardCount = alertDisplayCards.filter((c) => c.variant === 'excess').length;
+    const alertasHeDomingoCardCount = alertDisplayCards.filter((c) => c.variant === 'domingo').length;
+    const alertasHeTooltipTitle = alertasHeDomingoCardCount > 0 && alertasHeExcesoCardCount > 0
+        ? `${alertasHeCount} tarjeta(s): ${alertasHeExcesoCardCount} exceso · ${alertasHeDomingoCardCount} domingo`
+        : alertasHeDomingoCardCount > 0
+            ? `${alertasHeCount} tarjeta(s) (política domingo)`
+            : `${alertasHeCount} tarjeta(s) (exceso HE)`;
+
     /** Roles asignados: API + mismo criterio que el formulario si el mapper no resolvió el tipo. */
     const asignacionEtiquetaForItem = (it) => {
         const api = it?.asignacionRolesEtiqueta;
@@ -749,7 +771,7 @@ export default function Dashboard({ token, onLogout }) {
                                 <span>{item.label}</span>
                                 {item.id === 'Alertas HE' && alertasHeCount > 0 ? (
                                     <span
-                                        title={`${alertasHeCount} alerta(s) pendiente(s)`}
+                                        title={alertasHeTooltipTitle}
                                         className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 border border-amber-400/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-300"
                                     >
                                         {alertasHeBadgeText}
@@ -835,7 +857,7 @@ export default function Dashboard({ token, onLogout }) {
                                 )}
                                 {sidebarOpen && item.id === 'Alertas HE' && alertasHeCount > 0 ? (
                                     <span
-                                        title={`${alertasHeCount} alerta(s) pendiente(s)`}
+                                        title={alertasHeTooltipTitle}
                                         className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500/20 border border-amber-400/40 px-1.5 py-0.5 text-[10px] font-bold text-amber-300"
                                     >
                                         {alertasHeBadgeText}
@@ -1342,33 +1364,85 @@ export default function Dashboard({ token, onLogout }) {
                             <div className="p-4 border-b border-slate-700/50 bg-[#1e293b] sticky top-0 z-20">
                                 <h2 className="text-xl font-bold text-white">Alertas HE</h2>
                                 <p className="mt-1 text-sm text-slate-400">
-                                    Pendientes: {alertasHeCount} · Diarias: {horaExtraAlerts?.summary?.dailyAlertsCount || 0} · Mensuales: {horaExtraAlerts?.summary?.monthlyAlertsCount || 0}
+                                    Tarjetas: {alertasHeCount}
+                                    {' · '}
+                                    Exceso de topes: {alertasHeExcesoCardCount}
+                                    {' · '}
+                                    Política domingo: {alertasHeDomingoCardCount}
                                 </p>
                             </div>
                             <div className="flex-1 overflow-auto p-4">
-                                {alertItems.length === 0 ? (
+                                {alertDisplayCards.length === 0 ? (
                                     <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-6 text-sm text-slate-400">
                                         No hay alertas pendientes para el rango seleccionado.
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-1 gap-3">
-                                        {alertItems.map((it) => (
-                                            <div key={`alert-${it.id}`} className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-                                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <div>
-                                                        <p className="text-sm font-semibold text-amber-100">{it.nombre} ({it.cedula})</p>
-                                                        <p className="text-xs text-amber-200/90">{it.cliente || 'Sin cliente'} · {it.tipoNovedad}</p>
+                                        {alertDisplayCards.map(({ key, variant, it }) => (
+                                            variant === 'excess' ? (
+                                                <div
+                                                    key={key}
+                                                    className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4"
+                                                >
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-amber-100">{it.nombre} ({it.cedula})</p>
+                                                            <p className="text-xs text-amber-200/90">
+                                                                {it.cliente || 'Sin cliente'} · {it.tipoNovedad}
+                                                                <span className="ml-2 rounded bg-amber-500/25 px-1.5 py-0.5 text-amber-100">Exceso de topes HE</span>
+                                                            </p>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setAlertaHeDetailItem(it)}
+                                                            className="rounded-lg border border-amber-300/40 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-400/15"
+                                                        >
+                                                            Ver alerta
+                                                        </button>
                                                     </div>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setAlertaHeDetailItem(it)}
-                                                        className="rounded-lg border border-amber-300/40 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-400/15"
-                                                    >
-                                                        Ver alerta
-                                                    </button>
+                                                    <div className="mt-2 space-y-1 text-xs text-amber-100/90">
+                                                        <p className="font-semibold text-amber-200/95">Detalle del exceso</p>
+                                                        {Array.isArray(it.dailyReasons) && it.dailyReasons.map((d) => (
+                                                            <p key={`cd-${key}-${d.date}`}>
+                                                                Diario {d.date}: {d.totalHours}h (tope {d.limitHours}h, exceso {d.exceededByHours}h)
+                                                            </p>
+                                                        ))}
+                                                        {Array.isArray(it.monthlyReasons) && it.monthlyReasons.map((m) => (
+                                                            <p key={`cm-${key}-${m.month}`}>
+                                                                Mensual {m.month}: {m.totalHours}h (tope {m.limitHours}h, exceso {m.exceededByHours}h)
+                                                            </p>
+                                                        ))}
+                                                    </div>
                                                 </div>
-                                                <p className="mt-2 text-xs text-amber-100/90">{it.reasonSummary}</p>
-                                            </div>
+                                            ) : (
+                                                <div
+                                                    key={key}
+                                                    className="rounded-xl border border-violet-500/40 bg-violet-500/10 p-4"
+                                                >
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                        <div>
+                                                            <p className="text-sm font-semibold text-violet-100">{it.nombre} ({it.cedula})</p>
+                                                            <p className="text-xs text-violet-200/90">
+                                                                {it.cliente || 'Sin cliente'} · {it.tipoNovedad}
+                                                                <span className="ml-2 rounded bg-violet-500/30 px-1.5 py-0.5 text-violet-100">Hora Extra · Domingo</span>
+                                                            </p>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setAlertaHeDetailItem(it)}
+                                                            className="rounded-lg border border-violet-300/50 px-3 py-1.5 text-xs font-semibold text-violet-100 hover:bg-violet-500/20"
+                                                        >
+                                                            Ver alerta
+                                                        </button>
+                                                    </div>
+                                                    <div className="mt-2 space-y-1.5 text-xs text-violet-100/95">
+                                                        <p className="font-semibold text-violet-200">Política Hora Extra en domingo</p>
+                                                        {it.sundayReasons.map((r) => (
+                                                            <p key={`cs-${key}-${r.month}`} className="leading-snug opacity-95">{r.policyText}</p>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )
                                         ))}
                                     </div>
                                 )}
@@ -1784,6 +1858,12 @@ export default function Dashboard({ token, onLogout }) {
                                     Alerta HE gestionada: {gestionDetailItem.alertaHeResueltaEstado}
                                 </div>
                             ) : null}
+                            {gestionDetailItem.heDomingoObservacion ? (
+                                <div className="md:col-span-2 rounded-lg border border-violet-500/35 bg-violet-500/10 px-3 py-2 text-sm text-violet-100">
+                                    <span className="font-semibold">Observación HE domingo:</span>{' '}
+                                    {gestionDetailItem.heDomingoObservacion}
+                                </div>
+                            ) : null}
 
                             {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) === 'Hora Extra' && (
                                 <div className="md:col-span-2 mt-2 p-4 bg-slate-900/60 rounded-2xl border border-cyan-500/30">
@@ -1879,9 +1959,6 @@ export default function Dashboard({ token, onLogout }) {
                             <div><span className="text-slate-400">Fecha fin:</span> {alertaHeDetailItem.fechaFin || '-'}</div>
                             <div><span className="text-slate-400">Franja cargada:</span> {(alertaHeDetailItem.horaInicio && alertaHeDetailItem.horaFin) ? `${alertaHeDetailItem.horaInicio} - ${alertaHeDetailItem.horaFin}` : '-'}</div>
                             <div><span className="text-slate-400">Horas cargadas:</span> {alertaHeDetailItem.cantidadHoras || 0}h</div>
-                            <div className="md:col-span-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-amber-100">
-                                <span className="font-semibold">Motivo de alerta:</span> {alertaHeDetailItem.reasonSummary || 'Exceso de horas extra sobre topes configurados.'}
-                            </div>
                             {Array.isArray(alertaHeDetailItem.dailyReasons) && alertaHeDetailItem.dailyReasons.length > 0 && (
                                 <div className="md:col-span-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3">
                                     <p className="text-cyan-100 font-semibold text-sm">Conteo diario excedido</p>
@@ -1899,6 +1976,23 @@ export default function Dashboard({ token, onLogout }) {
                                         <p key={`m-${r.month}`} className="text-xs text-indigo-100/95 mt-1">
                                             {r.month}: {r.totalHours}h (tope {r.limitHours}h, exceso {r.exceededByHours}h)
                                         </p>
+                                    ))}
+                                </div>
+                            )}
+                            {Array.isArray(alertaHeDetailItem.sundayReasons) && alertaHeDetailItem.sundayReasons.length > 0 && (
+                                <div className="md:col-span-2 rounded-lg border border-violet-500/35 bg-violet-500/10 p-3">
+                                    <p className="text-violet-100 font-semibold text-sm">Política Hora Extra en domingo (por reportes del mes)</p>
+                                    {alertaHeDetailItem.sundayReasons.map((r, idx) => (
+                                        <div key={`sun-${r.month}`} className={`text-xs text-violet-100/95 ${idx ? 'mt-2 border-t border-violet-500/20 pt-2' : ''}`}>
+                                            <p>
+                                                <span className="font-semibold">{r.month}</span>
+                                                {' · '}
+                                                {r.sundayDistinctCount} domingo(s) distinto(s) reportado(s)
+                                                {' · '}
+                                                coef. {r.coefficientRule}
+                                            </p>
+                                            <p className="mt-1 opacity-95">{r.policyText}</p>
+                                        </div>
                                     ))}
                                 </div>
                             )}
