@@ -134,8 +134,16 @@ Se eliminaron artefactos y archivos legacy que no aportaban al uso o mantenimien
 - readmes/metadata obsoletos de plantilla
 - utilitarios legacy no referenciados
 
-## Documentacion funcional
+## Documentacion
 
-- Contexto completo: `docs/CONTEXTO_PROYECTO.md`
-- Hallazgos y reparaciones: `docs/CODE_REVIEW.md`
-- Guia consolidada: `docs/2026-03-12-guia-reparacion-consolidada.md`
+> **Índice completo → [`docs/README.md`](docs/README.md)**
+
+| Documento | Descripcion |
+|-----------|------------|
+| [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md) | Setup, workflow, convenciones de codigo |
+| [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) | Referencia completa de endpoints HTTP |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura del sistema y diagramas |
+| [`docs/ENV_REFERENCE.md`](docs/ENV_REFERENCE.md) | Todas las variables de entorno |
+| [`docs/RBAC_MATRIX.md`](docs/RBAC_MATRIX.md) | Matriz de permisos por rol |
+| [`docs/CONTEXTO_PROYECTO.md`](docs/CONTEXTO_PROYECTO.md) | Contexto funcional del proyecto |
+| [`docs/CODE_REVIEW.md`](docs/CODE_REVIEW.md) | Hallazgos y reparaciones aplicadas |
