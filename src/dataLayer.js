@@ -1,5 +1,14 @@
 const crypto = require('node:crypto');
 const { buildFoldToCanonicoMap, matchExcelClienteABd } = require('./cotizador/clienteNombreMatch');
+const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
+const {
+    buildSundayReportedSetsFromHeRows,
+    computeHeDomingoObservacionForRow,
+    buildHeDomingoPolicyText,
+    sundayStatsForConsultantMonth,
+    resolveHourSplitBogotaForRow,
+    isSundayBogotaYmd
+} = require('./heDomingoBogota');
 
 function createDataLayer(deps) {
     const {
@@ -123,6 +132,18 @@ function createDataLayer(deps) {
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[DB] Permisos insuficientes para columnas de gestión de alertas HE en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureNovedadesHeDomingoObservacionColumn() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS he_domingo_observacion TEXT NULL');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para he_domingo_observacion en novedades.');
                 return;
             }
             throw error;
@@ -892,6 +913,7 @@ function createDataLayer(deps) {
                 nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas,
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
                 nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
+                nov.he_domingo_observacion,
                 COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
                 COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
              FROM novedades nov
@@ -911,20 +933,6 @@ function createDataLayer(deps) {
     function toUtcDateKey(ms) {
         const d = new Date(ms);
         return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-    }
-
-    function toUtcMsFromDateAndTime(dateRaw, timeRaw) {
-        let datePart = '';
-        if (dateRaw instanceof Date) {
-            datePart = dateRaw.toISOString().slice(0, 10);
-        } else {
-            const raw = String(dateRaw || '').trim();
-            datePart = /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : '';
-        }
-        const timePart = String(timeRaw || '').slice(0, 8);
-        if (!datePart || !timePart) return null;
-        const ms = Date.parse(`${datePart}T${timePart}Z`);
-        return Number.isNaN(ms) ? null : ms;
     }
 
     function splitHoursByUtcDay(startMs, endMs) {
@@ -950,16 +958,6 @@ function createDataLayer(deps) {
             cursor = segmentEnd;
         }
         return byDay;
-    }
-
-    function resolveFallbackDateKeyFromRow(row) {
-        if (row?.fecha_inicio instanceof Date) return row.fecha_inicio.toISOString().slice(0, 10);
-        if (row?.creado_en instanceof Date) return row.creado_en.toISOString().slice(0, 10);
-        const fechaInicioRaw = String(row?.fecha_inicio || '').trim();
-        const creadoRaw = String(row?.creado_en || '').trim();
-        if (/^\d{4}-\d{2}-\d{2}/.test(fechaInicioRaw)) return fechaInicioRaw.slice(0, 10);
-        if (/^\d{4}-\d{2}-\d{2}/.test(creadoRaw)) return creadoRaw.slice(0, 10);
-        return '';
     }
 
     function resolveHourSplitByRow(row) {
@@ -1002,6 +1000,9 @@ function createDataLayer(deps) {
             const resolved = row?.alerta_he_resuelta_en != null || String(row?.alerta_he_resuelta_estado || '').trim() !== '';
             return estado === 'Pendiente' && !resolved;
         });
+
+        const bogotaDep = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow };
+        const sundaySets = buildSundayReportedSetsFromHeRows(rows || [], buildConsultantKey, bogotaDep);
 
         const dailyTotals = new Map();
         const monthlyTotals = new Map();
@@ -1103,12 +1104,38 @@ function createDataLayer(deps) {
                     });
                 }
             }
-            if (!dailyReasons.length && !monthlyReasonsMap.size) continue;
+
+            const bogSplit = resolveHourSplitBogotaForRow(row, bogotaDep);
+            const sundayMetaByMonth = new Map();
+            for (const [dayKey, hoursRaw] of bogSplit.entries()) {
+                const hours = Number(hoursRaw || 0);
+                if (!Number.isFinite(hours) || hours <= 0) continue;
+                if (!isSundayBogotaYmd(dayKey)) continue;
+                const monthKey = dayKey.slice(0, 7);
+                const st = sundayStatsForConsultantMonth(sundaySets, consultantKey, monthKey);
+                if (st.tier < 2) continue;
+                if (!sundayMetaByMonth.has(monthKey)) {
+                    sundayMetaByMonth.set(monthKey, {
+                        month: monthKey,
+                        tier: st.tier,
+                        sundayDistinctCount: st.count,
+                        sundayDatesInMonth: st.dates,
+                        coefficientRule: st.tier === 2 ? '0.80' : '1.80',
+                        policyText: buildHeDomingoPolicyText(monthKey, st.tier, st.count, st.dates)
+                    });
+                }
+            }
+            const sundayReasons = Array.from(sundayMetaByMonth.values());
+
+            if (!dailyReasons.length && !monthlyReasonsMap.size && !sundayReasons.length) continue;
+
             const createdAtIso = row?.creado_en instanceof Date ? row.creado_en.toISOString() : String(row?.creado_en || '');
             const reasons = [
                 ...dailyReasons.map((d) => `Exceso diario ${d.date}: ${d.totalHours}h (tope ${d.limitHours}h)`),
-                ...Array.from(monthlyReasonsMap.values()).map((m) => `Exceso mensual ${m.month}: ${m.totalHours}h (tope ${m.limitHours}h)`)
+                ...Array.from(monthlyReasonsMap.values()).map((m) => `Exceso mensual ${m.month}: ${m.totalHours}h (tope ${m.limitHours}h)`),
+                ...sundayReasons.map((s) => s.policyText)
             ];
+            const maxSundayTier = sundayReasons.length ? Math.max(...sundayReasons.map((s) => s.tier)) : 0;
             items.push({
                 id: String(row.id),
                 nombre: String(row?.nombre || '').trim(),
@@ -1125,15 +1152,51 @@ function createDataLayer(deps) {
                 cantidadHoras: Number(row?.cantidad_horas || 0),
                 dailyReasons,
                 monthlyReasons: Array.from(monthlyReasonsMap.values()),
+                sundayReasons,
+                heDomingoAlert: sundayReasons.length > 0,
+                sundayTierMax: maxSundayTier,
                 reasonSummary: reasons.join(' | ')
             });
         }
 
+        for (const row of actionableRows) {
+            const bog = resolveHourSplitBogotaForRow(row, bogotaDep);
+            const ck = buildConsultantKey(row);
+            let hasTier3 = false;
+            for (const [dayKey, h] of bog.entries()) {
+                if (!Number.isFinite(Number(h)) || Number(h) <= 0) continue;
+                if (!isSundayBogotaYmd(dayKey)) continue;
+                const mk = dayKey.slice(0, 7);
+                const st = sundayStatsForConsultantMonth(sundaySets, ck, mk);
+                if (st.tier === 3) {
+                    hasTier3 = true;
+                    break;
+                }
+            }
+            if (!hasTier3) continue;
+            const text = computeHeDomingoObservacionForRow(row, sundaySets, buildConsultantKey, bogotaDep);
+            if (!text) continue;
+            try {
+                await pool.query(
+                    `UPDATE novedades
+                     SET he_domingo_observacion = $1
+                     WHERE id = $2::uuid AND (he_domingo_observacion IS NULL OR btrim(he_domingo_observacion) = '')`,
+                    [text, row.id]
+                );
+            } catch (e) {
+                console.warn('[getHoraExtraAlerts] No se pudo persistir he_domingo_observacion:', e?.message || e);
+            }
+        }
+
         items.sort((a, b) => {
+            const st = (x) => Number(x.sundayTierMax || 0);
+            if (st(b) !== st(a)) return st(b) - st(a);
             const aDailyExcess = a.dailyReasons.reduce((sum, r) => sum + Number(r.exceededByHours || 0), 0);
             const bDailyExcess = b.dailyReasons.reduce((sum, r) => sum + Number(r.exceededByHours || 0), 0);
             return bDailyExcess - aDailyExcess || Number(b.cantidadHoras || 0) - Number(a.cantidadHoras || 0);
         });
+
+        const sundayAlertsCount = items.filter((it) => it.heDomingoAlert).length;
 
         return {
             generatedAt: new Date().toISOString(),
@@ -1142,6 +1205,7 @@ function createDataLayer(deps) {
                 maxMonthlyHours,
                 dailyAlertsCount: dailyAlerts.length,
                 monthlyAlertsCount: monthlyAlerts.length,
+                sundayAlertsCount,
                 totalAlerts: items.length
             },
             dailyAlerts,
@@ -1159,6 +1223,7 @@ function createDataLayer(deps) {
         ensureNovedadesMontoCopColumn,
         ensureNovedadesApproverEmailColumns,
         ensureNovedadesHoraExtraAlertColumns,
+        ensureNovedadesHeDomingoObservacionColumn,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
