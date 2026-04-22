@@ -60,6 +60,7 @@ function registerDirectorioRoutes(deps) {
         getLideresByCliente,
         getAreaFromRole,
         listClientesLideresPaged,
+        listClientesLideresByClienteSummaryPaged,
         insertClienteLider,
         updateClienteLiderById,
         listColaboradoresPaged,
@@ -79,6 +80,7 @@ function registerDirectorioRoutes(deps) {
     const clienteLiderListSchema = z.object({
         activo: z.enum(['true', 'false', 'all']).optional(),
         q: z.string().max(200).optional(),
+        cliente: z.string().min(1).max(500).optional(),
         limit: z.coerce.number().int().min(1).max(2000).optional(),
         offset: z.coerce.number().int().min(0).optional()
     });
@@ -129,7 +131,9 @@ function registerDirectorioRoutes(deps) {
         activo: z.enum(['true', 'false', 'all']).optional(),
         q: z.string().max(200).optional(),
         limit: z.coerce.number().int().min(1).max(200).optional(),
-        offset: z.coerce.number().int().min(0).optional()
+        offset: z.coerce.number().int().min(0).optional(),
+        sort: z.enum(['nombre', 'cedula', 'correo', 'cliente', 'lider', 'activo']).optional(),
+        dir: z.enum(['asc', 'desc']).optional()
     });
 
     const colabCreateSchema = z.object({
@@ -161,17 +165,46 @@ function registerDirectorioRoutes(deps) {
         is_active: z.boolean().optional()
     });
 
+    const clienteResumenListSchema = z.object({
+        activo: z.enum(['true', 'false', 'all']).optional(),
+        q: z.string().max(200).optional(),
+        limit: z.coerce.number().int().min(1).max(2000).optional(),
+        offset: z.coerce.number().int().min(0).optional()
+    });
+
+    app.get('/api/directorio/clientes-resumen', ...guard, async (req, res) => {
+        try {
+            const q = clienteResumenListSchema.safeParse(req.query);
+            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
+            const { activo, limit, offset, q: search } = q.data;
+            let activoBool = null;
+            if (activo === 'true') activoBool = true;
+            if (activo === 'false') activoBool = false;
+            const { rows, total } = await listClientesLideresByClienteSummaryPaged({
+                activo: activoBool,
+                q: search,
+                limit,
+                offset
+            });
+            return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
+        } catch (e) {
+            console.error('GET directorio clientes-resumen:', e);
+            return res.status(500).json({ ok: false, error: 'No se pudo listar el resumen de clientes.' });
+        }
+    });
+
     app.get('/api/directorio/clientes-lideres', ...guard, async (req, res) => {
         try {
             const q = clienteLiderListSchema.safeParse(req.query);
             if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search } = q.data;
+            const { activo, limit, offset, q: search, cliente } = q.data;
             let activoBool = null;
             if (activo === 'true') activoBool = true;
             if (activo === 'false') activoBool = false;
             const { rows, total } = await listClientesLideresPaged({
                 activo: activoBool,
                 q: search,
+                cliente: cliente || null,
                 limit,
                 offset
             });
@@ -250,7 +283,7 @@ function registerDirectorioRoutes(deps) {
         try {
             const q = colabListSchema.safeParse(req.query);
             if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search } = q.data;
+            const { activo, limit, offset, q: search, sort, dir } = q.data;
             let activoBool = null;
             if (activo === 'true') activoBool = true;
             if (activo === 'false') activoBool = false;
@@ -258,7 +291,9 @@ function registerDirectorioRoutes(deps) {
                 activo: activoBool,
                 q: search,
                 limit,
-                offset
+                offset,
+                sort,
+                dir
             });
             return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
         } catch (e) {

@@ -87,6 +87,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     const [clItems, setClItems] = useState([]);
     const [clTotal, setClTotal] = useState(0);
+    const [clPage, setClPage] = useState(1);
+    const [clPageSize, setClPageSize] = useState(10);
     const [clQ, setClQ] = useState('');
     const [clActivo, setClActivo] = useState('all');
     const [clLoading, setClLoading] = useState(false);
@@ -113,6 +115,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     const [coItems, setCoItems] = useState([]);
     const [coTotal, setCoTotal] = useState(0);
+    const [coPage, setCoPage] = useState(1);
+    const [coPageSize, setCoPageSize] = useState(10);
     const [coQ, setCoQ] = useState('');
     const [coActivo, setCoActivo] = useState('all');
     const [coLoading, setCoLoading] = useState(false);
@@ -135,7 +139,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const [gpItems, setGpItems] = useState([]);
     const [gpSelectOptions, setGpSelectOptions] = useState([]);
 
-    const clItemsActive = useMemo(() => clItems.filter((r) => r.activo), [clItems]);
+    const [leadersModalRows, setLeadersModalRows] = useState([]);
+    const [leadersModalLoading, setLeadersModalLoading] = useState(false);
+    /** Filas catálogo activo solo para resolver GP en modal Staff (no pisar la tabla Cliente). */
+    const [staffCatalogActivoRows, setStaffCatalogActivoRows] = useState([]);
+
+    const clItemsActive = useMemo(() => staffCatalogActivoRows.filter((r) => r.activo), [staffCatalogActivoRows]);
 
     const gpLabelById = useMemo(() => {
         const m = new Map();
@@ -147,76 +156,38 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         return m;
     }, [gpItems]);
 
-    const catalogClienteGroups = useMemo(() => {
-        const map = new Map();
-        for (const row of clItems) {
-            const k = row.cliente;
-            if (!map.has(k)) map.set(k, []);
-            map.get(k).push(row);
-        }
-        const groups = [];
-        for (const [cliente, rows] of map) {
-            const activeCount = rows.filter((r) => r.activo).length;
-            const gpIds = [...new Set(rows.map((r) => r.gp_user_id).filter(Boolean).map(String))];
-            let gpDisplay = '—';
-            let gpConflict = false;
-            if (gpIds.length === 1) {
-                const rowWithGp = rows.find((r) => r.gp_user_id && String(r.gp_user_id) === gpIds[0]);
-                const backendName = String(rowWithGp?.gp_full_name || '').trim();
-                gpDisplay = backendName || gpLabelById.get(gpIds[0]) || 'GP no disponible';
-            } else if (gpIds.length > 1) {
-                gpConflict = true;
-                gpDisplay = 'GP distintos por líder';
-            }
-            groups.push({ cliente, rows, activeCount, totalCount: rows.length, gpDisplay, gpConflict });
-        }
-        groups.sort((a, b) => a.cliente.localeCompare(b.cliente, 'es'));
-        return groups;
-    }, [clItems, gpLabelById]);
-
-    const leadersModalRows = useMemo(() => {
-        if (!leadersModalCliente) return [];
-        return clItems.filter((r) => r.cliente === leadersModalCliente);
-    }, [clItems, leadersModalCliente]);
-
-    const coSortedItems = useMemo(() => {
-        if (!coSort.key) return coItems;
-        const mul = coSort.dir === 'asc' ? 1 : -1;
-        const key = coSort.key;
-        const pick = (row) => {
-            switch (key) {
-                case 'cedula':
-                    return String(row.cedula || '');
-                case 'nombre':
-                    return String(row.nombre || '');
-                case 'correo':
-                    return String(row.correo_cinte || '');
-                case 'cliente':
-                    return String(row.cliente || '');
-                case 'lider':
-                    return String(row.lider_catalogo || '');
-                case 'activo':
-                    return row.activo ? 1 : 0;
-                default:
-                    return '';
-            }
-        };
-        return [...coItems].sort((a, b) => {
-            let c = 0;
-            if (key === 'activo') {
-                c = (pick(a) - pick(b)) * mul;
-            } else {
-                c = String(pick(a)).localeCompare(String(pick(b)), 'es', { sensitivity: 'base' }) * mul;
-            }
-            if (c !== 0) return c;
-            return String(a.cedula || '').localeCompare(String(b.cedula || ''), 'es', { sensitivity: 'base' });
-        });
-    }, [coItems, coSort]);
-
     const flash = useCallback((text, ok = true) => {
         setMsg({ text, ok });
         setTimeout(() => setMsg(null), 6000);
     }, []);
+
+    const fetchLeadersForCliente = useCallback(
+        async (cliente) => {
+            const c = String(cliente || '').trim();
+            if (!c) {
+                setLeadersModalRows([]);
+                return;
+            }
+            setLeadersModalLoading(true);
+            try {
+                const u = new URLSearchParams();
+                u.set('cliente', c);
+                u.set('activo', 'all');
+                u.set('limit', '2000');
+                u.set('offset', '0');
+                const res = await fetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || res.statusText);
+                setLeadersModalRows(data.items || []);
+            } catch (e) {
+                flash(String(e.message || e), false);
+                setLeadersModalRows([]);
+            } finally {
+                setLeadersModalLoading(false);
+            }
+        },
+        [token, flash]
+    );
 
     const loadCatalogo = useCallback(async () => {
         setClLoading(true);
@@ -224,9 +195,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             const u = new URLSearchParams();
             u.set('activo', clActivo);
             if (clQ.trim()) u.set('q', clQ.trim());
-            u.set('limit', '2000');
-            u.set('offset', '0');
-            const res = await fetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
+            u.set('limit', String(clPageSize));
+            u.set('offset', String((clPage - 1) * clPageSize));
+            const res = await fetch(`/api/directorio/clientes-resumen?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
             setClItems(data.items || []);
@@ -236,7 +207,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         } finally {
             setClLoading(false);
         }
-    }, [token, clActivo, clQ, flash]);
+    }, [token, clActivo, clQ, flash, clPage, clPageSize]);
 
     /** Catálogo activo para resolver GP al guardar colaboradores. */
     const loadCatalogoActivoForStaff = useCallback(async () => {
@@ -248,7 +219,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             const res = await fetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) return;
-            setClItems(data.items || []);
+            setStaffCatalogActivoRows(data.items || []);
         } catch {
             /* ignore */
         }
@@ -260,8 +231,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             const u = new URLSearchParams();
             u.set('activo', coActivo);
             if (coQ.trim()) u.set('q', coQ.trim());
-            u.set('limit', '200');
-            u.set('offset', '0');
+            u.set('limit', String(coPageSize));
+            u.set('offset', String((coPage - 1) * coPageSize));
+            if (coSort.key) {
+                u.set('sort', coSort.key);
+                u.set('dir', coSort.dir);
+            }
             const res = await fetch(`/api/directorio/colaboradores?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
@@ -272,7 +247,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         } finally {
             setCoLoading(false);
         }
-    }, [token, coActivo, coQ, flash]);
+    }, [token, coActivo, coQ, flash, coPage, coPageSize, coSort]);
 
     const fetchCatalogClientes = useCallback(async () => {
         try {
@@ -312,6 +287,24 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         loadCatalogo();
     }, [mainView, loadCatalogo]);
 
+    useEffect(() => {
+        setClPage(1);
+    }, [clActivo, clQ, clPageSize]);
+
+    useEffect(() => {
+        const tp = Math.max(1, Math.ceil((clTotal || 0) / clPageSize) || 1);
+        if (clPage > tp) setClPage(tp);
+    }, [clTotal, clPageSize, clPage]);
+
+    useEffect(() => {
+        setCoPage(1);
+    }, [coActivo, coQ, coPageSize, coSort]);
+
+    useEffect(() => {
+        const tp = Math.max(1, Math.ceil((coTotal || 0) / coPageSize) || 1);
+        if (coPage > tp) setCoPage(tp);
+    }, [coTotal, coPageSize, coPage]);
+
     /** Lista GP para selects en modales. */
     useEffect(() => {
         let cancelled = false;
@@ -339,21 +332,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     }, [mainView, loadColaboradores, loadCatalogoActivoForStaff]);
 
     useEffect(() => {
-        if (!selectedCatalogCliente) return;
-        const exists = catalogClienteGroups.some((g) => g.cliente === selectedCatalogCliente);
-        if (!exists) setSelectedCatalogCliente(null);
-    }, [catalogClienteGroups, selectedCatalogCliente]);
-
-    useEffect(() => {
-        if (!leadersModalCliente) return;
-        const exists = catalogClienteGroups.some((g) => g.cliente === leadersModalCliente);
-        if (!exists) {
-            setLeadersModalCliente(null);
-            setAddLiderModalOpen(false);
-        }
-    }, [catalogClienteGroups, leadersModalCliente]);
-
-    useEffect(() => {
         if (!selectedCoCedula) return;
         const exists = coItems.some((r) => r.cedula === selectedCoCedula);
         if (!exists) setSelectedCoCedula(null);
@@ -375,7 +353,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
             flash('Actualizado.');
-            loadCatalogo();
+            await loadCatalogo();
+            if (leadersModalCliente) await fetchLeadersForCliente(leadersModalCliente);
             if (mainView === 'consultores') loadCatalogoActivoForStaff();
         } catch (err) {
             flash(String(err.message || err), false);
@@ -400,6 +379,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     function openLeadersModalForCliente(cliente) {
         setLeadersModalCliente(cliente);
         setAddLiderModalOpen(false);
+        void fetchLeadersForCliente(cliente);
     }
 
     /** Todos los colaboradores (activos e inactivos), una fila por cédula; seleccionable si tiene correo Cinte. */
@@ -444,12 +424,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         return opts;
     }
 
-    async function openEditClienteModal() {
-        if (!selectedCatalogCliente) {
-            flash('Selecciona un cliente en la tabla.', false);
+    async function openEditClienteModalForCliente(cliente) {
+        const original = String(cliente || '').trim();
+        if (!original) {
+            flash('Cliente no válido.', false);
             return;
         }
-        const original = selectedCatalogCliente;
+        setSelectedCatalogCliente(original);
         setEditClienteOriginalName(original);
         setEditClienteForm({ nombre: original, gp_colaborador_cedula: '' });
         setEditClienteTargetRows([]);
@@ -459,13 +440,14 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         setEditClienteGpOptionsLoading(true);
         try {
             const u = new URLSearchParams();
+            u.set('cliente', original);
             u.set('activo', 'all');
             u.set('limit', '2000');
             u.set('offset', '0');
             const res = await fetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
-            const rows = (data.items || []).filter((r) => r.cliente === original);
+            const rows = data.items || [];
             setEditClienteTargetRows(rows);
             const gpIds = [...new Set(rows.map((r) => r.gp_user_id).filter(Boolean).map(String))];
             let initialGpCedula = '';
@@ -545,7 +527,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     function openAddLiderModal() {
         if (!leadersModalCliente) return;
-        const rows = clItems.filter((r) => r.cliente === leadersModalCliente);
+        const rows = leadersModalRows;
         const firstGp = rows.map((r) => r.gp_user_id).find(Boolean);
         setAddLiderForm({
             lider: '',
@@ -573,7 +555,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             if (!res.ok) throw new Error(data.error || res.statusText);
             flash('Líder agregado al catálogo.');
             setAddLiderModalOpen(false);
-            loadCatalogo();
+            await loadCatalogo();
+            if (leadersModalCliente) await fetchLeadersForCliente(leadersModalCliente);
             if (mainView === 'consultores') loadCatalogoActivoForStaff();
             refreshGpList();
         } catch (err) {
@@ -623,7 +606,16 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     }
 
     async function deactivateAllRowsForClient(cliente) {
-        const rows = clItems.filter((r) => r.cliente === cliente);
+        const c = String(cliente || '').trim();
+        const u = new URLSearchParams();
+        u.set('cliente', c);
+        u.set('activo', 'all');
+        u.set('limit', '2000');
+        u.set('offset', '0');
+        const res = await fetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || res.statusText);
+        const rows = data.items || [];
         for (const row of rows) {
             if (!row.activo) continue;
             const res = await fetch(`/api/directorio/clientes-lideres/${row.id}`, {
@@ -714,13 +706,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         setStaffModalOpen(true);
     }
 
-    function openStaffModalEdit() {
-        if (!selectedCoCedula) {
-            flash('Selecciona un colaborador en la tabla.', false);
-            return;
-        }
-        const row = coItems.find((r) => r.cedula === selectedCoCedula);
+    function openStaffModalEditForRow(row) {
         if (!row) return;
+        setSelectedCoCedula(row.cedula);
         setStaffModalMode('edit');
         setCoForm({
             cedula: row.cedula,
@@ -829,6 +817,16 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             )}
         </div>
     );
+
+    const clTotalPages = Math.max(1, Math.ceil((Number(clTotal) || 0) / clPageSize));
+    const safeClPage = Math.min(Math.max(1, clPage), clTotalPages);
+    const clRangeFrom = !clTotal ? 0 : (safeClPage - 1) * clPageSize + 1;
+    const clRangeTo = Math.min(Number(clTotal) || 0, safeClPage * clPageSize);
+
+    const coTotalPages = Math.max(1, Math.ceil((Number(coTotal) || 0) / coPageSize));
+    const safeCoPage = Math.min(Math.max(1, coPage), coTotalPages);
+    const coRangeFrom = !coTotal ? 0 : (safeCoPage - 1) * coPageSize + 1;
+    const coRangeTo = Math.min(Number(coTotal) || 0, safeCoPage * coPageSize);
 
     return (
         <div className="flex h-full w-full bg-[#04141E] text-slate-200 overflow-hidden font-body">
@@ -953,30 +951,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 >
                                     Crear nuevo cliente
                                 </button>
-                                <button
-                                    type="button"
-                                    disabled={!selectedCatalogCliente}
-                                    onClick={() => openEditClienteModal()}
-                                    className="px-4 py-2 rounded-md border border-[#1a3a56] text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#0f2942]/60"
-                                >
-                                    Editar cliente
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={!selectedCatalogCliente}
-                                    onClick={() => setConfirmDeactivateCatalog(true)}
-                                    className="px-4 py-2 rounded-md border border-rose-500/40 text-rose-300 text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-rose-500/10"
-                                >
-                                    Borrar cliente
-                                </button>
                             </div>
                             <p className="text-xs text-[#9fb3c8]">
-                                Un clic en la fila abre el detalle de líderes (sin columna GP). El GP del cliente se ve
-                                en esta tabla y se edita con «Editar cliente» (lista completa de colaboradores). Al
-                                guardar, el sistema crea o vincula el usuario GP interno según el colaborador elegido.
-                                Al agregar un líder, el GP sigue eligiéndose entre usuarios rol GP del
-                                sistema. La carga inicial desde Excel ocurre solo en migración al arranque (catálogo
-                                vacío).
+                                Una fila por cliente del catálogo (líderes activos / total). Clic en la fila abre el
+                                detalle de líderes. «Editar» renombra el cliente y el GP en bloque (colaborador con
+                                correo Cinte). «Borrar» desactiva todos los líderes de ese cliente. Paginación 10 / 20 /
+                                50.
                             </p>
                             <div className="flex flex-wrap gap-2 items-end">
                                 <div>
@@ -1000,6 +980,18 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                         placeholder="Texto en cliente o líder"
                                     />
                                 </div>
+                                <div>
+                                    <label className="block text-xs text-[#9fb3c8] mb-1">Filas</label>
+                                    <select
+                                        className="px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                        value={clPageSize}
+                                        onChange={(e) => setClPageSize(Number(e.target.value))}
+                                    >
+                                        <option value={10}>10 por página</option>
+                                        <option value={20}>20 por página</option>
+                                        <option value={50}>50 por página</option>
+                                    </select>
+                                </div>
                                 <button
                                     type="button"
                                     onClick={() => loadCatalogo()}
@@ -1009,7 +1001,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 </button>
                             </div>
                             <p className="text-xs text-[#9fb3c8]">
-                                Total filas catálogo: {clTotal} · Clientes mostrados: {catalogClienteGroups.length}
+                                Total clientes: {clTotal}
+                                {clTotal > 0
+                                    ? ` · Mostrando ${clRangeFrom}–${clRangeTo} (página ${safeClPage} de ${clTotalPages})`
+                                    : ''}
                             </p>
                             <div className="overflow-x-auto border border-[#1a3a56] rounded-lg">
                                 <table className="min-w-full text-sm">
@@ -1019,23 +1014,40 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                             <th className="text-left p-2">Cliente</th>
                                             <th className="text-left p-2">Líderes (activos / total)</th>
                                             <th className="text-left p-2">GP</th>
+                                            <th className="text-left p-2 whitespace-nowrap">Editar</th>
+                                            <th className="text-left p-2 whitespace-nowrap">Borrar</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {clLoading ? (
                                             <tr>
-                                                <td colSpan={4} className="p-4 text-center text-[#9fb3c8]">
+                                                <td colSpan={6} className="p-4 text-center text-[#9fb3c8]">
                                                     Cargando…
                                                 </td>
                                             </tr>
-                                        ) : catalogClienteGroups.length === 0 ? (
+                                        ) : clItems.length === 0 ? (
                                             <tr>
-                                                <td colSpan={4} className="p-4 text-center text-[#9fb3c8]">
+                                                <td colSpan={6} className="p-4 text-center text-[#9fb3c8]">
                                                     Sin datos
                                                 </td>
                                             </tr>
                                         ) : (
-                                            catalogClienteGroups.map((g) => (
+                                            clItems.map((g) => {
+                                                const activeCount = Number(g.active_count) || 0;
+                                                const totalCount = Number(g.total_count) || 0;
+                                                const gpN = Number(g.gp_distinct_count) || 0;
+                                                let gpText = '—';
+                                                let gpConflict = false;
+                                                if (gpN > 1) {
+                                                    gpConflict = true;
+                                                    gpText = 'GP distintos por líder';
+                                                } else if (g.gp_user_id) {
+                                                    const id = String(g.gp_user_id);
+                                                    const backendName = String(g.gp_full_name || '').trim();
+                                                    gpText =
+                                                        backendName || gpLabelById.get(id) || 'GP no disponible';
+                                                }
+                                                return (
                                                 <tr
                                                     key={g.cliente}
                                                     className={`border-t border-[#1a3a56] cursor-pointer ${
@@ -1060,19 +1072,70 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                     </td>
                                                     <td className="p-2 font-medium">{g.cliente}</td>
                                                     <td className="p-2">
-                                                        {g.activeCount} / {g.totalCount}
+                                                        {activeCount} / {totalCount}
                                                     </td>
                                                     <td
-                                                        className={`p-2 ${g.gpConflict ? 'text-amber-300/90' : 'text-[#9fb3c8]'}`}
+                                                        className={`p-2 ${gpConflict ? 'text-amber-300/90' : 'text-[#9fb3c8]'}`}
                                                     >
-                                                        {g.gpDisplay}
+                                                        {gpText}
+                                                    </td>
+                                                    <td className="p-2 whitespace-nowrap">
+                                                        <button
+                                                            type="button"
+                                                            className="px-2 py-1 rounded-md border border-[#1a3a56] text-xs font-semibold text-[#65BCF7] hover:bg-[#0f2942]/80"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                void openEditClienteModalForCliente(g.cliente);
+                                                            }}
+                                                        >
+                                                            Editar
+                                                        </button>
+                                                    </td>
+                                                    <td className="p-2 whitespace-nowrap">
+                                                        <button
+                                                            type="button"
+                                                            className="px-2 py-1 rounded-md border border-rose-500/40 text-xs font-semibold text-rose-300 hover:bg-rose-500/10"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSelectedCatalogCliente(g.cliente);
+                                                                setConfirmDeactivateCatalog(true);
+                                                            }}
+                                                        >
+                                                            Borrar
+                                                        </button>
                                                     </td>
                                                 </tr>
-                                            ))
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>
                             </div>
+                            {!clLoading && clTotal > 0 ? (
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#9fb3c8] border border-[#1a3a56] rounded-lg px-3 py-2 bg-[#0b1e30]/40">
+                                    <span>
+                                        Página {safeClPage} de {clTotalPages}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setClPage((p) => Math.max(1, p - 1))}
+                                            disabled={safeClPage <= 1}
+                                            className="px-3 py-1 rounded border border-[#1a3a56] disabled:opacity-40"
+                                        >
+                                            Anterior
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setClPage((p) => Math.min(clTotalPages, p + 1))}
+                                            disabled={safeClPage >= clTotalPages}
+                                            className="px-3 py-1 rounded border border-[#1a3a56] disabled:opacity-40"
+                                        >
+                                            Siguiente
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
                     )}
 
@@ -1085,14 +1148,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     className="px-4 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold hover:bg-[#25649a]"
                                 >
                                     Crear
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={!selectedCoCedula}
-                                    onClick={openStaffModalEdit}
-                                    className="px-4 py-2 rounded-md border border-[#1a3a56] text-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#0f2942]/60"
-                                >
-                                    Editar
                                 </button>
                             </div>
                             <div className="flex flex-wrap gap-2 items-end">
@@ -1111,6 +1166,18 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     onChange={(e) => setCoQ(e.target.value)}
                                     placeholder="Buscar"
                                 />
+                                <div>
+                                    <label className="block text-xs text-[#9fb3c8] mb-1">Filas</label>
+                                    <select
+                                        className="px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                        value={coPageSize}
+                                        onChange={(e) => setCoPageSize(Number(e.target.value))}
+                                    >
+                                        <option value={10}>10 por página</option>
+                                        <option value={20}>20 por página</option>
+                                        <option value={50}>50 por página</option>
+                                    </select>
+                                </div>
                                 <button
                                     type="button"
                                     onClick={() => loadColaboradores()}
@@ -1120,7 +1187,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 </button>
                             </div>
                             <p className="text-xs text-[#9fb3c8]">
-                                Total: {coTotal}. Clic en un encabezado de columna para ordenar (ascendente / descendente).
+                                Total: {coTotal}
+                                {coTotal > 0
+                                    ? ` · Mostrando ${coRangeFrom}–${coRangeTo} (página ${safeCoPage} de ${coTotalPages})`
+                                    : ''}
+                                . Clic en un encabezado para ordenar (el orden aplica a todo el resultado filtrado).
                             </p>
                             <div className="overflow-x-auto border border-[#1a3a56] rounded-lg">
                                 <table className="min-w-full text-sm">
@@ -1154,18 +1225,19 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                     </button>
                                                 </th>
                                             ))}
+                                            <th className="text-left p-2 whitespace-nowrap">Editar</th>
                                             <th className="text-left p-2">Acciones</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         {coLoading ? (
                                             <tr>
-                                                <td colSpan={8} className="p-4 text-center">
+                                                <td colSpan={9} className="p-4 text-center">
                                                     Cargando…
                                                 </td>
                                             </tr>
                                         ) : (
-                                            coSortedItems.map((row) => (
+                                            coItems.map((row) => (
                                                 <tr
                                                     key={row.cedula}
                                                     className={`border-t border-[#1a3a56] cursor-pointer ${
@@ -1195,6 +1267,18 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                     <td className="p-2 whitespace-nowrap">
                                                         <button
                                                             type="button"
+                                                            className="px-2 py-1 rounded-md border border-[#1a3a56] text-xs font-semibold text-[#65BCF7] hover:bg-[#0f2942]/80"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                openStaffModalEditForRow(row);
+                                                            }}
+                                                        >
+                                                            Editar
+                                                        </button>
+                                                    </td>
+                                                    <td className="p-2 whitespace-nowrap">
+                                                        <button
+                                                            type="button"
                                                             className="text-[#65BCF7] hover:underline"
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
@@ -1210,6 +1294,31 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     </tbody>
                                 </table>
                             </div>
+                            {!coLoading && coTotal > 0 ? (
+                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#9fb3c8] border border-[#1a3a56] rounded-lg px-3 py-2 bg-[#0b1e30]/40">
+                                    <span>
+                                        Página {safeCoPage} de {coTotalPages}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setCoPage((p) => Math.max(1, p - 1))}
+                                            disabled={safeCoPage <= 1}
+                                            className="px-3 py-1 rounded border border-[#1a3a56] disabled:opacity-40"
+                                        >
+                                            Anterior
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setCoPage((p) => Math.min(coTotalPages, p + 1))}
+                                            disabled={safeCoPage >= coTotalPages}
+                                            className="px-3 py-1 rounded border border-[#1a3a56] disabled:opacity-40"
+                                        >
+                                            Siguiente
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
                     )}
                 </main>
@@ -1549,7 +1658,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                         setConfirmDeactivateCatalog(false);
                                         setSelectedCatalogCliente(null);
                                         setLeadersModalCliente(null);
-                                        loadCatalogo();
+                                        setLeadersModalRows([]);
+                                        await loadCatalogo();
                                         if (mainView === 'consultores') loadCatalogoActivoForStaff();
                                     } catch (err) {
                                         flash(String(err.message || err), false);
@@ -1570,6 +1680,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         onClick={() => {
                             if (!addLiderModalOpen) {
                                 setLeadersModalCliente(null);
+                                setLeadersModalRows([]);
                             }
                         }}
                     />
@@ -1584,6 +1695,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 onClick={() => {
                                     setLeadersModalCliente(null);
                                     setAddLiderModalOpen(false);
+                                    setLeadersModalRows([]);
                                 }}
                                 className="rounded-lg p-2 text-[rgba(159,179,200,0.95)] hover:bg-slate-800/50"
                                 aria-label="Cerrar"
@@ -1609,21 +1721,35 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {leadersModalRows.map((row) => (
-                                            <tr key={row.id} className="border-t border-[#1a3a56]">
-                                                <td className="p-2">{row.lider}</td>
-                                                <td className="p-2">{row.activo ? 'Sí' : 'No'}</td>
-                                                <td className="p-2">
-                                                    <button
-                                                        type="button"
-                                                        className="text-[#65BCF7] hover:underline text-xs"
-                                                        onClick={() => patchCatalogo(row, { activo: !row.activo })}
-                                                    >
-                                                        {row.activo ? 'Desactivar líder' : 'Activar líder'}
-                                                    </button>
+                                        {leadersModalLoading ? (
+                                            <tr>
+                                                <td colSpan={3} className="p-4 text-center text-[#9fb3c8]">
+                                                    Cargando líderes…
                                                 </td>
                                             </tr>
-                                        ))}
+                                        ) : leadersModalRows.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={3} className="p-4 text-center text-[#9fb3c8]">
+                                                    Sin líderes para este cliente
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            leadersModalRows.map((row) => (
+                                                <tr key={row.id} className="border-t border-[#1a3a56]">
+                                                    <td className="p-2">{row.lider}</td>
+                                                    <td className="p-2">{row.activo ? 'Sí' : 'No'}</td>
+                                                    <td className="p-2">
+                                                        <button
+                                                            type="button"
+                                                            className="text-[#65BCF7] hover:underline text-xs"
+                                                            onClick={() => patchCatalogo(row, { activo: !row.activo })}
+                                                        >
+                                                            {row.activo ? 'Desactivar líder' : 'Activar líder'}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
                                     </tbody>
                                 </table>
                             </div>

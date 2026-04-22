@@ -421,7 +421,7 @@ function createDataLayer(deps) {
     }
 
     /**
-     * @param {{ activo?: boolean|null, q?: string, limit?: number, offset?: number }} opts
+     * @param {{ activo?: boolean|null, q?: string, cliente?: string|null, limit?: number, offset?: number }} opts
      */
     async function listClientesLideresPaged(opts = {}) {
         const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 2000);
@@ -433,6 +433,12 @@ function createDataLayer(deps) {
             params.push(opts.activo);
             where.push(`activo = $${params.length}`);
             whereAlias.push(`cl.activo = $${params.length}`);
+        }
+        const clienteExact = opts.cliente ? normalizeCatalogValue(opts.cliente) : '';
+        if (clienteExact) {
+            params.push(clienteExact);
+            where.push(`cliente = $${params.length}`);
+            whereAlias.push(`cl.cliente = $${params.length}`);
         }
         const qRaw = String(opts.q || '').trim();
         if (qRaw) {
@@ -469,6 +475,71 @@ function createDataLayer(deps) {
              ORDER BY cl.cliente ASC, cl.lider ASC
              LIMIT $${limIdx} OFFSET $${offIdx}`,
             params
+        );
+        return { rows: listQ.rows || [], total: countQ.rows[0]?.total ?? 0 };
+    }
+
+    /**
+     * Lista clientes del catálogo agrupados (una fila por `cliente`) con conteos y GP agregado.
+     * @param {{ activo?: boolean|null, q?: string, limit?: number, offset?: number }} opts
+     */
+    async function listClientesLideresByClienteSummaryPaged(opts = {}) {
+        const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 2000);
+        const offset = Math.max(Number(opts.offset) || 0, 0);
+        const params = [];
+        const whereAlias = [];
+        if (opts.activo === true || opts.activo === false) {
+            params.push(opts.activo);
+            whereAlias.push(`cl.activo = $${params.length}`);
+        }
+        const qRaw = String(opts.q || '').trim();
+        if (qRaw) {
+            params.push(`%${qRaw.toLowerCase()}%`);
+            whereAlias.push(
+                `(lower(cl.cliente) LIKE $${params.length} OR lower(cl.lider) LIKE $${params.length})`
+            );
+        }
+        const whereAliasSql = whereAlias.length ? `WHERE ${whereAlias.join(' AND ')}` : '';
+        const countQ = await pool.query(
+            `SELECT COUNT(*)::int AS total
+             FROM (
+                 SELECT cl.cliente
+                 FROM clientes_lideres cl
+                 ${whereAliasSql}
+                 GROUP BY cl.cliente
+             ) t`,
+            params
+        );
+        const listParams = [...params, limit, offset];
+        const limIdx = listParams.length - 1;
+        const offIdx = listParams.length;
+        const listQ = await pool.query(
+            `SELECT
+                agg.cliente,
+                agg.total_count,
+                agg.active_count,
+                agg.gp_distinct_count,
+                agg.gp_user_id,
+                NULLIF(BTRIM(u.full_name), '') AS gp_full_name
+             FROM (
+                 SELECT
+                     cl.cliente,
+                     COUNT(*)::int AS total_count,
+                     COUNT(*) FILTER (WHERE cl.activo)::int AS active_count,
+                     COUNT(DISTINCT CASE WHEN cl.gp_user_id IS NOT NULL THEN cl.gp_user_id END)::int AS gp_distinct_count,
+                     CASE
+                         WHEN COUNT(DISTINCT CASE WHEN cl.gp_user_id IS NOT NULL THEN cl.gp_user_id END) = 1
+                         THEN MAX(cl.gp_user_id::text)::uuid
+                         ELSE NULL
+                     END AS gp_user_id
+                 FROM clientes_lideres cl
+                 ${whereAliasSql}
+                 GROUP BY cl.cliente
+             ) agg
+             LEFT JOIN users u ON agg.gp_user_id IS NOT NULL AND u.id = agg.gp_user_id
+             ORDER BY agg.cliente ASC
+             LIMIT $${limIdx} OFFSET $${offIdx}`,
+            listParams
         );
         return { rows: listQ.rows || [], total: countQ.rows[0]?.total ?? 0 };
     }
@@ -525,8 +596,17 @@ function createDataLayer(deps) {
         return q.rows[0] || null;
     }
 
+    const COLAB_LIST_SORT = {
+        nombre: 'nombre',
+        cedula: 'cedula',
+        correo: 'correo_cinte',
+        cliente: 'cliente',
+        lider: 'lider_catalogo',
+        activo: 'activo'
+    };
+
     /**
-     * @param {{ q?: string, activo?: boolean|null, limit?: number, offset?: number }} opts
+     * @param {{ q?: string, activo?: boolean|null, limit?: number, offset?: number, sort?: string, dir?: string }} opts
      */
     async function listColaboradoresPaged(opts = {}) {
         const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
@@ -554,11 +634,15 @@ function createDataLayer(deps) {
         params.push(limit, offset);
         const limIdx = params.length - 1;
         const offIdx = params.length;
+        const sortKey = String(opts.sort || '').trim();
+        const orderCol = COLAB_LIST_SORT[sortKey] || 'nombre';
+        const orderDir = String(opts.dir || '').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+        const orderBySql = `ORDER BY ${orderCol} ${orderDir} NULLS LAST`;
         const listQ = await pool.query(
             `SELECT cedula, nombre, activo, correo_cinte, cliente, lider_catalogo, gp_user_id, created_at, updated_at
              FROM colaboradores
              ${whereSql}
-             ORDER BY nombre ASC
+             ${orderBySql}
              LIMIT $${limIdx} OFFSET $${offIdx}`,
             params
         );
@@ -1287,6 +1371,7 @@ function createDataLayer(deps) {
         getClientesList,
         getLideresByCliente,
         listClientesLideresPaged,
+        listClientesLideresByClienteSummaryPaged,
         insertClienteLider,
         updateClienteLiderById,
         listColaboradoresPaged,

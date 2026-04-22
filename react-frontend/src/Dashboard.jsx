@@ -230,12 +230,21 @@ export default function Dashboard({ token, auth, onLogout }) {
         console.log('[changeState] Iniciando cambio de estado:', { id, nuevoEstado, token: token ? '✅ token presente' : '❌ SIN TOKEN' });
         try {
             const fromHoraExtraAlert = Boolean(options?.fromHoraExtraAlert);
+            const csrfToken = (() => {
+                const raw = String(document?.cookie || '');
+                if (!raw) return '';
+                const part = raw.split(';').map((c) => c.trim()).find((c) => c.startsWith('cinteXsrf='));
+                return part ? decodeURIComponent(part.slice('cinteXsrf='.length)) : '';
+            })();
+            const headers = {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            };
+            if (csrfToken) headers['x-cinte-xsrf'] = csrfToken;
             const res = await fetch('/api/actualizar-estado', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
+                credentials: 'include',
+                headers,
                 body: JSON.stringify({
                     id,
                     nuevoEstado,
