@@ -879,9 +879,9 @@ function registerRoutes(deps) {
                 ok: true,
                 cedula: row.cedula,
                 nombre: row.nombre,
-                // HIGH-003: No exponer correo_cinte al formulario público sin autenticación.
-                // El backend resuelve el correo real desde BD en /api/enviar-novedad.
-                correo: '',
+                // Precarga el correo Cinte en el formulario público. Riesgo de enumeración mitigado con
+                // catalogLimiter; el POST /api/enviar-novedad sigue resolviendo el correo desde BD (no confía solo en el cliente).
+                correo: correoOut,
                 lockCorreo,
                 cliente: clienteOut,
                 lider: liderOut,

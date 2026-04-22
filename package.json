@@ -18,7 +18,11 @@
     "smoke:cotizador": "node scripts/smoke-cotizador-getCatalogos.js",
     "backfill:he-bogota": "node scripts/backfill-he-bogota-split.js",
     "backfill:he-bogota:apply": "node scripts/backfill-he-bogota-split.js --apply",
-    "diagnose:contratacion-dynamo": "node scripts/diagnose-contratacion-dynamo.js"
+    "diagnose:contratacion-dynamo": "node scripts/diagnose-contratacion-dynamo.js",
+    "migrate:capacidad-inventory": "node scripts/inventory-capacidad-ser-administrados-xlsx.js",
+    "migrate:capacidad-dry-run": "node scripts/analyze-capacidad-migration-dry-run.js",
+    "migrate:capacidad-apply": "node scripts/apply-capacidad-v2-migration.js --apply",
+    "test:load-formulario-20": "node scripts/load-test-formulario-20.js"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1030.0",
