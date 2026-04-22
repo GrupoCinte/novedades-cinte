@@ -225,7 +225,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {auth?.user && userHasContratacionPanel(auth) ? (
-                  <ContratacionModule token={auth.token || ''} auth={auth} onLogout={handleLogout} />
+                  <ContratacionModule auth={auth} onLogout={handleLogout} />
                 ) : (
                   <Navigate to="/admin" replace />
                 )}

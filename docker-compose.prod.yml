@@ -15,6 +15,8 @@ services:
       retries: 10
     networks: [nc_net]
 
+  # El backend necesita en .env: DB_*, JWT_SECRET, y para Contratación/Dynamo:
+  # DYNAMODB_TABLE_NAME, AWS_REGION, y credenciales AWS (o rol IAM en el host si aplica).
   backend:
     build:
       context: .

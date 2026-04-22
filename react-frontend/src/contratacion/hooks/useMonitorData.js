@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
-import { TERMINAL_STATUSES } from '../constants/trazabilidad.js';
-
 const API_PREFIX = '/api/contratacion';
 const WS_PATH = '/api/contratacion/ws';
 
@@ -18,6 +16,9 @@ function authHeaders(token) {
     if (!t) return {};
     return { Authorization: `Bearer ${t}` };
 }
+
+/** Sesión HttpOnly: el backend acepta cookie `cinteSession` además de Bearer. */
+const AXIOS_CRED = { withCredentials: true };
 
 /** Umbral único: alerta si el proceso activo lleva más de esto desde el inicio (ts_documentos_recibidos). */
 const SLA_ALERT_MS = 8 * 60 * 60 * 1000;
@@ -79,16 +80,15 @@ export function getTrazabilidadStageKey(status, statusId = null) {
     return 'cargando';
 }
 
-function isActiveStatus(status) {
-    const s = normalizeStatus(status);
-    if (TERMINAL_STATUSES.includes(s)) return false;
-    return true;
+/** Activo = no etapa final; usa la misma semántica que la trazabilidad (incl. statusId desde Dynamo). */
+function isActiveStatus(status, statusId = null) {
+    return getTrazabilidadStageKey(status, statusId) !== 'finalizado';
 }
 
 /**
- * @param {string} authToken JWT de aplicación (mismo que novedades / cinteAuth).
+ * @param {object|null} auth Objeto de sesión desde `/api/me` (p. ej. `{ user, token? }`). Con CRIT-002 suele no haber `token` en memoria: la cookie HttpOnly autentica las peticiones.
  */
-export default function useMonitorData(authToken) {
+export default function useMonitorData(auth) {
     const [executions, setExecutions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -104,8 +104,10 @@ export default function useMonitorData(authToken) {
     /** null = sin comprobar; indica si DYNAMODB_TABLE_NAME está definida en el servidor. */
     const [dynamoConfigured, setDynamoConfigured] = useState(null);
     const wsRef = useRef(null);
-    const tokenRef = useRef(authToken);
-    tokenRef.current = authToken;
+    const tokenRef = useRef(auth?.token || '');
+    tokenRef.current = auth?.token || '';
+    const sessionUserId = String(auth?.user?.email || auth?.user?.sub || auth?.user?.id || '').trim();
+    const bearerToken = String(auth?.token || '').trim();
 
     useEffect(() => {
         const id = setInterval(() => setSlaTick((n) => n + 1), 60000);
@@ -113,13 +115,11 @@ export default function useMonitorData(authToken) {
     }, []);
 
     const fetchExecutions = useCallback(async () => {
-        const token = tokenRef.current;
-        if (!token) {
-            setLoading(false);
-            return;
-        }
         try {
-            const response = await axios.get(`${API_PREFIX}/monitor`, { headers: authHeaders(token) });
+            const response = await axios.get(`${API_PREFIX}/monitor`, {
+                ...AXIOS_CRED,
+                headers: authHeaders(tokenRef.current)
+            });
             const data = response.data;
             if (data?.success) {
                 setExecutions(Array.isArray(data.executions) ? data.executions : []);
@@ -139,11 +139,16 @@ export default function useMonitorData(authToken) {
     }, []);
 
     const fetchMonitorConfig = useCallback(async () => {
-        const token = tokenRef.current;
-        if (!token) return;
         try {
-            const response = await axios.get(`${API_PREFIX}/monitor-config`, { headers: authHeaders(token) });
-            const maybe = response?.data?.kpi;
+            const response = await axios.get(`${API_PREFIX}/monitor-config`, {
+                ...AXIOS_CRED,
+                headers: authHeaders(tokenRef.current)
+            });
+            const d = response?.data;
+            if (d && typeof d.dynamoConfigured === 'boolean') {
+                setDynamoConfigured(d.dynamoConfigured);
+            }
+            const maybe = d?.kpi;
             if (!maybe || typeof maybe !== 'object') return;
             setKpiConfig((prev) => ({
                 humanProcessTimeMinutes: Number.isFinite(Number(maybe.humanProcessTimeMinutes))
@@ -161,32 +166,23 @@ export default function useMonitorData(authToken) {
     }, []);
 
     useEffect(() => {
-        if (!authToken) {
+        if (!sessionUserId) {
             setLoading(false);
+            setExecutions([]);
+            setError(null);
             return undefined;
         }
 
         fetchExecutions();
         fetchMonitorConfig();
 
-        (async () => {
-            try {
-                const r = await axios.get(`${API_PREFIX}/health`, { headers: authHeaders(tokenRef.current) });
-                if (r.data?.success && typeof r.data.dynamoConfigured === 'boolean') {
-                    setDynamoConfigured(r.data.dynamoConfigured);
-                }
-            } catch {
-                setDynamoConfigured(null);
-            }
-        })();
-
         const connectWebSocket = async () => {
-            const token = tokenRef.current;
-            if (!token) return;
-
             let ticket = '';
             try {
-                const r = await axios.get(`${API_PREFIX}/ws-token`, { headers: authHeaders(token) });
+                const r = await axios.get(`${API_PREFIX}/ws-token`, {
+                    ...AXIOS_CRED,
+                    headers: authHeaders(tokenRef.current)
+                });
                 ticket = r.data?.ticket ? String(r.data.ticket) : '';
             } catch {
                 setIsConnected(false);
@@ -237,7 +233,7 @@ export default function useMonitorData(authToken) {
             ws.onclose = () => {
                 setIsConnected(false);
                 setTimeout(() => {
-                    if (wsRef.current?.readyState === WebSocket.CLOSED && tokenRef.current) {
+                    if (wsRef.current?.readyState === WebSocket.CLOSED && sessionUserId) {
                         connectWebSocket();
                     }
                 }, 3000);
@@ -256,15 +252,15 @@ export default function useMonitorData(authToken) {
                 wsRef.current = null;
             }
         };
-    }, [authToken, fetchExecutions, fetchMonitorConfig]);
+    }, [sessionUserId, bearerToken, fetchExecutions, fetchMonitorConfig]);
 
     const activeExecutions = useMemo(
-        () => executions.filter((e) => isActiveStatus(e.realStatus)),
+        () => executions.filter((e) => isActiveStatus(e.realStatus, e.statusId)),
         [executions]
     );
 
     const historyExecutions = useMemo(
-        () => executions.filter((e) => !isActiveStatus(e.realStatus)),
+        () => executions.filter((e) => !isActiveStatus(e.realStatus, e.statusId)),
         [executions]
     );
 

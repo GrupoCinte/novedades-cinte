@@ -22,9 +22,9 @@ import { getContratacionPermissions } from './contratacion/contratacionAccess';
 
 export { userHasContratacionPanel } from './contratacion/contratacionAccess';
 
-function ContratacionDashboard({ token, currentView, onNavigate }) {
-    const { canEliminarCandidato } = useMemo(() => getContratacionPermissions(token), [token]);
-    const data = useMonitorData(token);
+function ContratacionDashboard({ auth, currentView, onNavigate }) {
+    const { canEliminarCandidato } = useMemo(() => getContratacionPermissions(auth), [auth]);
+    const data = useMonitorData(auth);
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -55,7 +55,7 @@ function ContratacionDashboard({ token, currentView, onNavigate }) {
                                 error={data.error}
                                 isConnected={data.isConnected}
                                 refetch={data.refetch}
-                                authToken={token}
+                                authToken={auth?.token || ''}
                                 canEliminarCandidato={canEliminarCandidato}
                                 dynamoConfigured={data.dynamoConfigured}
                             />
@@ -73,7 +73,7 @@ function ContratacionDashboard({ token, currentView, onNavigate }) {
     );
 }
 
-export default function ContratacionModule({ token, auth, onLogout }) {
+export default function ContratacionModule({ auth, onLogout }) {
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -252,7 +252,7 @@ export default function ContratacionModule({ token, auth, onLogout }) {
             </aside>
 
             <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                <ContratacionDashboard token={token} currentView={navView} onNavigate={setNavView} />
+                <ContratacionDashboard auth={auth} currentView={navView} onNavigate={setNavView} />
             </section>
         </div>
     );

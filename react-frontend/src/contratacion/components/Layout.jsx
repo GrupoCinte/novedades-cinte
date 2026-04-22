@@ -26,8 +26,15 @@ export default function Layout({ currentView, onNavigate, isConnected, lastUpdat
                                     <div className={`h-2 w-2 rounded-full ${isConnected ? 'bg-[var(--ok)]' : 'bg-[var(--error)]'}`} />
                                     {isConnected && <div className="absolute inset-0 h-2 w-2 rounded-full bg-[var(--ok)] animate-ping opacity-75" />}
                                 </div>
-                                <span className="text-xs font-semibold text-[var(--text)]">
-                                    {isConnected ? 'En Vivo' : 'Desconectado'}
+                                <span
+                                    className="text-xs font-semibold text-[var(--text)]"
+                                    title={
+                                        isConnected
+                                            ? 'WebSocket conectado: actualizaciones en tiempo real.'
+                                            : 'WebSocket sin conexión: la lista se cargó por API; puede reconectar solo. No indica fallo de DynamoDB.'
+                                    }
+                                >
+                                    {isConnected ? 'En vivo (WS)' : 'Sin WS en vivo'}
                                 </span>
                             </div>
                             {lastUpdate && (
