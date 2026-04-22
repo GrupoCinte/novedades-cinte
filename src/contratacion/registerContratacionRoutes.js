@@ -1,5 +1,6 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
+const { buildDynamoLowLevelClientConfig } = require('./awsDynamoClientConfig');
 const { mapDynamoItemToExecution } = require('./utils/mappers');
 const { scanAllItems, queryAllItems, DEFAULT_MAX } = require('./utils/dynamoPaged');
 const { validate, validateQuery } = require('./middleware/validate');
@@ -17,16 +18,7 @@ function buildKpiBaseline() {
 }
 
 function createDynamoDocClient() {
-    const awsRegion = process.env.AWS_REGION || 'us-east-1';
-    const clientConfig = { region: awsRegion };
-    if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-        clientConfig.credentials = {
-            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-            ...(process.env.AWS_SESSION_TOKEN ? { sessionToken: process.env.AWS_SESSION_TOKEN } : {})
-        };
-    }
-    const client = new DynamoDBClient(clientConfig);
+    const client = new DynamoDBClient(buildDynamoLowLevelClientConfig());
     return DynamoDBDocumentClient.from(client);
 }
 
@@ -130,7 +122,10 @@ function registerContratacionRoutes(deps) {
     app.get('/api/contratacion/monitor-config', ...guard, contratacionMonitorLimiter, (req, res) => {
         return res.json({
             success: true,
-            kpi
+            kpi,
+            dynamoConfigured: configured,
+            streamPollerEnabled: String(process.env.CONTRATACION_STREAM_POLLER_ENABLED || '').toLowerCase() === 'true',
+            awsRegion: process.env.AWS_REGION || 'us-east-1'
         });
     });
 

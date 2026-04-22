@@ -17,7 +17,8 @@
     "audit:cotizador-cargos": "node scripts/audit-cotizador-cargos-bd.js",
     "smoke:cotizador": "node scripts/smoke-cotizador-getCatalogos.js",
     "backfill:he-bogota": "node scripts/backfill-he-bogota-split.js",
-    "backfill:he-bogota:apply": "node scripts/backfill-he-bogota-split.js --apply"
+    "backfill:he-bogota:apply": "node scripts/backfill-he-bogota-split.js --apply",
+    "diagnose:contratacion-dynamo": "node scripts/diagnose-contratacion-dynamo.js"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1030.0",

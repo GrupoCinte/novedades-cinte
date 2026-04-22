@@ -7,6 +7,7 @@ const {
 const { DynamoDBClient, DescribeTableCommand: DDBDescribeTableCommand } = require('@aws-sdk/client-dynamodb');
 const { unmarshall } = require('@aws-sdk/util-dynamodb');
 const { mapDynamoItemToExecution } = require('./utils/mappers');
+const { buildDynamoLowLevelClientConfig } = require('./awsDynamoClientConfig');
 
 class StreamPoller {
     constructor(tableName, region, credentials, callback) {
@@ -16,10 +17,10 @@ class StreamPoller {
         this.streamArn = null;
         this._credentials = credentials || null;
 
-        const clientConfig = { region };
-        if (this._credentials) {
-            clientConfig.credentials = this._credentials;
-        }
+        const clientConfig = buildDynamoLowLevelClientConfig({
+            region,
+            credentials: this._credentials != null ? this._credentials : undefined
+        });
 
         this.streamsClient = new DynamoDBStreamsClient(clientConfig);
         this.dynamoClient = new DynamoDBClient(clientConfig);
@@ -214,10 +215,10 @@ class StreamPoller {
     }
 
     async recreateClients() {
-        const clientConfig = { region: this.region };
-        if (this._credentials) {
-            clientConfig.credentials = this._credentials;
-        }
+        const clientConfig = buildDynamoLowLevelClientConfig({
+            region: this.region,
+            credentials: this._credentials != null ? this._credentials : undefined
+        });
         this.streamsClient = new DynamoDBStreamsClient(clientConfig);
         this.dynamoClient = new DynamoDBClient(clientConfig);
     }

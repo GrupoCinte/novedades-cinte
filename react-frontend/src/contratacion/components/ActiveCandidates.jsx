@@ -302,7 +302,10 @@ export default function ActiveCandidates({
             await axios.post(
                 '/api/contratacion/eliminar-candidato',
                 { executionId: eliminarTarget.executionId, obs_eliminado: text },
-                { headers: { Authorization: `Bearer ${authToken}` } }
+                {
+                    withCredentials: true,
+                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {}
+                }
             );
             setEliminarTarget(null);
             setEliminarObs('');
@@ -560,11 +563,23 @@ export default function ActiveCandidates({
                         </>
                     )}
                 </p>
-                <span className="data-chip">Total flujo: {executions.length}</span>
+                <span className="data-chip">Total en Dynamo: {totalMonitorCount}</span>
             </div>
 
             {filtered.length === 0 ? (
-                <EmptyState />
+                totalMonitorCount > 0 && executions.length === 0 ? (
+                    <div className="rounded-xl border border-blue-500/35 bg-blue-500/10 px-5 py-10 text-center">
+                        <p className="text-sm font-semibold text-blue-100">
+                            Hay {totalMonitorCount} ejecución{totalMonitorCount !== 1 ? 'es' : ''} en el flujo, pero ninguna en estado activo.
+                        </p>
+                        <p className="mt-2 text-xs text-slate-300">
+                            Es probable que estén en etapa final (finalizado, rechazado, etc.). Abre{' '}
+                            <strong>Historial</strong> en el menú lateral para verlas.
+                        </p>
+                    </div>
+                ) : (
+                    <EmptyState />
+                )
             ) : (
                 <div className="surface-panel overflow-hidden">
                     <div className="grid grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-[rgba(159,179,200,0.95)]">
