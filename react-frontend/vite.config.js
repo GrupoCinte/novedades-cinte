@@ -13,6 +13,8 @@ export default defineConfig(({ mode }) => {
     plugins: [react(), tailwindcss()],
     server: {
       port: devPort,
+      /** Evita que Vite quede solo en [::1] en Windows; cloudflared usa 127.0.0.1 y sin esto devuelve 502. */
+      host: true,
       strictPort: false,
       allowedHosts: true,
       proxy: {

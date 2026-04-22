@@ -63,7 +63,7 @@ export default function CandidateModal({ selectedUser, onClose }) {
                         <span className={`text-sm font-medium uppercase tracking-wide ${
                             selectedUser.realStatus === 'analizando' ? 'text-cinte-warning' : 'text-[rgba(159,179,200,0.95)]'
                         }`}>
-                            {selectedUser.realStatus === 'analizando' ? 'IA Analizando Documentos...' : (selectedUser.realStatus || 'Sin Estado')}
+                            {selectedUser.realStatus === 'analizando' ? 'Analizando documentos…' : (selectedUser.realStatus || 'Sin Estado')}
                         </span>
                     </div>
                     {/* Tiempo de proceso: ya se muestra en otro componente (evita NaN en algunos datos). */}

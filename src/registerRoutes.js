@@ -1,6 +1,7 @@
 const { normalizeNovedadTypeKey } = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
+const { computeHoraExtraSplitBogota } = require('./heBogotaSplit');
 
 function buildConsultantKeyHeDomingo(row) {
     const cedula = String(row?.cedula || '').trim() || 'sin-cedula';
@@ -64,6 +65,7 @@ function parseMontoCopFromBody(raw) {
 function registerRoutes(deps) {
     const {
         app,
+        logger,
         authLimiter,
         forgotLimiter,
         submitLimiter,
@@ -115,11 +117,55 @@ function registerRoutes(deps) {
         POLICY,
         xlsx,
         emailNotificationsPublisher,
-        resolveApproverEmailsForNovedad
+        resolveApproverEmailsForNovedad,
+        revokeAppSessionToken
     } = deps;
+    const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+    const exposeInternalErrors = String(process.env.EXPOSE_INTERNAL_ERRORS || '').toLowerCase() === 'true';
+    const isDeployedEnv = isProduction || String(process.env.NODE_ENV || '').toLowerCase() === 'staging';
+    const secureCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
+    const sameSite = isProduction ? 'strict' : 'lax';
+    const exportMaxRows = Math.max(1, Number(process.env.EXPORT_MAX_ROWS || 5000));
 
-    const HORA_DIURNA_INICIO_MIN = 6 * 60;
-    const HORA_NOCTURNA_INICIO_MIN = 19 * 60;
+    function setSessionCookie(res, token, maxAgeSec) {
+        const ms = Number(maxAgeSec || 0) > 0 ? Number(maxAgeSec) * 1000 : 8 * 60 * 60 * 1000;
+        res.cookie('cinteSession', token, {
+            httpOnly: true,
+            secure: secureCookie,
+            sameSite,
+            path: '/api',
+            maxAge: ms
+        });
+    }
+
+    function setXsrfCookie(res) {
+        const value = randomUUID();
+        res.cookie('cinteXsrf', value, {
+            httpOnly: false,
+            secure: secureCookie,
+            sameSite,
+            path: '/api',
+            maxAge: 8 * 60 * 60 * 1000
+        });
+    }
+
+    async function validateUploadMagicBytes(file) {
+        const ext = path.extname(file?.originalname || '').toLowerCase();
+        const buf = file?.buffer || Buffer.alloc(0);
+        const startsWith = (bytes) => bytes.every((b, i) => buf[i] === b);
+
+        if (ext === '.xls') {
+            const hasOleMagic = buf.length >= 8
+                && buf[0] === 0xd0 && buf[1] === 0xcf && buf[2] === 0x11 && buf[3] === 0xe0
+                && buf[4] === 0xa1 && buf[5] === 0xb1 && buf[6] === 0x1a && buf[7] === 0xe1;
+            return hasOleMagic;
+        }
+        if (ext === '.pdf') return buf.length >= 5 && startsWith([0x25, 0x50, 0x44, 0x46, 0x2d]); // %PDF-
+        if (ext === '.jpg' || ext === '.jpeg') return buf.length >= 3 && startsWith([0xff, 0xd8, 0xff]);
+        if (ext === '.png') return buf.length >= 8 && startsWith([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        if (ext === '.xlsx') return buf.length >= 4 && startsWith([0x50, 0x4b, 0x03, 0x04]); // zip container
+        return false;
+    }
 
     function matchFoldToCandidate(raw, candidates) {
         const f = foldForMatch(raw);
@@ -151,46 +197,13 @@ function registerRoutes(deps) {
         return count;
     }
 
-    function toUtcMs(dateRaw, timeRaw) {
-        if (!dateRaw || !timeRaw) return null;
-        const normalizedTime = String(timeRaw).slice(0, 8);
-        const dateMs = Date.parse(`${dateRaw}T${normalizedTime}Z`);
-        return Number.isNaN(dateMs) ? null : dateMs;
-    }
-
-    function calculateHourSplit(dateStartRaw, timeStartRaw, dateEndRaw, timeEndRaw) {
-        const startMs = toUtcMs(dateStartRaw, timeStartRaw);
-        const endMs = toUtcMs(dateEndRaw, timeEndRaw);
-        if (startMs === null || endMs === null || endMs <= startMs) {
-            return { total: 0, diurnas: 0, nocturnas: 0 };
-        }
-
-        let diurnasMin = 0;
-        let nocturnasMin = 0;
-        const minuteMs = 60 * 1000;
-        for (let tick = startMs; tick < endMs; tick += minuteMs) {
-            const current = new Date(tick);
-            const minuteOfDay = (current.getUTCHours() * 60) + current.getUTCMinutes();
-            if (minuteOfDay >= HORA_DIURNA_INICIO_MIN && minuteOfDay < HORA_NOCTURNA_INICIO_MIN) {
-                diurnasMin += 1;
-            } else {
-                nocturnasMin += 1;
-            }
-        }
-
-        const diurnas = Number((diurnasMin / 60).toFixed(2));
-        const nocturnas = Number((nocturnasMin / 60).toFixed(2));
-        return {
-            total: Number(((diurnasMin + nocturnasMin) / 60).toFixed(2)),
-            diurnas,
-            nocturnas
-        };
-    }
-
-    function resolveHoraExtraLabel(diurnas, nocturnas) {
-        if (diurnas > 0 && nocturnas > 0) return 'Mixta';
-        if (diurnas > 0) return 'Diurna';
-        if (nocturnas > 0) return 'Nocturna';
+    /** Etiqueta tipo HE: eje diurno = HE diurna + recargo dom. diurno; eje nocturno = HE nocturna + recargo dom. nocturno. */
+    function resolveHoraExtraLabel(heDiurnas, heNocturnas, recDomDiurnas, recDomNocturnas) {
+        const d = Number(heDiurnas || 0) + Number(recDomDiurnas || 0);
+        const n = Number(heNocturnas || 0) + Number(recDomNocturnas || 0);
+        if (d > 0 && n > 0) return 'Mixta';
+        if (d > 0) return 'Diurna';
+        if (n > 0) return 'Nocturna';
         return null;
     }
 
@@ -362,9 +375,10 @@ function registerRoutes(deps) {
             const effectiveRole = resolveEffectiveRole(baseUser.role, roleRequested);
             const loginIdentity = String(identity || '').trim();
             const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
+            setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
+            setXsrfCookie(res);
             return res.json({
                 ok: true,
-                token: appAuth.token,
                 expiresIn: appAuth.expiresInSec,
                 user: appAuth.user,
                 claims: buildSafeLoginClaimsForClient(claims, appAuth.user.role, baseUser.role)
@@ -376,10 +390,9 @@ function registerRoutes(deps) {
             if (isClientError) {
                 return res.status(status).json({ ok: false, message: error.message || 'Error de autenticacion Cognito' });
             }
-            const expose = String(process.env.NODE_ENV || '').toLowerCase() !== 'production';
             return res.status(500).json({
                 ok: false,
-                message: expose && error?.message ? String(error.message) : 'Error interno'
+                message: (!isDeployedEnv && exposeInternalErrors && error?.message) ? String(error.message) : 'Error interno'
             });
         }
     });
@@ -393,7 +406,7 @@ function registerRoutes(deps) {
                 return res.status(400).json({ ok: false, message: 'Email, session y nueva contraseña son obligatorios' });
             }
             if (!isStrongPassword(newPassword)) {
-                return res.status(400).json({ ok: false, message: 'La contrasena debe tener 8+ caracteres, mayuscula, minuscula, numero y simbolo.' });
+                return res.status(400).json({ ok: false, message: 'La contrasena debe tener 12+ caracteres, mayuscula, minuscula, numero y simbolo.' });
             }
             if (!COGNITO_ENABLED) {
                 return res.status(400).json({ ok: false, message: 'Cognito no está habilitado' });
@@ -432,9 +445,10 @@ function registerRoutes(deps) {
             const effectiveRole = resolveEffectiveRole(baseUser.role, roleRequested);
             const loginIdentity = username;
             const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
+            setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
+            setXsrfCookie(res);
             return res.json({
                 ok: true,
-                token: appAuth.token,
                 expiresIn: appAuth.expiresInSec,
                 user: appAuth.user,
                 claims: buildSafeLoginClaimsForClient(claims, appAuth.user.role, baseUser.role)
@@ -446,10 +460,9 @@ function registerRoutes(deps) {
             if (isClientError) {
                 return res.status(status).json({ ok: false, message: error.message || 'Error completando reto de contraseña' });
             }
-            const expose = String(process.env.NODE_ENV || '').toLowerCase() !== 'production';
             return res.status(500).json({
                 ok: false,
-                message: expose && error?.message ? String(error.message) : 'Error interno'
+                message: (!isDeployedEnv && exposeInternalErrors && error?.message) ? String(error.message) : 'Error interno'
             });
         }
     });
@@ -490,7 +503,7 @@ function registerRoutes(deps) {
             const { email, code, newPassword } = req.body || {};
             if (!newPassword) return res.status(400).json({ ok: false, message: 'Nueva contrasena es obligatoria' });
             if (!isStrongPassword(newPassword)) {
-                return res.status(400).json({ ok: false, message: 'La contrasena debe tener 8+ caracteres, mayuscula, minuscula, numero y simbolo.' });
+                return res.status(400).json({ ok: false, message: 'La contrasena debe tener 12+ caracteres, mayuscula, minuscula, numero y simbolo.' });
             }
             if (!COGNITO_ENABLED) {
                 return res.status(503).json({ ok: false, message: 'Reset disponible solo vía Cognito.' });
@@ -528,7 +541,7 @@ function registerRoutes(deps) {
                 return res.status(400).json({ ok: false, message: 'Contrasena actual y nueva son obligatorias' });
             }
             if (!isStrongPassword(newPassword)) {
-                return res.status(400).json({ ok: false, message: 'La contrasena debe tener 8+ caracteres, mayuscula, minuscula, numero y simbolo.' });
+                return res.status(400).json({ ok: false, message: 'La contrasena debe tener 12+ caracteres, mayuscula, minuscula, numero y simbolo.' });
             }
 
             if (!COGNITO_ENABLED) {
@@ -569,6 +582,13 @@ function registerRoutes(deps) {
         }
     });
 
+    app.post('/api/auth/logout', verificarToken, async (req, res) => {
+        revokeAppSessionToken(req.authToken);
+        res.clearCookie('cinteSession', { path: '/api', sameSite, secure: secureCookie });
+        res.clearCookie('cinteXsrf', { path: '/api', sameSite, secure: secureCookie });
+        return res.json({ ok: true });
+    });
+
     app.get('/api/dashboard/metrics', verificarToken, allowPanel('dashboard'), applyScope, async (req, res) => {
         try {
             const scopedRows = await getScopedNovedades(req.scope);
@@ -589,11 +609,11 @@ function registerRoutes(deps) {
         try {
             const tipo = String(req.query.tipo || '').trim();
             const estado = String(req.query.estado || '').trim();
-            const correo = String(req.query.correo || '').trim();
+            const nombre = String(req.query.nombre || '').trim();
             const cliente = String(req.query.cliente || '').trim();
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
-            const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, cliente, createdFrom, createdTo });
+            const rows = await getScopedNovedades(req.scope, { tipo, estado, nombre, cliente, createdFrom, createdTo });
             const page = Math.max(1, Number(req.query.page || 1));
             const limitRaw = Number(req.query.limit || 0);
             const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 0;
@@ -625,11 +645,17 @@ function registerRoutes(deps) {
             const ExcelJS = require('exceljs');
             const tipo = String(req.query.tipo || '').trim();
             const estado = String(req.query.estado || '').trim();
-            const correo = String(req.query.correo || '').trim();
+            const nombre = String(req.query.nombre || '').trim();
             const cliente = String(req.query.cliente || '').trim();
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
-            const rows = await getScopedNovedades(req.scope, { tipo, estado, correo, cliente, createdFrom, createdTo });
+            const rows = await getScopedNovedades(req.scope, { tipo, estado, nombre, cliente, createdFrom, createdTo });
+            if (rows.length > exportMaxRows) {
+                return res.status(413).json({
+                    ok: false,
+                    error: `La exportación supera el límite permitido (${exportMaxRows} registros). Ajusta filtros o exporta por rangos.`
+                });
+            }
             const items = rows.map(toClientNovedad);
             const heDomingoDep = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow };
             const sundaySetsExport = buildSundayReportedSetsFromHeRows(
@@ -650,6 +676,9 @@ function registerRoutes(deps) {
                 { header: 'Horas', key: 'horas', width: 10 },
                 { header: 'Horas diurnas', key: 'horasDiurnas', width: 14 },
                 { header: 'Horas nocturnas', key: 'horasNocturnas', width: 14 },
+                { header: 'Horas recargo domingo', key: 'horasRecargoDomingo', width: 18 },
+                { header: 'Recargo dominical/festivos — diurno', key: 'horasRecargoDomingoDiurnas', width: 22 },
+                { header: 'Recargo dominical/festivos — nocturno', key: 'horasRecargoDomingoNocturnas', width: 24 },
                 { header: 'Observación HE domingo', key: 'observacionHeDomingo', width: 48 },
                 { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
                 { header: 'Estado', key: 'estado', width: 14 },
@@ -704,6 +733,11 @@ function registerRoutes(deps) {
                     horas: it.cantidadHoras || '0',
                     horasDiurnas: Number(it.horasDiurnas || 0) > 0 ? Number(it.horasDiurnas) : '',
                     horasNocturnas: Number(it.horasNocturnas || 0) > 0 ? Number(it.horasNocturnas) : '',
+                    horasRecargoDomingo: Number(it.horasRecargoDomingo || 0) > 0 ? Number(it.horasRecargoDomingo) : '',
+                    horasRecargoDomingoDiurnas:
+                        Number(it.horasRecargoDomingoDiurnas || 0) > 0 ? Number(it.horasRecargoDomingoDiurnas) : '',
+                    horasRecargoDomingoNocturnas:
+                        Number(it.horasRecargoDomingoNocturnas || 0) > 0 ? Number(it.horasRecargoDomingoNocturnas) : '',
                     observacionHeDomingo,
                     valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
                     estado: it.estado || '',
@@ -778,7 +812,8 @@ function registerRoutes(deps) {
 
     app.get('/api/catalogos/clientes', catalogLimiter, async (req, res) => {
         try {
-            const items = await getClientesList();
+            const rawItems = await getClientesList();
+            const items = rawItems.slice(0, 500).map((v) => String(v || '').trim()).filter(Boolean);
             return res.json({ ok: true, items });
         } catch (error) {
             console.error('Error catalogo clientes:', error);
@@ -790,7 +825,10 @@ function registerRoutes(deps) {
         try {
             const cliente = normalizeCatalogValue(req.query?.cliente || '');
             if (!cliente) return res.status(400).json({ ok: false, error: 'Parametro cliente es obligatorio' });
-            const items = await getLideresByCliente(cliente);
+            const items = (await getLideresByCliente(cliente))
+                .slice(0, 500)
+                .map((v) => String(v || '').trim())
+                .filter(Boolean);
             return res.json({ ok: true, items, cliente });
         } catch (error) {
             console.error('Error catalogo lideres:', error);
@@ -808,7 +846,6 @@ function registerRoutes(deps) {
             if (!row) {
                 return res.status(404).json({ ok: false, error: 'Cédula no registrada en el directorio de colaboradores.' });
             }
-            const correo = String(row.correo_cinte || '').trim();
             const clienteRaw = String(row.cliente || '').trim();
             const liderRaw = String(row.lider_catalogo || '').trim();
             const clienteNorm = normalizeCatalogValue(clienteRaw);
@@ -824,17 +861,16 @@ function registerRoutes(deps) {
                 const liderMatch = matchFoldToCandidate(liderNorm, lideresLista);
                 if (liderMatch) liderOut = liderMatch;
             }
-            const lockCorreo = Boolean(correo);
             const lockCliente = Boolean(clienteNorm);
             const lockLider = Boolean(liderNorm);
             return res.json({
                 ok: true,
                 cedula: row.cedula,
                 nombre: row.nombre,
-                correo,
+                correo: '',
                 cliente: clienteOut,
                 lider: liderOut,
-                lockCorreo,
+                lockCorreo: false,
                 lockCliente,
                 lockLider
             });
@@ -863,8 +899,24 @@ function registerRoutes(deps) {
                 const ext = path.extname(file.originalname || '').toLowerCase();
                 const mimeOk = !file.mimetype || allowedMimes.has(file.mimetype);
                 const extOk = allowedExt.has(ext);
-                if (!mimeOk || !extOk) {
+                const contentOk = await validateUploadMagicBytes(file);
+                if (!mimeOk || !extOk || !contentOk) {
                     return res.status(400).json({ ok: false, error: 'Tipo de archivo no permitido. Solo PDF, JPG, PNG, XLS o XLSX.' });
+                }
+            }
+
+            const tipoKeyPostFiles = String(rule?.key || normalizeNovedadTypeKey(tipoNovedad) || '');
+            if (tipoKeyPostFiles === 'vacaciones_tiempo') {
+                const hasExcel = files.some((f) => {
+                    const ext = path.extname(f.originalname || '').toLowerCase();
+                    return ext === '.xls' || ext === '.xlsx';
+                });
+                if (!hasExcel) {
+                    return res.status(400).json({
+                        ok: false,
+                        error:
+                            'Vacaciones en tiempo requiere al menos un archivo Excel (.xls o .xlsx) con el formato F-001-GCH - Solicitud de Vacaciones diligenciado.'
+                    });
                 }
             }
 
@@ -940,10 +992,10 @@ function registerRoutes(deps) {
             const novedadTypeKey = String(rule?.key || normalizeNovedadTypeKey(tipoNovedad) || '');
             const todayUtc = new Date().toISOString().slice(0, 10);
 
-            if (!fechaInicio) {
+            if (novedadTypeKey !== 'vacaciones_dinero' && !fechaInicio) {
                 return res.status(400).json({ ok: false, error: 'Fecha Inicio es obligatoria.' });
             }
-            if (fechaFin && fechaFin < fechaInicio) {
+            if (fechaFin && fechaInicio && fechaFin < fechaInicio) {
                 return res.status(400).json({ ok: false, error: 'Fecha Fin no puede ser menor a Fecha Inicio.' });
             }
             if (novedadTypeKey === 'incapacidad' && fechaInicio > todayUtc) {
@@ -953,6 +1005,9 @@ function registerRoutes(deps) {
             let cantidadHoras = Number(body.cantidadHoras || 0) || 0;
             let horasDiurnas = Number(body.horasDiurnas || 0) || 0;
             let horasNocturnas = Number(body.horasNocturnas || 0) || 0;
+            let horasRecargoDomingo = 0;
+            let horasRecargoDomingoDiurnas = 0;
+            let horasRecargoDomingoNocturnas = 0;
             let tipoHoraExtra = String(body.tipoHoraExtra || '').trim() || null;
 
             if (novedadTypeKey === 'vacaciones_tiempo') {
@@ -967,32 +1022,59 @@ function registerRoutes(deps) {
             }
 
             if (novedadTypeKey === 'vacaciones_dinero') {
-                if (!fechaFin) {
-                    return res.status(400).json({ ok: false, error: 'Vacaciones en dinero requiere Fecha Fin.' });
+                const diasRaw = Number(body.diasSolicitados ?? body.cantidadHoras ?? 0);
+                if (!Number.isFinite(diasRaw) || diasRaw < 1 || Math.floor(diasRaw) !== diasRaw) {
+                    return res.status(400).json({
+                        ok: false,
+                        error: 'Vacaciones en dinero requiere cantidad de días (entero mayor o igual a 1).'
+                    });
                 }
-                cantidadHoras = 0;
+                cantidadHoras = Math.floor(diasRaw);
             }
 
             if (novedadTypeKey === 'hora_extra') {
                 if (!horaInicio || !horaFin || !fechaInicio || !fechaFin) {
                     return res.status(400).json({ ok: false, error: 'Hora Extra requiere Fecha Inicio/Fin y Hora Inicio/Fin.' });
                 }
-                const split = calculateHourSplit(fechaInicio, horaInicio, fechaFin, horaFin);
+                const startMs = toUtcMsFromDateAndTime(fechaInicio, horaInicio);
+                const endMs = toUtcMsFromDateAndTime(fechaFin, horaFin);
+                const MAX_HORA_EXTRA_MS = 168 * 60 * 60 * 1000;
+                if (
+                    startMs != null &&
+                    endMs != null &&
+                    Number.isFinite(endMs - startMs) &&
+                    endMs - startMs > MAX_HORA_EXTRA_MS
+                ) {
+                    return res.status(400).json({
+                        ok: false,
+                        error: 'Hora Extra: el lapso entre inicio y fin no puede superar 168 horas (7 días).'
+                    });
+                }
+                const split = computeHoraExtraSplitBogota(startMs, endMs);
                 if (split.total <= 0) {
                     return res.status(400).json({ ok: false, error: 'La fecha/hora fin debe ser mayor a la fecha/hora inicio.' });
                 }
                 cantidadHoras = split.total;
                 horasDiurnas = split.diurnas;
                 horasNocturnas = split.nocturnas;
-                tipoHoraExtra = resolveHoraExtraLabel(horasDiurnas, horasNocturnas);
+                horasRecargoDomingo = split.horasRecargoDomingo;
+                horasRecargoDomingoDiurnas = split.horasRecargoDomingoDiurnas;
+                horasRecargoDomingoNocturnas = split.horasRecargoDomingoNocturnas;
+                tipoHoraExtra = resolveHoraExtraLabel(
+                    horasDiurnas,
+                    horasNocturnas,
+                    horasRecargoDomingoDiurnas,
+                    horasRecargoDomingoNocturnas
+                );
             }
 
             let montoCop = null;
-            if (novedadTypeKey === 'bonos') {
+            if (novedadTypeKey === 'bonos' || novedadTypeKey === 'apoyo') {
                 const rawMonto = body.montoCop ?? body.montoBono ?? body.valorBonificacion;
                 const parsed = parseMontoCopFromBody(rawMonto);
                 if (!Number.isFinite(parsed) || parsed <= 0) {
-                    return res.status(400).json({ ok: false, error: 'Bonos requiere un valor en pesos mayor a cero.' });
+                    const tipoLabel = novedadTypeKey === 'bonos' ? 'Bonos' : 'Disponibilidad';
+                    return res.status(400).json({ ok: false, error: `${tipoLabel} requiere un valor en pesos mayor a cero.` });
                 }
                 montoCop = Number(parsed.toFixed(2));
                 cantidadHoras = 0;
@@ -1000,16 +1082,23 @@ function registerRoutes(deps) {
 
             const gpUserIdSnapshot = colaborador.gp_user_id || null;
 
+            let insertFechaInicio = fechaInicio;
+            let insertFechaFin = fechaFin;
+            if (novedadTypeKey === 'vacaciones_dinero') {
+                insertFechaInicio = fechaInicio || todayUtc;
+                insertFechaFin = null;
+            }
+
             const insertResult = await pool.query(
                 `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
-                    cantidad_horas, horas_diurnas, horas_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, estado
+                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, estado
                 )
                 VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8::user_area,
                     $9::date, $10::time, $11::time, $12::date, $13::date,
-                    $14, $15, $16, $17, $18, $19, 'Pendiente'::novedad_estado
+                    $14, $15, $16, $17, $18, $19, $20, $21, $22, 'Pendiente'::novedad_estado
                 )
                 RETURNING id`,
                 [
@@ -1024,11 +1113,14 @@ function registerRoutes(deps) {
                     fecha,
                     horaInicio,
                     horaFin,
-                    fechaInicio,
-                    fechaFin,
+                    insertFechaInicio,
+                    insertFechaFin,
                     cantidadHoras,
                     horasDiurnas,
                     horasNocturnas,
+                    horasRecargoDomingo,
+                    horasRecargoDomingoDiurnas,
+                    horasRecargoDomingoNocturnas,
                     tipoHoraExtra,
                     archivoRuta,
                     montoCop
@@ -1042,8 +1134,8 @@ function registerRoutes(deps) {
                 cliente,
                 lider,
                 tipoNovedad,
-                fechaInicio,
-                fechaFin,
+                fechaInicio: insertFechaInicio,
+                fechaFin: insertFechaFin,
                 cantidadHoras,
                 montoCop,
                 correoSolicitanteResolved: correoSolicitanteFinal
@@ -1224,17 +1316,11 @@ function registerRoutes(deps) {
             }
 
             const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
-            // 1) Correo explícito del cliente (= el mismo que muestra el panel). Sesión ya validada con verificarToken.
-            const fromBody = String((req.body || {}).actorEmail || '').trim();
-            let actorEmail = emailOk(fromBody) ? fromBody : '';
-            // 2) Usuario derivado del token en servidor
-            if (!actorEmail) {
-                actorEmail = String(req.user?.email || '').trim();
-                if (!emailOk(actorEmail) && String(req.user?.username || '').includes('@')) {
-                    actorEmail = String(req.user.username).trim();
-                }
+            // Derivar actor exclusivamente del token/sesión validado en backend (MED-006).
+            let actorEmail = String(req.user?.email || '').trim();
+            if (!emailOk(actorEmail) && String(req.user?.username || '').includes('@')) {
+                actorEmail = String(req.user.username).trim();
             }
-            // 3) Payload JWT sin re-verificar (mismo Bearer ya validado)
             if (!actorEmail) {
                 const payload = decodeJwtPayload(req.authToken) || {};
                 const un = String(payload.username || '').trim();
@@ -1331,33 +1417,31 @@ function registerRoutes(deps) {
     });
 
     app.get('/api/debug/whoami', verificarToken, allowPanel('admin'), async (req, res) => {
-        try {
-            const users = await pool.query('SELECT email, username, role, area FROM users ORDER BY username ASC');
-            return res.json({
-                ok: true,
-                frontendUrl: FRONTEND_URL,
-                users: users.rows.map((u) => ({
-                    email: u.email,
-                    username: u.username,
-                    role: u.role,
-                    area: u.area,
-                    panels: POLICY[u.role]?.panels || []
-                }))
-            });
-        } catch (error) {
-            console.error('Error debug/whoami:', error);
-            return res.status(500).json({ ok: false, error: 'Error interno' });
+        if (isDeployedEnv) {
+            return res.status(404).json({ ok: false, error: 'No encontrado' });
         }
+        return res.json({ ok: true, me: req.user });
     });
 
     app.use((err, req, res, next) => {
+        const requestId = String(req.headers['x-request-id'] || randomUUID());
         if (err && (err.code === 'LIMIT_FILE_SIZE' || /Tipo de archivo no permitido/i.test(err.message))) {
             const message = err.code === 'LIMIT_FILE_SIZE' ? 'El archivo supera 5MB.' : 'Tipo de archivo no permitido. Solo PDF, JPG, PNG, XLS o XLSX.';
             return res.status(400).json({ ok: false, error: message });
         }
         if (err) {
-            console.error('Error no controlado:', err);
-            return res.status(500).json({ ok: false, error: 'Error interno del servidor' });
+            logger.error({
+                requestId,
+                path: req.path,
+                method: req.method,
+                actor: req.user?.email || req.user?.sub || null,
+                message: err?.message || String(err),
+                stack: err?.stack
+            }, 'Error no controlado');
+            const publicMessage = (!isDeployedEnv && exposeInternalErrors && err?.message)
+                ? String(err.message)
+                : 'Error interno del servidor';
+            return res.status(500).json({ ok: false, error: publicMessage, requestId });
         }
         return next();
     });

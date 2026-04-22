@@ -118,7 +118,7 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
     return (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
             <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <MetricTile title="Tiempo Prom. IA" value={metrics.averageTime} subtitle="Pipeline automatico" />
+                <MetricTile title="Tiempo prom. pipeline" value={metrics.averageTime} subtitle="Pipeline automático" />
                 <MetricTile title="Espera de Firma" value={metrics.avgWaitTime} subtitle="Friccion del candidato" />
                 <MetricTile title="Ahorro Estimado" value={metrics.costSaved} subtitle={metrics.costSavedSubtext || 'Costo evitado'} />
             </section>

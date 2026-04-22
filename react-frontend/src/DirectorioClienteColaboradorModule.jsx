@@ -59,22 +59,11 @@ function GpUserSelect({ value, onChange, options, className }) {
     );
 }
 
-function readAuthEmailRole() {
-    try {
-        const raw = JSON.parse(localStorage.getItem('cinteAuth') || 'null');
-        const email = String(raw?.user?.email || raw?.claims?.email || 'sin-correo').toLowerCase();
-        const role = String(raw?.user?.role || raw?.claims?.role || 'sin_rol')
-            .replace(/_/g, ' ')
-            .toUpperCase();
-        return { email, role };
-    } catch {
-        return { email: 'sin-correo', role: 'SIN ROL' };
-    }
-}
-
-export default function DirectorioClienteColaboradorModule({ token, onLogout }) {
+export default function DirectorioClienteColaboradorModule({ token, auth, onLogout }) {
     const navigate = useNavigate();
-    const { email: currentEmail, role: currentRoleLabel } = useMemo(() => readAuthEmailRole(), []);
+    // CRIT-002: Derivar de la prop auth (cookie HttpOnly), sin leer localStorage
+    const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
+    const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -359,10 +348,7 @@ export default function DirectorioClienteColaboradorModule({ token, onLogout }) 
 
     const handleSidebarLogout = () => {
         if (onLogout) onLogout();
-        else {
-            localStorage.removeItem('cinteAuth');
-            navigate('/admin', { replace: true });
-        }
+        else navigate('/admin', { replace: true });
     };
 
     async function patchCatalogo(row, patch) {

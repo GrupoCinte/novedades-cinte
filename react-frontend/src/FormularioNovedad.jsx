@@ -1,6 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NOVEDAD_TYPES, getNovedadRule } from './novedadRules';
 import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat';
+import { toUtcMsFromDateAndTime } from './heNovedadBogotaClient.js';
+
+function normalizeHoraHePayload(timeRaw) {
+    const t = String(timeRaw || '').trim();
+    if (!t) return '';
+    if (/^\d{2}:\d{2}:\d{2}$/.test(t)) return t.slice(0, 8);
+    if (/^\d{2}:\d{2}$/.test(t)) return `${t}:00`;
+    return t.slice(0, 8);
+}
 
 const ALLOWED_ATTACHMENT_MIME = new Set([
     'application/pdf',
@@ -13,7 +22,10 @@ const ALLOWED_ATTACHMENT_EXT = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.xls',
 const ALLOWED_EXCEL_EXT = new Set(['.xls', '.xlsx']);
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
-const MSG_EXCEL_PLANTILLA = '❌ Este tipo de novedad requiere al menos un archivo Excel (.xls o .xlsx) con el formato diligenciado.';
+const MSG_EXCEL_PLANTILLA_GENERICO =
+    '❌ Este tipo de novedad requiere al menos un archivo Excel (.xls o .xlsx) con el formato diligenciado.';
+const MSG_EXCEL_PLANTILLA_VACACIONES_TIEMPO =
+    '❌ Vacaciones en tiempo requiere al menos un archivo Excel (.xls o .xlsx) con el formato F-001-GCH - Solicitud de Vacaciones diligenciado.';
 
 function isExcelAttachment(file) {
     const lowerName = String(file?.name || '').toLowerCase();
@@ -68,8 +80,11 @@ export default function FormularioNovedad() {
     const requierePlantillaExcel = Array.isArray(rule.formatLinks) && rule.formatLinks.length > 0;
     const requiereDias = Boolean(rule.requiresDayCount);
     const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays);
+    const esVacacionesTiempo = formData.tipo === 'Vacaciones en tiempo';
     const esVacacionesDinero = formData.tipo === 'Vacaciones en dinero';
-    const esBonos = formData.tipo === 'Bonos';
+    const requiereMontoCop = Boolean(rule.requiresMonetaryAmount);
+    const esDisponibilidad = formData.tipo === 'Disponibilidad';
+    const esSinAdjuntosPublicos = esDisponibilidad || esVacacionesDinero;
     const esIncapacidad = formData.tipo === 'Incapacidad';
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
     const usaBloqueHoras = isHoraExtra || requiereLapsoHora;
@@ -114,37 +129,19 @@ export default function FormularioNovedad() {
 
     const horasCalculadas = useMemo(() => {
         if (!usaBloqueHoras) return 0;
+        if (isHoraExtra) {
+            const hi = normalizeHoraHePayload(formData.horaInicio);
+            const hf = normalizeHoraHePayload(formData.horaFin);
+            const a = toUtcMsFromDateAndTime(formData.fechaInicio, hi);
+            const b = toUtcMsFromDateAndTime(formData.fechaFin, hf);
+            if (a == null || b == null || b <= a) return 0;
+            return Number(((b - a) / (1000 * 60 * 60)).toFixed(2));
+        }
         const inicioMs = buildDateTimeMs(formData.fechaInicio, formData.horaInicio);
         const finMs = buildDateTimeMs(formData.fechaFin, formData.horaFin);
         if (inicioMs === null || finMs === null || finMs <= inicioMs) return 0;
         return Number(((finMs - inicioMs) / (1000 * 60 * 60)).toFixed(2));
-    }, [usaBloqueHoras, formData.fechaInicio, formData.fechaFin, formData.horaInicio, formData.horaFin]);
-
-    const hourBreakdown = useMemo(() => {
-        if (!isHoraExtra) return { diurnas: 0, nocturnas: 0, label: '' };
-        const inicioMs = buildDateTimeMs(formData.fechaInicio, formData.horaInicio);
-        const finMs = buildDateTimeMs(formData.fechaFin, formData.horaFin);
-        if (inicioMs === null || finMs === null || finMs <= inicioMs) return { diurnas: 0, nocturnas: 0, label: '' };
-
-        let diurnasMin = 0;
-        let nocturnasMin = 0;
-        for (let tick = inicioMs; tick < finMs; tick += 60 * 1000) {
-            const current = new Date(tick);
-            const minuteOfDay = (current.getHours() * 60) + current.getMinutes();
-            if (minuteOfDay >= 360 && minuteOfDay < 1140) {
-                diurnasMin += 1;
-            } else {
-                nocturnasMin += 1;
-            }
-        }
-        const diurnas = Number((diurnasMin / 60).toFixed(2));
-        const nocturnas = Number((nocturnasMin / 60).toFixed(2));
-        let label = '';
-        if (diurnas > 0 && nocturnas > 0) label = 'Mixta';
-        else if (diurnas > 0) label = 'Diurna';
-        else if (nocturnas > 0) label = 'Nocturna';
-        return { diurnas, nocturnas, label };
-    }, [isHoraExtra, formData.fechaInicio, formData.fechaFin, formData.horaInicio, formData.horaFin]);
+    }, [usaBloqueHoras, isHoraExtra, formData.fechaInicio, formData.fechaFin, formData.horaInicio, formData.horaFin]);
 
     const diasHabilesCalculados = useMemo(() => {
         if (!autocalculaDiasHabiles) return 0;
@@ -174,7 +171,15 @@ export default function FormularioNovedad() {
         && formData.fechaFin
         && formData.horaInicio
         && formData.horaFin
-        && buildDateTimeMs(formData.fechaFin, formData.horaFin) <= buildDateTimeMs(formData.fechaInicio, formData.horaInicio);
+        && (
+            isHoraExtra
+                ? (() => {
+                    const a = toUtcMsFromDateAndTime(formData.fechaInicio, normalizeHoraHePayload(formData.horaInicio));
+                    const b = toUtcMsFromDateAndTime(formData.fechaFin, normalizeHoraHePayload(formData.horaFin));
+                    return a == null || b == null || b <= a;
+                })()
+                : buildDateTimeMs(formData.fechaFin, formData.horaFin) <= buildDateTimeMs(formData.fechaInicio, formData.horaInicio)
+        );
 
     const horaInicioFormatoInvalido = usaBloqueHoras
         && Boolean(formData.horaInicio)
@@ -201,6 +206,7 @@ export default function FormularioNovedad() {
         );
 
     const bloqueoEnvioFechas = !usaBloqueHoras
+        && !esVacacionesDinero
         && (!formData.fechaInicio || fechaFinInvalida);
 
     const handleChange = (e) => {
@@ -249,15 +255,26 @@ export default function FormularioNovedad() {
             const nextRule = getNovedadRule(value);
             const nextRequiereDias = Boolean(nextRule.requiresDayCount);
             const nextAutoDias = Boolean(nextRule.autoBusinessDays);
-            const nextDias = nextAutoDias
-                ? String(countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin))
-                : (nextRequiereDias ? formData.diasSolicitados : '');
+            let nextDias = '';
+            if (value === 'Vacaciones en dinero') {
+                nextDias = '';
+            } else if (nextAutoDias) {
+                nextDias = String(countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin));
+            } else if (nextRequiereDias) {
+                nextDias = formData.diasSolicitados;
+            }
+            const fechasVacacionesDinero =
+                value === 'Vacaciones en dinero' ? { fechaInicio: '', fechaFin: '' } : {};
             setFormData({
                 ...formData,
                 tipo: value,
                 diasSolicitados: nextDias,
-                montoBono: value === 'Bonos' ? '$ ' : '$ '
+                montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ ',
+                ...fechasVacacionesDinero
             });
+            if (value === 'Disponibilidad' || value === 'Vacaciones en dinero') {
+                setSelectedFiles([]);
+            }
             return;
         }
         if (name === 'montoBono') {
@@ -421,30 +438,32 @@ export default function FormularioNovedad() {
         }
 
 
-        if (requiereAdjunto && selectedFiles.length < requiredDocsCount) {
-            setStatus({
-                type: 'error',
-                text: `❌ Debes adjuntar todos los documentos requeridos: ${requiredDocuments.join(', ')}.`
-            });
-            return;
-        }
-
-
-        if (requierePlantillaExcel) {
-            if (selectedFiles.length === 0) {
-                setStatus({ type: 'error', text: '❌ Debes adjuntar el formato Excel diligenciado (.xls o .xlsx).' });
+        if (!esSinAdjuntosPublicos) {
+            if (requiereAdjunto && selectedFiles.length < requiredDocsCount) {
+                setStatus({
+                    type: 'error',
+                    text: `❌ Debes adjuntar todos los documentos requeridos: ${requiredDocuments.join(', ')}.`
+                });
                 return;
             }
-            if (!selectedFiles.some(isExcelAttachment)) {
-                setStatus({ type: 'error', text: MSG_EXCEL_PLANTILLA });
-                return;
+
+            if (requierePlantillaExcel) {
+                const msgVac = esVacacionesTiempo ? MSG_EXCEL_PLANTILLA_VACACIONES_TIEMPO : MSG_EXCEL_PLANTILLA_GENERICO;
+                if (selectedFiles.length === 0) {
+                    setStatus({ type: 'error', text: msgVac });
+                    return;
+                }
+                if (!selectedFiles.some(isExcelAttachment)) {
+                    setStatus({ type: 'error', text: msgVac });
+                    return;
+                }
             }
-        }
-        for (const file of selectedFiles) {
-            const attachmentError = getAttachmentError(file);
-            if (attachmentError) {
-                setStatus({ type: 'error', text: attachmentError });
-                return;
+            for (const file of selectedFiles) {
+                const attachmentError = getAttachmentError(file);
+                if (attachmentError) {
+                    setStatus({ type: 'error', text: attachmentError });
+                    return;
+                }
             }
         }
 
@@ -458,14 +477,24 @@ export default function FormularioNovedad() {
             return;
         }
 
-        if (esVacacionesDinero && !formData.fechaFin) {
-            setStatus({ type: 'error', text: '❌ Vacaciones en dinero requiere Fecha Fin.' });
-            return;
+        if (esVacacionesDinero) {
+            const dias = Number(formData.diasSolicitados);
+            if (!Number.isFinite(dias) || dias < 1 || Math.floor(dias) !== dias) {
+                setStatus({
+                    type: 'error',
+                    text: '❌ Indica la cantidad de días a solicitar (número entero mayor o igual a 1).'
+                });
+                return;
+            }
         }
 
         if (usaBloqueHoras) {
-            const inicio = buildDateTimeMs(formData.fechaInicio, formData.horaInicio);
-            const fin = buildDateTimeMs(formData.fechaFin, formData.horaFin);
+            const inicio = isHoraExtra
+                ? toUtcMsFromDateAndTime(formData.fechaInicio, normalizeHoraHePayload(formData.horaInicio))
+                : buildDateTimeMs(formData.fechaInicio, formData.horaInicio);
+            const fin = isHoraExtra
+                ? toUtcMsFromDateAndTime(formData.fechaFin, normalizeHoraHePayload(formData.horaFin))
+                : buildDateTimeMs(formData.fechaFin, formData.horaFin);
 
             if (!formData.fechaInicio || !formData.fechaFin || inicio === null || fin === null) {
                 setStatus({ type: 'error', text: '❌ Este tipo requiere fecha inicio, fecha fin y lapso horario.' });
@@ -477,10 +506,10 @@ export default function FormularioNovedad() {
             }
         }
 
-        if (esBonos) {
+        if (requiereMontoCop) {
             const monto = parseMontoCOPInput(formData.montoBono);
             if (monto == null || monto <= 0) {
-                setStatus({ type: 'error', text: '❌ Bonos requiere un valor en pesos mayor a cero (ej. $ 1.500.000 o 1500000,50).' });
+                setStatus({ type: 'error', text: '❌ Indica un valor en pesos mayor a cero (ej. $ 1.500.000 o 1500000,50).' });
                 return;
             }
         }
@@ -503,23 +532,33 @@ export default function FormularioNovedad() {
                 payload.append('horaFin', formData.horaFin);
                 payload.append('fechaInicio', formData.fechaInicio);
                 payload.append('fechaFin', formData.fechaFin);
-                payload.append('cantidadHoras', String(requiereLapsoHora ? horasCalculadas : horasCalculadas));
-                payload.append('horasDiurnas', String(hourBreakdown.diurnas || 0));
-                payload.append('horasNocturnas', String(hourBreakdown.nocturnas || 0));
-                payload.append('tipoHoraExtra', hourBreakdown.label || '');
+                payload.append('cantidadHoras', String(horasCalculadas));
+                if (!isHoraExtra) {
+                    payload.append('horasDiurnas', '0');
+                    payload.append('horasNocturnas', '0');
+                    payload.append('tipoHoraExtra', '');
+                }
+            } else if (esVacacionesDinero) {
+                const dias = Math.floor(Number(formData.diasSolicitados || 0));
+                payload.append('fechaInicio', todayIso);
+                payload.append('fechaFin', '');
+                payload.append('diasSolicitados', String(dias));
+                payload.append('cantidadHoras', String(dias));
             } else {
                 payload.append('fechaInicio', formData.fechaInicio);
                 payload.append('fechaFin', formData.fechaFin || 'N/A');
                 const diasValue = autocalculaDiasHabiles ? diasHabilesCalculados : Number(formData.diasSolicitados || 0);
                 payload.append('cantidadHoras', requiereDias ? diasValue : (formData.cantidadHoras || 0));
             }
-            if (esBonos) {
+            if (requiereMontoCop) {
                 const monto = parseMontoCOPInput(formData.montoBono);
                 payload.append('montoCop', String(monto != null ? monto : 0));
             }
 
-            for (const file of selectedFiles) {
-                payload.append('soportes', file);
+            if (!esSinAdjuntosPublicos) {
+                for (const file of selectedFiles) {
+                    payload.append('soportes', file);
+                }
             }
 
             const res = await fetch('/api/enviar-novedad', {
@@ -752,11 +791,13 @@ export default function FormularioNovedad() {
                                             <p className="text-xs text-[#4a6f8f] font-body mt-1">Líder según directorio; no editable.</p>
                                         )}
                                     </div>
-                                    {esBonos && (
+                                    {requiereMontoCop && (
                                         <div className="flex flex-col gap-1 md:col-span-2 animate-in fade-in duration-300">
-                                            <label className={labelCls}>Valor del bono (COP) {reqStar}</label>
+                                            <label className={labelCls}>
+                                                {formData.tipo === 'Bonos' ? 'Valor del bono (COP)' : 'Valor de disponibilidad (COP)'} {reqStar}
+                                            </label>
                                             <input
-                                                required={esBonos}
+                                                required={requiereMontoCop}
                                                 name="montoBono"
                                                 value={formData.montoBono}
                                                 onChange={handleChange}
@@ -820,7 +861,7 @@ export default function FormularioNovedad() {
                                             <input name="cantidadHoras" value={horasCalculadas || ''} readOnly type="text" placeholder="0" className={`${inputCls} read-only:bg-[#04141E]/60 read-only:text-[#9fb3c8]`} />
                                         </div>
                                         <div className="md:col-span-2 text-xs text-[#4a6f8f] font-body">
-                                            Formato militar <strong className="text-[#9fb3c8]">HH:mm</strong>. La fecha/hora fin debe ser mayor que la de inicio.
+                                            Formato militar <strong className="text-[#9fb3c8]">HH:mm</strong> en reloj <strong className="text-[#9fb3c8]">America/Bogotá</strong> (civil Colombia). La fecha/hora fin debe ser mayor que la de inicio.
                                         </div>
                                         {(horaInicioFormatoInvalido || horaFinFormatoInvalido) && (
                                             <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">
@@ -832,20 +873,46 @@ export default function FormularioNovedad() {
                                                 La fecha/hora fin debe ser mayor que la fecha/hora inicio.
                                             </div>
                                         )}
+                                        {isHoraExtra && (
+                                            <div className="md:col-span-2 text-xs text-[#4a6f8f] font-body">
+                                                El desglose (hora extra diurna/nocturna y recargo dominical/festivos diurno/nocturno hasta 7,33 h) lo calcula el sistema al guardar; en gestión verás el detalle.
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
-                                {!usaBloqueHoras && (
+                                {!usaBloqueHoras && !esVacacionesDinero && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
                                             <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} className={inputCls} />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className={labelCls}>Fecha Fin {(autocalculaDiasHabiles || esVacacionesDinero) && reqStar}</label>
-                                            <input required={autocalculaDiasHabiles || esVacacionesDinero} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} className={inputCls} />
+                                            <label className={labelCls}>Fecha Fin {autocalculaDiasHabiles && reqStar}</label>
+                                            <input required={autocalculaDiasHabiles} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} className={inputCls} />
                                             {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
                                         </div>
+                                    </div>
+                                )}
+
+                                {esVacacionesDinero && (
+                                    <div className="flex flex-col gap-1 mt-4 max-w-xs animate-in fade-in duration-300">
+                                        <label className={labelCls}>Cantidad de días a solicitar {reqStar}</label>
+                                        <input
+                                            required
+                                            name="diasSolicitados"
+                                            value={formData.diasSolicitados}
+                                            onChange={handleChange}
+                                            type="number"
+                                            min={1}
+                                            step={1}
+                                            inputMode="numeric"
+                                            placeholder="Ej: 5"
+                                            className={inputCls}
+                                        />
+                                        <p className="text-xs text-[#4a6f8f] font-body">
+                                            Cantidad de días a solicitar: escribe solo un número entero (sin puntos, comas ni formato especial).
+                                        </p>
                                     </div>
                                 )}
 
@@ -858,7 +925,8 @@ export default function FormularioNovedad() {
                                 )}
                             </section>
 
-                            {/* ═══ Sección: Soportes / Adjuntos ═══ */}
+                            {/* ═══ Sección: Soportes / Adjuntos (no aplica a Disponibilidad ni Vacaciones en dinero) ═══ */}
+                            {!esSinAdjuntosPublicos && (
                             <section>
                                 <h2 className="font-subtitle text-lg font-extralight text-[#65BCF7] tracking-wide mb-4 flex items-center gap-2">
                                     <span className="w-1.5 h-5 bg-[#65BCF7] rounded-full inline-block" />
@@ -910,12 +978,17 @@ export default function FormularioNovedad() {
                                 )}
 
                                 {requierePlantillaExcel && (
-                                    <p className="text-xs text-[#65BCF7]/90 mt-2 font-body">Puedes subir PDF u otros adjuntos en el orden que prefieras; al enviar debe haber al menos un Excel (.xls o .xlsx) con el formato diligenciado.</p>
+                                    <p className="text-xs text-[#65BCF7]/90 mt-2 font-body">
+                                        {esVacacionesTiempo
+                                            ? 'Puedes subir PDF u otros adjuntos si lo necesitas; al enviar debe haber al menos un Excel (.xls o .xlsx) con el formato F-001-GCH - Solicitud de Vacaciones diligenciado.'
+                                            : 'Puedes subir PDF u otros adjuntos en el orden que prefieras; al enviar debe haber al menos un Excel (.xls o .xlsx) con el formato diligenciado.'}
+                                    </p>
                                 )}
                                 {requiereAdjunto && (
                                     <p className="text-xs text-[#4a6f8f] mt-2 font-body">Documentos obligatorios: {requiredDocuments.join(' | ')}.</p>
                                 )}
                             </section>
+                            )}
 
                             {/* ═══ Botón Enviar ═══ */}
                             <button
