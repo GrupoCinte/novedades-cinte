@@ -144,7 +144,8 @@ function registerRoutes(deps) {
             httpOnly: false,
             secure: secureCookie,
             sameSite,
-            path: '/api',
+            // Se lee desde frontend (document.cookie) para doble envío CSRF.
+            path: '/',
             maxAge: 8 * 60 * 60 * 1000
         });
     }
@@ -575,7 +576,7 @@ function registerRoutes(deps) {
     app.post('/api/auth/logout', verificarToken, async (req, res) => {
         revokeAppSessionToken(req.authToken);
         res.clearCookie('cinteSession', { path: '/api', sameSite, secure: secureCookie });
-        res.clearCookie('cinteXsrf', { path: '/api', sameSite, secure: secureCookie });
+        res.clearCookie('cinteXsrf', { path: '/', sameSite, secure: secureCookie });
         return res.json({ ok: true });
     });
 
@@ -853,14 +854,16 @@ function registerRoutes(deps) {
             }
             const lockCliente = Boolean(clienteNorm);
             const lockLider = Boolean(liderNorm);
+            const correoOut = String(row.correo_cinte || '').trim().toLowerCase();
+            const lockCorreo = Boolean(correoOut);
             return res.json({
                 ok: true,
                 cedula: row.cedula,
                 nombre: row.nombre,
-                correo: '',
+                correo: correoOut,
                 cliente: clienteOut,
                 lider: liderOut,
-                lockCorreo: false,
+                lockCorreo,
                 lockCliente,
                 lockLider
             });

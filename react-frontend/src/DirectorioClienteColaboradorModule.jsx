@@ -13,11 +13,24 @@ import {
     X
 } from 'lucide-react';
 
+function readCookie(name) {
+    const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
+    if (!raw) return '';
+    const parts = raw.split(';');
+    for (const part of parts) {
+        const [k, ...rest] = part.trim().split('=');
+        if (k === name) return decodeURIComponent(rest.join('=') || '');
+    }
+    return '';
+}
+
 function authHeaders(token) {
-    return {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`
-    };
+    const headers = { 'Content-Type': 'application/json' };
+    const t = String(token || '').trim();
+    if (t) headers.Authorization = `Bearer ${t}`;
+    const xsrf = readCookie('cinteXsrf');
+    if (xsrf) headers['x-cinte-xsrf'] = xsrf;
+    return headers;
 }
 
 /** Alineado con `foldForMatch` del backend (`clienteNombreMatch`) para emparejar catálogo. */
@@ -355,6 +368,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         try {
             const res = await fetch(`/api/directorio/clientes-lideres/${row.id}`, {
                 method: 'PATCH',
+                credentials: 'include',
                 headers: authHeaders(token),
                 body: JSON.stringify(patch)
             });
@@ -502,6 +516,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             for (const row of editClienteTargetRows) {
                 const res = await fetch(`/api/directorio/clientes-lideres/${row.id}`, {
                     method: 'PATCH',
+                    credentials: 'include',
                     headers: authHeaders(token),
                     body: JSON.stringify({
                         cliente: nombre,
@@ -546,6 +561,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             const gpVal = addLiderForm.gp_user_id ? String(addLiderForm.gp_user_id).trim() : null;
             const res = await fetch('/api/directorio/clientes-lideres', {
                 method: 'POST',
+                credentials: 'include',
                 headers: authHeaders(token),
                 body: JSON.stringify({
                     cliente: leadersModalCliente,
@@ -586,6 +602,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 : null;
             const res = await fetch('/api/directorio/clientes-lideres', {
                 method: 'POST',
+                credentials: 'include',
                 headers: authHeaders(token),
                 body: JSON.stringify({
                     cliente: clienteForm.cliente,
@@ -611,6 +628,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             if (!row.activo) continue;
             const res = await fetch(`/api/directorio/clientes-lideres/${row.id}`, {
                 method: 'PATCH',
+                credentials: 'include',
                 headers: authHeaders(token),
                 body: JSON.stringify({ activo: false })
             });
@@ -634,6 +652,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 };
                 const res = await fetch('/api/directorio/colaboradores', {
                     method: 'POST',
+                    credentials: 'include',
                     headers: authHeaders(token),
                     body: JSON.stringify(body)
                 });
@@ -643,6 +662,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             } else if (selectedCoCedula) {
                 const res = await fetch(`/api/directorio/colaboradores/${encodeURIComponent(selectedCoCedula)}`, {
                     method: 'PATCH',
+                    credentials: 'include',
                     headers: authHeaders(token),
                     body: JSON.stringify({
                         nombre: coForm.nombre,
@@ -667,6 +687,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         try {
             const res = await fetch(`/api/directorio/colaboradores/${encodeURIComponent(cedula)}`, {
                 method: 'PATCH',
+                credentials: 'include',
                 headers: authHeaders(token),
                 body: JSON.stringify(patch)
             });
