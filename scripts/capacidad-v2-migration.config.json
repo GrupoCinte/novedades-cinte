@@ -1,0 +1,16 @@
+{
+  "$comment": "Ruta al Excel: prioridad CAPACIDAD_XLSX_PATH (env) > excelPath. Solo dev hasta validación.",
+  "excelPath": "C:/Users/pc/Desktop/Analisis de capacidad Ser. Administrados- V.2.xlsx",
+  "sheetMaestro": "Capacidad Abril 2026",
+  "headerRowIndex": 0,
+  "columns": {
+    "cliente": "CLIENTE",
+    "lider": "Lider",
+    "gs": "GS",
+    "cedula": "CÉDULA",
+    "nombreConsultor": "NOMBRE CONSULTOR",
+    "emailCinte": "EMAIL CINTE"
+  },
+  "outDir": "scripts/out",
+  "outPrefix": "dev_capacidad_v2"
+}
