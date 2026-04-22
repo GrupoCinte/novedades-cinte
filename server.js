@@ -181,16 +181,29 @@ const CSRF_SKIP_PATHS = new Set([
     '/api/auth/reset-password',
     '/api/enviar-novedad'
 ]);
+const csrfCookieSameSite = isProduction ? 'strict' : 'lax';
+const csrfCookieSecure =
+    String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
 
 app.use((req, res, next) => {
     if (req.method === 'OPTIONS') return next();
     const p = req.path || '';
     if (!p.startsWith('/api')) return next();
+    // Compatibilidad: migra cookie antigua `cinteXsrf` (path /api) a path / para lectura desde frontend.
+    const cookie = readCookieValue(req.headers.cookie, 'cinteXsrf').trim();
+    if (cookie) {
+        res.cookie('cinteXsrf', cookie, {
+            httpOnly: false,
+            secure: csrfCookieSecure,
+            sameSite: csrfCookieSameSite,
+            path: '/',
+            maxAge: 8 * 60 * 60 * 1000
+        });
+    }
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
     if (String(req.get('authorization') || '').startsWith('Bearer ')) return next();
     if (CSRF_SKIP_PATHS.has(p)) return next();
     const hdr = String(req.get('x-cinte-xsrf') || req.get('x-xsrf-token') || '').trim();
-    const cookie = readCookieValue(req.headers.cookie, 'cinteXsrf').trim();
     if (!hdr || !cookie || hdr !== cookie) {
         return res.status(403).json({ ok: false, error: 'CSRF token inválido o ausente' });
     }

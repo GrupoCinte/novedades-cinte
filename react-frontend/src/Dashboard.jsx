@@ -1871,15 +1871,6 @@ export default function Dashboard({ token, auth, onLogout }) {
                             {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) === 'Hora Extra' && gestionHeDetailFranjas && (
                                 <div className="md:col-span-2 mt-2 p-4 bg-slate-900/60 rounded-2xl border border-cyan-500/30">
                                     <div className="flex flex-col gap-3">
-                                        <p className="text-[10px] text-slate-500">
-                                            Hora inicio/fin y fechas se interpretan como civil <span className="text-slate-400">America/Bogotá</span> (mismo criterio que el servidor). El recargo se calcula hoy por domingo calendario Bogotá; en pantalla se muestra como dominical/festivos (festivos en motor en una fase posterior).
-                                        </p>
-                                        <div className="rounded-lg border border-slate-600/60 bg-slate-800/40 px-3 py-2 text-[10px] text-slate-400 leading-relaxed">
-                                            <span className="text-slate-300 font-semibold">Franjas Bogotá (semiabierto [inicio, fin)):</span>{' '}
-                                            diurna <span className="text-slate-200">06:00–18:59</span>
-                                            {' · '}
-                                            nocturna <span className="text-slate-200">00:00–05:59</span> y <span className="text-slate-200">19:00–23:59</span>.
-                                        </div>
                                         {(Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0) > 0 ||
                                             Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0) > 0) && (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

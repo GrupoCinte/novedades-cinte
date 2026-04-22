@@ -627,26 +627,48 @@ function createDataLayer(deps) {
     }
 
     async function listGpUsersForDirectorio() {
-        const q = await pool.query(
-            `SELECT id, email, username, full_name, role, is_active, cognito_sub, created_at
-             FROM users
-             WHERE role = 'gp'::user_role
-             ORDER BY lower(email) ASC`
-        );
-        return q.rows || [];
+        try {
+            const q = await pool.query(
+                `SELECT id, email, username, full_name, role, is_active, cognito_sub, created_at
+                 FROM users
+                 WHERE role = 'gp'::user_role
+                 ORDER BY lower(email) ASC`
+            );
+            return q.rows || [];
+        } catch (e) {
+            if (String(e?.code || '') !== '42703') throw e;
+            const q = await pool.query(
+                `SELECT id, email, username, full_name, role, is_active, created_at
+                 FROM users
+                 WHERE role = 'gp'::user_role
+                 ORDER BY lower(email) ASC`
+            );
+            return (q.rows || []).map((r) => ({ ...r, cognito_sub: null }));
+        }
     }
 
     async function insertGpUserPlaceholder({ email, fullName, passwordPlaceholder, area }) {
         const em = String(email || '').trim().toLowerCase();
         const fn = normalizeCatalogValue(fullName) || em;
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) throw Object.assign(new Error('Email inválido'), { status: 400 });
-        const q = await pool.query(
-            `INSERT INTO users (email, username, full_name, role, area, password_hash, is_active)
-             VALUES ($1, $2, $3, 'gp'::user_role, $4::user_area, $5, TRUE)
-             RETURNING id, email, username, full_name, role, is_active, cognito_sub, created_at`,
-            [em, em, fn, area, passwordPlaceholder]
-        );
-        return q.rows[0];
+        try {
+            const q = await pool.query(
+                `INSERT INTO users (email, username, full_name, role, area, password_hash, is_active)
+                 VALUES ($1, $2, $3, 'gp'::user_role, $4::user_area, $5, TRUE)
+                 RETURNING id, email, username, full_name, role, is_active, cognito_sub, created_at`,
+                [em, em, fn, area, passwordPlaceholder]
+            );
+            return q.rows[0];
+        } catch (e) {
+            if (String(e?.code || '') !== '42703') throw e;
+            const q = await pool.query(
+                `INSERT INTO users (email, username, full_name, role, area, password_hash, is_active)
+                 VALUES ($1, $2, $3, 'gp'::user_role, $4::user_area, $5, TRUE)
+                 RETURNING id, email, username, full_name, role, is_active, created_at`,
+                [em, em, fn, area, passwordPlaceholder]
+            );
+            return { ...q.rows[0], cognito_sub: null };
+        }
     }
 
     async function updateGpUserById(id, patch) {
@@ -657,12 +679,22 @@ function createDataLayer(deps) {
         if (!cur.rows[0]) return null;
         const fullName = patch.full_name !== undefined ? normalizeCatalogValue(patch.full_name) || cur.rows[0].full_name : cur.rows[0].full_name;
         const isActive = patch.is_active !== undefined ? Boolean(patch.is_active) : cur.rows[0].is_active;
-        const q = await pool.query(
-            `UPDATE users SET full_name = $2, is_active = $3, updated_at = NOW() WHERE id = $1::uuid AND role = 'gp'::user_role
-             RETURNING id, email, username, full_name, role, is_active, cognito_sub, created_at`,
-            [id, fullName, isActive]
-        );
-        return q.rows[0] || null;
+        try {
+            const q = await pool.query(
+                `UPDATE users SET full_name = $2, is_active = $3, updated_at = NOW() WHERE id = $1::uuid AND role = 'gp'::user_role
+                 RETURNING id, email, username, full_name, role, is_active, cognito_sub, created_at`,
+                [id, fullName, isActive]
+            );
+            return q.rows[0] || null;
+        } catch (e) {
+            if (String(e?.code || '') !== '42703') throw e;
+            const q = await pool.query(
+                `UPDATE users SET full_name = $2, is_active = $3, updated_at = NOW() WHERE id = $1::uuid AND role = 'gp'::user_role
+                 RETURNING id, email, username, full_name, role, is_active, created_at`,
+                [id, fullName, isActive]
+            );
+            return q.rows[0] ? { ...q.rows[0], cognito_sub: null } : null;
+        }
     }
 
     /**
