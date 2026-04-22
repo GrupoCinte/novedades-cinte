@@ -5,7 +5,7 @@ const POLICY = {
     team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] },
     comercial: { panels: ['comercial'] },
     gp: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
-    nomina: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] }
+    nomina: { panels: ['dashboard', 'calendar', 'gestion'], viewAllAreas: true }
 };
 
 const NOVELTY_RULES = {
@@ -19,13 +19,13 @@ const NOVELTY_RULES = {
         displayName: 'Calamidad domestica',
         requiredMinSupports: 1,
         approvers: ['admin_ch', 'team_ch', 'cac'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp']
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     permiso_remunerado: {
         displayName: 'Permiso remunerado',
         requiredMinSupports: 1,
         approvers: ['admin_ch', 'team_ch', 'cac'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp']
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     licencia_luto: {
         displayName: 'Licencia de luto',
@@ -49,7 +49,7 @@ const NOVELTY_RULES = {
         displayName: 'Licencia remunerada',
         requiredMinSupports: 1,
         approvers: ['admin_ch', 'team_ch', 'cac'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp']
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     licencia_no_remunerada: {
         displayName: 'Licencia no remunerada',
@@ -71,8 +71,8 @@ const NOVELTY_RULES = {
     },
     vacaciones_dinero: {
         displayName: 'Vacaciones en dinero',
-        requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'cac', 'nomina'],
+        requiredMinSupports: 0,
+        approvers: ['admin_ch', 'team_ch', 'cac'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     hora_extra: {
@@ -82,13 +82,7 @@ const NOVELTY_RULES = {
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     apoyo: {
-        displayName: 'Apoyo',
-        requiredMinSupports: 0,
-        approvers: ['gp', 'cac'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
-    },
-    apoyo_standby: {
-        displayName: 'Apoyo Standby',
+        displayName: 'Disponibilidad',
         requiredMinSupports: 0,
         approvers: ['gp', 'cac'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
@@ -159,8 +153,11 @@ function normalizeNovedadTypeKey(value = '') {
         permiso: 'permiso_no_remunerado',
         'hora extra': 'hora_extra',
         apoyo: 'apoyo',
-        'apoyo standby': 'apoyo_standby',
-        'apoyo stand by': 'apoyo_standby',
+        disponibilidad: 'apoyo',
+        'disponibilidad standby': 'apoyo',
+        'apoyo standby': 'apoyo',
+        'apoyo stand by': 'apoyo',
+        'apoyo standy': 'apoyo',
         bono: 'bonos',
         bonos: 'bonos',
         'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo'
@@ -171,7 +168,9 @@ function normalizeNovedadTypeKey(value = '') {
     const snakeAliases = {
         vacaciones_en_tiempo: 'vacaciones_tiempo',
         vacaciones_en_dinero: 'vacaciones_dinero',
-        permisos_no_remunerados: 'permiso_no_remunerado'
+        permisos_no_remunerados: 'permiso_no_remunerado',
+        apoyo_standby: 'apoyo',
+        disponibilidad_standby: 'apoyo'
     };
     const aliased = snakeAliases[snake];
     if (aliased && NOVELTY_RULES[aliased]) return aliased;

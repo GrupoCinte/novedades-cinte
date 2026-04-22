@@ -77,7 +77,7 @@ const INTENTS = [
         icon: '🧠',
         category: 'info',
         response: () =>
-            'Este sistema fue diseñado y desarrollado por:\n\n**Luis Miguel Correa**\n*Arquitecto de IA & Data*\n\nSistema de Análisis de Novedades — Consultores Grupo CINTE **V1.0**\n\n¿En qué más puedo ayudarte? 😊',
+            'Este sistema fue diseñado y desarrollado por:\n\n**Luis Miguel Correa**\n*Arquitecto de datos*\n\nSistema de Análisis de Novedades — Grupo CINTE **V2.0**\n\n¿En qué más puedo ayudarte? 😊',
     },
 ];
 
@@ -231,7 +231,7 @@ export default function ChatWidget({ ctx }) {
                     )}
                 </div>
                 <span className="absolute right-16 top-1/2 -translate-y-1/2 bg-[#1e293b] text-xs px-3 py-1.5 rounded-lg border border-slate-700 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap shadow-xl font-medium text-slate-200 pointer-events-none">
-                    Asistente CINTE IA
+                    Asistente CINTE
                 </span>
             </button>
 

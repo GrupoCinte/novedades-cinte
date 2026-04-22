@@ -1,6 +1,7 @@
 const { WebSocketServer } = require('ws');
 const { URL } = require('url');
 const { verifyContratacionWsTicket } = require('./wsTicket');
+const { logger } = require('../logger');
 
 const WS_PATH = '/api/contratacion/ws';
 
@@ -9,22 +10,14 @@ class ContratacionWSServer {
         const wsSecret = options.wsSecret ? String(options.wsSecret).trim() : '';
         const authTimeoutMs = Number(options.authTimeoutMs || 8000);
         const pathOpt = options.path || WS_PATH;
-        const failOpen = options.failOpen === true;
 
         this.wss = new WebSocketServer({ server, path: pathOpt });
         this.clients = new Set();
         this.wsSecret = wsSecret || null;
         this.authTimeoutMs = authTimeoutMs;
-        this.failOpen = failOpen;
 
         this.wss.on('connection', (ws, req) => {
             this.clients.add(ws);
-
-            if (this.failOpen) {
-                ws.__authenticated = true;
-                this._bindClientLifecycle(ws, null, null);
-                return;
-            }
 
             if (!this.wsSecret) {
                 try {
@@ -125,7 +118,7 @@ class ContratacionWSServer {
         });
 
         ws.on('error', (error) => {
-            console.error('Contratación WebSocket cliente:', error.message);
+            logger.error({ error: error.message }, 'Contratación WebSocket cliente');
         });
     }
 

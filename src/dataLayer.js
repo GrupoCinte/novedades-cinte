@@ -150,6 +150,26 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureNovedadesHorasRecargoDomingoColumn() {
+        try {
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_recargo_domingo NUMERIC(8,2) NOT NULL DEFAULT 0'
+            );
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_recargo_domingo_diurnas NUMERIC(8,2) NOT NULL DEFAULT 0'
+            );
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_recargo_domingo_nocturnas NUMERIC(8,2) NOT NULL DEFAULT 0'
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para horas_recargo_domingo / franjas en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** GP por fila de catálogo (asignación desde módulo administración / cliente). */
     async function ensureClientesLideresGpUserColumn() {
         try {
@@ -862,7 +882,7 @@ function createDataLayer(deps) {
         const role = scope?.role || '';
         const tipo = String(options?.tipo || '').trim();
         const estado = String(options?.estado || '').trim();
-        const correo = String(options?.correo || '').trim().toLowerCase();
+        const nombreBusqueda = String(options?.nombre || '').trim().toLowerCase();
         const cliente = String(options?.cliente || '').trim().toLowerCase();
         const createdFrom = String(options?.createdFrom || '').trim();
         const createdTo = String(options?.createdTo || '').trim();
@@ -890,9 +910,9 @@ function createDataLayer(deps) {
             params.push(estado);
             whereParts.push(`nov.estado = $${params.length}::novedad_estado`);
         }
-        if (correo) {
-            params.push(`%${correo}%`);
-            whereParts.push(`lower(coalesce(nov.correo_solicitante, '')) LIKE $${params.length}`);
+        if (nombreBusqueda) {
+            params.push(`%${nombreBusqueda}%`);
+            whereParts.push(`lower(coalesce(nov.nombre, '')) LIKE $${params.length}`);
         }
         if (cliente) {
             params.push(`%${cliente}%`);
@@ -910,7 +930,8 @@ function createDataLayer(deps) {
         const q = await pool.query(
             `SELECT
                 nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.tipo_novedad, nov.area,
-                nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas,
+                nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas, nov.horas_recargo_domingo,
+                nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas,
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
                 nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
                 nov.he_domingo_observacion,
@@ -1224,6 +1245,7 @@ function createDataLayer(deps) {
         ensureNovedadesApproverEmailColumns,
         ensureNovedadesHoraExtraAlertColumns,
         ensureNovedadesHeDomingoObservacionColumn,
+        ensureNovedadesHorasRecargoDomingoColumn,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,

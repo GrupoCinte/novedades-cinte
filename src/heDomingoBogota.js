@@ -1,17 +1,19 @@
 'use strict';
 
+const dtfBogotaYmd = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+});
+
 /**
  * @param {number} ms
  * @returns {string} YYYY-MM-DD en calendario America/Bogota
  */
 function bogotaDateKeyFromMs(ms) {
     if (!Number.isFinite(ms)) return '';
-    return new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'America/Bogota',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit'
-    }).format(new Date(ms));
+    return dtfBogotaYmd.format(new Date(ms));
 }
 
 /**

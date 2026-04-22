@@ -3,6 +3,27 @@ function parseErrorMessage(payload) {
     return payload.message || payload.error || payload.__type || 'Error de autenticacion';
 }
 
+function readCookie(name) {
+    const cookie = typeof document !== 'undefined' ? String(document.cookie || '') : '';
+    if (!cookie) return '';
+    const parts = cookie.split(';');
+    for (const p of parts) {
+        const [k, ...rest] = p.trim().split('=');
+        if (k === name) return decodeURIComponent(rest.join('=') || '');
+    }
+    return '';
+}
+
+function withCsrf(headers = {}) {
+    const token = readCookie('cinteXsrf');
+    if (!token) return headers;
+    return { ...headers, 'x-cinte-xsrf': token };
+}
+
+export function buildCsrfHeaders(headers = {}) {
+    return withCsrf(headers);
+}
+
 /**
  * Lee el cuerpo como texto y parsea JSON. Si falla, devuelve un objeto marcado para mensajes claros
  * (evita el genérico «Error de autenticacion» cuando el proxy devuelve HTML o el backend no responde).
@@ -37,20 +58,13 @@ function messageFromLoginFailure(res, data) {
     return 'No se recibió token de sesión. Revisa la consola del servidor (log «Error login») o vuelve a intentar.';
 }
 
-function readStoredAuth() {
-    try {
-        return JSON.parse(localStorage.getItem('cinteAuth') || 'null');
-    } catch {
-        return null;
-    }
-}
-
 export async function cognitoSignIn(emailOrUsername, password, roleRequested = '') {
     let res;
     try {
         res = await fetch('/api/login', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            headers: withCsrf({ 'Content-Type': 'application/json' }),
             body: JSON.stringify({
                 email: emailOrUsername,
                 username: emailOrUsername,
@@ -67,7 +81,7 @@ export async function cognitoSignIn(emailOrUsername, password, roleRequested = '
         throw new Error(`${raw}.${hint}`);
     }
     const data = await readResponseJson(res);
-    if (!res.ok || !data?.token) {
+    if (!res.ok || !data?.ok || !data?.user) {
         const err = new Error(messageFromLoginFailure(res, data));
         err.status = res.status;
         err.payload = data;
@@ -79,7 +93,8 @@ export async function cognitoSignIn(emailOrUsername, password, roleRequested = '
 export async function cognitoCompleteNewPassword(emailOrUsername, session, newPassword, phoneNumber = '', roleRequested = '') {
     const res = await fetch('/api/auth/complete-new-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: withCsrf({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
             email: emailOrUsername,
             session,
@@ -89,7 +104,7 @@ export async function cognitoCompleteNewPassword(emailOrUsername, session, newPa
         })
     });
     const data = await readResponseJson(res);
-    if (!res.ok || !data?.token) {
+    if (!res.ok || !data?.ok || !data?.user) {
         const err = new Error(messageFromLoginFailure(res, data));
         err.status = res.status;
         err.payload = data;
@@ -101,7 +116,8 @@ export async function cognitoCompleteNewPassword(emailOrUsername, session, newPa
 export async function cognitoForgotPassword(emailOrUsername) {
     const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: withCsrf({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ email: emailOrUsername })
     });
     const data = await res.json().catch(() => ({}));
@@ -112,7 +128,8 @@ export async function cognitoForgotPassword(emailOrUsername) {
 export async function cognitoResetPassword(emailOrUsername, code, newPassword) {
     const res = await fetch('/api/auth/reset-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: withCsrf({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ email: emailOrUsername, code, newPassword })
     });
     const data = await res.json().catch(() => ({}));
@@ -121,16 +138,10 @@ export async function cognitoResetPassword(emailOrUsername, code, newPassword) {
 }
 
 export async function cognitoChangePassword(currentPassword, newPassword) {
-    const auth = readStoredAuth();
-    const token = auth?.token || '';
-    if (!token) throw new Error('Sesion no valida');
-
     const res = await fetch('/api/auth/change-password', {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-        },
+        credentials: 'include',
+        headers: withCsrf({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ currentPassword, newPassword })
     });
     const data = await res.json().catch(() => ({}));
@@ -138,6 +149,14 @@ export async function cognitoChangePassword(currentPassword, newPassword) {
     return data;
 }
 
-export function cognitoSignOut() {
-    // Backend stateless con JWT: basta con limpiar storage del cliente.
+export async function cognitoSignOut() {
+    try {
+        await fetch('/api/auth/logout', {
+            method: 'POST',
+            credentials: 'include',
+            headers: withCsrf({})
+        });
+    } catch {
+        // Ignorar errores de red en logout local.
+    }
 }

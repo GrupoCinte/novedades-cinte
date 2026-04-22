@@ -1,13 +1,25 @@
 import ROLE_PRIORITY from '../constants/rolePriority.json';
 
 /**
- * Alineado con src/rbac.js POLICY: quién puede ver el módulo Contratación IA.
+ * Alineado con src/rbac.js POLICY: quién puede ver el módulo Contratación.
  */
-const ROLES_WITH_CONTRATACION_PANEL = new Set(['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina', 'gp']);
+const ROLES_WITH_CONTRATACION_PANEL = new Set(['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp']);
 
-function decodeJwtPayload(token) {
+function normalizePayload(authOrToken) {
+    if (authOrToken && typeof authOrToken === 'object') {
+        const raw = authOrToken;
+        if (raw.user && typeof raw.user === 'object') {
+            return {
+                role: raw.user.role,
+                panels: raw.user.panels
+            };
+        }
+        if (raw.claims && typeof raw.claims === 'object') return raw.claims;
+        return raw;
+    }
+    const token = String(authOrToken || '');
     try {
-        const parts = String(token || '').split('.');
+        const parts = token.split('.');
         if (parts.length < 2) return null;
         const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
         const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
@@ -35,20 +47,25 @@ export function resolveRoleFromTokenPayload(payload) {
 /**
  * true si el usuario debe ver el módulo (mismo criterio que allowPanel('contratacion') en backend).
  */
-export function userHasContratacionPanel(token) {
-    const payload = decodeJwtPayload(token);
+export function userHasContratacionPanel(authOrToken) {
+    const payload = normalizePayload(authOrToken);
     if (!payload) return false;
+
+    const role = resolveRoleFromTokenPayload(payload);
+    if (role === 'nomina') return false;
 
     const panels = Array.isArray(payload.panels) ? payload.panels.map((p) => String(p)) : [];
     if (panels.includes('contratacion')) return true;
 
-    const role = resolveRoleFromTokenPayload(payload);
     return ROLES_WITH_CONTRATACION_PANEL.has(role);
 }
 
-export function getContratacionPermissions(token) {
-    const payload = decodeJwtPayload(token);
+export function getContratacionPermissions(authOrToken) {
+    const payload = normalizePayload(authOrToken);
     const role = resolveRoleFromTokenPayload(payload);
+    if (role === 'nomina') {
+        return { canEliminarCandidato: false, hasPanel: false, role };
+    }
     const panels = Array.isArray(payload?.panels) ? payload.panels.map((p) => String(p)) : [];
     const hasPanel = panels.includes('contratacion') || ROLES_WITH_CONTRATACION_PANEL.has(role);
     const canEliminarCandidato = role === 'super_admin' || role === 'admin_ch';

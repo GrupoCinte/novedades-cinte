@@ -4,8 +4,22 @@ import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveCont
 import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet, Bell } from 'lucide-react';
 import ChatWidget from './ChatWidget';
 import { getNovedadRule, NOVEDAD_TYPES, formatCantidadNovedad, formatDiasCount, getCantidadMedidaKind, getCantidadDetalleEtiqueta, getDiasEfectivosNovedad, getAsignacionGestionNovedad, resolveCanonicalNovedadTipo } from './novedadRules';
+import {
+    toUtcMsFromDateAndTime,
+    collectHeDiurnaNocturnaSegmentsBogota,
+    collectRecargoDomingoDiurnaNocturnaSegmentsBogota,
+    formatHeSegmentListBogota
+} from './heNovedadBogotaClient.js';
 
-export default function Dashboard({ token, onLogout }) {
+function normalizeHoraHePayload(timeRaw) {
+    const t = String(timeRaw || '').trim();
+    if (!t) return '';
+    if (/^\d{2}:\d{2}:\d{2}$/.test(t)) return t.slice(0, 8);
+    if (/^\d{2}:\d{2}$/.test(t)) return `${t}:00`;
+    return t.slice(0, 8);
+}
+
+export default function Dashboard({ token, auth, onLogout }) {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [soporteModal, setSoporteModal] = useState(null);
@@ -30,24 +44,25 @@ export default function Dashboard({ token, onLogout }) {
         const priority = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial'];
         return priority.find((role) => normalized.includes(role)) || '';
     };
-    const authFromStorage = (() => {
-        try {
-            return JSON.parse(localStorage.getItem('cinteAuth') || 'null');
-        } catch {
-            return null;
-        }
-    })();
-    const tokenClaims = parseJwt(token);
-    const currentRole = resolveRoleFromClaims(tokenClaims) || resolveRoleFromClaims(authFromStorage?.claims || {});
+    const authUser = auth?.user && typeof auth.user === 'object' ? auth.user : {};
+    const authClaims = auth?.claims && typeof auth.claims === 'object' ? auth.claims : {};
+    // CRIT-002: email y rol se derivan de la prop auth (nunca de localStorage)
+    const currentRole =
+        resolveRoleFromClaims(authClaims)
+        || String(authUser.role || '').toLowerCase();
     const currentRoleLabel = currentRole ? String(currentRole).replace(/_/g, ' ').toUpperCase() : 'SIN ROL';
-    const currentEmail = String(tokenClaims.email || authFromStorage?.user?.email || authFromStorage?.claims?.email || 'sin-correo').toLowerCase();
+    const currentEmail = String(
+        authUser.email
+        || authClaims.email
+        || 'sin-correo'
+    ).toLowerCase();
     const PANEL_POLICY = {
         super_admin: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial'],
         cac: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
         admin_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
         team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
         gp: ['dashboard', 'calendar', 'gestion', 'contratacion'],
-        nomina: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
+        nomina: ['dashboard', 'calendar', 'gestion'],
         comercial: ['comercial']
     };
     const tabPanelMap = {
@@ -61,6 +76,7 @@ export default function Dashboard({ token, onLogout }) {
     const canAccessPanel = (panel) => allowedPanels.includes(panel);
     const canApproveItem = (item) => {
         if (!item || item.estado !== 'Pendiente') return false;
+        if (currentRole === 'nomina') return false;
         if (currentRole === 'super_admin') return true;
         const rule = getNovedadRule(item.tipoNovedad);
         return Array.isArray(rule.approvers) && rule.approvers.includes(currentRole);
@@ -80,7 +96,7 @@ export default function Dashboard({ token, onLogout }) {
     // Gestión table filters
     const [fTipo, setFTipo] = useState('');
     const [fEstado, setFEstado] = useState('');
-    const [fCorreo, setFCorreo] = useState('');
+    const [fNombre, setFNombre] = useState('');
     const [fCliente, setFCliente] = useState('');
     const [fCreadoDesde, setFCreadoDesde] = useState('');
     const [fCreadoHasta, setFCreadoHasta] = useState('');
@@ -131,7 +147,7 @@ export default function Dashboard({ token, onLogout }) {
             };
             if (fTipo) params.tipo = fTipo;
             if (fEstado) params.estado = fEstado;
-            if (fCorreo) params.correo = fCorreo;
+            if (fNombre) params.nombre = fNombre;
             if (fCliente) params.cliente = fCliente;
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
             if (fCreadoHasta) params.createdTo = fCreadoHasta;
@@ -204,31 +220,15 @@ export default function Dashboard({ token, onLogout }) {
     }, []);
     useEffect(() => {
         loadGestionData(currentPage, pageSize);
-    }, [currentPage, pageSize, fTipo, fEstado, fCorreo, fCliente, fCreadoDesde, fCreadoHasta]);
+    }, [currentPage, pageSize, fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta]);
     useEffect(() => {
         loadHoraExtraAlerts();
     }, [fCreadoDesde, fCreadoHasta]);
-
-    const leerCorreoSesionParaApi = () => {
-        const candidatos = [];
-        try {
-            const auth = JSON.parse(localStorage.getItem('cinteAuth') || 'null');
-            if (auth?.user?.email) candidatos.push(auth.user.email);
-            if (auth?.claims?.email) candidatos.push(auth.claims.email);
-        } catch { /* ignore */ }
-        candidatos.push(tokenClaims?.email, tokenClaims?.preferred_username);
-        for (const c of candidatos) {
-            const s = String(c || '').trim();
-            if (s.includes('@')) return s;
-        }
-        return '';
-    };
 
     const changeState = async (id, nuevoEstado, options = {}) => {
         setStateError(null);
         console.log('[changeState] Iniciando cambio de estado:', { id, nuevoEstado, token: token ? '✅ token presente' : '❌ SIN TOKEN' });
         try {
-            const actorEmail = leerCorreoSesionParaApi();
             const fromHoraExtraAlert = Boolean(options?.fromHoraExtraAlert);
             const res = await fetch('/api/actualizar-estado', {
                 method: 'POST',
@@ -239,7 +239,6 @@ export default function Dashboard({ token, onLogout }) {
                 body: JSON.stringify({
                     id,
                     nuevoEstado,
-                    actorEmail,
                     fromHoraExtraAlert
                 })
             });
@@ -452,7 +451,7 @@ export default function Dashboard({ token, onLogout }) {
     const areaData = MESES.map((mes, i) => ({
         mes,
         real: i <= nowMonth ? countByMonth[i] : null,
-        ia: Math.round(countByMonth[i] * 1.15 + (i > nowMonth ? (i - nowMonth) * 1.5 : 0))
+        estimado: Math.round(countByMonth[i] * 1.15 + (i > nowMonth ? (i - nowMonth) * 1.5 : 0))
     }));
 
     // 4. Sparkline para Total
@@ -527,13 +526,47 @@ export default function Dashboard({ token, onLogout }) {
         return '—';
     };
 
+    /** Franjas diurna/nocturna (Bogotá) para el modal de detalle HE; memoizado para no recalcular en cada re-render del Dashboard. */
+    const gestionHeDetailFranjas = useMemo(() => {
+        const it = gestionDetailItem;
+        if (!it || resolveCanonicalNovedadTipo(it.tipoNovedad) !== 'Hora Extra') return null;
+        const hi = normalizeHoraHePayload(it.horaInicio);
+        const hf = normalizeHoraHePayload(it.horaFin);
+        const startMs = toUtcMsFromDateAndTime(it.fechaInicio, hi);
+        const endMs = toUtcMsFromDateAndTime(it.fechaFin, hf);
+        const dash = { diurna: [], nocturna: [] };
+        if (startMs == null || endMs == null || endMs <= startMs) {
+            return {
+                recargoDiurnaFranja: '—',
+                recargoNoctFranja: '—',
+                heDiurnaFranja: '—',
+                heNoctFranja: '—'
+            };
+        }
+        const recSegs = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs);
+        const heSegs = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs);
+        return {
+            recargoDiurnaFranja: formatHeSegmentListBogota(recSegs.diurna),
+            recargoNoctFranja: formatHeSegmentListBogota(recSegs.nocturna),
+            heDiurnaFranja: formatHeSegmentListBogota(heSegs.diurna),
+            heNoctFranja: formatHeSegmentListBogota(heSegs.nocturna)
+        };
+    }, [
+        gestionDetailItem?.id,
+        gestionDetailItem?.tipoNovedad,
+        gestionDetailItem?.fechaInicio,
+        gestionDetailItem?.fechaFin,
+        gestionDetailItem?.horaInicio,
+        gestionDetailItem?.horaFin
+    ]);
+
     const totalPages = Math.max(1, Number(gestionPagination.totalPages || 1));
     const safePage = Math.min(currentPage, totalPages);
     const pagedItems = sortedItems;
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [fTipo, fEstado, fCorreo, fCliente, fCreadoDesde, fCreadoHasta, pageSize]);
+    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, pageSize]);
     useEffect(() => {
         if (currentPage > totalPages) {
             setCurrentPage(totalPages);
@@ -626,7 +659,7 @@ export default function Dashboard({ token, onLogout }) {
             const params = {};
             if (fTipo) params.tipo = fTipo;
             if (fEstado) params.estado = fEstado;
-            if (fCorreo) params.correo = fCorreo;
+            if (fNombre) params.nombre = fNombre;
             if (fCliente) params.cliente = fCliente;
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
             if (fCreadoHasta) params.createdTo = fCreadoHasta;
@@ -659,7 +692,7 @@ export default function Dashboard({ token, onLogout }) {
     const clearGestionFilters = () => {
         setFTipo('');
         setFEstado('');
-        setFCorreo('');
+        setFNombre('');
         setFCliente('');
         setFCreadoDesde('');
         setFCreadoHasta('');
@@ -671,7 +704,7 @@ export default function Dashboard({ token, onLogout }) {
             onLogout();
             return;
         }
-        localStorage.removeItem('cinteAuth');
+        // CRIT-002: ya no hay localStorage que limpiar aquí
         navigate('/admin', { replace: true });
     };
 
@@ -692,36 +725,6 @@ export default function Dashboard({ token, onLogout }) {
             setActiveTab(allowedTabs[0] || 'Calendario');
         }
     }, [activeTab, navItems]);
-    const calculateDiurnaNocturna = (it) => {
-        if (!it.fechaInicio || !it.horaInicio || !it.fechaFin || !it.horaFin) {
-            return { diurnas: it.horasDiurnas || 0, nocturnas: it.horasNocturnas || 0 };
-        }
-        try {
-            const startStr = `${it.fechaInicio}T${it.horaInicio}:00`;
-            const endStr = `${it.fechaFin}T${it.horaFin}:00`;
-            const startMs = new Date(startStr).getTime();
-            const endMs = new Date(endStr).getTime();
-            if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) {
-                return { diurnas: it.horasDiurnas || 0, nocturnas: it.horasNocturnas || 0 };
-            }
-
-            let dMin = 0;
-            let nMin = 0;
-            for (let tick = startMs; tick < endMs; tick += 60000) {
-                const cur = new Date(tick);
-                const m = (cur.getHours() * 60) + cur.getMinutes();
-                if (m >= 360 && m < 1140) dMin++;
-                else nMin++;
-            }
-            return {
-                diurnas: Number((dMin / 60).toFixed(2)),
-                nocturnas: Number((nMin / 60).toFixed(2))
-            };
-        } catch {
-            return { diurnas: it.horasDiurnas || 0, nocturnas: it.horasNocturnas || 0 };
-        }
-    };
-
     return (
         <div className="flex h-full w-full bg-[#04141E] text-slate-200 overflow-hidden font-body">
 
@@ -881,7 +884,7 @@ export default function Dashboard({ token, onLogout }) {
                                 </div>
                             </div>
                             <p className="text-[9px] text-slate-600 font-body font-bold uppercase tracking-widest text-center border-t border-[#1a3a56]/50 pt-2">
-                                Consultores Grupo CINTE · V1.0
+                                Grupo CINTE · V2.0
                             </p>
                             <div className="border-t border-[#1a3a56]/50 pt-2 flex flex-col gap-2">
                                 <button
@@ -1048,7 +1051,7 @@ export default function Dashboard({ token, onLogout }) {
                                         <DollarSign size={20} className="text-emerald-500" />
                                     </div>
                                 </div>
-                                <p className="text-xs text-emerald-500/80 mt-4 relative">Proyección optimizada por IA</p>
+                                <p className="text-xs text-emerald-500/80 mt-4 relative">Proyección optimizada (estimada)</p>
                             </div>
 
                             <div className="bg-[#1e293b] rounded-2xl p-6 border border-slate-700/50 shadow-lg">
@@ -1076,14 +1079,14 @@ export default function Dashboard({ token, onLogout }) {
                             </div>
                         </div>
 
-                        {/* Predicción IA */}
+                        {/* Comparativa real vs. serie estimada */}
                         <div className="bg-[#1e293b] rounded-2xl p-6 md:p-8 border border-slate-700/50 shadow-lg">
                             <div className="flex justify-between items-end mb-6">
                                 <div>
                                     <h2 className="text-xl font-bold text-white flex items-center gap-2">
                                         Monitor de Tendencia <BadgeCheck className="text-blue-500" size={18} />
                                     </h2>
-                                    <p className="text-sm text-slate-400 mt-1">Comparativa Real vs. Predicción IA Semestral</p>
+                                    <p className="text-sm text-slate-400 mt-1">Comparativa real vs. predicción semestral (estimada)</p>
                                 </div>
                             </div>
                             <div className="h-72 w-full">
@@ -1100,13 +1103,13 @@ export default function Dashboard({ token, onLogout }) {
                                         <YAxis stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
                                         <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }} />
                                         <Area type="monotone" dataKey="real" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorReal)" activeDot={{ r: 6 }} />
-                                        <Line type="monotone" dataKey="ia" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                                        <Line type="monotone" dataKey="estimado" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} />
                                     </AreaChart>
                                 </ResponsiveContainer>
                             </div>
                             <div className="flex items-center gap-4 text-xs font-medium mt-4 justify-end">
                                 <span className="flex items-center gap-1.5 align-middle text-slate-300"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Dato Real</span>
-                                <span className="flex items-center gap-1.5 align-middle text-slate-400"><div className="w-6 h-0.5 border-t-2 border-dashed border-slate-400"></div> Predicción IA</span>
+                                <span className="flex items-center gap-1.5 align-middle text-slate-400"><div className="w-6 h-0.5 border-t-2 border-dashed border-slate-400"></div> Serie estimada</span>
                             </div>
                         </div>
 
@@ -1201,7 +1204,7 @@ export default function Dashboard({ token, onLogout }) {
                                         <option value="Aprobado">Aprobados</option>
                                         <option value="Rechazado">Rechazados</option>
                                     </select>
-                                    <input type="text" placeholder="Buscar correo..." value={fCorreo} onChange={(e) => setFCorreo(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-500 min-w-[180px]" />
+                                    <input type="text" placeholder="Buscar por nombre..." value={fNombre} onChange={(e) => setFNombre(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-500 min-w-[180px]" />
                                     <select onChange={(e) => setFCliente(e.target.value)} value={fCliente} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 min-w-[220px]">
                                         <option value="">Todos los clientes</option>
                                         {calendarClientesList.map((c) => (
@@ -1603,7 +1606,7 @@ export default function Dashboard({ token, onLogout }) {
                     <div className="animate-in fade-in zoom-in-95 duration-300 pb-20 flex flex-col h-full gap-6">
                         <div className="bg-[#1e293b] p-6 rounded-2xl border border-slate-700/50 shadow-lg">
                             <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
-                                <TrendingUp className="text-purple-500" size={24} /> Inteligencia Operativa (Pre-IA)
+                                <TrendingUp className="text-purple-500" size={24} /> Inteligencia operativa (fase exploratoria)
                             </h2>
                             <p className="text-slate-400 text-sm">Modelos estadísticos descriptivos diseñados para futura integración con algoritmos de Machine Learning y predicción de anomalías.</p>
                         </div>
@@ -1670,7 +1673,7 @@ export default function Dashboard({ token, onLogout }) {
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
-                                <p className="text-[10px] text-slate-600 mt-3 text-center italic">Base para modelo predictivo de ausentismo por día — Grupo CINTE IA</p>
+                                <p className="text-[10px] text-slate-600 mt-3 text-center italic">Base para modelo predictivo de ausentismo por día — Grupo CINTE</p>
                             </div>
 
                             {/* Índice de Riesgo por Consultor */}
@@ -1808,7 +1811,7 @@ export default function Dashboard({ token, onLogout }) {
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
-                                <p className="text-[10px] text-slate-600 mt-3 text-center italic">Base para optimización de SLA de respuesta — Grupo CINTE IA</p>
+                                <p className="text-[10px] text-slate-600 mt-3 text-center italic">Base para optimización de SLA de respuesta — Grupo CINTE</p>
                             </div>
 
                         </div>
@@ -1818,7 +1821,7 @@ export default function Dashboard({ token, onLogout }) {
 
             </main>
 
-            {/* Chat Widget IA — fuera del main para que sea fixed global */}
+            {/* Chat widget — fuera del main para que sea fixed global */}
             <ChatWidget ctx={{ pendientesCount, totalItems: items.length, dashItems: dashItems.length }} />
 
             {gestionDetailItem && (
@@ -1865,29 +1868,82 @@ export default function Dashboard({ token, onLogout }) {
                                 </div>
                             ) : null}
 
-                            {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) === 'Hora Extra' && (
+                            {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) === 'Hora Extra' && gestionHeDetailFranjas && (
                                 <div className="md:col-span-2 mt-2 p-4 bg-slate-900/60 rounded-2xl border border-cyan-500/30">
-                                    {(() => {
-                                        const { diurnas, nocturnas } = calculateDiurnaNocturna(gestionDetailItem);
-                                        return (
-                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                <div className="flex flex-col items-center gap-1 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
-                                                    <span className="text-[10px] uppercase tracking-widest text-cyan-200 font-bold">Diurnas (06:00–18:59)</span>
-                                                    <span className="text-xl font-black text-cyan-300">{diurnas}h</span>
-                                                </div>
-                                                <div className="flex flex-col items-center gap-1 rounded-xl border border-indigo-500/35 bg-indigo-500/10 p-3">
-                                                    <span className="text-[10px] uppercase tracking-widest text-indigo-200 font-bold">Nocturnas (19:00–05:59)</span>
-                                                    <span className="text-xl font-black text-indigo-300">{nocturnas}h</span>
-                                                </div>
-                                                <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 text-sm text-emerald-100">
-                                                    <div><span className="text-emerald-300 font-semibold">Horas cargadas:</span> {gestionDetailItem.cantidadHoras || 0}h</div>
-                                                    <div><span className="text-emerald-300 font-semibold">Franja cargada:</span> {(gestionDetailItem.horaInicio && gestionDetailItem.horaFin) ? `${gestionDetailItem.horaInicio} - ${gestionDetailItem.horaFin}` : '-'}</div>
-                                                    <div><span className="text-emerald-300 font-semibold">Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
-                                                    <div><span className="text-emerald-300 font-semibold">Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
-                                                </div>
+                                    <div className="flex flex-col gap-3">
+                                        <p className="text-[10px] text-slate-500">
+                                            Hora inicio/fin y fechas se interpretan como civil <span className="text-slate-400">America/Bogotá</span> (mismo criterio que el servidor). El recargo se calcula hoy por domingo calendario Bogotá; en pantalla se muestra como dominical/festivos (festivos en motor en una fase posterior).
+                                        </p>
+                                        <div className="rounded-lg border border-slate-600/60 bg-slate-800/40 px-3 py-2 text-[10px] text-slate-400 leading-relaxed">
+                                            <span className="text-slate-300 font-semibold">Franjas Bogotá (semiabierto [inicio, fin)):</span>{' '}
+                                            diurna <span className="text-slate-200">06:00–18:59</span>
+                                            {' · '}
+                                            nocturna <span className="text-slate-200">00:00–05:59</span> y <span className="text-slate-200">19:00–23:59</span>.
+                                        </div>
+                                        {(Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0) > 0 ||
+                                            Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0) > 0) && (
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                {Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0) > 0 ? (
+                                                    <div className="flex flex-col items-center gap-1 rounded-xl border border-amber-500/45 bg-amber-500/10 p-3 text-center">
+                                                        <span className="text-[10px] uppercase tracking-widest text-amber-200 font-black leading-tight">
+                                                            Recargo dominical/festivos — diurno
+                                                        </span>
+                                                        <span className="text-[10px] text-amber-100/80 font-semibold normal-case tracking-normal">
+                                                            {gestionHeDetailFranjas.recargoDiurnaFranja}
+                                                        </span>
+                                                        <span className="text-xl font-black text-amber-300">
+                                                            {Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0)}h
+                                                        </span>
+                                                    </div>
+                                                ) : null}
+                                                {Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0) > 0 ? (
+                                                    <div className="flex flex-col items-center gap-1 rounded-xl border border-orange-500/40 bg-orange-950/30 p-3 text-center">
+                                                        <span className="text-[10px] uppercase tracking-widest text-orange-200 font-black leading-tight">
+                                                            Recargo dominical/festivos — nocturno
+                                                        </span>
+                                                        <span className="text-[10px] text-orange-100/80 font-semibold normal-case tracking-normal">
+                                                            {gestionHeDetailFranjas.recargoNoctFranja}
+                                                        </span>
+                                                        <span className="text-xl font-black text-orange-300">
+                                                            {Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0)}h
+                                                        </span>
+                                                    </div>
+                                                ) : null}
                                             </div>
-                                        );
-                                    })()}
+                                        )}
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div className="flex flex-col items-center gap-1 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
+                                                <span className="text-[10px] uppercase tracking-widest text-cyan-200 font-bold text-center leading-tight">
+                                                    Hora extra diurna
+                                                </span>
+                                                <span className="text-[9px] text-cyan-100/85 text-center leading-tight">
+                                                    Franjas Bogotá: laboral y exceso dominical/festivos
+                                                </span>
+                                                <span className="text-[10px] text-cyan-100/90 font-semibold normal-case tracking-normal text-center">
+                                                    {gestionHeDetailFranjas.heDiurnaFranja}
+                                                </span>
+                                                <span className="text-xl font-black text-cyan-300">{Number(gestionDetailItem.horasDiurnas ?? 0)}h</span>
+                                            </div>
+                                            <div className="flex flex-col items-center gap-1 rounded-xl border border-indigo-500/35 bg-indigo-500/10 p-3">
+                                                <span className="text-[10px] uppercase tracking-widest text-indigo-200 font-bold text-center leading-tight">
+                                                    Hora extra nocturna
+                                                </span>
+                                                <span className="text-[9px] text-indigo-100/85 text-center leading-tight">
+                                                    Franjas Bogotá: laboral y exceso dominical/festivos
+                                                </span>
+                                                <span className="text-[10px] text-indigo-100/90 font-semibold normal-case tracking-normal text-center">
+                                                    {gestionHeDetailFranjas.heNoctFranja}
+                                                </span>
+                                                <span className="text-xl font-black text-indigo-300">{Number(gestionDetailItem.horasNocturnas ?? 0)}h</span>
+                                            </div>
+                                            <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+                                                <div><span className="text-emerald-300 font-semibold">Horas cargadas:</span> {gestionDetailItem.cantidadHoras || 0}h</div>
+                                                <div><span className="text-emerald-300 font-semibold">Franja cargada:</span> {(gestionDetailItem.horaInicio && gestionDetailItem.horaFin) ? `${gestionDetailItem.horaInicio} - ${gestionDetailItem.horaFin}` : '-'}</div>
+                                                <div><span className="text-emerald-300 font-semibold">Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
+                                                <div><span className="text-emerald-300 font-semibold">Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -2099,7 +2155,7 @@ export default function Dashboard({ token, onLogout }) {
                         </button>
                         <div className="w-full flex items-center justify-between mb-4 mt-2">
                             <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                <BadgeCheck className="text-blue-500" size={22} /> Documento Analizado por IA
+                                <BadgeCheck className="text-blue-500" size={22} /> Vista del documento
                             </h2>
                             {soporteModalCurrentSupport && (
                                 <button

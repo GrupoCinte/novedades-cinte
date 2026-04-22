@@ -1,5 +1,6 @@
 require('dotenv').config({ override: true });
 const express = require('express');
+const { logger } = require('./src/logger');
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
@@ -54,14 +55,15 @@ const SECRET_KEY = (process.env.JWT_SECRET || '').trim();
 if (!SECRET_KEY) {
     throw new Error('FATAL: JWT_SECRET es obligatorio.');
 }
-if (process.env.NODE_ENV === 'production' && SECRET_KEY.length < 32) {
-    throw new Error('FATAL: JWT_SECRET debe tener al menos 32 caracteres en producción.');
-}
-if (process.env.NODE_ENV !== 'production' && SECRET_KEY.length < 32) {
-    console.warn('[SECURITY] JWT_SECRET tiene menos de 32 caracteres (recomendado para desarrollo: >= 32).');
+if (SECRET_KEY.length < 32) {
+    throw new Error('FATAL: JWT_SECRET debe tener al menos 32 caracteres en todos los entornos (HIGH-001).');
 }
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5175';
-const ALLOW_TRYCLOUDFLARE_DEV = String(process.env.ALLOW_TRYCLOUDFLARE_DEV || 'true').toLowerCase() === 'true';
+const ALLOW_TRYCLOUDFLARE_DEV = String(process.env.ALLOW_TRYCLOUDFLARE_DEV || 'false').toLowerCase() === 'true';
+const CORS_EXTRA_ORIGINS = String(process.env.CORS_EXTRA_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 const COGNITO_ENABLED = String(process.env.COGNITO_ENABLED || 'false').toLowerCase() === 'true';
 const COGNITO_REGION = (process.env.COGNITO_REGION || '').trim();
 const COGNITO_USER_POOL_ID = (process.env.COGNITO_USER_POOL_ID || '').trim();
@@ -107,6 +109,9 @@ try {
 } catch {
     // Ignorar FRONTEND_URL malformado y conservar la lista base.
 }
+for (const o of CORS_EXTRA_ORIGINS) {
+    allowedCorsOrigins.add(o);
+}
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
@@ -142,12 +147,6 @@ app.use(cors({
         if (allowedCorsOrigins.has(origin)) return callback(null, true);
         try {
             const parsed = new URL(origin);
-            // En desarrollo, cualquier puerto en localhost / 127.0.0.1 (Vite puede usar 5175, 5176, …).
-            if (!isProduction && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')) {
-                if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-                    return callback(null, true);
-                }
-            }
             if (!isProduction && ALLOW_TRYCLOUDFLARE_DEV && parsed.hostname.endsWith('.trycloudflare.com')) {
                 return callback(null, true);
             }
@@ -158,10 +157,46 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-cinte-xsrf']
 }));
 
 app.use(express.json({ limit: '50mb' }));
+
+/** CSRF doble envío (LOW-002): cookie legible + header en mutaciones /api. */
+function readCookieValue(cookieHeader, cookieName) {
+    const raw = String(cookieHeader || '');
+    if (!raw) return '';
+    const parts = raw.split(';');
+    for (const part of parts) {
+        const [k, ...rest] = part.trim().split('=');
+        if (k === cookieName) return decodeURIComponent(rest.join('=') || '');
+    }
+    return '';
+}
+
+const CSRF_SKIP_PATHS = new Set([
+    '/api/login',
+    '/api/auth/complete-new-password',
+    '/api/auth/forgot-password',
+    '/api/auth/reset-password',
+    '/api/enviar-novedad'
+]);
+
+app.use((req, res, next) => {
+    if (req.method === 'OPTIONS') return next();
+    const p = req.path || '';
+    if (!p.startsWith('/api')) return next();
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+    if (String(req.get('authorization') || '').startsWith('Bearer ')) return next();
+    if (CSRF_SKIP_PATHS.has(p)) return next();
+    const hdr = String(req.get('x-cinte-xsrf') || req.get('x-xsrf-token') || '').trim();
+    const cookie = readCookieValue(req.headers.cookie, 'cinteXsrf').trim();
+    if (!hdr || !cookie || hdr !== cookie) {
+        return res.status(403).json({ ok: false, error: 'CSRF token inválido o ausente' });
+    }
+    return next();
+});
+
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 const AUTH_RATE_LIMIT_WINDOW_MIN = Number(process.env.AUTH_RATE_LIMIT_WINDOW_MIN || 15);
@@ -350,7 +385,8 @@ const {
     allowPanel,
     allowAnyPanel,
     allowRoles,
-    applyScope
+    applyScope,
+    revokeAppSessionToken
 } = createAuthHelpers({
     jwt,
     SECRET_KEY,
@@ -393,6 +429,7 @@ const {
     ensureNovedadesApproverEmailColumns,
     ensureNovedadesHoraExtraAlertColumns,
     ensureNovedadesHeDomingoObservacionColumn,
+    ensureNovedadesHorasRecargoDomingoColumn,
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,
     ensureColaboradoresDirectoryColumns,
@@ -433,6 +470,7 @@ const cotizadorStore = createCotizadorStore({ pool });
 
 registerRoutes({
     app,
+    logger,
     authLimiter,
     forgotLimiter,
     submitLimiter,
@@ -440,6 +478,7 @@ registerRoutes({
     normalizeCedula,
     getColaboradorByCedula,
     verificarToken,
+    revokeAppSessionToken,
     isStrongPassword,
     COGNITO_ENABLED,
     COGNITO_APP_CLIENT_ID,
@@ -546,6 +585,7 @@ startServer({
     ensureNovedadesApproverEmailColumns,
     ensureNovedadesHoraExtraAlertColumns,
     ensureNovedadesHeDomingoObservacionColumn,
+    ensureNovedadesHorasRecargoDomingoColumn,
     migrateExcelIfNeeded,
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,

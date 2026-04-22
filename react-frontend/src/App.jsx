@@ -34,70 +34,21 @@ import { userHasDirectorioPanel } from './directorioAccess';
 import { cognitoSignOut } from './cognitoAuth';
 
 
-function readAuth() {
-  try {
-    return JSON.parse(localStorage.getItem('cinteAuth') || 'null');
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Decodifica el payload del JWT (sin verificar firma — solo para leer `exp`).
- * La verificación de firma real ocurre en el backend en cada petición.
- */
-function decodeJwtPayload(token) {
-  try {
-    const parts = String(token || '').split('.');
-    if (parts.length < 2) return null;
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
-    return JSON.parse(atob(padded));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Devuelve true si el token existe Y su claim `exp` es mayor al momento actual.
- * Si el token está expirado o malformado, limpia localStorage y retorna false.
- */
-function isTokenValid(token) {
-  if (!token) return false;
-  const payload = decodeJwtPayload(token);
-  if (!payload?.exp) return false;
-  // exp está en segundos, Date.now() en milisegundos
-  const isExpired = payload.exp * 1000 < Date.now();
-  if (isExpired) {
-    localStorage.removeItem('cinteAuth');
-    return false;
-  }
-  return true;
-}
-
 /**
  * Guard de ruta protegida. Verifica existencia Y validez temporal del token.
  * Si no hay token válido, redirige a /admin (que renderiza el Login).
  */
-function ProtectedRoute({ children }) {
-  const auth = readAuth();
-  if (!auth?.token || !isTokenValid(auth.token)) {
-    localStorage.removeItem('cinteAuth');
+function ProtectedRoute({ children, auth }) {
+  if (!auth?.user) {
     return <Navigate to="/admin" replace />;
   }
   return children;
 }
 
 function App() {
-  const [auth, setAuth] = useState(() => {
-    const stored = readAuth();
-    // Al iniciar la app, descartar sesiones con token expirado
-    if (stored?.token && !isTokenValid(stored.token)) {
-      localStorage.removeItem('cinteAuth');
-      return null;
-    }
-    return stored;
-  });
+  // CRIT-002 — La sesión se hidrata exclusivamente desde /api/me (cookie HttpOnly).
+  // No se lee localStorage en el arranque para evitar exposición de tokens a XSS.
+  const [auth, setAuth] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
   const isFormularioPublico = location.pathname === '/';
@@ -105,55 +56,48 @@ function App() {
   const isComercialRoute = location.pathname.startsWith('/admin/comercial');
   const isContratacionRoute = location.pathname.startsWith('/admin/contratacion');
   const isDirectorioRoute = location.pathname.startsWith('/admin/directorio');
-  const showContratacionNav = auth?.token && userHasContratacionPanel(auth.token);
-  const showNovedadesNav = auth?.token && userHasNovedadesAdminAccess(auth.token);
-  const showComercialNav = auth?.token && userHasCotizadorAccess(auth.token);
-  const showDirectorioNav = auth?.token && userHasDirectorioPanel(auth.token);
+  const showContratacionNav = auth?.user && userHasContratacionPanel(auth);
+  const showNovedadesNav = auth?.user && userHasNovedadesAdminAccess(auth);
+  const showComercialNav = auth?.user && userHasCotizadorAccess(auth);
+  const showDirectorioNav = auth?.user && userHasDirectorioPanel(auth);
   /** Login / forgot / reset: sin cabecera global para usar viewport completo. */
-  const showGlobalHeader = !isFormularioPublico && !(isAdminRoute && !auth?.token);
+  const showGlobalHeader = !isFormularioPublico && !(isAdminRoute && !auth?.user);
 
-  const handleLogout = useCallback(() => {
+  const handleLogout = useCallback(async () => {
+    // CRIT-002 + LOW-005: Llama al endpoint de logout para revocar el token en servidor y limpiar cookies.
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch { /* ignora error de red en logout */ }
     cognitoSignOut();
     setAuth(null);
-    localStorage.removeItem('cinteAuth');
     navigate('/admin', { replace: true });
   }, [navigate]);
 
-  // Escucha cambios de sesión en otras pestañas del navegador
   useEffect(() => {
-    const onStorage = (e) => {
-      if (e.key === 'cinteAuth') {
-        const fresh = readAuth();
-        if (!fresh?.token || !isTokenValid(fresh.token)) {
-          setAuth(null);
-          localStorage.removeItem('cinteAuth');
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/me', { credentials: 'include' });
+        const data = await res.json().catch(() => ({}));
+        if (!mounted) return;
+        if (res.ok && data?.ok && data?.me) {
+          setAuth((prev) => prev || { ok: true, user: data.me, claims: data.me });
         } else {
-          setAuth(fresh);
+          setAuth(null);
         }
+      } catch {
+        if (mounted) setAuth(null);
       }
+    })();
+    return () => {
+      mounted = false;
     };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  // Auto-logout cuando el token expira mientras la app está abierta
-  useEffect(() => {
-    if (!auth?.token) return;
-    const payload = decodeJwtPayload(auth.token);
-    if (!payload?.exp) return;
-    const msUntilExpiry = payload.exp * 1000 - Date.now();
-    if (msUntilExpiry <= 0) {
-      handleLogout();
-      return;
-    }
-    const timer = setTimeout(() => {
-      handleLogout();
-    }, msUntilExpiry);
-    return () => clearTimeout(timer);
-  }, [auth?.token, handleLogout]);
+  // CRIT-002 — No se persiste auth en localStorage. La sesión vive solo en la cookie HttpOnly.
 
   const onLoggedIn = (authData) => setAuth(authData);
-  const headerTitle = (auth?.token && isAdminRoute)
+  const headerTitle = (auth?.user && isAdminRoute)
     ? 'SISTEMA UNIFICADO DE GESTIÓN'
     : 'PORTAL DE RADICACIÓN DE NOVEDADES';
   return (
@@ -172,7 +116,7 @@ function App() {
         <div className="hidden lg:flex w-[220px]" />
       </header>
       )}
-      {auth?.token && isAdminRoute && (
+      {auth?.user && isAdminRoute && (
         <div className="bg-[#04141E]/90 border-b border-[#1a3a56] px-4 md:px-8 py-2 flex flex-wrap items-center gap-2 font-body">
           {showNovedadesNav ? (
             <button
@@ -235,14 +179,14 @@ function App() {
           <Route
             path="/admin"
             element={
-              auth?.token ? (
-                userHasNovedadesAdminAccess(auth.token) ? (
-                  <Dashboard token={auth.token} onLogout={handleLogout} />
-                ) : userHasCotizadorAccess(auth.token) ? (
+              auth?.user ? (
+                userHasNovedadesAdminAccess(auth) ? (
+                  <Dashboard token={auth.token || ''} auth={auth} onLogout={handleLogout} />
+                ) : userHasCotizadorAccess(auth) ? (
                   <Navigate to="/admin/comercial" replace />
-                ) : userHasContratacionPanel(auth.token) ? (
+                ) : userHasContratacionPanel(auth) ? (
                   <Navigate to="/admin/contratacion" replace />
-                ) : userHasDirectorioPanel(auth.token) ? (
+                ) : userHasDirectorioPanel(auth) ? (
                   <Navigate to="/admin/directorio" replace />
                 ) : (
                   <AdminPortalSinModulos onLogout={handleLogout} />
@@ -257,7 +201,7 @@ function App() {
           <Route
             path="/perfil/cambiar-clave"
             element={(
-              <ProtectedRoute>
+              <ProtectedRoute auth={auth}>
                 <ChangePassword />
               </ProtectedRoute>
             )}
@@ -265,11 +209,10 @@ function App() {
           <Route
             path="/admin/comercial"
             element={(
-              <ProtectedRoute>
+              <ProtectedRoute auth={auth}>
                 {(() => {
-                  const token = readAuth()?.token || '';
-                  return userHasCotizadorAccess(token) ? (
-                    <ComercialModule token={token} onLogout={handleLogout} />
+                  return userHasCotizadorAccess(auth) ? (
+                    <ComercialModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                   ) : (
                     <Navigate to="/admin" replace />
                   );
@@ -280,9 +223,9 @@ function App() {
           <Route
             path="/admin/contratacion"
             element={(
-              <ProtectedRoute>
-                {auth?.token && userHasContratacionPanel(auth.token) ? (
-                  <ContratacionModule token={auth.token} onLogout={handleLogout} />
+              <ProtectedRoute auth={auth}>
+                {auth?.user && userHasContratacionPanel(auth) ? (
+                  <ContratacionModule token={auth.token || ''} auth={auth} onLogout={handleLogout} />
                 ) : (
                   <Navigate to="/admin" replace />
                 )}
@@ -292,11 +235,10 @@ function App() {
           <Route
             path="/admin/directorio"
             element={(
-              <ProtectedRoute>
+              <ProtectedRoute auth={auth}>
                 {(() => {
-                  const token = readAuth()?.token || '';
-                  return userHasDirectorioPanel(token) ? (
-                    <DirectorioClienteColaboradorModule token={token} onLogout={handleLogout} />
+                  return userHasDirectorioPanel(auth) ? (
+                    <DirectorioClienteColaboradorModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                   ) : (
                     <Navigate to="/admin" replace />
                   );
@@ -305,7 +247,7 @@ function App() {
             )}
           />
           <Route path="/admin/cotizador" element={<Navigate to="/admin/comercial" replace />} />
-          <Route path="*" element={<Navigate to={auth?.token ? '/admin' : '/'} replace />} />
+          <Route path="*" element={<Navigate to={auth?.user ? '/admin' : '/'} replace />} />
         </Routes>
       </main>
     </div>

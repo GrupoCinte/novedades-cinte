@@ -1,5 +1,6 @@
 const StreamPoller = require('./streamPoller');
 const { ContratacionWSServer } = require('./websocketServer');
+const { logger } = require('../logger');
 
 let active = { wsServer: null, streamPoller: null };
 
@@ -22,19 +23,17 @@ function initContratacionRealtime(server) {
     const tableName = (process.env.DYNAMODB_TABLE_NAME || '').trim();
     const awsRegion = process.env.AWS_REGION || 'us-east-1';
     const wsSecret = (process.env.CONTRATACION_WS_SECRET || process.env.JWT_SECRET || '').trim();
-    const wsFailOpen = String(process.env.CONTRATACION_WS_FAIL_OPEN || '').toLowerCase() === 'true';
 
     if (!server) return active;
 
     try {
         if (!active.wsServer) {
             active.wsServer = new ContratacionWSServer(server, {
-                wsSecret,
-                failOpen: wsFailOpen && process.env.NODE_ENV !== 'production'
+                wsSecret
             });
         }
     } catch (e) {
-        console.error('Contratación: no se pudo inicializar WebSocket:', e.message);
+        logger.error({ error: e.message }, 'Contratación: no se pudo inicializar WebSocket');
     }
 
     const pollerEnabled = String(process.env.CONTRATACION_STREAM_POLLER_ENABLED || '').toLowerCase() === 'true';
@@ -50,10 +49,10 @@ function initContratacionRealtime(server) {
         });
         active.streamPoller = poller;
         poller.start().catch((e) => {
-            console.error('Contratación StreamPoller:', e.message);
+            logger.error({ error: e.message }, 'Contratación StreamPoller');
         });
     } catch (e) {
-        console.error('Contratación: StreamPoller no iniciado:', e.message);
+        logger.error({ error: e.message }, 'Contratación: StreamPoller no iniciado');
     }
 
     return active;

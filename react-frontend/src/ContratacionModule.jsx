@@ -73,28 +73,21 @@ function ContratacionDashboard({ token, currentView, onNavigate }) {
     );
 }
 
-export default function ContratacionModule({ token, onLogout }) {
+export default function ContratacionModule({ token, auth, onLogout }) {
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [navView, setNavView] = useState('active');
 
-    const authFromStorage = (() => {
-        try {
-            return JSON.parse(localStorage.getItem('cinteAuth') || 'null');
-        } catch {
-            return null;
-        }
-    })();
-    const currentEmail = String(authFromStorage?.user?.email || authFromStorage?.claims?.email || 'sin-correo').toLowerCase();
-    const currentRoleLabel = String(authFromStorage?.user?.role || authFromStorage?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
+    // CRIT-002: Derivar de la prop auth (cookie HttpOnly), sin leer localStorage
+    const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
+    const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
     const handleSidebarLogout = () => {
         if (onLogout) {
             onLogout();
             return;
         }
-        localStorage.removeItem('cinteAuth');
         navigate('/admin', { replace: true });
     };
 

@@ -100,6 +100,9 @@ CREATE TABLE IF NOT EXISTS novedades (
   cantidad_horas        NUMERIC(8,2) NOT NULL DEFAULT 0,
   horas_diurnas         NUMERIC(8,2) NOT NULL DEFAULT 0,
   horas_nocturnas       NUMERIC(8,2) NOT NULL DEFAULT 0,
+  horas_recargo_domingo           NUMERIC(8,2) NOT NULL DEFAULT 0,
+  horas_recargo_domingo_diurnas   NUMERIC(8,2) NOT NULL DEFAULT 0,
+  horas_recargo_domingo_nocturnas NUMERIC(8,2) NOT NULL DEFAULT 0,
   tipo_hora_extra       TEXT NULL,
   monto_cop             NUMERIC(16,2) NULL,
 

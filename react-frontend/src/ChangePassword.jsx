@@ -27,9 +27,8 @@ export default function ChangePassword() {
     try {
       await cognitoChangePassword(current, pw);
       setMsg('Contraseña actualizada. Cerrando sesión...');
-      setTimeout(() => {
-        cognitoSignOut();
-        localStorage.removeItem('cinteAuth');
+      setTimeout(async () => {
+        await cognitoSignOut();
         nav('/admin', { replace: true });
       }, 1200);
     } catch (err) {

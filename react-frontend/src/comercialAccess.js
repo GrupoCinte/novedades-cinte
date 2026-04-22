@@ -15,12 +15,26 @@ const POLICY_PANELS_BY_ROLE = {
     team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
     comercial: ['comercial'],
     gp: ['dashboard', 'calendar', 'gestion', 'contratacion'],
-    nomina: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial']
+    nomina: ['dashboard', 'calendar', 'gestion']
 };
 
-function decodeJwtPayload(token) {
+function normalizePayload(authOrToken) {
+    if (authOrToken && typeof authOrToken === 'object') {
+        const raw = authOrToken;
+        if (raw.user && typeof raw.user === 'object') {
+            return {
+                role: raw.user.role,
+                panels: raw.user.panels,
+                email: raw.user.email,
+                username: raw.user.username
+            };
+        }
+        if (raw.claims && typeof raw.claims === 'object') return raw.claims;
+        return raw;
+    }
+    const token = String(authOrToken || '');
     try {
-        const parts = String(token || '').split('.');
+        const parts = token.split('.');
         if (parts.length < 2) return null;
         const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
         const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
@@ -33,8 +47,8 @@ function decodeJwtPayload(token) {
 /**
  * Paneles efectivos del usuario: claim `panels` del JWT o, si viene vacío, los del rol (mismo criterio que el backend).
  */
-export function getPanelsFromToken(token) {
-    const payload = decodeJwtPayload(token);
+export function getPanelsFromToken(authOrToken) {
+    const payload = normalizePayload(authOrToken);
     const panels = Array.isArray(payload?.panels) ? payload.panels.map((p) => String(p)) : [];
     if (panels.length) return panels;
     const role = String(payload?.role || '').trim().toLowerCase();
@@ -43,13 +57,16 @@ export function getPanelsFromToken(token) {
 }
 
 /** Puede usar el área admin de novedades (Dashboard / calendario / gestión). */
-export function userHasNovedadesAdminAccess(token) {
-    const panels = getPanelsFromToken(token);
+export function userHasNovedadesAdminAccess(authOrToken) {
+    const panels = getPanelsFromToken(authOrToken);
     return panels.some((p) => NOVEDADES_PANELS.has(p));
 }
 
 /** Puede usar el cotizador (API /admin/comercial). */
-export function userHasCotizadorAccess(token) {
-    const panels = getPanelsFromToken(token);
+export function userHasCotizadorAccess(authOrToken) {
+    const payload = normalizePayload(authOrToken);
+    const role = String(payload?.role || '').trim().toLowerCase();
+    if (role === 'nomina') return false;
+    const panels = getPanelsFromToken(authOrToken);
     return panels.some((p) => COTIZADOR_PANELS.has(p));
 }

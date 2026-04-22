@@ -13,7 +13,7 @@ export const NOVEDAD_RULES = {
     requiredDocuments: ['Soporte de calamidad', 'Formato de permiso'],
     formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
     approvers: ['admin_ch', 'team_ch', 'cac'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false
   },
@@ -21,7 +21,7 @@ export const NOVEDAD_RULES = {
     requiredDocuments: ['Soporte adjunto', 'Formato permiso Excel'],
     formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
     approvers: ['admin_ch', 'team_ch', 'cac'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
@@ -53,7 +53,7 @@ export const NOVEDAD_RULES = {
     requiredDocuments: ['Soporte de ausencia'],
     formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
     approvers: ['admin_ch', 'team_ch', 'cac'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false
   },
@@ -75,7 +75,7 @@ export const NOVEDAD_RULES = {
   },
   'Vacaciones en tiempo': {
     requiredDocuments: [],
-    formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
+    formatLinks: [{ label: 'F-001-GCH - Solicitud de Vacaciones', href: '/assets/formats/F-001-GCH%20-%20Solicitud%20de%20Vacaciones.xlsx' }],
     approvers: ['gp', 'admin_ch', 'team_ch', 'cac'],
     viewers: ['super_admin', 'gp', 'nomina', 'admin_ch', 'team_ch', 'cac'],
     requiresDayCount: true,
@@ -83,14 +83,13 @@ export const NOVEDAD_RULES = {
     autoBusinessDays: true
   },
   'Vacaciones en dinero': {
-    requiredDocuments: ['Solicitud firmada manuscrita'],
-    formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
-    approvers: ['admin_ch', 'team_ch', 'cac', 'nomina'],
+    requiredDocuments: [],
+    formatLinks: [],
+    approvers: ['admin_ch', 'team_ch', 'cac'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-    /* El backend guarda cantidad_horas = 0; la medida visible son días hábiles del rango. */
     requiresDayCount: true,
     requiresTimeRange: false,
-    autoBusinessDays: true
+    autoBusinessDays: false
   },
   'Permiso compensatorio en tiempo': {
     requiredDocuments: ['Formato de permiso compensatorio'],
@@ -100,21 +99,14 @@ export const NOVEDAD_RULES = {
     requiresDayCount: false,
     requiresTimeRange: false
   },
-  Apoyo: {
+  Disponibilidad: {
     requiredDocuments: [],
     formatLinks: [],
     approvers: ['gp', 'cac'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
-    requiresTimeRange: false
-  },
-  'Apoyo Standby': {
-    requiredDocuments: [],
-    formatLinks: [],
-    approvers: ['gp', 'cac'],
-    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-    requiresDayCount: false,
-    requiresTimeRange: false
+    requiresTimeRange: false,
+    requiresMonetaryAmount: true
   },
   Bonos: {
     requiredDocuments: [],
@@ -154,8 +146,9 @@ const TIPO_ALIAS_SNAKE = {
   permiso_compensatorio_tiempo: 'Permiso compensatorio en tiempo',
   incapacidad: 'Incapacidad',
   hora_extra: 'Hora Extra',
-  apoyo: 'Apoyo',
-  apoyo_standby: 'Apoyo Standby',
+  apoyo: 'Disponibilidad',
+  apoyo_standby: 'Disponibilidad',
+  disponibilidad_standby: 'Disponibilidad',
   bonos: 'Bonos',
   bono: 'Bonos'
 };
@@ -173,7 +166,7 @@ export function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
   return count;
 }
 
-/** Prioriza cantidad guardada; si es 0 y hay rango, infiere días hábiles (Vacaciones en dinero, etc.). */
+/** Prioriza cantidad guardada; si es 0 y hay rango, infiere días hábiles (p. ej. Vacaciones en tiempo con rango). */
 export function getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin) {
   const kind = getCantidadMedidaKind(tipoNovedad);
   if (kind !== 'days') return 0;
@@ -211,6 +204,16 @@ export function resolveCanonicalNovedadTipo(tipoRaw) {
   if (f === 'vacaciones en dinero') return 'Vacaciones en dinero';
   /* Etiqueta corta en datos demo/legacy; el flujo de horas coincide con Permiso no remunerado. */
   if (f === 'permiso') return 'Permiso no remunerado';
+  /* Renombre de producto: antes "Apoyo"; standby y variantes pasan a Disponibilidad única. */
+  if (f === 'apoyo') return 'Disponibilidad';
+  if (
+    f === 'apoyo standby'
+    || f === 'apoyo stand by'
+    || f === 'apoyo standy'
+    || f === 'disponibilidad standby'
+  ) {
+    return 'Disponibilidad';
+  }
   return raw;
 }
 

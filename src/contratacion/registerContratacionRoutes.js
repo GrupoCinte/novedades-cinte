@@ -1,7 +1,7 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { mapDynamoItemToExecution } = require('./utils/mappers');
-const { scanAllItems, queryAllItems } = require('./utils/dynamoPaged');
+const { scanAllItems, queryAllItems, DEFAULT_MAX } = require('./utils/dynamoPaged');
 const { validate, validateQuery } = require('./middleware/validate');
 const { emailQuerySchema } = require('./schemas/users');
 const { eliminarCandidatoSchema } = require('./schemas/eliminarCandidato');
@@ -49,6 +49,7 @@ function registerContratacionRoutes(deps) {
     const configured = Boolean(tableName);
     const docClient = configured ? createDynamoDocClient() : null;
     const kpi = buildKpiBaseline();
+    const maxItems = Math.min(Math.max(Number(process.env.CONTRATACION_MAX_ITEMS || DEFAULT_MAX), 1), 100000);
 
     const guard = [verificarToken, allowPanel('contratacion')];
 
@@ -62,7 +63,7 @@ function registerContratacionRoutes(deps) {
     app.get('/api/contratacion/monitor', ...guard, contratacionMonitorLimiter, async (req, res) => {
         if (!configured || !docClient) return notConfigured(res);
         try {
-            const items = await scanAllItems(docClient, tableName);
+            const items = await scanAllItems(docClient, tableName, { maxItems });
             const executions = items.map(mapDynamoItemToExecution);
             return res.json({
                 success: true,
@@ -101,7 +102,7 @@ function registerContratacionRoutes(deps) {
                 }
             };
 
-            const items = await queryAllItems(docClient, queryInput);
+            const items = await queryAllItems(docClient, queryInput, { maxItems });
 
             const safeUsers = items.map((user) => ({
                 email: user.email,

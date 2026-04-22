@@ -1,6 +1,17 @@
 const crypto = require('crypto');
 const { decodeJwtPayload } = require('./utils');
 
+/** jti -> expira en ms (revocación de sesión app JWT, LOW-005). */
+const revokedAppJtis = new Map();
+
+function sweepRevokedJtis() {
+    const now = Date.now();
+    for (const [jti, until] of revokedAppJtis) {
+        if (until <= now) revokedAppJtis.delete(jti);
+    }
+}
+setInterval(sweepRevokedJtis, 60_000).unref?.();
+
 function createAuthHelpers(deps) {
     const {
         jwt,
@@ -16,6 +27,17 @@ function createAuthHelpers(deps) {
         resolveRoleFromGroups,
         getAreaFromRole
     } = deps;
+
+    function readCookieValue(cookieHeader, cookieName) {
+        const raw = String(cookieHeader || '');
+        if (!raw) return '';
+        const parts = raw.split(';');
+        for (const part of parts) {
+            const [k, ...rest] = part.trim().split('=');
+            if (k === cookieName) return decodeURIComponent(rest.join('=') || '');
+        }
+        return '';
+    }
 
     function resolveEffectiveRole(baseRole, requestedRoleRaw = '') {
         const requested = normalizeRoleOrNull(requestedRoleRaw);
@@ -62,6 +84,7 @@ function createAuthHelpers(deps) {
         if (!Number.isFinite(expiresInSec) || expiresInSec <= 0) {
             expiresInSec = 3600;
         }
+        const jti = crypto.randomUUID();
         const token = jwt.sign(
             {
                 sub: user.id,
@@ -72,7 +95,8 @@ function createAuthHelpers(deps) {
                 area: user.area,
                 panels: user.panels,
                 baseRole: baseUser.role || user.role,
-                authProvider: 'cognito_app'
+                authProvider: 'cognito_app',
+                jti
             },
             SECRET_KEY,
             { expiresIn: `${expiresInSec}s` }
@@ -163,7 +187,9 @@ function createAuthHelpers(deps) {
 
     async function verificarToken(req, res, next) {
         const authHeader = req.headers.authorization || '';
-        const [, token] = authHeader.split(' ');
+        const [, bearerToken] = authHeader.split(' ');
+        const cookieToken = readCookieValue(req.headers.cookie, 'cinteSession');
+        const token = String(bearerToken || cookieToken || '').trim();
         if (!token) return res.status(401).json({ ok: false, error: 'Acceso denegado. Token no proporcionado.' });
         try {
             req.authToken = token;
@@ -172,6 +198,10 @@ function createAuthHelpers(deps) {
                 userClaims = jwt.verify(token, SECRET_KEY);
                 if (userClaims?.authProvider !== 'cognito_app') {
                     throw new Error('Token de aplicación inválido');
+                }
+                const jti = String(userClaims.jti || '').trim();
+                if (jti && revokedAppJtis.has(jti)) {
+                    throw new Error('Token revocado');
                 }
             }
             const payloadFromToken = decodeJwtPayload(token) || {};
@@ -229,6 +259,23 @@ function createAuthHelpers(deps) {
         };
     }
 
+    /**
+     * Invalida el JWT de aplicación actual (cookie o Bearer) hasta su expiración natural.
+     */
+    function revokeAppSessionToken(token) {
+        if (!token || typeof token !== 'string') return;
+        try {
+            const payload = jwt.decode(token);
+            if (payload?.authProvider !== 'cognito_app') return;
+            const jti = String(payload.jti || '').trim();
+            if (!jti) return;
+            const expMs = typeof payload.exp === 'number' ? payload.exp * 1000 : Date.now() + 8 * 3600 * 1000;
+            revokedAppJtis.set(jti, Math.max(expMs, Date.now() + 60_000));
+        } catch {
+            // token inválido: nada que revocar
+        }
+    }
+
     function applyScope(req, res, next) {
         const role = req.user?.role || '';
         const conf = POLICY[role] || {};
@@ -258,7 +305,8 @@ function createAuthHelpers(deps) {
         allowPanel,
         allowAnyPanel,
         allowRoles,
-        applyScope
+        applyScope,
+        revokeAppSessionToken
     };
 }
 

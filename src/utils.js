@@ -46,7 +46,7 @@ function normalizeEstado(value) {
 }
 
 function isStrongPassword(pw = '') {
-    return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{8,}$/.test(pw);
+    return /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[\W_]).{12,}$/.test(pw);
 }
 
 function sanitizeSegment(value = '') {

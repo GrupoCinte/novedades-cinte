@@ -16,3 +16,45 @@
   reverse_proxy @backend_assets backend:3005
   reverse_proxy frontend:80
 }
+
+# Producción (LOW-003): activar para dominio público cuando Caddy termina TLS.
+novedades.grupocinte.com {
+  encode zstd gzip
+  tls {
+    protocols tls1.2 tls1.3
+  }
+  header {
+    -Server
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  }
+  @api path /api/*
+  @backend_assets path /assets/uploads/* /assets/formats/* /assets/logo-cinte.png /assets/logo-cinte-header.png
+  reverse_proxy @api backend:3005
+  reverse_proxy @backend_assets backend:3005
+  reverse_proxy frontend:80
+}
+
+# Producción (ejemplo): TLS + HSTS explícitos.
+novedades.grupocinte.com {
+  encode zstd gzip
+  tls {
+    protocols tls1.2 tls1.3
+  }
+  header {
+    -Server
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "DENY"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  }
+  @api path /api/*
+  @backend_assets path /assets/uploads/* /assets/formats/* /assets/logo-cinte.png /assets/logo-cinte-header.png
+  reverse_proxy @api backend:3005
+  reverse_proxy @backend_assets backend:3005
+  reverse_proxy frontend:80
+}
