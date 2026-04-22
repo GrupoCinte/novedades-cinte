@@ -2,6 +2,20 @@ const { normalizeNovedadTypeKey } = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
 const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
+const { formatCantidadNovedad, getCantidadMedidaKind } = require('./novedadCantidadFormat');
+const { parseTimeOrNull: parseTimeOrNullForExport } = require('./utils');
+
+/** HH:MM para Excel; tolera hora de un dígito desde BD. */
+function formatHoraMinutaParaExcel(value) {
+    const t = parseTimeOrNullForExport(value);
+    if (t) return t.slice(0, 5);
+    const raw = String(value || '').trim();
+    const m = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?/);
+    if (!m) return '';
+    const h = Math.min(23, Math.max(0, Number(m[1])));
+    const min = Math.min(59, Math.max(0, Number(m[2])));
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
 
 function buildConsultantKeyHeDomingo(row) {
     const cedula = String(row?.cedula || '').trim() || 'sin-cedula';
@@ -664,7 +678,9 @@ function registerRoutes(deps) {
                 { header: 'Tipo Novedad', key: 'tipoNovedad', width: 24 },
                 { header: 'Fecha Inicio', key: 'fechaInicio', width: 14 },
                 { header: 'Fecha Fin', key: 'fechaFin', width: 14 },
-                { header: 'Horas', key: 'horas', width: 10 },
+                { header: 'Cantidad', key: 'cantidad', width: 18 },
+                { header: 'Hora inicial', key: 'horaInicial', width: 12 },
+                { header: 'Hora final', key: 'horaFinal', width: 12 },
                 { header: 'Horas diurnas', key: 'horasDiurnas', width: 14 },
                 { header: 'Horas nocturnas', key: 'horasNocturnas', width: 14 },
                 { header: 'Horas recargo domingo', key: 'horasRecargoDomingo', width: 18 },
@@ -705,6 +721,7 @@ function registerRoutes(deps) {
                 const it = items[i];
                 const row = rows[i];
                 const correoActor = it.estado === 'Rechazado' ? (it.rechazadoPorCorreo || '') : (it.aprobadoPorCorreo || '');
+                const esPorHoras = getCantidadMedidaKind(it.tipoNovedad) === 'hours';
                 let observacionHeDomingo = '';
                 if (rowIsHoraExtraTipo(row)) {
                     observacionHeDomingo = computeHeDomingoObservacionForRow(row, sundaySetsExport, buildConsultantKeyHeDomingo, heDomingoDep);
@@ -721,7 +738,9 @@ function registerRoutes(deps) {
                     tipoNovedad: it.tipoNovedad || '',
                     fechaInicio: it.fechaInicio || '',
                     fechaFin: it.fechaFin || '',
-                    horas: it.cantidadHoras || '0',
+                    cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
+                    horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
+                    horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
                     horasDiurnas: Number(it.horasDiurnas || 0) > 0 ? Number(it.horasDiurnas) : '',
                     horasNocturnas: Number(it.horasNocturnas || 0) > 0 ? Number(it.horasNocturnas) : '',
                     horasRecargoDomingo: Number(it.horasRecargoDomingo || 0) > 0 ? Number(it.horasRecargoDomingo) : '',
@@ -860,10 +879,12 @@ function registerRoutes(deps) {
                 ok: true,
                 cedula: row.cedula,
                 nombre: row.nombre,
-                correo: correoOut,
+                // HIGH-003: No exponer correo_cinte al formulario público sin autenticación.
+                // El backend resuelve el correo real desde BD en /api/enviar-novedad.
+                correo: '',
+                lockCorreo,
                 cliente: clienteOut,
                 lider: liderOut,
-                lockCorreo,
                 lockCliente,
                 lockLider
             });
