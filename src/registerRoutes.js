@@ -1,7 +1,7 @@
 const { normalizeNovedadTypeKey } = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
-const { computeHoraExtraSplitBogota } = require('./heBogotaSplit');
+const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
 
 function buildConsultantKeyHeDomingo(row) {
     const cedula = String(row?.cedula || '').trim() || 'sin-cedula';
@@ -195,16 +195,6 @@ function registerRoutes(deps) {
             cursor.setUTCDate(cursor.getUTCDate() + 1);
         }
         return count;
-    }
-
-    /** Etiqueta tipo HE: eje diurno = HE diurna + recargo dom. diurno; eje nocturno = HE nocturna + recargo dom. nocturno. */
-    function resolveHoraExtraLabel(heDiurnas, heNocturnas, recDomDiurnas, recDomNocturnas) {
-        const d = Number(heDiurnas || 0) + Number(recDomDiurnas || 0);
-        const n = Number(heNocturnas || 0) + Number(recDomNocturnas || 0);
-        if (d > 0 && n > 0) return 'Mixta';
-        if (d > 0) return 'Diurna';
-        if (n > 0) return 'Nocturna';
-        return null;
     }
 
     function buildFormSubmittedNotificationEvent({

@@ -286,6 +286,18 @@ function formatHeSegmentListBogota(segments) {
     return segments.map((seg) => formatHeSegmentRangeBogota(seg.startMs, seg.endMs)).join('; ');
 }
 
+/**
+ * Etiqueta tipo HE: eje diurno = HE diurna + recargo dom. diurno; eje nocturno = HE nocturna + recargo dom. nocturno.
+ */
+function resolveHoraExtraLabel(heDiurnas, heNocturnas, recDomDiurnas, recDomNocturnas) {
+    const d = Number(heDiurnas || 0) + Number(recDomDiurnas || 0);
+    const n = Number(heNocturnas || 0) + Number(recDomNocturnas || 0);
+    if (d > 0 && n > 0) return 'Mixta';
+    if (d > 0) return 'Diurna';
+    if (n > 0) return 'Nocturna';
+    return null;
+}
+
 module.exports = {
     RECARGO_DOMINGO_MAX_HORAS,
     bogotaMinuteOfDayFromMs,
@@ -294,5 +306,6 @@ module.exports = {
     collectHeDiurnaNocturnaSegmentsBogota,
     collectRecargoDomingoDiurnaNocturnaSegmentsBogota,
     formatHeSegmentRangeBogota,
-    formatHeSegmentListBogota
+    formatHeSegmentListBogota,
+    resolveHoraExtraLabel
 };
