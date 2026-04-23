@@ -78,6 +78,14 @@ function pickWorkedSundayYmd(draftSplit, sundaySets, consultantKey) {
     }
     if (pickTier2) return pickTier2;
 
+    let pickTier1 = null;
+    for (const d of draftSundays) {
+        const mk = d.slice(0, 7);
+        const t = sundayStatsForConsultantMonth(sundaySets, consultantKey, mk).tier;
+        if (t === 1 && (!pickTier1 || d > pickTier1)) pickTier1 = d;
+    }
+    if (pickTier1) return pickTier1;
+
     for (let i = draftSundays.length - 1; i >= 0; i -= 1) {
         const d = draftSundays[i];
         const mk = d.slice(0, 7);
@@ -127,7 +135,7 @@ function computeHeDomingoCompensacionPreview(existingRows, syntheticRow, dep, bu
     }
 
     const esTercerDomingoOMas = maxTier >= 3;
-    const requiereEleccionCompensacion = maxTier === 2;
+    const requiereEleccionCompensacion = maxTier === 1 || maxTier === 2;
     const domingoTrabajadoYmd = pickWorkedSundayYmd(draftSplit, sundaySets, ck);
     const vent =
         requiereEleccionCompensacion && domingoTrabajadoYmd

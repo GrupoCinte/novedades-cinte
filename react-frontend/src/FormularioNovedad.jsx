@@ -1012,7 +1012,7 @@ export default function FormularioNovedad() {
                                         {isHoraExtra && colaboradorVerificado && heDomingoPreview?.ok && heDomingoPreview.requiereEleccionCompensacion && (
                                             <div className="md:col-span-2 rounded-lg border border-violet-500/40 bg-[#0a1f2e] px-3 py-3 space-y-3">
                                                 <p className="text-sm text-[#9fb3c8] font-body">
-                                                    Este es tu segundo domingo trabajado en el mes tienes derecho a indicar si deseas un <strong className="text-[#e8f1ff]">compensatorio en tiempo</strong> o un <strong className="text-[#e8f1ff]">compensatorio en dinero</strong>.
+                                                    Este es tu {heDomingoPreview.maxTier === 1 ? 'primer' : 'segundo'} domingo trabajado en el mes tienes derecho a indicar si deseas un <strong className="text-[#e8f1ff]">compensatorio en tiempo</strong> o un <strong className="text-[#e8f1ff]">compensatorio en dinero</strong>.
                                                 </p>
                                                 <div className="flex flex-col gap-2">
                                                     <label className="flex items-center gap-2 text-sm text-[#9fb3c8] cursor-pointer font-body">

@@ -74,7 +74,8 @@ test('agregación: dos novedades el mismo domingo cuentan un solo domingo report
     const sets = buildSundayReportedSetsFromHeRows(rows, buildConsultantKey, dep);
     const st = sundayStatsForConsultantMonth(sets, buildConsultantKey(rows[0]), '2025-04');
     assert.equal(st.count, 1);
-    assert.equal(sundayTierFromCount(st.count), 0);
+    assert.equal(sundayTierFromCount(st.count), 1);
+    assert.equal(st.tier, 1);
 });
 
 test('agregación: dos domingos distintos en el mes → tier 2', () => {

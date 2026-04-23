@@ -5,7 +5,7 @@
     "start": "node server.js",
     "tunnel:dev": "powershell -ExecutionPolicy Bypass -File scripts/start-dev-cloudflare.ps1",
     "dev": "node --watch server.js",
-    "test": "node --test tests/cotizador.resolveCargosLista.test.js tests/clienteNombreMatch.test.js tests/rbac.integration.test.js tests/resolveApproverEmailsFromCognito.test.js tests/colaboradorDirectory.test.js tests/loginClaimsSerialization.test.js tests/directorioClienteLiderGpSchema.test.js tests/cotizadorEngine.test.js tests/utils.extended.test.js tests/wsTicket.test.js tests/heDomingoBogota.test.js tests/heDomingoCompensacion.test.js tests/heBogotaSplit.test.js tests/auth.unit.test.js tests/registerRoutes.contract.test.js tests/novedadesMapper.test.js tests/infraData.test.js tests/api.integration.test.js src/notifications/emailNotificationsPublisher.test.js",
+    "test": "node --test tests/cotizador.resolveCargosLista.test.js tests/clienteNombreMatch.test.js tests/rbac.integration.test.js tests/resolveApproverEmailsFromCognito.test.js tests/colaboradorDirectory.test.js tests/loginClaimsSerialization.test.js tests/directorioClienteLiderGpSchema.test.js tests/cotizadorEngine.test.js tests/utils.extended.test.js tests/wsTicket.test.js tests/heDomingoBogota.test.js tests/heDomingoCompensacion.test.js tests/heBogotaSplit.test.js tests/novedadHeExcelExport.test.js tests/auth.unit.test.js tests/registerRoutes.contract.test.js tests/novedadesMapper.test.js tests/infraData.test.js tests/api.integration.test.js src/notifications/emailNotificationsPublisher.test.js",
     "test:rbac": "node --test tests/rbac.integration.test.js",
     "test:frontend": "npm --prefix react-frontend run test -- --run",
     "test:all": "npm run test && npm run test:frontend",
