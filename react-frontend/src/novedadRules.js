@@ -2,7 +2,7 @@ import { formatMontoCOPLocale } from './copMoneyFormat';
 
 export const NOVEDAD_RULES = {
   Incapacidad: {
-    requiredDocuments: ['Historia clinica', 'Incapacidad'],
+    requiredDocuments: ['Incapacidad'],
     formatLinks: [],
     approvers: ['admin_ch', 'team_ch', 'cac'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
