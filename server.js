@@ -179,7 +179,8 @@ const CSRF_SKIP_PATHS = new Set([
     '/api/auth/complete-new-password',
     '/api/auth/forgot-password',
     '/api/auth/reset-password',
-    '/api/enviar-novedad'
+    '/api/enviar-novedad',
+    '/api/hora-extra-domingo-preview'
 ]);
 const csrfCookieSameSite = isProduction ? 'strict' : 'lax';
 const csrfCookieSecure =
@@ -469,7 +470,8 @@ const {
     linkGpCognitoSubByEmail,
     migrateExcelIfNeeded,
     getScopedNovedades,
-    getHoraExtraAlerts
+    getHoraExtraAlerts,
+    listHoraExtraByCedulaForDomingoPolicy
 } = createDataLayer({
     pool,
     fs,
@@ -509,6 +511,7 @@ registerRoutes({
     applyScope,
     getScopedNovedades,
     getHoraExtraAlerts,
+    listHoraExtraByCedulaForDomingoPolicy,
     toClientNovedad,
     allowAnyPanel,
     getClientesList,

@@ -1,5 +1,5 @@
 /** Vive junto a las plantillas en `dist/templates/` para que el zip de Lambda siempre lo incluya. */
-const DEFAULT_PUBLIC_ORIGIN = 'https://novedades.grupocinte.com';
+const DEFAULT_PUBLIC_ORIGIN = 'https://novedades.grupocinte.com/admin';
 
 export function resolveLogoUrl(): string {
   const fromEnv = String(process.env.EMAIL_LOGO_URL || '').trim();

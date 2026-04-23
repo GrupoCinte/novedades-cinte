@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { NOVEDAD_TYPES, getNovedadRule } from './novedadRules';
 import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat';
 import { toUtcMsFromDateAndTime } from './heNovedadBogotaClient.js';
@@ -24,8 +24,6 @@ const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 const MSG_EXCEL_PLANTILLA_GENERICO =
     '❌ Este tipo de novedad requiere al menos un archivo Excel (.xls o .xlsx) con el formato diligenciado.';
-const MSG_EXCEL_PLANTILLA_VACACIONES_TIEMPO =
-    '❌ Vacaciones en tiempo requiere al menos un archivo Excel (.xls o .xlsx) con el formato F-001-GCH - Solicitud de Vacaciones diligenciado.';
 
 function isExcelAttachment(file) {
     const lowerName = String(file?.name || '').toLowerCase();
@@ -64,6 +62,12 @@ export default function FormularioNovedad() {
     /** Solo líder precargado desde directorio (correo/cliente se bloquean con otra regla). */
     const [catalogLocks, setCatalogLocks] = useState({ lider: false });
 
+    const [heDomingoPreview, setHeDomingoPreview] = useState(null);
+    const [heDomingoPreviewLoading, setHeDomingoPreviewLoading] = useState(false);
+    const [heDomingoCompensacion, setHeDomingoCompensacion] = useState('');
+    const [diaCompensatorioYmd, setDiaCompensatorioYmd] = useState('');
+    const heDomingoPreviewTimerRef = useRef(null);
+
     /** Tras comprobar cédula, el correo no se edita (valor viene del directorio o queda vacío hasta que lo carguen). */
     const bloquearCorreo = colaboradorVerificado;
     /** Cliente bloqueado si ya hay valor (API o selección previa); si el directorio viene vacío se permite elegir una vez. */
@@ -80,11 +84,10 @@ export default function FormularioNovedad() {
     const requierePlantillaExcel = Array.isArray(rule.formatLinks) && rule.formatLinks.length > 0;
     const requiereDias = Boolean(rule.requiresDayCount);
     const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays);
-    const esVacacionesTiempo = formData.tipo === 'Vacaciones en tiempo';
     const esVacacionesDinero = formData.tipo === 'Vacaciones en dinero';
     const requiereMontoCop = Boolean(rule.requiresMonetaryAmount);
     const esDisponibilidad = formData.tipo === 'Disponibilidad';
-    const esSinAdjuntosPublicos = esDisponibilidad || esVacacionesDinero;
+    const esSinAdjuntosPublicos = esDisponibilidad || formData.tipo === 'Vacaciones en tiempo';
     const esIncapacidad = formData.tipo === 'Incapacidad';
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
     const usaBloqueHoras = isHoraExtra || requiereLapsoHora;
@@ -126,6 +129,108 @@ export default function FormularioNovedad() {
         }
         return count;
     };
+
+    useEffect(() => {
+        if (!isHoraExtra || !colaboradorVerificado) {
+            setHeDomingoPreview(null);
+            setHeDomingoCompensacion('');
+            setDiaCompensatorioYmd('');
+            return undefined;
+        }
+        const c = normalizeCedulaInput(formData.cedula);
+        const hi = normalizeHoraHePayload(formData.horaInicio);
+        const hf = normalizeHoraHePayload(formData.horaFin);
+        if (!c || !formData.fechaInicio || !formData.fechaFin || !hi || !hf) {
+            setHeDomingoPreview(null);
+            return undefined;
+        }
+        const a = toUtcMsFromDateAndTime(formData.fechaInicio, hi);
+        const b = toUtcMsFromDateAndTime(formData.fechaFin, hf);
+        if (a == null || b == null || b <= a) {
+            setHeDomingoPreview(null);
+            return undefined;
+        }
+        if (heDomingoPreviewTimerRef.current) clearTimeout(heDomingoPreviewTimerRef.current);
+        heDomingoPreviewTimerRef.current = setTimeout(async () => {
+            setHeDomingoPreviewLoading(true);
+            try {
+                const res = await fetch('/api/hora-extra-domingo-preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cedula: c,
+                        nombre: formData.nombre,
+                        fechaInicio: formData.fechaInicio,
+                        fechaFin: formData.fechaFin,
+                        horaInicio: hi,
+                        horaFin: hf
+                    })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) {
+                    setHeDomingoPreview({
+                        ok: false,
+                        error: data?.error || 'No se pudo validar la política de domingo.'
+                    });
+                    setHeDomingoCompensacion('');
+                    setDiaCompensatorioYmd('');
+                    return;
+                }
+                setHeDomingoPreview(data);
+                setHeDomingoCompensacion('');
+                setDiaCompensatorioYmd('');
+            } catch {
+                setHeDomingoPreview({ ok: false, error: 'Error de red al consultar domingo.' });
+            } finally {
+                setHeDomingoPreviewLoading(false);
+            }
+        }, 450);
+        return () => {
+            if (heDomingoPreviewTimerRef.current) clearTimeout(heDomingoPreviewTimerRef.current);
+        };
+    }, [
+        isHoraExtra,
+        colaboradorVerificado,
+        formData.cedula,
+        formData.nombre,
+        formData.fechaInicio,
+        formData.fechaFin,
+        formData.horaInicio,
+        formData.horaFin
+    ]);
+
+    const bloqueHeDomingoComp = useMemo(() => {
+        if (!isHoraExtra) return false;
+        const c = normalizeCedulaInput(formData.cedula);
+        const hi = normalizeHoraHePayload(formData.horaInicio);
+        const hf = normalizeHoraHePayload(formData.horaFin);
+        const a = toUtcMsFromDateAndTime(formData.fechaInicio, hi);
+        const b = toUtcMsFromDateAndTime(formData.fechaFin, hf);
+        const lapsoOk =
+            Boolean(c && formData.fechaInicio && formData.fechaFin && hi && hf) &&
+            a != null &&
+            b != null &&
+            b > a;
+        if (lapsoOk && heDomingoPreviewLoading) return true;
+        if (heDomingoPreview?.error) return true;
+        if (!heDomingoPreview?.ok) return false;
+        if (heDomingoPreview.requiereEleccionCompensacion) {
+            if (!heDomingoCompensacion) return true;
+            if (heDomingoCompensacion === 'tiempo' && !diaCompensatorioYmd) return true;
+        }
+        return false;
+    }, [
+        isHoraExtra,
+        formData.cedula,
+        formData.fechaInicio,
+        formData.fechaFin,
+        formData.horaInicio,
+        formData.horaFin,
+        heDomingoPreview,
+        heDomingoPreviewLoading,
+        heDomingoCompensacion,
+        diaCompensatorioYmd
+    ]);
 
     const horasCalculadas = useMemo(() => {
         if (!usaBloqueHoras) return 0;
@@ -272,7 +377,7 @@ export default function FormularioNovedad() {
                 montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ ',
                 ...fechasVacacionesDinero
             });
-            if (value === 'Disponibilidad' || value === 'Vacaciones en dinero') {
+            if (value === 'Disponibilidad' || value === 'Vacaciones en tiempo') {
                 setSelectedFiles([]);
             }
             return;
@@ -377,6 +482,19 @@ export default function FormularioNovedad() {
         if (file.size > MAX_ATTACHMENT_BYTES) {
             return '❌ El archivo supera 5MB. Adjunta un archivo de máximo 5MB.';
         }
+        if (esVacacionesDinero) {
+            const lowerName = file.name.toLowerCase();
+            const dotIndex = lowerName.lastIndexOf('.');
+            const extension = dotIndex >= 0 ? lowerName.slice(dotIndex) : '';
+            if (extension !== '.pdf') {
+                return '❌ Vacaciones en dinero solo admite PDF: carta con firma manuscrita y solicitud formal.';
+            }
+            const mime = String(file.type || '').toLowerCase();
+            if (mime && mime !== 'application/pdf') {
+                return '❌ Vacaciones en dinero solo admite archivo PDF.';
+            }
+            return null;
+        }
         const lowerName = file.name.toLowerCase();
         const dotIndex = lowerName.lastIndexOf('.');
         const extension = dotIndex >= 0 ? lowerName.slice(dotIndex) : '';
@@ -417,6 +535,13 @@ export default function FormularioNovedad() {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        if (bloqueHeDomingoComp) {
+            const msg = heDomingoPreview?.error
+                ? `❌ ${heDomingoPreview.error}`
+                : '❌ Completa la compensación dominical (tiempo o dinero; si es tiempo, elige el domingo compensatorio).';
+            setStatus({ type: 'error', text: msg });
+            return;
+        }
         if (bloqueoEnvioHoraExtra || bloqueoEnvioFechas) {
             const mensaje = isHoraExtra
                 ? '❌ Corrige fecha/horas de Hora Extra antes de enviar.'
@@ -448,13 +573,12 @@ export default function FormularioNovedad() {
             }
 
             if (requierePlantillaExcel) {
-                const msgVac = esVacacionesTiempo ? MSG_EXCEL_PLANTILLA_VACACIONES_TIEMPO : MSG_EXCEL_PLANTILLA_GENERICO;
                 if (selectedFiles.length === 0) {
-                    setStatus({ type: 'error', text: msgVac });
+                    setStatus({ type: 'error', text: MSG_EXCEL_PLANTILLA_GENERICO });
                     return;
                 }
                 if (!selectedFiles.some(isExcelAttachment)) {
-                    setStatus({ type: 'error', text: msgVac });
+                    setStatus({ type: 'error', text: MSG_EXCEL_PLANTILLA_GENERICO });
                     return;
                 }
             }
@@ -537,6 +661,12 @@ export default function FormularioNovedad() {
                     payload.append('horasDiurnas', '0');
                     payload.append('horasNocturnas', '0');
                     payload.append('tipoHoraExtra', '');
+                }
+                if (isHoraExtra && heDomingoPreview?.ok && heDomingoPreview.requiereEleccionCompensacion && heDomingoCompensacion) {
+                    payload.append('heDomingoCompensacion', heDomingoCompensacion);
+                    if (heDomingoCompensacion === 'tiempo' && diaCompensatorioYmd) {
+                        payload.append('diaCompensatorioYmd', diaCompensatorioYmd);
+                    }
                 }
             } else if (esVacacionesDinero) {
                 const dias = Math.floor(Number(formData.diasSolicitados || 0));
@@ -873,9 +1003,67 @@ export default function FormularioNovedad() {
                                                 La fecha/hora fin debe ser mayor que la fecha/hora inicio.
                                             </div>
                                         )}
-                                        {isHoraExtra && (
-                                            <div className="md:col-span-2 text-xs text-[#4a6f8f] font-body">
-                                                El desglose (hora extra diurna/nocturna y recargo dominical/festivos diurno/nocturno hasta 7,33 h) lo calcula el sistema al guardar; en gestión verás el detalle.
+                                        {isHoraExtra && colaboradorVerificado && heDomingoPreviewLoading && (
+                                            <div className="md:col-span-2 text-xs text-[#4a6f8f] font-body">Validando política de Hora Extra en domingo…</div>
+                                        )}
+                                        {isHoraExtra && colaboradorVerificado && heDomingoPreview?.error && (
+                                            <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">{heDomingoPreview.error}</div>
+                                        )}
+                                        {isHoraExtra && colaboradorVerificado && heDomingoPreview?.ok && heDomingoPreview.requiereEleccionCompensacion && (
+                                            <div className="md:col-span-2 rounded-lg border border-violet-500/40 bg-[#0a1f2e] px-3 py-3 space-y-3">
+                                                <p className="text-sm text-[#9fb3c8] font-body">
+                                                    Este es tu segundo domingo trabajado en el mes tienes derecho a indicar si deseas un <strong className="text-[#e8f1ff]">compensatorio en tiempo</strong> o un <strong className="text-[#e8f1ff]">compensatorio en dinero</strong>.
+                                                </p>
+                                                <div className="flex flex-col gap-2">
+                                                    <label className="flex items-center gap-2 text-sm text-[#9fb3c8] cursor-pointer font-body">
+                                                        <input
+                                                            type="radio"
+                                                            name="heDomingoComp"
+                                                            checked={heDomingoCompensacion === 'tiempo'}
+                                                            onChange={() => {
+                                                                setHeDomingoCompensacion('tiempo');
+                                                                setDiaCompensatorioYmd('');
+                                                            }}
+                                                        />
+                                                        Compensatorio en tiempo
+                                                    </label>
+                                                    <label className="flex items-center gap-2 text-sm text-[#9fb3c8] cursor-pointer font-body">
+                                                        <input
+                                                            type="radio"
+                                                            name="heDomingoComp"
+                                                            checked={heDomingoCompensacion === 'dinero'}
+                                                            onChange={() => {
+                                                                setHeDomingoCompensacion('dinero');
+                                                                setDiaCompensatorioYmd('');
+                                                            }}
+                                                        />
+                                                        Compensatorio en dinero
+                                                    </label>
+                                                </div>
+                                                {heDomingoCompensacion === 'tiempo'
+                                                    && heDomingoPreview.compensatorioTiempoMinYmd
+                                                    && heDomingoPreview.compensatorioTiempoMaxYmd && (
+                                                    <div className="flex flex-col gap-1 pt-1 max-w-xs">
+                                                        <label className="text-xs text-[#4a6f8f] font-body" htmlFor="diaCompensatorioHe">
+                                                            Día compensatorio (calendario; solo entre {heDomingoPreview.compensatorioTiempoMinYmd} y {heDomingoPreview.compensatorioTiempoMaxYmd})
+                                                        </label>
+                                                        <input
+                                                            id="diaCompensatorioHe"
+                                                            type="date"
+                                                            required={heDomingoCompensacion === 'tiempo'}
+                                                            min={heDomingoPreview.compensatorioTiempoMinYmd}
+                                                            max={heDomingoPreview.compensatorioTiempoMaxYmd}
+                                                            value={diaCompensatorioYmd}
+                                                            onChange={(e) => setDiaCompensatorioYmd(e.target.value)}
+                                                            className={inputCls}
+                                                        />
+                                                    </div>
+                                                )}
+                                                {heDomingoPreview.domingoTrabajadoYmd ? (
+                                                    <p className="text-xs text-[#4a6f8f] font-body">
+                                                        Domingo trabajado reportado (referencia): <strong className="text-[#9fb3c8]">{heDomingoPreview.domingoTrabajadoYmd}</strong>
+                                                    </p>
+                                                ) : null}
                                             </div>
                                         )}
                                     </div>
@@ -925,7 +1113,7 @@ export default function FormularioNovedad() {
                                 )}
                             </section>
 
-                            {/* ═══ Sección: Soportes / Adjuntos (no aplica a Disponibilidad ni Vacaciones en dinero) ═══ */}
+                            {/* ═══ Sección: Soportes / Adjuntos (no aplica a Disponibilidad ni Vacaciones en tiempo) ═══ */}
                             {!esSinAdjuntosPublicos && (
                             <section>
                                 <h2 className="font-subtitle text-lg font-extralight text-[#65BCF7] tracking-wide mb-4 flex items-center gap-2">
@@ -933,7 +1121,14 @@ export default function FormularioNovedad() {
                                     Soportes / Adjuntos {(requiereAdjunto || requierePlantillaExcel) && reqStar}
                                 </h2>
 
-                                <input multiple type="file" id="soportes" accept=".pdf,.jpg,.jpeg,.png,.xls,.xlsx" onChange={handleFileChange} className="hidden" />
+                                <input
+                                    multiple
+                                    type="file"
+                                    id="soportes"
+                                    accept={esVacacionesDinero ? '.pdf,application/pdf' : '.pdf,.jpg,.jpeg,.png,.xls,.xlsx'}
+                                    onChange={handleFileChange}
+                                    className="hidden"
+                                />
 
                                 <label
                                     htmlFor="soportes"
@@ -945,7 +1140,7 @@ export default function FormularioNovedad() {
                                     <svg className="w-10 h-10 text-[#4a6f8f]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 16V4m0 0l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" /></svg>
                                     <span className="text-sm text-[#9fb3c8] font-body">Arrastra archivos aquí o <span className="text-[#65BCF7] font-semibold">haz clic para seleccionar</span></span>
                                     <div className="flex gap-2 flex-wrap justify-center">
-                                        {['PDF', 'JPG', 'PNG', 'XLS', 'XLSX'].map((ext) => (
+                                        {(esVacacionesDinero ? ['PDF'] : ['PDF', 'JPG', 'PNG', 'XLS', 'XLSX']).map((ext) => (
                                             <span key={ext} className="px-2 py-0.5 rounded text-[10px] font-bold font-body bg-[#1a3a56]/60 text-[#65BCF7]">{ext}</span>
                                         ))}
                                     </div>
@@ -979,20 +1174,23 @@ export default function FormularioNovedad() {
 
                                 {requierePlantillaExcel && (
                                     <p className="text-xs text-[#65BCF7]/90 mt-2 font-body">
-                                        {esVacacionesTiempo
-                                            ? 'Puedes subir PDF u otros adjuntos si lo necesitas; al enviar debe haber al menos un Excel (.xls o .xlsx) con el formato F-001-GCH - Solicitud de Vacaciones diligenciado.'
-                                            : 'Puedes subir PDF u otros adjuntos en el orden que prefieras; al enviar debe haber al menos un Excel (.xls o .xlsx) con el formato diligenciado.'}
+                                        Puedes subir PDF u otros adjuntos en el orden que prefieras; al enviar debe haber al menos un Excel (.xls o .xlsx) con el formato diligenciado.
                                     </p>
                                 )}
                                 {requiereAdjunto && (
                                     <p className="text-xs text-[#4a6f8f] mt-2 font-body">Documentos obligatorios: {requiredDocuments.join(' | ')}.</p>
+                                )}
+                                {esVacacionesDinero && (
+                                    <p className="text-xs text-[#65BCF7]/90 mt-2 font-body">
+                                        Debes adjuntar al menos un PDF: carta con firma manuscrita y la solicitud formal de vacaciones en dinero.
+                                    </p>
                                 )}
                             </section>
                             )}
 
                             {/* ═══ Botón Enviar ═══ */}
                             <button
-                                disabled={isSubmitting}
+                                disabled={isSubmitting || bloqueHeDomingoComp}
                                 type="submit"
                                 className="w-full py-4 px-6 rounded-xl font-heading font-bold text-base text-white transition-all shadow-lg hover:shadow-xl disabled:opacity-50 bg-gradient-to-r from-[#004D87] to-[#2F7BB8] hover:from-[#004D87] hover:to-[#088DC6]"
                             >

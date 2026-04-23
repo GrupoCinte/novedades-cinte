@@ -71,7 +71,7 @@ const NOVELTY_RULES = {
     },
     vacaciones_dinero: {
         displayName: 'Vacaciones en dinero',
-        requiredMinSupports: 0,
+        requiredMinSupports: 1,
         approvers: ['admin_ch', 'team_ch', 'cac'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },

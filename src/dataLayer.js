@@ -1063,6 +1063,34 @@ function createDataLayer(deps) {
         return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad));
     }
 
+    /**
+     * HE por cédula para política domingo (sin scope de rol): conteo alineado con alertas/export.
+     * @param {string} cedulaNorm solo dígitos
+     */
+    async function listHoraExtraByCedulaForDomingoPolicy(cedulaNorm) {
+        const ced = String(cedulaNorm || '').trim();
+        if (!ced) return [];
+        const q = await pool.query(
+            `SELECT
+                nov.nombre,
+                nov.cedula,
+                nov.tipo_novedad,
+                nov.fecha_inicio,
+                nov.fecha_fin,
+                nov.hora_inicio,
+                nov.hora_fin,
+                nov.cantidad_horas,
+                nov.creado_en
+             FROM novedades nov
+             WHERE nov.cedula = $1
+               AND lower(regexp_replace(trim(coalesce(nov.tipo_novedad, '')), '\\s+', ' ', 'g')) = 'hora extra'
+             ORDER BY nov.creado_en DESC
+             LIMIT 800`,
+            [ced]
+        );
+        return q.rows || [];
+    }
+
     function pad2(value) {
         return String(value).padStart(2, '0');
     }
@@ -1385,7 +1413,8 @@ function createDataLayer(deps) {
         linkGpCognitoSubByEmail,
         migrateExcelIfNeeded,
         getScopedNovedades,
-        getHoraExtraAlerts
+        getHoraExtraAlerts,
+        listHoraExtraByCedulaForDomingoPolicy
     };
 }
 
