@@ -1278,14 +1278,14 @@ function createDataLayer(deps) {
                 if (!isSundayBogotaYmd(dayKey)) continue;
                 const monthKey = dayKey.slice(0, 7);
                 const st = sundayStatsForConsultantMonth(sundaySets, consultantKey, monthKey);
-                if (st.tier < 2) continue;
+                if (st.tier < 1) continue;
                 if (!sundayMetaByMonth.has(monthKey)) {
                     sundayMetaByMonth.set(monthKey, {
                         month: monthKey,
                         tier: st.tier,
                         sundayDistinctCount: st.count,
                         sundayDatesInMonth: st.dates,
-                        coefficientRule: st.tier === 2 ? '0.80' : '1.80',
+                        coefficientRule: st.tier === 3 ? '1.80' : '0.80',
                         policyText: buildHeDomingoPolicyText(monthKey, st.tier, st.count, st.dates)
                     });
                 }

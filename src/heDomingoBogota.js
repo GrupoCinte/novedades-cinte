@@ -72,7 +72,7 @@ function splitHoursByBogotaDay(startMs, endMs) {
 
 /**
  * @param {string} monthKey YYYY-MM
- * @param {number} tier2 | 3
+ * @param {number} tier 1 | 2 | 3
  * @param {number} sundayDistinctCount
  * @param {string[]} sundayDatesSorted
  */
@@ -80,6 +80,13 @@ function buildHeDomingoPolicyText(monthKey, tier, sundayDistinctCount, sundayDat
     const fechas = Array.isArray(sundayDatesSorted) && sundayDatesSorted.length
         ? sundayDatesSorted.join(', ')
         : '—';
+    if (tier === 1) {
+        return (
+            `Hora Extra en domingo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingo distinto reportado con HE; `
+            + 'aplica coeficiente 0,80; puede optar por compensatorio en tiempo o compensatorio en dinero. '
+            + `Domingos con reporte: ${fechas}.`
+        );
+    }
     if (tier === 2) {
         return (
             `Hora Extra en domingo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingos distintos reportados con HE; `
@@ -99,11 +106,12 @@ function buildHeDomingoPolicyText(monthKey, tier, sundayDistinctCount, sundayDat
 
 /**
  * @param {number} distinctSundayCount
- * @returns {0|2|3}
+ * @returns {0|1|2|3}
  */
 function sundayTierFromCount(distinctSundayCount) {
     const n = Number(distinctSundayCount || 0);
-    if (n < 2) return 0;
+    if (n < 1) return 0;
+    if (n === 1) return 1;
     if (n === 2) return 2;
     return 3;
 }
@@ -112,7 +120,7 @@ function sundayTierFromCount(distinctSundayCount) {
  * @param {Map<string, Set<string>>} sundaySets keys consultantKey@@@YYYY-MM -> Set of Sunday YYYY-MM-DD
  * @param {string} consultantKey
  * @param {string} monthKey YYYY-MM
- * @returns {{ count: number, tier: 0|2|3, dates: string[] }}
+ * @returns {{ count: number, tier: 0|1|2|3, dates: string[] }}
  */
 function sundayStatsForConsultantMonth(sundaySets, consultantKey, monthKey) {
     const bucket = `${consultantKey}@@@${monthKey}`;
@@ -185,7 +193,7 @@ function buildSundayReportedSetsFromHeRows(rows, buildConsultantKey, dep) {
 }
 
 /**
- * Texto para Excel / UI cuando aplica política domingo (tier ≥ 2).
+ * Texto para Excel / UI cuando aplica política domingo (tier ≥ 1).
  */
 function computeHeDomingoObservacionForRow(row, sundaySets, buildConsultantKey, dep) {
     const ck = buildConsultantKey(row);
@@ -196,7 +204,7 @@ function computeHeDomingoObservacionForRow(row, sundaySets, buildConsultantKey, 
         if (!isSundayBogotaYmd(dayKey)) continue;
         const monthKey = dayKey.slice(0, 7);
         const st = sundayStatsForConsultantMonth(sundaySets, ck, monthKey);
-        if (st.tier < 2) continue;
+        if (st.tier < 1) continue;
         if (!monthChunks.has(monthKey)) monthChunks.set(monthKey, st);
     }
     if (!monthChunks.size) return '';

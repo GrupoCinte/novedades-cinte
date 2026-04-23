@@ -3,6 +3,11 @@ const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./nov
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
 const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
 const { formatCantidadNovedad, getCantidadMedidaKind } = require('./novedadCantidadFormat');
+const {
+    buildHoraExtraExportSlices,
+    compensacionDominicalExcelEtiqueta,
+    formatTipoNovedadHeSlice
+} = require('./novedadHeExcelExport');
 const { parseTimeOrNull: parseTimeOrNullForExport } = require('./utils');
 const {
     computeHeDomingoCompensacionPreview,
@@ -73,6 +78,120 @@ function formatTipoNovedadParaExportExcel(it) {
     else base = `Hora Extra / ${partes.join(', ')}`;
     const suf = formatHeDomingoCompTipoSuffix(String(it?.heDomingoObservacion || ''));
     return suf ? base + suf : base;
+}
+
+/**
+ * Fila Excel HE desagregada (una tipología) o fila legacy sin breakdown.
+ * @param {object} opts
+ * @returns {object} payload para ws.addRow
+ */
+function buildExcelRowHoraExtraSlice(opts) {
+    const {
+        it,
+        slice,
+        observacionHeDomingo,
+        correoActor,
+        esPorHoras
+    } = opts;
+    const obs = String(it.heDomingoObservacion || '').trim();
+    const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, slice.sliceKey);
+    const tipoNovedad = formatTipoNovedadHeSlice(it, slice.tipoLabel);
+    const ck = slice.columnKey;
+    const h = Number(slice.hours || 0);
+    const cantidad = formatCantidadNovedad(it.tipoNovedad, h, it);
+    return {
+        novedadId: it.id || '',
+        fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        nombre: it.nombre || '',
+        cedula: it.cedula || '',
+        correo: it.correoSolicitante || '',
+        cliente: it.cliente || '',
+        tipoNovedad,
+        fechaInicio: it.fechaInicio || '',
+        fechaFin: it.fechaFin || '',
+        cantidad,
+        horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
+        horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
+        horasDiurnas: ck === 'horasDiurnas' && h > 0 ? h : '',
+        horasNocturnas: ck === 'horasNocturnas' && h > 0 ? h : '',
+        horasRecargoDomingo: ck === 'horasRecargoDomingo' && h > 0 ? h : '',
+        horasRecargoDomingoDiurnas: ck === 'horasRecargoDomingoDiurnas' && h > 0 ? h : '',
+        horasRecargoDomingoNocturnas: ck === 'horasRecargoDomingoNocturnas' && h > 0 ? h : '',
+        compensacionDominical,
+        observacionHeDomingo,
+        valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
+        estado: it.estado || '',
+        asignadoRoles: it.asignacionRolesEtiqueta || '—',
+        aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
+    };
+}
+
+/** HE sin componentes >0: una fila como antes + columnas compensación / id. */
+function buildExcelRowHoraExtraLegacy(opts) {
+    const { it, observacionHeDomingo, correoActor, esPorHoras } = opts;
+    const obs = String(it.heDomingoObservacion || '').trim();
+    const rdd = Number(it.horasRecargoDomingoDiurnas || 0);
+    const rdn = Number(it.horasRecargoDomingoNocturnas || 0);
+    const rTot = Number(it.horasRecargoDomingo || 0);
+    const recargoAny = rdd > 0 || rdn > 0 || rTot > 0;
+    const sliceKeyForComp = recargoAny ? 'recargo_diurno' : 'diurna';
+    const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, sliceKeyForComp);
+    return {
+        novedadId: it.id || '',
+        fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        nombre: it.nombre || '',
+        cedula: it.cedula || '',
+        correo: it.correoSolicitante || '',
+        cliente: it.cliente || '',
+        tipoNovedad: formatTipoNovedadParaExportExcel(it),
+        fechaInicio: it.fechaInicio || '',
+        fechaFin: it.fechaFin || '',
+        cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
+        horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
+        horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
+        horasDiurnas: Number(it.horasDiurnas || 0) > 0 ? Number(it.horasDiurnas) : '',
+        horasNocturnas: Number(it.horasNocturnas || 0) > 0 ? Number(it.horasNocturnas) : '',
+        horasRecargoDomingo: Number(it.horasRecargoDomingo || 0) > 0 ? Number(it.horasRecargoDomingo) : '',
+        horasRecargoDomingoDiurnas:
+            Number(it.horasRecargoDomingoDiurnas || 0) > 0 ? Number(it.horasRecargoDomingoDiurnas) : '',
+        horasRecargoDomingoNocturnas:
+            Number(it.horasRecargoDomingoNocturnas || 0) > 0 ? Number(it.horasRecargoDomingoNocturnas) : '',
+        compensacionDominical,
+        observacionHeDomingo,
+        valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
+        estado: it.estado || '',
+        asignadoRoles: it.asignacionRolesEtiqueta || '—',
+        aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
+    };
+}
+
+function buildExcelRowOtroTipo(opts) {
+    const { it, observacionHeDomingo, correoActor, esPorHoras } = opts;
+    return {
+        novedadId: it.id || '',
+        fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        nombre: it.nombre || '',
+        cedula: it.cedula || '',
+        correo: it.correoSolicitante || '',
+        cliente: it.cliente || '',
+        tipoNovedad: String(it.tipoNovedad || '').trim(),
+        fechaInicio: it.fechaInicio || '',
+        fechaFin: it.fechaFin || '',
+        cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
+        horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
+        horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
+        horasDiurnas: '',
+        horasNocturnas: '',
+        horasRecargoDomingo: '',
+        horasRecargoDomingoDiurnas: '',
+        horasRecargoDomingoNocturnas: '',
+        compensacionDominical: '',
+        observacionHeDomingo,
+        valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
+        estado: it.estado || '',
+        asignadoRoles: it.asignacionRolesEtiqueta || '—',
+        aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
+    };
 }
 
 const { randomUUID } = require('node:crypto');
@@ -720,12 +839,13 @@ function registerRoutes(deps) {
             );
 
             const columns = [
+                { header: 'ID novedad', key: 'novedadId', width: 38 },
                 { header: 'Fecha Creación', key: 'fechaCreacion', width: 20 },
                 { header: 'Nombre', key: 'nombre', width: 28 },
                 { header: 'Cédula', key: 'cedula', width: 14 },
                 { header: 'Correo', key: 'correo', width: 30 },
                 { header: 'Cliente', key: 'cliente', width: 22 },
-                { header: 'Tipo Novedad', key: 'tipoNovedad', width: 24 },
+                { header: 'Tipo Novedad', key: 'tipoNovedad', width: 28 },
                 { header: 'Fecha Inicio', key: 'fechaInicio', width: 14 },
                 { header: 'Fecha Fin', key: 'fechaFin', width: 14 },
                 { header: 'Cantidad', key: 'cantidad', width: 18 },
@@ -736,6 +856,7 @@ function registerRoutes(deps) {
                 { header: 'Horas recargo domingo', key: 'horasRecargoDomingo', width: 18 },
                 { header: 'Recargo dominical/festivos — diurno', key: 'horasRecargoDomingoDiurnas', width: 22 },
                 { header: 'Recargo dominical/festivos — nocturno', key: 'horasRecargoDomingoNocturnas', width: 24 },
+                { header: 'Compensación dominical', key: 'compensacionDominical', width: 32 },
                 { header: 'Observación HE domingo', key: 'observacionHeDomingo', width: 48 },
                 { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
                 { header: 'Estado', key: 'estado', width: 14 },
@@ -779,31 +900,40 @@ function registerRoutes(deps) {
                         observacionHeDomingo = String(row.he_domingo_observacion || '').trim();
                     }
                 }
-                ws.addRow({
-                    fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
-                    nombre: it.nombre || '',
-                    cedula: it.cedula || '',
-                    correo: it.correoSolicitante || '',
-                    cliente: it.cliente || '',
-                    tipoNovedad: formatTipoNovedadParaExportExcel(it),
-                    fechaInicio: it.fechaInicio || '',
-                    fechaFin: it.fechaFin || '',
-                    cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
-                    horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
-                    horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
-                    horasDiurnas: Number(it.horasDiurnas || 0) > 0 ? Number(it.horasDiurnas) : '',
-                    horasNocturnas: Number(it.horasNocturnas || 0) > 0 ? Number(it.horasNocturnas) : '',
-                    horasRecargoDomingo: Number(it.horasRecargoDomingo || 0) > 0 ? Number(it.horasRecargoDomingo) : '',
-                    horasRecargoDomingoDiurnas:
-                        Number(it.horasRecargoDomingoDiurnas || 0) > 0 ? Number(it.horasRecargoDomingoDiurnas) : '',
-                    horasRecargoDomingoNocturnas:
-                        Number(it.horasRecargoDomingoNocturnas || 0) > 0 ? Number(it.horasRecargoDomingoNocturnas) : '',
-                    observacionHeDomingo,
-                    valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
-                    estado: it.estado || '',
-                    asignadoRoles: it.asignacionRolesEtiqueta || '—',
-                    aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
-                });
+                if (itemIsHoraExtraTipo(it)) {
+                    const slices = buildHoraExtraExportSlices(it);
+                    if (slices && slices.length) {
+                        for (const slice of slices) {
+                            ws.addRow(
+                                buildExcelRowHoraExtraSlice({
+                                    it,
+                                    slice,
+                                    observacionHeDomingo,
+                                    correoActor,
+                                    esPorHoras
+                                })
+                            );
+                        }
+                    } else {
+                        ws.addRow(
+                            buildExcelRowHoraExtraLegacy({
+                                it,
+                                observacionHeDomingo,
+                                correoActor,
+                                esPorHoras
+                            })
+                        );
+                    }
+                } else {
+                    ws.addRow(
+                        buildExcelRowOtroTipo({
+                            it,
+                            observacionHeDomingo,
+                            correoActor,
+                            esPorHoras
+                        })
+                    );
+                }
             }
 
             ws.eachRow((row, rowNum) => {
