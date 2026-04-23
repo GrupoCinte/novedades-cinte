@@ -78,7 +78,7 @@ const CASOS = [
         fechaInicio: '2026-03-01',
         diasSolicitados: '5',
         cantidadHoras: '5',
-        files: []
+        files: [{ fieldname: 'soportes', buffer: MINIMAL_PDF, mime: 'application/pdf', filename: 'carta-vacaciones-dinero.pdf' }]
     }),
     () => ({
         tipoNovedad: 'Bonos',

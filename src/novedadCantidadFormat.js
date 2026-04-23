@@ -125,7 +125,7 @@ const NOVEDAD_RULES = {
         autoBusinessDays: true
     },
     'Vacaciones en dinero': {
-        requiredDocuments: [],
+        requiredDocuments: ['Carta con firma manuscrita (solicitud formal en PDF)'],
         formatLinks: [],
         approvers: ['admin_ch', 'team_ch', 'cac'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina'],

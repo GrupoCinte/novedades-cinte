@@ -4,6 +4,13 @@ const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } =
 const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
 const { formatCantidadNovedad, getCantidadMedidaKind } = require('./novedadCantidadFormat');
 const { parseTimeOrNull: parseTimeOrNullForExport } = require('./utils');
+const {
+    computeHeDomingoCompensacionPreview,
+    buildHeDomingoCompObservacionLine,
+    formatHeDomingoCompTipoSuffix,
+    buildSyntheticHoraExtraRow,
+    isYmdEnVentanaCompensatorio
+} = require('./heDomingoCompensacion');
 
 /** HH:MM para Excel; tolera hora de un dígito desde BD. */
 function formatHoraMinutaParaExcel(value) {
@@ -26,6 +33,48 @@ function buildConsultantKeyHeDomingo(row) {
 function rowIsHoraExtraTipo(row) {
     return String(row?.tipo_novedad || '').trim().toLowerCase().replace(/\s+/g, ' ') === 'hora extra';
 }
+
+/** Misma clave canónica que `rowIsHoraExtraTipo` pero sobre objeto cliente (`toClientNovedad`). */
+function itemIsHoraExtraTipo(it) {
+    return String(it?.tipoNovedad || '').trim().toLowerCase().replace(/\s+/g, ' ') === 'hora extra';
+}
+
+/**
+ * Solo export Excel: enriquece «Tipo Novedad» para Hora Extra listando tipologías (nunca «Mixta»).
+ */
+function formatTipoNovedadParaExportExcel(it) {
+    const tipo = String(it?.tipoNovedad || '').trim();
+    if (!itemIsHoraExtraTipo(it)) return tipo;
+    const partes = [];
+    const hd = Number(it?.horasDiurnas || 0);
+    const hn = Number(it?.horasNocturnas || 0);
+    const rdd = Number(it?.horasRecargoDomingoDiurnas || 0);
+    const rdn = Number(it?.horasRecargoDomingoNocturnas || 0);
+    const rTot = Number(it?.horasRecargoDomingo || 0);
+    if (hd > 0) partes.push('Hora Diurna');
+    if (hn > 0) partes.push('Hora Nocturna');
+    if (rdd > 0) partes.push('Recargo dominical diurno');
+    if (rdn > 0) partes.push('Recargo dominical nocturno');
+    if (rTot > 0 && rdd === 0 && rdn === 0) partes.push('Recargo dominical');
+    if (partes.length === 0) {
+        const raw = String(it?.tipoHoraExtra || '').trim();
+        const fold = raw
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase();
+        if (fold === 'diurna') partes.push('Hora Diurna');
+        else if (fold === 'nocturna') partes.push('Hora Nocturna');
+        else if (fold === 'mixta') {
+            partes.push('Hora Diurna', 'Hora Nocturna');
+        } else if (raw) partes.push(raw);
+    }
+    let base;
+    if (partes.length === 0) base = tipo || 'Hora Extra';
+    else base = `Hora Extra / ${partes.join(', ')}`;
+    const suf = formatHeDomingoCompTipoSuffix(String(it?.heDomingoObservacion || ''));
+    return suf ? base + suf : base;
+}
+
 const { randomUUID } = require('node:crypto');
 const { resolvePostedContactFromColaborador } = require('./colaboradorDirectory');
 const { buildFoldToCanonicoMap, matchExcelClienteABd, foldForMatch } = require('./cotizador/clienteNombreMatch');
@@ -100,6 +149,7 @@ function registerRoutes(deps) {
         applyScope,
         getScopedNovedades,
         getHoraExtraAlerts,
+        listHoraExtraByCedulaForDomingoPolicy,
         toClientNovedad,
         allowAnyPanel,
         getClientesList,
@@ -735,7 +785,7 @@ function registerRoutes(deps) {
                     cedula: it.cedula || '',
                     correo: it.correoSolicitante || '',
                     cliente: it.cliente || '',
-                    tipoNovedad: it.tipoNovedad || '',
+                    tipoNovedad: formatTipoNovedadParaExportExcel(it),
                     fechaInicio: it.fechaInicio || '',
                     fechaFin: it.fechaFin || '',
                     cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
@@ -894,6 +944,57 @@ function registerRoutes(deps) {
         }
     });
 
+    app.post('/api/hora-extra-domingo-preview', submitLimiter, async (req, res) => {
+        try {
+            const body = req.body || {};
+            const cedula = normalizeCedula(body.cedula || '');
+            if (!cedula) {
+                return res.status(400).json({ ok: false, error: 'Cédula requerida (solo números).' });
+            }
+            const col = await getColaboradorByCedula(cedula);
+            if (!col) {
+                return res.status(404).json({ ok: false, error: 'Cédula no registrada en el directorio de colaboradores.' });
+            }
+            const fi = parseDateOrNull(body.fechaInicio);
+            const ff = parseDateOrNull(body.fechaFin);
+            const hi = parseTimeOrNull(body.horaInicio);
+            const hf = parseTimeOrNull(body.horaFin);
+            if (!fi || !ff || !hi || !hf) {
+                return res.status(400).json({ ok: false, error: 'Indica fecha inicio, fecha fin, hora inicio y hora fin de Hora Extra.' });
+            }
+            const nombreCol = String(col.nombre || body.nombre || '').trim();
+            const rowsHe = await listHoraExtraByCedulaForDomingoPolicy(cedula);
+            const synthetic = buildSyntheticHoraExtraRow({
+                nombre: nombreCol,
+                cedula,
+                fechaInicio: fi,
+                fechaFin: ff,
+                horaInicio: hi,
+                horaFin: hf
+            });
+            const dep = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow };
+            const prev = computeHeDomingoCompensacionPreview(rowsHe, synthetic, dep, buildConsultantKeyHeDomingo);
+            if (prev.requiereEleccionCompensacion && !prev.domingoTrabajadoYmd) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'No se pudo determinar el domingo trabajado para la ventana de compensación. Revisa el lapso de Hora Extra.'
+                });
+            }
+            return res.json({
+                ok: true,
+                requiereEleccionCompensacion: prev.requiereEleccionCompensacion,
+                esTercerDomingoOMas: prev.esTercerDomingoOMas,
+                domingoTrabajadoYmd: prev.domingoTrabajadoYmd,
+                compensatorioTiempoMinYmd: prev.compensatorioTiempoMinYmd,
+                compensatorioTiempoMaxYmd: prev.compensatorioTiempoMaxYmd,
+                maxTier: prev.maxTier
+            });
+        } catch (error) {
+            console.error('hora-extra-domingo-preview:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo calcular la política de domingo.' });
+        }
+    });
+
     app.post('/api/enviar-novedad', submitLimiter, upload.any(), async (req, res) => {
         try {
             const body = req.body || {};
@@ -919,18 +1020,25 @@ function registerRoutes(deps) {
                 }
             }
 
-            const tipoKeyPostFiles = String(rule?.key || normalizeNovedadTypeKey(tipoNovedad) || '');
-            if (tipoKeyPostFiles === 'vacaciones_tiempo') {
-                const hasExcel = files.some((f) => {
-                    const ext = path.extname(f.originalname || '').toLowerCase();
-                    return ext === '.xls' || ext === '.xlsx';
-                });
-                if (!hasExcel) {
+            const tipoKeyPostAdjuntos = String(rule?.key || normalizeNovedadTypeKey(tipoNovedad) || '');
+            if (tipoKeyPostAdjuntos === 'vacaciones_dinero') {
+                if (files.length < 1) {
                     return res.status(400).json({
                         ok: false,
                         error:
-                            'Vacaciones en tiempo requiere al menos un archivo Excel (.xls o .xlsx) con el formato F-001-GCH - Solicitud de Vacaciones diligenciado.'
+                            'Vacaciones en dinero requiere adjuntar la carta con firma manuscrita (solicitud formal) en formato PDF.'
                     });
+                }
+                for (const file of files) {
+                    const ext = path.extname(file.originalname || '').toLowerCase();
+                    const mime = String(file.mimetype || '').toLowerCase();
+                    if (ext !== '.pdf' || (mime && mime !== 'application/pdf')) {
+                        return res.status(400).json({
+                            ok: false,
+                            error:
+                                'Vacaciones en dinero solo admite archivos PDF para la carta de solicitud formal con firma manuscrita.'
+                        });
+                    }
                 }
             }
 
@@ -1023,6 +1131,7 @@ function registerRoutes(deps) {
             let horasRecargoDomingoDiurnas = 0;
             let horasRecargoDomingoNocturnas = 0;
             let tipoHoraExtra = String(body.tipoHoraExtra || '').trim() || null;
+            let heDomingoObservacionInsert = null;
 
             if (novedadTypeKey === 'vacaciones_tiempo') {
                 if (!fechaFin) {
@@ -1080,6 +1189,67 @@ function registerRoutes(deps) {
                     horasRecargoDomingoDiurnas,
                     horasRecargoDomingoNocturnas
                 );
+
+                const rowsHeDom = await listHoraExtraByCedulaForDomingoPolicy(cedulaNorm);
+                const syntheticHeDom = buildSyntheticHoraExtraRow({
+                    nombre: nombreColaborador,
+                    cedula: cedulaNorm,
+                    fechaInicio,
+                    fechaFin,
+                    horaInicio,
+                    horaFin
+                });
+                const depHeDom = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow };
+                const prevHeDom = computeHeDomingoCompensacionPreview(
+                    rowsHeDom,
+                    syntheticHeDom,
+                    depHeDom,
+                    buildConsultantKeyHeDomingo
+                );
+                const rawCompHe = String(body.heDomingoCompensacion || '').trim().toLowerCase();
+                const rawDiaComp = String(body.diaCompensatorioYmd || body.domingoCompensatorioYmd || '').trim();
+                if (prevHeDom.requiereEleccionCompensacion) {
+                    if (rawCompHe !== 'tiempo' && rawCompHe !== 'dinero') {
+                        return res.status(400).json({
+                            ok: false,
+                            error: 'Hora Extra (segundo domingo con HE en el mes): elige compensación en tiempo o en dinero.'
+                        });
+                    }
+                    if (rawCompHe === 'tiempo') {
+                        if (!prevHeDom.domingoTrabajadoYmd) {
+                            return res.status(400).json({
+                                ok: false,
+                                error: 'No se pudo determinar el domingo trabajado para validar el día compensatorio.'
+                            });
+                        }
+                        if (!isYmdEnVentanaCompensatorio(prevHeDom.domingoTrabajadoYmd, rawDiaComp)) {
+                            return res.status(400).json({
+                                ok: false,
+                                error: `Indica un día compensatorio entre ${prevHeDom.compensatorioTiempoMinYmd} y ${prevHeDom.compensatorioTiempoMaxYmd} (15 días calendario posteriores al domingo trabajado).`
+                            });
+                        }
+                        heDomingoObservacionInsert = buildHeDomingoCompObservacionLine({
+                            mode: 'tiempo',
+                            workedYmd: prevHeDom.domingoTrabajadoYmd,
+                            compensatorioYmd: rawDiaComp
+                        });
+                    } else {
+                        heDomingoObservacionInsert = buildHeDomingoCompObservacionLine({
+                            mode: 'dinero',
+                            workedYmd: prevHeDom.domingoTrabajadoYmd
+                        });
+                    }
+                } else if (prevHeDom.esTercerDomingoOMas && prevHeDom.domingoTrabajadoYmd) {
+                    heDomingoObservacionInsert = buildHeDomingoCompObservacionLine({
+                        mode: 'tercer_domingo',
+                        workedYmd: prevHeDom.domingoTrabajadoYmd
+                    });
+                } else if (rawCompHe || rawDiaComp) {
+                    return res.status(400).json({
+                        ok: false,
+                        error: 'Esta Hora Extra no aplica elección de compensación dominical; no envíes compensación en tiempo/dinero.'
+                    });
+                }
             }
 
             let montoCop = null;
@@ -1107,12 +1277,12 @@ function registerRoutes(deps) {
                 `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
-                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, estado
+                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion, estado
                 )
                 VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8::user_area,
                     $9::date, $10::time, $11::time, $12::date, $13::date,
-                    $14, $15, $16, $17, $18, $19, $20, $21, $22, 'Pendiente'::novedad_estado
+                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'Pendiente'::novedad_estado
                 )
                 RETURNING id`,
                 [
@@ -1137,7 +1307,8 @@ function registerRoutes(deps) {
                     horasRecargoDomingoNocturnas,
                     tipoHoraExtra,
                     archivoRuta,
-                    montoCop
+                    montoCop,
+                    heDomingoObservacionInsert || null
                 ]
             );
             const novedadId = insertResult?.rows?.[0]?.id || '';

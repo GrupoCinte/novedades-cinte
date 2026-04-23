@@ -75,7 +75,7 @@ export const NOVEDAD_RULES = {
   },
   'Vacaciones en tiempo': {
     requiredDocuments: [],
-    formatLinks: [{ label: 'F-001-GCH - Solicitud de Vacaciones', href: '/assets/formats/F-001-GCH%20-%20Solicitud%20de%20Vacaciones.xlsx' }],
+    formatLinks: [],
     approvers: ['gp', 'admin_ch', 'team_ch', 'cac'],
     viewers: ['super_admin', 'gp', 'nomina', 'admin_ch', 'team_ch', 'cac'],
     requiresDayCount: true,
@@ -83,7 +83,7 @@ export const NOVEDAD_RULES = {
     autoBusinessDays: true
   },
   'Vacaciones en dinero': {
-    requiredDocuments: [],
+    requiredDocuments: ['Carta con firma manuscrita (solicitud formal en PDF)'],
     formatLinks: [],
     approvers: ['admin_ch', 'team_ch', 'cac'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina'],
