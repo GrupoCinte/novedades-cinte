@@ -901,7 +901,7 @@ function registerRoutes(deps) {
                     }
                 }
                 if (itemIsHoraExtraTipo(it)) {
-                    const slices = buildHoraExtraExportSlices(it);
+                    const slices = buildHoraExtraExportSlices(it, heDomingoDep);
                     if (slices && slices.length) {
                         for (const slice of slices) {
                             ws.addRow(
