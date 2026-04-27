@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, X, Calculator } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Code2, Home, KeyRound, LogOut, Menu, X, Calculator } from 'lucide-react';
 import CotizadorPage from './cotizador/CotizadorPage';
 
 export default function ComercialModule({ token, auth, onLogout }) {
@@ -43,7 +43,18 @@ export default function ComercialModule({ token, auth, onLogout }) {
                     </button>
                 </div>
                 <nav className="p-3 flex flex-col gap-2">
-                    <button className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold bg-[#088DC6] text-white">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            navigate('/admin');
+                            setMobileMenuOpen(false);
+                        }}
+                        className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all text-slate-300 hover:bg-[#0f2942]/50 border border-[#1a3a56]/60"
+                    >
+                        <Home size={17} />
+                        <span>Inicio portal</span>
+                    </button>
+                    <button type="button" className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold bg-[#088DC6] text-white">
                         <Calculator size={17} />
                         <span>Cotizador</span>
                     </button>
@@ -83,6 +94,16 @@ export default function ComercialModule({ token, auth, onLogout }) {
 
                 <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
                     <button
+                        type="button"
+                        onClick={() => navigate('/admin')}
+                        title={!sidebarOpen ? 'Inicio portal' : undefined}
+                        className={`flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left border border-[#1a3a56]/60 text-slate-400 hover:text-slate-200 hover:bg-[#0f2942]/50 ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'}`}
+                    >
+                        <Home size={18} className="flex-shrink-0 text-slate-500" />
+                        {sidebarOpen && <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">Inicio portal</span>}
+                    </button>
+                    <button
+                        type="button"
                         title={!sidebarOpen ? 'Cotizador' : undefined}
                         className={`flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'} bg-[#088DC6] shadow-[0_4px_12px_rgba(8,141,198,0.3)] text-white`}
                     >

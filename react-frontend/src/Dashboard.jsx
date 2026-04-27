@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
-import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet, Bell } from 'lucide-react';
+import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home } from 'lucide-react';
 import ChatWidget from './ChatWidget';
 import { getNovedadRule, NOVEDAD_TYPES, formatCantidadNovedad, formatDiasCount, getCantidadMedidaKind, getCantidadDetalleEtiqueta, getDiasEfectivosNovedad, getAsignacionGestionNovedad, resolveCanonicalNovedadTipo } from './novedadRules';
 import {
@@ -763,6 +763,17 @@ export default function Dashboard({ token, auth, onLogout }) {
                     </button>
                 </div>
                 <nav className="p-3 flex flex-col gap-2">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            navigate('/admin');
+                            setMobileMenuOpen(false);
+                        }}
+                        className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all text-slate-300 hover:bg-[#0f2942]/50 border border-[#1a3a56]/60"
+                    >
+                        <Home size={17} />
+                        <span>Inicio portal</span>
+                    </button>
                     {navItems.map((item) => {
                         const Icon = item.icon;
                         const active = activeTab === item.id;
@@ -838,6 +849,23 @@ export default function Dashboard({ token, auth, onLogout }) {
                 </div>
 
                 <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
+                    <button
+                        type="button"
+                        onClick={() => navigate('/admin')}
+                        title={!sidebarOpen ? 'Inicio portal' : undefined}
+                        className={`
+                            flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left
+                            text-slate-400 hover:text-slate-200 hover:bg-[#0f2942]/50 border border-[#1a3a56]/50
+                            ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'}
+                        `}
+                    >
+                        <Home size={18} className="flex-shrink-0 text-slate-500" />
+                        {sidebarOpen ? (
+                            <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">
+                                Inicio portal
+                            </span>
+                        ) : null}
+                    </button>
                     {navItems.map(item => {
                         const Icon = item.icon;
                         const active = activeTab === item.id;

@@ -9,7 +9,11 @@ import ChangePassword from './ChangePassword';
 import ComercialModule from './ComercialModule';
 import ContratacionModule from './ContratacionModule';
 import DirectorioClienteColaboradorModule from './DirectorioClienteColaboradorModule';
+import AdminPortalHome from './AdminPortalHome';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
+import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
+import { userHasDirectorioPanel } from './directorioAccess';
+import { cognitoSignOut } from './cognitoAuth';
 
 function AdminPortalSinModulos({ onLogout }) {
   return (
@@ -29,10 +33,15 @@ function AdminPortalSinModulos({ onLogout }) {
     </div>
   );
 }
-import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
-import { userHasDirectorioPanel } from './directorioAccess';
-import { cognitoSignOut } from './cognitoAuth';
 
+function adminPortalModuleCount(auth) {
+  let n = 0;
+  if (userHasNovedadesAdminAccess(auth)) n += 1;
+  if (userHasCotizadorAccess(auth)) n += 1;
+  if (userHasContratacionPanel(auth)) n += 1;
+  if (userHasDirectorioPanel(auth)) n += 1;
+  return n;
+}
 
 /**
  * Guard de ruta protegida. Verifica existencia Y validez temporal del token.
@@ -53,13 +62,6 @@ function App() {
   const location = useLocation();
   const isFormularioPublico = location.pathname === '/';
   const isAdminRoute = location.pathname.startsWith('/admin');
-  const isComercialRoute = location.pathname.startsWith('/admin/comercial');
-  const isContratacionRoute = location.pathname.startsWith('/admin/contratacion');
-  const isDirectorioRoute = location.pathname.startsWith('/admin/directorio');
-  const showContratacionNav = auth?.user && userHasContratacionPanel(auth);
-  const showNovedadesNav = auth?.user && userHasNovedadesAdminAccess(auth);
-  const showComercialNav = auth?.user && userHasCotizadorAccess(auth);
-  const showDirectorioNav = auth?.user && userHasDirectorioPanel(auth);
   /** Login / forgot / reset: sin cabecera global para usar viewport completo. */
   const showGlobalHeader = !isFormularioPublico && !(isAdminRoute && !auth?.user);
 
@@ -100,6 +102,7 @@ function App() {
   const headerTitle = (auth?.user && isAdminRoute)
     ? 'SISTEMA UNIFICADO DE GESTIÓN'
     : 'PORTAL DE RADICACIÓN DE NOVEDADES';
+  const moduleCount = adminPortalModuleCount(auth);
   return (
     <div className="h-screen overflow-hidden flex flex-col">
       {showGlobalHeader && (
@@ -116,80 +119,30 @@ function App() {
         <div className="hidden lg:flex w-[220px]" />
       </header>
       )}
-      {auth?.user && isAdminRoute && (
-        <div className="bg-[#04141E]/90 border-b border-[#1a3a56] px-4 md:px-8 py-2 flex flex-wrap items-center gap-2 font-body">
-          {showNovedadesNav ? (
-            <button
-              type="button"
-              onClick={() => navigate('/admin')}
-              className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
-                !isComercialRoute && !isContratacionRoute && !isDirectorioRoute
-                  ? 'bg-[#2F7BB8] text-white'
-                  : 'bg-[#0b1e30] text-[#9fb3c8] hover:text-white hover:bg-[#0f2942]'
-              }`}
-            >
-              Gestión de Novedades
-            </button>
-          ) : null}
-          {showComercialNav ? (
-            <button
-              type="button"
-              onClick={() => navigate('/admin/comercial')}
-              className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
-                isComercialRoute
-                  ? 'bg-[#088DC6] text-white'
-                  : 'bg-[#0b1e30] text-[#9fb3c8] hover:text-white hover:bg-[#0f2942]'
-              }`}
-            >
-              Módulo Comercial
-            </button>
-          ) : null}
-          {showContratacionNav ? (
-            <button
-              type="button"
-              onClick={() => navigate('/admin/contratacion')}
-              className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
-                isContratacionRoute
-                  ? 'bg-[#004D87] text-white'
-                  : 'bg-[#0b1e30] text-[#9fb3c8] hover:text-white hover:bg-[#0f2942]'
-              }`}
-            >
-              Módulo de Capital Humano Onboarding
-            </button>
-          ) : null}
-          {showDirectorioNav ? (
-            <button
-              type="button"
-              onClick={() => navigate('/admin/directorio')}
-              className={`px-3 py-1.5 rounded-md text-xs md:text-sm font-semibold transition-all ${
-                isDirectorioRoute
-                  ? 'bg-[#1a5f8a] text-white'
-                  : 'bg-[#0b1e30] text-[#9fb3c8] hover:text-white hover:bg-[#0f2942]'
-              }`}
-            >
-              Módulo de administración
-            </button>
-          ) : null}
-        </div>
-      )}
 
       <main className={`flex-1 ${isFormularioPublico ? 'overflow-hidden' : isAdminRoute ? 'overflow-hidden flex flex-col' : 'w-full overflow-y-auto p-6 md:p-10 bg-[#04141E]'}`}>
         <Routes>
           <Route path="/" element={<FormularioNovedad />} />
           <Route
+            path="/admin/novedades"
+            element={(
+              <ProtectedRoute auth={auth}>
+                {userHasNovedadesAdminAccess(auth) ? (
+                  <Dashboard token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
+                ) : (
+                  <Navigate to="/admin" replace />
+                )}
+              </ProtectedRoute>
+            )}
+          />
+          <Route
             path="/admin"
             element={
               auth?.user ? (
-                userHasNovedadesAdminAccess(auth) ? (
-                  <Dashboard token={auth.token || ''} auth={auth} onLogout={handleLogout} />
-                ) : userHasCotizadorAccess(auth) ? (
-                  <Navigate to="/admin/comercial" replace />
-                ) : userHasContratacionPanel(auth) ? (
-                  <Navigate to="/admin/contratacion" replace />
-                ) : userHasDirectorioPanel(auth) ? (
-                  <Navigate to="/admin/directorio" replace />
-                ) : (
+                moduleCount === 0 ? (
                   <AdminPortalSinModulos onLogout={handleLogout} />
+                ) : (
+                  <AdminPortalHome auth={auth} onLogout={handleLogout} />
                 )
               ) : (
                 <Login setAuth={onLoggedIn} />

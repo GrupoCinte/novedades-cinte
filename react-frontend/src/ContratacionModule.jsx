@@ -5,6 +5,7 @@ import {
     ChevronLeft,
     ChevronRight,
     Code2,
+    Home,
     KeyRound,
     LogOut,
     Menu,
@@ -131,6 +132,17 @@ export default function ContratacionModule({ auth, onLogout }) {
                     </button>
                 </div>
                 <nav className="flex flex-col gap-2 p-3">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            navigate('/admin');
+                            setMobileMenuOpen(false);
+                        }}
+                        className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all text-slate-300 hover:bg-[#0f2942]/60 border border-[#1a3a56]/60"
+                    >
+                        <Home size={17} />
+                        <span>Inicio portal</span>
+                    </button>
                     {sidebarNav.map(({ id, label, icon: Icon }) => (
                         <button
                             key={id}
@@ -177,6 +189,17 @@ export default function ContratacionModule({ auth, onLogout }) {
                 </div>
 
                 <nav className="mt-1 flex flex-1 flex-col gap-1 p-2">
+                    <button
+                        type="button"
+                        onClick={() => navigate('/admin')}
+                        title={!sidebarOpen ? 'Inicio portal' : undefined}
+                        className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all border border-[#1a3a56]/60 text-slate-300 hover:bg-[#0f2942]/50 ${
+                            sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
+                        }`}
+                    >
+                        <Home size={18} className="flex-shrink-0" />
+                        {sidebarOpen ? <span className="truncate">Inicio portal</span> : null}
+                    </button>
                     {sidebarNav.map(({ id, label, icon: Icon }) => (
                         <button
                             key={id}

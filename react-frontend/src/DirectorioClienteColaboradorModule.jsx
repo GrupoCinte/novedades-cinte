@@ -6,6 +6,7 @@ import {
     Building2,
     ChevronLeft,
     ChevronRight,
+    Home,
     KeyRound,
     LogOut,
     Menu,
@@ -743,6 +744,15 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     const sidebarNav = () => (
         <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
+            <NavBtn
+                active={false}
+                icon={Home}
+                label="Inicio portal"
+                onClick={() => {
+                    navigate('/admin');
+                    setMobileMenuOpen(false);
+                }}
+            />
             <NavBtn
                 active={mainView === 'cliente'}
                 icon={Building2}
