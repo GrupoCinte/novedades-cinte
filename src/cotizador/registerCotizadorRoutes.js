@@ -1,6 +1,6 @@
 const { calcularCotizacion, generarDashboardData } = require('./cotizadorEngine');
 const { buildCotizacionPdfBuffer } = require('./cotizadorPdf');
-const { resolveCargosLista } = require('./resolveCargosLista');
+const { resolveCargosLista, pickCargosPorClienteRaw } = require('./resolveCargosLista');
 
 function registerCotizadorRoutes(deps) {
     const {
@@ -16,6 +16,47 @@ function registerCotizadorRoutes(deps) {
 
     const guard = [verificarToken, allowAnyPanel(['dashboard', 'gestion', 'comercial', 'admin'])];
 
+    /**
+     * Lista de clientes para el cotizador: catálogo `clientes_lideres` + claves de `cargos_por_cliente`
+     * y entradas `clientes[]` del JSON en BD (muchas instalaciones solo tienen tarifas por clave de cliente).
+     */
+    async function buildCotizadorClientesItems() {
+        const catalogos = await cotizadorStore.getCatalogos();
+        const byKey = new Map();
+        const add = (nombreRaw, nitRaw = '') => {
+            const nombre = String(nombreRaw || '').trim();
+            if (!nombre) return;
+            const k = nombre.toLowerCase();
+            const nit = String(nitRaw || '').trim();
+            if (!byKey.has(k)) {
+                byKey.set(k, { nombre, nit });
+            } else if (nit && !byKey.get(k).nit) {
+                byKey.set(k, { nombre: byKey.get(k).nombre, nit });
+            }
+        };
+        if (typeof getClientesList === 'function') {
+            const names = await getClientesList();
+            for (const n of Array.isArray(names) ? names : []) add(n, '');
+        }
+        const cpc = pickCargosPorClienteRaw(catalogos);
+        if (cpc && typeof cpc === 'object' && !Array.isArray(cpc)) {
+            for (const k of Object.keys(cpc)) add(k, '');
+        } else if (Array.isArray(cpc)) {
+            for (const entry of cpc) {
+                add(
+                    entry?.cliente || entry?.CLIENTE || entry?.nombre || entry?.name || entry?.client,
+                    entry?.nit || entry?.NIT || ''
+                );
+            }
+        }
+        for (const c of Array.isArray(catalogos?.clientes) ? catalogos.clientes : []) {
+            add(c?.nombre || c?.name, c?.nit || '');
+        }
+        return [...byKey.values()].sort((a, b) =>
+            a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })
+        );
+    }
+
     app.get('/api/cotizador/catalogos', ...guard, catalogLimiter, async (req, res) => {
         try {
             const catalogos = await cotizadorStore.getCatalogos();
@@ -26,17 +67,13 @@ function registerCotizadorRoutes(deps) {
         }
     });
 
-    /** Clientes = mismos que el formulario de novedades (`clientes_lideres`), no solo JSON del cotizador. */
+    /** Clientes = `clientes_lideres` + claves de `cargos_por_cliente` y `clientes[]` del catálogo en BD. */
     app.get('/api/cotizador/clientes-formulario', ...guard, catalogLimiter, async (req, res) => {
         try {
             if (typeof getClientesList !== 'function') {
                 return res.status(500).json({ ok: false, error: 'Catálogo de clientes no disponible' });
             }
-            const names = await getClientesList();
-            const items = (Array.isArray(names) ? names : []).map((n) => ({
-                nombre: String(n || '').trim(),
-                nit: ''
-            })).filter((x) => x.nombre);
+            const items = await buildCotizadorClientesItems();
             return res.json({ ok: true, items });
         } catch (error) {
             console.error('Error cotizador/clientes-formulario:', error);

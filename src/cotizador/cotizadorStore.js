@@ -161,7 +161,21 @@ function createCotizadorStore(deps) {
         await ensureReady();
         const q = await pool.query('SELECT key, payload FROM cotizador_catalogos');
         const out = {};
-        for (const row of q.rows) out[row.key] = row.payload;
+        for (const row of q.rows) {
+            let val = row.payload;
+            /** Algunos drivers/legacy devuelven JSONB como string; el cotizador espera objeto. */
+            if (typeof val === 'string') {
+                const t = val.trim();
+                if ((t.startsWith('{') && t.endsWith('}')) || (t.startsWith('[') && t.endsWith(']'))) {
+                    try {
+                        val = JSON.parse(t);
+                    } catch {
+                        /* dejar string */
+                    }
+                }
+            }
+            out[row.key] = val;
+        }
         return out;
     }
 

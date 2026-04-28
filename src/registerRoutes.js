@@ -16,6 +16,7 @@ const {
     buildSyntheticHoraExtraRow,
     isYmdEnVentanaCompensatorio
 } = require('./heDomingoCompensacion');
+const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
 
 /** HH:MM para Excel; tolera hora de un dígito desde BD. */
 function formatHoraMinutaParaExcel(value) {
@@ -787,7 +788,16 @@ function registerRoutes(deps) {
             const cliente = String(req.query.cliente || '').trim();
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
-            const rows = await getScopedNovedades(req.scope, { tipo, estado, nombre, cliente, createdFrom, createdTo });
+            const gpUserId = String(req.query.gpUserId || '').trim();
+            const rows = await getScopedNovedades(req.scope, {
+                tipo,
+                estado,
+                nombre,
+                cliente,
+                createdFrom,
+                createdTo,
+                ...(gpUserId ? { gpUserId } : {})
+            });
             const page = Math.max(1, Number(req.query.page || 1));
             const limitRaw = Number(req.query.limit || 0);
             const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 0;
@@ -823,7 +833,16 @@ function registerRoutes(deps) {
             const cliente = String(req.query.cliente || '').trim();
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
-            const rows = await getScopedNovedades(req.scope, { tipo, estado, nombre, cliente, createdFrom, createdTo });
+            const gpUserId = String(req.query.gpUserId || '').trim();
+            const rows = await getScopedNovedades(req.scope, {
+                tipo,
+                estado,
+                nombre,
+                cliente,
+                createdFrom,
+                createdTo,
+                ...(gpUserId ? { gpUserId } : {})
+            });
             if (rows.length > exportMaxRows) {
                 return res.status(413).json({
                     ok: false,
@@ -987,11 +1006,13 @@ function registerRoutes(deps) {
         try {
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
+            const gpUserId = String(req.query.gpUserId || '').trim();
             const data = await getHoraExtraAlerts(req.scope, {
                 createdFrom,
                 createdTo,
                 maxDailyHours: 2,
-                maxMonthlyHours: 48
+                maxMonthlyHours: 48,
+                ...(gpUserId ? { gpUserId } : {})
             });
             return res.json({ ok: true, data });
         } catch (error) {
@@ -1576,6 +1597,33 @@ function registerRoutes(deps) {
         } catch (error) {
             console.error('Error previsualizando Excel:', error);
             return res.status(500).json({ ok: false, error: 'No se pudo previsualizar el archivo Excel.' });
+        }
+    });
+
+    app.delete('/api/novedades/:id', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
+        try {
+            const result = await adminDeleteNovedad({ pool, req, idParam: req.params.id });
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('Error eliminando novedad (admin):', error);
+            return res.status(500).json({ ok: false, error: 'Error al eliminar la novedad' });
+        }
+    });
+
+    app.patch('/api/novedades/:id', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
+        try {
+            const result = await adminPatchNovedad({
+                pool,
+                req,
+                idParam: req.params.id,
+                normalizeEstado,
+                parseDateOrNull,
+                parseTimeOrNull
+            });
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('Error actualizando novedad (admin):', error);
+            return res.status(500).json({ ok: false, error: 'Error al actualizar la novedad' });
         }
     });
 

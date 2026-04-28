@@ -302,10 +302,12 @@ function createDataLayer(deps) {
     }
 
     async function getClientesList() {
+        /** `activo IS NOT FALSE`: incluye TRUE y NULL (filas legadas); excluye solo explícitamente inactivas. */
         const q = await pool.query(
             `SELECT DISTINCT cliente
              FROM clientes_lideres
-             WHERE activo = TRUE
+             WHERE activo IS NOT FALSE
+               AND NULLIF(BTRIM(cliente), '') IS NOT NULL
              ORDER BY cliente ASC`
         );
         return q.rows.map((r) => r.cliente);
@@ -1042,10 +1044,32 @@ function createDataLayer(deps) {
             params.push(createdTo);
             whereParts.push(`nov.creado_en::date <= $${params.length}::date`);
         }
+        /** Super admin: filtrar por GP según catálogo `clientes_lideres` (clientes asignados a ese usuario GP), alineado con el alcance del rol `gp`. */
+        const gpUserIdOpt = String(options?.gpUserId || '').trim();
+        if (role === 'super_admin' && gpUserIdOpt) {
+            if (gpUserIdOpt === '__null__') {
+                whereParts.push(`NOT EXISTS (
+                    SELECT 1 FROM clientes_lideres cl
+                    WHERE cl.activo = TRUE
+                      AND cl.gp_user_id IS NOT NULL
+                      AND lower(btrim(cl.cliente)) = lower(btrim(coalesce(nov.cliente, '')))
+                )`);
+            } else if (
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(gpUserIdOpt)
+            ) {
+                const assignedClientes = await listAssignedClientesForGpUserId(gpUserIdOpt);
+                if (!assignedClientes.length) {
+                    return [];
+                }
+                const normalized = assignedClientes.map((c) => String(c).toLowerCase());
+                params.push(normalized);
+                whereParts.push(`lower(coalesce(nov.cliente, '')) = ANY($${params.length}::text[])`);
+            }
+        }
         const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
         const q = await pool.query(
             `SELECT
-                nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.tipo_novedad, nov.area,
+                nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.gp_user_id, nov.tipo_novedad, nov.area,
                 nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas, nov.horas_recargo_domingo,
                 nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas,
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
@@ -1154,10 +1178,12 @@ function createDataLayer(deps) {
         const maxMonthlyHours = Number(options?.maxMonthlyHours || 48);
         const createdFrom = String(options?.createdFrom || '').trim();
         const createdTo = String(options?.createdTo || '').trim();
+        const gpUserId = String(options?.gpUserId || '').trim();
         const rows = await getScopedNovedades(scope, {
             tipo: 'Hora Extra',
             createdFrom,
-            createdTo
+            createdTo,
+            ...(gpUserId ? { gpUserId } : {})
         });
 
         const actionableRows = (rows || []).filter((row) => {

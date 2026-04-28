@@ -3,7 +3,8 @@ import { motion } from 'framer-motion';
 import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 import { getTrazabilidadStageKey, TRAZABILIDAD_STAGE_ORDER } from '../hooks/useMonitorData';
-import { RECHARTS_TOOLTIP_PANEL_STYLE } from '../constants/rechartsTheme.js';
+import { RECHARTS_TOOLTIP_PANEL_STYLE, RECHARTS_TOOLTIP_PANEL_STYLE_LIGHT } from '../constants/rechartsTheme.js';
+import { useModuleTheme } from '../../moduleTheme.js';
 
 function buildStageCounts(executions = []) {
     const counts = {};
@@ -42,13 +43,19 @@ function buildHeatmap(metrics) {
     ];
 }
 
-function heatColor(value) {
+function heatColor(value, isLight) {
+    if (isLight) {
+        if (value >= 0.65) return 'border border-orange-300 bg-orange-50 text-orange-900';
+        if (value >= 0.45) return 'border border-amber-300 bg-amber-50 text-amber-900';
+        return 'border border-emerald-300 bg-emerald-50 text-emerald-900';
+    }
     if (value >= 0.65) return 'bg-orange-500/30 border-orange-400/40 text-orange-200';
     if (value >= 0.45) return 'bg-amber-500/25 border-amber-400/35 text-amber-200';
     return 'bg-emerald-500/20 border-emerald-400/35 text-emerald-200';
 }
 
 export default function MetricsDashboard({ metrics, loading, executions = [] }) {
+    const { isLight } = useModuleTheme();
     const stageCounts = useMemo(() => buildStageCounts(executions), [executions]);
     const heatmap = useMemo(() => buildHeatmap(metrics), [metrics]);
     const [selectedStageKey, setSelectedStageKey] = useState(stageCounts[0]?.stageKey || '');
@@ -87,11 +94,12 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
         const tone = stageColors[stageKey] || '#08bdc6';
         const stageLabel = item?.payload?.label || stageKey;
         const count = item?.value;
+        const panelStyle = isLight ? RECHARTS_TOOLTIP_PANEL_STYLE_LIGHT : RECHARTS_TOOLTIP_PANEL_STYLE;
 
         return (
             <div
                 className="rounded-xl border"
-                style={RECHARTS_TOOLTIP_PANEL_STYLE}
+                style={panelStyle}
             >
                 <p style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
                     {stageLabel}
@@ -105,27 +113,27 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
 
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center py-32">
+            <div className="flex flex-col items-center justify-center py-32 font-body">
                 <div className="relative">
                     <div className="h-16 w-16 rounded-full border-2 border-zinc-800" />
                     <div className="absolute left-0 top-0 h-16 w-16 animate-spin rounded-full border-2 border-cinte-purple border-t-transparent" />
                 </div>
-                <p className="mt-6 text-sm uppercase tracking-widest text-[rgba(159,179,200,0.95)]">Cargando métricas...</p>
+                <p className={`mt-6 text-sm uppercase tracking-widest ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>Cargando métricas...</p>
             </div>
         );
     }
 
     return (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5 font-body">
             <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <MetricTile title="Tiempo prom. pipeline" value={metrics.averageTime} subtitle="Pipeline automático" />
-                <MetricTile title="Espera de Firma" value={metrics.avgWaitTime} subtitle="Friccion del candidato" />
-                <MetricTile title="Ahorro Estimado" value={metrics.costSaved} subtitle={metrics.costSavedSubtext || 'Costo evitado'} />
+                <MetricTile isLight={isLight} title="Tiempo prom. pipeline" value={metrics.averageTime} subtitle="Pipeline automático" />
+                <MetricTile isLight={isLight} title="Espera de Firma" value={metrics.avgWaitTime} subtitle="Friccion del candidato" />
+                <MetricTile isLight={isLight} title="Ahorro Estimado" value={metrics.costSaved} subtitle={metrics.costSavedSubtext || 'Costo evitado'} />
             </section>
 
             <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.3fr_1fr]">
                 <article className="surface-panel p-4">
-                    <h3 className="mb-3 text-sm font-semibold text-[var(--text)]">Conteo por Etapa (sin cargando)</h3>
+                    <h3 className="mb-3 text-sm font-semibold text-[var(--text)] font-subtitle">Conteo por Etapa (sin cargando)</h3>
                     <div className="h-[300px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
@@ -160,39 +168,46 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
 
                     <div
                         className="mt-4 rounded-xl border p-4"
-                        style={{
-                            borderColor: (stageColors[selected?.stageKey] || '#08bdc6') + '55',
-                            background: 'rgba(15,36,55,0.2)',
-                        }}
+                        style={
+                            isLight
+                                ? {
+                                    borderColor: `${stageColors[selected?.stageKey] || '#08bdc6'}99`,
+                                    background: 'rgba(47, 123, 184, 0.08)',
+                                }
+                                : {
+                                    borderColor: `${stageColors[selected?.stageKey] || '#08bdc6'}55`,
+                                    background: 'rgba(15,36,55,0.2)',
+                                }
+                        }
                     >
-                        <p className="text-[11px] uppercase tracking-wider text-[rgba(159,179,200,0.95)]">
+                        <p className={`text-[11px] uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
                             Etapa seleccionada
                         </p>
                         <p className="mt-1 text-lg font-semibold" style={{ color: stageColors[selected?.stageKey] || '#08bdc6' }}>
                             {selected?.label || '—'}
                         </p>
-                        <p className="mt-1 text-sm text-[rgba(231,238,247,0.95)]">{selected?.count ?? 0} activos</p>
-                        <p className="mt-2 text-xs leading-relaxed text-[rgba(159,179,200,0.95)]">
+                        <p className={`mt-1 text-sm ${isLight ? 'text-slate-800' : 'text-[rgba(231,238,247,0.95)]'}`}>{selected?.count ?? 0} activos</p>
+                        <p className={`mt-2 text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
                             {stageDescriptions[selected?.stageKey] || ''}
                         </p>
                     </div>
                 </article>
 
                 <article className="surface-panel p-4">
-                    <h3 className="mb-3 text-sm font-semibold text-[var(--text)]">Heatmap de Friccion</h3>
+                    <h3 className="mb-3 text-sm font-semibold text-[var(--text)] font-subtitle">Heatmap de Friccion</h3>
                     <div className="space-y-2">
                         {heatmap.map((row) => (
                             <div key={row.actor} className="grid grid-cols-4 gap-2 text-xs">
-                                <div className="surface-soft px-3 py-2 font-semibold text-[rgba(159,179,200,0.95)]">
+                                <div className={`surface-soft px-3 py-2 font-semibold ${isLight ? 'text-slate-700' : 'text-[rgba(159,179,200,0.95)]'}`}>
                                     {row.actor}
                                 </div>
-                                <HeatCell value={row.inicio} label="Inicio" />
-                                <HeatCell value={row.revision} label="Revision" />
-                                <HeatCell value={row.firma} label="Firma" />
+                                <HeatCell isLight={isLight} value={row.inicio} label="Inicio" />
+                                <HeatCell isLight={isLight} value={row.revision} label="Revision" />
+                                <HeatCell isLight={isLight} value={row.firma} label="Firma" />
                             </div>
                         ))}
                     </div>
-                    <p className="mt-4 text-xs text-[rgba(159,179,200,0.95)]">
+                    <p className={`mt-4 text-xs ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
                         Valores altos representan mayor friccion operativa y probabilidad de estancamiento.
                     </p>
                 </article>
@@ -201,19 +216,19 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
     );
 }
 
-function MetricTile({ title, value, subtitle }) {
+function MetricTile({ isLight, title, value, subtitle }) {
     return (
         <div className="surface-panel p-4">
-            <p className="text-[11px] uppercase tracking-wider text-[rgba(159,179,200,0.95)]">{title}</p>
+            <p className={`text-[11px] uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>{title}</p>
             <p className="kpi-value mt-1 text-2xl">{value || 'N/A'}</p>
-            <p className="mt-1 text-xs text-[rgba(159,179,200,0.95)]">{subtitle}</p>
+            <p className={`mt-1 text-xs ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>{subtitle}</p>
         </div>
     );
 }
 
-function HeatCell({ value, label }) {
+function HeatCell({ isLight, value, label }) {
     return (
-        <div className={`rounded-lg border px-3 py-2 ${heatColor(value)}`}>
+        <div className={`rounded-lg px-3 py-2 ${heatColor(value, isLight)}`}>
             <p className="text-[10px] uppercase tracking-wide">{label}</p>
             <p className="text-sm font-semibold">{Math.round(value * 100)}%</p>
         </div>

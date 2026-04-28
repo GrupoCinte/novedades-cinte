@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
-import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, KeyRound, LogOut, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home } from 'lucide-react';
+import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2 } from 'lucide-react';
 import ChatWidget from './ChatWidget';
 import { getNovedadRule, NOVEDAD_TYPES, formatCantidadNovedad, formatDiasCount, getCantidadMedidaKind, getCantidadDetalleEtiqueta, getDiasEfectivosNovedad, getAsignacionGestionNovedad, resolveCanonicalNovedadTipo } from './novedadRules';
 import {
@@ -11,6 +11,8 @@ import {
     formatHeSegmentListBogota
 } from './heNovedadBogotaClient.js';
 import { formatHeDomingoCompGestionResumen } from './heDomingoCompDisplay.js';
+import { useModuleTheme } from './moduleTheme.js';
+import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 
 function normalizeHoraHePayload(timeRaw) {
     const t = String(timeRaw || '').trim();
@@ -21,6 +23,162 @@ function normalizeHoraHePayload(timeRaw) {
 }
 
 export default function Dashboard({ token, auth, onLogout }) {
+    const mt = useModuleTheme();
+    const {
+        shell,
+        aside,
+        asideHeaderBorder,
+        asideFooterBorder,
+        scrim,
+        menuFab,
+        sidebarIconBtn,
+        navOutline,
+        email,
+        borderSubtle,
+        mainCanvas,
+        navInactive,
+        isLight,
+        field: fieldInput,
+        compactBtn,
+        outlineBtn
+    } = mt;
+
+    const dash = useMemo(() => {
+        const L = isLight;
+        const card = L
+            ? 'rounded-2xl border border-slate-200 bg-white shadow-md'
+            : 'rounded-2xl border border-slate-700/50 bg-[#1e293b] shadow-lg';
+        return {
+            card,
+            cardFlex: `${card} flex flex-col h-full overflow-hidden`,
+            filterBar: L
+                ? 'flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-md'
+                : 'flex flex-col gap-3 rounded-2xl border border-slate-700/50 bg-[#1e293b] px-5 py-4 shadow-lg',
+            titleXl: L ? 'text-xl font-bold text-slate-900' : 'text-xl font-bold text-white',
+            titleLg: L ? 'text-lg font-bold text-slate-900' : 'text-lg font-bold text-white',
+            title2xl: L ? 'text-2xl font-bold text-slate-900' : 'text-2xl font-bold text-white',
+            title3xl: L ? 'text-3xl font-bold text-slate-900' : 'text-3xl font-bold text-white',
+            muted: L ? 'text-slate-600' : 'text-slate-400',
+            mutedSm: L ? 'text-sm text-slate-600' : 'text-sm text-slate-400',
+            labelUpper: L ? 'text-xs font-bold uppercase tracking-widest text-slate-500' : 'text-xs font-bold uppercase tracking-widest text-slate-400',
+            labelFilter: L ? 'text-xs font-semibold uppercase tracking-wider text-slate-600' : 'text-xs font-semibold uppercase tracking-wider text-slate-500',
+            divider: L ? 'h-px flex-1 min-w-[1rem] bg-slate-200' : 'h-px flex-1 min-w-[1rem] bg-slate-700/50',
+            clearBtn: L
+                ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs text-slate-600 transition-all hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600'
+                : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400',
+            kpiSub: L ? 'text-sm font-medium text-slate-600' : 'text-sm font-medium text-slate-400',
+            legendLine: L ? 'text-slate-600' : 'text-slate-300',
+            legendDash: L ? 'text-slate-500' : 'text-slate-400',
+            avatarRing: L ? 'border-2 border-white bg-slate-300 text-[10px] font-bold text-slate-700' : 'border-2 border-[#1e293b] bg-slate-600 text-[10px] font-bold text-slate-300',
+            avatarMore: L ? 'border-2 border-white bg-slate-400 text-[10px] text-slate-800' : 'border-2 border-[#1e293b] bg-slate-700 text-[10px] text-slate-300',
+            chGrid: L ? '#e2e8f0' : '#334155',
+            lineEstimado: L ? '#475569' : '#94a3b8',
+            chartTooltip: L
+                ? { backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '12px', color: '#0f172a' }
+                : { backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '12px' },
+            chartTooltipSm: L
+                ? { backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', color: '#0f172a' }
+                : { backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '10px' },
+            topEmplRow: L
+                ? 'flex items-center justify-between rounded-xl border border-transparent p-3 transition-colors hover:border-slate-200 hover:bg-slate-50'
+                : 'flex items-center justify-between rounded-xl border border-transparent p-3 transition-colors hover:border-slate-700 hover:bg-slate-800/50',
+            topEmplBadge: L
+                ? 'rounded-lg border border-slate-200 bg-slate-100 px-3 py-1 text-sm font-bold text-slate-700'
+                : 'rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-bold text-slate-300',
+            nameEmpl: L ? 'font-medium text-slate-900' : 'font-medium text-slate-200',
+            gestionHead: L ? 'border-b border-slate-200 bg-white' : 'border-b border-slate-700/50 bg-[#1e293b]',
+            tableWrap: L ? 'flex w-full min-h-0 flex-1 flex-col bg-slate-50' : 'flex w-full min-h-0 flex-1 flex-col bg-[#0f172a]/50',
+            thead: L
+                ? 'sticky top-0 z-10 border-b border-slate-200 bg-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-600 shadow-sm'
+                : 'sticky top-0 z-10 border-b border-slate-700/50 bg-[#1e293b] text-xs font-semibold uppercase tracking-wider text-slate-400 shadow-sm',
+            tbody: L ? 'divide-y divide-slate-200 text-sm text-slate-800' : 'divide-y divide-slate-700/50 text-sm',
+            trHover: L ? 'transition-colors hover:bg-slate-100' : 'transition-colors hover:bg-slate-800/80',
+            tdDate: L ? 'p-4 pl-6 text-slate-500' : 'p-4 pl-6 text-slate-400',
+            tdName: L ? 'p-4 font-semibold text-slate-900' : 'p-4 font-semibold text-slate-200',
+            tdCell: L ? 'p-4 text-slate-700' : 'p-4 text-slate-300',
+            tdMuted: L ? 'p-4 text-slate-500' : 'p-4 text-slate-400',
+            tdSmall: L ? 'text-xs text-slate-500' : 'text-xs text-slate-500',
+            tdEmphasis: L ? 'break-all font-medium text-slate-900' : 'break-all font-medium text-slate-100',
+            tdLead: L ? 'block break-words leading-snug text-slate-800' : 'block break-words leading-snug text-slate-200',
+            footerBar: L
+                ? 'flex items-center justify-between border-t border-slate-200 bg-white px-4 py-3 text-xs text-slate-600'
+                : 'flex items-center justify-between border-t border-slate-700/50 bg-[#1e293b] px-4 py-3 text-xs text-slate-300',
+            actionBtn: L
+                ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm transition-all hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800'
+                : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300 shadow-sm transition-all hover:border-blue-500/50 hover:bg-blue-600/20 hover:text-blue-400',
+            borrarFiltros: L
+                ? 'rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition-all hover:bg-slate-100'
+                : 'rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-300 transition-all hover:bg-slate-700/60',
+            emptyHe: L ? 'rounded-xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600' : 'rounded-xl border border-slate-700 bg-slate-900/40 p-6 text-sm text-slate-400',
+            calShell: L
+                ? 'animate-in fade-in zoom-in-95 flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white pb-20 shadow-md duration-300'
+                : 'animate-in fade-in zoom-in-95 flex h-full flex-col overflow-hidden rounded-2xl border border-slate-700/50 bg-[#1e293b] pb-20 shadow-lg duration-300',
+            calSticky: L ? 'sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white p-6' : 'sticky top-0 z-10 flex items-center justify-between border-b border-slate-700/50 bg-[#1e293b] p-6',
+            calSegOuter: L ? 'flex items-center rounded-lg border border-slate-200 bg-slate-100 p-1' : 'flex items-center rounded-lg border border-slate-700 bg-slate-900 p-1',
+            calNavBtn: L ? 'rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 transition-all hover:bg-slate-200' : 'rounded-md px-3 py-1.5 text-sm font-medium text-slate-400 transition-all hover:bg-slate-700 hover:text-white',
+            calWeekday: L
+                ? 'border-b border-slate-200 bg-slate-100 py-2 text-center text-xs font-bold uppercase tracking-widest text-slate-600'
+                : 'border-b border-slate-700/50 bg-[#1e293b] py-2 text-center text-xs font-bold uppercase tracking-widest text-slate-400',
+            calEmpty: L ? 'min-h-[100px] bg-slate-50' : 'min-h-[100px] bg-[#1e293b]/50',
+            calCell: L
+                ? 'flex min-h-[100px] flex-col gap-1 border-b border-r border-slate-200 bg-white p-2 transition-colors last:border-r-0'
+                : 'flex min-h-[100px] flex-col gap-1 border-b border-r border-slate-700/50 bg-[#1e293b] p-2 transition-colors last:border-r-0',
+            dailyPanel: L ? 'rounded-xl border border-slate-200 bg-slate-50 p-4 md:p-5' : 'rounded-xl border border-slate-700/50 bg-[#0f172a] p-4 md:p-5',
+            dailyEmpty: L ? 'rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600' : 'rounded-lg border border-slate-700 bg-slate-800/60 p-4 text-sm text-slate-400',
+            dailyName: L ? 'font-semibold text-slate-900' : 'font-semibold text-white',
+            dailyMeta: L ? 'text-xs text-slate-600' : 'text-xs text-slate-300',
+            legendFoot: L ? 'text-center text-[10px] italic text-slate-500' : 'text-center text-[10px] italic text-slate-600',
+            calGrid: L
+                ? 'grid h-full min-h-[500px] grid-cols-7 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200'
+                : 'grid h-full min-h-[500px] grid-cols-7 gap-px overflow-hidden rounded-xl border border-slate-700/50 bg-slate-700/50',
+            calMonthLabel: L ? 'min-w-[120px] text-center text-sm font-bold capitalize text-slate-800' : 'min-w-[120px] text-center text-sm font-bold capitalize text-slate-200',
+            calDayLabel: L ? 'min-w-[160px] text-center text-sm font-bold capitalize text-slate-800' : 'min-w-[160px] text-center text-sm font-bold capitalize text-slate-200',
+            calTodayCell: L ? 'bg-sky-50' : 'bg-blue-900/10',
+            calNovedadMuted: L ? 'border border-slate-200 bg-slate-100 text-center text-[10px] font-semibold leading-tight text-slate-700' : 'border border-slate-700 bg-slate-800 text-center text-[10px] font-semibold leading-tight text-slate-300',
+            tooltipPanel: L
+                ? 'rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 shadow-lg'
+                : 'rounded-xl border border-slate-600 bg-[#0f172a] px-4 py-3 text-sm shadow-xl',
+            riesgoNombre: L ? 'text-sm font-bold leading-tight text-slate-900' : 'text-sm font-bold leading-tight text-slate-200',
+            modalBackdrop: L
+                ? 'fixed inset-0 z-50 flex animate-in items-center justify-center bg-slate-900/40 p-4 backdrop-blur fade-in duration-200'
+                : 'fixed inset-0 z-50 flex animate-in items-center justify-center bg-[#0f172a]/90 p-4 backdrop-blur fade-in duration-200',
+            modalCard: L
+                ? 'relative flex w-full max-w-4xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
+                : 'relative flex w-full max-w-4xl flex-col rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
+            modalCardMd: L
+                ? 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
+                : 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
+            modalCardWide: L
+                ? 'relative flex w-full max-w-5xl flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]'
+                : 'relative flex w-full max-w-5xl flex-col items-center justify-center rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]',
+            modalCardDay: L
+                ? 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[85vh]'
+                : 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[85vh]',
+            modalHeadBorder: L ? 'mb-4 flex items-start justify-between border-b border-slate-200 pb-4' : 'mb-4 flex items-start justify-between border-b border-slate-700/50 pb-4',
+            modalClose: L
+                ? 'flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition-all hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600'
+                : 'flex h-10 w-10 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 transition-all hover:border-rose-500/50 hover:bg-rose-500/20 hover:text-rose-500',
+            modalGrid: L ? 'grid grid-cols-1 gap-4 overflow-y-auto pr-1 text-sm text-slate-800 md:grid-cols-2' : 'grid grid-cols-1 gap-4 overflow-y-auto pr-1 text-sm text-slate-200 md:grid-cols-2',
+            modalFooter: L ? 'mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4' : 'mt-6 flex flex-wrap justify-end gap-2 border-t border-slate-700/50 pt-4',
+            modalMuted: L ? 'text-slate-500' : 'text-slate-400',
+            soporteIframe: L ? 'w-full rounded-xl border border-slate-200 bg-slate-100 p-1' : 'w-full rounded-xl border border-slate-700 bg-black/40 p-1',
+            soporteLoading: L ? 'flex h-[65vh] w-full items-center justify-center text-slate-600' : 'flex h-[65vh] w-full items-center justify-center text-slate-300',
+            excelScroll: L ? 'h-[65vh] w-full overflow-auto rounded bg-slate-50 p-3' : 'h-[65vh] w-full overflow-auto rounded bg-slate-950 p-3',
+            supportChip: L
+                ? 'inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-xs transition-all hover:border-sky-400 hover:bg-sky-50'
+                : 'inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs transition-all hover:border-blue-500/50',
+            dayItemTitle: L ? 'font-bold text-slate-900' : 'font-bold text-white',
+            dayPill: L ? 'rounded bg-slate-200/80 px-2 py-0.5 text-xs font-medium text-slate-800' : 'rounded bg-black/20 px-2 py-0.5 text-xs font-medium text-slate-300',
+            daySide: L ? 'flex flex-col gap-1 rounded-lg border border-slate-200 bg-slate-100 p-3' : 'flex flex-col gap-1 rounded-lg border border-black/10 bg-black/20 p-3',
+            daySideText: L ? 'text-sm font-medium text-slate-700' : 'text-sm font-medium text-slate-300',
+            dayMeta: L ? 'text-xs text-slate-500' : 'text-xs text-slate-400',
+            dateRangeWrap: L ? 'flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1' : 'flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-2 py-1',
+            dateRangeLbl: L ? 'text-[11px] font-semibold uppercase tracking-wider text-slate-500' : 'text-[11px] font-semibold uppercase tracking-wider text-slate-400',
+            calCountBadge: L ? 'rounded border border-slate-200 bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-600' : 'rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-400',
+            tipoPill: L ? 'text-slate-700' : 'text-slate-300',
+        };
+    }, [isLight]);
+
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [soporteModal, setSoporteModal] = useState(null);
@@ -102,6 +260,12 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [fCreadoDesde, setFCreadoDesde] = useState('');
     const [fCreadoHasta, setFCreadoHasta] = useState('');
     const [fClienteCalendario, setFClienteCalendario] = useState('');
+    /** Filtro por GP asociado (snapshot `novedades.gp_user_id`); solo efectivo para rol `super_admin` en API. */
+    const [fGpUserId, setFGpUserId] = useState('');
+    const [gpFilterOptions, setGpFilterOptions] = useState([]);
+    const isSuperAdminNovedades = currentRole === 'super_admin';
+    /** Temporal: ocultar el botón «Editar» en el modal de gestión (API PATCH sigue disponible). */
+    const gestionMostrarEditar = false;
     const [calendarClientesList, setCalendarClientesList] = useState([]);
     const [horaExtraAlerts, setHoraExtraAlerts] = useState({
         generatedAt: '',
@@ -120,13 +284,22 @@ export default function Dashboard({ token, auth, onLogout }) {
         totalPages: 1
     });
     const [gestionDetailItem, setGestionDetailItem] = useState(null);
+    const [gestionEditMode, setGestionEditMode] = useState(false);
+    const [gestionEditDraft, setGestionEditDraft] = useState(null);
+    const [gestionDeleteOpen, setGestionDeleteOpen] = useState(false);
+    const [gestionDeleteMotivo, setGestionDeleteMotivo] = useState('');
+    const [gestionAdminBusy, setGestionAdminBusy] = useState(false);
+    const [gestionAdminErr, setGestionAdminErr] = useState(null);
     const [alertaHeDetailItem, setAlertaHeDetailItem] = useState(null);
     const navigate = useNavigate();
 
     const loadData = async () => {
         setLoading(true);
         try {
-            const res = await fetch('/api/novedades', {
+            const qp = new URLSearchParams();
+            if (fGpUserId) qp.set('gpUserId', fGpUserId);
+            const qs = qp.toString();
+            const res = await fetch(qs ? `/api/novedades?${qs}` : '/api/novedades', {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (!res.ok) throw new Error('No autorizado');
@@ -152,6 +325,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             if (fCliente) params.cliente = fCliente;
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
             if (fCreadoHasta) params.createdTo = fCreadoHasta;
+            if (fGpUserId) params.gpUserId = fGpUserId;
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades?${query}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -177,6 +351,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             const params = {};
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
             if (fCreadoHasta) params.createdTo = fCreadoHasta;
+            if (fGpUserId) params.gpUserId = fGpUserId;
             const query = new URLSearchParams(params).toString();
             const url = query ? `/api/novedades/hora-extra-alertas?${query}` : '/api/novedades/hora-extra-alertas';
             const alertRes = await fetch(url, {
@@ -205,7 +380,31 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [fGpUserId]);
+
+    useEffect(() => {
+        if (!isSuperAdminNovedades) {
+            setGpFilterOptions([]);
+            return undefined;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch('/api/directorio/gp', { headers: { Authorization: `Bearer ${token}` } });
+                const json = await res.json().catch(() => ({}));
+                if (!cancelled && res.ok && Array.isArray(json.items)) setGpFilterOptions(json.items);
+            } catch (err) {
+                console.error(err);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isSuperAdminNovedades, token]);
+
+    useEffect(() => {
+        if (!isSuperAdminNovedades) setFGpUserId('');
+    }, [isSuperAdminNovedades]);
 
     useEffect(() => {
         const loadCalClientes = async () => {
@@ -221,10 +420,10 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, []);
     useEffect(() => {
         loadGestionData(currentPage, pageSize);
-    }, [currentPage, pageSize, fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta]);
+    }, [currentPage, pageSize, fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId]);
     useEffect(() => {
         loadHoraExtraAlerts();
-    }, [fCreadoDesde, fCreadoHasta]);
+    }, [fCreadoDesde, fCreadoHasta, fGpUserId]);
 
     const changeState = async (id, nuevoEstado, options = {}) => {
         setStateError(null);
@@ -274,6 +473,173 @@ export default function Dashboard({ token, auth, onLogout }) {
         } catch (err) {
             console.error('[changeState] Error de red/fetch:', err);
             setStateError('Error de conexión con el servidor. Verifica que el backend esté corriendo en :3005');
+        }
+    };
+
+    const closeGestionDetailModal = () => {
+        setGestionDetailItem(null);
+        setGestionEditMode(false);
+        setGestionEditDraft(null);
+        setGestionDeleteOpen(false);
+        setGestionDeleteMotivo('');
+        setGestionAdminErr(null);
+    };
+
+    const gestionAdminHeaders = () => {
+        const csrfToken = (() => {
+            const raw = String(document?.cookie || '');
+            if (!raw) return '';
+            const part = raw.split(';').map((c) => c.trim()).find((c) => c.startsWith('cinteXsrf='));
+            return part ? decodeURIComponent(part.slice('cinteXsrf='.length)) : '';
+        })();
+        const headers = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+        };
+        if (csrfToken) headers['x-cinte-xsrf'] = csrfToken;
+        return headers;
+    };
+
+    const buildGestionEditDraft = (it) => {
+        if (!it) return null;
+        const sopRuta =
+            Array.isArray(it.soportes) && it.soportes.length > 1
+                ? JSON.stringify(it.soportes)
+                : String(it.soporteKey || it.soporteRuta || it.soportes?.[0] || '').trim();
+        const monto = it.montoCop != null && it.montoCop !== '' ? String(it.montoCop) : '';
+        return {
+            nombre: it.nombre || '',
+            cedula: it.cedula || '',
+            correoSolicitante: it.correoSolicitante || '',
+            cliente: it.cliente || '',
+            lider: it.lider || '',
+            gpUserId: it.gpUserId || '',
+            tipoNovedad: it.tipoNovedad || '',
+            area: it.area || 'Operaciones',
+            fecha: it.fecha || '',
+            horaInicio: normalizeHoraHePayload(it.horaInicio).slice(0, 5) || '',
+            horaFin: normalizeHoraHePayload(it.horaFin).slice(0, 5) || '',
+            fechaInicio: it.fechaInicio || '',
+            fechaFin: it.fechaFin || '',
+            cantidadHoras: String(it.cantidadHoras ?? 0),
+            horasDiurnas: String(it.horasDiurnas ?? 0),
+            horasNocturnas: String(it.horasNocturnas ?? 0),
+            horasRecargoDomingo: String(it.horasRecargoDomingo ?? 0),
+            horasRecargoDomingoDiurnas: String(it.horasRecargoDomingoDiurnas ?? 0),
+            horasRecargoDomingoNocturnas: String(it.horasRecargoDomingoNocturnas ?? 0),
+            tipoHoraExtra: it.tipoHoraExtra || '',
+            montoCop: monto,
+            estado: it.estado || 'Pendiente',
+            heDomingoObservacion: it.heDomingoObservacion || '',
+            soporteRuta: sopRuta
+        };
+    };
+
+    const patchBodyFromGestionDraft = (draft) => {
+        const num = (s) => {
+            const n = Number(String(s).replace(',', '.'));
+            return Number.isFinite(n) ? n : 0;
+        };
+        const montoRaw = String(draft.montoCop || '').trim().replace(/\./g, '').replace(',', '.');
+        let montoCop = null;
+        if (montoRaw !== '') {
+            const mn = Number(montoRaw);
+            montoCop = Number.isFinite(mn) ? Number(mn.toFixed(2)) : null;
+        }
+        return {
+            nombre: String(draft.nombre || '').trim(),
+            cedula: String(draft.cedula || '').replace(/\D/g, ''),
+            correoSolicitante: String(draft.correoSolicitante || '').trim() || null,
+            cliente: String(draft.cliente || '').trim() || null,
+            lider: String(draft.lider || '').trim() || null,
+            gpUserId: String(draft.gpUserId || '').trim() || null,
+            tipoNovedad: String(draft.tipoNovedad || '').trim(),
+            area: String(draft.area || '').trim(),
+            fecha: String(draft.fecha || '').trim() || null,
+            horaInicio: draft.horaInicio ? normalizeHoraHePayload(draft.horaInicio) : null,
+            horaFin: draft.horaFin ? normalizeHoraHePayload(draft.horaFin) : null,
+            fechaInicio: String(draft.fechaInicio || '').trim() || null,
+            fechaFin: String(draft.fechaFin || '').trim() || null,
+            cantidadHoras: num(draft.cantidadHoras),
+            horasDiurnas: num(draft.horasDiurnas),
+            horasNocturnas: num(draft.horasNocturnas),
+            horasRecargoDomingo: num(draft.horasRecargoDomingo),
+            horasRecargoDomingoDiurnas: num(draft.horasRecargoDomingoDiurnas),
+            horasRecargoDomingoNocturnas: num(draft.horasRecargoDomingoNocturnas),
+            tipoHoraExtra: String(draft.tipoHoraExtra || '').trim() || null,
+            montoCop,
+            estado: String(draft.estado || 'Pendiente').trim(),
+            heDomingoObservacion: String(draft.heDomingoObservacion || '').trim() || null,
+            soporteRuta: String(draft.soporteRuta || '').trim() || null
+        };
+    };
+
+    const gestionNovedadPublicId = (it) => {
+        const u = String(it?.id || '').trim();
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(u)) return u;
+        return String(it?.creadoEn || '').trim();
+    };
+
+    const submitGestionAdminPatch = async () => {
+        if (!gestionDetailItem || !gestionEditDraft) return;
+        setGestionAdminErr(null);
+        setGestionAdminBusy(true);
+        try {
+            const id = gestionNovedadPublicId(gestionDetailItem);
+            if (!id) throw new Error('No se pudo resolver el identificador de la novedad.');
+            const res = await fetch(`/api/novedades/${encodeURIComponent(id)}`, {
+                method: 'PATCH',
+                credentials: 'include',
+                headers: gestionAdminHeaders(),
+                body: JSON.stringify(patchBodyFromGestionDraft(gestionEditDraft))
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setGestionAdminErr(data?.error || `Error ${res.status}`);
+                return;
+            }
+            await loadData();
+            await loadGestionData(currentPage, pageSize);
+            await loadHoraExtraAlerts();
+            closeGestionDetailModal();
+        } catch (e) {
+            setGestionAdminErr(e?.message || 'Error de red');
+        } finally {
+            setGestionAdminBusy(false);
+        }
+    };
+
+    const submitGestionAdminDelete = async () => {
+        if (!gestionDetailItem) return;
+        const motivo = String(gestionDeleteMotivo || '').trim();
+        if (!motivo) {
+            setGestionAdminErr('El motivo de eliminación es obligatorio.');
+            return;
+        }
+        setGestionAdminErr(null);
+        setGestionAdminBusy(true);
+        try {
+            const id = gestionNovedadPublicId(gestionDetailItem);
+            if (!id) throw new Error('No se pudo resolver el identificador de la novedad.');
+            const res = await fetch(`/api/novedades/${encodeURIComponent(id)}`, {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: gestionAdminHeaders(),
+                body: JSON.stringify({ motivo })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setGestionAdminErr(data?.error || `Error ${res.status}`);
+                return;
+            }
+            await loadData();
+            await loadGestionData(currentPage, pageSize);
+            await loadHoraExtraAlerts();
+            closeGestionDetailModal();
+        } catch (e) {
+            setGestionAdminErr(e?.message || 'Error de red');
+        } finally {
+            setGestionAdminBusy(false);
         }
     };
 
@@ -569,7 +935,7 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, pageSize]);
+    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, pageSize]);
     useEffect(() => {
         if (currentPage > totalPages) {
             setCurrentPage(totalPages);
@@ -646,14 +1012,15 @@ export default function Dashboard({ token, auth, onLogout }) {
     const dailyItems = itemsByDate[currentDayStr] || [];
 
     const getTypeColor = (tipo) => {
-        if (!tipo) return 'text-slate-400 bg-slate-400/20 border-slate-400/50';
+        const L = isLight;
+        if (!tipo) return L ? 'border-slate-300 bg-slate-100 text-slate-700' : 'text-slate-400 bg-slate-400/20 border-slate-400/50';
         const t = tipo.toLowerCase();
-        if (t.includes('incapacidad')) return 'text-rose-400 bg-rose-500/20 border-rose-500/50';
-        if (t.includes('vacacion')) return 'text-amber-400 bg-amber-500/20 border-amber-500/50';
-        if (t.includes('permiso')) return 'text-blue-400 bg-blue-500/20 border-blue-500/50';
-        if (t.includes('extra')) return 'text-emerald-400 bg-emerald-500/20 border-emerald-500/50';
-        if (t.includes('licencia')) return 'text-purple-400 bg-purple-500/20 border-purple-500/50';
-        return 'text-slate-400 bg-slate-400/20 border-slate-400/50';
+        if (t.includes('incapacidad')) return L ? 'border-rose-300 bg-rose-100 text-rose-900' : 'text-rose-400 bg-rose-500/20 border-rose-500/50';
+        if (t.includes('vacacion')) return L ? 'border-amber-300 bg-amber-100 text-amber-900' : 'text-amber-400 bg-amber-500/20 border-amber-500/50';
+        if (t.includes('permiso')) return L ? 'border-blue-300 bg-blue-100 text-blue-900' : 'text-blue-400 bg-blue-500/20 border-blue-500/50';
+        if (t.includes('extra')) return L ? 'border-emerald-300 bg-emerald-100 text-emerald-900' : 'text-emerald-400 bg-emerald-500/20 border-emerald-500/50';
+        if (t.includes('licencia')) return L ? 'border-purple-300 bg-purple-100 text-purple-900' : 'text-purple-400 bg-purple-500/20 border-purple-500/50';
+        return L ? 'border-slate-300 bg-slate-100 text-slate-700' : 'text-slate-400 bg-slate-400/20 border-slate-400/50';
     };
     // -----------------------
 
@@ -666,6 +1033,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             if (fCliente) params.cliente = fCliente;
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
             if (fCreadoHasta) params.createdTo = fCreadoHasta;
+            if (fGpUserId) params.gpUserId = fGpUserId;
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades/export-excel?${query}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -699,16 +1067,8 @@ export default function Dashboard({ token, auth, onLogout }) {
         setFCliente('');
         setFCreadoDesde('');
         setFCreadoHasta('');
+        setFGpUserId('');
         setCurrentPage(1);
-    };
-
-    const handleSidebarLogout = () => {
-        if (onLogout) {
-            onLogout();
-            return;
-        }
-        // CRIT-002: ya no hay localStorage que limpiar aquí
-        navigate('/admin', { replace: true });
     };
 
     // Sidebar
@@ -728,40 +1088,79 @@ export default function Dashboard({ token, auth, onLogout }) {
             setActiveTab(allowedTabs[0] || 'Calendario');
         }
     }, [activeTab, navItems]);
+
+    const superAdminGpSelect = isSuperAdminNovedades ? (
+        <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor="dash-filtro-gp" className={`${dash.labelFilter} whitespace-nowrap`}>
+                Filtrar por GS
+            </label>
+            <select
+                id="dash-filtro-gp"
+                value={fGpUserId}
+                onChange={(e) => setFGpUserId(e.target.value)}
+                className={`${fieldInput} min-w-[10rem] max-w-[18rem] cursor-pointer py-1.5 text-sm`}
+                title="Clientes asignados a este usuario GP en el catálogo directorio"
+            >
+                <option value="">Todos los GP</option>
+                <option value="__null__">Cliente sin GP en catálogo</option>
+                {gpFilterOptions.map((g) => {
+                    const id = String(g.id || '');
+                    const label = String(g.full_name || g.email || id).trim() || id;
+                    const mail = String(g.email || '').trim();
+                    return (
+                        <option key={id || mail} value={id}>
+                            {label}
+                            {mail && mail !== label ? ` — ${mail}` : ''}
+                            {g.is_active === false ? ' (inactivo)' : ''}
+                        </option>
+                    );
+                })}
+            </select>
+        </div>
+    ) : null;
+
     return (
-        <div className="flex h-full w-full bg-[#04141E] text-slate-200 overflow-hidden font-body">
+        <div className={shell}>
 
             {/* ───────── MOBILE SIDEBAR ───────── */}
             <button
                 onClick={() => setMobileMenuOpen(true)}
-                className="md:hidden fixed top-24 left-4 z-40 w-10 h-10 rounded-lg bg-[#0b1e30] border border-[#1a3a56] text-slate-200 flex items-center justify-center shadow-lg"
+                className={`md:hidden fixed top-16 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú"
             >
                 <Menu size={18} />
             </button>
             {mobileMenuOpen && (
                 <div
-                    className="md:hidden fixed inset-0 bg-black/50 z-40"
+                    className={`md:hidden fixed inset-0 z-40 ${scrim}`}
                     onClick={() => setMobileMenuOpen(false)}
                 />
             )}
             <aside
-                className={`md:hidden fixed top-0 left-0 h-full w-72 bg-[#0b1e30] border-r border-[#1a3a56]/50 z-50 shadow-2xl transform transition-transform duration-300 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                className={`md:hidden fixed top-0 left-0 h-full w-72 z-50 shadow-2xl transform transition-transform duration-300 font-body ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                     }`}
             >
-                <div className="p-4 border-b border-[#1a3a56]/50 flex items-center justify-between">
-                    <div>
-                        <p className="text-[10px] font-heading font-black text-[#65BCF7] uppercase tracking-widest">Sistema Análisis</p>
-                        <p className="text-[10px] font-body font-bold text-slate-400 uppercase tracking-widest">Novedades CINTE</p>
-                    </div>
-                    <button
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="w-8 h-8 rounded-lg bg-[#04141E] border border-[#1a3a56] text-slate-300 flex items-center justify-center"
-                        aria-label="Cerrar menú"
-                    >
-                        <X size={16} />
-                    </button>
-                </div>
+                <AdminModuleSidebarBrand
+                    variant="drawer"
+                    isLight={isLight}
+                    asideHeaderBorder={asideHeaderBorder}
+                    moduleContext={(
+                        <>
+                            <p className="text-[10px] font-heading font-black uppercase tracking-widest leading-tight text-[#65BCF7]">Sistema Análisis</p>
+                            <p className="text-[10px] font-body font-bold uppercase tracking-widest leading-tight text-slate-400">Novedades CINTE</p>
+                        </>
+                    )}
+                    endAction={(
+                        <button
+                            type="button"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
+                            aria-label="Cerrar menú"
+                        >
+                            <X size={16} />
+                        </button>
+                    )}
+                />
                 <nav className="p-3 flex flex-col gap-2">
                     <button
                         type="button"
@@ -769,7 +1168,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                             navigate('/admin');
                             setMobileMenuOpen(false);
                         }}
-                        className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all text-slate-300 hover:bg-[#0f2942]/50 border border-[#1a3a56]/60"
+                        className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${navOutline}`}
                     >
                         <Home size={17} />
                         <span>Inicio portal</span>
@@ -781,7 +1180,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <button
                                 key={`mobile-${item.id}`}
                                 onClick={() => setActiveTab(item.id)}
-                                className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${active ? 'bg-[#2F7BB8] text-white' : 'text-slate-300 hover:bg-[#0f2942]/50'
+                                className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${active ? 'bg-[#2F7BB8] text-white' : navInactive
                                     }`}
                             >
                                 <Icon size={17} />
@@ -798,55 +1197,46 @@ export default function Dashboard({ token, auth, onLogout }) {
                         );
                     })}
                 </nav>
-                <div className="mt-auto p-4 border-t border-[#1a3a56]/50">
-                    <p className="text-[10px] font-body font-black text-slate-300 truncate">{currentEmail}</p>
+                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
+                    <p className={`text-[10px] font-body font-black truncate ${email}`}>{currentEmail}</p>
                     <p className="text-[10px] text-[#65BCF7] font-body font-semibold uppercase">{currentRoleLabel}</p>
-                    <div className="mt-3 flex flex-col gap-2">
-                        <button
-                            onClick={() => navigate('/perfil/cambiar-clave')}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 text-slate-200 hover:bg-slate-700/60 transition-all text-xs font-semibold"
-                        >
-                            <KeyRound size={14} />
-                            Cambiar contraseña
-                        </button>
-                        <button
-                            onClick={handleSidebarLogout}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition-all text-xs font-semibold"
-                        >
-                            <LogOut size={14} />
-                            Cerrar sesión
-                        </button>
-                    </div>
                 </div>
             </aside>
 
             {/* ───────── SIDEBAR COLAPSABLE ───────── */}
             <aside
                 className={`
-                    bg-[#0b1e30] flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10
+                    flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 font-body
                     transition-all duration-300 ease-in-out overflow-hidden
+                    ${aside}
                     ${sidebarOpen ? 'w-64' : 'w-16'}
                 `}
             >
-                <div className={`border-b border-[#1a3a56]/50 flex items-center ${sidebarOpen ? 'px-5 py-4 justify-between' : 'px-0 py-4 justify-center'}`}>
-                    {sidebarOpen && (
-                        <div className="overflow-hidden">
-                            <p className="text-[10px] font-heading font-black text-[#65BCF7] uppercase tracking-widest whitespace-nowrap leading-tight">
+                <AdminModuleSidebarBrand
+                    variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
+                    isLight={isLight}
+                    asideHeaderBorder={asideHeaderBorder}
+                    moduleContext={(
+                        <>
+                            <p className="whitespace-nowrap text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">
                                 Sistema Análisis
                             </p>
-                            <p className="text-[10px] font-body font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap leading-tight">
+                            <p className="whitespace-nowrap text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">
                                 Novedades CINTE
                             </p>
-                        </div>
+                        </>
                     )}
-                    <button
-                        onClick={() => setSidebarOpen(o => !o)}
-                        title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
-                        className="flex items-center justify-center w-7 h-7 rounded-lg bg-[#04141E] hover:bg-[#2F7BB8]/20 border border-[#1a3a56] hover:border-[#2F7BB8]/50 text-slate-400 hover:text-[#65BCF7] transition-all flex-shrink-0"
-                    >
-                        {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-                    </button>
-                </div>
+                    endAction={(
+                        <button
+                            type="button"
+                            onClick={() => setSidebarOpen((o) => !o)}
+                            title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
+                            className={`flex h-7 w-7 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
+                        >
+                            {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+                        </button>
+                    )}
+                />
 
                 <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
                     <button
@@ -855,11 +1245,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                         title={!sidebarOpen ? 'Inicio portal' : undefined}
                         className={`
                             flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left
-                            text-slate-400 hover:text-slate-200 hover:bg-[#0f2942]/50 border border-[#1a3a56]/50
+                            ${navOutline}
                             ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'}
                         `}
                     >
-                        <Home size={18} className="flex-shrink-0 text-slate-500" />
+                        <Home size={18} className={`flex-shrink-0 ${isLight ? 'text-slate-600' : 'text-slate-500'}`} />
                         {sidebarOpen ? (
                             <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">
                                 Inicio portal
@@ -879,11 +1269,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'}
                                     ${active
                                         ? 'bg-[#2F7BB8] shadow-[0_4px_12px_rgba(47,123,184,0.3)] text-white'
-                                        : 'text-slate-400 hover:text-slate-200 hover:bg-[#0f2942]/50'
+                                        : navInactive
                                     }
                                 `}
                             >
-                                <Icon size={18} className={`flex-shrink-0 ${active ? 'text-white' : 'text-slate-500'}`} />
+                                <Icon size={18} className={`flex-shrink-0 ${active ? 'text-white' : isLight ? 'text-slate-600' : 'text-slate-500'}`} />
                                 {sidebarOpen && (
                                     <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">
                                         {item.label}
@@ -902,7 +1292,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                     })}
                 </nav>
 
-                <div className={`border-t border-[#1a3a56]/50 ${sidebarOpen ? 'p-4' : 'p-2'}`}>
+                <div className={`border-t ${borderSubtle} ${sidebarOpen ? 'p-4' : 'p-2'}`}>
                     {sidebarOpen ? (
                         <div className="space-y-2">
                             <div className="flex items-center gap-2">
@@ -910,81 +1300,51 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <Code2 size={13} className="text-[#65BCF7]" />
                                 </div>
                                 <div className="overflow-hidden">
-                                    <p className="text-[10px] font-body font-black text-slate-300 whitespace-nowrap leading-tight truncate">{currentEmail}</p>
+                                    <p className={`text-[10px] font-body font-black whitespace-nowrap leading-tight truncate ${email}`}>{currentEmail}</p>
                                     <p className="text-[9px] text-[#65BCF7] font-body font-semibold whitespace-nowrap leading-tight">{currentRoleLabel}</p>
                                 </div>
                             </div>
-                            <p className="text-[9px] text-slate-600 font-body font-bold uppercase tracking-widest text-center border-t border-[#1a3a56]/50 pt-2">
+                            <p className={`text-[9px] font-body font-bold uppercase tracking-widest text-center border-t pt-2 ${mt.isLight ? 'text-slate-400 border-slate-200' : 'text-slate-600 border-[#1a3a56]/50'}`}>
                                 Grupo CINTE · V2.0
                             </p>
-                            <div className="border-t border-[#1a3a56]/50 pt-2 flex flex-col gap-2">
-                                <button
-                                    onClick={() => navigate('/perfil/cambiar-clave')}
-                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1a3a56] text-slate-300 hover:text-white hover:bg-[#0f2942]/60 transition-all text-xs font-body font-semibold"
-                                >
-                                    <KeyRound size={14} />
-                                    Cambiar contraseña
-                                </button>
-                                <button
-                                    onClick={handleSidebarLogout}
-                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-500/30 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition-all text-xs font-body font-semibold"
-                                >
-                                    <LogOut size={14} />
-                                    Cerrar sesión
-                                </button>
-                            </div>
                         </div>
                     ) : (
-                        <div className="flex flex-col items-center gap-2">
+                        <div className="flex flex-col items-center gap-2 py-1">
                             <div className="flex justify-center" title={`${currentEmail} - ${currentRoleLabel}`}>
                                 <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center">
                                     <Code2 size={13} className="text-[#65BCF7]" />
                                 </div>
                             </div>
-                            <button
-                                onClick={() => navigate('/perfil/cambiar-clave')}
-                                title="Cambiar contraseña"
-                                className="w-7 h-7 rounded-lg border border-[#1a3a56] text-slate-300 hover:text-white hover:bg-[#0f2942]/60 flex items-center justify-center transition-all"
-                            >
-                                <KeyRound size={13} />
-                            </button>
-                            <button
-                                onClick={handleSidebarLogout}
-                                title="Cerrar sesión"
-                                className="w-7 h-7 rounded-lg border border-rose-500/40 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 flex items-center justify-center transition-all"
-                            >
-                                <LogOut size={13} />
-                            </button>
                         </div>
                     )}
                 </div>
             </aside>
 
             {/* Main Content Area */}
-            <main className="flex-1 overflow-y-auto p-4 pt-14 md:pt-6 md:p-6 relative scroll-smooth bg-[#04141E]">
+            <main className={`flex-1 overflow-y-auto p-4 pt-12 md:pt-6 md:p-6 relative scroll-smooth ${mainCanvas}`}>
 
                 {/* ---------- INICIO (DASHBOARD) ---------- */}
                 {activeTab === 'Inicio' && canAccessPanel('dashboard') && (
                     <div className="flex flex-col gap-5 animate-in fade-in duration-300 min-h-[calc(100vh-9.5rem)]">
 
                         {/* ── Filtros: Período + Tipo de Novedad ── */}
-                        <div className="flex flex-col gap-3 bg-[#1e293b] border border-slate-700/50 rounded-2xl px-5 py-4 shadow-lg">
+                        <div className={dash.filterBar}>
 
                             {/* Fila 1: Mes / Día / Tipo (desplegable) */}
                             <div className="flex flex-wrap items-center gap-3">
                                 <div className="flex items-center gap-2">
                                     <Calendar size={16} className="text-blue-400" />
-                                    <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Filtrar por período</span>
+                                    <span className={dash.labelUpper}>Filtrar por período</span>
                                 </div>
-                                <div className="flex-1 h-px bg-slate-700/50 min-w-[1rem]" />
+                                <div className={dash.divider} />
 
                                 {/* Mes */}
                                 <div className="flex items-center gap-2">
-                                    <label className="text-xs text-slate-500 font-semibold uppercase tracking-wider whitespace-nowrap">Mes</label>
+                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Mes</label>
                                     <select
                                         value={fMes}
                                         onChange={e => { setFMes(e.target.value); setFDia(''); }}
-                                        className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-1.5 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                                        className={`${fieldInput} cursor-pointer py-1.5 text-sm`}
                                     >
                                         <option value="">Todos los meses</option>
                                         {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((m, i) => (
@@ -995,11 +1355,11 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                                 {/* Día */}
                                 <div className="flex items-center gap-2">
-                                    <label className="text-xs text-slate-500 font-semibold uppercase tracking-wider whitespace-nowrap">Día</label>
+                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Día</label>
                                     <select
                                         value={fDia}
                                         onChange={e => setFDia(e.target.value)}
-                                        className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-1.5 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                                        className={`${fieldInput} cursor-pointer py-1.5 text-sm`}
                                     >
                                         <option value="">Todos los días</option>
                                         {availableDays.map(d => (
@@ -1010,11 +1370,11 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                                 {/* Tipo — a la derecha del Día */}
                                 <div className="flex items-center gap-2">
-                                    <label className="text-xs text-slate-500 font-semibold uppercase tracking-wider whitespace-nowrap">Tipo</label>
+                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Tipo</label>
                                     <select
                                         value={fTipoInicio}
                                         onChange={(e) => setFTipoInicio(e.target.value)}
-                                        className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-1.5 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 cursor-pointer min-w-[12rem] max-w-[20rem]"
+                                        className={`${fieldInput} min-w-[12rem] max-w-[20rem] cursor-pointer py-1.5 text-sm`}
                                     >
                                         <option value="">Todos los tipos</option>
                                         {NOVEDAD_TYPES.map((tipo) => {
@@ -1028,11 +1388,18 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     </select>
                                 </div>
 
+                                {superAdminGpSelect ? (
+                                    <>
+                                        <div className={dash.divider} />
+                                        {superAdminGpSelect}
+                                    </>
+                                ) : null}
+
                                 {/* Botón limpiar */}
-                                {(fMes !== '' || fDia !== '' || fTipoInicio !== '') && (
+                                {(fMes !== '' || fDia !== '' || fTipoInicio !== '' || fGpUserId !== '') && (
                                     <button
-                                        onClick={() => { setFMes(''); setFDia(''); setFTipoInicio(''); }}
-                                        className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-rose-400 border border-slate-700 hover:border-rose-500/50 px-3 py-1.5 rounded-lg transition-all bg-slate-800 hover:bg-rose-500/10"
+                                        onClick={() => { setFMes(''); setFDia(''); setFTipoInicio(''); setFGpUserId(''); }}
+                                        className={dash.clearBtn}
                                     >
                                         <X size={12} /> Limpiar filtros
                                     </button>
@@ -1040,7 +1407,7 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                                 {/* Badge de resultados */}
                                 <div className="ml-auto flex items-center gap-2">
-                                    <span className="text-xs text-slate-500">Mostrando</span>
+                                    <span className={`text-xs ${dash.muted}`}>Mostrando</span>
                                     <span className="text-sm font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
                                         {dashItems.length} de {items.length} registros
                                     </span>
@@ -1051,11 +1418,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                         {/* KPIs Row */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
-                            <div className="bg-[#1e293b] rounded-2xl p-6 border border-slate-700/50 shadow-lg relative overflow-hidden group">
+                            <div className={`${dash.card} relative overflow-hidden p-6 group`}>
                                 <div className="flex justify-between items-start">
                                     <div>
-                                        <p className="text-slate-400 text-sm font-medium">Total Novedades</p>
-                                        <h3 className="text-3xl font-bold text-white mt-1">{dashItems.length}</h3>
+                                        <p className={dash.kpiSub}>Total Novedades</p>
+                                        <h3 className={`${dash.title3xl} mt-1`}>{dashItems.length}</h3>
                                         {dashItems.length !== items.length && <p className="text-[10px] text-blue-400 mt-0.5">de {items.length} totales</p>}
                                     </div>
                                     <div className="bg-blue-500/10 p-2.5 rounded-lg border border-blue-500/20">
@@ -1071,12 +1438,12 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </div>
                             </div>
 
-                            <div className="bg-[#1e293b] rounded-2xl p-6 border border-emerald-500/30 shadow-lg relative overflow-hidden group">
+                            <div className={`${dash.card} relative overflow-hidden border-emerald-500/30 p-6 group`}>
                                 <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
                                 <div className="flex justify-between items-start relative">
                                     <div>
-                                        <p className="text-slate-400 text-sm font-medium">Impacto Financiero Est.</p>
-                                        <h3 className="text-3xl font-bold text-emerald-400 mt-1">${impactoEst}</h3>
+                                        <p className={dash.kpiSub}>Impacto Financiero Est.</p>
+                                        <h3 className="mt-1 text-3xl font-bold text-emerald-500">{`$${impactoEst}`}</h3>
                                     </div>
                                     <div className="bg-emerald-500/10 p-2.5 rounded-lg border border-emerald-500/20">
                                         <DollarSign size={20} className="text-emerald-500" />
@@ -1085,11 +1452,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <p className="text-xs text-emerald-500/80 mt-4 relative">Proyección optimizada (estimada)</p>
                             </div>
 
-                            <div className="bg-[#1e293b] rounded-2xl p-6 border border-slate-700/50 shadow-lg">
+                            <div className={`${dash.card} p-6`}>
                                 <div className="flex justify-between items-start">
                                     <div>
-                                        <p className="text-slate-400 text-sm font-medium">Novedades pendientes por aprobación</p>
-                                        <h3 className="text-3xl font-bold text-rose-500 mt-1">{pendientesCount}</h3>
+                                        <p className={dash.kpiSub}>Novedades pendientes por aprobación</p>
+                                        <h3 className={`${dash.title3xl} mt-1 text-rose-500`}>{pendientesCount}</h3>
                                     </div>
                                     <div className="bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
                                         <Users size={20} className="text-rose-500" />
@@ -1097,12 +1464,12 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </div>
                                 <div className="flex mt-4 -space-x-2">
                                     {Array.from({ length: Math.min(pendientesCount, 4) }).map((_, i) => (
-                                        <div key={i} className="w-8 h-8 rounded-full bg-slate-600 border-2 border-[#1e293b] flex items-center justify-center text-[10px] font-bold text-slate-300">
+                                        <div key={i} className={`flex h-8 w-8 items-center justify-center rounded-full ${dash.avatarRing}`}>
                                             {String.fromCharCode(65 + i)}
                                         </div>
                                     ))}
                                     {pendientesCount > 4 && (
-                                        <div className="w-8 h-8 rounded-full bg-slate-700 border-2 border-[#1e293b] flex items-center justify-center text-[10px] text-slate-300">
+                                        <div className={`flex h-8 w-8 items-center justify-center rounded-full ${dash.avatarMore}`}>
                                             +{pendientesCount - 4}
                                         </div>
                                     )}
@@ -1111,13 +1478,13 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </div>
 
                         {/* Comparativa real vs. serie estimada */}
-                        <div className="bg-[#1e293b] rounded-2xl p-6 md:p-8 border border-slate-700/50 shadow-lg">
+                        <div className={`${dash.card} p-6 md:p-8`}>
                             <div className="flex justify-between items-end mb-6">
                                 <div>
-                                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                    <h2 className={`${dash.titleXl} flex items-center gap-2`}>
                                         Monitor de Tendencia <BadgeCheck className="text-blue-500" size={18} />
                                     </h2>
-                                    <p className="text-sm text-slate-400 mt-1">Comparativa real vs. predicción semestral (estimada)</p>
+                                    <p className={`${dash.mutedSm} mt-1`}>Comparativa real vs. predicción semestral (estimada)</p>
                                 </div>
                             </div>
                             <div className="h-72 w-full">
@@ -1129,26 +1496,26 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                                             </linearGradient>
                                         </defs>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} vertical={false} />
+                                        <CartesianGrid strokeDasharray="3 3" stroke={dash.chGrid} opacity={0.5} vertical={false} />
                                         <XAxis dataKey="mes" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
                                         <YAxis stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
-                                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px' }} />
+                                        <Tooltip contentStyle={dash.chartTooltip} />
                                         <Area type="monotone" dataKey="real" stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorReal)" activeDot={{ r: 6 }} />
-                                        <Line type="monotone" dataKey="estimado" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+                                        <Line type="monotone" dataKey="estimado" stroke={dash.lineEstimado} strokeWidth={2} strokeDasharray="5 5" dot={false} />
                                     </AreaChart>
                                 </ResponsiveContainer>
                             </div>
-                            <div className="flex items-center gap-4 text-xs font-medium mt-4 justify-end">
-                                <span className="flex items-center gap-1.5 align-middle text-slate-300"><div className="w-3 h-3 rounded-full bg-blue-500"></div> Dato Real</span>
-                                <span className="flex items-center gap-1.5 align-middle text-slate-400"><div className="w-6 h-0.5 border-t-2 border-dashed border-slate-400"></div> Serie estimada</span>
+                            <div className="mt-4 flex items-center justify-end gap-4 text-xs font-medium">
+                                <span className={`flex items-center gap-1.5 align-middle ${dash.legendLine}`}><div className="h-3 w-3 rounded-full bg-blue-500"></div> Dato Real</span>
+                                <span className={`flex items-center gap-1.5 align-middle ${dash.legendDash}`}><div className="h-0.5 w-6 border-t-2 border-dashed border-slate-400"></div> Serie estimada</span>
                             </div>
                         </div>
 
                         {/* Grid inferior 2 Cols */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-6">
 
-                            <div className="bg-[#1e293b] rounded-2xl p-6 border border-slate-700/50 shadow-lg">
-                                <h2 className="text-lg font-bold text-white mb-6">Distribución por Tipología</h2>
+                            <div className={`${dash.card} p-6`}>
+                                <h2 className={`${dash.titleLg} mb-6`}>Distribución por Tipología</h2>
                                 <div className="h-72 w-full">
                                     <ResponsiveContainer>
                                         <BarChart
@@ -1156,7 +1523,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             layout="vertical"
                                             margin={{ top: 4, right: 8, bottom: 4, left: 8 }}
                                         >
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} horizontal={false} />
+                                            <CartesianGrid strokeDasharray="3 3" stroke={dash.chGrid} opacity={0.3} horizontal={false} />
                                             <XAxis type="number" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                                             <YAxis
                                                 dataKey="name"
@@ -1169,8 +1536,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 axisLine={false}
                                             />
                                             <Tooltip
-                                                cursor={{ fill: '#334155', opacity: 0.15 }}
-                                                contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '10px' }}
+                                                cursor={{ fill: isLight ? '#cbd5e1' : '#334155', opacity: 0.15 }}
+                                                contentStyle={dash.chartTooltipSm}
                                                 formatter={(value, name, props) => [value, props?.payload?.name || name]}
                                             />
                                             <Bar dataKey="value" radius={[0, 6, 6, 0]}>
@@ -1183,23 +1550,23 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </div>
                             </div>
 
-                            <div className="bg-[#1e293b] rounded-2xl p-6 border border-slate-700/50 shadow-lg">
-                                <h2 className="text-lg font-bold text-white mb-6">Top 5 empleados con más novedades</h2>
+                            <div className={`${dash.card} p-6`}>
+                                <h2 className={`${dash.titleLg} mb-6`}>Top 5 empleados con más novedades</h2>
                                 <div className="flex flex-col gap-4">
                                     {topEmpleados.length === 0 ? (
-                                        <p className="text-center text-slate-400 mt-10">Generando analíticas...</p>
+                                        <p className={`mt-10 text-center ${dash.muted}`}>Generando analíticas...</p>
                                     ) : topEmpleados.map((emp, i) => (
-                                        <div key={i} className="flex items-center justify-between p-3 rounded-xl hover:bg-slate-800/50 transition-colors border border-transparent hover:border-slate-700">
+                                        <div key={i} className={dash.topEmplRow}>
                                             <div className="flex items-center gap-3">
-                                                <div className="w-10 h-10 rounded-full bg-slate-700 flex items-center justify-center font-bold text-blue-400">
+                                                <div className={`flex h-10 w-10 items-center justify-center rounded-full font-bold ${isLight ? 'bg-slate-200 text-blue-700' : 'bg-slate-700 text-blue-400'}`}>
                                                     {emp.nombre.charAt(0).toUpperCase()}
                                                 </div>
                                                 <div>
-                                                    <p className="text-slate-200 font-medium">{emp.nombre}</p>
-                                                    <p className="text-slate-500 text-xs">Aproximación mensual</p>
+                                                    <p className={dash.nameEmpl}>{emp.nombre}</p>
+                                                    <p className={`${dash.tdSmall} text-xs`}>Aproximación mensual</p>
                                                 </div>
                                             </div>
-                                            <div className="bg-slate-800 px-3 py-1 rounded-lg text-slate-300 font-bold border border-slate-700">
+                                            <div className={dash.topEmplBadge}>
                                                 {emp.count} reg.
                                             </div>
                                         </div>
@@ -1215,40 +1582,53 @@ export default function Dashboard({ token, auth, onLogout }) {
                     <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-2 flex flex-col h-[calc(100vh-8.5rem)] md:h-[calc(100vh-7.5rem)]">
                         {/* Banner de error de acción */}
                         {stateError && (
-                            <div className="mb-4 flex items-center gap-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 px-4 py-3 rounded-xl text-sm font-medium">
+                            <div
+                                className={
+                                    isLight
+                                        ? 'mb-4 flex items-center gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-900'
+                                        : 'mb-4 flex items-center gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-medium text-rose-400'
+                                }
+                            >
                                 <X size={16} className="flex-shrink-0" />
                                 <span>{stateError}</span>
-                                <button onClick={() => setStateError(null)} className="ml-auto text-rose-400 hover:text-rose-300"><X size={14} /></button>
+                                <button
+                                    type="button"
+                                    onClick={() => setStateError(null)}
+                                    className={isLight ? 'ml-auto text-rose-700 hover:text-rose-900' : 'ml-auto text-rose-400 hover:text-rose-300'}
+                                >
+                                    <X size={14} />
+                                </button>
                             </div>
                         )}
-                        <div className="bg-[#1e293b] border border-slate-700/50 rounded-2xl shadow-lg flex flex-col h-full overflow-hidden">
-                            <div className="p-4 border-b border-slate-700/50 bg-[#1e293b] sticky top-0 z-20">
-                                <h2 className="text-xl font-bold text-white mb-4">Gestión Operativa de Novedades</h2>
+                        <div className={dash.cardFlex}>
+                            <div className={`sticky top-0 z-20 p-4 ${dash.gestionHead}`}>
+                                <h2 className={`${dash.titleXl} mb-4`}>Gestión Operativa de Novedades</h2>
                                 <div className="flex flex-wrap gap-3 items-center">
-                                    <select onChange={e => setFTipo(e.target.value)} value={fTipo} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                                    <select onChange={e => setFTipo(e.target.value)} value={fTipo} className={`${fieldInput} text-sm`}>
                                         <option value="">Todos los tipos</option>
                                         {Object.keys(typeDataMap).map(k => <option key={k} value={k}>{k}</option>)}
                                     </select>
-                                    <select onChange={e => setFEstado(e.target.value)} value={fEstado} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                                    <select onChange={e => setFEstado(e.target.value)} value={fEstado} className={`${fieldInput} text-sm`}>
                                         <option value="">Todos los estados</option>
                                         <option value="Pendiente">Pendientes</option>
                                         <option value="Aprobado">Aprobados</option>
                                         <option value="Rechazado">Rechazados</option>
                                     </select>
-                                    <input type="text" placeholder="Buscar por nombre..." value={fNombre} onChange={(e) => setFNombre(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 placeholder-slate-500 min-w-[180px]" />
-                                    <select onChange={(e) => setFCliente(e.target.value)} value={fCliente} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 min-w-[220px]">
+                                    <input type="text" placeholder="Buscar por nombre..." value={fNombre} onChange={(e) => setFNombre(e.target.value)} className={`${fieldInput} min-w-[180px] text-sm`} />
+                                    <select onChange={(e) => setFCliente(e.target.value)} value={fCliente} className={`${fieldInput} min-w-[220px] text-sm`}>
                                         <option value="">Todos los clientes</option>
                                         {calendarClientesList.map((c) => (
                                             <option key={c} value={c}>{c}</option>
                                         ))}
                                     </select>
-                                    <div className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 px-2 py-1">
-                                        <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Rango de fechas</span>
-                                        <input type="date" value={fCreadoDesde} onChange={(e) => setFCreadoDesde(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-2 py-1 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
-                                        <span className="text-slate-500 text-xs">a</span>
-                                        <input type="date" value={fCreadoHasta} onChange={(e) => setFCreadoHasta(e.target.value)} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-2 py-1 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                                    {superAdminGpSelect}
+                                    <div className={dash.dateRangeWrap}>
+                                        <span className={dash.dateRangeLbl}>Rango de fechas</span>
+                                        <input type="date" value={fCreadoDesde} onChange={(e) => setFCreadoDesde(e.target.value)} className={`${fieldInput} px-2 py-1 text-sm`} />
+                                        <span className={`${dash.modalMuted} text-xs`}>a</span>
+                                        <input type="date" value={fCreadoHasta} onChange={(e) => setFCreadoHasta(e.target.value)} className={`${fieldInput} px-2 py-1 text-sm`} />
                                     </div>
-                                    <select onChange={e => setPageSize(Number(e.target.value))} value={pageSize} className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500">
+                                    <select onChange={e => setPageSize(Number(e.target.value))} value={pageSize} className={`${fieldInput} text-sm`}>
                                         <option value={10}>10 por página</option>
                                         <option value={20}>20 por página</option>
                                         <option value={50}>50 por página</option>
@@ -1256,7 +1636,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <button
                                         type="button"
                                         onClick={clearGestionFilters}
-                                        className="px-3 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700/60 transition-all text-sm"
+                                        className={dash.borrarFiltros}
                                     >
                                         Borrar filtros
                                     </button>
@@ -1269,11 +1649,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </div>
                             </div>
 
-                            <div className="w-full flex-1 min-h-0 bg-[#0f172a]/50 flex flex-col">
+                            <div className={dash.tableWrap}>
                                 <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
                                     <table className="w-full text-left border-collapse whitespace-nowrap min-w-[900px] md:min-w-full">
                                         <thead>
-                                            <tr className="bg-[#1e293b] text-slate-400 text-xs uppercase tracking-wider sticky top-0 z-10 shadow-sm border-b border-slate-700/50">
+                                            <tr className={dash.thead}>
                                                 <th className="p-4 pl-6 font-semibold">Creado</th>
                                                 <th className="p-4 font-semibold">Nombre</th>
                                                 <th className="p-4 font-semibold">Cliente</th>
@@ -1286,11 +1666,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 <th className="p-4 pr-6 font-semibold text-right">Acciones</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-slate-700/50 text-sm">
+                                        <tbody className={dash.tbody}>
                                             {loading ? (
-                                                <tr><td colSpan="10" className="p-12 text-center text-slate-500 font-medium">Cargando base de datos...</td></tr>
+                                                <tr><td colSpan="10" className={`p-12 text-center font-medium ${dash.muted}`}>Cargando base de datos...</td></tr>
                                             ) : sortedItems.length === 0 ? (
-                                                <tr><td colSpan="10" className="p-12 text-center text-slate-500 font-medium">No se encontraron registros.</td></tr>
+                                                <tr><td colSpan="10" className={`p-12 text-center font-medium ${dash.muted}`}>No se encontraron registros.</td></tr>
                                             ) : (
                                                 pagedItems.map(it => {
                                                     const cread = new Date(it.creadoEn);
@@ -1304,55 +1684,72 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                         ? rechazado.toLocaleString('es-ES')
                                                         : '';
                                                     return (
-                                                        <tr key={it.id ? String(it.id) : `${it.creadoEn}-${it.cedula}-${it.nombre}`} className="hover:bg-slate-800/80 transition-colors">
-                                                            <td className="p-4 pl-6 text-slate-400">{validCread}</td>
-                                                            <td className="p-4 font-semibold text-slate-200">{it.nombre}</td>
-                                                            <td className="p-4 text-slate-300">{it.cliente || '-'}</td>
-                                                            <td className="p-4 text-slate-400">
+                                                        <tr key={it.id ? String(it.id) : `${it.creadoEn}-${it.cedula}-${it.nombre}`} className={dash.trHover}>
+                                                            <td className={dash.tdDate}>{validCread}</td>
+                                                            <td className={dash.tdName}>{it.nombre}</td>
+                                                            <td className={dash.tdCell}>{it.cliente || '-'}</td>
+                                                            <td className={dash.tdMuted}>
                                                                 <span className={`px-2 py-1 rounded text-xs border ${getTypeColor(it.tipoNovedad)}`}>{it.tipoNovedad}</span>
                                                             </td>
-                                                            <td className="p-4 text-slate-300">{it.fechaInicio || '-'}</td>
-                                                            <td className="p-4 text-slate-400 text-center">
+                                                            <td className={dash.tdCell}>{it.fechaInicio || '-'}</td>
+                                                            <td className={`${dash.tdMuted} text-center`}>
                                                                 {formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it)}
                                                             </td>
                                                             <td className="p-4">
                                                                 <div className="flex flex-col gap-1">
-                                                                    <span className={`inline-flex w-fit px-2 py-1 rounded-md text-[11px] font-bold border uppercase tracking-wider ${it.estado === 'Aprobado' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                                                                        it.estado === 'Rechazado' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
-                                                                            'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                                                                        }`}>
+                                                                    <span
+                                                                        className={`inline-flex w-fit rounded-md border px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${
+                                                                            it.estado === 'Aprobado'
+                                                                                ? isLight
+                                                                                    ? 'border-emerald-300 bg-emerald-100 text-emerald-900'
+                                                                                    : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
+                                                                                : it.estado === 'Rechazado'
+                                                                                    ? isLight
+                                                                                        ? 'border-rose-300 bg-rose-100 text-rose-900'
+                                                                                        : 'border-rose-500/20 bg-rose-500/10 text-rose-400'
+                                                                                    : isLight
+                                                                                        ? 'border-amber-300 bg-amber-100 text-amber-900'
+                                                                                        : 'border-amber-500/20 bg-amber-500/10 text-amber-400'
+                                                                        }`}
+                                                                    >
                                                                         {it.estado}
                                                                     </span>
                                                                     {it.alertaHeResueltaEstado ? (
-                                                                        <span className="inline-flex w-fit rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-200">
+                                                                        <span
+                                                                            className={
+                                                                                isLight
+                                                                                    ? 'inline-flex w-fit rounded border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[10px] font-semibold text-cyan-900'
+                                                                                    : 'inline-flex w-fit rounded border border-cyan-500/30 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold text-cyan-200'
+                                                                            }
+                                                                        >
                                                                             Gestionada por alerta HE: {it.alertaHeResueltaEstado}
                                                                         </span>
                                                                     ) : null}
                                                                 </div>
                                                             </td>
-                                                            <td className="p-4 text-xs text-slate-300 max-w-[240px] align-top !whitespace-normal">
-                                                                <span className="text-slate-200 leading-snug block break-words" title={asignacionEtiquetaForItem(it)}>{asignacionEtiquetaForItem(it)}</span>
+                                                            <td className={`${dash.tdCell} max-w-[240px] align-top text-xs !whitespace-normal`}>
+                                                                <span className={`${dash.tdLead} block`} title={asignacionEtiquetaForItem(it)}>{asignacionEtiquetaForItem(it)}</span>
                                                             </td>
-                                                            <td className="p-4 text-xs text-slate-300 max-w-[220px] align-top !whitespace-normal">
+                                                            <td className={`${dash.tdCell} max-w-[220px] align-top text-xs !whitespace-normal`}>
                                                                 {it.estado === 'Aprobado'
                                                                     ? (
                                                                         <div className="flex flex-col gap-0.5">
-                                                                            <span className="text-slate-500">{aprobadoTxt || '-'}</span>
-                                                                            <span className="break-all font-medium text-slate-100">{correoAprobadoMostrar(it)}</span>
+                                                                            <span className={dash.modalMuted}>{aprobadoTxt || '-'}</span>
+                                                                            <span className={dash.tdEmphasis}>{correoAprobadoMostrar(it)}</span>
                                                                         </div>
                                                                     )
                                                                     : it.estado === 'Rechazado'
                                                                         ? (
                                                                             <div className="flex flex-col gap-0.5">
-                                                                                <span className="text-slate-500">{rechazadoTxt || '-'}</span>
-                                                                                <span className="break-all font-medium text-slate-100">{correoRechazadoMostrar(it)}</span>
+                                                                                <span className={dash.modalMuted}>{rechazadoTxt || '-'}</span>
+                                                                                <span className={dash.tdEmphasis}>{correoRechazadoMostrar(it)}</span>
                                                                             </div>
                                                                         )
                                                                     : '—'}
                                                             </td>
                                                             <td className="p-4 pr-6">
                                                                 <div className="flex gap-2 justify-end items-center">
-                                                                    <button onClick={() => setGestionDetailItem(it)} className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-blue-600/20 text-slate-300 hover:text-blue-400 border border-slate-700 hover:border-blue-500/50 rounded-lg transition-all shadow-sm text-xs font-medium">
+                                                                    <button onClick={() => setGestionDetailItem(it)} className={dash.actionBtn}>
                                                                         <Eye size={14} /> Ver detalle
                                                                     </button>
                                                                 </div>
@@ -1365,13 +1762,13 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     </table>
                                 </div>
                                 {!loading && sortedItems.length > 0 && (
-                                    <div className="bg-[#1e293b] border-t border-slate-700/50 px-4 py-3 flex items-center justify-between text-xs text-slate-300">
+                                    <div className={dash.footerBar}>
                                         <span>Mostrando {pagedItems.length} de {gestionPagination.total || 0} registros</span>
                                         <div className="flex items-center gap-2">
                                             <button
                                                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                                                 disabled={safePage <= 1}
-                                                className="px-3 py-1 rounded border border-slate-600 disabled:opacity-40"
+                                                className={compactBtn}
                                             >
                                                 Anterior
                                             </button>
@@ -1379,7 +1776,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             <button
                                                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                                                 disabled={safePage >= totalPages}
-                                                className="px-3 py-1 rounded border border-slate-600 disabled:opacity-40"
+                                                className={compactBtn}
                                             >
                                                 Siguiente
                                             </button>
@@ -1394,18 +1791,23 @@ export default function Dashboard({ token, auth, onLogout }) {
                 {/* ---------- ALERTAS HE ---------- */}
                 {activeTab === 'Alertas HE' && canAccessPanel('gestion') && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-2 flex flex-col h-[calc(100vh-8.5rem)] md:h-[calc(100vh-7.5rem)]">
-                        <div className="bg-[#1e293b] border border-slate-700/50 rounded-2xl shadow-lg flex flex-col h-full overflow-hidden">
-                            <div className="p-4 border-b border-slate-700/50 bg-[#1e293b] sticky top-0 z-20">
-                                <h2 className="text-xl font-bold text-white">Alertas HE</h2>
-                                <p className="mt-1 text-sm text-slate-400">
+                        <div className={dash.cardFlex}>
+                            <div className={`sticky top-0 z-20 p-4 ${dash.gestionHead}`}>
+                                <h2 className={dash.titleXl}>Alertas HE</h2>
+                                <p className={`mt-1 text-sm ${dash.muted}`}>
                                     Tarjetas: {alertasHeCount}
                                     {' · '}
                                     Exceso de topes: {alertasHeExcesoCardCount}
                                 </p>
+                                {superAdminGpSelect ? (
+                                    <div className={`mt-3 flex flex-wrap items-center gap-2 border-t pt-3 ${isLight ? 'border-slate-200' : 'border-slate-700/50'}`}>
+                                        {superAdminGpSelect}
+                                    </div>
+                                ) : null}
                             </div>
                             <div className="flex-1 overflow-auto p-4">
                                 {alertDisplayCards.length === 0 ? (
-                                    <div className="rounded-xl border border-slate-700 bg-slate-900/40 p-6 text-sm text-slate-400">
+                                    <div className={dash.emptyHe}>
                                         No hay alertas pendientes para el rango seleccionado.
                                     </div>
                                 ) : (
@@ -1413,26 +1815,62 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         {alertDisplayCards.map(({ key, it }) => (
                                             <div
                                                 key={key}
-                                                className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4"
+                                                className={
+                                                    isLight
+                                                        ? 'rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm'
+                                                        : 'rounded-xl border border-amber-500/30 bg-amber-500/10 p-4'
+                                                }
                                             >
                                                 <div className="flex flex-wrap items-center justify-between gap-2">
                                                     <div>
-                                                        <p className="text-sm font-semibold text-amber-100">{it.nombre} ({it.cedula})</p>
-                                                        <p className="text-xs text-amber-200/90">
+                                                        <p
+                                                            className={
+                                                                isLight
+                                                                    ? 'text-sm font-semibold text-amber-950'
+                                                                    : 'text-sm font-semibold text-amber-100'
+                                                            }
+                                                        >
+                                                            {it.nombre} ({it.cedula})
+                                                        </p>
+                                                        <p className={isLight ? 'text-xs text-amber-900' : 'text-xs text-amber-200/90'}>
                                                             {it.cliente || 'Sin cliente'} · {it.tipoNovedad}
-                                                            <span className="ml-2 rounded bg-amber-500/25 px-1.5 py-0.5 text-amber-100">Exceso de topes HE</span>
+                                                            <span
+                                                                className={
+                                                                    isLight
+                                                                        ? 'ml-2 rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-semibold text-amber-950'
+                                                                        : 'ml-2 rounded bg-amber-500/25 px-1.5 py-0.5 text-amber-100'
+                                                                }
+                                                            >
+                                                                Exceso de topes HE
+                                                            </span>
                                                         </p>
                                                     </div>
                                                     <button
                                                         type="button"
                                                         onClick={() => setAlertaHeDetailItem(it)}
-                                                        className="rounded-lg border border-amber-300/40 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-400/15"
+                                                        className={
+                                                            isLight
+                                                                ? 'rounded-lg border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-950 shadow-sm hover:bg-amber-100'
+                                                                : 'rounded-lg border border-amber-300/40 px-3 py-1.5 text-xs font-semibold text-amber-100 hover:bg-amber-400/15'
+                                                        }
                                                     >
                                                         Ver alerta
                                                     </button>
                                                 </div>
-                                                <div className="mt-2 space-y-1 text-xs text-amber-100/90">
-                                                    <p className="font-semibold text-amber-200/95">Detalle del exceso</p>
+                                                <div
+                                                    className={
+                                                        isLight
+                                                            ? 'mt-2 space-y-1 text-xs text-amber-950'
+                                                            : 'mt-2 space-y-1 text-xs text-amber-100/90'
+                                                    }
+                                                >
+                                                    <p
+                                                        className={
+                                                            isLight ? 'font-semibold text-amber-950' : 'font-semibold text-amber-200/95'
+                                                        }
+                                                    >
+                                                        Detalle del exceso
+                                                    </p>
                                                     {Array.isArray(it.dailyReasons) && it.dailyReasons.map((d) => (
                                                         <p key={`cd-${key}-${d.date}`}>
                                                             Diario {d.date}: {d.totalHours}h (tope {d.limitHours}h, exceso {d.exceededByHours}h)
@@ -1455,19 +1893,19 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                 {/* ---------- CALENDARIO INTERACTIVO ---------- */}
                 {activeTab === 'Calendario' && canAccessPanel('calendar') && (
-                    <div className="animate-in fade-in zoom-in-95 duration-300 pb-20 flex flex-col h-full bg-[#1e293b] rounded-2xl border border-slate-700/50 shadow-lg overflow-hidden">
-                        <div className="p-6 border-b border-slate-700/50 flex justify-between items-center sticky top-0 bg-[#1e293b] z-10">
+                    <div className={dash.calShell}>
+                        <div className={dash.calSticky}>
                             <div>
-                                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                <h2 className={`${dash.titleXl} flex items-center gap-2`}>
                                     <Calendar className="text-blue-500" size={22} /> Agenda Operativa
                                 </h2>
-                                <p className="text-sm text-slate-400 mt-1">Vista interactiva mensual de las novedades del talento</p>
+                                <p className={`${dash.mutedSm} mt-1`}>Vista interactiva mensual de las novedades del talento</p>
                             </div>
-                            <div className="flex flex-wrap gap-3 items-center justify-end">
+                            <div className="flex flex-wrap items-center justify-end gap-3">
                                 <select
                                     value={fClienteCalendario}
                                     onChange={(e) => setFClienteCalendario(e.target.value)}
-                                    className="bg-slate-800 border border-slate-600 text-sm text-slate-200 px-3 py-2 rounded-lg focus:outline-none focus:border-blue-500 max-w-[220px]"
+                                    className={`${fieldInput} max-w-[220px] text-sm`}
                                     aria-label="Filtrar por cliente"
                                 >
                                     <option value="">Todos los clientes</option>
@@ -1475,51 +1913,52 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <option key={c} value={c}>{c}</option>
                                     ))}
                                 </select>
-                                <div className="flex items-center bg-slate-900 rounded-lg p-1 border border-slate-700">
+                                {superAdminGpSelect}
+                                <div className={dash.calSegOuter}>
                                     <button
                                         onClick={() => setCalendarView('monthly')}
-                                        className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${calendarView === 'monthly' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${calendarView === 'monthly' ? 'bg-blue-600 text-white' : dash.calNavBtn}`}
                                     >
                                         Mensual
                                     </button>
                                     <button
                                         onClick={() => setCalendarView('daily')}
-                                        className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${calendarView === 'daily' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
+                                        className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wider transition-all ${calendarView === 'daily' ? 'bg-blue-600 text-white' : dash.calNavBtn}`}
                                     >
                                         Diaria
                                     </button>
                                 </div>
                                 {calendarView === 'monthly' ? (
-                                    <div className="flex gap-4 items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
-                                        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="px-3 py-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-all text-sm font-medium">&larr; Ant.</button>
-                                        <span className="text-slate-200 font-bold min-w-[120px] text-center capitalize">
+                                    <div className={dash.calSegOuter}>
+                                        <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className={dash.calNavBtn}>&larr; Ant.</button>
+                                        <span className={dash.calMonthLabel}>
                                             {currentMonth.toLocaleString('es-ES', { month: 'long', year: 'numeric' })}
                                         </span>
-                                        <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="px-3 py-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-all text-sm font-medium">Sig. &rarr;</button>
+                                        <button type="button" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className={dash.calNavBtn}>Sig. &rarr;</button>
                                     </div>
                                 ) : (
-                                    <div className="flex gap-4 items-center bg-slate-800 rounded-lg p-1 border border-slate-700">
-                                        <button onClick={() => setCurrentDay(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 1))} className="px-3 py-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-all text-sm font-medium">&larr; Ant.</button>
-                                        <span className="text-slate-200 font-bold min-w-[160px] text-center capitalize">
+                                    <div className={dash.calSegOuter}>
+                                        <button type="button" onClick={() => setCurrentDay(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() - 1))} className={dash.calNavBtn}>&larr; Ant.</button>
+                                        <span className={dash.calDayLabel}>
                                             {currentDay.toLocaleDateString('es-ES', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
                                         </span>
-                                        <button onClick={() => setCurrentDay(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 1))} className="px-3 py-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-md transition-all text-sm font-medium">Sig. &rarr;</button>
+                                        <button type="button" onClick={() => setCurrentDay(prev => new Date(prev.getFullYear(), prev.getMonth(), prev.getDate() + 1))} className={dash.calNavBtn}>Sig. &rarr;</button>
                                     </div>
                                 )}
                             </div>
                         </div>
 
-                        <div className="flex-1 p-6 overflow-auto">
+                        <div className="flex-1 overflow-auto p-6">
                             {calendarView === 'monthly' ? (
-                                <div className="grid grid-cols-7 gap-px rounded-xl overflow-hidden bg-slate-700/50 border border-slate-700/50 h-full min-h-[500px]">
+                                <div className={dash.calGrid}>
                                     {['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'].map(day => (
-                                        <div key={day} className="bg-[#1e293b] text-center py-2 text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-700/50">
+                                        <div key={day} className={dash.calWeekday}>
                                             {day}
                                         </div>
                                     ))}
 
                                     {calendarDays.map((dateObj, i) => {
-                                        if (!dateObj) return <div key={`empty-${i}`} className="bg-[#1e293b]/50 min-h-[100px]" />;
+                                        if (!dateObj) return <div key={`empty-${i}`} className={dash.calEmpty} />;
 
                                         const dayDateStr = dateObj.toISOString().slice(0, 10);
                                         const dayItems = itemsByDate[dayDateStr] || [];
@@ -1528,16 +1967,16 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         return (
                                             <div key={dayDateStr}
                                                 onClick={() => dayItems.length > 0 && setSelectedDayItems({ date: dateObj, items: dayItems })}
-                                                className={`bg-[#1e293b] min-h-[100px] p-2 flex flex-col gap-1 transition-colors border-b border-r border-slate-700/50 last:border-r-0 ${dayItems.length > 0 ? 'cursor-pointer hover:bg-slate-800' : ''
-                                                    } ${isToday ? 'bg-blue-900/10' : ''}`}>
+                                                className={`${dash.calCell}${dayItems.length > 0 ? (isLight ? ' cursor-pointer hover:bg-slate-50' : ' cursor-pointer hover:bg-slate-800') : ''
+                                                    } ${isToday ? dash.calTodayCell : ''}`}>
 
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <span className={`w-7 h-7 flex items-center justify-center rounded-full text-sm font-bold ${isToday ? 'bg-blue-600 text-white shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'text-slate-400'
+                                                <div className="mb-1 flex items-center justify-between">
+                                                    <span className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-bold ${isToday ? 'bg-blue-600 text-white shadow-[0_0_10px_rgba(59,130,246,0.5)]' : isLight ? 'text-slate-500' : 'text-slate-400'
                                                         }`}>
                                                         {dateObj.getDate()}
                                                     </span>
                                                     {dayItems.length > 0 && (
-                                                        <span className="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded font-bold border border-slate-700">
+                                                        <span className={dash.calCountBadge}>
                                                             {dayItems.length} reg.
                                                         </span>
                                                     )}
@@ -1545,9 +1984,9 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                                                 <div className="mt-auto">
                                                     {dayItems.length > 0 && (
-                                                        <div className={`text-[10px] leading-tight px-2 py-1 rounded border font-semibold text-center ${isToday
-                                                            ? 'text-blue-300 bg-blue-500/15 border-blue-500/40'
-                                                            : 'text-slate-300 bg-slate-800 border-slate-700'
+                                                        <div className={`rounded border px-2 py-1 text-center text-[10px] font-semibold leading-tight ${isToday
+                                                            ? (isLight ? 'border-blue-200 bg-sky-100 text-blue-800' : 'border-blue-500/40 bg-blue-500/15 text-blue-300')
+                                                            : dash.calNovedadMuted
                                                             }`}>
                                                             {isToday ? `Hoy: ${dayItems.length} novedades` : `${dayItems.length} novedades`}
                                                         </div>
@@ -1558,24 +1997,24 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     })}
                                 </div>
                             ) : (
-                                <div className="bg-[#0f172a] rounded-xl border border-slate-700/50 p-4 md:p-5">
-                                    <h3 className="text-base md:text-lg font-bold text-white mb-4">
+                                <div className={dash.dailyPanel}>
+                                    <h3 className={`mb-4 text-base font-bold md:text-lg ${dash.titleXl}`}>
                                         Novedades del día: {currentDay.toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}
                                     </h3>
                                     {dailyItems.length === 0 ? (
-                                        <div className="text-slate-400 text-sm bg-slate-800/60 border border-slate-700 rounded-lg p-4">
+                                        <div className={dash.dailyEmpty}>
                                             No hay novedades registradas para este día.
                                         </div>
                                     ) : (
                                         <div className="flex flex-col gap-3">
                                             {dailyItems.map((it, idx) => (
-                                                <div key={`${it.creadoEn}-${idx}`} className={`p-3 rounded-lg border ${getTypeColor(it.tipoNovedad)}`}>
+                                                <div key={`${it.creadoEn}-${idx}`} className={`rounded-lg border p-3 ${getTypeColor(it.tipoNovedad)}`}>
                                                     <div className="flex items-center justify-between gap-3">
                                                         <div>
-                                                            <p className="font-semibold text-white">{it.nombre}</p>
-                                                            <p className="text-xs text-slate-300">{it.tipoNovedad} · Estado: {it.estado}</p>
+                                                            <p className={dash.dailyName}>{it.nombre}</p>
+                                                            <p className={dash.dailyMeta}>{it.tipoNovedad} · Estado: {it.estado}</p>
                                                         </div>
-                                                        <div className="text-xs text-slate-300 text-right">
+                                                        <div className={`${dash.dailyMeta} text-right`}>
                                                             <p>{it.fechaInicio || '-'}</p>
                                                             <p>{formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it)}</p>
                                                         </div>
@@ -1588,8 +2027,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                             )}
 
                             {/* Legend */}
-                            <div className="mt-6 flex flex-wrap gap-4 items-center justify-center text-xs text-slate-400">
-                                <span className="font-bold uppercase tracking-widest mr-2 text-slate-500">Leyenda:</span>
+                            <div className={`mt-6 flex flex-wrap items-center justify-center gap-4 text-xs ${dash.muted}`}>
+                                <span className={`mr-2 font-bold uppercase tracking-widest ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Leyenda:</span>
                                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-rose-500/20 border border-rose-500/50"></div> Incapacidad</div>
                                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-amber-500/20 border border-amber-500/50"></div> Vacaciones</div>
                                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-blue-500/20 border border-blue-500/50"></div> Permiso</div>
@@ -1603,18 +2042,23 @@ export default function Dashboard({ token, auth, onLogout }) {
                 {/* ---------- ANÁLISIS AVANZADO ---------- */}
                 {activeTab === 'Análisis Avanzado' && canAccessPanel('dashboard') && (
                     <div className="animate-in fade-in zoom-in-95 duration-300 pb-20 flex flex-col h-full gap-6">
-                        <div className="bg-[#1e293b] p-6 rounded-2xl border border-slate-700/50 shadow-lg">
-                            <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+                        <div className={`${dash.card} p-6`}>
+                            <h2 className={`${dash.title2xl} mb-2 flex items-center gap-2`}>
                                 <TrendingUp className="text-purple-500" size={24} /> Inteligencia operativa (fase exploratoria)
                             </h2>
-                            <p className="text-slate-400 text-sm">Modelos estadísticos descriptivos diseñados para futura integración con algoritmos de Machine Learning y predicción de anomalías.</p>
+                            <p className={`text-sm ${dash.muted}`}>Modelos estadísticos descriptivos diseñados para futura integración con algoritmos de Machine Learning y predicción de anomalías.</p>
+                            {superAdminGpSelect ? (
+                                <div className={`mt-4 flex flex-wrap items-center gap-2 border-t pt-4 ${isLight ? 'border-slate-200' : 'border-slate-700/50'}`}>
+                                    {superAdminGpSelect}
+                                </div>
+                            ) : null}
                         </div>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                             {/* Mapa de Frecuencia (Por Día de la Semana) */}
-                            <div className="bg-[#1e293b] p-6 rounded-2xl border border-slate-700/50 shadow-lg">
-                                <h3 className="text-xl font-bold text-white mb-1">Mapa de Frecuencia (Días de la Semana)</h3>
-                                <p className="text-xs text-slate-400 mb-5">
+                            <div className={`${dash.card} p-6`}>
+                                <h3 className={`${dash.titleXl} mb-1`}>Mapa de Frecuencia (Días de la Semana)</h3>
+                                <p className={`mb-5 text-xs ${dash.muted}`}>
                                     Distribución de novedades según el día de inicio. Barras más oscuras indican mayor concentración — útil para detectar patrones de ausentismo recurrente.
                                 </p>
                                 <div className="h-64 w-full">
@@ -1630,11 +2074,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             });
                                             return Object.keys(heatMap).map(k => ({ name: k, count: heatMap[k] }));
                                         })()} barCategoryGap="25%">
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.5} vertical={false} />
+                                            <CartesianGrid strokeDasharray="3 3" stroke={dash.chGrid} opacity={0.5} vertical={false} />
                                             <XAxis dataKey="name" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} />
                                             <YAxis stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
                                             <Tooltip
-                                                cursor={{ fill: '#334155', opacity: 0.15, radius: 6 }}
+                                                cursor={{ fill: isLight ? '#cbd5e1' : '#334155', opacity: 0.15, radius: 6 }}
                                                 content={({ active, payload }) => {
                                                     if (!active || !payload?.length) return null;
                                                     const { name, count } = payload[0].payload;
@@ -1643,10 +2087,10 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     const isWeekend = name === 'Dom' || name === 'Sáb';
                                                     const label = count === 0 ? 'Sin actividad' : isWeekend ? 'Día no hábil — verificar horas extra' : count >= 5 ? 'Concentración alta — revisar patrón' : 'Actividad normal';
                                                     return (
-                                                        <div className="bg-[#0f172a] border border-slate-600 rounded-xl px-4 py-3 shadow-xl text-sm">
-                                                            <p className="font-bold text-white mb-1">{name} — {count} novedad{count !== 1 ? 'es' : ''}</p>
-                                                            <p className="text-slate-400 text-xs">{pct}% del total registrado</p>
-                                                            <p className="text-purple-400 text-xs mt-1 font-semibold">{label}</p>
+                                                        <div className={dash.tooltipPanel}>
+                                                            <p className={`mb-1 font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{name} — {count} novedad{count !== 1 ? 'es' : ''}</p>
+                                                            <p className={`text-xs ${dash.muted}`}>{pct}% del total registrado</p>
+                                                            <p className={`mt-1 text-xs font-semibold ${isLight ? 'text-purple-700' : 'text-purple-400'}`}>{label}</p>
                                                         </div>
                                                     );
                                                 }}
@@ -1672,16 +2116,16 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
-                                <p className="text-[10px] text-slate-600 mt-3 text-center italic">Base para modelo predictivo de ausentismo por día — Grupo CINTE</p>
+                                <p className={dash.legendFoot}>Base para modelo predictivo de ausentismo por día — Grupo CINTE</p>
                             </div>
 
                             {/* Índice de Riesgo por Consultor */}
-                            <div className="bg-[#1e293b] p-6 rounded-2xl border border-rose-500/20 shadow-lg relative overflow-hidden">
+                            <div className={`${dash.card} relative overflow-hidden border-rose-500/20 p-6`}>
                                 <div className="absolute top-0 right-0 w-40 h-40 bg-rose-500/5 rounded-full -mr-20 -mt-20 blur-3xl" />
-                                <h3 className="text-xl font-bold text-white mb-1 flex items-center gap-2">
+                                <h3 className={`${dash.titleXl} mb-1 flex items-center gap-2`}>
                                     <Activity className="text-rose-500" size={20} /> Riesgo Operativo (Burnout / Atipicidad)
                                 </h3>
-                                <p className="text-xs text-slate-400 mb-5">
+                                <p className={`mb-5 text-xs ${dash.muted}`}>
                                     Puntaje acumulado por tipo de novedad: Incapacidad (+5 pts), Hora extra (+3 pts), otros (+1 pt). Detecta colaboradores con patrones atípicos que requieren atención preventiva.
                                 </p>
                                 <div className="space-y-3 overflow-y-auto max-h-[240px] pr-1">
@@ -1705,7 +2149,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             .map(k => ({ nombre: k, ...riesgoMap[k] }))
                                             .sort((a, b) => b.puntos - a.puntos)
                                             .slice(0, 5);
-                                        if (ranking.length === 0) return <p className="text-slate-400 text-center">Datos insuficientes para evaluación.</p>;
+                                        if (ranking.length === 0) return <p className={`text-center ${dash.muted}`}>Datos insuficientes para evaluación.</p>;
                                         return ranking.map((r, i) => {
                                             const isAlto = r.puntos >= 10;
                                             const isMedio = r.puntos >= 5;
@@ -1732,8 +2176,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                             {i + 1}
                                                         </div>
                                                         <div>
-                                                            <p className="text-slate-200 font-bold text-sm leading-tight">{r.nombre}</p>
-                                                            <p className="text-slate-500 text-xs">
+                                                            <p className={`${dash.riesgoNombre} leading-tight`}>{r.nombre}</p>
+                                                            <p className={`text-xs ${dash.modalMuted}`}>
                                                                 {r.novedades} novedad{r.novedades !== 1 ? 'es' : ''}
                                                                 {' · '}
                                                                 {(() => {
@@ -1749,7 +2193,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                         <span className={`text-[10px] uppercase tracking-widest font-black px-2 py-0.5 rounded border ${badgeCls}`}>
                                                             {label}
                                                         </span>
-                                                        <span className="text-[10px] text-slate-600 font-semibold">{r.puntos} pts</span>
+                                                        <span className={`text-[10px] font-semibold ${isLight ? 'text-slate-500' : 'text-slate-600'}`}>{r.puntos} pts</span>
                                                     </div>
                                                 </div>
                                             );
@@ -1759,9 +2203,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                             </div>
 
                             {/* Eficiencia del Flujo de Trabajo (Funnel) */}
-                            <div className="bg-[#1e293b] p-6 rounded-2xl border border-slate-700/50 shadow-lg lg:col-span-2">
-                                <h3 className="text-xl font-bold text-white mb-1">Eficiencia del Flujo de Trabajo (Funnel)</h3>
-                                <p className="text-xs text-slate-400 mb-5">
+                            <div className={`${dash.card} p-6 lg:col-span-2`}>
+                                <h3 className={`${dash.titleXl} mb-1`}>Eficiencia del Flujo de Trabajo (Funnel)</h3>
+                                <p className={`mb-5 text-xs ${dash.muted}`}>
                                     Embudo de gestión: compara el volumen total radicado con los casos en espera y los ya resueltos. Una barra de “Esperando Acción” alta respecto al total indica cuello de botella en validaciones.
                                 </p>
                                 <div className="h-44 w-full">
@@ -1777,11 +2221,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             })()}
                                             layout="vertical"
                                         >
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.3} horizontal={false} />
+                                            <CartesianGrid strokeDasharray="3 3" stroke={dash.chGrid} opacity={0.3} horizontal={false} />
                                             <XAxis type="number" stroke="#64748b" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
                                             <YAxis dataKey="name" type="category" stroke="#94a3b8" fontSize={12} tickLine={false} axisLine={false} width={130} />
                                             <Tooltip
-                                                cursor={{ fill: '#334155', opacity: 0.15 }}
+                                                cursor={{ fill: isLight ? '#cbd5e1' : '#334155', opacity: 0.15 }}
                                                 content={({ active, payload }) => {
                                                     if (!active || !payload?.length) return null;
                                                     const { name, count } = payload[0].payload;
@@ -1793,11 +2237,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                             ? pct > 50 ? '⚠️ Cuello de botella detectado — revisar capacidad' : 'Volumen de pendientes en revisión'
                                                             : pct >= 70 ? '✅ Flujo eficiente' : 'Porcentaje de gestión cerrada';
                                                     return (
-                                                        <div className="bg-[#0f172a] border border-slate-600 rounded-xl px-4 py-3 shadow-xl text-sm">
-                                                            <p className="font-bold text-white mb-1">{name}</p>
-                                                            <p className="text-slate-300">{count} registro{count !== 1 ? 's' : ''}</p>
-                                                            <p className="text-slate-400 text-xs">{pct}% del total radicado</p>
-                                                            <p className="text-emerald-400 text-xs mt-1 font-semibold">{tip}</p>
+                                                        <div className={dash.tooltipPanel}>
+                                                            <p className={`mb-1 font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{name}</p>
+                                                            <p className={isLight ? 'text-slate-700' : 'text-slate-300'}>{count} registro{count !== 1 ? 's' : ''}</p>
+                                                            <p className={`text-xs ${dash.muted}`}>{pct}% del total radicado</p>
+                                                            <p className={`mt-1 text-xs font-semibold ${isLight ? 'text-emerald-700' : 'text-emerald-400'}`}>{tip}</p>
                                                         </div>
                                                     );
                                                 }}
@@ -1810,7 +2254,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
-                                <p className="text-[10px] text-slate-600 mt-3 text-center italic">Base para optimización de SLA de respuesta — Grupo CINTE</p>
+                                <p className={dash.legendFoot}>Base para optimización de SLA de respuesta — Grupo CINTE</p>
                             </div>
 
                         </div>
@@ -1821,42 +2265,120 @@ export default function Dashboard({ token, auth, onLogout }) {
             </main>
 
             {/* Chat widget — fuera del main para que sea fixed global */}
-            <ChatWidget ctx={{ pendientesCount, totalItems: items.length, dashItems: dashItems.length }} />
+            <ChatWidget
+                ctx={{
+                    pendientesCount,
+                    totalItems: items.length,
+                    dashItems: dashItems.length,
+                    role: currentRole,
+                }}
+            />
 
             {gestionDetailItem && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/90 backdrop-blur p-4 animate-in fade-in duration-200" onClick={() => setGestionDetailItem(null)}>
-                    <div className="relative bg-[#1e293b] border border-slate-700 rounded-2xl w-full max-w-4xl md:max-h-[88vh] flex flex-col p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex justify-between items-start mb-4 border-b border-slate-700/50 pb-4">
+                <div className={dash.modalBackdrop} onClick={closeGestionDetailModal}>
+                    <div className={`${dash.modalCard} relative`} onClick={(e) => e.stopPropagation()}>
+                        <div className={dash.modalHeadBorder}>
                             <div>
-                                <h2 className="text-2xl font-bold text-white">Detalle de novedad</h2>
-                                <p className="text-slate-400 mt-1 text-sm">{gestionDetailItem.tipoNovedad} · {gestionDetailItem.estado}</p>
+                                <h2 className={dash.title2xl}>Detalle de novedad</h2>
+                                <p className={`${dash.modalMuted} mt-1 text-sm`}>{gestionDetailItem.tipoNovedad} · {gestionDetailItem.estado}</p>
                             </div>
-                            <button onClick={() => setGestionDetailItem(null)} className="bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-500 border border-slate-700 hover:border-rose-500/50 rounded-lg transition-all w-10 h-10 flex items-center justify-center">
-                                <X size={20} strokeWidth={2.5} />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                {isSuperAdminNovedades && !gestionEditMode ? (
+                                    <>
+                                        {gestionMostrarEditar ? (
+                                        <button
+                                            type="button"
+                                            disabled={gestionAdminBusy}
+                                            onClick={() => {
+                                                setGestionAdminErr(null);
+                                                setGestionEditDraft(buildGestionEditDraft(gestionDetailItem));
+                                                setGestionEditMode(true);
+                                            }}
+                                            className={
+                                                isLight
+                                                    ? 'inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50'
+                                                    : 'inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-700 disabled:opacity-50'
+                                            }
+                                        >
+                                            Editar
+                                        </button>
+                                        ) : null}
+                                        <button
+                                            type="button"
+                                            disabled={gestionAdminBusy}
+                                            onClick={() => {
+                                                setGestionAdminErr(null);
+                                                setGestionDeleteMotivo('');
+                                                setGestionDeleteOpen(true);
+                                            }}
+                                            className={
+                                                isLight
+                                                    ? 'inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50'
+                                                    : 'inline-flex items-center gap-1.5 rounded-lg border border-rose-500/50 bg-slate-800 px-3 py-2 text-sm font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50'
+                                            }
+                                        >
+                                            <Trash2 size={16} /> Eliminar
+                                        </button>
+                                    </>
+                                ) : null}
+                                {gestionEditMode ? (
+                                    <button
+                                        type="button"
+                                        disabled={gestionAdminBusy}
+                                        onClick={() => {
+                                            setGestionEditMode(false);
+                                            setGestionEditDraft(null);
+                                            setGestionAdminErr(null);
+                                        }}
+                                        className={
+                                            isLight
+                                                ? 'rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50'
+                                                : 'rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 disabled:opacity-50'
+                                        }
+                                    >
+                                        Cancelar edición
+                                    </button>
+                                ) : null}
+                                <button type="button" onClick={closeGestionDetailModal} className={dash.modalClose}>
+                                    <X size={20} strokeWidth={2.5} />
+                                </button>
+                            </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-slate-200 overflow-y-auto pr-1">
-                            <div><span className="text-slate-400">Nombre:</span> {gestionDetailItem.nombre}</div>
-                            <div><span className="text-slate-400">Cédula:</span> {gestionDetailItem.cedula}</div>
-                            <div><span className="text-slate-400">Correo:</span> {gestionDetailItem.correoSolicitante || '-'}</div>
-                            <div><span className="text-slate-400">Cliente:</span> {gestionDetailItem.cliente || '-'}</div>
-                            <div><span className="text-slate-400">Líder:</span> {gestionDetailItem.lider || '-'}</div>
-                            <div><span className="text-slate-400">Estado:</span> {gestionDetailItem.estado}</div>
-                            <div><span className="text-slate-400">Asignado a (roles):</span> {asignacionEtiquetaForItem(gestionDetailItem)}</div>
+                        {gestionAdminErr ? (
+                            <p className={isLight ? 'mb-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800' : 'mb-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200'}>
+                                {gestionAdminErr}
+                            </p>
+                        ) : null}
+
+                        {!gestionEditMode ? (
+                        <div className={dash.modalGrid}>
+                            <div><span className={dash.modalMuted}>Nombre:</span> {gestionDetailItem.nombre}</div>
+                            <div><span className={dash.modalMuted}>Cédula:</span> {gestionDetailItem.cedula}</div>
+                            <div><span className={dash.modalMuted}>Correo:</span> {gestionDetailItem.correoSolicitante || '-'}</div>
+                            <div><span className={dash.modalMuted}>Cliente:</span> {gestionDetailItem.cliente || '-'}</div>
+                            <div><span className={dash.modalMuted}>Líder:</span> {gestionDetailItem.lider || '-'}</div>
+                            <div><span className={dash.modalMuted}>Estado:</span> {gestionDetailItem.estado}</div>
+                            <div><span className={dash.modalMuted}>Asignado a (roles):</span> {asignacionEtiquetaForItem(gestionDetailItem)}</div>
                             {gestionDetailItem.estado === 'Aprobado' && (
-                                <div><span className="text-slate-400">Aprobado por (correo):</span> {correoAprobadoMostrar(gestionDetailItem)}</div>
+                                <div><span className={dash.modalMuted}>Aprobado por (correo):</span> {correoAprobadoMostrar(gestionDetailItem)}</div>
                             )}
                             {gestionDetailItem.estado === 'Rechazado' && (
-                                <div><span className="text-slate-400">Rechazado por (correo):</span> {correoRechazadoMostrar(gestionDetailItem)}</div>
+                                <div><span className={dash.modalMuted}>Rechazado por (correo):</span> {correoRechazadoMostrar(gestionDetailItem)}</div>
                             )}
-                            <div><span className="text-slate-400">Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
-                            <div><span className="text-slate-400">Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
+                            <div><span className={dash.modalMuted}>Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
+                            <div><span className={dash.modalMuted}>Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
                             {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) !== 'Hora Extra' && (
-                                <div><span className="text-slate-400">{getCantidadDetalleEtiqueta(gestionDetailItem.tipoNovedad)}:</span> {formatCantidadNovedad(gestionDetailItem.tipoNovedad, gestionDetailItem.cantidadHoras, gestionDetailItem)}</div>
+                                <div><span className={dash.modalMuted}>{getCantidadDetalleEtiqueta(gestionDetailItem.tipoNovedad)}:</span> {formatCantidadNovedad(gestionDetailItem.tipoNovedad, gestionDetailItem.cantidadHoras, gestionDetailItem)}</div>
                             )}
                             {gestionDetailItem.alertaHeResueltaEstado ? (
-                                <div className="md:col-span-2 rounded-lg border border-cyan-500/35 bg-cyan-500/10 px-3 py-2 text-cyan-100">
+                                <div
+                                    className={
+                                        isLight
+                                            ? 'md:col-span-2 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm text-cyan-950'
+                                            : 'md:col-span-2 rounded-lg border border-cyan-500/35 bg-cyan-500/10 px-3 py-2 text-cyan-100'
+                                    }
+                                >
                                     Alerta HE gestionada: {gestionDetailItem.alertaHeResueltaEstado}
                                 </div>
                             ) : null}
@@ -1865,40 +2387,96 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     gestionDetailItem.heDomingoObservacion
                                 );
                                 return heDomingoCompResumen ? (
-                                    <div className="md:col-span-2 rounded-lg border border-emerald-500/35 bg-emerald-950/25 px-3 py-2 text-sm text-emerald-100">
+                                    <div
+                                        className={
+                                            isLight
+                                                ? 'md:col-span-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950'
+                                                : 'md:col-span-2 rounded-lg border border-emerald-500/35 bg-emerald-950/25 px-3 py-2 text-sm text-emerald-100'
+                                        }
+                                    >
                                         <span className="font-semibold">Compensación dominical:</span> {heDomingoCompResumen}
                                     </div>
                                 ) : null;
                             })()}
 
                             {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) === 'Hora Extra' && gestionHeDetailFranjas && (
-                                <div className="md:col-span-2 mt-2 p-4 bg-slate-900/60 rounded-2xl border border-cyan-500/30">
+                                <div
+                                    className={
+                                        isLight
+                                            ? 'md:col-span-2 mt-2 rounded-2xl border border-slate-200 bg-slate-50 p-4'
+                                            : 'md:col-span-2 mt-2 rounded-2xl border border-cyan-500/30 bg-slate-900/60 p-4'
+                                    }
+                                >
                                     <div className="flex flex-col gap-3">
                                         {(Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0) > 0 ||
                                             Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0) > 0) && (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 {Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0) > 0 ? (
-                                                    <div className="flex flex-col items-center gap-1 rounded-xl border border-amber-500/45 bg-amber-500/10 p-3 text-center">
-                                                        <span className="text-[10px] uppercase tracking-widest text-amber-200 font-black leading-tight">
+                                                    <div
+                                                        className={
+                                                            isLight
+                                                                ? 'flex flex-col items-center gap-1 rounded-xl border border-amber-200 bg-amber-50 p-3 text-center text-amber-950'
+                                                                : 'flex flex-col items-center gap-1 rounded-xl border border-amber-500/45 bg-amber-500/10 p-3 text-center'
+                                                        }
+                                                    >
+                                                        <span
+                                                            className={
+                                                                isLight
+                                                                    ? 'text-[10px] font-black uppercase leading-tight tracking-widest text-amber-900'
+                                                                    : 'text-[10px] font-black uppercase leading-tight tracking-widest text-amber-200'
+                                                            }
+                                                        >
                                                             Recargo dominical/festivos — diurno
                                                         </span>
-                                                        <span className="text-[10px] text-amber-100/80 font-semibold normal-case tracking-normal">
+                                                        <span
+                                                            className={
+                                                                isLight
+                                                                    ? 'text-[10px] font-semibold normal-case tracking-normal text-amber-800'
+                                                                    : 'text-[10px] font-semibold normal-case tracking-normal text-amber-100/80'
+                                                            }
+                                                        >
                                                             {gestionHeDetailFranjas.recargoDiurnaFranja}
                                                         </span>
-                                                        <span className="text-xl font-black text-amber-300">
+                                                        <span
+                                                            className={
+                                                                isLight ? 'text-xl font-black text-amber-950' : 'text-xl font-black text-amber-300'
+                                                            }
+                                                        >
                                                             {Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0)}h
                                                         </span>
                                                     </div>
                                                 ) : null}
                                                 {Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0) > 0 ? (
-                                                    <div className="flex flex-col items-center gap-1 rounded-xl border border-orange-500/40 bg-orange-950/30 p-3 text-center">
-                                                        <span className="text-[10px] uppercase tracking-widest text-orange-200 font-black leading-tight">
+                                                    <div
+                                                        className={
+                                                            isLight
+                                                                ? 'flex flex-col items-center gap-1 rounded-xl border border-orange-200 bg-orange-50 p-3 text-center text-orange-950'
+                                                                : 'flex flex-col items-center gap-1 rounded-xl border border-orange-500/40 bg-orange-950/30 p-3 text-center'
+                                                        }
+                                                    >
+                                                        <span
+                                                            className={
+                                                                isLight
+                                                                    ? 'text-[10px] font-black uppercase leading-tight tracking-widest text-orange-900'
+                                                                    : 'text-[10px] font-black uppercase leading-tight tracking-widest text-orange-200'
+                                                            }
+                                                        >
                                                             Recargo dominical/festivos — nocturno
                                                         </span>
-                                                        <span className="text-[10px] text-orange-100/80 font-semibold normal-case tracking-normal">
+                                                        <span
+                                                            className={
+                                                                isLight
+                                                                    ? 'text-[10px] font-semibold normal-case tracking-normal text-orange-800'
+                                                                    : 'text-[10px] font-semibold normal-case tracking-normal text-orange-100/80'
+                                                            }
+                                                        >
                                                             {gestionHeDetailFranjas.recargoNoctFranja}
                                                         </span>
-                                                        <span className="text-xl font-black text-orange-300">
+                                                        <span
+                                                            className={
+                                                                isLight ? 'text-xl font-black text-orange-950' : 'text-xl font-black text-orange-300'
+                                                            }
+                                                        >
                                                             {Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0)}h
                                                         </span>
                                                     </div>
@@ -1906,57 +2484,255 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             </div>
                                         )}
                                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                            <div className="flex flex-col items-center gap-1 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3">
-                                                <span className="text-[10px] uppercase tracking-widest text-cyan-200 font-bold text-center leading-tight">
+                                            <div
+                                                className={
+                                                    isLight
+                                                        ? 'flex flex-col items-center gap-1 rounded-xl border border-cyan-200 bg-cyan-50 p-3'
+                                                        : 'flex flex-col items-center gap-1 rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-3'
+                                                }
+                                            >
+                                                <span
+                                                    className={
+                                                        isLight
+                                                            ? 'text-center text-[10px] font-bold uppercase leading-tight tracking-widest text-cyan-950'
+                                                            : 'text-center text-[10px] font-bold uppercase leading-tight tracking-widest text-cyan-200'
+                                                    }
+                                                >
                                                     Hora extra diurna
                                                 </span>
-                                                <span className="text-[9px] text-cyan-100/85 text-center leading-tight">
+                                                <span
+                                                    className={
+                                                        isLight
+                                                            ? 'text-center text-[9px] leading-tight text-cyan-800'
+                                                            : 'text-center text-[9px] leading-tight text-cyan-100/85'
+                                                    }
+                                                >
                                                     Franjas Bogotá: laboral y exceso dominical/festivos
                                                 </span>
-                                                <span className="text-[10px] text-cyan-100/90 font-semibold normal-case tracking-normal text-center">
+                                                <span
+                                                    className={
+                                                        isLight
+                                                            ? 'text-center text-[10px] font-semibold normal-case tracking-normal text-cyan-900'
+                                                            : 'text-center text-[10px] font-semibold normal-case tracking-normal text-cyan-100/90'
+                                                    }
+                                                >
                                                     {gestionHeDetailFranjas.heDiurnaFranja}
                                                 </span>
-                                                <span className="text-xl font-black text-cyan-300">{Number(gestionDetailItem.horasDiurnas ?? 0)}h</span>
+                                                <span
+                                                    className={
+                                                        isLight ? 'text-xl font-black text-cyan-950' : 'text-xl font-black text-cyan-300'
+                                                    }
+                                                >
+                                                    {Number(gestionDetailItem.horasDiurnas ?? 0)}h
+                                                </span>
                                             </div>
-                                            <div className="flex flex-col items-center gap-1 rounded-xl border border-indigo-500/35 bg-indigo-500/10 p-3">
-                                                <span className="text-[10px] uppercase tracking-widest text-indigo-200 font-bold text-center leading-tight">
+                                            <div
+                                                className={
+                                                    isLight
+                                                        ? 'flex flex-col items-center gap-1 rounded-xl border border-indigo-200 bg-indigo-50 p-3'
+                                                        : 'flex flex-col items-center gap-1 rounded-xl border border-indigo-500/35 bg-indigo-500/10 p-3'
+                                                }
+                                            >
+                                                <span
+                                                    className={
+                                                        isLight
+                                                            ? 'text-center text-[10px] font-bold uppercase leading-tight tracking-widest text-indigo-950'
+                                                            : 'text-center text-[10px] font-bold uppercase leading-tight tracking-widest text-indigo-200'
+                                                    }
+                                                >
                                                     Hora extra nocturna
                                                 </span>
-                                                <span className="text-[9px] text-indigo-100/85 text-center leading-tight">
+                                                <span
+                                                    className={
+                                                        isLight
+                                                            ? 'text-center text-[9px] leading-tight text-indigo-800'
+                                                            : 'text-center text-[9px] leading-tight text-indigo-100/85'
+                                                    }
+                                                >
                                                     Franjas Bogotá: laboral y exceso dominical/festivos
                                                 </span>
-                                                <span className="text-[10px] text-indigo-100/90 font-semibold normal-case tracking-normal text-center">
+                                                <span
+                                                    className={
+                                                        isLight
+                                                            ? 'text-center text-[10px] font-semibold normal-case tracking-normal text-indigo-900'
+                                                            : 'text-center text-[10px] font-semibold normal-case tracking-normal text-indigo-100/90'
+                                                    }
+                                                >
                                                     {gestionHeDetailFranjas.heNoctFranja}
                                                 </span>
-                                                <span className="text-xl font-black text-indigo-300">{Number(gestionDetailItem.horasNocturnas ?? 0)}h</span>
+                                                <span
+                                                    className={
+                                                        isLight ? 'text-xl font-black text-indigo-950' : 'text-xl font-black text-indigo-300'
+                                                    }
+                                                >
+                                                    {Number(gestionDetailItem.horasNocturnas ?? 0)}h
+                                                </span>
                                             </div>
-                                            <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 text-sm text-emerald-100">
-                                                <div><span className="text-emerald-300 font-semibold">Horas cargadas:</span> {gestionDetailItem.cantidadHoras || 0}h</div>
-                                                <div><span className="text-emerald-300 font-semibold">Franja cargada:</span> {(gestionDetailItem.horaInicio && gestionDetailItem.horaFin) ? `${gestionDetailItem.horaInicio} - ${gestionDetailItem.horaFin}` : '-'}</div>
-                                                <div><span className="text-emerald-300 font-semibold">Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
-                                                <div><span className="text-emerald-300 font-semibold">Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
+                                            <div
+                                                className={
+                                                    isLight
+                                                        ? 'rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950'
+                                                        : 'rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-3 text-sm text-emerald-100'
+                                                }
+                                            >
+                                                <div>
+                                                    <span className={isLight ? 'font-semibold text-emerald-900' : 'font-semibold text-emerald-300'}>
+                                                        Horas cargadas:
+                                                    </span>{' '}
+                                                    {gestionDetailItem.cantidadHoras || 0}h
+                                                </div>
+                                                <div>
+                                                    <span className={isLight ? 'font-semibold text-emerald-900' : 'font-semibold text-emerald-300'}>
+                                                        Franja cargada:
+                                                    </span>{' '}
+                                                    {(gestionDetailItem.horaInicio && gestionDetailItem.horaFin)
+                                                        ? `${gestionDetailItem.horaInicio} - ${gestionDetailItem.horaFin}`
+                                                        : '-'}
+                                                </div>
+                                                <div>
+                                                    <span className={isLight ? 'font-semibold text-emerald-900' : 'font-semibold text-emerald-300'}>
+                                                        Fecha inicio:
+                                                    </span>{' '}
+                                                    {gestionDetailItem.fechaInicio || '-'}
+                                                </div>
+                                                <div>
+                                                    <span className={isLight ? 'font-semibold text-emerald-900' : 'font-semibold text-emerald-300'}>
+                                                        Fecha fin:
+                                                    </span>{' '}
+                                                    {gestionDetailItem.fechaFin || '-'}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             )}
                         </div>
+                        ) : (
+                        gestionEditDraft && (
+                            <div className={`${dash.modalGrid} max-h-[52vh] overflow-y-auto custom-scrollbar`}>
+                                <label className={`${dash.labelUpper} col-span-full`}>Nombre
+                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.nombre} onChange={(e) => setGestionEditDraft((d) => ({ ...d, nombre: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Cédula
+                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.cedula} onChange={(e) => setGestionEditDraft((d) => ({ ...d, cedula: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Correo solicitante
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="email" value={gestionEditDraft.correoSolicitante} onChange={(e) => setGestionEditDraft((d) => ({ ...d, correoSolicitante: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Cliente
+                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.cliente} onChange={(e) => setGestionEditDraft((d) => ({ ...d, cliente: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Líder
+                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.lider} onChange={(e) => setGestionEditDraft((d) => ({ ...d, lider: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>GP asociado
+                                    <select className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.gpUserId || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, gpUserId: e.target.value }))}>
+                                        <option value="">Sin GP</option>
+                                        {gpFilterOptions.map((g) => {
+                                            const id = String(g.id || '');
+                                            const label = String(g.full_name || g.email || id).trim() || id;
+                                            return (
+                                                <option key={id} value={id}>{label}</option>
+                                            );
+                                        })}
+                                    </select>
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Tipo novedad
+                                    <select className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.tipoNovedad} onChange={(e) => setGestionEditDraft((d) => ({ ...d, tipoNovedad: e.target.value }))}>
+                                        {NOVEDAD_TYPES.map((t) => (
+                                            <option key={t} value={t}>{t}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Área
+                                    <select className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.area} onChange={(e) => setGestionEditDraft((d) => ({ ...d, area: e.target.value }))}>
+                                        <option value="Global">Global</option>
+                                        <option value="Capital Humano">Capital Humano</option>
+                                        <option value="Operaciones">Operaciones</option>
+                                    </select>
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Estado
+                                    <select className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.estado} onChange={(e) => setGestionEditDraft((d) => ({ ...d, estado: e.target.value }))}>
+                                        <option value="Pendiente">Pendiente</option>
+                                        <option value="Aprobado">Aprobado</option>
+                                        <option value="Rechazado">Rechazado</option>
+                                    </select>
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Fecha (HE)
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fecha} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fecha: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Hora inicio / fin (HE)
+                                    <div className="mt-1 flex gap-2">
+                                        <input className={`flex-1 ${fieldInput}`} type="time" value={gestionEditDraft.horaInicio} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horaInicio: e.target.value }))} />
+                                        <input className={`flex-1 ${fieldInput}`} type="time" value={gestionEditDraft.horaFin} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horaFin: e.target.value }))} />
+                                    </div>
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Fecha inicio
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaInicio} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaInicio: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Fecha fin
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaFin} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaFin: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Cantidad / horas total
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.cantidadHoras} onChange={(e) => setGestionEditDraft((d) => ({ ...d, cantidadHoras: e.target.value }))} />
+                                </label>
+                                <label className={dash.labelUpper}>Horas diurnas
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.horasDiurnas} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horasDiurnas: e.target.value }))} />
+                                </label>
+                                <label className={dash.labelUpper}>Horas nocturnas
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.horasNocturnas} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horasNocturnas: e.target.value }))} />
+                                </label>
+                                <label className={dash.labelUpper}>Recargo domingo (total)
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.horasRecargoDomingo} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horasRecargoDomingo: e.target.value }))} />
+                                </label>
+                                <label className={dash.labelUpper}>Recargo domingo diurnas
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.horasRecargoDomingoDiurnas} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horasRecargoDomingoDiurnas: e.target.value }))} />
+                                </label>
+                                <label className={dash.labelUpper}>Recargo domingo nocturnas
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.horasRecargoDomingoNocturnas} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horasRecargoDomingoNocturnas: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Tipo hora extra
+                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.tipoHoraExtra} onChange={(e) => setGestionEditDraft((d) => ({ ...d, tipoHoraExtra: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Monto COP
+                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.montoCop} onChange={(e) => setGestionEditDraft((d) => ({ ...d, montoCop: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Compensación HE (observación)
+                                    <textarea className={`mt-1 min-h-[72px] w-full ${fieldInput}`} value={gestionEditDraft.heDomingoObservacion} onChange={(e) => setGestionEditDraft((d) => ({ ...d, heDomingoObservacion: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Soporte(s) — ruta o JSON
+                                    <textarea className={`mt-1 min-h-[56px] w-full font-mono text-xs ${fieldInput}`} value={gestionEditDraft.soporteRuta} onChange={(e) => setGestionEditDraft((d) => ({ ...d, soporteRuta: e.target.value }))} />
+                                </label>
+                            </div>
+                        )
+                        )}
 
-                        <div className="mt-5 border-t border-slate-700/50 pt-4">
-                            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-3">Soportes</h3>
+                        {!gestionEditMode ? (
+                        <div className={isLight ? 'mt-5 border-t border-slate-200 pt-4' : 'mt-5 border-t border-slate-700/50 pt-4'}>
+                            <h3 className={isLight ? 'mb-3 text-sm font-bold uppercase tracking-wider text-slate-600' : 'mb-3 text-sm font-bold uppercase tracking-wider text-slate-400'}>
+                                Soportes
+                            </h3>
                             {buildSupportList(gestionDetailItem).length === 0 ? (
-                                <p className="text-sm text-slate-500">Sin soportes adjuntos.</p>
+                                <p className={isLight ? 'text-sm text-slate-600' : 'text-sm text-slate-500'}>Sin soportes adjuntos.</p>
                             ) : (
                                 <div className="flex flex-wrap gap-2">
                                     {buildSupportList(gestionDetailItem).map((support) => (
                                         <div
                                             key={support.id}
-                                            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-800 hover:border-blue-500/50 transition-all text-xs"
+                                            className={
+                                                isLight
+                                                    ? 'inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 shadow-sm transition-all hover:border-sky-300 hover:bg-sky-50/80'
+                                                    : 'inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs transition-all hover:border-blue-500/50'
+                                            }
                                         >
                                             <button
                                                 type="button"
                                                 onClick={() => openSupport(gestionDetailItem, support)}
-                                                className="inline-flex items-center gap-2 px-0 py-0 rounded-lg border-none bg-transparent hover:text-blue-300"
+                                                className={
+                                                    isLight
+                                                        ? 'inline-flex items-center gap-2 rounded-lg border-none bg-transparent px-0 py-0 text-slate-800 hover:text-sky-800'
+                                                        : 'inline-flex items-center gap-2 rounded-lg border-none bg-transparent px-0 py-0 hover:text-blue-300'
+                                                }
                                             >
                                                 {support.type === 'pdf' && <FileText size={14} />}
                                                 {support.type === 'image' && <FileImage size={14} />}
@@ -1967,7 +2743,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             <button
                                                 type="button"
                                                 onClick={() => downloadSupport(support)}
-                                                className="px-2 py-1 rounded-lg border border-blue-500/30 text-blue-300 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all"
+                                                className={
+                                                    isLight
+                                                        ? 'rounded-lg border border-sky-300 bg-white px-2 py-1 text-sky-800 transition-all hover:border-sky-500 hover:bg-sky-100'
+                                                        : 'rounded-lg border border-blue-500/30 px-2 py-1 text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10'
+                                                }
                                             >
                                                 Descargar
                                             </button>
@@ -1976,77 +2756,188 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </div>
                             )}
                         </div>
+                        ) : null}
 
-                        <div className="mt-6 border-t border-slate-700/50 pt-4 flex flex-wrap justify-end gap-2">
-                            <button onClick={() => setGestionDetailItem(null)} className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-700/50 transition-all text-sm">Cerrar</button>
-                            {canApproveItem(gestionDetailItem) && (
+                        <div className={dash.modalFooter}>
+                            <button type="button" onClick={closeGestionDetailModal} className={`${outlineBtn} text-sm`}>Cerrar</button>
+                            {gestionEditMode && isSuperAdminNovedades ? (
+                                <button
+                                    type="button"
+                                    disabled={gestionAdminBusy}
+                                    onClick={() => void submitGestionAdminPatch()}
+                                    className={
+                                        isLight
+                                            ? 'rounded-lg border border-sky-600 bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50'
+                                            : 'rounded-lg border border-sky-500 bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50'
+                                    }
+                                >
+                                    {gestionAdminBusy ? 'Guardando…' : 'Guardar cambios'}
+                                </button>
+                            ) : null}
+                            {!gestionEditMode && canApproveItem(gestionDetailItem) && (
                                 <>
-                                    <button onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Rechazado'); setGestionDetailItem(null); }} className="px-4 py-2 rounded-lg border border-rose-500/40 text-rose-400 hover:bg-rose-500/10 transition-all text-sm">Rechazar</button>
-                                    <button onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Aprobado'); setGestionDetailItem(null); }} className="px-4 py-2 rounded-lg border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-all text-sm">Aceptar</button>
+                                    <button
+                                        type="button"
+                                        onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Rechazado'); closeGestionDetailModal(); }}
+                                        className={
+                                            isLight
+                                                ? 'rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 transition-all hover:bg-rose-50'
+                                                : 'rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-400 transition-all hover:bg-rose-500/10'
+                                        }
+                                    >
+                                        Rechazar
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Aprobado'); closeGestionDetailModal(); }}
+                                        className={
+                                            isLight
+                                                ? 'rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 transition-all hover:bg-emerald-50'
+                                                : 'rounded-lg border border-emerald-500/40 px-4 py-2 text-sm text-emerald-400 transition-all hover:bg-emerald-500/10'
+                                        }
+                                    >
+                                        Aceptar
+                                    </button>
                                 </>
                             )}
                         </div>
+
+                        {gestionDeleteOpen && (
+                            <div
+                                className="absolute inset-0 z-[70] flex items-center justify-center rounded-2xl bg-slate-900/50 p-4"
+                                onClick={(e) => e.stopPropagation()}
+                                role="presentation"
+                            >
+                                <div
+                                    className={isLight ? 'w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl' : 'w-full max-w-md rounded-xl border border-slate-600 bg-slate-900 p-5 shadow-xl'}
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <h3 className={dash.titleLg}>Eliminar novedad</h3>
+                                    <p className={`${dash.modalMuted} mt-2 text-sm`}>Indique el motivo de la eliminación. Es obligatorio.</p>
+                                    <textarea
+                                        className={`mt-3 min-h-[100px] w-full ${fieldInput}`}
+                                        placeholder="Motivo de eliminación…"
+                                        value={gestionDeleteMotivo}
+                                        onChange={(e) => setGestionDeleteMotivo(e.target.value)}
+                                        disabled={gestionAdminBusy}
+                                    />
+                                    {gestionAdminErr ? <p className="mt-2 text-sm text-rose-600">{gestionAdminErr}</p> : null}
+                                    <div className="mt-4 flex flex-wrap justify-end gap-2">
+                                        <button
+                                            type="button"
+                                            disabled={gestionAdminBusy}
+                                            onClick={() => {
+                                                setGestionDeleteOpen(false);
+                                                setGestionDeleteMotivo('');
+                                                setGestionAdminErr(null);
+                                            }}
+                                            className={`${outlineBtn} text-sm`}
+                                        >
+                                            Cancelar
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={gestionAdminBusy || !String(gestionDeleteMotivo || '').trim()}
+                                            onClick={() => void submitGestionAdminDelete()}
+                                            className={
+                                                isLight
+                                                    ? 'rounded-lg border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-40'
+                                                    : 'rounded-lg border border-rose-500 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-40'
+                                            }
+                                        >
+                                            {gestionAdminBusy ? 'Eliminando…' : 'Eliminar'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
 
             {alertaHeDetailItem && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/90 backdrop-blur p-4 animate-in fade-in duration-200" onClick={() => setAlertaHeDetailItem(null)}>
-                    <div className="relative bg-[#1e293b] border border-slate-700 rounded-2xl w-full max-w-3xl md:max-h-[88vh] flex flex-col p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex justify-between items-start mb-4 border-b border-slate-700/50 pb-4">
+                <div className={dash.modalBackdrop} onClick={() => setAlertaHeDetailItem(null)}>
+                    <div className={dash.modalCardMd} onClick={(e) => e.stopPropagation()}>
+                        <div className={dash.modalHeadBorder}>
                             <div>
-                                <h2 className="text-2xl font-bold text-white">Detalle alerta HE</h2>
-                                <p className="text-slate-400 mt-1 text-sm">{alertaHeDetailItem.nombre} ({alertaHeDetailItem.cedula})</p>
+                                <h2 className={dash.title2xl}>Detalle alerta HE</h2>
+                                <p className={`${dash.modalMuted} mt-1 text-sm`}>{alertaHeDetailItem.nombre} ({alertaHeDetailItem.cedula})</p>
                             </div>
-                            <button onClick={() => setAlertaHeDetailItem(null)} className="bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-500 border border-slate-700 hover:border-rose-500/50 rounded-lg transition-all w-10 h-10 flex items-center justify-center">
+                            <button type="button" onClick={() => setAlertaHeDetailItem(null)} className={dash.modalClose}>
                                 <X size={20} strokeWidth={2.5} />
                             </button>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-slate-200 overflow-y-auto pr-1">
-                            <div><span className="text-slate-400">Cliente:</span> {alertaHeDetailItem.cliente || '-'}</div>
-                            <div><span className="text-slate-400">Líder:</span> {alertaHeDetailItem.lider || '-'}</div>
-                            <div><span className="text-slate-400">Fecha inicio:</span> {alertaHeDetailItem.fechaInicio || '-'}</div>
-                            <div><span className="text-slate-400">Fecha fin:</span> {alertaHeDetailItem.fechaFin || '-'}</div>
-                            <div><span className="text-slate-400">Franja cargada:</span> {(alertaHeDetailItem.horaInicio && alertaHeDetailItem.horaFin) ? `${alertaHeDetailItem.horaInicio} - ${alertaHeDetailItem.horaFin}` : '-'}</div>
-                            <div><span className="text-slate-400">Horas cargadas:</span> {alertaHeDetailItem.cantidadHoras || 0}h</div>
+                        <div className={dash.modalGrid}>
+                            <div><span className={dash.modalMuted}>Cliente:</span> {alertaHeDetailItem.cliente || '-'}</div>
+                            <div><span className={dash.modalMuted}>Líder:</span> {alertaHeDetailItem.lider || '-'}</div>
+                            <div><span className={dash.modalMuted}>Fecha inicio:</span> {alertaHeDetailItem.fechaInicio || '-'}</div>
+                            <div><span className={dash.modalMuted}>Fecha fin:</span> {alertaHeDetailItem.fechaFin || '-'}</div>
+                            <div><span className={dash.modalMuted}>Franja cargada:</span> {(alertaHeDetailItem.horaInicio && alertaHeDetailItem.horaFin) ? `${alertaHeDetailItem.horaInicio} - ${alertaHeDetailItem.horaFin}` : '-'}</div>
+                            <div><span className={dash.modalMuted}>Horas cargadas:</span> {alertaHeDetailItem.cantidadHoras || 0}h</div>
                             {Array.isArray(alertaHeDetailItem.dailyReasons) && alertaHeDetailItem.dailyReasons.length > 0 && (
-                                <div className="md:col-span-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3">
-                                    <p className="text-cyan-100 font-semibold text-sm">Conteo diario excedido</p>
+                                <div
+                                    className={
+                                        isLight
+                                            ? 'md:col-span-2 rounded-lg border border-cyan-200 bg-cyan-50 p-3'
+                                            : 'md:col-span-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 p-3'
+                                    }
+                                >
+                                    <p className={isLight ? 'text-sm font-semibold text-cyan-950' : 'text-sm font-semibold text-cyan-100'}>
+                                        Conteo diario excedido
+                                    </p>
                                     {alertaHeDetailItem.dailyReasons.map((r) => (
-                                        <p key={`d-${r.date}`} className="text-xs text-cyan-100/95 mt-1">
+                                        <p key={`d-${r.date}`} className={isLight ? 'mt-1 text-xs text-cyan-900' : 'mt-1 text-xs text-cyan-100/95'}>
                                             {r.date}: {r.totalHours}h (tope {r.limitHours}h, exceso {r.exceededByHours}h)
                                         </p>
                                     ))}
                                 </div>
                             )}
                             {Array.isArray(alertaHeDetailItem.monthlyReasons) && alertaHeDetailItem.monthlyReasons.length > 0 && (
-                                <div className="md:col-span-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3">
-                                    <p className="text-indigo-100 font-semibold text-sm">Conteo mensual excedido</p>
+                                <div
+                                    className={
+                                        isLight
+                                            ? 'md:col-span-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3'
+                                            : 'md:col-span-2 rounded-lg border border-indigo-500/30 bg-indigo-500/10 p-3'
+                                    }
+                                >
+                                    <p className={isLight ? 'text-sm font-semibold text-indigo-950' : 'text-sm font-semibold text-indigo-100'}>
+                                        Conteo mensual excedido
+                                    </p>
                                     {alertaHeDetailItem.monthlyReasons.map((r) => (
-                                        <p key={`m-${r.month}`} className="text-xs text-indigo-100/95 mt-1">
+                                        <p key={`m-${r.month}`} className={isLight ? 'mt-1 text-xs text-indigo-900' : 'mt-1 text-xs text-indigo-100/95'}>
                                             {r.month}: {r.totalHours}h (tope {r.limitHours}h, exceso {r.exceededByHours}h)
                                         </p>
                                     ))}
                                 </div>
                             )}
                         </div>
-                        <div className="mt-6 border-t border-slate-700/50 pt-4 flex flex-wrap justify-end gap-2">
-                            <button onClick={() => setAlertaHeDetailItem(null)} className="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-700/50 transition-all text-sm">Cerrar</button>
+                        <div className={dash.modalFooter}>
+                            <button type="button" onClick={() => setAlertaHeDetailItem(null)} className={`${outlineBtn} text-sm`}>Cerrar</button>
                             <button
+                                type="button"
                                 onClick={async () => {
                                     await changeState(alertaHeDetailItem.id, 'Rechazado', { fromHoraExtraAlert: true });
                                     setAlertaHeDetailItem(null);
                                 }}
-                                className="px-4 py-2 rounded-lg border border-rose-500/40 text-rose-400 hover:bg-rose-500/10 transition-all text-sm"
+                                className={
+                                    isLight
+                                        ? 'rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 transition-all hover:bg-rose-50'
+                                        : 'rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-400 transition-all hover:bg-rose-500/10'
+                                }
                             >
                                 Rechazar
                             </button>
                             <button
+                                type="button"
                                 onClick={async () => {
                                     await changeState(alertaHeDetailItem.id, 'Aprobado', { fromHoraExtraAlert: true });
                                     setAlertaHeDetailItem(null);
                                 }}
-                                className="px-4 py-2 rounded-lg border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 transition-all text-sm"
+                                className={
+                                    isLight
+                                        ? 'rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 transition-all hover:bg-emerald-50'
+                                        : 'rounded-lg border border-emerald-500/40 px-4 py-2 text-sm text-emerald-400 transition-all hover:bg-emerald-500/10'
+                                }
                             >
                                 Aprobar
                             </button>
@@ -2057,18 +2948,18 @@ export default function Dashboard({ token, auth, onLogout }) {
 
             {/* Modal de Detalle de Día */}
             {selectedDayItems && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/90 backdrop-blur tracking-wide p-4 animate-in fade-in duration-200" onClick={() => setSelectedDayItems(null)}>
-                    <div className="relative bg-[#1e293b] border border-slate-700 rounded-2xl w-full max-w-3xl md:max-h-[85vh] flex flex-col p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-start mb-6 border-b border-slate-700/50 pb-4">
+                <div className={`${dash.modalBackdrop} tracking-wide`} onClick={() => setSelectedDayItems(null)}>
+                    <div className={dash.modalCardDay} onClick={e => e.stopPropagation()}>
+                        <div className={`${dash.modalHeadBorder} mb-6`}>
                             <div>
-                                <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+                                <h2 className={`${dash.title2xl} flex items-center gap-3`}>
                                     <Calendar className="text-blue-500" size={24} /> Novedades del Día
                                 </h2>
-                                <p className="text-slate-400 mt-1 uppercase text-sm font-semibold tracking-widest">
+                                <p className={`${dash.modalMuted} mt-1 text-sm font-semibold uppercase tracking-widest`}>
                                     {selectedDayItems.date.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
                                 </p>
                             </div>
-                            <button onClick={() => setSelectedDayItems(null)} className="bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-500 border border-slate-700 hover:border-rose-500/50 rounded-lg transition-all w-10 h-10 flex items-center justify-center">
+                            <button type="button" onClick={() => setSelectedDayItems(null)} className={dash.modalClose}>
                                 <X size={20} strokeWidth={2.5} />
                             </button>
                         </div>
@@ -2081,16 +2972,16 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             {it.nombre.charAt(0).toUpperCase()}
                                         </div>
                                         <div>
-                                            <h3 className="text-white font-bold">{it.nombre}</h3>
-                                            <div className="flex items-center gap-2 mt-1">
-                                                <span className="text-xs text-slate-300 bg-black/20 px-2 py-0.5 rounded font-medium border border-black/10">{it.tipoNovedad}</span>
-                                                <span className="text-xs text-slate-400 flex items-center gap-1"><Briefcase size={12} /> Cédula: {it.cedula}</span>
+                                            <h3 className={dash.dayItemTitle}>{it.nombre}</h3>
+                                            <div className="mt-1 flex items-center gap-2">
+                                                <span className={dash.dayPill}>{it.tipoNovedad}</span>
+                                                <span className={`${dash.dayMeta} flex items-center gap-1`}><Briefcase size={12} /> Cédula: {it.cedula}</span>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className="flex flex-col md:items-end gap-1 bg-black/20 p-3 rounded-lg border border-black/10">
-                                        <div className="text-sm text-slate-300 font-medium">
+                                    <div className={dash.daySide}>
+                                        <div className={`${dash.daySideText} font-medium`}>
                                             {it.fechaInicio ? `Del ${it.fechaInicio}` : ''} {it.fechaFin ? `al ${it.fechaFin}` : ''}
                                             {!it.fechaInicio && !it.fechaFin ? 'Fecha no especificada' : ''}
                                         </div>
@@ -2099,20 +2990,44 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 const qtyTxt = formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it);
                                                 if (qtyTxt === '—') return null;
                                                 return (
-                                                    <span className="text-xs text-blue-400 font-bold">
+                                                    <span className={isLight ? 'text-xs font-bold text-blue-800' : 'text-xs font-bold text-blue-400'}>
                                                         {qtyTxt}
                                                         {getCantidadMedidaKind(it.tipoNovedad) === 'hours' && it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : ''}
                                                     </span>
                                                 );
                                             })()}
-                                            <span className={`text-[10px] uppercase tracking-widest font-black px-1.5 py-0.5 rounded ${it.estado === 'Aprobado' ? 'text-emerald-400 bg-emerald-500/10' : it.estado === 'Rechazado' ? 'text-rose-400 bg-rose-500/10' : 'text-amber-400 bg-amber-500/10'}`}>
+                                            <span
+                                                className={`rounded px-1.5 py-0.5 text-[10px] font-black uppercase tracking-widest ${
+                                                    it.estado === 'Aprobado'
+                                                        ? isLight
+                                                            ? 'bg-emerald-100 text-emerald-900'
+                                                            : 'bg-emerald-500/10 text-emerald-400'
+                                                        : it.estado === 'Rechazado'
+                                                            ? isLight
+                                                                ? 'bg-rose-100 text-rose-900'
+                                                                : 'bg-rose-500/10 text-rose-400'
+                                                            : isLight
+                                                                ? 'bg-amber-100 text-amber-900'
+                                                                : 'bg-amber-500/10 text-amber-400'
+                                                }`}
+                                            >
                                                 {it.estado}
                                             </span>
                                         </div>
                                     </div>
 
                                     {(it.soporteRuta || it.soporteKey) && (
-                                        <button onClick={() => { setSelectedDayItems(null); openSupport(it); }} className="md:ml-2 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 px-3 py-2 rounded-lg transition-all flex items-center justify-center gap-2 text-sm font-medium">
+                                        <button
+                                            onClick={() => {
+                                                setSelectedDayItems(null);
+                                                openSupport(it);
+                                            }}
+                                            className={
+                                                isLight
+                                                    ? 'md:ml-2 flex items-center justify-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-900 transition-all hover:bg-blue-600 hover:text-white'
+                                                    : 'md:ml-2 flex items-center justify-center gap-2 rounded-lg border border-blue-500/30 bg-blue-600/20 px-3 py-2 text-sm font-medium text-blue-400 transition-all hover:bg-blue-600 hover:text-white'
+                                            }
+                                        >
                                             <Eye size={16} /> Ver Soporte
                                         </button>
                                     )}
@@ -2125,13 +3040,13 @@ export default function Dashboard({ token, auth, onLogout }) {
 
             {/* Modal Soporte Viewer */}
             {soporteModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f172a]/90 backdrop-blur tracking-wide p-4 animate-in fade-in duration-200" onClick={() => setSoporteModal(null)}>
-                    <div className="relative bg-[#1e293b] border border-slate-700 rounded-2xl w-full max-w-5xl md:max-h-[90vh] flex flex-col items-center justify-center p-6 shadow-2xl animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => setSoporteModal(null)} className="absolute top-4 right-4 bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-500 border border-slate-700 hover:border-rose-500/50 rounded-lg transition-all w-10 h-10 flex items-center justify-center">
+                <div className={`${dash.modalBackdrop} tracking-wide`} onClick={() => setSoporteModal(null)}>
+                    <div className={dash.modalCardWide} onClick={e => e.stopPropagation()}>
+                        <button type="button" onClick={() => setSoporteModal(null)} className={`absolute right-4 top-4 ${dash.modalClose}`}>
                             <X size={20} strokeWidth={2.5} />
                         </button>
-                        <div className="w-full flex items-center justify-between mb-4 mt-2">
-                            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                        <div className="mb-4 mt-2 flex w-full items-center justify-between">
+                            <h2 className={`${dash.titleXl} flex items-center gap-2`}>
                                 <BadgeCheck className="text-blue-500" size={22} /> Vista del documento
                             </h2>
                             {soporteModalCurrentSupport && (
@@ -2169,16 +3084,16 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 ))}
                             </div>
                         )}
-                        <div className="w-full flex-1 md:min-h-[60vh] rounded-xl overflow-hidden border border-slate-700 bg-black/40 p-1 relative">
+                        <div className={`relative w-full flex-1 overflow-hidden rounded-xl p-1 md:min-h-[60vh] ${dash.soporteIframe}`}>
                             {soporteLoading ? (
-                                <div className="w-full h-[65vh] flex items-center justify-center text-slate-300">Cargando soporte...</div>
+                                <div className={dash.soporteLoading}>Cargando soporte...</div>
                             ) : soporteModal?.currentType === 'pdf' ? (
                                 <iframe src={soporteModal.currentUrl} className="w-full h-[65vh] rounded" title="Visor PDF" />
                             ) : soporteModal?.currentType === 'image' ? (
                                 <img src={soporteModal?.currentUrl} alt="Soporte" className="w-full h-[65vh] object-contain rounded" />
                             ) : soporteModal?.currentType === 'excel' ? (
                                 soporteModal?.excelPreview?.rows?.length ? (
-                                    <div className="w-full h-[65vh] overflow-auto bg-slate-950 rounded p-3">
+                                    <div className={dash.excelScroll}>
                                         <p className="text-xs text-slate-400 mb-3">
                                             Hoja: {soporteModal.excelPreview.sheetName} · Filas mostradas: {soporteModal.excelPreview.rows.length}
                                             {soporteModal.excelPreview.truncated ? ' (previsualización parcial)' : ''}

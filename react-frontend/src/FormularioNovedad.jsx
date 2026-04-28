@@ -772,7 +772,7 @@ export default function FormularioNovedad() {
 
     return (
         <div
-            className="relative min-h-screen w-full flex items-center justify-center overflow-hidden"
+            className="relative min-h-screen w-full flex items-center justify-center overflow-hidden font-body"
             style={{ backgroundImage: `linear-gradient(135deg, rgba(4,20,30,0.92) 0%, rgba(0,77,135,0.7) 100%), url('/img/bg-portal.jpg')`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', backgroundAttachment: 'fixed' }}
         >
             <div className="absolute inset-0 bg-[#04141E]/40 backdrop-blur-[2px]" />

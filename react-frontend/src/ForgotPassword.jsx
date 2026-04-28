@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { Mail, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { cognitoForgotPassword, cognitoResetPassword } from './cognitoAuth';
+import { useAuthSurface } from './moduleTheme.js';
 
 export default function ForgotPassword() {
+  const au = useAuthSurface();
   const [email, setEmail] = useState('');
   const [msg, setMsg] = useState('');
   const [sendingCode, setSendingCode] = useState(false);
@@ -64,24 +66,24 @@ export default function ForgotPassword() {
   };
 
   return (
-    <div className="flex justify-center items-start w-full h-full overflow-y-auto py-6 animate-in fade-in zoom-in duration-300">
-      <div className="bg-[#04141E]/90 backdrop-blur-xl border border-[#1a3a56] rounded-2xl p-8 md:p-12 w-full max-w-md shadow-2xl relative overflow-hidden max-h-[calc(100vh-10rem)] overflow-y-auto">
+    <div className="flex justify-center items-start w-full h-full overflow-y-auto py-6 animate-in fade-in zoom-in duration-300 font-body">
+      <div className={`${au.authCard} max-h-[calc(100vh-10rem)] overflow-y-auto`}>
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#004D87] to-[#65BCF7]" />
         <div className="text-center mb-8">
-          <div className="bg-[#0b1e30]/80 border border-[#1a3a56] w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+          <div className={au.authIconTile}>
             <Mail className="text-[#1fc76a]" size={28} />
           </div>
-          <h1 className="text-2xl font-bold text-white mb-2">Recuperar contraseña</h1>
-          <p className="text-[#9fb3c8] text-sm">Ingresa tu correo para restablecerla.</p>
+          <h1 className={au.h1Card}>Recuperar contraseña</h1>
+          <p className={au.authSubtitle}>Ingresa tu correo para restablecerla.</p>
         </div>
 
         <div className="flex flex-col gap-5">
           <form onSubmit={onSubmit} className="flex flex-col gap-5">
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-bold text-[#9fb3c8] uppercase tracking-wider">Correo</label>
+              <label className={au.authLabel}>Correo</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail size={18} className="text-[#466683]" />
+                  <Mail size={18} className={au.lockIcon} />
                 </div>
                 <input
                   type="email"
@@ -89,7 +91,7 @@ export default function ForgotPassword() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="usuario@empresa.com"
-                  className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 pl-10 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
+                  className={`${au.authInputTight} pl-10`}
                 />
               </div>
             </div>
@@ -105,35 +107,35 @@ export default function ForgotPassword() {
 
           <div className="flex flex-col gap-2">
             {!!msg && (
-              <div className="bg-[#1a2b3b] border border-[#1a3a56] text-[#9fb3c8] text-sm p-3 rounded-lg break-all">
+              <div className={`${au.msgBox} break-all`}>
                 {msg}
               </div>
             )}
           </div>
 
           {showResetForm && (
-            <form onSubmit={onConfirmReset} className="mt-2 p-4 rounded-lg border border-[#1a3a56] bg-[#0b1e30]/60 flex flex-col gap-3">
-              <div className="text-sm text-[#9fb3c8] font-semibold">Completar recuperación con código</div>
+            <form onSubmit={onConfirmReset} className={au.challengePanel}>
+              <div className={au.challengeHeading}>Completar recuperación con código</div>
               <input
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="Código recibido por correo"
-                className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
+                className={au.authInputTight}
               />
               <input
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Nueva contraseña"
-                className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
+                className={au.authInputTight}
               />
               <input
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirmar nueva contraseña"
-                className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-lg focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
+                className={au.authInputTight}
               />
               <button
                 type="submit"
@@ -146,7 +148,7 @@ export default function ForgotPassword() {
           )}
 
           <div className="flex items-center justify-between mt-1">
-            <Link to="/admin" className="text-sm text-[#9fb3c8] hover:text-white flex items-center gap-2">
+            <Link to="/admin" className={au.backLink}>
               <ArrowLeft size={16} /> Volver al inicio de sesión
             </Link>
           </div>

@@ -7,12 +7,12 @@ import {
     ChevronLeft,
     ChevronRight,
     Home,
-    KeyRound,
-    LogOut,
     Menu,
     Users,
     X
 } from 'lucide-react';
+import { useModuleTheme } from './moduleTheme.js';
+import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -73,8 +73,37 @@ function GpUserSelect({ value, onChange, options, className }) {
     );
 }
 
-export default function DirectorioClienteColaboradorModule({ token, auth, onLogout }) {
+export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const navigate = useNavigate();
+    const mt = useModuleTheme();
+    const {
+        shell,
+        aside,
+        asideHeaderBorder,
+        asideFooterBorder,
+        scrim,
+        menuFab,
+        sidebarIconBtn,
+        navOutline,
+        email,
+        borderSubtle,
+        mainCanvas,
+        topBar,
+        headingAccent,
+        labelMuted,
+        field,
+        navAccentActive,
+        navAccentInactive,
+        tableSurface,
+        tableThead,
+        tableRowBorder,
+        barInset,
+        compactBtn,
+        softBtn,
+        outlineBtn,
+        toolbarBtn,
+        isLight
+    } = mt;
     // CRIT-002: Derivar de la prop auth (cookie HttpOnly), sin leer localStorage
     const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
@@ -337,11 +366,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         const exists = coItems.some((r) => r.cedula === selectedCoCedula);
         if (!exists) setSelectedCoCedula(null);
     }, [coItems, selectedCoCedula]);
-
-    const handleSidebarLogout = () => {
-        if (onLogout) onLogout();
-        else navigate('/admin', { replace: true });
-    };
 
     async function patchCatalogo(row, patch) {
         try {
@@ -731,11 +755,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             onClick={onClick}
             className={`flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left w-full ${
                 sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'
-            } ${
-                active
-                    ? 'bg-[#65BCF7] shadow-[0_4px_12px_rgba(101,188,247,0.25)] text-[#04141E]'
-                    : 'text-slate-300 hover:bg-[#0f2942]/60 hover:text-white border border-transparent'
-            }`}
+            } ${active ? navAccentActive : navAccentInactive}`}
         >
             <Icon size={18} className="flex-shrink-0" />
             {sidebarOpen && <span className="truncate">{label}</span>}
@@ -775,54 +795,30 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     );
 
     const sidebarFooter = (compact) => (
-        <div className={`border-t border-[#1a3a56]/50 ${compact ? 'p-4' : 'p-2'}`}>
+        <div className={`border-t ${borderSubtle} ${compact ? 'p-4' : 'p-2'}`}>
             {compact ? (
                 <div className="space-y-2">
-                    <div className="overflow-hidden">
-                        <p className="text-[10px] font-body font-black text-slate-300 whitespace-nowrap leading-tight truncate">
-                            {currentEmail}
-                        </p>
-                        <p className="text-[9px] text-[#65BCF7] font-body font-semibold whitespace-nowrap leading-tight">
-                            {currentRoleLabel}
-                        </p>
-                    </div>
-                    <div className="border-t border-[#1a3a56]/50 pt-2 flex flex-col gap-2">
-                        <button
-                            type="button"
-                            onClick={() => navigate('/perfil/cambiar-clave')}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1a3a56] text-slate-300 hover:text-white hover:bg-[#0f2942]/60 transition-all text-xs font-body font-semibold"
-                        >
-                            <KeyRound size={14} />
-                            Cambiar contraseña
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleSidebarLogout}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition-all text-xs font-body font-semibold"
-                        >
-                            <LogOut size={14} />
-                            Cerrar sesión
-                        </button>
+                    <div className="flex items-center gap-2">
+                        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
+                            <Building2 size={13} className={headingAccent} />
+                        </div>
+                        <div className="min-w-0 overflow-hidden">
+                            <p className={`text-[10px] font-body font-black whitespace-nowrap leading-tight truncate ${email}`}>
+                                {currentEmail}
+                            </p>
+                            <p className={`text-[9px] font-body font-semibold whitespace-nowrap leading-tight ${headingAccent}`}>
+                                {currentRoleLabel}
+                            </p>
+                        </div>
                     </div>
                 </div>
             ) : (
-                <div className="flex flex-col gap-2 items-center py-2">
-                    <button
-                        type="button"
-                        title="Cambiar contraseña"
-                        onClick={() => navigate('/perfil/cambiar-clave')}
-                        className="w-9 h-9 rounded-lg border border-[#1a3a56] text-slate-300 hover:text-white flex items-center justify-center"
-                    >
-                        <KeyRound size={16} />
-                    </button>
-                    <button
-                        type="button"
-                        title="Cerrar sesión"
-                        onClick={handleSidebarLogout}
-                        className="w-9 h-9 rounded-lg border border-rose-500/30 text-rose-400 flex items-center justify-center"
-                    >
-                        <LogOut size={16} />
-                    </button>
+                <div className="flex flex-col items-center gap-2 py-1">
+                    <div className="flex justify-center" title={`${currentEmail} · ${currentRoleLabel}`}>
+                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
+                            <Building2 size={15} className={headingAccent} />
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
@@ -839,102 +835,92 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const coRangeTo = Math.min(Number(coTotal) || 0, safeCoPage * coPageSize);
 
     return (
-        <div className="flex h-full w-full bg-[#04141E] text-slate-200 overflow-hidden font-body">
+        <div className={shell}>
             <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
-                className="md:hidden fixed top-24 left-4 z-40 w-10 h-10 rounded-lg bg-[#0b1e30] border border-[#1a3a56] text-slate-200 flex items-center justify-center shadow-lg"
+                className={`md:hidden fixed top-16 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú administración"
             >
                 <Menu size={18} />
             </button>
             {mobileMenuOpen ? (
-                <div className="md:hidden fixed inset-0 bg-black/50 z-40" onClick={() => setMobileMenuOpen(false)} />
+                <div className={`md:hidden fixed inset-0 z-40 ${scrim}`} onClick={() => setMobileMenuOpen(false)} />
             ) : null}
             <aside
-                className={`md:hidden fixed top-0 left-0 h-full w-72 bg-[#0b1e30] border-r border-[#1a3a56]/50 z-50 shadow-2xl transform transition-transform duration-300 flex flex-col ${
+                className={`md:hidden fixed top-0 left-0 h-full w-72 z-50 shadow-2xl transform transition-transform duration-300 flex flex-col font-body ${aside} ${
                     mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}
             >
-                <div className="p-4 border-b border-[#1a3a56]/50 flex items-center justify-between">
-                    <div>
-                        <p className="text-[10px] font-heading font-black text-[#65BCF7] uppercase tracking-widest">
-                            Administración
-                        </p>
-                        <p className="text-[10px] font-body font-bold text-slate-400 uppercase tracking-widest">CINTE</p>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => setMobileMenuOpen(false)}
-                        className="w-8 h-8 rounded-lg bg-[#04141E] border border-[#1a3a56] text-slate-300 flex items-center justify-center"
-                        aria-label="Cerrar menú"
-                    >
-                        <X size={16} />
-                    </button>
-                </div>
+                <AdminModuleSidebarBrand
+                    variant="drawer"
+                    isLight={isLight}
+                    asideHeaderBorder={asideHeaderBorder}
+                    moduleContext={(
+                        <>
+                            <p className={`text-[10px] font-heading font-black uppercase tracking-widest leading-tight ${headingAccent}`}>
+                                Administración
+                            </p>
+                            <p className="text-[10px] font-body font-bold uppercase tracking-widest leading-tight text-slate-400">CINTE</p>
+                        </>
+                    )}
+                    endAction={(
+                        <button
+                            type="button"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
+                            aria-label="Cerrar menú"
+                        >
+                            <X size={16} />
+                        </button>
+                    )}
+                />
                 {sidebarNav()}
-                <div className="mt-auto p-4 border-t border-[#1a3a56]/50">
-                    <p className="text-[10px] font-body font-black text-slate-300 truncate">{currentEmail}</p>
-                    <p className="text-[10px] text-[#65BCF7] font-body font-semibold uppercase">{currentRoleLabel}</p>
-                    <div className="mt-3 flex flex-col gap-2">
-                        <button
-                            type="button"
-                            onClick={() => navigate('/perfil/cambiar-clave')}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-[#1a3a56] text-slate-200 hover:bg-[#0f2942]/60 transition-all text-xs font-body font-semibold"
-                        >
-                            <KeyRound size={14} />
-                            Cambiar contraseña
-                        </button>
-                        <button
-                            type="button"
-                            onClick={handleSidebarLogout}
-                            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-rose-500/30 text-rose-400 hover:bg-rose-500/10 transition-all text-xs font-body font-semibold"
-                        >
-                            <LogOut size={14} />
-                            Cerrar sesión
-                        </button>
-                    </div>
+                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
+                    <p className={`text-[10px] font-body font-black truncate ${email}`}>{currentEmail}</p>
+                    <p className={`text-[10px] font-body font-semibold uppercase ${headingAccent}`}>{currentRoleLabel}</p>
                 </div>
             </aside>
 
             <aside
-                className={`bg-[#0b1e30] flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 transition-all duration-300 ease-in-out overflow-hidden ${
+                className={`flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 transition-all duration-300 ease-in-out overflow-hidden font-body ${aside} ${
                     sidebarOpen ? 'w-64' : 'w-16'
                 }`}
             >
-                <div
-                    className={`border-b border-[#1a3a56]/50 flex items-center ${
-                        sidebarOpen ? 'px-5 py-4 justify-between' : 'px-0 py-4 justify-center'
-                    }`}
-                >
-                    {sidebarOpen ? (
-                        <div className="overflow-hidden">
-                            <p className="text-[10px] font-heading font-black text-[#65BCF7] uppercase tracking-widest whitespace-nowrap leading-tight">
+                <AdminModuleSidebarBrand
+                    variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
+                    isLight={isLight}
+                    asideHeaderBorder={asideHeaderBorder}
+                    moduleContext={(
+                        <>
+                            <p className={`whitespace-nowrap text-[10px] font-heading font-black uppercase tracking-widest leading-tight ${headingAccent}`}>
                                 Administración
                             </p>
-                            <p className="text-[10px] font-body font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap leading-tight">
+                            <p className="whitespace-nowrap text-[10px] font-body font-bold uppercase tracking-widest leading-tight text-slate-400">
                                 CINTE
                             </p>
-                        </div>
-                    ) : null}
-                    <button
-                        type="button"
-                        onClick={() => setSidebarOpen((o) => !o)}
-                        title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
-                        className="flex items-center justify-center w-7 h-7 rounded-lg bg-[#04141E] hover:bg-[#65BCF7]/20 border border-[#1a3a56] hover:border-[#65BCF7]/50 text-slate-400 hover:text-[#65BCF7] transition-all flex-shrink-0"
-                    >
-                        {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-                    </button>
-                </div>
+                        </>
+                    )}
+                    endAction={(
+                        <button
+                            type="button"
+                            onClick={() => setSidebarOpen((o) => !o)}
+                            title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
+                            className={`flex h-7 w-7 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
+                        >
+                            {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+                        </button>
+                    )}
+                />
                 {sidebarNav()}
                 {sidebarFooter(sidebarOpen)}
             </aside>
 
             <div className="flex flex-col flex-1 min-h-0 min-w-0">
-                <header className="flex items-center justify-between px-4 md:px-8 py-3 border-b border-[#1a3a56] shrink-0 md:pl-6">
+                <header className={`flex items-center justify-between px-4 md:px-8 py-3 shrink-0 md:pl-6 ${topBar}`}>
                     <div>
-                        <h1 className="text-lg md:text-xl font-heading font-bold text-[#65BCF7]">Módulo de administración</h1>
-                        <p className="text-xs text-[#9fb3c8] mt-1">
+                        <h1 className={`text-lg md:text-xl font-heading font-bold ${headingAccent}`}>Módulo de administración</h1>
+                        <p className={`text-xs mt-1 ${labelMuted}`}>
                             Catálogo por cliente (líderes y GP) y colaboradores (roles autorizados).
                         </p>
                     </div>
@@ -950,7 +936,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     </div>
                 ) : null}
 
-                <main className="flex-1 overflow-y-auto p-4 md:p-8">
+                <main className={`flex-1 overflow-y-auto p-4 md:p-8 ${mainCanvas}`}>
                     {mainView === 'cliente' && (
                         <div className="space-y-4 w-full max-w-[95rem]">
                             <div className="flex flex-wrap gap-2 items-center">
@@ -962,7 +948,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     Crear nuevo cliente
                                 </button>
                             </div>
-                            <p className="text-xs text-[#9fb3c8]">
+                            <p className={`text-xs ${labelMuted}`}>
                                 Una fila por cliente del catálogo (líderes activos / total). Clic en la fila abre el
                                 detalle de líderes. «Editar» renombra el cliente y el GP en bloque (colaborador con
                                 correo Cinte). «Borrar» desactiva todos los líderes de ese cliente. Paginación 10 / 20 /
@@ -970,9 +956,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             </p>
                             <div className="flex flex-wrap gap-2 items-end">
                                 <div>
-                                    <label className="block text-xs text-[#9fb3c8] mb-1">Estado</label>
+                                    <label className={`block text-xs ${labelMuted} mb-1`}>Estado</label>
                                     <select
-                                        className="px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                        className={field}
                                         value={clActivo}
                                         onChange={(e) => setClActivo(e.target.value)}
                                     >
@@ -982,18 +968,18 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     </select>
                                 </div>
                                 <div className="flex-1 min-w-[160px]">
-                                    <label className="block text-xs text-[#9fb3c8] mb-1">Buscar</label>
+                                    <label className={`block text-xs ${labelMuted} mb-1`}>Buscar</label>
                                     <input
-                                        className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                        className={`w-full ${field}`}
                                         value={clQ}
                                         onChange={(e) => setClQ(e.target.value)}
                                         placeholder="Texto en cliente o líder"
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs text-[#9fb3c8] mb-1">Filas</label>
+                                    <label className={`block text-xs ${labelMuted} mb-1`}>Filas</label>
                                     <select
-                                        className="px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                        className={field}
                                         value={clPageSize}
                                         onChange={(e) => setClPageSize(Number(e.target.value))}
                                     >
@@ -1005,20 +991,20 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 <button
                                     type="button"
                                     onClick={() => loadCatalogo()}
-                                    className="px-3 py-2 rounded-md bg-[#0f2942] border border-[#1a3a56] text-sm"
+                                    className={toolbarBtn}
                                 >
                                     Refrescar
                                 </button>
                             </div>
-                            <p className="text-xs text-[#9fb3c8]">
+                            <p className={`text-xs ${labelMuted}`}>
                                 Total clientes: {clTotal}
                                 {clTotal > 0
                                     ? ` · Mostrando ${clRangeFrom}–${clRangeTo} (página ${safeClPage} de ${clTotalPages})`
                                     : ''}
                             </p>
-                            <div className="overflow-x-auto border border-[#1a3a56] rounded-lg">
+                            <div className={tableSurface}>
                                 <table className="min-w-full text-sm">
-                                    <thead className="bg-[#0b1e30] text-[#9fb3c8]">
+                                    <thead className={tableThead}>
                                         <tr>
                                             <th className="text-left p-2 w-10"></th>
                                             <th className="text-left p-2">Cliente</th>
@@ -1031,13 +1017,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     <tbody>
                                         {clLoading ? (
                                             <tr>
-                                                <td colSpan={6} className="p-4 text-center text-[#9fb3c8]">
+                                                <td colSpan={6} className={`p-4 text-center ${labelMuted}`}>
                                                     Cargando…
                                                 </td>
                                             </tr>
                                         ) : clItems.length === 0 ? (
                                             <tr>
-                                                <td colSpan={6} className="p-4 text-center text-[#9fb3c8]">
+                                                <td colSpan={6} className={`p-4 text-center ${labelMuted}`}>
                                                     Sin datos
                                                 </td>
                                             </tr>
@@ -1060,8 +1046,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                 return (
                                                 <tr
                                                     key={g.cliente}
-                                                    className={`border-t border-[#1a3a56] cursor-pointer ${
-                                                        selectedCatalogCliente === g.cliente ? 'bg-[#0f2942]/80' : ''
+                                                    className={`${tableRowBorder} cursor-pointer ${
+                                                        selectedCatalogCliente === g.cliente
+                                                            ? isLight
+                                                                ? 'bg-sky-100'
+                                                                : 'bg-[#0f2942]/80'
+                                                            : ''
                                                     }`}
                                                     onClick={() => {
                                                         setSelectedCatalogCliente(g.cliente);
@@ -1085,14 +1075,14 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                         {activeCount} / {totalCount}
                                                     </td>
                                                     <td
-                                                        className={`p-2 ${gpConflict ? 'text-amber-300/90' : 'text-[#9fb3c8]'}`}
+                                                        className={`p-2 ${gpConflict ? (isLight ? 'text-amber-700' : 'text-amber-300/90') : labelMuted}`}
                                                     >
                                                         {gpText}
                                                     </td>
                                                     <td className="p-2 whitespace-nowrap">
                                                         <button
                                                             type="button"
-                                                            className="px-2 py-1 rounded-md border border-[#1a3a56] text-xs font-semibold text-[#65BCF7] hover:bg-[#0f2942]/80"
+                                                            className={softBtn}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 void openEditClienteModalForCliente(g.cliente);
@@ -1122,7 +1112,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 </table>
                             </div>
                             {!clLoading && clTotal > 0 ? (
-                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#9fb3c8] border border-[#1a3a56] rounded-lg px-3 py-2 bg-[#0b1e30]/40">
+                                <div className={`flex flex-wrap items-center justify-between gap-2 ${barInset}`}>
                                     <span>
                                         Página {safeClPage} de {clTotalPages}
                                     </span>
@@ -1131,7 +1121,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                             type="button"
                                             onClick={() => setClPage((p) => Math.max(1, p - 1))}
                                             disabled={safeClPage <= 1}
-                                            className="px-3 py-1 rounded border border-[#1a3a56] disabled:opacity-40"
+                                            className={compactBtn}
                                         >
                                             Anterior
                                         </button>
@@ -1139,7 +1129,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                             type="button"
                                             onClick={() => setClPage((p) => Math.min(clTotalPages, p + 1))}
                                             disabled={safeClPage >= clTotalPages}
-                                            className="px-3 py-1 rounded border border-[#1a3a56] disabled:opacity-40"
+                                            className={compactBtn}
                                         >
                                             Siguiente
                                         </button>
@@ -1162,7 +1152,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             </div>
                             <div className="flex flex-wrap gap-2 items-end">
                                 <select
-                                    className="px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                    className={field}
                                     value={coActivo}
                                     onChange={(e) => setCoActivo(e.target.value)}
                                 >
@@ -1171,15 +1161,15 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     <option value="false">Inactivos</option>
                                 </select>
                                 <input
-                                    className="flex-1 min-w-[160px] px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                    className={`flex-1 min-w-[160px] ${field}`}
                                     value={coQ}
                                     onChange={(e) => setCoQ(e.target.value)}
                                     placeholder="Buscar"
                                 />
                                 <div>
-                                    <label className="block text-xs text-[#9fb3c8] mb-1">Filas</label>
+                                    <label className={`block text-xs ${labelMuted} mb-1`}>Filas</label>
                                     <select
-                                        className="px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                        className={field}
                                         value={coPageSize}
                                         onChange={(e) => setCoPageSize(Number(e.target.value))}
                                     >
@@ -1191,21 +1181,21 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 <button
                                     type="button"
                                     onClick={() => loadColaboradores()}
-                                    className="px-3 py-2 rounded-md bg-[#0f2942] border border-[#1a3a56] text-sm"
+                                    className={toolbarBtn}
                                 >
                                     Refrescar
                                 </button>
                             </div>
-                            <p className="text-xs text-[#9fb3c8]">
+                            <p className={`text-xs ${labelMuted}`}>
                                 Total: {coTotal}
                                 {coTotal > 0
                                     ? ` · Mostrando ${coRangeFrom}–${coRangeTo} (página ${safeCoPage} de ${coTotalPages})`
                                     : ''}
                                 . Clic en un encabezado para ordenar (el orden aplica a todo el resultado filtrado).
                             </p>
-                            <div className="overflow-x-auto border border-[#1a3a56] rounded-lg">
+                            <div className={tableSurface}>
                                 <table className="min-w-full text-sm">
-                                    <thead className="bg-[#0b1e30] text-[#9fb3c8]">
+                                    <thead className={tableThead}>
                                         <tr>
                                             <th className="text-left p-2 w-10"></th>
                                             {(
@@ -1250,8 +1240,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                             coItems.map((row) => (
                                                 <tr
                                                     key={row.cedula}
-                                                    className={`border-t border-[#1a3a56] cursor-pointer ${
-                                                        selectedCoCedula === row.cedula ? 'bg-[#0f2942]/80' : ''
+                                                    className={`${tableRowBorder} cursor-pointer ${
+                                                        selectedCoCedula === row.cedula
+                                                            ? isLight
+                                                                ? 'bg-sky-100'
+                                                                : 'bg-[#0f2942]/80'
+                                                            : ''
                                                     }`}
                                                     onClick={() =>
                                                         setSelectedCoCedula((cur) =>
@@ -1277,7 +1271,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                     <td className="p-2 whitespace-nowrap">
                                                         <button
                                                             type="button"
-                                                            className="px-2 py-1 rounded-md border border-[#1a3a56] text-xs font-semibold text-[#65BCF7] hover:bg-[#0f2942]/80"
+                                                            className={softBtn}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 openStaffModalEditForRow(row);
@@ -1305,7 +1299,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 </table>
                             </div>
                             {!coLoading && coTotal > 0 ? (
-                                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#9fb3c8] border border-[#1a3a56] rounded-lg px-3 py-2 bg-[#0b1e30]/40">
+                                <div className={`flex flex-wrap items-center justify-between gap-2 ${barInset}`}>
                                     <span>
                                         Página {safeCoPage} de {coTotalPages}
                                     </span>
@@ -1314,7 +1308,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                             type="button"
                                             onClick={() => setCoPage((p) => Math.max(1, p - 1))}
                                             disabled={safeCoPage <= 1}
-                                            className="px-3 py-1 rounded border border-[#1a3a56] disabled:opacity-40"
+                                            className={compactBtn}
                                         >
                                             Anterior
                                         </button>
@@ -1322,7 +1316,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                             type="button"
                                             onClick={() => setCoPage((p) => Math.min(coTotalPages, p + 1))}
                                             disabled={safeCoPage >= coTotalPages}
-                                            className="px-3 py-1 rounded border border-[#1a3a56] disabled:opacity-40"
+                                            className={compactBtn}
                                         >
                                             Siguiente
                                         </button>
@@ -1354,30 +1348,30 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         </div>
                         <form onSubmit={submitClienteModal} className="p-5 space-y-4 overflow-y-auto">
                             <div>
-                                <label className="block text-xs text-[#9fb3c8] mb-1">Cliente</label>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Cliente</label>
                                 <input
-                                    className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                    className={`w-full ${field}`}
                                     value={clienteForm.cliente}
                                     onChange={(e) => setClienteForm((f) => ({ ...f, cliente: e.target.value }))}
                                     required
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs text-[#9fb3c8] mb-1">Líder</label>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
                                 <input
-                                    className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                    className={`w-full ${field}`}
                                     value={clienteForm.lider}
                                     onChange={(e) => setClienteForm((f) => ({ ...f, lider: e.target.value }))}
                                     required
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs text-[#9fb3c8] mb-1">GP asignado</label>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>GP asignado</label>
                                 {clienteGpOptionsLoading ? (
-                                    <p className="text-xs text-[#9fb3c8]">Cargando lista…</p>
+                                    <p className={`text-xs ${labelMuted}`}>Cargando lista…</p>
                                 ) : (
                                     <select
-                                        className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                        className={`w-full ${field}`}
                                         value={clienteForm.gp_colaborador_cedula}
                                         onChange={(e) =>
                                             setClienteForm((f) => ({
@@ -1395,9 +1389,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     </select>
                                 )}
                                 {!clienteGpOptionsLoading && clienteGpOptions.length === 0 ? (
-                                    <p className="text-xs text-[#9fb3c8] mt-1">No hay colaboradores en el directorio.</p>
+                                    <p className={`text-xs ${labelMuted} mt-1`}>No hay colaboradores en el directorio.</p>
                                 ) : !clienteGpOptionsLoading ? (
-                                    <p className="text-xs text-[#9fb3c8] mt-1">
+                                    <p className={`text-xs ${labelMuted} mt-1`}>
                                         Si el colaborador no tiene correo Cinte, no puede seleccionarse.
                                     </p>
                                 ) : null}
@@ -1411,7 +1405,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 </button>
                                 <button
                                     type="button"
-                                    className="px-4 py-2 rounded-md border border-[#1a3a56] text-sm"
+                                    className={outlineBtn}
                                     onClick={() => setClienteModalOpen(false)}
                                 >
                                     Cancelar
@@ -1443,10 +1437,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         </div>
                         <form onSubmit={submitEditClienteModal} className="p-5 space-y-4 overflow-y-auto">
                             {editClienteRowsLoading ? (
-                                <p className="text-sm text-[#9fb3c8]">Cargando datos del catálogo…</p>
+                                <p className={`text-sm ${labelMuted}`}>Cargando datos del catálogo…</p>
                             ) : (
                                 <>
-                                    <p className="text-xs text-[#9fb3c8]">
+                                    <p className={`text-xs ${labelMuted}`}>
                                         Los cambios se aplican a todas las filas del cliente en el catálogo (
                                         {editClienteTargetRows.length} líder
                                         {editClienteTargetRows.length === 1 ? '' : 'es'}).
@@ -1462,9 +1456,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                         </p>
                                     ) : null}
                                     <div>
-                                        <label className="block text-xs text-[#9fb3c8] mb-1">Nombre del cliente</label>
+                                        <label className={`block text-xs ${labelMuted} mb-1`}>Nombre del cliente</label>
                                         <input
-                                            className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                            className={`w-full ${field}`}
                                             value={editClienteForm.nombre}
                                             onChange={(e) =>
                                                 setEditClienteForm((f) => ({ ...f, nombre: e.target.value }))
@@ -1473,14 +1467,14 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-xs text-[#9fb3c8] mb-1">
+                                        <label className={`block text-xs ${labelMuted} mb-1`}>
                                             GP (lista completa de colaboradores)
                                         </label>
                                         {editClienteGpOptionsLoading ? (
-                                            <p className="text-xs text-[#9fb3c8]">Cargando lista…</p>
+                                            <p className={`text-xs ${labelMuted}`}>Cargando lista…</p>
                                         ) : (
                                             <select
-                                                className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                                className={`w-full ${field}`}
                                                 value={editClienteForm.gp_colaborador_cedula}
                                                 onChange={(e) =>
                                                     setEditClienteForm((f) => ({
@@ -1498,11 +1492,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                             </select>
                                         )}
                                         {!editClienteGpOptionsLoading && editClienteGpOptions.length === 0 ? (
-                                            <p className="text-xs text-[#9fb3c8] mt-1">
+                                            <p className={`text-xs ${labelMuted} mt-1`}>
                                                 No hay colaboradores en el directorio.
                                             </p>
                                         ) : !editClienteGpOptionsLoading ? (
-                                            <p className="text-xs text-[#9fb3c8] mt-1">
+                                            <p className={`text-xs ${labelMuted} mt-1`}>
                                                 Si el colaborador no tiene correo Cinte, no puede seleccionarse.
                                             </p>
                                         ) : null}
@@ -1520,7 +1514,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 <button
                                     type="button"
                                     disabled={editClienteSaving}
-                                    className="px-4 py-2 rounded-md border border-[#1a3a56] text-sm disabled:opacity-40"
+                                    className={`${outlineBtn} disabled:opacity-40`}
                                     onClick={() => setEditClienteModalOpen(false)}
                                 >
                                     Cancelar
@@ -1553,9 +1547,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         </div>
                         <form onSubmit={submitStaffModal} className="p-5 space-y-4 overflow-y-auto">
                             <div>
-                                <label className="block text-xs text-[#9fb3c8] mb-1">Cédula (solo dígitos)</label>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Cédula (solo dígitos)</label>
                                 <input
-                                    className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm disabled:opacity-50"
+                                    className={`w-full ${field} disabled:opacity-50`}
                                     value={coForm.cedula}
                                     onChange={(e) => setCoForm((f) => ({ ...f, cedula: e.target.value }))}
                                     disabled={staffModalMode === 'edit'}
@@ -1563,26 +1557,26 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs text-[#9fb3c8] mb-1">Nombres y Apellidos</label>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Nombres y Apellidos</label>
                                 <input
-                                    className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                    className={`w-full ${field}`}
                                     value={coForm.nombre}
                                     onChange={(e) => setCoForm((f) => ({ ...f, nombre: e.target.value }))}
                                     required
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs text-[#9fb3c8] mb-1">Correo Cinte</label>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Correo Cinte</label>
                                 <input
-                                    className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                    className={`w-full ${field}`}
                                     value={coForm.correo_cinte}
                                     onChange={(e) => setCoForm((f) => ({ ...f, correo_cinte: e.target.value }))}
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs text-[#9fb3c8] mb-1">Cliente</label>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Cliente</label>
                                 <select
-                                    className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                    className={`w-full ${field}`}
                                     value={coForm.cliente}
                                     onChange={(e) => {
                                         const v = e.target.value;
@@ -1599,9 +1593,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-xs text-[#9fb3c8] mb-1">Líder</label>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
                                 <select
-                                    className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                    className={`w-full ${field}`}
                                     value={coForm.lider_catalogo}
                                     onChange={(e) => setCoForm((f) => ({ ...f, lider_catalogo: e.target.value }))}
                                     disabled={!coForm.cliente || liderLoading}
@@ -1616,7 +1610,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     ))}
                                 </select>
                             </div>
-                            <p className="text-xs text-[#9fb3c8]">
+                            <p className={`text-xs ${labelMuted}`}>
                                 El GP se toma automáticamente del par cliente–líder en el catálogo (si está definido).
                             </p>
                             <div className="flex gap-2 pt-2">
@@ -1628,7 +1622,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 </button>
                                 <button
                                     type="button"
-                                    className="px-4 py-2 rounded-md border border-[#1a3a56] text-sm"
+                                    className={outlineBtn}
                                     onClick={() => setStaffModalOpen(false)}
                                 >
                                     Cancelar
@@ -1653,7 +1647,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         <div className="mt-4 flex gap-2 justify-end">
                             <button
                                 type="button"
-                                className="px-3 py-2 rounded-md border border-[#1a3a56] text-sm"
+                                className={outlineBtn}
                                 onClick={() => setConfirmDeactivateCatalog(false)}
                             >
                                 Cancelar
@@ -1698,7 +1692,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
                             <div>
                                 <h2 className="text-lg font-bold text-[var(--text)]">Líderes</h2>
-                                <p className="text-xs text-[#9fb3c8] mt-0.5">{leadersModalCliente}</p>
+                                <p className={`text-xs ${labelMuted} mt-0.5`}>{leadersModalCliente}</p>
                             </div>
                             <button
                                 type="button"
@@ -1721,9 +1715,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             >
                                 Agregar líder
                             </button>
-                            <div className="overflow-x-auto border border-[#1a3a56] rounded-lg">
+                            <div className={tableSurface}>
                                 <table className="min-w-full text-sm">
-                                    <thead className="bg-[#0b1e30] text-[#9fb3c8]">
+                                    <thead className={tableThead}>
                                         <tr>
                                             <th className="text-left p-2">Líder</th>
                                             <th className="text-left p-2">Activo</th>
@@ -1733,19 +1727,19 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     <tbody>
                                         {leadersModalLoading ? (
                                             <tr>
-                                                <td colSpan={3} className="p-4 text-center text-[#9fb3c8]">
+                                                <td colSpan={3} className={`p-4 text-center ${labelMuted}`}>
                                                     Cargando líderes…
                                                 </td>
                                             </tr>
                                         ) : leadersModalRows.length === 0 ? (
                                             <tr>
-                                                <td colSpan={3} className="p-4 text-center text-[#9fb3c8]">
+                                                <td colSpan={3} className={`p-4 text-center ${labelMuted}`}>
                                                     Sin líderes para este cliente
                                                 </td>
                                             </tr>
                                         ) : (
                                             leadersModalRows.map((row) => (
-                                                <tr key={row.id} className="border-t border-[#1a3a56]">
+                                                <tr key={row.id} className={tableRowBorder}>
                                                     <td className="p-2">{row.lider}</td>
                                                     <td className="p-2">{row.activo ? 'Sí' : 'No'}</td>
                                                     <td className="p-2">
@@ -1787,20 +1781,20 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             </button>
                         </div>
                         <form onSubmit={submitAddLiderModal} className="p-5 space-y-4">
-                            <p className="text-xs text-[#9fb3c8]">Cliente: {leadersModalCliente}</p>
+                            <p className={`text-xs ${labelMuted}`}>Cliente: {leadersModalCliente}</p>
                             <div>
-                                <label className="block text-xs text-[#9fb3c8] mb-1">Líder</label>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
                                 <input
-                                    className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                    className={`w-full ${field}`}
                                     value={addLiderForm.lider}
                                     onChange={(e) => setAddLiderForm((f) => ({ ...f, lider: e.target.value }))}
                                     required
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs text-[#9fb3c8] mb-1">GP asignado</label>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>GP asignado</label>
                                 <GpUserSelect
-                                    className="w-full px-3 py-2 rounded bg-[#04141E] border border-[#1a3a56] text-sm"
+                                    className={`w-full ${field}`}
                                     value={addLiderForm.gp_user_id}
                                     options={gpSelectOptions}
                                     onChange={(e) => setAddLiderForm((f) => ({ ...f, gp_user_id: e.target.value }))}
@@ -1815,7 +1809,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 </button>
                                 <button
                                     type="button"
-                                    className="px-4 py-2 rounded-md border border-[#1a3a56] text-sm"
+                                    className={outlineBtn}
                                     onClick={() => setAddLiderModalOpen(false)}
                                 >
                                     Cancelar

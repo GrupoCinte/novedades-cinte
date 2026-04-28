@@ -85,6 +85,7 @@ function toClientNovedad(row) {
         correoSolicitante: decodePossiblyMisencodedText(row.correo_solicitante || ''),
         cliente: decodePossiblyMisencodedText(row.cliente || ''),
         lider: decodePossiblyMisencodedText(row.lider || ''),
+        gpUserId: row.gp_user_id ? String(row.gp_user_id) : null,
         tipoNovedad,
         area: row.area,
         fecha: row.fecha ? row.fecha.toISOString().slice(0, 10) : '',

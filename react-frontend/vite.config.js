@@ -19,7 +19,8 @@ export default defineConfig(({ mode }) => {
       allowedHosts: true,
       proxy: {
         '/api': { target: apiTarget, changeOrigin: true, ws: true },
-        '/assets': { target: apiTarget, changeOrigin: true }
+        /** Solo plantillas en backend; logos/banner en `public/assets` los sirve Vite. */
+        '/assets/formats': { target: apiTarget, changeOrigin: true }
       }
     }
   }

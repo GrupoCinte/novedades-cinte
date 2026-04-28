@@ -1,4 +1,5 @@
 import { formatMoney } from './salarioFormat';
+import { useModuleTheme } from '../moduleTheme.js';
 
 export default function CotizadorHistorial({
     historial,
@@ -7,13 +8,14 @@ export default function CotizadorHistorial({
     deletingId,
     onHistorialPdf
 }) {
+    const { cardPanel, panelTitle, tableHeadRow, tableBodyRow, isLight } = useModuleTheme();
     return (
-        <div className="bg-[#0b1e30] border border-[#1a3a56] rounded-xl p-4 font-body">
-            <h3 className="text-white font-heading font-bold mb-3">Historial cotizador</h3>
+        <div className={cardPanel}>
+            <h3 className={`${panelTitle} mb-3`}>Historial cotizador</h3>
             <div className="overflow-auto max-h-[380px]">
                 <table className="w-full text-sm">
                     <thead>
-                        <tr className="text-slate-400 border-b border-slate-700">
+                        <tr className={tableHeadRow}>
                             <th className="text-left py-2">ID</th>
                             <th className="text-left py-2">Fecha</th>
                             <th className="text-left py-2">Cliente</th>
@@ -30,8 +32,8 @@ export default function CotizadorHistorial({
                                 0
                             );
                             return (
-                                <tr key={it.id} className="border-b border-slate-800 text-slate-200">
-                                    <td className="py-2 font-mono text-emerald-300">{it.codigo || it.id}</td>
+                                <tr key={it.id} className={tableBodyRow}>
+                                    <td className={`py-2 font-mono ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>{it.codigo || it.id}</td>
                                     <td className="py-2">{it.fecha}</td>
                                     <td className="py-2">{it.cliente || '-'}</td>
                                     <td className="py-2">{it.comercial || '-'}</td>

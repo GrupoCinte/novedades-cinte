@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { formatMoney } from './salarioFormat';
+import { useModuleTheme } from '../moduleTheme.js';
 
 export default function CotizadorResultados({
     cotizacion,
@@ -9,12 +10,13 @@ export default function CotizadorResultados({
     onDescargarPdf,
     descargandoPdf
 }) {
+    const { cardPanel, insetWell, panelTitle, labelMuted, borderSubtle, tableHeadRow, tableBodyRow } = useModuleTheme();
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewError, setPreviewError] = useState('');
 
     useEffect(() => {
-        if (!cotizacion?.resultados?.length || !token) {
+        if (!cotizacion?.resultados?.length) {
             setPdfPreviewUrl((prev) => {
                 if (prev) URL.revokeObjectURL(prev);
                 return null;
@@ -31,12 +33,12 @@ export default function CotizadorResultados({
             setPreviewLoading(true);
             setPreviewError('');
             try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
                 const res = await fetch('/api/cotizador/pdf', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Authorization: `Bearer ${token}`
-                    },
+                    credentials: 'include',
+                    headers,
                     body: JSON.stringify({ ...cotizacion, download: false })
                 });
                 if (!res.ok) {
@@ -65,17 +67,17 @@ export default function CotizadorResultados({
 
     if (!cotizacion?.resultados?.length) {
         return (
-            <div className="bg-[#0b1e30] border border-[#1a3a56] rounded-xl p-4 text-slate-400 font-body">
+            <div className={`${cardPanel} ${labelMuted}`}>
                 Ejecuta una cotización para ver resultados.
             </div>
         );
     }
 
     return (
-        <div className="bg-[#0b1e30] border border-[#1a3a56] rounded-xl p-4 space-y-4 font-body">
+        <div className={`${cardPanel} space-y-4`}>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                    <h3 className="text-white font-bold">Resultados</h3>
+                    <h3 className={`${panelTitle} font-bold`}>Resultados</h3>
                     {cotizacion.codigo ? (
                         <p className="text-xs text-emerald-400/90 mt-1 font-semibold">{cotizacion.codigo}</p>
                     ) : null}
@@ -99,15 +101,15 @@ export default function CotizadorResultados({
                     </button>
                 </div>
             </div>
-            <div className="rounded-lg border border-slate-600 overflow-hidden bg-slate-900/50">
-                <div className="px-3 py-2 border-b border-slate-700 text-xs font-semibold text-slate-400 uppercase tracking-wide">
+            <div className={`overflow-hidden rounded-lg ${insetWell}`}>
+                <div className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide border-b ${borderSubtle} ${labelMuted}`}>
                     Vista previa PDF
                 </div>
                 {previewError && (
-                    <div className="p-3 text-sm text-rose-300 border-b border-slate-700">{previewError}</div>
+                    <div className={`p-3 text-sm text-rose-600 border-b ${borderSubtle}`}>{previewError}</div>
                 )}
                 {previewLoading && !pdfPreviewUrl && (
-                    <div className="h-[420px] flex items-center justify-center text-slate-500 text-sm">Generando vista previa…</div>
+                    <div className={`h-[420px] flex items-center justify-center text-sm ${labelMuted}`}>Generando vista previa…</div>
                 )}
                 {pdfPreviewUrl ? (
                     <iframe title="Vista previa cotización" src={pdfPreviewUrl} className="w-full h-[min(520px,65vh)] border-0 bg-slate-200" />
@@ -116,7 +118,7 @@ export default function CotizadorResultados({
             <div className="overflow-auto">
                 <table className="w-full text-sm">
                     <thead>
-                        <tr className="text-slate-400 border-b border-slate-700">
+                        <tr className={tableHeadRow}>
                             <th className="text-left py-2">Cargo</th>
                             <th className="text-right py-2">Cant.</th>
                             <th className="text-right py-2">Tarifa mes</th>
@@ -131,7 +133,7 @@ export default function CotizadorResultados({
                             const meses = Number(cotizacion.meses || 1);
                             const subtotal = Number(r.tarifa_mes || 0) * cant * meses;
                             return (
-                                <tr key={`${r.cargo}-${idx}`} className="border-b border-slate-800 text-slate-200">
+                                <tr key={`${r.cargo}-${idx}`} className={tableBodyRow}>
                                     <td className="py-2">{r.cargo}</td>
                                     <td className="py-2 text-right">{r.cantidad}</td>
                                     <td className="py-2 text-right">{formatMoney(r.tarifa_mes, r.moneda)}</td>

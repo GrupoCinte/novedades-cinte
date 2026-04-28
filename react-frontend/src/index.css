@@ -26,10 +26,15 @@
 }
 
 @theme {
-  /* ── Familias tipográficas ── */
+  /* ── Familias tipográficas (guía CINTE: Exo 2 títulos, Exo subtítulos, Montserrat cuerpo) ── */
   --font-heading: 'Exo 2', sans-serif;
   --font-subtitle: 'Exo', sans-serif;
   --font-body: 'Montserrat', sans-serif;
+  /**
+   * Tailwind usa `--font-sans` como `--default-font-family` (preflight y utilidades sin `font-*`).
+   * Sin esto, muchos textos caían en ui-sans-serif del sistema y se veían “otra tipografía”.
+   */
+  --font-sans: var(--font-body);
 
   /* ── Paleta corporativa CINTE ── */
   --color-cinte-primary: #004D87;
@@ -62,6 +67,92 @@
   --ok: #1fc76a;
   --pending: #f39c12;
   --error: #ff6b6b;
+}
+
+/**
+ * Modo claro portal (toggle global). Afecta variables usadas por Capital Humano / contratación:
+ * `.surface-panel`, `.field-control`, `var(--text)`, etc.
+ * En `/` (formulario público) no se aplica — ver `App.jsx`.
+ */
+html.cinte-ui-light {
+  --bg: #f1f5f9;
+  --card: #ffffff;
+  --surface: #f8fafc;
+  --surface-soft: #f1f5f9;
+  --surface-muted: #e2e8f0;
+  --text: #0f172a;
+  --muted: #64748b;
+  --primary: #2f7bb8;
+  --primary-soft: rgba(47, 123, 184, 0.12);
+  --accent: #0c4a6e;
+  --border: #cbd5e1;
+  --ok: #15803d;
+  --pending: #d97706;
+  --error: #dc2626;
+}
+
+html.cinte-ui-light .surface-panel {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html.cinte-ui-light .surface-soft {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+html.cinte-ui-light .surface-muted {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+}
+
+html.cinte-ui-light .field-control {
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  color: #0f172a;
+}
+
+html.cinte-ui-light .field-control::placeholder {
+  color: #94a3b8;
+}
+
+html.cinte-ui-light .field-control:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(47, 123, 184, 0.2);
+}
+
+html.cinte-ui-light .data-chip {
+  border: 1px solid #e2e8f0;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+html.cinte-ui-light .kpi-value {
+  color: #0f172a;
+}
+
+html.cinte-ui-light .modal-glass-scrim {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+html.cinte-ui-light .modal-glass-sheet {
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid #e2e8f0;
+}
+
+html.cinte-ui-light .custom-scrollbar::-webkit-scrollbar-track {
+  background: #e2e8f0;
+}
+
+html.cinte-ui-light .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #94a3b8;
 }
 
 body {

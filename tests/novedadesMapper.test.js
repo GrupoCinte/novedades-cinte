@@ -20,6 +20,19 @@ test('toClientNovedad separa soporte local y decodifica campos', () => {
   assert.equal(out.soporteRuta, '/assets/uploads/a.pdf');
   assert.equal(out.soporteKey, '');
   assert.equal(out.cantidadHoras, 4);
+  assert.equal(out.gpUserId, null);
+});
+
+test('toClientNovedad expone gpUserId cuando viene en la fila', () => {
+  const uid = '550e8400-e29b-41d4-a716-446655440000';
+  const out = toClientNovedad({
+    id: '3',
+    tipo_novedad: 'Incapacidad',
+    gp_user_id: uid,
+    estado: 'Pendiente',
+    creado_en: new Date('2026-01-01T00:00:00.000Z'),
+  });
+  assert.equal(out.gpUserId, uid);
 });
 
 test('toClientNovedad parsea múltiples soportes JSON', () => {

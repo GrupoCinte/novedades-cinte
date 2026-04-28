@@ -1,17 +1,61 @@
 import { useEffect, useMemo, useState } from 'react';
 import { resolveCargosLista } from './resolveCargosLista';
+import { mergeCotizadorClienteRows } from './cotizadorClientesMerge.js';
 import { parseSalarioLoose } from './salarioFormat';
 import CotizadorForm from './CotizadorForm';
 import CotizadorResultados from './CotizadorResultados';
 import CotizadorHistorial from './CotizadorHistorial';
 import CotizadorDashboard from './CotizadorDashboard';
+import { useModuleTheme } from '../moduleTheme.js';
+
+/** Quita `ok` del JSON del API para no mezclar metadatos con el objeto de catálogos. */
+function catalogosFromApiResponse(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const { ok: _ok, ...rest } = raw;
+    return rest;
+}
+
+function authHeadersJson(token, extra = {}) {
+    const h = { 'Content-Type': 'application/json', ...extra };
+    if (String(token || '').trim()) h.Authorization = `Bearer ${token}`;
+    return h;
+}
+
+/** Misma lista que el formulario de novedades: `clientes_lideres` vía API de catálogo. */
+async function fetchClientesDesdeBdCatalogo(token) {
+    const res = await fetch('/api/catalogos/clientes', {
+        credentials: 'include',
+        headers: authHeadersJson(token)
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json?.error || `Error HTTP ${res.status}`);
+    const items = Array.isArray(json.items) ? json.items : [];
+    return items
+        .map((nombre) => ({ nombre: String(nombre || '').trim(), nit: '' }))
+        .filter((r) => r.nombre);
+}
+
+function mergeClienteRowsDedupe(rowsA, rowsB) {
+    const byKey = new Map();
+    const add = (r) => {
+        const nombre = String(r?.nombre || r?.name || '').trim();
+        if (!nombre) return;
+        const k = nombre.toLowerCase();
+        const nit = String(r?.nit || '').trim();
+        if (!byKey.has(k)) byKey.set(k, { nombre, nit });
+        else if (nit && !byKey.get(k).nit) byKey.set(k, { nombre: byKey.get(k).nombre, nit });
+    };
+    for (const r of rowsA || []) add(r);
+    for (const r of rowsB || []) add(r);
+    return [...byKey.values()];
+}
 
 async function api(path, token, options = {}) {
     const res = await fetch(path, {
+        credentials: 'include',
         ...options,
         headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
+            ...authHeadersJson(token),
             ...(options.headers || {})
         }
     });
@@ -28,6 +72,7 @@ async function api(path, token, options = {}) {
 }
 
 export default function CotizadorPage({ token, embedded = false }) {
+    const { cotizadorCanvas, labelMuted, isLight } = useModuleTheme();
     const [loading, setLoading] = useState(false);
     const [guardando, setGuardando] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
@@ -55,17 +100,67 @@ export default function CotizadorPage({ token, embedded = false }) {
     );
 
     const loadAll = async () => {
-        if (!token) return;
-        const [cat, his, dash, cli] = await Promise.all([
+        /**
+         * No exigir `token` en memoria: tras F5 la sesión puede ir solo por cookie `cinteSession`
+         * (`/api/me` no devuelve JWT). El backend acepta cookie o Bearer.
+         */
+        const settled = await Promise.allSettled([
             api('/api/cotizador/catalogos', token),
             api('/api/cotizador/historial', token),
             api('/api/cotizador/dashboard', token),
-            api('/api/cotizador/clientes-formulario', token).catch(() => ({ items: [] }))
+            api('/api/cotizador/clientes-formulario', token),
+            fetchClientesDesdeBdCatalogo(token)
         ]);
-        setCatalogos(cat);
-        setHistorial(Array.isArray(his.items) ? his.items : []);
-        setDashboard(dash || {});
-        setClientesLista(Array.isArray(cli.items) ? cli.items : []);
+        const catRes = settled[0];
+        const hisRes = settled[1];
+        const dashRes = settled[2];
+        const cliRes = settled[3];
+        const bdCliRes = settled[4];
+
+        if (catRes.status === 'fulfilled') {
+            setCatalogos(catalogosFromApiResponse(catRes.value));
+        } else {
+            console.warn('[Cotizador] catalogos:', catRes.reason?.message || catRes.reason);
+            setCatalogos(null);
+        }
+
+        if (hisRes.status === 'fulfilled') {
+            const his = hisRes.value;
+            setHistorial(Array.isArray(his?.items) ? his.items : []);
+        } else {
+            console.warn('[Cotizador] historial:', hisRes.reason?.message || hisRes.reason);
+            setHistorial([]);
+        }
+
+        if (dashRes.status === 'fulfilled') {
+            const dash = dashRes.value;
+            if (dash && typeof dash === 'object') {
+                const { ok: _o, ...dashRest } = dash;
+                setDashboard(dashRest);
+            } else {
+                setDashboard({});
+            }
+        } else {
+            console.warn('[Cotizador] dashboard:', dashRes.reason?.message || dashRes.reason);
+            setDashboard({});
+        }
+
+        const fromFormulario = cliRes.status === 'fulfilled' && Array.isArray(cliRes.value?.items) ? cliRes.value.items : [];
+        if (cliRes.status === 'rejected') {
+            console.warn('[Cotizador] clientes-formulario:', cliRes.reason?.message || cliRes.reason);
+        }
+        const fromBdCatalogo = bdCliRes.status === 'fulfilled' ? bdCliRes.value : [];
+        if (bdCliRes.status === 'rejected') {
+            console.warn('[Cotizador] /api/catalogos/clientes:', bdCliRes.reason?.message || bdCliRes.reason);
+        }
+        setClientesLista(mergeClienteRowsDedupe(fromFormulario, fromBdCatalogo));
+
+        if (catRes.status === 'rejected' && cliRes.status === 'rejected' && bdCliRes.status === 'rejected') {
+            const a = catRes.reason?.message || String(catRes.reason);
+            const b = cliRes.reason?.message || String(cliRes.reason);
+            const c = bdCliRes.reason?.message || String(bdCliRes.reason);
+            setError(`${a} · ${b} · ${c}`);
+        }
     };
 
     useEffect(() => {
@@ -78,7 +173,7 @@ export default function CotizadorPage({ token, embedded = false }) {
         setLoading(true);
         try {
             const margen = Number(form.margenPct || 0) / 100;
-            const lista = clientesLista.length > 0 ? clientesLista : (catalogos?.clientes || []);
+            const lista = mergeCotizadorClienteRows(clientesLista, catalogos || {});
             const clienteObj = lista.find((c) => c.nombre === form.cliente) || {};
             const perfilesNorm = (form.perfiles || []).map((p) => {
                 if (String(p?.modo || 'AUTO').toUpperCase() === 'MANUAL') {
@@ -152,10 +247,8 @@ export default function CotizadorPage({ token, embedded = false }) {
         try {
             const res = await fetch('/api/cotizador/pdf', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`
-                },
+                credentials: 'include',
+                headers: authHeadersJson(token),
                 body: JSON.stringify({ ...cotizacion, download: true })
             });
             if (!res.ok) {
@@ -188,7 +281,7 @@ export default function CotizadorPage({ token, embedded = false }) {
     };
 
     const onHistorialPdf = async (it, mode) => {
-        if (!token || it?.id == null) return;
+        if (it?.id == null) return;
         if (!Array.isArray(it?.resultados) || it.resultados.length === 0) {
             setError('Esta cotización no tiene resultados para generar el PDF.');
             return;
@@ -212,10 +305,8 @@ export default function CotizadorPage({ token, embedded = false }) {
         try {
             const res = await fetch('/api/cotizador/pdf', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`
-                },
+                credentials: 'include',
+                headers: authHeadersJson(token),
                 body: JSON.stringify({
                     cliente: it.cliente,
                     nit: it.nit,
@@ -272,11 +363,11 @@ export default function CotizadorPage({ token, embedded = false }) {
     };
 
     return (
-        <div className="h-full w-full bg-[#0f172a] text-slate-200 p-4 md:p-6 overflow-y-auto pb-8">
+        <div className={cotizadorCanvas}>
             <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl md:text-2xl font-black text-white">Cotizador Web</h2>
+                <h2 className={`text-xl md:text-2xl font-black font-heading ${isLight ? 'text-slate-900' : 'text-white'}`}>Cotizador Web</h2>
                 {!embedded && (
-                    <span className="text-xs text-slate-400">Módulo comercial</span>
+                    <span className={`text-xs font-subtitle font-extralight ${labelMuted}`}>Módulo comercial</span>
                 )}
             </div>
             {error && <div className="mb-4 border border-rose-500/30 bg-rose-900/20 text-rose-200 rounded p-3">{error}</div>}
