@@ -268,6 +268,7 @@ function registerRoutes(deps) {
         allowPanel,
         applyScope,
         getScopedNovedades,
+        listScopedDistinctClientes,
         getHoraExtraAlerts,
         listHoraExtraByCedulaForDomingoPolicy,
         toClientNovedad,
@@ -777,6 +778,17 @@ function registerRoutes(deps) {
         } catch (error) {
             console.error('Error metrics:', error);
             return res.status(500).json({ ok: false, error: 'Error consultando métricas' });
+        }
+    });
+
+    app.get('/api/novedades/clientes-filtro', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
+        try {
+            const gpUserId = String(req.query.gpUserId || '').trim();
+            const items = await listScopedDistinctClientes(req.scope, gpUserId ? { gpUserId } : {});
+            return res.json({ ok: true, items });
+        } catch (error) {
+            console.error('Error novedades/clientes-filtro:', error);
+            return res.status(500).json({ ok: false, error: 'Error consultando clientes del alcance' });
         }
     });
 

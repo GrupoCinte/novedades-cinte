@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
-import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, DollarSign, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2 } from 'lucide-react';
+import { AreaChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
+import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2 } from 'lucide-react';
 import ChatWidget from './ChatWidget';
 import { getNovedadRule, NOVEDAD_TYPES, formatCantidadNovedad, formatDiasCount, getCantidadMedidaKind, getCantidadDetalleEtiqueta, getDiasEfectivosNovedad, getAsignacionGestionNovedad, resolveCanonicalNovedadTipo } from './novedadRules';
 import {
@@ -13,6 +13,60 @@ import {
 import { formatHeDomingoCompGestionResumen } from './heDomingoCompDisplay.js';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
+
+/** Primer y último día (YYYY-MM-DD) del mes 0–11 en `year`, para filtros de creación en Gestión. */
+function creadoEnRangeForMonthIndex(monthIndex, year) {
+    const mi = Number(monthIndex);
+    if (!Number.isFinite(mi) || mi < 0 || mi > 11) return { desde: '', hasta: '' };
+    const y = Number(year);
+    if (!Number.isFinite(y)) return { desde: '', hasta: '' };
+    const pad = (n) => String(n).padStart(2, '0');
+    const lastDay = new Date(y, mi + 1, 0).getDate();
+    return {
+        desde: `${y}-${pad(mi + 1)}-01`,
+        hasta: `${y}-${pad(mi + 1)}-${pad(lastDay)}`
+    };
+}
+
+/** Si el dashboard tiene `fMes` seleccionado, Gestión usa rango de creado_en en el año actual (no equivale a getItemDate del dashboard). */
+function creadoEnRangeForDashboardMesFilter(fMesStr, year = new Date().getFullYear()) {
+    if (fMesStr === '' || fMesStr == null) return { desde: '', hasta: '' };
+    return creadoEnRangeForMonthIndex(Number(fMesStr), year);
+}
+
+/** Texto visible en selects de GP: solo nombre de directorio, sin correo. */
+function labelGpDirectorioOption(g) {
+    const name = String(g?.full_name || '').trim();
+    if (name) return name;
+    return 'Sin nombre';
+}
+
+function mergeClienteOptionsFromApiAndItems(apiList, itemRows) {
+    const map = new Map();
+    for (const c of Array.isArray(apiList) ? apiList : []) {
+        const t = String(c || '').trim();
+        if (!t) continue;
+        map.set(t.toLowerCase(), t);
+    }
+    for (const it of Array.isArray(itemRows) ? itemRows : []) {
+        const t = String(it?.cliente || '').trim();
+        if (!t) continue;
+        map.set(t.toLowerCase(), t);
+    }
+    return Array.from(map.values()).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+}
+
+function formatDurationMs(ms) {
+    if (ms == null || !Number.isFinite(ms) || ms < 0) return '—';
+    const totalMinutes = Math.floor(ms / 60000);
+    const days = Math.floor(totalMinutes / (60 * 24));
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+    const mins = totalMinutes % 60;
+    if (days > 0) return `${days} d. ${hours} h`;
+    if (hours > 0) return `${hours} h ${mins} min`;
+    if (mins > 0) return `${mins} min`;
+    return '< 1 min';
+}
 
 function normalizeHoraHePayload(timeRaw) {
     const t = String(timeRaw || '').trim();
@@ -182,7 +236,7 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [soporteModal, setSoporteModal] = useState(null);
-    const [activeTab, setActiveTab] = useState('Inicio');
+    const [activeTab, setActiveTab] = useState('DashboardGeneral');
     const [stateError, setStateError] = useState(null);
     const [soporteLoading, setSoporteLoading] = useState(false);
     const parseJwt = (rawToken) => {
@@ -225,7 +279,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         comercial: ['comercial']
     };
     const tabPanelMap = {
-        Inicio: 'dashboard',
+        DashboardGeneral: 'dashboard',
         'Análisis Avanzado': 'dashboard',
         Calendario: 'calendar',
         Gestión: 'gestion',
@@ -247,9 +301,10 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [calendarView, setCalendarView] = useState('monthly');
     const [currentDay, setCurrentDay] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
 
-    // Dashboard (Inicio) date filters
+    // Dashboard general — filtros
     const [fMes, setFMes] = useState('');         // '' = todos, '0'-'11' = ene-dic
-    const [fDia, setFDia] = useState('');         // '' = todos, '1'-'31'
+    const [fClienteInicio, setFClienteInicio] = useState('');
+    const [dashboardClientesList, setDashboardClientesList] = useState([]);
     const [fTipoInicio, setFTipoInicio] = useState(''); // '' = todos los tipos
 
     // Gestión table filters
@@ -418,6 +473,66 @@ export default function Dashboard({ token, auth, onLogout }) {
         };
         loadCalClientes();
     }, []);
+
+    useEffect(() => {
+        const loadDashboardClientes = async () => {
+            if (!token) {
+                setDashboardClientesList([]);
+                return;
+            }
+            try {
+                const qp = new URLSearchParams();
+                if (fGpUserId) qp.set('gpUserId', fGpUserId);
+                const qs = qp.toString();
+                const res = await fetch(
+                    qs ? `/api/novedades/clientes-filtro?${qs}` : '/api/novedades/clientes-filtro',
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+                const json = await res.json();
+                if (res.ok && Array.isArray(json.items)) {
+                    setDashboardClientesList(json.items);
+                } else {
+                    console.warn('[Dashboard] clientes-filtro no OK', res.status, json?.error || '');
+                    setDashboardClientesList([]);
+                }
+            } catch (err) {
+                console.error(err);
+                setDashboardClientesList([]);
+            }
+        };
+        loadDashboardClientes();
+    }, [token, fGpUserId]);
+
+    /** Con GP seleccionado, `items` puede seguir siendo de la petición anterior hasta que termine `loadData`; no mezclar para no contaminar el desplegable de clientes. */
+    const dashboardClientesOptions = useMemo(
+        () => mergeClienteOptionsFromApiAndItems(dashboardClientesList, fGpUserId ? [] : items),
+        [dashboardClientesList, items, fGpUserId]
+    );
+
+    /** En Gestión, con filtro GP, los clientes deben coincidir con el catálogo acotado (mismo criterio que el dashboard general). */
+    const gestionClienteOptions = useMemo(() => {
+        if (isSuperAdminNovedades && fGpUserId) {
+            return mergeClienteOptionsFromApiAndItems(dashboardClientesList, []);
+        }
+        return Array.isArray(calendarClientesList) ? calendarClientesList : [];
+    }, [isSuperAdminNovedades, fGpUserId, dashboardClientesList, calendarClientesList]);
+
+    useEffect(() => {
+        if (!fClienteInicio) return;
+        const ok = dashboardClientesOptions.some(
+            (c) => String(c).trim().toLowerCase() === String(fClienteInicio).trim().toLowerCase()
+        );
+        if (!ok) setFClienteInicio('');
+    }, [dashboardClientesOptions, fClienteInicio]);
+
+    useEffect(() => {
+        if (!fCliente) return;
+        const ok = gestionClienteOptions.some(
+            (c) => String(c).trim().toLowerCase() === String(fCliente).trim().toLowerCase()
+        );
+        if (!ok) setFCliente('');
+    }, [gestionClienteOptions, fCliente]);
+
     useEffect(() => {
         loadGestionData(currentPage, pageSize);
     }, [currentPage, pageSize, fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId]);
@@ -773,25 +888,19 @@ export default function Dashboard({ token, auth, onLogout }) {
         return new Date(it.creadoEn);
     };
 
-    // Items visible in the Inicio dashboard (filtered by mes + día + tipo)
-    const dashItems = items.filter(it => {
+    // Ítems visibles en Dashboard general (mes + tipo + cliente; el alcance por rol viene de `items` / API)
+    const dashItems = useMemo(() => items.filter((it) => {
         const d = getItemDate(it);
         if (isNaN(d.getTime())) return true;
         if (fMes !== '' && d.getMonth() !== Number(fMes)) return false;
-        if (fDia !== '' && d.getDate() !== Number(fDia)) return false;
         if (fTipoInicio !== '' && it.tipoNovedad !== fTipoInicio) return false;
+        if (fClienteInicio !== '') {
+            const a = String(it.cliente || '').trim().toLowerCase();
+            const b = String(fClienteInicio).trim().toLowerCase();
+            if (a !== b) return false;
+        }
         return true;
-    });
-
-    // Available days for the selected month (for the day dropdown)
-    const availableDays = fMes !== ''
-        ? Array.from(new Set(
-            items
-                .map(it => getItemDate(it))
-                .filter(d => !isNaN(d.getTime()) && d.getMonth() === Number(fMes))
-                .map(d => d.getDate())
-        )).sort((a, b) => a - b)
-        : Array.from({ length: 31 }, (_, i) => i + 1);
+    }), [items, fMes, fTipoInicio, fClienteInicio]);
 
     // ── Data Processing (based on dashItems) ─────────────────────────────────
     // 1. Top 5 Empleados
@@ -811,6 +920,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         return acc;
     }, {});
     const typeData = Object.keys(typeDataMap).map(k => ({ name: k, value: typeDataMap[k] }));
+    const typeDataSorted = useMemo(() => [...typeData].sort((a, b) => b.value - a.value), [typeData]);
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
     // 3. Monitor de Tendencia – agrupa dashItems por mes del año en curso
@@ -830,10 +940,78 @@ export default function Dashboard({ token, auth, onLogout }) {
         estimado: Math.round(countByMonth[i] * 1.15 + (i > nowMonth ? (i - nowMonth) * 1.5 : 0))
     }));
 
-    // 4. Sparkline para Total
-    const sparkData = items.length > 0
-        ? items.map((_, i) => ({ val: i + (Math.random() * 5) }))
-        : Array.from({ length: 10 }).map(() => ({ val: Math.random() * 10 }));
+    // 4. KPI tarjeta Total: barras por mes (año en curso, misma fecha ref. que el monitor)
+    const kpiBarMonthData = useMemo(() => {
+        const MESES_CORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+        const y = new Date().getFullYear();
+        const countByMonth = Array(12).fill(0);
+        for (const it of dashItems) {
+            const d = getItemDate(it);
+            if (!isNaN(d.getTime()) && d.getFullYear() === y) countByMonth[d.getMonth()] += 1;
+        }
+        return MESES_CORT.map((mes, i) => ({ mes, count: countByMonth[i], monthIndex: i }));
+    }, [dashItems]);
+
+    /**
+     * Abre Gestión aplicando filtros; rango creado_en solo si se pasan creadoDesde/creadoHasta o si hay fMes en el dashboard.
+     * Nota: en Gestión el rango es sobre creado_en; el filtro Mes del dashboard usa getItemDate (puede diferir).
+     */
+    const navigateGestionWithDashboardFilters = useCallback((partial = {}) => {
+        const nextTipo = Object.prototype.hasOwnProperty.call(partial, 'tipo') ? partial.tipo : fTipoInicio;
+        const nextCliente = Object.prototype.hasOwnProperty.call(partial, 'cliente') ? partial.cliente : fClienteInicio;
+        const nextNombre = Object.prototype.hasOwnProperty.call(partial, 'nombre') ? partial.nombre : '';
+        const nextEstado = Object.prototype.hasOwnProperty.call(partial, 'estado') ? partial.estado : '';
+
+        let desde = '';
+        let hasta = '';
+        if (Object.prototype.hasOwnProperty.call(partial, 'creadoDesde') && Object.prototype.hasOwnProperty.call(partial, 'creadoHasta')) {
+            desde = partial.creadoDesde;
+            hasta = partial.creadoHasta;
+        } else if (fMes !== '') {
+            const r = creadoEnRangeForDashboardMesFilter(fMes);
+            desde = r.desde;
+            hasta = r.hasta;
+        }
+
+        setFTipo(nextTipo || '');
+        setFCliente(nextCliente || '');
+        setFNombre(nextNombre || '');
+        setFEstado(nextEstado || '');
+        setFCreadoDesde(desde);
+        setFCreadoHasta(hasta);
+        setCurrentPage(1);
+        setActiveTab('Gestión');
+    }, [fTipoInicio, fClienteInicio, fMes]);
+
+    const MS_DAY = 86400000;
+    const leadTimeStats = useMemo(() => {
+        const deltas = [];
+        for (const it of dashItems) {
+            if (String(it.estado || '') !== 'Aprobado') continue;
+            const c0 = new Date(it.creadoEn);
+            const c1 = new Date(it.aprobadoEn);
+            if (Number.isNaN(c0.getTime()) || Number.isNaN(c1.getTime())) continue;
+            const ms = c1 - c0;
+            if (ms <= 0) continue;
+            deltas.push(ms);
+        }
+        const n = deltas.length;
+        const buckets = [
+            { name: '≤24 h', n: 0 },
+            { name: '1–3 d', n: 0 },
+            { name: '3–7 d', n: 0 },
+            { name: '>7 d', n: 0 }
+        ];
+        for (const ms of deltas) {
+            const days = ms / MS_DAY;
+            if (ms < MS_DAY) buckets[0].n += 1;
+            else if (days < 3) buckets[1].n += 1;
+            else if (days < 7) buckets[2].n += 1;
+            else buckets[3].n += 1;
+        }
+        const avgMs = n > 0 ? deltas.reduce((a, b) => a + b, 0) / n : null;
+        return { n, avgMs, buckets };
+    }, [dashItems]);
 
     // ── Gestión table filters ─────────────────────────────────────────────────
     const sortedItems = gestionItems;
@@ -943,8 +1121,6 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [currentPage, totalPages]);
 
     const pendientesCount = items.filter(i => i.estado === 'Pendiente').length;
-    // KPI Impacto financiero ficticio baseado en el número de novedades
-    const impactoEst = (dashItems.length * 45000).toLocaleString('es-CO');
 
     // --- CALENDAR LOGIC ---
     const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
@@ -1075,7 +1251,7 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const navItems = [
-        { id: 'Inicio', icon: LayoutDashboard, label: 'Inicio (Dashboard)' },
+        { id: 'DashboardGeneral', icon: LayoutDashboard, label: 'Dashboard general' },
         { id: 'Calendario', icon: Calendar, label: 'Calendario' },
         { id: 'Análisis Avanzado', icon: TrendingUp, label: 'Análisis Avanzado' },
         { id: 'Gestión', icon: Briefcase, label: 'Gestión de Novedades' },
@@ -1105,12 +1281,10 @@ export default function Dashboard({ token, auth, onLogout }) {
                 <option value="__null__">Cliente sin GP en catálogo</option>
                 {gpFilterOptions.map((g) => {
                     const id = String(g.id || '');
-                    const label = String(g.full_name || g.email || id).trim() || id;
-                    const mail = String(g.email || '').trim();
+                    const label = labelGpDirectorioOption(g);
                     return (
-                        <option key={id || mail} value={id}>
+                        <option key={id || label} value={id}>
                             {label}
-                            {mail && mail !== label ? ` — ${mail}` : ''}
                             {g.is_active === false ? ' (inactivo)' : ''}
                         </option>
                     );
@@ -1323,18 +1497,17 @@ export default function Dashboard({ token, auth, onLogout }) {
             {/* Main Content Area */}
             <main className={`flex-1 overflow-y-auto p-4 pt-12 md:pt-6 md:p-6 relative scroll-smooth ${mainCanvas}`}>
 
-                {/* ---------- INICIO (DASHBOARD) ---------- */}
-                {activeTab === 'Inicio' && canAccessPanel('dashboard') && (
+                {/* ---------- Dashboard general ---------- */}
+                {activeTab === 'DashboardGeneral' && canAccessPanel('dashboard') && (
                     <div className="flex flex-col gap-5 animate-in fade-in duration-300 min-h-[calc(100vh-9.5rem)]">
 
-                        {/* ── Filtros: Período + Tipo de Novedad ── */}
+                        {/* ── Filtros: período, cliente, tipo ── */}
                         <div className={dash.filterBar}>
 
-                            {/* Fila 1: Mes / Día / Tipo (desplegable) */}
                             <div className="flex flex-wrap items-center gap-3">
                                 <div className="flex items-center gap-2">
                                     <Calendar size={16} className="text-blue-400" />
-                                    <span className={dash.labelUpper}>Filtrar por período</span>
+                                    <span className={dash.labelUpper}>Filtros</span>
                                 </div>
                                 <div className={dash.divider} />
 
@@ -1343,7 +1516,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <label className={`${dash.labelFilter} whitespace-nowrap`}>Mes</label>
                                     <select
                                         value={fMes}
-                                        onChange={e => { setFMes(e.target.value); setFDia(''); }}
+                                        onChange={(e) => { setFMes(e.target.value); }}
                                         className={`${fieldInput} cursor-pointer py-1.5 text-sm`}
                                     >
                                         <option value="">Todos los meses</option>
@@ -1353,22 +1526,21 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     </select>
                                 </div>
 
-                                {/* Día */}
+                                {/* Cliente (alcance según rol; API acotada) */}
                                 <div className="flex items-center gap-2">
-                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Día</label>
+                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Cliente</label>
                                     <select
-                                        value={fDia}
-                                        onChange={e => setFDia(e.target.value)}
-                                        className={`${fieldInput} cursor-pointer py-1.5 text-sm`}
+                                        value={fClienteInicio}
+                                        onChange={(e) => setFClienteInicio(e.target.value)}
+                                        className={`${fieldInput} min-w-[10rem] max-w-[22rem] cursor-pointer py-1.5 text-sm`}
                                     >
-                                        <option value="">Todos los días</option>
-                                        {availableDays.map(d => (
-                                            <option key={d} value={String(d)}>{d}</option>
+                                        <option value="">Todos los clientes</option>
+                                        {dashboardClientesOptions.map((c) => (
+                                            <option key={c} value={c}>{c}</option>
                                         ))}
                                     </select>
                                 </div>
 
-                                {/* Tipo — a la derecha del Día */}
                                 <div className="flex items-center gap-2">
                                     <label className={`${dash.labelFilter} whitespace-nowrap`}>Tipo</label>
                                     <select
@@ -1396,9 +1568,10 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 ) : null}
 
                                 {/* Botón limpiar */}
-                                {(fMes !== '' || fDia !== '' || fTipoInicio !== '' || fGpUserId !== '') && (
+                                {(fMes !== '' || fClienteInicio !== '' || fTipoInicio !== '' || fGpUserId !== '') && (
                                     <button
-                                        onClick={() => { setFMes(''); setFDia(''); setFTipoInicio(''); setFGpUserId(''); }}
+                                        type="button"
+                                        onClick={() => { setFMes(''); setFClienteInicio(''); setFTipoInicio(''); setFGpUserId(''); }}
                                         className={dash.clearBtn}
                                     >
                                         <X size={12} /> Limpiar filtros
@@ -1421,42 +1594,114 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <div className={`${dash.card} relative overflow-hidden p-6 group`}>
                                 <div className="flex justify-between items-start">
                                     <div>
-                                        <p className={dash.kpiSub}>Total Novedades</p>
+                                        <p className={dash.kpiSub}>Total novedades</p>
                                         <h3 className={`${dash.title3xl} mt-1`}>{dashItems.length}</h3>
                                         {dashItems.length !== items.length && <p className="text-[10px] text-blue-400 mt-0.5">de {items.length} totales</p>}
+                                        <p className={`text-[10px] ${dash.muted} mt-1`}>Por mes (año en curso). Clic en una barra: abre Gestión con rango de creación de ese mes.</p>
                                     </div>
                                     <div className="bg-blue-500/10 p-2.5 rounded-lg border border-blue-500/20">
                                         <Activity size={20} className="text-blue-500" />
                                     </div>
                                 </div>
-                                <div className="h-10 mt-4 -mx-2 opacity-70 group-hover:opacity-100 transition-opacity">
+                                <div className="h-16 mt-3 -mx-1 opacity-90 group-hover:opacity-100 transition-opacity cursor-pointer">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <LineChart data={sparkData}>
-                                            <Line type="monotone" dataKey="val" stroke="#3b82f6" strokeWidth={2} dot={false} />
-                                        </LineChart>
+                                        <BarChart data={kpiBarMonthData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                                            <XAxis dataKey="mes" tick={{ fontSize: 8 }} interval={0} stroke="#64748b" axisLine={false} tickLine={false} />
+                                            <Tooltip contentStyle={dash.chartTooltip} formatter={(v) => [v, 'Novedades']} />
+                                            <Bar
+                                                dataKey="count"
+                                                fill="#3b82f6"
+                                                radius={[2, 2, 0, 0]}
+                                                maxBarSize={18}
+                                                cursor="pointer"
+                                                onClick={(_entry, index) => {
+                                                    const row = kpiBarMonthData[index];
+                                                    if (row && typeof row.monthIndex === 'number') {
+                                                        const y = new Date().getFullYear();
+                                                        const r = creadoEnRangeForMonthIndex(row.monthIndex, y);
+                                                        navigateGestionWithDashboardFilters({ creadoDesde: r.desde, creadoHasta: r.hasta });
+                                                    }
+                                                }}
+                                            />
+                                        </BarChart>
                                     </ResponsiveContainer>
                                 </div>
                             </div>
 
-                            <div className={`${dash.card} relative overflow-hidden border-emerald-500/30 p-6 group`}>
-                                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
+                            <div className={`${dash.card} relative overflow-visible border-sky-500/30 p-6 group`}>
+                                <div className="pointer-events-none absolute top-0 right-0 w-32 h-32 overflow-hidden rounded-2xl">
+                                    <div className="absolute -right-10 -top-10 h-32 w-32 bg-sky-500/5 rounded-full blur-2xl" />
+                                </div>
                                 <div className="flex justify-between items-start relative">
-                                    <div>
-                                        <p className={dash.kpiSub}>Impacto Financiero Est.</p>
-                                        <h3 className="mt-1 text-3xl font-bold text-emerald-500">{`$${impactoEst}`}</h3>
+                                    <div className="min-w-0 pr-2">
+                                        <p className={dash.kpiSub}>Tiempo medio hasta aprobación</p>
+                                        <h3 className="mt-1 text-2xl sm:text-3xl font-bold text-sky-500 tabular-nums">
+                                            {leadTimeStats.n > 0 ? formatDurationMs(leadTimeStats.avgMs) : '—'}
+                                        </h3>
+                                        <p className={`text-xs ${dash.muted} mt-1`}>
+                                            {leadTimeStats.n > 0
+                                                ? 'Indicador calculado a partir del tiempo entre el registro de la novedad y su aprobación.'
+                                                : 'No hay suficientes registros aprobados para mostrar este indicador.'}
+                                        </p>
                                     </div>
-                                    <div className="bg-emerald-500/10 p-2.5 rounded-lg border border-emerald-500/20">
-                                        <DollarSign size={20} className="text-emerald-500" />
+                                    <div className="bg-sky-500/10 p-2.5 rounded-lg border border-sky-500/20 flex-shrink-0">
+                                        <Clock size={20} className="text-sky-500" />
                                     </div>
                                 </div>
-                                <p className="text-xs text-emerald-500/80 mt-4 relative">Proyección optimizada (estimada)</p>
+                                {leadTimeStats.n > 0 ? (
+                                    <div className="h-16 mt-3 min-h-[4rem] cursor-pointer pl-0.5 pr-1">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart
+                                                data={leadTimeStats.buckets.map((b) => ({ name: b.name, n: b.n }))}
+                                                layout="vertical"
+                                                margin={{ top: 8, right: 10, left: 8, bottom: 8 }}
+                                            >
+                                                <XAxis type="number" hide />
+                                                <YAxis
+                                                    type="category"
+                                                    dataKey="name"
+                                                    width={78}
+                                                    interval={0}
+                                                    tickMargin={4}
+                                                    tick={{ fontSize: 10, fill: '#64748b' }}
+                                                    stroke="#64748b"
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                />
+                                                <Tooltip contentStyle={dash.chartTooltip} formatter={(v) => [v, 'Novedades']} />
+                                                <Bar
+                                                    dataKey="n"
+                                                    fill="#0ea5e9"
+                                                    radius={[0, 4, 4, 0]}
+                                                    barSize={14}
+                                                    cursor="pointer"
+                                                    onClick={() => navigateGestionWithDashboardFilters({ estado: 'Aprobado' })}
+                                                />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <p className={`text-xs ${dash.muted} mt-3`}>Solo cuenta novedades en estado Aprobado con fechas válidas.</p>
+                                )}
                             </div>
 
-                            <div className={`${dash.card} p-6`}>
+                            <div
+                                className={`${dash.card} p-6 cursor-pointer transition-opacity hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500`}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(ev) => {
+                                    if (ev.key === 'Enter' || ev.key === ' ') {
+                                        ev.preventDefault();
+                                        navigateGestionWithDashboardFilters({ estado: 'Pendiente' });
+                                    }
+                                }}
+                                onClick={() => navigateGestionWithDashboardFilters({ estado: 'Pendiente' })}
+                            >
                                 <div className="flex justify-between items-start">
                                     <div>
                                         <p className={dash.kpiSub}>Novedades pendientes por aprobación</p>
                                         <h3 className={`${dash.title3xl} mt-1 text-rose-500`}>{pendientesCount}</h3>
+                                        <p className={`text-[10px] ${dash.muted} mt-1`}>Incluye las novedades que aún no tienen decisión de aprobación.</p>
                                     </div>
                                     <div className="bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
                                         <Users size={20} className="text-rose-500" />
@@ -1516,13 +1761,10 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                             <div className={`${dash.card} p-6`}>
                                 <h2 className={`${dash.titleLg} mb-6`}>Distribución por Tipología</h2>
-                                <div className="h-72 w-full">
+                                <p className={`text-xs ${dash.muted} -mt-4 mb-4`}>Clic en una barra para filtrar por tipo en Gestión.</p>
+                                <div className="h-72 w-full cursor-pointer">
                                     <ResponsiveContainer>
-                                        <BarChart
-                                            data={[...typeData].sort((a, b) => b.value - a.value)}
-                                            layout="vertical"
-                                            margin={{ top: 4, right: 8, bottom: 4, left: 8 }}
-                                        >
+                                        <BarChart data={typeDataSorted} layout="vertical" margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
                                             <CartesianGrid strokeDasharray="3 3" stroke={dash.chGrid} opacity={0.3} horizontal={false} />
                                             <XAxis type="number" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                                             <YAxis
@@ -1540,8 +1782,17 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 contentStyle={dash.chartTooltipSm}
                                                 formatter={(value, name, props) => [value, props?.payload?.name || name]}
                                             />
-                                            <Bar dataKey="value" radius={[0, 6, 6, 0]}>
-                                                {[...typeData].sort((a, b) => b.value - a.value).map((entry, index) => (
+                                            <Bar
+                                                dataKey="value"
+                                                radius={[0, 6, 6, 0]}
+                                                cursor="pointer"
+                                                onClick={(_entry, index) => {
+                                                    const row = typeDataSorted[index];
+                                                    const tipoNom = String(row?.name || '').trim();
+                                                    if (tipoNom) navigateGestionWithDashboardFilters({ tipo: tipoNom });
+                                                }}
+                                            >
+                                                {typeDataSorted.map((entry, index) => (
                                                     <Cell key={`bar-tipologia-${entry.name}-${index}`} fill={COLORS[index % COLORS.length]} />
                                                 ))}
                                             </Bar>
@@ -1556,7 +1807,19 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     {topEmpleados.length === 0 ? (
                                         <p className={`mt-10 text-center ${dash.muted}`}>Generando analíticas...</p>
                                     ) : topEmpleados.map((emp, i) => (
-                                        <div key={i} className={dash.topEmplRow}>
+                                        <div
+                                            key={i}
+                                            className={`${dash.topEmplRow} cursor-pointer rounded-xl transition-colors hover:bg-blue-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500`}
+                                            role="button"
+                                            tabIndex={0}
+                                            onKeyDown={(ev) => {
+                                                if (ev.key === 'Enter' || ev.key === ' ') {
+                                                    ev.preventDefault();
+                                                    navigateGestionWithDashboardFilters({ nombre: emp.nombre });
+                                                }
+                                            }}
+                                            onClick={() => navigateGestionWithDashboardFilters({ nombre: emp.nombre })}
+                                        >
                                             <div className="flex items-center gap-3">
                                                 <div className={`flex h-10 w-10 items-center justify-center rounded-full font-bold ${isLight ? 'bg-slate-200 text-blue-700' : 'bg-slate-700 text-blue-400'}`}>
                                                     {emp.nombre.charAt(0).toUpperCase()}
@@ -1617,7 +1880,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <input type="text" placeholder="Buscar por nombre..." value={fNombre} onChange={(e) => setFNombre(e.target.value)} className={`${fieldInput} min-w-[180px] text-sm`} />
                                     <select onChange={(e) => setFCliente(e.target.value)} value={fCliente} className={`${fieldInput} min-w-[220px] text-sm`}>
                                         <option value="">Todos los clientes</option>
-                                        {calendarClientesList.map((c) => (
+                                        {gestionClienteOptions.map((c) => (
                                             <option key={c} value={c}>{c}</option>
                                         ))}
                                     </select>
@@ -2630,7 +2893,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <option value="">Sin GP</option>
                                         {gpFilterOptions.map((g) => {
                                             const id = String(g.id || '');
-                                            const label = String(g.full_name || g.email || id).trim() || id;
+                                            const label = labelGpDirectorioOption(g);
                                             return (
                                                 <option key={id} value={id}>{label}</option>
                                             );

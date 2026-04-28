@@ -22,7 +22,8 @@
     "migrate:capacidad-inventory": "node scripts/inventory-capacidad-ser-administrados-xlsx.js",
     "migrate:capacidad-dry-run": "node scripts/analyze-capacidad-migration-dry-run.js",
     "migrate:capacidad-apply": "node scripts/apply-capacidad-v2-migration.js --apply",
-    "test:load-formulario-20": "node scripts/load-test-formulario-20.js"
+    "test:load-formulario-20": "node scripts/load-test-formulario-20.js",
+    "smoke:directorio-gp": "node scripts/smoke-directorio-falabella-gp.js"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1030.0",

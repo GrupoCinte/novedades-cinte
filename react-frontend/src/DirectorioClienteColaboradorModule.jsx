@@ -139,6 +139,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const [editClienteRowsLoading, setEditClienteRowsLoading] = useState(false);
     const [editClienteGpOptions, setEditClienteGpOptions] = useState([]);
     const [editClienteGpOptionsLoading, setEditClienteGpOptionsLoading] = useState(false);
+    /** Aviso si hay un GP único en catálogo pero no se pudo preseleccionar colaborador por correo. */
+    const [editClienteGpSelectHint, setEditClienteGpSelectHint] = useState('');
     const [editClienteSaving, setEditClienteSaving] = useState(false);
     const [clienteGpOptions, setClienteGpOptions] = useState([]);
     const [clienteGpOptionsLoading, setClienteGpOptionsLoading] = useState(false);
@@ -430,6 +432,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             const gid = row.gp_user_id ? String(row.gp_user_id).trim() : '';
             const nm = (row.nombre || '').trim();
             const em = (row.correo_cinte || '').trim();
+            const correoNorm = em.toLowerCase();
             let label = nm || cedula || '—';
             if (em) label += ` (${em})`;
             if (cedula) label += ` · ${cedula}`;
@@ -440,6 +443,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 value: cedula,
                 label,
                 disabled: !em,
+                correoNorm,
                 gp_user_id: gid || null
             };
         });
@@ -447,6 +451,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             a.label.localeCompare(b.label, 'es', { numeric: true, sensitivity: 'base' })
         );
         return opts;
+    }
+
+    function closeEditClienteModal() {
+        setEditClienteGpSelectHint('');
+        setEditClienteModalOpen(false);
     }
 
     async function openEditClienteModalForCliente(cliente) {
@@ -460,6 +469,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         setEditClienteForm({ nombre: original, gp_colaborador_cedula: '' });
         setEditClienteTargetRows([]);
         setEditClienteGpOptions([]);
+        setEditClienteGpSelectHint('');
         setEditClienteModalOpen(true);
         setEditClienteRowsLoading(true);
         setEditClienteGpOptionsLoading(true);
@@ -476,6 +486,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             setEditClienteTargetRows(rows);
             const gpIds = [...new Set(rows.map((r) => r.gp_user_id).filter(Boolean).map(String))];
             let initialGpCedula = '';
+            let gpSelectHint = '';
             let opts = [];
             try {
                 opts = await fetchColaboradoresAllPagesForGpSelect();
@@ -484,13 +495,42 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             }
             setEditClienteGpOptions(opts);
             if (gpIds.length === 1) {
-                const match = opts.find((o) => !o.disabled && o.gp_user_id === gpIds[0]);
-                initialGpCedula = match?.cedula || '';
+                const uid = gpIds[0];
+                let gpEmailNorm = '';
+                let gpUserFound = false;
+                let gHit = gpItems.find((g) => String(g.id) === uid);
+                if (gHit) gpUserFound = true;
+                if (gHit?.email) gpEmailNorm = String(gHit.email).trim().toLowerCase();
+                if (!gpEmailNorm) {
+                    try {
+                        const gpRes = await fetch('/api/directorio/gp', { headers: authHeaders(token) });
+                        const gpJson = await gpRes.json().catch(() => ({}));
+                        const gpRows = gpRes.ok && Array.isArray(gpJson.items) ? gpJson.items : [];
+                        const g2 = gpRows.find((g) => String(g.id) === uid);
+                        if (g2) gpUserFound = true;
+                        if (g2?.email) gpEmailNorm = String(g2.email).trim().toLowerCase();
+                    } catch {
+                        /* ignore */
+                    }
+                }
+                if (gpEmailNorm) {
+                    const match = opts.find((o) => !o.disabled && o.correoNorm === gpEmailNorm);
+                    initialGpCedula = match?.cedula || '';
+                    if (!initialGpCedula) {
+                        gpSelectHint =
+                            'No hay colaborador con el mismo correo Cinte que el usuario GP; elija manualmente en la lista.';
+                    }
+                } else if (gpUserFound) {
+                    gpSelectHint = 'El usuario GP no tiene correo registrado; elija manualmente en la lista.';
+                } else {
+                    gpSelectHint = 'El GP del catálogo no está en la lista de usuarios GP; elija manualmente en la lista.';
+                }
             }
+            setEditClienteGpSelectHint(gpSelectHint);
             setEditClienteForm({ nombre: original, gp_colaborador_cedula: initialGpCedula });
         } catch (e) {
             flash(String(e.message || e), false);
-            setEditClienteModalOpen(false);
+            closeEditClienteModal();
         } finally {
             setEditClienteRowsLoading(false);
             setEditClienteGpOptionsLoading(false);
@@ -535,7 +575,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             }
             await loadCatalogo();
             flash('Cliente actualizado.');
-            setEditClienteModalOpen(false);
+            closeEditClienteModal();
             if (selectedCatalogCliente === editClienteOriginalName) {
                 setSelectedCatalogCliente(nombre);
             }
@@ -1420,7 +1460,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 <div className="fixed inset-0 z-[55] flex items-center justify-center p-4">
                     <div
                         className="modal-glass-scrim absolute inset-0 transition-opacity"
-                        onClick={() => !editClienteSaving && setEditClienteModalOpen(false)}
+                        onClick={() => !editClienteSaving && closeEditClienteModal()}
                     />
                     <div className="modal-glass-sheet relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
                         <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
@@ -1428,7 +1468,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                             <button
                                 type="button"
                                 disabled={editClienteSaving}
-                                onClick={() => setEditClienteModalOpen(false)}
+                                onClick={() => closeEditClienteModal()}
                                 className="rounded-lg p-2 text-[rgba(159,179,200,0.95)] hover:bg-slate-800/50 disabled:opacity-40"
                                 aria-label="Cerrar"
                             >
@@ -1484,8 +1524,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                                 }
                                             >
                                                 <option value="">— Sin GP —</option>
-                                                {editClienteGpOptions.map((o) => (
-                                                    <option key={o.cedula} value={o.value} disabled={o.disabled}>
+                                                {editClienteGpOptions.map((o, idx) => (
+                                                    <option
+                                                        key={`${o.cedula || 'sin-cedula'}-${idx}`}
+                                                        value={o.value}
+                                                        disabled={o.disabled}
+                                                    >
                                                         {o.label}
                                                     </option>
                                                 ))}
@@ -1498,6 +1542,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                         ) : !editClienteGpOptionsLoading ? (
                                             <p className={`text-xs ${labelMuted} mt-1`}>
                                                 Si el colaborador no tiene correo Cinte, no puede seleccionarse.
+                                            </p>
+                                        ) : null}
+                                        {editClienteGpSelectHint ? (
+                                            <p className={`text-xs mt-1 ${isLight ? 'text-amber-800' : 'text-amber-300/90'}`}>
+                                                {editClienteGpSelectHint}
                                             </p>
                                         ) : null}
                                     </div>
@@ -1515,7 +1564,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                     type="button"
                                     disabled={editClienteSaving}
                                     className={`${outlineBtn} disabled:opacity-40`}
-                                    onClick={() => setEditClienteModalOpen(false)}
+                                    onClick={() => closeEditClienteModal()}
                                 >
                                     Cancelar
                                 </button>

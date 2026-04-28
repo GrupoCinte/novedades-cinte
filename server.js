@@ -470,6 +470,7 @@ const {
     linkGpCognitoSubByEmail,
     migrateExcelIfNeeded,
     getScopedNovedades,
+    listScopedDistinctClientes,
     getHoraExtraAlerts,
     listHoraExtraByCedulaForDomingoPolicy
 } = createDataLayer({
@@ -510,6 +511,7 @@ registerRoutes({
     allowPanel,
     applyScope,
     getScopedNovedades,
+    listScopedDistinctClientes,
     getHoraExtraAlerts,
     listHoraExtraByCedulaForDomingoPolicy,
     toClientNovedad,

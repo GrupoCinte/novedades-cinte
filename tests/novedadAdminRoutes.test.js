@@ -91,6 +91,7 @@ function buildAppWithRole(role) {
         allowPanel: () => (_req, _res, next) => next(),
         applyScope: (_req, _res, next) => next(),
         getScopedNovedades: async () => [],
+        listScopedDistinctClientes: async () => [],
         getHoraExtraAlerts: async () => ({}),
         listHoraExtraByCedulaForDomingoPolicy: async () => [],
         toClientNovedad: (v) => v,

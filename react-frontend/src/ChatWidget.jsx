@@ -7,7 +7,7 @@ const TIPOS_LINEA = NOVEDAD_TYPES.map((t) => `• **${t}**`).join('\n');
 function buildWelcomeText(ctx) {
     const lines = [
         '¡Hola! Soy **CINTEBot**, tu asistente sobre **novedades** en este portal.',
-        'Puedo orientarte en **Inicio** (KPIs y filtros de período), **Gestión de Novedades** (tabla, detalle, exportación Excel), **Alertas de Hora Extra** y **Calendario**.',
+        'Puedo orientarte en **Dashboard general** (KPIs, filtros por mes, **cliente** y tipo), **Gestión de Novedades** (tabla, detalle, exportación Excel), **Alertas de Hora Extra** y **Calendario**.',
         'El portal admite **tema claro u oscuro** (según el interruptor del módulo); este chat se muestra siempre en estilo oscuro.',
     ];
     if (ctx?.role === 'super_admin') {
@@ -32,7 +32,7 @@ const INTENTS = [
         response: (ctx) =>
             ctx?.pendientesCount !== undefined
                 ? `Actualmente hay **${ctx.pendientesCount} novedad(es) pendiente(s)** esperando revisión.\n\nRevísalas en **Gestión de Novedades** (menú lateral) y abre el **detalle** de cada fila para aprobar o rechazar.`
-                : 'En el **Inicio** del Dashboard verás el KPI de pendientes; en **Gestión de Novedades** puedes filtrar por estado **Pendiente** para trabajar la cola.',
+                : 'En **Dashboard general** verás KPIs (incluido tiempo medio hasta aprobación) y pendientes; en **Gestión de Novedades** puedes filtrar por estado **Pendiente** para trabajar la cola.',
     },
     {
         id: 'aprobar',
@@ -72,12 +72,12 @@ const INTENTS = [
     },
     {
         id: 'filtros_inicio',
-        label: '¿Filtros del Inicio del Dashboard?',
+        label: '¿Filtros del Dashboard general?',
         icon: '🔍',
         category: 'proceso',
-        keywords: ['inicio', 'dashboard', 'mes', 'día', 'dia', 'periodo', 'período', 'kpi', 'tendencia', 'top'],
+        keywords: ['dashboard', 'general', 'mes', 'cliente', 'periodo', 'período', 'kpi', 'tendencia', 'top', 'filtro'],
         response: () =>
-            'En el **Inicio** del Dashboard puedes acotar el período:\n\n• **Mes** y, si eliges mes, **Día** para ver un día concreto.\n• **Limpiar** restablece la vista.\n\nEso afecta gráficas como el **Monitor de Tendencia**, la **Distribución por tipología** y el **Top empleados**.',
+            'En **Dashboard general** puedes combinar:\n\n• **Mes** de referencia (fecha de inicio de la novedad o fecha de creación).\n• **Cliente** (lista unión API + datos cargados, acotada a tu **rol**).\n• **Tipo** de novedad y, si eres super administrador, **filtro por GP**.\n• **Limpiar** restablece la vista.\n\nEn **KPIs**, **tipología**, **top empleados** y **pendientes** puedes **hacer clic** para abrir **Gestión** con filtros alineados (el **Monitor de Tendencia** no enlaza).',
     },
     {
         id: 'filtros_gestion',

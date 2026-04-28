@@ -819,34 +819,39 @@ function createDataLayer(deps) {
             let gpUserId = null;
             let createdGpUser = false;
 
-            const currentGp = col.gp_user_id ? String(col.gp_user_id).trim() : '';
-            if (currentGp) {
-                const qgp = await client.query(
-                    `SELECT id::text AS id
-                     FROM users
-                     WHERE id = $1::uuid AND role = 'gp'::user_role
-                     LIMIT 1`,
-                    [currentGp]
-                );
-                if (qgp.rows[0]?.id) gpUserId = qgp.rows[0].id;
+            /**
+             * Prioridad: usuario GP cuyo email coincide con el correo Cinte del colaborador.
+             * `colaboradores.gp_user_id` suele ser otro GP (p. ej. supervisor); si se consultara primero,
+             * al asignar «este colaborador como GP» del catálogo se persistiría el UUID equivocado.
+             */
+            const qEmail = await client.query(
+                `SELECT id::text AS id, role::text AS role
+                 FROM users
+                 WHERE lower(btrim(email)) = lower(btrim($1))
+                 LIMIT 1`,
+                [email]
+            );
+            if (qEmail.rows[0]) {
+                if (qEmail.rows[0].role !== 'gp') {
+                    throw Object.assign(
+                        new Error('El correo del colaborador ya existe en users con un rol distinto a GP.'),
+                        { status: 409 }
+                    );
+                }
+                gpUserId = qEmail.rows[0].id;
             }
 
             if (!gpUserId) {
-                const qEmail = await client.query(
-                    `SELECT id::text AS id, role::text AS role
-                     FROM users
-                     WHERE lower(btrim(email)) = lower(btrim($1))
-                     LIMIT 1`,
-                    [email]
-                );
-                if (qEmail.rows[0]) {
-                    if (qEmail.rows[0].role !== 'gp') {
-                        throw Object.assign(
-                            new Error('El correo del colaborador ya existe en users con un rol distinto a GP.'),
-                            { status: 409 }
-                        );
-                    }
-                    gpUserId = qEmail.rows[0].id;
+                const currentGp = col.gp_user_id ? String(col.gp_user_id).trim() : '';
+                if (currentGp) {
+                    const qgp = await client.query(
+                        `SELECT id::text AS id
+                         FROM users
+                         WHERE id = $1::uuid AND role = 'gp'::user_role
+                         LIMIT 1`,
+                        [currentGp]
+                    );
+                    if (qgp.rows[0]?.id) gpUserId = qgp.rows[0].id;
                 }
             }
 
@@ -996,7 +1001,11 @@ function createDataLayer(deps) {
         return id || null;
     }
 
-    async function getScopedNovedades(scope, options = {}) {
+    /**
+     * Predicados WHERE compartidos para consultas sobre `novedades` con el mismo alcance que el listado principal.
+     * @returns {{ empty: true } | { empty: false, whereSql: string, params: unknown[] }}
+     */
+    async function buildScopedNovedadesWhere(scope, options = {}) {
         const role = scope?.role || '';
         const tipo = String(options?.tipo || '').trim();
         const estado = String(options?.estado || '').trim();
@@ -1014,7 +1023,7 @@ function createDataLayer(deps) {
             const gpInternalId = await resolveGpInternalUserIdForScope(scope);
             const assignedClientes = await listAssignedClientesForGpUserId(gpInternalId);
             if (!assignedClientes.length) {
-                return [];
+                return { empty: true };
             }
             const normalized = assignedClientes.map((c) => String(c).toLowerCase());
             params.push(normalized);
@@ -1059,7 +1068,7 @@ function createDataLayer(deps) {
             ) {
                 const assignedClientes = await listAssignedClientesForGpUserId(gpUserIdOpt);
                 if (!assignedClientes.length) {
-                    return [];
+                    return { empty: true };
                 }
                 const normalized = assignedClientes.map((c) => String(c).toLowerCase());
                 params.push(normalized);
@@ -1067,6 +1076,13 @@ function createDataLayer(deps) {
             }
         }
         const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+        return { empty: false, whereSql, params };
+    }
+
+    async function getScopedNovedades(scope, options = {}) {
+        const role = scope?.role || '';
+        const w = await buildScopedNovedadesWhere(scope, options);
+        if (w.empty) return [];
         const q = await pool.query(
             `SELECT
                 nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.gp_user_id, nov.tipo_novedad, nov.area,
@@ -1080,11 +1096,44 @@ function createDataLayer(deps) {
              FROM novedades nov
              LEFT JOIN users ua ON nov.aprobado_por_user_id = ua.id
              LEFT JOIN users ur ON nov.rechazado_por_user_id = ur.id
-             ${whereSql}
+             ${w.whereSql}
              ORDER BY nov.creado_en DESC`,
-            params
+            w.params
         );
         return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad));
+    }
+
+    /** Clientes distintos visibles con el mismo alcance que `getScopedNovedades` (sin filtros de listado salvo `gpUserId` opcional para super_admin). */
+    async function listScopedDistinctClientes(scope, options = {}) {
+        const role = scope?.role || '';
+        const gpOnly = String(options?.gpUserId || '').trim();
+        const w = await buildScopedNovedadesWhere(scope, {
+            tipo: '',
+            estado: '',
+            nombre: '',
+            cliente: '',
+            createdFrom: '',
+            createdTo: '',
+            ...(gpOnly ? { gpUserId: gpOnly } : {})
+        });
+        if (w.empty) return [];
+        const q = await pool.query(
+            `SELECT DISTINCT nov.cliente AS cliente, nov.tipo_novedad AS tipo_novedad
+             FROM novedades nov
+             ${w.whereSql}`,
+            w.params
+        );
+        const byKey = new Map();
+        for (const row of q.rows || []) {
+            if (!canRoleViewType(role, row.tipo_novedad)) continue;
+            const c = String(row.cliente || '').trim();
+            if (!c) continue;
+            const k = c.toLowerCase();
+            if (!byKey.has(k)) byKey.set(k, c);
+        }
+        return Array.from(byKey.values())
+            .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))
+            .slice(0, 500);
     }
 
     /**
@@ -1439,6 +1488,7 @@ function createDataLayer(deps) {
         linkGpCognitoSubByEmail,
         migrateExcelIfNeeded,
         getScopedNovedades,
+        listScopedDistinctClientes,
         getHoraExtraAlerts,
         listHoraExtraByCedulaForDomingoPolicy
     };
