@@ -12,7 +12,19 @@ export default function CotizadorForm({
     onCotizar,
     loading
 }) {
-    const { cardPanel, field, fieldManual, labelMuted, insetWell, ghostBtn, subPanel, panelTitle } = useModuleTheme();
+    const {
+        cardPanel,
+        field,
+        fieldManual,
+        labelMuted,
+        insetWell,
+        ghostBtn,
+        panelTitle,
+        infoCallout,
+        infoCalloutAccent,
+        formErrorBox,
+        dangerSoftBtn
+    } = useModuleTheme();
     const cargos = Array.isArray(cargosResueltos) ? cargosResueltos : [];
     const prevClienteRef = useRef(form.cliente);
     const [salarioFocusedIdx, setSalarioFocusedIdx] = useState(null);
@@ -138,7 +150,11 @@ export default function CotizadorForm({
                 </div>
                 <div>
                     <label className={`text-xs ${labelMuted}`}>NIT</label>
-                    <input value={clientNit} readOnly className={`w-full ${subPanel} opacity-90`} />
+                    <input
+                        value={clientNit}
+                        readOnly
+                        className={`w-full ${field} cursor-default tabular-nums opacity-90`}
+                    />
                 </div>
                 <div>
                     <label className={`text-xs ${labelMuted}`}>Comercial</label>
@@ -192,9 +208,10 @@ export default function CotizadorForm({
                     </p>
                 )}
                 {form.cliente && cargos.length === 0 && (
-                    <p className="text-xs text-amber-200/95 border border-amber-500/25 rounded p-2 bg-amber-950/20">
-                        Sin tarifas en catálogo para este cliente. Puede usar modo MANUAL para escribir cargo y salario, o comunique al equipo de sistemas si faltan datos importados.
-                    </p>
+                    <div className={infoCallout} role="status">
+                        Sin tarifas en catálogo para este cliente. Puede usar modo{' '}
+                        <strong className={infoCalloutAccent}>MANUAL</strong> para escribir cargo y salario.
+                    </div>
                 )}
                 {form.perfiles.map((p, idx) => {
                     const esManual = String(p.modo || '').toUpperCase() === 'MANUAL';
@@ -235,9 +252,17 @@ export default function CotizadorForm({
                                             {cargos.length === 0 ? (
                                                 <option value="">— Sin opciones —</option>
                                             ) : (
-                                                cargos.map((c, i) => (
-                                                    <option key={`${c.cargo}-${i}`} value={String(i)}>{c.cargo}</option>
-                                                ))
+                                                cargos.map((c, i) => {
+                                                    const ro = String(c.rol_original_cinte || '').trim();
+                                                    const cg = String(c.cargo || '').trim();
+                                                    const label =
+                                                        ro && ro !== cg ? `${ro} — ${cg}` : cg || ro || `Cargo ${i + 1}`;
+                                                    return (
+                                                        <option key={`${c.cargo}-${i}`} value={String(i)}>
+                                                            {label}
+                                                        </option>
+                                                    );
+                                                })
                                             )}
                                         </select>
                                     )}
@@ -271,7 +296,7 @@ export default function CotizadorForm({
                                         />
                                     ) : (
                                         <div
-                                            className={`w-full ${subPanel} text-right tabular-nums tracking-tight min-h-[42px] flex items-center justify-end px-2`}
+                                            className={`w-full ${field} flex items-center justify-end tabular-nums tracking-tight cursor-default`}
                                             title="Salario según catálogo del cliente"
                                         >
                                             {cargos.length ? formatSalarioMoneda(salarioCatalogo) : '—'}
@@ -279,7 +304,9 @@ export default function CotizadorForm({
                                     )}
                                 </div>
                                 <div className="flex items-end pb-0.5">
-                                    <button type="button" onClick={() => removePerfil(idx)} className="w-full bg-rose-600/20 border border-rose-500/40 text-rose-300 rounded p-2">Quitar</button>
+                                    <button type="button" onClick={() => removePerfil(idx)} className={dangerSoftBtn}>
+                                        Quitar
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -288,11 +315,7 @@ export default function CotizadorForm({
                 <button type="button" onClick={addPerfil} className={ghostBtn}>+ Agregar perfil</button>
             </div>
 
-            {formError && (
-                <div className="mt-3 border border-rose-500/40 bg-rose-950/40 text-rose-100 rounded-lg px-3 py-2 text-sm">
-                    {formError}
-                </div>
-            )}
+            {formError && <div className={formErrorBox}>{formError}</div>}
 
             <div className="mt-4">
                 <button

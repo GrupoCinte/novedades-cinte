@@ -26,9 +26,8 @@ export function pickCargosPorClienteRaw(catalogos) {
 }
 
 /**
- * Lista unificada de clientes para el cotizador: API `clientes-formulario`, array `catalogos.clientes`
- * y nombres presentes en `catalogos.cargos_por_cliente` (muchas instalaciones tienen tarifas por clave
- * que no están en `clientes` ni llegaron por el endpoint).
+ * Lista unificada de clientes para el cotizador: API `clientes-formulario` (NIT desde BD)
+ * y nombres presentes en `catalogos.cargos_por_cliente`.
  */
 export function mergeCotizadorClienteRows(clientesLista, catalogos) {
     const byKey = new Map();
@@ -45,9 +44,6 @@ export function mergeCotizadorClienteRows(clientesLista, catalogos) {
     };
 
     for (const c of Array.isArray(clientesLista) ? clientesLista : []) {
-        add(c?.nombre || c?.name, c?.nit || '');
-    }
-    for (const c of Array.isArray(catalogos?.clientes) ? catalogos.clientes : []) {
         add(c?.nombre || c?.name, c?.nit || '');
     }
 

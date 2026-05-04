@@ -1,4 +1,7 @@
+const path = require('path');
+const fs = require('fs');
 const PDFDocument = require('pdfkit');
+const { formatDateTimeBogota } = require('../utils/formatDateTimeBogota');
 
 function money(value, moneda = 'COP') {
     const n = Number(value || 0);
@@ -7,8 +10,34 @@ function money(value, moneda = 'COP') {
     return `COP ${Math.round(n).toLocaleString('es-CO')}`;
 }
 
-function fmtDate(now = new Date()) {
-    return now.toISOString().slice(0, 19).replace('T', ' ');
+function resolveLogoPath() {
+    const names = ['logo-cinte-header-light.png', 'logo-cinte-header.png'];
+    const roots = [path.join(process.cwd(), 'assets'), path.join(__dirname, '..', '..', 'assets')];
+    for (const name of names) {
+        for (const root of roots) {
+            const p = path.join(root, name);
+            if (fs.existsSync(p)) return p;
+        }
+    }
+    return null;
+}
+
+/** Etiqueta de “fecha de generación”: misma lógica que creación en BD / respuesta de cotizar (Bogotá). */
+function resolveFechaGeneracionLabel(cotizacion) {
+    const iso = cotizacion?.fecha_generacion_iso || cotizacion?.created_at;
+    if (iso) {
+        const d = new Date(iso);
+        if (!Number.isNaN(d.getTime())) return formatDateTimeBogota(d);
+    }
+    const f = cotizacion?.fecha;
+    if (f && typeof f === 'string' && f.trim()) {
+        if (f.includes('T') || /^\d{4}-\d{2}-\d{2}/.test(f.trim())) {
+            const d = new Date(f);
+            if (!Number.isNaN(d.getTime())) return formatDateTimeBogota(d);
+        }
+        return f.trim();
+    }
+    return formatDateTimeBogota(new Date());
 }
 
 async function buildCotizacionPdfBuffer(cotizacion = {}) {
@@ -28,15 +57,45 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
         const meses = Number(cotizacion?.meses || 1);
         const resultados = Array.isArray(cotizacion?.resultados) ? cotizacion.resultados : [];
         const refCodigo = String(cotizacion?.codigo || '').trim();
+        const fechaLabel = resolveFechaGeneracionLabel(cotizacion);
 
-        doc.fontSize(18).fillColor('#0f2437').text('COTIZACION COMERCIAL - CINTE', { align: 'left' });
-        doc.moveDown(0.3);
-        doc.fontSize(10).fillColor('#475569').text(`Fecha de generacion: ${fmtDate()}`);
-        if (refCodigo) {
-            doc.fontSize(11).fillColor('#0f2437').text(`Referencia: ${refCodigo}`);
-            doc.moveDown(0.2);
+        const marginLeft = 40;
+        const contentW = 515;
+        const logoY = 36;
+        /** Alto máximo del bloque del logo; el título va debajo, no al costado. */
+        const logoBoxH = 54;
+        const logoPath = resolveLogoPath();
+
+        if (logoPath) {
+            try {
+                doc.image(logoPath, marginLeft, logoY, { fit: [220, logoBoxH], align: 'left', valign: 'top' });
+            } catch {
+                /* sin logo */
+            }
         }
-        doc.moveDown(1);
+
+        let curY = logoPath ? logoY + logoBoxH + 10 : logoY;
+        doc.fontSize(16).fillColor('#0f2437').text('COTIZACION COMERCIAL - CINTE', marginLeft, curY, {
+            width: contentW,
+            align: 'left'
+        });
+        curY += 22;
+        doc.fontSize(10).fillColor('#475569').text(`Fecha de generacion: ${fechaLabel}`, marginLeft, curY, {
+            width: contentW,
+            align: 'left'
+        });
+        curY += 16;
+        if (refCodigo) {
+            doc.fontSize(11).fillColor('#0f2437').text(`Referencia: ${refCodigo}`, marginLeft, curY, {
+                width: contentW,
+                align: 'left'
+            });
+            curY += 18;
+        }
+
+        const headerBlockBottom = curY;
+        doc.y = headerBlockBottom + 8;
+        doc.moveDown(0.5);
 
         doc.fontSize(11).fillColor('#111827').text(`Cliente: ${cliente}`);
         doc.text(`NIT: ${nit}`);
@@ -100,4 +159,3 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
 }
 
 module.exports = { buildCotizacionPdfBuffer };
-

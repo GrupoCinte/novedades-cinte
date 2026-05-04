@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatMoney } from './salarioFormat';
 import { useModuleTheme } from '../moduleTheme.js';
+import { buildCsrfHeaders } from '../cognitoAuth.js';
 
 export default function CotizadorResultados({
     cotizacion,
@@ -8,7 +9,9 @@ export default function CotizadorResultados({
     onGuardar,
     guardando,
     onDescargarPdf,
-    descargandoPdf
+    descargandoPdf,
+    /** Sin tarjeta exterior (p. ej. dentro del modal cristal del cotizador). */
+    embedded = false
 }) {
     const { cardPanel, insetWell, panelTitle, labelMuted, borderSubtle, tableHeadRow, tableBodyRow } = useModuleTheme();
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
@@ -33,7 +36,7 @@ export default function CotizadorResultados({
             setPreviewLoading(true);
             setPreviewError('');
             try {
-                const headers = { 'Content-Type': 'application/json' };
+                const headers = buildCsrfHeaders({ 'Content-Type': 'application/json' });
                 if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
                 const res = await fetch('/api/cotizador/pdf', {
                     method: 'POST',
@@ -66,6 +69,7 @@ export default function CotizadorResultados({
     }, [cotizacion, token]);
 
     if (!cotizacion?.resultados?.length) {
+        if (embedded) return null;
         return (
             <div className={`${cardPanel} ${labelMuted}`}>
                 Ejecuta una cotización para ver resultados.
@@ -73,8 +77,10 @@ export default function CotizadorResultados({
         );
     }
 
+    const surfaceClass = embedded ? 'space-y-4' : `${cardPanel} space-y-4`;
+
     return (
-        <div className={`${cardPanel} space-y-4`}>
+        <div className={surfaceClass}>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                     <h3 className={`${panelTitle} font-bold`}>Resultados</h3>
@@ -109,10 +115,16 @@ export default function CotizadorResultados({
                     <div className={`p-3 text-sm text-rose-600 border-b ${borderSubtle}`}>{previewError}</div>
                 )}
                 {previewLoading && !pdfPreviewUrl && (
-                    <div className={`h-[420px] flex items-center justify-center text-sm ${labelMuted}`}>Generando vista previa…</div>
+                    <div className={`h-[min(560px,72vh)] flex items-center justify-center text-sm ${labelMuted}`}>
+                        Generando vista previa…
+                    </div>
                 )}
                 {pdfPreviewUrl ? (
-                    <iframe title="Vista previa cotización" src={pdfPreviewUrl} className="w-full h-[min(520px,65vh)] border-0 bg-slate-200" />
+                    <iframe
+                        title="Vista previa cotización"
+                        src={pdfPreviewUrl}
+                        className={`w-full border-0 bg-slate-200 ${embedded ? 'h-[min(720px,78vh)]' : 'h-[min(560px,70vh)]'}`}
+                    />
                 ) : null}
             </div>
             <div className="overflow-auto">

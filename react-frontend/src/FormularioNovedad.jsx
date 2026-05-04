@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NOVEDAD_TYPES, getNovedadRule } from './novedadRules';
+import { NOVEDAD_TYPES, getNovedadRule, countBusinessDaysInclusive, countCalendarDaysInclusive } from './novedadRules';
 import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat';
 import { toUtcMsFromDateAndTime } from './heNovedadBogotaClient.js';
 
@@ -24,6 +24,154 @@ const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 const MSG_EXCEL_PLANTILLA_GENERICO =
     '❌ Este tipo de novedad requiere al menos un archivo Excel (.xls o .xlsx) con el formato diligenciado.';
+
+const URL_POLITICA_DATOS_PERSONALES =
+    'https://grupocinte.com/politica-de-tratamiento-y-proteccion-de-datos-personales/';
+
+/** El navegador suele exponer "Failed to fetch" cuando no hay red o el backend no responde en /api. */
+function mensajeErrorVerificacionCedula(err) {
+    const raw = String(err?.message || '').trim();
+    const pareceFalloRed =
+        err instanceof TypeError
+        || /failed to fetch|networkerror|load failed|network request failed/i.test(raw);
+    if (pareceFalloRed) {
+        return 'No se pudo conectar con el servidor del formulario. Comprueba que el API esté en marcha (en la raíz del repo: npm run dev; puerto por defecto 3005) y que esta página se abra desde el servidor de Vite del frontend, para que las rutas /api se reenvíen al backend.';
+    }
+    return raw || 'No se pudo verificar la cédula.';
+}
+
+const FORMULARIO_THEME_STORAGE_KEY = 'formularioNovedadTheme';
+
+/** Tokens de UI para el panel del formulario (oscuro = actual; claro = White). */
+const FORM_THEMES = {
+    dark: {
+        pageOverlay: 'absolute inset-0 bg-[#04141E]/40 backdrop-blur-[2px]',
+        formCard:
+            'flex-1 lg:rounded-r-3xl lg:rounded-l-none rounded-none bg-[#04141E]/85 backdrop-blur-xl border border-[#1a3a56]/50 lg:border-l-0 overflow-y-auto max-h-screen lg:max-h-[92vh]',
+        mobileHeaderTitle: 'font-heading text-lg font-bold text-white tracking-wide',
+        input:
+            'w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-xl font-body text-sm focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a] [color-scheme:dark]',
+        label: 'text-sm font-medium text-[#9fb3c8] font-body',
+        reqStar: 'text-[#65BCF7]',
+        sectionTitle: 'font-subtitle text-lg font-extralight text-[#65BCF7] tracking-wide mb-4 flex items-center gap-2',
+        sectionTitleNoMb: 'font-subtitle text-lg font-extralight text-[#65BCF7] tracking-wide mb-0 flex items-center gap-2',
+        sectionBar: 'w-1.5 h-5 bg-[#65BCF7] rounded-full inline-block',
+        sectionBarDetalle: 'w-1.5 h-5 bg-[#088DC6] rounded-full inline-block',
+        sectionBarFechas: 'w-1.5 h-5 bg-[#2F7BB8] rounded-full inline-block',
+        helperMuted: 'text-xs text-[#4a6f8f] mb-1.5 font-body',
+        helperMutedPlain: 'text-xs text-[#4a6f8f] font-body',
+        docErrorBox: 'rounded-xl border border-rose-500/40 bg-rose-900/20 px-4 py-3 text-sm text-rose-100 font-body',
+        avatarRow: 'flex items-center gap-4 p-4 rounded-xl bg-[#0b1e30]/60 border border-[#1a3a56]',
+        avatarName: 'text-white font-body font-semibold text-sm',
+        avatarSub: 'text-[#9fb3c8] font-body text-xs',
+        badgeVerificado: 'ml-auto text-xs font-body font-semibold text-[#1fc76a] bg-[#1fc76a]/10 px-2 py-1 rounded-lg',
+        correoReadonly: 'disabled:opacity-70 read-only:bg-[#04141E]/60 read-only:cursor-not-allowed',
+        inputReadonly: 'read-only:bg-[#04141E]/60 read-only:text-[#9fb3c8]',
+        heBlock: 'md:col-span-2 rounded-lg border border-violet-500/40 bg-[#0a1f2e] px-3 py-3 space-y-3',
+        heText: 'text-sm text-[#9fb3c8] font-body',
+        heStrong: 'text-[#e8f1ff]',
+        radioLabel: 'flex items-center gap-2 text-sm text-[#9fb3c8] cursor-pointer font-body',
+        hintStrong: 'text-[#9fb3c8]',
+        hintLine: 'md:col-span-2 text-xs text-[#4a6f8f] font-body',
+        fileDropDisabled: 'opacity-50 cursor-not-allowed pointer-events-none border-[#1a3a56] bg-[#0b1e30]/20',
+        fileDropIdle: 'border-[#1a3a56] hover:border-[#2F7BB8] bg-[#0b1e30]/40',
+        fileDropDrag: 'border-[#65BCF7] bg-[#65BCF7]/10',
+        fileDropBase: 'flex flex-col items-center justify-center gap-3 p-8 rounded-xl border-2 border-dashed transition-all',
+        uploadIcon: 'w-10 h-10 text-[#4a6f8f]',
+        uploadHint: 'text-sm text-[#9fb3c8] font-body',
+        uploadHintAccent: 'text-[#65BCF7] font-semibold',
+        chipExt: 'px-2 py-0.5 rounded text-[10px] font-bold font-body bg-[#1a3a56]/60 text-[#65BCF7]',
+        fileRow: 'flex items-center gap-3 p-2.5 rounded-lg bg-[#0b1e30]/50 border border-[#1a3a56]',
+        fileIconBg: 'w-9 h-9 flex items-center justify-center rounded-lg bg-[#2F7BB8]/20 text-[#65BCF7] text-[10px] font-bold font-body shrink-0',
+        fileName: 'text-xs text-white font-body truncate',
+        fileSize: 'text-[10px] text-[#4a6f8f] font-body',
+        formatLink:
+            'inline-flex items-center px-3 py-1.5 text-xs font-semibold font-body rounded-lg border border-[#2F7BB8]/40 text-[#65BCF7] hover:bg-[#2F7BB8]/10 transition-all',
+        excelNote: 'text-xs text-[#65BCF7]/90 mt-2 font-body',
+        consentBox: 'rounded-xl border border-[#1a3a56] bg-[#0b1e30]/40 px-4 py-4 space-y-3',
+        consentLabel: 'text-sm text-[#9fb3c8] font-body leading-relaxed cursor-pointer',
+        consentLink: 'text-[#65BCF7] underline underline-offset-2 hover:text-[#88cffc]',
+        politicaMuted: 'text-xs text-[#4a6f8f] font-body pl-7',
+        switchLabelActive: 'text-xs font-semibold font-body text-[#65BCF7]',
+        switchLabelIdle: 'text-xs font-semibold font-body text-[#4a6f8f]',
+        switchTrack: 'relative h-8 w-14 shrink-0 rounded-full border border-[#1a3a56] bg-[#0b1e30] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#65BCF7]/50',
+        switchTrackOn: 'border-[#2F7BB8] bg-[#2F7BB8]/40',
+        switchThumb: 'pointer-events-none absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform duration-200',
+        switchThumbOn: 'translate-x-6'
+    },
+    light: {
+        pageOverlay: 'absolute inset-0 bg-slate-200/55 backdrop-blur-[2px]',
+        formCard:
+            'flex-1 lg:rounded-r-3xl lg:rounded-l-none rounded-none bg-white/95 backdrop-blur-xl border border-slate-200 shadow-sm lg:border-l-0 overflow-y-auto max-h-screen lg:max-h-[92vh]',
+        mobileHeaderTitle: 'font-heading text-lg font-bold text-slate-900 tracking-wide',
+        input:
+            'w-full bg-white border border-slate-300 text-slate-900 p-3 rounded-xl font-body text-sm focus:outline-none focus:border-[#2F7BB8] focus:ring-2 focus:ring-[#2F7BB8]/25 transition-all placeholder-slate-400 [color-scheme:light]',
+        label: 'text-sm font-medium text-slate-700 font-body',
+        reqStar: 'text-[#2F7BB8]',
+        sectionTitle: 'font-subtitle text-lg font-extralight text-[#004D87] tracking-wide mb-4 flex items-center gap-2',
+        sectionTitleNoMb: 'font-subtitle text-lg font-extralight text-[#004D87] tracking-wide mb-0 flex items-center gap-2',
+        sectionBar: 'w-1.5 h-5 bg-[#2F7BB8] rounded-full inline-block',
+        sectionBarDetalle: 'w-1.5 h-5 bg-[#088DC6] rounded-full inline-block',
+        sectionBarFechas: 'w-1.5 h-5 bg-[#004D87] rounded-full inline-block',
+        helperMuted: 'text-xs text-slate-500 mb-1.5 font-body',
+        helperMutedPlain: 'text-xs text-slate-500 font-body',
+        docErrorBox: 'rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 font-body',
+        avatarRow: 'flex items-center gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200',
+        avatarName: 'text-slate-900 font-body font-semibold text-sm',
+        avatarSub: 'text-slate-600 font-body text-xs',
+        badgeVerificado: 'ml-auto text-xs font-body font-semibold text-emerald-800 bg-emerald-100 px-2 py-1 rounded-lg',
+        correoReadonly: 'disabled:opacity-70 read-only:bg-slate-100 read-only:cursor-not-allowed',
+        inputReadonly: 'read-only:bg-slate-100 read-only:text-slate-600',
+        heBlock: 'md:col-span-2 rounded-lg border border-violet-200 bg-violet-50/90 px-3 py-3 space-y-3',
+        heText: 'text-sm text-slate-700 font-body',
+        heStrong: 'text-slate-900',
+        radioLabel: 'flex items-center gap-2 text-sm text-slate-700 cursor-pointer font-body',
+        hintStrong: 'text-slate-800',
+        hintLine: 'md:col-span-2 text-xs text-slate-500 font-body',
+        fileDropDisabled: 'opacity-50 cursor-not-allowed pointer-events-none border-slate-200 bg-slate-50',
+        fileDropIdle: 'border-slate-300 hover:border-[#2F7BB8] bg-slate-50',
+        fileDropDrag: 'border-[#2F7BB8] bg-sky-50',
+        fileDropBase: 'flex flex-col items-center justify-center gap-3 p-8 rounded-xl border-2 border-dashed transition-all',
+        uploadIcon: 'w-10 h-10 text-slate-400',
+        uploadHint: 'text-sm text-slate-600 font-body',
+        uploadHintAccent: 'text-[#004D87] font-semibold',
+        chipExt: 'px-2 py-0.5 rounded text-[10px] font-bold font-body bg-sky-100 text-[#004D87]',
+        fileRow: 'flex items-center gap-3 p-2.5 rounded-lg bg-slate-50 border border-slate-200',
+        fileIconBg: 'w-9 h-9 flex items-center justify-center rounded-lg bg-sky-100 text-[#004D87] text-[10px] font-bold font-body shrink-0',
+        fileName: 'text-xs text-slate-900 font-body truncate',
+        fileSize: 'text-[10px] text-slate-500 font-body',
+        formatLink:
+            'inline-flex items-center px-3 py-1.5 text-xs font-semibold font-body rounded-lg border border-[#2F7BB8]/50 text-[#004D87] hover:bg-sky-50 transition-all',
+        excelNote: 'text-xs text-[#004D87] mt-2 font-body',
+        consentBox: 'rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 space-y-3',
+        consentLabel: 'text-sm text-slate-700 font-body leading-relaxed cursor-pointer',
+        consentLink: 'text-[#004D87] underline underline-offset-2 hover:text-[#2F7BB8]',
+        politicaMuted: 'text-xs text-slate-500 font-body pl-7',
+        switchLabelActive: 'text-xs font-semibold font-body text-[#004D87]',
+        switchLabelIdle: 'text-xs font-semibold font-body text-slate-400',
+        switchTrack: 'relative h-8 w-14 shrink-0 rounded-full border border-slate-300 bg-slate-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2F7BB8]/40',
+        switchTrackOn: 'border-[#2F7BB8] bg-sky-100',
+        switchThumb: 'pointer-events-none absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform duration-200 ring-1 ring-slate-300/60',
+        switchThumbOn: 'translate-x-6'
+    }
+};
+
+/** Estado inicial del detalle (todo salvo cédula al resetear o fallar verificación). */
+const EMPTY_DETALLE_FORM = {
+    nombre: '',
+    correo: '',
+    cliente: '',
+    lider: '',
+    tipo: '',
+    fecha: '',
+    horaInicio: '',
+    horaFin: '',
+    cantidadHoras: '',
+    fechaInicio: '',
+    fechaFin: '',
+    diasSolicitados: '',
+    montoBono: '$ '
+};
 
 function isExcelAttachment(file) {
     const lowerName = String(file?.name || '').toLowerCase();
@@ -52,6 +200,8 @@ export default function FormularioNovedad() {
     });
 
     const [status, setStatus] = useState({ type: '', text: '' });
+    /** Mensajes de verificación de cédula (arriba, junto al solicitante). El envío sigue usando `status` abajo. */
+    const [documentoMensaje, setDocumentoMensaje] = useState({ tipo: '', text: '' });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState([]);
     const [clientes, setClientes] = useState([]);
@@ -61,6 +211,14 @@ export default function FormularioNovedad() {
     const [verificandoCedula, setVerificandoCedula] = useState(false);
     /** Solo líder precargado desde directorio (correo/cliente se bloquean con otra regla). */
     const [catalogLocks, setCatalogLocks] = useState({ lider: false });
+    const [aceptaPoliticaDatos, setAceptaPoliticaDatos] = useState(false);
+    const [themeMode, setThemeMode] = useState(() => {
+        try {
+            return localStorage.getItem(FORMULARIO_THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark';
+        } catch {
+            return 'dark';
+        }
+    });
 
     const [heDomingoPreview, setHeDomingoPreview] = useState(null);
     const [heDomingoPreviewLoading, setHeDomingoPreviewLoading] = useState(false);
@@ -72,6 +230,9 @@ export default function FormularioNovedad() {
     const bloquearCorreo = colaboradorVerificado;
     /** Cliente bloqueado si ya hay valor (API o selección previa); si el directorio viene vacío se permite elegir una vez. */
     const bloquearCliente = colaboradorVerificado && Boolean(String(formData.cliente || '').trim());
+    const puedeDiligenciarDetalle = colaboradorVerificado;
+    const tipoSeleccionado = Boolean(String(formData.tipo || '').trim());
+    const detalleFormularioActivo = puedeDiligenciarDetalle && tipoSeleccionado;
 
     const normalizeCedulaInput = (value) => String(value || '').replace(/\D/g, '');
 
@@ -80,17 +241,23 @@ export default function FormularioNovedad() {
     const requiredDocuments = rule.requiredDocuments || [];
     const requiredDocsCount = requiredDocuments.length;
     const requiereAdjunto = requiredDocsCount > 0;
-    const minSupportsRequired = requiereAdjunto ? requiredDocsCount : 0;
     const requierePlantillaExcel = Array.isArray(rule.formatLinks) && rule.formatLinks.length > 0;
     const requiereDias = Boolean(rule.requiresDayCount);
     const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays);
-    const esVacacionesDinero = formData.tipo === 'Vacaciones en dinero';
+    const autocalculaDiasCalendario = Boolean(rule.autoCalendarDays);
+    const autocalculaDiasDesdeRango = autocalculaDiasHabiles || autocalculaDiasCalendario;
     const requiereMontoCop = Boolean(rule.requiresMonetaryAmount);
     const esDisponibilidad = formData.tipo === 'Disponibilidad';
-    const esSinAdjuntosPublicos = esDisponibilidad || formData.tipo === 'Vacaciones en tiempo';
+    const esSinAdjuntosPublicos = esDisponibilidad;
     const esIncapacidad = formData.tipo === 'Incapacidad';
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
     const usaBloqueHoras = isHoraExtra || requiereLapsoHora;
+    /** Disponibilidad: días hábiles del rango solo informativos (el backend no persiste días en cantidad_horas). */
+    const diasInformativosDisponibilidad = useMemo(() => {
+        if (!esDisponibilidad || !formData.fechaInicio || !formData.fechaFin) return 0;
+        if (formData.fechaFin < formData.fechaInicio) return 0;
+        return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin);
+    }, [esDisponibilidad, formData.fechaInicio, formData.fechaFin]);
 
     const parseMilitaryTimeToMinutes = (value) => {
         if (!value) return null;
@@ -116,18 +283,6 @@ export default function FormularioNovedad() {
         const d = new Date(`${dateValue}T${timeValue}:00`);
         if (Number.isNaN(d.getTime())) return null;
         return d.getTime();
-    };
-
-    const countBusinessDaysInclusive = (startDateRaw, endDateRaw) => {
-        if (!startDateRaw || !endDateRaw || endDateRaw < startDateRaw) return 0;
-        const start = new Date(`${startDateRaw}T00:00:00`);
-        const end = new Date(`${endDateRaw}T00:00:00`);
-        let count = 0;
-        for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
-            const day = cursor.getDay();
-            if (day !== 0 && day !== 6) count += 1;
-        }
-        return count;
     };
 
     useEffect(() => {
@@ -248,10 +403,15 @@ export default function FormularioNovedad() {
         return Number(((finMs - inicioMs) / (1000 * 60 * 60)).toFixed(2));
     }, [usaBloqueHoras, isHoraExtra, formData.fechaInicio, formData.fechaFin, formData.horaInicio, formData.horaFin]);
 
-    const diasHabilesCalculados = useMemo(() => {
-        if (!autocalculaDiasHabiles) return 0;
-        return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin);
-    }, [autocalculaDiasHabiles, formData.fechaInicio, formData.fechaFin]);
+    const diasAutoCalculados = useMemo(() => {
+        if (autocalculaDiasCalendario) {
+            return countCalendarDaysInclusive(formData.fechaInicio, formData.fechaFin);
+        }
+        if (autocalculaDiasHabiles) {
+            return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin);
+        }
+        return 0;
+    }, [autocalculaDiasCalendario, autocalculaDiasHabiles, formData.fechaInicio, formData.fechaFin]);
 
     /** Incluye el cliente del directorio aunque no coincida literalmente con la lista del catálogo (evita <select> en blanco). */
     const clientesParaSelect = useMemo(() => {
@@ -311,8 +471,11 @@ export default function FormularioNovedad() {
         );
 
     const bloqueoEnvioFechas = !usaBloqueHoras
-        && !esVacacionesDinero
-        && (!formData.fechaInicio || fechaFinInvalida);
+        && (
+            !formData.fechaInicio
+            || fechaFinInvalida
+            || (autocalculaDiasDesdeRango && !String(formData.fechaFin || '').trim())
+        );
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -320,9 +483,18 @@ export default function FormularioNovedad() {
             const digits = normalizeCedulaInput(value);
             setColaboradorVerificado(false);
             setCatalogLocks({ lider: false });
-            setFormData({ ...formData, cedula: digits, nombre: '' });
+            setDocumentoMensaje({ tipo: '', text: '' });
+            setStatus({ type: '', text: '' });
+            setSelectedFiles([]);
+            setLideres([]);
+            setHeDomingoPreview(null);
+            setHeDomingoCompensacion('');
+            setDiaCompensatorioYmd('');
+            setAceptaPoliticaDatos(false);
+            setFormData({ ...EMPTY_DETALLE_FORM, cedula: digits });
             return;
         }
+        if (!colaboradorVerificado) return;
         if (bloquearCorreo && name === 'correo') return;
         if (bloquearCliente && name === 'cliente') return;
         if (catalogLocks.lider && colaboradorVerificado && name === 'lider') return;
@@ -347,37 +519,47 @@ export default function FormularioNovedad() {
         if (name === 'fechaInicio') {
             const resetFechaFin = formData.fechaFin && formData.fechaFin < value;
             const nextFechaFin = resetFechaFin ? '' : formData.fechaFin;
-            const nextDias = autocalculaDiasHabiles ? String(countBusinessDaysInclusive(value, nextFechaFin)) : formData.diasSolicitados;
+            const nextDias = autocalculaDiasCalendario
+                ? String(countCalendarDaysInclusive(value, nextFechaFin))
+                : autocalculaDiasHabiles
+                    ? String(countBusinessDaysInclusive(value, nextFechaFin))
+                    : formData.diasSolicitados;
             setFormData({ ...formData, fechaInicio: value, fechaFin: nextFechaFin, diasSolicitados: nextDias });
             return;
         }
         if (name === 'fechaFin') {
-            const nextDias = autocalculaDiasHabiles ? String(countBusinessDaysInclusive(formData.fechaInicio, value)) : formData.diasSolicitados;
+            const nextDias = autocalculaDiasCalendario
+                ? String(countCalendarDaysInclusive(formData.fechaInicio, value))
+                : autocalculaDiasHabiles
+                    ? String(countBusinessDaysInclusive(formData.fechaInicio, value))
+                    : formData.diasSolicitados;
             setFormData({ ...formData, fechaFin: value, diasSolicitados: nextDias });
             return;
         }
         if (name === 'tipo') {
             const nextRule = getNovedadRule(value);
             const nextRequiereDias = Boolean(nextRule.requiresDayCount);
-            const nextAutoDias = Boolean(nextRule.autoBusinessDays);
+            const nextAutoHabiles = Boolean(nextRule.autoBusinessDays);
+            const nextAutoCalendario = Boolean(nextRule.autoCalendarDays);
+            const tipoVacio = !String(value || '').trim();
             let nextDias = '';
-            if (value === 'Vacaciones en dinero') {
-                nextDias = '';
-            } else if (nextAutoDias) {
+            if (nextAutoCalendario) {
+                nextDias = String(countCalendarDaysInclusive(formData.fechaInicio, formData.fechaFin));
+            } else if (nextAutoHabiles) {
                 nextDias = String(countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin));
             } else if (nextRequiereDias) {
                 nextDias = formData.diasSolicitados;
             }
-            const fechasVacacionesDinero =
-                value === 'Vacaciones en dinero' ? { fechaInicio: '', fechaFin: '' } : {};
             setFormData({
                 ...formData,
                 tipo: value,
+                cliente: tipoVacio ? '' : formData.cliente,
+                lider: tipoVacio ? '' : formData.lider,
                 diasSolicitados: nextDias,
-                montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ ',
-                ...fechasVacacionesDinero
+                montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ '
             });
-            if (value === 'Disponibilidad' || value === 'Vacaciones en tiempo') {
+            if (tipoVacio) setLideres([]);
+            if (value === 'Disponibilidad') {
                 setSelectedFiles([]);
             }
             return;
@@ -392,10 +574,14 @@ export default function FormularioNovedad() {
     const handleComprobarCedula = async () => {
         const c = normalizeCedulaInput(formData.cedula);
         if (!c) {
-            setStatus({ type: 'error', text: '❌ Ingresa una cédula (solo números, sin puntos ni comas).' });
+            setDocumentoMensaje({
+                tipo: 'error',
+                text: '❌ Ingresa una cédula (solo números, sin puntos ni comas).'
+            });
             return;
         }
         setVerificandoCedula(true);
+        setDocumentoMensaje({ tipo: '', text: '' });
         setStatus({ type: '', text: '' });
         try {
             const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`);
@@ -415,16 +601,33 @@ export default function FormularioNovedad() {
                 lider: Boolean(data.lockLider)
             });
             setColaboradorVerificado(true);
-            setStatus({ type: 'success', text: '✅ Colaborador verificado.' });
+            setDocumentoMensaje({ tipo: '', text: '' });
         } catch (err) {
             setColaboradorVerificado(false);
             setCatalogLocks({ lider: false });
-            setFormData((prev) => ({ ...prev, nombre: '' }));
-            setStatus({ type: 'error', text: `❌ ${err?.message || 'No se pudo verificar la cédula.'}` });
+            setSelectedFiles([]);
+            setLideres([]);
+            setHeDomingoPreview(null);
+            setHeDomingoCompensacion('');
+            setDiaCompensatorioYmd('');
+            setAceptaPoliticaDatos(false);
+            setFormData((prev) => ({ ...EMPTY_DETALLE_FORM, cedula: prev.cedula }));
+            setDocumentoMensaje({
+                tipo: 'error',
+                text: `❌ ${mensajeErrorVerificacionCedula(err)}`
+            });
         } finally {
             setVerificandoCedula(false);
         }
     };
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(FORMULARIO_THEME_STORAGE_KEY, themeMode);
+        } catch {
+            /* ignore */
+        }
+    }, [themeMode]);
 
     useEffect(() => {
         const loadClientes = async () => {
@@ -470,30 +673,17 @@ export default function FormularioNovedad() {
     }, [formData.cliente]);
 
     useEffect(() => {
-        if (!autocalculaDiasHabiles) return;
-        const next = String(diasHabilesCalculados);
+        if (!autocalculaDiasDesdeRango) return;
+        const next = String(diasAutoCalculados);
         if (formData.diasSolicitados !== next) {
             setFormData((prev) => ({ ...prev, diasSolicitados: next }));
         }
-    }, [autocalculaDiasHabiles, diasHabilesCalculados, formData.diasSolicitados]);
+    }, [autocalculaDiasDesdeRango, diasAutoCalculados, formData.diasSolicitados]);
 
     const getAttachmentError = (file) => {
         if (!file) return null;
         if (file.size > MAX_ATTACHMENT_BYTES) {
             return '❌ El archivo supera 5MB. Adjunta un archivo de máximo 5MB.';
-        }
-        if (esVacacionesDinero) {
-            const lowerName = file.name.toLowerCase();
-            const dotIndex = lowerName.lastIndexOf('.');
-            const extension = dotIndex >= 0 ? lowerName.slice(dotIndex) : '';
-            if (extension !== '.pdf') {
-                return '❌ Vacaciones en dinero solo admite PDF: carta con firma manuscrita y solicitud formal.';
-            }
-            const mime = String(file.type || '').toLowerCase();
-            if (mime && mime !== 'application/pdf') {
-                return '❌ Vacaciones en dinero solo admite archivo PDF.';
-            }
-            return null;
         }
         const lowerName = file.name.toLowerCase();
         const dotIndex = lowerName.lastIndexOf('.');
@@ -516,6 +706,10 @@ export default function FormularioNovedad() {
     };
 
     const handleFileChange = (e) => {
+        if (!detalleFormularioActivo) {
+            e.target.value = '';
+            return;
+        }
         const files = Array.from(e.target.files || []);
         for (const file of files) {
             const error = getAttachmentError(file);
@@ -535,6 +729,22 @@ export default function FormularioNovedad() {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
+        if (!aceptaPoliticaDatos) {
+            setStatus({
+                type: 'error',
+                text: '❌ Debes aceptar la política de tratamiento y protección de datos personales para enviar la solicitud.'
+            });
+            return;
+        }
+
+        if (!colaboradorVerificado) {
+            setStatus({
+                type: 'error',
+                text: '❌ Debes comprobar la cédula y tener un colaborador registrado antes de enviar.'
+            });
+            return;
+        }
+
         if (bloqueHeDomingoComp) {
             const msg = heDomingoPreview?.error
                 ? `❌ ${heDomingoPreview.error}`
@@ -545,7 +755,9 @@ export default function FormularioNovedad() {
         if (bloqueoEnvioHoraExtra || bloqueoEnvioFechas) {
             const mensaje = isHoraExtra
                 ? '❌ Corrige fecha/horas de Hora Extra antes de enviar.'
-                : '❌ Corrige las fechas (Fecha Fin no puede ser menor a Fecha Inicio).';
+                : autocalculaDiasDesdeRango && !String(formData.fechaFin || '').trim()
+                    ? '❌ Indica Fecha Inicio y Fecha Fin para calcular los días.'
+                    : '❌ Corrige las fechas (Fecha Fin no puede ser menor a Fecha Inicio o falta Fecha Inicio).';
             setStatus({ type: 'error', text: mensaje });
             return;
         }
@@ -591,25 +803,17 @@ export default function FormularioNovedad() {
             }
         }
 
-        if (autocalculaDiasHabiles && !(diasHabilesCalculados > 0)) {
-            setStatus({ type: 'error', text: '❌ El rango seleccionado no contiene dias hábiles (lunes a viernes).' });
+        if (autocalculaDiasDesdeRango && !(diasAutoCalculados > 0)) {
+            const msgDias = autocalculaDiasCalendario
+                ? '❌ El rango de fechas no genera días de calendario válidos (revisa inicio y fin).'
+                : '❌ El rango seleccionado no contiene dias hábiles (lunes a viernes).';
+            setStatus({ type: 'error', text: msgDias });
             return;
         }
 
-        if (requiereDias && !autocalculaDiasHabiles && !esVacacionesDinero && !(Number(formData.diasSolicitados) > 0)) {
+        if (requiereDias && !autocalculaDiasDesdeRango && !(Number(formData.diasSolicitados) > 0)) {
             setStatus({ type: 'error', text: '❌ Debes diligenciar una cantidad de dias valida.' });
             return;
-        }
-
-        if (esVacacionesDinero) {
-            const dias = Number(formData.diasSolicitados);
-            if (!Number.isFinite(dias) || dias < 1 || Math.floor(dias) !== dias) {
-                setStatus({
-                    type: 'error',
-                    text: '❌ Indica la cantidad de días a solicitar (número entero mayor o igual a 1).'
-                });
-                return;
-            }
         }
 
         if (usaBloqueHoras) {
@@ -649,6 +853,7 @@ export default function FormularioNovedad() {
             payload.append('cliente', formData.cliente || '');
             payload.append('lider', formData.lider || '');
             payload.append('tipoNovedad', formData.tipo);
+            payload.append('aceptaPoliticaDatos', aceptaPoliticaDatos ? 'true' : 'false');
 
             if (usaBloqueHoras) {
                 payload.append('fecha', formData.fechaInicio);
@@ -668,17 +873,16 @@ export default function FormularioNovedad() {
                         payload.append('diaCompensatorioYmd', diaCompensatorioYmd);
                     }
                 }
-            } else if (esVacacionesDinero) {
-                const dias = Math.floor(Number(formData.diasSolicitados || 0));
-                payload.append('fechaInicio', todayIso);
-                payload.append('fechaFin', '');
-                payload.append('diasSolicitados', String(dias));
-                payload.append('cantidadHoras', String(dias));
             } else {
                 payload.append('fechaInicio', formData.fechaInicio);
                 payload.append('fechaFin', formData.fechaFin || 'N/A');
-                const diasValue = autocalculaDiasHabiles ? diasHabilesCalculados : Number(formData.diasSolicitados || 0);
-                payload.append('cantidadHoras', requiereDias ? diasValue : (formData.cantidadHoras || 0));
+                const diasValuePayload = autocalculaDiasDesdeRango
+                    ? diasAutoCalculados
+                    : (requiereDias ? Number(formData.diasSolicitados || 0) : Number(formData.cantidadHoras || 0));
+                payload.append(
+                    'cantidadHoras',
+                    (requiereDias || autocalculaDiasDesdeRango) ? diasValuePayload : (formData.cantidadHoras || 0)
+                );
             }
             if (requiereMontoCop) {
                 const monto = parseMontoCOPInput(formData.montoBono);
@@ -718,8 +922,10 @@ export default function FormularioNovedad() {
                 });
                 setColaboradorVerificado(false);
                 setCatalogLocks({ lider: false });
+                setDocumentoMensaje({ tipo: '', text: '' });
                 setSelectedFiles([]);
                 setLideres([]);
+                setAceptaPoliticaDatos(false);
                 // Limpiar mensaje de éxito después de unos segundos
                 setTimeout(() => setStatus({ type: '', text: '' }), 4000);
             } else {
@@ -738,6 +944,7 @@ export default function FormularioNovedad() {
     const handleDrop = (e) => {
         e.preventDefault();
         setDragOver(false);
+        if (!detalleFormularioActivo) return;
         const files = Array.from(e.dataTransfer?.files || []);
         for (const file of files) {
             const error = getAttachmentError(file);
@@ -766,16 +973,17 @@ export default function FormularioNovedad() {
         return 'FILE';
     };
 
-    const inputCls = 'w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-xl font-body text-sm focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a] [color-scheme:dark]';
-    const labelCls = 'text-sm font-medium text-[#9fb3c8] font-body';
-    const reqStar = <span className="text-[#65BCF7]">*</span>;
+    const theme = FORM_THEMES[themeMode];
+    const inputCls = theme.input;
+    const labelCls = theme.label;
+    const reqStar = <span className={theme.reqStar}>*</span>;
 
     return (
         <div
             className="relative min-h-screen w-full flex items-center justify-center overflow-hidden font-body"
             style={{ backgroundImage: `linear-gradient(135deg, rgba(4,20,30,0.92) 0%, rgba(0,77,135,0.7) 100%), url('/img/bg-portal.jpg')`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', backgroundAttachment: 'fixed' }}
         >
-            <div className="absolute inset-0 bg-[#04141E]/40 backdrop-blur-[2px]" />
+            <div className={theme.pageOverlay} />
 
             <div className="relative z-10 flex flex-col lg:flex-row w-full max-w-7xl mx-auto min-h-screen lg:min-h-0 lg:my-8">
 
@@ -802,27 +1010,43 @@ export default function FormularioNovedad() {
                 </div>
 
                 {/* ── Panel derecho: formulario ── */}
-                <div className="flex-1 lg:rounded-r-3xl lg:rounded-l-none rounded-none bg-[#04141E]/85 backdrop-blur-xl border border-[#1a3a56]/50 lg:border-l-0 overflow-y-auto max-h-screen lg:max-h-[92vh]">
+                <div className={theme.formCard}>
                     <div className="p-6 md:p-10">
-
-                        {/* Header mobile */}
-                        <div className="flex lg:hidden items-center gap-3 mb-6">
-                            <img src="/assets/logo-cinte-header.png" alt="CINTE" className="w-10" />
-                            <h1 className="font-heading text-lg font-bold text-white tracking-wide">PORTAL DE RADICACIÓN DE NOVEDADES</h1>
-                        </div>
 
                         <form onSubmit={handleSubmit} className="space-y-8">
 
                             {/* ═══ Sección: Solicitante ═══ */}
                             <section>
-                                <h2 className="font-subtitle text-lg font-extralight text-[#65BCF7] tracking-wide mb-4 flex items-center gap-2">
-                                    <span className="w-1.5 h-5 bg-[#65BCF7] rounded-full inline-block" />
-                                    Solicitante
-                                </h2>
+                                <div className="mb-3 flex items-center gap-3 lg:hidden">
+                                    <img src="/assets/logo-cinte-header.png" alt="CINTE" className="w-10 shrink-0" />
+                                    <h1 className={`min-w-0 ${theme.mobileHeaderTitle}`}>PORTAL DE RADICACIÓN DE NOVEDADES</h1>
+                                </div>
+                                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <h2 className={`min-w-0 flex-1 ${theme.sectionTitleNoMb}`}>
+                                        <span className={theme.sectionBar} />
+                                        Solicitante
+                                    </h2>
+                                    <div className="flex shrink-0 items-center justify-end gap-3 sm:pl-2">
+                                        <span className={themeMode === 'light' ? theme.switchLabelActive : theme.switchLabelIdle}>White</span>
+                                        <button
+                                            type="button"
+                                            role="switch"
+                                            aria-checked={themeMode === 'light'}
+                                            aria-label="Cambiar tema del formulario entre claro y oscuro"
+                                            onClick={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
+                                            className={`${theme.switchTrack} ${themeMode === 'light' ? theme.switchTrackOn : ''}`}
+                                        >
+                                            <span
+                                                className={`${theme.switchThumb} ${themeMode === 'light' ? theme.switchThumbOn : ''}`}
+                                            />
+                                        </button>
+                                        <span className={themeMode === 'dark' ? theme.switchLabelActive : theme.switchLabelIdle}>Dark</span>
+                                    </div>
+                                </div>
                                 <div className="space-y-4">
                                     <div>
                                         <label className={labelCls}>Cédula {reqStar}</label>
-                                        <p className="text-xs text-[#4a6f8f] mb-1.5 font-body">Solo números, sin puntos ni comas.</p>
+                                        <p className={theme.helperMuted}>Solo números, sin puntos ni comas.</p>
                                         <div className="flex flex-col sm:flex-row gap-2">
                                             <input
                                                 required
@@ -846,16 +1070,22 @@ export default function FormularioNovedad() {
                                         </div>
                                     </div>
 
+                                    {documentoMensaje.tipo === 'error' && documentoMensaje.text ? (
+                                        <div className={theme.docErrorBox}>
+                                            {documentoMensaje.text}
+                                        </div>
+                                    ) : null}
+
                                     {colaboradorVerificado && formData.nombre && (
-                                        <div className="flex items-center gap-4 p-4 rounded-xl bg-[#0b1e30]/60 border border-[#1a3a56]">
+                                        <div className={theme.avatarRow}>
                                             <div className="w-12 h-12 rounded-full bg-[#2F7BB8] flex items-center justify-center text-white font-heading font-bold text-lg shrink-0">
                                                 {(formData.nombre || '').charAt(0).toUpperCase()}
                                             </div>
                                             <div>
-                                                <p className="text-white font-body font-semibold text-sm">{formData.nombre}</p>
-                                                <p className="text-[#9fb3c8] font-body text-xs">CC {formData.cedula}</p>
+                                                <p className={theme.avatarName}>{formData.nombre}</p>
+                                                <p className={theme.avatarSub}>CC {formData.cedula}</p>
                                             </div>
-                                            <span className="ml-auto text-xs font-body font-semibold text-[#1fc76a] bg-[#1fc76a]/10 px-2 py-1 rounded-lg">Verificado</span>
+                                            <span className={theme.badgeVerificado}>Verificado</span>
                                         </div>
                                     )}
 
@@ -867,10 +1097,11 @@ export default function FormularioNovedad() {
                                             onChange={handleChange}
                                             type="email"
                                             autoComplete="off"
+                                            disabled={!colaboradorVerificado}
                                             readOnly={bloquearCorreo}
                                             aria-readonly={bloquearCorreo}
                                             placeholder="usuario@dominio.com"
-                                            className={`${inputCls} ${bloquearCorreo ? 'read-only:bg-[#04141E]/60 read-only:cursor-not-allowed' : ''}`}
+                                            className={`${inputCls} ${!colaboradorVerificado || bloquearCorreo ? theme.correoReadonly : ''}`}
                                         />
                                     </div>
                                 </div>
@@ -878,18 +1109,11 @@ export default function FormularioNovedad() {
 
                             {/* ═══ Sección: Detalles ═══ */}
                             <section>
-                                <h2 className="font-subtitle text-lg font-extralight text-[#65BCF7] tracking-wide mb-4 flex items-center gap-2">
-                                    <span className="w-1.5 h-5 bg-[#088DC6] rounded-full inline-block" />
+                                <h2 className={theme.sectionTitle}>
+                                    <span className={theme.sectionBarDetalle} />
                                     Detalles
                                 </h2>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="flex flex-col gap-1">
-                                        <label className={labelCls}>Tipo de Novedad {reqStar}</label>
-                                        <select required name="tipo" value={formData.tipo} onChange={handleChange} className={inputCls}>
-                                            <option value="">Selecciona...</option>
-                                            {NOVEDAD_TYPES.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
-                                        </select>
-                                    </div>
                                     <div className="flex flex-col gap-1">
                                         <label className={labelCls}>Cliente {reqStar}</label>
                                         <select
@@ -897,34 +1121,49 @@ export default function FormularioNovedad() {
                                             name="cliente"
                                             value={formData.cliente}
                                             onChange={handleChange}
-                                            disabled={bloquearCliente}
-                                            className={`${inputCls} ${bloquearCliente ? 'disabled:opacity-80' : ''}`}
+                                            disabled={!puedeDiligenciarDetalle || bloquearCliente}
+                                            className={`${inputCls} ${(!puedeDiligenciarDetalle || bloquearCliente) ? 'disabled:opacity-70' : ''}`}
                                         >
                                             <option value="">{loadingCatalogos ? 'Cargando clientes...' : 'Selecciona cliente...'}</option>
                                             {clientesParaSelect.map((c) => <option key={c} value={c}>{c}</option>)}
                                         </select>
                                     </div>
-                                    <div className="flex flex-col gap-1 md:col-span-2">
+                                    <div className="flex flex-col gap-1">
                                         <label className={labelCls}>Líder {reqStar}</label>
                                         <select
                                             required
                                             name="lider"
                                             value={formData.lider}
                                             onChange={handleChange}
-                                            disabled={!formData.cliente || (catalogLocks.lider && colaboradorVerificado)}
+                                            disabled={
+                                                !puedeDiligenciarDetalle
+                                                || !formData.cliente
+                                                || (catalogLocks.lider && colaboradorVerificado)
+                                            }
                                             className={`${inputCls} disabled:opacity-50`}
                                         >
                                             <option value="">{formData.cliente ? (loadingCatalogos ? 'Cargando líderes...' : 'Selecciona líder...') : 'Selecciona cliente primero'}</option>
                                             {lideresParaSelect.map((l) => <option key={l} value={l}>{l}</option>)}
                                         </select>
-                                        {catalogLocks.lider && colaboradorVerificado && (
-                                            <p className="text-xs text-[#4a6f8f] font-body mt-1">Líder según directorio; no editable.</p>
-                                        )}
+                                    </div>
+                                    <div className="flex flex-col gap-1 md:col-span-2">
+                                        <label className={labelCls}>Tipo de Novedad {reqStar}</label>
+                                        <select
+                                            required
+                                            name="tipo"
+                                            value={formData.tipo}
+                                            onChange={handleChange}
+                                            disabled={!colaboradorVerificado}
+                                            className={`${inputCls} ${!colaboradorVerificado ? 'disabled:opacity-70' : ''}`}
+                                        >
+                                            <option value="">Selecciona...</option>
+                                            {NOVEDAD_TYPES.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
+                                        </select>
                                     </div>
                                     {requiereMontoCop && (
                                         <div className="flex flex-col gap-1 md:col-span-2 animate-in fade-in duration-300">
                                             <label className={labelCls}>
-                                                {formData.tipo === 'Bonos' ? 'Valor del bono (COP)' : 'Valor de disponibilidad (COP)'} {reqStar}
+                                                Valor de disponibilidad (COP) {reqStar}
                                             </label>
                                             <input
                                                 required={requiereMontoCop}
@@ -935,9 +1174,10 @@ export default function FormularioNovedad() {
                                                 inputMode="decimal"
                                                 autoComplete="off"
                                                 placeholder="$ 0"
-                                                className={inputCls}
+                                                disabled={!detalleFormularioActivo}
+                                                className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
                                             />
-                                            <small className="text-xs text-[#4a6f8f] font-body">Miles con punto, decimales con coma (ej. $ 1.250.000,50). Al salir del campo se formatea.</small>
+                                            <small className={theme.helperMutedPlain}>Miles con punto, decimales con coma (ej. $ 1.250.000,50). Al salir del campo se formatea.</small>
                                         </div>
                                     )}
                                 </div>
@@ -945,8 +1185,8 @@ export default function FormularioNovedad() {
 
                             {/* ═══ Sección: Fechas / Horas ═══ */}
                             <section>
-                                <h2 className="font-subtitle text-lg font-extralight text-[#65BCF7] tracking-wide mb-4 flex items-center gap-2">
-                                    <span className="w-1.5 h-5 bg-[#2F7BB8] rounded-full inline-block" />
+                                <h2 className={theme.sectionTitle}>
+                                    <span className={theme.sectionBarFechas} />
                                     Fechas
                                 </h2>
 
@@ -954,7 +1194,7 @@ export default function FormularioNovedad() {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-300">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
-                                            <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} className={inputCls} />
+                                            <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Inicio (24h) {reqStar}</label>
@@ -966,12 +1206,13 @@ export default function FormularioNovedad() {
                                                 type="text"
                                                 inputMode="numeric"
                                                 placeholder="HH:mm"
-                                                className={inputCls}
+                                                disabled={!detalleFormularioActivo}
+                                                className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {reqStar}</label>
-                                            <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} className={inputCls} />
+                                            <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Fin (24h) {reqStar}</label>
@@ -983,15 +1224,16 @@ export default function FormularioNovedad() {
                                                 type="text"
                                                 inputMode="numeric"
                                                 placeholder="HH:mm"
-                                                className={inputCls}
+                                                disabled={!detalleFormularioActivo}
+                                                className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
                                             />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Horas (automático)</label>
-                                            <input name="cantidadHoras" value={horasCalculadas || ''} readOnly type="text" placeholder="0" className={`${inputCls} read-only:bg-[#04141E]/60 read-only:text-[#9fb3c8]`} />
+                                            <input name="cantidadHoras" value={horasCalculadas || ''} readOnly type="text" placeholder="0" className={`${inputCls} ${theme.inputReadonly}`} />
                                         </div>
-                                        <div className="md:col-span-2 text-xs text-[#4a6f8f] font-body">
-                                            Formato militar <strong className="text-[#9fb3c8]">HH:mm</strong> en reloj <strong className="text-[#9fb3c8]">America/Bogotá</strong> (civil Colombia). La fecha/hora fin debe ser mayor que la de inicio.
+                                        <div className={theme.hintLine}>
+                                            Formato militar <strong className={theme.hintStrong}>HH:mm</strong> en reloj <strong className={theme.hintStrong}>America/Bogotá</strong> (civil Colombia). La fecha/hora fin debe ser mayor que la de inicio.
                                         </div>
                                         {(horaInicioFormatoInvalido || horaFinFormatoInvalido) && (
                                             <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">
@@ -1004,22 +1246,23 @@ export default function FormularioNovedad() {
                                             </div>
                                         )}
                                         {isHoraExtra && colaboradorVerificado && heDomingoPreviewLoading && (
-                                            <div className="md:col-span-2 text-xs text-[#4a6f8f] font-body">Validando política de Hora Extra en domingo…</div>
+                                            <div className={theme.hintLine}>Validando política de Hora Extra en domingo…</div>
                                         )}
                                         {isHoraExtra && colaboradorVerificado && heDomingoPreview?.error && (
                                             <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">{heDomingoPreview.error}</div>
                                         )}
                                         {isHoraExtra && colaboradorVerificado && heDomingoPreview?.ok && heDomingoPreview.requiereEleccionCompensacion && (
-                                            <div className="md:col-span-2 rounded-lg border border-violet-500/40 bg-[#0a1f2e] px-3 py-3 space-y-3">
-                                                <p className="text-sm text-[#9fb3c8] font-body">
-                                                    Este es tu {heDomingoPreview.maxTier === 1 ? 'primer' : 'segundo'} domingo trabajado en el mes tienes derecho a indicar si deseas un <strong className="text-[#e8f1ff]">compensatorio en tiempo</strong> o un <strong className="text-[#e8f1ff]">compensatorio en dinero</strong>.
+                                            <div className={theme.heBlock}>
+                                                <p className={theme.heText}>
+                                                    Este es tu {heDomingoPreview.maxTier === 1 ? 'primer' : 'segundo'} domingo trabajado en el mes tienes derecho a indicar si deseas un <strong className={theme.heStrong}>compensatorio en tiempo</strong> o un <strong className={theme.heStrong}>compensatorio en dinero</strong>.
                                                 </p>
                                                 <div className="flex flex-col gap-2">
-                                                    <label className="flex items-center gap-2 text-sm text-[#9fb3c8] cursor-pointer font-body">
+                                                    <label className={theme.radioLabel}>
                                                         <input
                                                             type="radio"
                                                             name="heDomingoComp"
                                                             checked={heDomingoCompensacion === 'tiempo'}
+                                                            disabled={!detalleFormularioActivo}
                                                             onChange={() => {
                                                                 setHeDomingoCompensacion('tiempo');
                                                                 setDiaCompensatorioYmd('');
@@ -1027,11 +1270,12 @@ export default function FormularioNovedad() {
                                                         />
                                                         Compensatorio en tiempo
                                                     </label>
-                                                    <label className="flex items-center gap-2 text-sm text-[#9fb3c8] cursor-pointer font-body">
+                                                    <label className={theme.radioLabel}>
                                                         <input
                                                             type="radio"
                                                             name="heDomingoComp"
                                                             checked={heDomingoCompensacion === 'dinero'}
+                                                            disabled={!detalleFormularioActivo}
                                                             onChange={() => {
                                                                 setHeDomingoCompensacion('dinero');
                                                                 setDiaCompensatorioYmd('');
@@ -1044,7 +1288,7 @@ export default function FormularioNovedad() {
                                                     && heDomingoPreview.compensatorioTiempoMinYmd
                                                     && heDomingoPreview.compensatorioTiempoMaxYmd && (
                                                     <div className="flex flex-col gap-1 pt-1 max-w-xs">
-                                                        <label className="text-xs text-[#4a6f8f] font-body" htmlFor="diaCompensatorioHe">
+                                                        <label className={theme.helperMutedPlain} htmlFor="diaCompensatorioHe">
                                                             Día compensatorio (calendario; solo entre {heDomingoPreview.compensatorioTiempoMinYmd} y {heDomingoPreview.compensatorioTiempoMaxYmd})
                                                         </label>
                                                         <input
@@ -1055,13 +1299,14 @@ export default function FormularioNovedad() {
                                                             max={heDomingoPreview.compensatorioTiempoMaxYmd}
                                                             value={diaCompensatorioYmd}
                                                             onChange={(e) => setDiaCompensatorioYmd(e.target.value)}
-                                                            className={inputCls}
+                                                            disabled={!detalleFormularioActivo}
+                                                            className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
                                                         />
                                                     </div>
                                                 )}
                                                 {heDomingoPreview.domingoTrabajadoYmd ? (
-                                                    <p className="text-xs text-[#4a6f8f] font-body">
-                                                        Domingo trabajado reportado (referencia): <strong className="text-[#9fb3c8]">{heDomingoPreview.domingoTrabajadoYmd}</strong>
+                                                    <p className={theme.helperMutedPlain}>
+                                                        Domingo trabajado reportado (referencia): <strong className={theme.hintStrong}>{heDomingoPreview.domingoTrabajadoYmd}</strong>
                                                     </p>
                                                 ) : null}
                                             </div>
@@ -1069,55 +1314,52 @@ export default function FormularioNovedad() {
                                     </div>
                                 )}
 
-                                {!usaBloqueHoras && !esVacacionesDinero && (
+                                {!usaBloqueHoras && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
-                                            <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} className={inputCls} />
+                                            <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className={labelCls}>Fecha Fin {autocalculaDiasHabiles && reqStar}</label>
-                                            <input required={autocalculaDiasHabiles} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} className={inputCls} />
+                                            <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
+                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                             {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
                                         </div>
                                     </div>
                                 )}
 
-                                {esVacacionesDinero && (
-                                    <div className="flex flex-col gap-1 mt-4 max-w-xs animate-in fade-in duration-300">
-                                        <label className={labelCls}>Cantidad de días a solicitar {reqStar}</label>
+                                {esDisponibilidad && detalleFormularioActivo && (
+                                    <div className="flex flex-col gap-1 mt-4 max-w-xs">
+                                        <label className={labelCls}>Días hábiles en el rango (referencia)</label>
                                         <input
-                                            required
-                                            name="diasSolicitados"
-                                            value={formData.diasSolicitados}
-                                            onChange={handleChange}
-                                            type="number"
-                                            min={1}
-                                            step={1}
-                                            inputMode="numeric"
-                                            placeholder="Ej: 5"
-                                            className={inputCls}
+                                            readOnly
+                                            type="text"
+                                            value={diasInformativosDisponibilidad > 0 ? `${diasInformativosDisponibilidad} día(s)` : '—'}
+                                            className={`${inputCls} ${theme.inputReadonly}`}
                                         />
-                                        <p className="text-xs text-[#4a6f8f] font-body">
-                                            Cantidad de días a solicitar: escribe solo un número entero (sin puntos, comas ni formato especial).
-                                        </p>
+                                        <small className={theme.helperMutedPlain}>Solo informativo; el valor enviado al sistema es el monto en pesos.</small>
                                     </div>
                                 )}
 
-                                {requiereDias && !esVacacionesDinero && (
+                                {requiereDias && (
                                     <div className="flex flex-col gap-1 mt-4 max-w-xs">
                                         <label className={labelCls}>Días solicitados {reqStar}</label>
-                                        <input required={requiereDias} min="1" name="diasSolicitados" value={autocalculaDiasHabiles ? diasHabilesCalculados : formData.diasSolicitados} onChange={handleChange} readOnly={autocalculaDiasHabiles} type="number" placeholder="Ej: 2" className={`${inputCls} read-only:bg-[#04141E]/60 read-only:text-[#9fb3c8]`} />
-                                        {autocalculaDiasHabiles && <small className="text-xs text-[#4a6f8f] font-body">Calculado automáticamente (lun-vie).</small>}
+                                        <input required={requiereDias} min="1" name="diasSolicitados" value={autocalculaDiasDesdeRango ? diasAutoCalculados : formData.diasSolicitados} onChange={handleChange} readOnly={autocalculaDiasDesdeRango} type="number" placeholder="Ej: 2" disabled={!detalleFormularioActivo} className={`${inputCls} ${theme.inputReadonly} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                        {autocalculaDiasCalendario && (
+                                            <small className={theme.helperMutedPlain}>Calculado automáticamente (días calendario, incluye fines de semana).</small>
+                                        )}
+                                        {autocalculaDiasHabiles && !autocalculaDiasCalendario && (
+                                            <small className={theme.helperMutedPlain}>Calculado automáticamente (lun-vie).</small>
+                                        )}
                                     </div>
                                 )}
                             </section>
 
-                            {/* ═══ Sección: Soportes / Adjuntos (no aplica a Disponibilidad ni Vacaciones en tiempo) ═══ */}
+                            {/* ═══ Sección: Soportes / Adjuntos (no aplica a Disponibilidad) ═══ */}
                             {!esSinAdjuntosPublicos && (
                             <section>
-                                <h2 className="font-subtitle text-lg font-extralight text-[#65BCF7] tracking-wide mb-4 flex items-center gap-2">
-                                    <span className="w-1.5 h-5 bg-[#65BCF7] rounded-full inline-block" />
+                                <h2 className={theme.sectionTitle}>
+                                    <span className={theme.sectionBar} />
                                     Soportes / Adjuntos {(requiereAdjunto || requierePlantillaExcel) && reqStar}
                                 </h2>
 
@@ -1125,38 +1367,38 @@ export default function FormularioNovedad() {
                                     multiple
                                     type="file"
                                     id="soportes"
-                                    accept={esVacacionesDinero ? '.pdf,application/pdf' : '.pdf,.jpg,.jpeg,.png,.xls,.xlsx'}
+                                    accept=".pdf,.jpg,.jpeg,.png,.xls,.xlsx"
                                     onChange={handleFileChange}
                                     className="hidden"
                                 />
 
                                 <label
                                     htmlFor="soportes"
-                                    onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                                    onDragOver={(e) => { if (!detalleFormularioActivo) return; e.preventDefault(); setDragOver(true); }}
                                     onDragLeave={() => setDragOver(false)}
                                     onDrop={handleDrop}
-                                    className={`flex flex-col items-center justify-center gap-3 p-8 rounded-xl border-2 border-dashed cursor-pointer transition-all ${dragOver ? 'border-[#65BCF7] bg-[#65BCF7]/10' : 'border-[#1a3a56] hover:border-[#2F7BB8] bg-[#0b1e30]/40'}`}
+                                    className={`${theme.fileDropBase} ${!detalleFormularioActivo ? theme.fileDropDisabled : `cursor-pointer ${dragOver ? theme.fileDropDrag : theme.fileDropIdle}`}`}
                                 >
-                                    <svg className="w-10 h-10 text-[#4a6f8f]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 16V4m0 0l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" /></svg>
-                                    <span className="text-sm text-[#9fb3c8] font-body">Arrastra archivos aquí o <span className="text-[#65BCF7] font-semibold">haz clic para seleccionar</span></span>
+                                    <svg className={theme.uploadIcon} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 16V4m0 0l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" /></svg>
+                                    <span className={theme.uploadHint}>Arrastra archivos aquí o <span className={theme.uploadHintAccent}>haz clic para seleccionar</span></span>
                                     <div className="flex gap-2 flex-wrap justify-center">
-                                        {(esVacacionesDinero ? ['PDF'] : ['PDF', 'JPG', 'PNG', 'XLS', 'XLSX']).map((ext) => (
-                                            <span key={ext} className="px-2 py-0.5 rounded text-[10px] font-bold font-body bg-[#1a3a56]/60 text-[#65BCF7]">{ext}</span>
+                                        {['PDF', 'JPG', 'PNG', 'XLS', 'XLSX'].map((ext) => (
+                                            <span key={ext} className={theme.chipExt}>{ext}</span>
                                         ))}
                                     </div>
-                                    <span className="text-[10px] text-[#4a6f8f] font-body">Máx. 5 MB por archivo</span>
+                                    <span className={`text-[10px] font-body ${theme.helperMutedPlain}`}>Máx. 5 MB por archivo</span>
                                 </label>
 
                                 {selectedFiles.length > 0 && (
                                     <div className="mt-3 flex flex-col gap-2">
                                         {selectedFiles.map((file, idx) => (
-                                            <div key={`${file.name}-${file.size}`} className="flex items-center gap-3 p-2.5 rounded-lg bg-[#0b1e30]/50 border border-[#1a3a56]">
-                                                <span className="w-9 h-9 flex items-center justify-center rounded-lg bg-[#2F7BB8]/20 text-[#65BCF7] text-[10px] font-bold font-body shrink-0">{fileIcon(file.name)}</span>
+                                            <div key={`${file.name}-${file.size}`} className={theme.fileRow}>
+                                                <span className={theme.fileIconBg}>{fileIcon(file.name)}</span>
                                                 <div className="flex-1 min-w-0">
-                                                    <p className="text-xs text-white font-body truncate">{file.name}</p>
-                                                    <p className="text-[10px] text-[#4a6f8f] font-body">{(file.size / 1024).toFixed(0)} KB</p>
+                                                    <p className={theme.fileName}>{file.name}</p>
+                                                    <p className={theme.fileSize}>{(file.size / 1024).toFixed(0)} KB</p>
                                                 </div>
-                                                <button type="button" onClick={() => removeFile(idx)} className="text-[#ff6b6b] hover:text-[#ff4040] text-lg leading-none px-1">&times;</button>
+                                                <button type="button" onClick={() => removeFile(idx)} disabled={!detalleFormularioActivo} className="text-[#ff6b6b] hover:text-[#ff4040] text-lg leading-none px-1 disabled:opacity-40">&times;</button>
                                             </div>
                                         ))}
                                     </div>
@@ -1165,7 +1407,7 @@ export default function FormularioNovedad() {
                                 {!!rule.formatLinks?.length && (
                                     <div className="flex flex-wrap gap-2 mt-3">
                                         {rule.formatLinks.map((fmt) => (
-                                            <a key={fmt.href} href={fmt.href} download className="inline-flex items-center px-3 py-1.5 text-xs font-semibold font-body rounded-lg border border-[#2F7BB8]/40 text-[#65BCF7] hover:bg-[#2F7BB8]/10 transition-all">
+                                            <a key={fmt.href} href={fmt.href} download className={theme.formatLink}>
                                                 Descargar: {fmt.label}
                                             </a>
                                         ))}
@@ -1173,24 +1415,45 @@ export default function FormularioNovedad() {
                                 )}
 
                                 {requierePlantillaExcel && (
-                                    <p className="text-xs text-[#65BCF7]/90 mt-2 font-body">
+                                    <p className={theme.excelNote}>
                                         Puedes subir PDF u otros adjuntos en el orden que prefieras; al enviar debe haber al menos un Excel (.xls o .xlsx) con el formato diligenciado.
                                     </p>
                                 )}
                                 {requiereAdjunto && (
-                                    <p className="text-xs text-[#4a6f8f] mt-2 font-body">Documentos obligatorios: {requiredDocuments.join(' | ')}.</p>
-                                )}
-                                {esVacacionesDinero && (
-                                    <p className="text-xs text-[#65BCF7]/90 mt-2 font-body">
-                                        Debes adjuntar al menos un PDF: carta con firma manuscrita y la solicitud formal de vacaciones en dinero.
-                                    </p>
+                                    <p className={`${theme.helperMutedPlain} mt-2`}>Documentos obligatorios: {requiredDocuments.join(' | ')}.</p>
                                 )}
                             </section>
                             )}
 
+                            {/* ═══ Consentimiento datos personales ═══ */}
+                            <div className={theme.consentBox}>
+                                <div className="flex items-start gap-3">
+                                    <input
+                                        id="acepta-politica-datos"
+                                        type="checkbox"
+                                        checked={aceptaPoliticaDatos}
+                                        onChange={(e) => setAceptaPoliticaDatos(e.target.checked)}
+                                        className="mt-1 h-4 w-4 shrink-0 rounded border-[#2F7BB8] text-[#2F7BB8] focus:ring-[#65BCF7]"
+                                    />
+                                    <label htmlFor="acepta-politica-datos" className={theme.consentLabel}>
+                                        Declaro haber leído y acepto el tratamiento de mis datos personales de acuerdo con la política de Grupo CINTE.
+                                    </label>
+                                </div>
+                                <p className={theme.politicaMuted}>
+                                    <a
+                                        href={URL_POLITICA_DATOS_PERSONALES}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={theme.consentLink}
+                                    >
+                                        Ver política de tratamiento y protección de datos personales
+                                    </a>
+                                </p>
+                            </div>
+
                             {/* ═══ Botón Enviar ═══ */}
                             <button
-                                disabled={isSubmitting || bloqueHeDomingoComp}
+                                disabled={isSubmitting || bloqueHeDomingoComp || !colaboradorVerificado || !aceptaPoliticaDatos}
                                 type="submit"
                                 className="w-full py-4 px-6 rounded-xl font-heading font-bold text-base text-white transition-all shadow-lg hover:shadow-xl disabled:opacity-50 bg-gradient-to-r from-[#004D87] to-[#2F7BB8] hover:from-[#004D87] hover:to-[#088DC6]"
                             >

@@ -23,8 +23,9 @@ const NOVEDAD_RULES = {
         formatLinks: [],
         approvers: ['admin_ch', 'team_ch', 'cac'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
-        requiresDayCount: false,
-        requiresTimeRange: false
+        requiresDayCount: true,
+        requiresTimeRange: false,
+        autoCalendarDays: true
     },
     'Calamidad domestica': {
         requiredDocuments: ['Soporte de calamidad', 'Formato de permiso'],
@@ -110,6 +111,34 @@ const NOVEDAD_RULES = {
         requiresDayCount: false,
         requiresTimeRange: true
     },
+    'Permiso compensatorio en tiempo': {
+        requiredDocuments: ['Formato de permiso compensatorio'],
+        formatLinks: [],
+        approvers: ['gp', 'cac'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
+        requiresDayCount: false,
+        requiresTimeRange: false
+    },
+    Disponibilidad: {
+        requiredDocuments: [],
+        formatLinks: [],
+        approvers: ['gp', 'cac'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
+        requiresDayCount: false,
+        requiresTimeRange: false,
+        requiresMonetaryAmount: true
+    },
+    'Hora Extra': {
+        requiredDocuments: [],
+        formatLinks: [],
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
+        requiresDayCount: false,
+        requiresTimeRange: true
+    }
+};
+
+const NOVEDAD_RULES_LEGACY = {
     'Vacaciones en tiempo': {
         requiredDocuments: [],
         formatLinks: [
@@ -133,23 +162,6 @@ const NOVEDAD_RULES = {
         requiresTimeRange: false,
         autoBusinessDays: false
     },
-    'Permiso compensatorio en tiempo': {
-        requiredDocuments: ['Formato de permiso compensatorio'],
-        formatLinks: [],
-        approvers: ['gp', 'cac'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-        requiresDayCount: false,
-        requiresTimeRange: false
-    },
-    Disponibilidad: {
-        requiredDocuments: [],
-        formatLinks: [],
-        approvers: ['gp', 'cac'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-        requiresDayCount: false,
-        requiresTimeRange: false,
-        requiresMonetaryAmount: true
-    },
     Bonos: {
         requiredDocuments: [],
         formatLinks: [],
@@ -158,14 +170,6 @@ const NOVEDAD_RULES = {
         requiresDayCount: false,
         requiresTimeRange: false,
         requiresMonetaryAmount: true
-    },
-    'Hora Extra': {
-        requiredDocuments: [],
-        formatLinks: [],
-        approvers: ['gp'],
-        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-        requiresDayCount: false,
-        requiresTimeRange: true
     }
 };
 
@@ -215,10 +219,21 @@ function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
     return count;
 }
 
+function countCalendarDaysInclusive(startDateRaw, endDateRaw) {
+    if (!startDateRaw || !endDateRaw || endDateRaw < startDateRaw) return 0;
+    const start = new Date(`${startDateRaw}T00:00:00`);
+    const end = new Date(`${endDateRaw}T00:00:00`);
+    let count = 0;
+    for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+        count += 1;
+    }
+    return count;
+}
+
 function resolveCanonicalNovedadTipo(tipoRaw) {
     const raw = String(tipoRaw || '').trim();
     if (!raw) return raw;
-    if (NOVEDAD_RULES[raw]) return raw;
+    if (NOVEDAD_RULES[raw] || NOVEDAD_RULES_LEGACY[raw]) return raw;
     const snakeKey = raw.replace(/[\s-]+/g, '_').replace(/_+/g, '_').toLowerCase();
     if (TIPO_ALIAS_SNAKE[snakeKey]) return TIPO_ALIAS_SNAKE[snakeKey];
     const f = foldTipo(raw);
@@ -242,7 +257,7 @@ function resolveCanonicalNovedadTipo(tipoRaw) {
 
 function getNovedadRule(tipo) {
     const canon = resolveCanonicalNovedadTipo(tipo);
-    const raw = NOVEDAD_RULES[canon];
+    const raw = NOVEDAD_RULES[canon] || NOVEDAD_RULES_LEGACY[canon];
     const fallback = {
         requiredDocuments: [],
         formatLinks: [],
@@ -251,6 +266,7 @@ function getNovedadRule(tipo) {
         requiresDayCount: false,
         requiresTimeRange: false,
         autoBusinessDays: false,
+        autoCalendarDays: false,
         requiresMonetaryAmount: false,
         gestionPermiso: 'CRUD'
     };
@@ -265,7 +281,7 @@ function getCantidadMedidaKind(tipoNovedad) {
     const rule = getNovedadRule(tipoNovedad);
     if (rule.requiresTimeRange) return 'hours';
     if (rule.requiresMonetaryAmount) return 'money';
-    if (rule.requiresDayCount || rule.autoBusinessDays) return 'days';
+    if (rule.requiresDayCount || rule.autoBusinessDays || rule.autoCalendarDays) return 'days';
     return 'neutral';
 }
 
@@ -274,7 +290,11 @@ function getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin
     if (kind !== 'days') return 0;
     const n = Number(cantidadRaw) || 0;
     if (n > 0) return n;
-    if (fechaInicio && fechaFin) return countBusinessDaysInclusive(fechaInicio, fechaFin);
+    if (fechaInicio && fechaFin) {
+        const rule = getNovedadRule(tipoNovedad);
+        if (rule.autoCalendarDays) return countCalendarDaysInclusive(fechaInicio, fechaFin);
+        return countBusinessDaysInclusive(fechaInicio, fechaFin);
+    }
     return 0;
 }
 
@@ -322,6 +342,7 @@ module.exports = {
     NOVEDAD_RULES,
     NOVEDAD_TYPES,
     countBusinessDaysInclusive,
+    countCalendarDaysInclusive,
     getDiasEfectivosNovedad,
     resolveCanonicalNovedadTipo,
     getNovedadRule,

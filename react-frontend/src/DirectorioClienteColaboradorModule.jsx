@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     ArrowDown,
     ArrowUp,
@@ -7,12 +7,15 @@ import {
     ChevronLeft,
     ChevronRight,
     Home,
+    Layers,
     Menu,
     Users,
     X
 } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
+import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
+import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -42,6 +45,10 @@ function foldCatalogMatch(value) {
         .toLowerCase();
     if (!t) return '';
     return t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function nitSoloDigitos(value) {
+    return String(value || '').replace(/\D/g, '');
 }
 
 function resolveGpUserIdFromCatalogRows(rows, cliente, lider) {
@@ -75,6 +82,7 @@ function GpUserSelect({ value, onChange, options, className }) {
 
 export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const navigate = useNavigate();
+    const [searchParams, setSearchParams] = useSearchParams();
     const mt = useModuleTheme();
     const {
         shell,
@@ -113,6 +121,22 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     /** Vista principal del sidebar */
     const [mainView, setMainView] = useState('cliente');
 
+    const showTiCatalogSubmod = userHasRolesTiCatalogRead(auth);
+    useEffect(() => {
+        const v = searchParams.get('v');
+        if (v !== 'catalogo-ti') return;
+        if (!showTiCatalogSubmod) {
+            const next = new URLSearchParams(searchParams);
+            next.delete('v');
+            setSearchParams(next, { replace: true });
+            return;
+        }
+        setMainView('catalogoTi');
+        const next = new URLSearchParams(searchParams);
+        next.delete('v');
+        setSearchParams(next, { replace: true });
+    }, [searchParams, setSearchParams, showTiCatalogSubmod]);
+
     const [msg, setMsg] = useState(null);
 
     const [clItems, setClItems] = useState([]);
@@ -120,21 +144,22 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const [clPage, setClPage] = useState(1);
     const [clPageSize, setClPageSize] = useState(10);
     const [clQ, setClQ] = useState('');
-    const [clActivo, setClActivo] = useState('all');
+    const [clActivo, setClActivo] = useState('true');
     const [clLoading, setClLoading] = useState(false);
     /** Cliente seleccionado en tabla agrupada (nombre canónico igual a BD). */
     const [selectedCatalogCliente, setSelectedCatalogCliente] = useState(null);
     /** Modal detalle: lista de líderes del cliente */
     const [leadersModalCliente, setLeadersModalCliente] = useState(null);
     const [addLiderModalOpen, setAddLiderModalOpen] = useState(false);
-    const [addLiderForm, setAddLiderForm] = useState({ lider: '', gp_user_id: '' });
+    const [addLiderForm, setAddLiderForm] = useState({ lider: '', gp_user_id: '', nit: '' });
     const [clienteModalOpen, setClienteModalOpen] = useState(false);
-    const [clienteForm, setClienteForm] = useState({ cliente: '', lider: '', gp_colaborador_cedula: '' });
+    const [clienteForm, setClienteForm] = useState({ cliente: '', nit: '', lider: '', gp_colaborador_cedula: '' });
     const [confirmDeactivateCatalog, setConfirmDeactivateCatalog] = useState(false);
     /** Modal editar cliente (nombre + GP desde colaboradores). */
     const [editClienteModalOpen, setEditClienteModalOpen] = useState(false);
     const [editClienteOriginalName, setEditClienteOriginalName] = useState('');
-    const [editClienteForm, setEditClienteForm] = useState({ nombre: '', gp_colaborador_cedula: '' });
+    const [editClienteForm, setEditClienteForm] = useState({ nombre: '', nit: '', gp_colaborador_cedula: '' });
+    const [editClienteNitHint, setEditClienteNitHint] = useState('');
     const [editClienteTargetRows, setEditClienteTargetRows] = useState([]);
     const [editClienteRowsLoading, setEditClienteRowsLoading] = useState(false);
     const [editClienteGpOptions, setEditClienteGpOptions] = useState([]);
@@ -389,7 +414,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     }
 
     async function openClienteModalCreate() {
-        setClienteForm({ cliente: '', lider: '', gp_colaborador_cedula: '' });
+        setClienteForm({ cliente: '', nit: '', lider: '', gp_colaborador_cedula: '' });
         setClienteGpOptions([]);
         setClienteGpOptionsLoading(true);
         setClienteModalOpen(true);
@@ -455,6 +480,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
 
     function closeEditClienteModal() {
         setEditClienteGpSelectHint('');
+        setEditClienteNitHint('');
         setEditClienteModalOpen(false);
     }
 
@@ -466,10 +492,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         }
         setSelectedCatalogCliente(original);
         setEditClienteOriginalName(original);
-        setEditClienteForm({ nombre: original, gp_colaborador_cedula: '' });
+        setEditClienteForm({ nombre: original, nit: '', gp_colaborador_cedula: '' });
         setEditClienteTargetRows([]);
         setEditClienteGpOptions([]);
         setEditClienteGpSelectHint('');
+        setEditClienteNitHint('');
         setEditClienteModalOpen(true);
         setEditClienteRowsLoading(true);
         setEditClienteGpOptionsLoading(true);
@@ -484,6 +511,17 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             if (!res.ok) throw new Error(data.error || res.statusText);
             const rows = data.items || [];
             setEditClienteTargetRows(rows);
+            const nitDigitsList = [
+                ...new Set(rows.map((r) => nitSoloDigitos(r.nit)).filter(Boolean))
+            ];
+            let initialNit = '';
+            if (nitDigitsList.length === 1) {
+                initialNit = nitDigitsList[0];
+            } else if (nitDigitsList.length > 1) {
+                setEditClienteNitHint(
+                    'Hay NIT distintos entre líderes de este cliente; indica un único NIT para unificar todas las filas.'
+                );
+            }
             const gpIds = [...new Set(rows.map((r) => r.gp_user_id).filter(Boolean).map(String))];
             let initialGpCedula = '';
             let gpSelectHint = '';
@@ -527,7 +565,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 }
             }
             setEditClienteGpSelectHint(gpSelectHint);
-            setEditClienteForm({ nombre: original, gp_colaborador_cedula: initialGpCedula });
+            setEditClienteForm({ nombre: original, nit: initialNit, gp_colaborador_cedula: initialGpCedula });
         } catch (e) {
             flash(String(e.message || e), false);
             closeEditClienteModal();
@@ -553,6 +591,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             flash('El nombre del cliente es obligatorio.', false);
             return;
         }
+        const nitDigits = nitSoloDigitos(editClienteForm.nit);
+        if (!nitDigits) {
+            flash('El NIT es obligatorio (al menos un dígito).', false);
+            return;
+        }
         const gpCedula = String(editClienteForm.gp_colaborador_cedula || '').trim() || null;
         if (!editClienteTargetRows.length) {
             flash('No hay filas de catálogo para este cliente.', false);
@@ -567,7 +610,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     headers: authHeaders(token),
                     body: JSON.stringify({
                         cliente: nombre,
-                        gp_colaborador_cedula: gpCedula
+                        gp_colaborador_cedula: gpCedula,
+                        nit: nitDigits
                     })
                 });
                 const data = await res.json().catch(() => ({}));
@@ -594,9 +638,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         if (!leadersModalCliente) return;
         const rows = leadersModalRows;
         const firstGp = rows.map((r) => r.gp_user_id).find(Boolean);
+        const nitFromRows = rows.map((r) => nitSoloDigitos(r.nit)).find(Boolean) || '';
         setAddLiderForm({
             lider: '',
-            gp_user_id: firstGp ? String(firstGp) : ''
+            gp_user_id: firstGp ? String(firstGp) : '',
+            nit: nitFromRows
         });
         setAddLiderModalOpen(true);
     }
@@ -604,6 +650,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     async function submitAddLiderModal(e) {
         e.preventDefault();
         if (!leadersModalCliente) return;
+        const nitDigits = nitSoloDigitos(addLiderForm.nit);
+        if (!nitDigits) {
+            flash('El NIT es obligatorio (al menos un dígito).', false);
+            return;
+        }
         try {
             const gpVal = addLiderForm.gp_user_id ? String(addLiderForm.gp_user_id).trim() : null;
             const res = await fetch('/api/directorio/clientes-lideres', {
@@ -613,6 +664,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 body: JSON.stringify({
                     cliente: leadersModalCliente,
                     lider: addLiderForm.lider,
+                    nit: nitDigits,
                     gp_user_id: gpVal
                 })
             });
@@ -644,6 +696,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
 
     async function submitClienteModal(e) {
         e.preventDefault();
+        const nitDigits = nitSoloDigitos(clienteForm.nit);
+        if (!nitDigits) {
+            flash('El NIT es obligatorio (al menos un dígito).', false);
+            return;
+        }
         try {
             const gpCedula = clienteForm.gp_colaborador_cedula
                 ? String(clienteForm.gp_colaborador_cedula).trim()
@@ -655,6 +712,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 body: JSON.stringify({
                     cliente: clienteForm.cliente,
                     lider: clienteForm.lider,
+                    nit: nitDigits,
                     gp_colaborador_cedula: gpCedula
                 })
             });
@@ -831,6 +889,17 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     setMobileMenuOpen(false);
                 }}
             />
+            {showTiCatalogSubmod ? (
+                <NavBtn
+                    active={mainView === 'catalogoTi'}
+                    icon={Layers}
+                    label="Catálogo roles TI"
+                    onClick={() => {
+                        setMainView('catalogoTi');
+                        setMobileMenuOpen(false);
+                    }}
+                />
+            ) : null}
         </nav>
     );
 
@@ -961,7 +1030,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     <div>
                         <h1 className={`text-lg md:text-xl font-heading font-bold ${headingAccent}`}>Módulo de administración</h1>
                         <p className={`text-xs mt-1 ${labelMuted}`}>
-                            Catálogo por cliente (líderes y GP) y colaboradores (roles autorizados).
+                            {mainView === 'catalogoTi'
+                                ? 'Submódulo Catálogo roles TI: taxonomía financiera y perfiles del cliente interno en cotizador.'
+                                : 'Catálogo por cliente (líderes y GP) y colaboradores (roles autorizados).'}
                         </p>
                     </div>
                 </header>
@@ -990,9 +1061,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                             </div>
                             <p className={`text-xs ${labelMuted}`}>
                                 Una fila por cliente del catálogo (líderes activos / total). Clic en la fila abre el
-                                detalle de líderes. «Editar» renombra el cliente y el GP en bloque (colaborador con
-                                correo Cinte). «Borrar» desactiva todos los líderes de ese cliente. Paginación 10 / 20 /
-                                50.
+                                detalle de líderes. «Editar» renombra el cliente, el NIT y el GP en bloque. «Borrar»
+                                desactiva todos los líderes (no borra filas en base de datos); con el filtro «Activos»
+                                (predeterminado) el cliente deja de mostrarse. Paginación 10 / 20 / 50.
                             </p>
                             <div className="flex flex-wrap gap-2 items-end">
                                 <div>
@@ -1048,6 +1119,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                         <tr>
                                             <th className="text-left p-2 w-10"></th>
                                             <th className="text-left p-2">Cliente</th>
+                                            <th className="text-left p-2">NIT</th>
                                             <th className="text-left p-2">Líderes (activos / total)</th>
                                             <th className="text-left p-2">GP</th>
                                             <th className="text-left p-2 whitespace-nowrap">Editar</th>
@@ -1057,13 +1129,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                     <tbody>
                                         {clLoading ? (
                                             <tr>
-                                                <td colSpan={6} className={`p-4 text-center ${labelMuted}`}>
+                                                <td colSpan={7} className={`p-4 text-center ${labelMuted}`}>
                                                     Cargando…
                                                 </td>
                                             </tr>
                                         ) : clItems.length === 0 ? (
                                             <tr>
-                                                <td colSpan={6} className={`p-4 text-center ${labelMuted}`}>
+                                                <td colSpan={7} className={`p-4 text-center ${labelMuted}`}>
                                                     Sin datos
                                                 </td>
                                             </tr>
@@ -1111,6 +1183,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                                         />
                                                     </td>
                                                     <td className="p-2 font-medium">{g.cliente}</td>
+                                                    <td className="p-2 tabular-nums">
+                                                        {String(g.nit || '').trim() || '—'}
+                                                    </td>
                                                     <td className="p-2">
                                                         {activeCount} / {totalCount}
                                                     </td>
@@ -1365,6 +1440,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                             ) : null}
                         </div>
                     )}
+
+                    {mainView === 'catalogoTi' && showTiCatalogSubmod ? (
+                        <div className="space-y-4 w-full max-w-[95rem]">
+                            <RolesTiCatalogPage token={token} auth={auth} embedInDirectorio />
+                        </div>
+                    ) : null}
                 </main>
             </div>
 
@@ -1374,9 +1455,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         className="modal-glass-scrim absolute inset-0 transition-opacity"
                         onClick={() => setClienteModalOpen(false)}
                     />
-                    <div className="modal-glass-sheet relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
+                    <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
                         <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
-                            <h2 className="text-lg font-bold text-[var(--text)]">Crear cliente (y primer líder)</h2>
+                            <h2 className="text-lg font-heading font-bold text-[var(--text)]">Crear cliente (y primer líder)</h2>
                             <button
                                 type="button"
                                 onClick={() => setClienteModalOpen(false)}
@@ -1395,6 +1476,19 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                     onChange={(e) => setClienteForm((f) => ({ ...f, cliente: e.target.value }))}
                                     required
                                 />
+                            </div>
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>NIT</label>
+                                <input
+                                    className={`w-full ${field}`}
+                                    value={clienteForm.nit}
+                                    onChange={(e) => setClienteForm((f) => ({ ...f, nit: e.target.value }))}
+                                    inputMode="numeric"
+                                    autoComplete="off"
+                                    placeholder="Solo números"
+                                    required
+                                />
+                                <p className={`text-xs ${labelMuted} mt-1`}>Obligatorio; se guardan solo dígitos.</p>
                             </div>
                             <div>
                                 <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
@@ -1462,9 +1556,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         className="modal-glass-scrim absolute inset-0 transition-opacity"
                         onClick={() => !editClienteSaving && closeEditClienteModal()}
                     />
-                    <div className="modal-glass-sheet relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
+                    <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
                         <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
-                            <h2 className="text-lg font-bold text-[var(--text)]">Editar cliente</h2>
+                            <h2 className="text-lg font-heading font-bold text-[var(--text)]">Editar cliente</h2>
                             <button
                                 type="button"
                                 disabled={editClienteSaving}
@@ -1505,6 +1599,29 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                             }
                                             required
                                         />
+                                    </div>
+                                    <div>
+                                        <label className={`block text-xs ${labelMuted} mb-1`}>NIT</label>
+                                        <input
+                                            className={`w-full ${field}`}
+                                            value={editClienteForm.nit}
+                                            onChange={(e) =>
+                                                setEditClienteForm((f) => ({ ...f, nit: e.target.value }))
+                                            }
+                                            inputMode="numeric"
+                                            autoComplete="off"
+                                            placeholder="Solo números"
+                                            required
+                                        />
+                                        {editClienteNitHint ? (
+                                            <p className={`text-xs mt-1 ${isLight ? 'text-amber-800' : 'text-amber-300/90'}`}>
+                                                {editClienteNitHint}
+                                            </p>
+                                        ) : (
+                                            <p className={`text-xs ${labelMuted} mt-1`}>
+                                                Se aplica a todas las filas del cliente; solo dígitos.
+                                            </p>
+                                        )}
                                     </div>
                                     <div>
                                         <label className={`block text-xs ${labelMuted} mb-1`}>
@@ -1580,9 +1697,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         className="modal-glass-scrim absolute inset-0 transition-opacity"
                         onClick={() => setStaffModalOpen(false)}
                     />
-                    <div className="modal-glass-sheet relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
+                    <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
                         <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
-                            <h2 className="text-lg font-bold text-[var(--text)]">
+                            <h2 className="text-lg font-heading font-bold text-[var(--text)]">
                                 {staffModalMode === 'create' ? 'Crear colaborador' : `Editar colaborador`}
                             </h2>
                             <button
@@ -1688,10 +1805,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         className="modal-glass-scrim absolute inset-0 transition-opacity"
                         onClick={() => setConfirmDeactivateCatalog(false)}
                     />
-                    <div className="modal-glass-sheet relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
+                    <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
                         <p className="text-sm text-[#e6edf3]">
                             ¿Desactivar <strong>todos los líderes</strong> del cliente{' '}
-                            <strong>{selectedCatalogCliente}</strong> en el catálogo?
+                            <strong>{selectedCatalogCliente}</strong> en el catálogo? Los registros permanecen en la
+                            base de datos; con el filtro «Activos» el cliente dejará de mostrarse en la tabla.
                         </p>
                         <div className="mt-4 flex gap-2 justify-end">
                             <button
@@ -1737,10 +1855,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                             }
                         }}
                     />
-                    <div className="modal-glass-sheet relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
+                    <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
                         <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
                             <div>
-                                <h2 className="text-lg font-bold text-[var(--text)]">Líderes</h2>
+                                <h2 className="text-lg font-heading font-bold text-[var(--text)]">Líderes</h2>
                                 <p className={`text-xs ${labelMuted} mt-0.5`}>{leadersModalCliente}</p>
                             </div>
                             <button
@@ -1817,9 +1935,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         className="modal-glass-scrim absolute inset-0 transition-opacity"
                         onClick={() => setAddLiderModalOpen(false)}
                     />
-                    <div className="modal-glass-sheet relative flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
+                    <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
                         <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
-                            <h2 className="text-lg font-bold text-[var(--text)]">Agregar líder</h2>
+                            <h2 className="text-lg font-heading font-bold text-[var(--text)]">Agregar líder</h2>
                             <button
                                 type="button"
                                 onClick={() => setAddLiderModalOpen(false)}
@@ -1831,6 +1949,19 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         </div>
                         <form onSubmit={submitAddLiderModal} className="p-5 space-y-4">
                             <p className={`text-xs ${labelMuted}`}>Cliente: {leadersModalCliente}</p>
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>NIT</label>
+                                <input
+                                    className={`w-full ${field}`}
+                                    value={addLiderForm.nit}
+                                    onChange={(e) => setAddLiderForm((f) => ({ ...f, nit: e.target.value }))}
+                                    inputMode="numeric"
+                                    autoComplete="off"
+                                    placeholder="Mismo NIT del cliente"
+                                    required
+                                />
+                                <p className={`text-xs ${labelMuted} mt-1`}>Obligatorio; se guardan solo dígitos.</p>
+                            </div>
                             <div>
                                 <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
                                 <input

@@ -1,4 +1,4 @@
-const { normalizeNovedadTypeKey } = require('./rbac');
+const { normalizeNovedadTypeKey, isNovedadTipoRetiradoDelFormulario } = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
 const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
@@ -1164,6 +1164,22 @@ function registerRoutes(deps) {
             const files = (Array.isArray(req.files) ? req.files : [])
                 .filter((f) => ['soporte', 'soportes'].includes(String(f.fieldname || '').toLowerCase()));
             const tipoNovedad = String(body.tipoNovedad || body.tipo || '').trim();
+            if (isNovedadTipoRetiradoDelFormulario(tipoNovedad)) {
+                return res.status(400).json({
+                    ok: false,
+                    error:
+                        'Este tipo de novedad ya no está disponible para nuevas solicitudes. Elige otro tipo o contacta a Capital Humano.'
+                });
+            }
+            const consentRaw = String(body.aceptaPoliticaDatos ?? '').trim().toLowerCase();
+            const consentAceptado = consentRaw === 'true' || consentRaw === '1' || consentRaw === 'on';
+            if (!consentAceptado) {
+                return res.status(400).json({
+                    ok: false,
+                    error:
+                        'Debes aceptar la política de tratamiento y protección de datos personales para enviar la solicitud.'
+                });
+            }
             const rule = getNovedadRuleByType(tipoNovedad);
             const requiredMinSupports = Number(rule?.requiredMinSupports || 0);
             if (requiredMinSupports > 0 && files.length < requiredMinSupports) {

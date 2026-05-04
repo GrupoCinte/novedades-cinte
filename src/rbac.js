@@ -187,6 +187,13 @@ function normalizeNovedadTypeKey(value = '') {
     return '';
 }
 
+/** Ya no se ofrecen en el formulario público; siguen en NOVELTY_RULES para registros históricos y gestión. */
+const NOVEDAD_TIPOS_RETIRADOS_FORMULARIO_KEYS = new Set(['vacaciones_tiempo', 'vacaciones_dinero', 'bonos']);
+
+function isNovedadTipoRetiradoDelFormulario(typeName = '') {
+    return NOVEDAD_TIPOS_RETIRADOS_FORMULARIO_KEYS.has(normalizeNovedadTypeKey(typeName));
+}
+
 function getNovedadRuleByType(typeName = '') {
     const key = normalizeNovedadTypeKey(typeName);
     if (!key) return null;
@@ -224,6 +231,7 @@ module.exports = {
     resolveRoleFromGroups,
     getAreaFromRole,
     normalizeNovedadTypeKey,
+    isNovedadTipoRetiradoDelFormulario,
     getNovedadRuleByType,
     canRoleViewType,
     canRoleApproveType,

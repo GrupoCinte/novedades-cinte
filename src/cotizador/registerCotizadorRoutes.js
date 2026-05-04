@@ -1,6 +1,8 @@
 const { calcularCotizacion, generarDashboardData } = require('./cotizadorEngine');
 const { buildCotizacionPdfBuffer } = require('./cotizadorPdf');
+const { formatDateTimeBogota } = require('../utils/formatDateTimeBogota');
 const { resolveCargosLista, pickCargosPorClienteRaw } = require('./resolveCargosLista');
+const { normalizeCatalogValue } = require('../utils');
 
 function registerCotizadorRoutes(deps) {
     const {
@@ -11,23 +13,27 @@ function registerCotizadorRoutes(deps) {
         pdfLimiter,
         catalogLimiter,
         cotizadorStore,
-        getClientesList
+        getClientesList,
+        getClientesNitMapFromLideres
     } = deps;
 
     const guard = [verificarToken, allowAnyPanel(['dashboard', 'gestion', 'comercial', 'admin'])];
 
     /**
-     * Lista de clientes para el cotizador: catálogo `clientes_lideres` + claves de `cargos_por_cliente`
-     * y entradas `clientes[]` del JSON en BD (muchas instalaciones solo tienen tarifas por clave de cliente).
+     * Lista de clientes para el cotizador: nombres desde `clientes_lideres` + claves de `cargos_por_cliente`;
+     * NIT solo desde columna `clientes_lideres.nit` (no desde JSON del catálogo).
      */
     async function buildCotizadorClientesItems() {
         const catalogos = await cotizadorStore.getCatalogos();
+        const nitByCliente =
+            typeof getClientesNitMapFromLideres === 'function' ? await getClientesNitMapFromLideres() : new Map();
         const byKey = new Map();
-        const add = (nombreRaw, nitRaw = '') => {
+        const add = (nombreRaw) => {
             const nombre = String(nombreRaw || '').trim();
             if (!nombre) return;
             const k = nombre.toLowerCase();
-            const nit = String(nitRaw || '').trim();
+            const canon = normalizeCatalogValue(nombre);
+            const nit = canon ? nitByCliente.get(canon) || '' : '';
             if (!byKey.has(k)) {
                 byKey.set(k, { nombre, nit });
             } else if (nit && !byKey.get(k).nit) {
@@ -36,21 +42,15 @@ function registerCotizadorRoutes(deps) {
         };
         if (typeof getClientesList === 'function') {
             const names = await getClientesList();
-            for (const n of Array.isArray(names) ? names : []) add(n, '');
+            for (const n of Array.isArray(names) ? names : []) add(n);
         }
         const cpc = pickCargosPorClienteRaw(catalogos);
         if (cpc && typeof cpc === 'object' && !Array.isArray(cpc)) {
-            for (const k of Object.keys(cpc)) add(k, '');
+            for (const key of Object.keys(cpc)) add(key);
         } else if (Array.isArray(cpc)) {
             for (const entry of cpc) {
-                add(
-                    entry?.cliente || entry?.CLIENTE || entry?.nombre || entry?.name || entry?.client,
-                    entry?.nit || entry?.NIT || ''
-                );
+                add(entry?.cliente || entry?.CLIENTE || entry?.nombre || entry?.name || entry?.client);
             }
-        }
-        for (const c of Array.isArray(catalogos?.clientes) ? catalogos.clientes : []) {
-            add(c?.nombre || c?.name, c?.nit || '');
         }
         return [...byKey.values()].sort((a, b) =>
             a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })
@@ -67,7 +67,7 @@ function registerCotizadorRoutes(deps) {
         }
     });
 
-    /** Clientes = `clientes_lideres` + claves de `cargos_por_cliente` y `clientes[]` del catálogo en BD. */
+    /** Clientes = `clientes_lideres` + claves de `cargos_por_cliente`; NIT en columnas `clientes_lideres.nit`. */
     app.get('/api/cotizador/clientes-formulario', ...guard, catalogLimiter, async (req, res) => {
         try {
             if (typeof getClientesList !== 'function') {
@@ -99,8 +99,14 @@ function registerCotizadorRoutes(deps) {
                     error: 'Sin tarifas configuradas para el cliente seleccionado.'
                 });
             }
+            const generatedAt = new Date();
             const result = calcularCotizacion(payload, { ...catalogos, cargos });
-            return res.json({ ok: true, ...result });
+            return res.json({
+                ok: true,
+                ...result,
+                fecha_generacion_iso: generatedAt.toISOString(),
+                fecha: formatDateTimeBogota(generatedAt)
+            });
         } catch (error) {
             const status = Number(error?.status || 500);
             return res.status(status).json({ ok: false, error: error?.message || 'Error al calcular cotización' });
@@ -168,7 +174,9 @@ function registerCotizadorRoutes(deps) {
                 meses: row.meses,
                 moneda: row.moneda,
                 codigo: row.codigo || '',
-                resultados: row.resultados
+                resultados: row.resultados,
+                fecha: row.fecha,
+                fecha_generacion_iso: row.fecha_generacion_iso
             };
             const pdfBuffer = await buildCotizacionPdfBuffer(payload);
             const baseName = row.codigo ? `${String(row.codigo).replace(/[^\w\-]+/g, '_')}.pdf` : `cotizacion_${id}.pdf`;

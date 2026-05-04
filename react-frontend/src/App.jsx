@@ -238,16 +238,15 @@ function App() {
             path="/admin/comercial"
             element={(
               <ProtectedRoute auth={auth}>
-                {(() => {
-                  return userHasCotizadorAccess(auth) ? (
+                {userHasCotizadorAccess(auth) ? (
                     <ComercialModule token={auth?.token || ''} auth={auth} />
-                  ) : (
+                ) : (
                     <Navigate to="/admin" replace />
-                  );
-                })()}
+                )}
               </ProtectedRoute>
             )}
           />
+          <Route path="/admin/catalogo-ti-roles" element={<Navigate to="/admin/directorio?v=catalogo-ti" replace />} />
           <Route
             path="/admin/contratacion"
             element={(
@@ -275,6 +274,7 @@ function App() {
             )}
           />
           <Route path="/admin/cotizador" element={<Navigate to="/admin/comercial" replace />} />
+          <Route path="/admin/comercial/catalogo-roles-ti" element={<Navigate to="/admin/directorio?v=catalogo-ti" replace />} />
           <Route path="*" element={<Navigate to={auth?.user ? '/admin' : '/'} replace />} />
         </Routes>
       </main>

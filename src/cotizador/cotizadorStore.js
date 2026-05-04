@@ -1,5 +1,8 @@
 // Data lives entirely in PostgreSQL — no JSON seed files
 
+const { formatDateTimeBogota } = require('../utils/formatDateTimeBogota');
+const { ensureTiRolesSchema, mergeTiCargosIntoCatalogos, getInternoTiClienteKey } = require('./tiRolesStore');
+
 function createCotizadorStore(deps) {
     const { pool } = deps;
     /** DDL + seed solo al arrancar el proceso; no repetir en cada GET (evita locks y sensación de “reinicios”). */
@@ -22,7 +25,8 @@ function createCotizadorStore(deps) {
             nombre_moneda: r.nombre_moneda,
             factores_he: r.factores_he || {},
             resultados: Array.isArray(r.resultados) ? r.resultados : [],
-            fecha: new Date(r.created_at).toISOString().slice(0, 19).replace('T', ' ')
+            fecha_generacion_iso: new Date(r.created_at).toISOString(),
+            fecha: formatDateTimeBogota(r.created_at)
         };
     }
 
@@ -101,6 +105,7 @@ function createCotizadorStore(deps) {
         `);
         await pool.query('CREATE INDEX IF NOT EXISTS idx_cotizador_cotizaciones_created_at ON cotizador_cotizaciones(created_at DESC)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_cotizador_items_cotizacion ON cotizador_cotizacion_items(cotizacion_id)');
+        await ensureTiRolesSchema(pool);
         await ensureCodigoYSecuencia();
         await pool.query(`
             CREATE TABLE IF NOT EXISTS cotizador_import_alias (
@@ -176,6 +181,10 @@ function createCotizadorStore(deps) {
             }
             out[row.key] = val;
         }
+        /** NIT y lista de clientes viven en `clientes_lideres`; no usar JSON legacy `clientes`. */
+        if (Object.prototype.hasOwnProperty.call(out, 'clientes')) delete out.clientes;
+        await mergeTiCargosIntoCatalogos(pool, out);
+        out.ti_interno_cliente_key = getInternoTiClienteKey();
         return out;
     }
 
@@ -270,10 +279,12 @@ function createCotizadorStore(deps) {
                 );
             }
             await client.query('COMMIT');
+            const createdAt = inserted.rows[0].created_at;
             return {
                 id,
                 codigo: codGuardado,
-                fecha: new Date(inserted.rows[0].created_at).toISOString().slice(0, 19).replace('T', ' ')
+                fecha_generacion_iso: new Date(createdAt).toISOString(),
+                fecha: formatDateTimeBogota(createdAt)
             };
         } catch (error) {
             await client.query('ROLLBACK');

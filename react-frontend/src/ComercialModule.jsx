@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Code2, Home, Menu, X, Calculator } from 'lucide-react';
 import CotizadorPage from './cotizador/CotizadorPage';
 import { useModuleTheme } from './moduleTheme.js';
@@ -7,14 +7,23 @@ import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 
 export default function ComercialModule({ token, auth }) {
     const navigate = useNavigate();
+    const location = useLocation();
     const mt = useModuleTheme();
     const { shell, aside, asideHeaderBorder, asideFooterBorder, scrim, menuFab, sidebarIconBtn, navOutline, email, borderSubtle, mainCanvas, isLight } = mt;
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const path = location.pathname || '';
+    const onCotizador = path === '/admin/comercial' || path === '/admin/comercial/';
 
-    // CRIT-002: Derivar de la prop auth (cookie HttpOnly), sin leer localStorage
     const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
+
+    const navCotizadorClass = (active) =>
+        `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
+            active
+                ? 'bg-[#088DC6] shadow-[0_4px_12px_rgba(8,141,198,0.3)] text-white'
+                : navOutline
+        }`;
 
     return (
         <div className={shell}>
@@ -57,7 +66,14 @@ export default function ComercialModule({ token, auth }) {
                         <Home size={17} />
                         <span>Inicio portal</span>
                     </button>
-                    <button type="button" className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold bg-[#088DC6] text-white">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            navigate('/admin/comercial');
+                            setMobileMenuOpen(false);
+                        }}
+                        className={navCotizadorClass(onCotizador)}
+                    >
                         <Calculator size={17} />
                         <span>Cotizador</span>
                     </button>
@@ -103,10 +119,11 @@ export default function ComercialModule({ token, auth }) {
                     </button>
                     <button
                         type="button"
+                        onClick={() => navigate('/admin/comercial')}
                         title={!sidebarOpen ? 'Cotizador' : undefined}
-                        className={`flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'} bg-[#088DC6] shadow-[0_4px_12px_rgba(8,141,198,0.3)] text-white`}
+                        className={`flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'} ${onCotizador ? 'bg-[#088DC6] shadow-[0_4px_12px_rgba(8,141,198,0.3)] text-white' : navOutline}`}
                     >
-                        <Calculator size={18} className="flex-shrink-0 text-white" />
+                        <Calculator size={18} className={`flex-shrink-0 ${onCotizador ? 'text-white' : 'text-slate-500'}`} />
                         {sidebarOpen && <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">Cotizador</span>}
                     </button>
                 </nav>
@@ -142,4 +159,3 @@ export default function ComercialModule({ token, auth }) {
         </div>
     );
 }
-

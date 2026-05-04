@@ -62,6 +62,8 @@ UI: `http://localhost:5175`
 
 ## Scripts principales
 
+Las utilidades que antes estaban en `scripts/` no se versionan en este repositorio; permanecen en el repositorio de operaciones interno y se ejecutan desde el entorno de desarrollo autorizado, no desde el despliegue del código de aplicación.
+
 ### Backend (`/`)
 
 - `npm run dev`: backend en modo watch
@@ -120,6 +122,7 @@ Lambda (`email-transactions`):
 
 ## Que NO debe ir a Git
 
+- `scripts/`, `tooling/` (operaciones locales o en repo ops interno)
 - `node_modules/`
 - `.env`, `.env.*` (excepto `.env.example`)
 - builds y reportes: `react-frontend/dist/`, `react-frontend/coverage/`, `react-frontend/playwright-report/`, `react-frontend/test-results/`

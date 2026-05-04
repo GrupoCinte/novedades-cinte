@@ -95,7 +95,7 @@ function cardVisuals(key) {
                 desc: 'text-slate-700/92',
                 cta: 'text-[#1a5f8a]'
             }
-        }
+        },
     };
     return map[key] || map.novedades;
 }

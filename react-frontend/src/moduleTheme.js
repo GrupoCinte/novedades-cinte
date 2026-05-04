@@ -37,10 +37,10 @@ export function useModuleTheme() {
             ? 'rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100'
             : 'rounded-xl border border-[#1a3a56]/60 text-slate-400 hover:text-slate-200 hover:bg-[#0f2942]/50',
         email: L ? 'text-slate-600' : 'text-slate-300',
-        /** Lienzo principal (área de trabajo) */
+        /** Lienzo principal (área de trabajo); `font-body` reafirma Montserrat frente a cualquier reset intermedio. */
         mainCanvas: L
-            ? 'flex-1 min-w-0 min-h-0 overflow-y-auto bg-slate-100 text-slate-800'
-            : 'flex-1 min-w-0 min-h-0 overflow-y-auto bg-[#04141E] text-slate-200',
+            ? 'flex-1 min-w-0 min-h-0 overflow-y-auto bg-slate-100 font-body text-slate-800'
+            : 'flex-1 min-w-0 min-h-0 overflow-y-auto bg-[#04141E] font-body text-slate-200',
         /** Cabecera superior tipo directorio */
         topBar: L ? 'border-b border-slate-200 bg-white/90' : 'border-b border-[#1a3a56] bg-[#04141E]/90',
         /** Fondo del área de trabajo (sin flex; combinar con padding del módulo) */
@@ -118,6 +118,26 @@ export function useModuleTheme() {
         toolbarBtn: L
             ? 'rounded-md border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-800 hover:bg-slate-200'
             : 'rounded-md border border-[#1a3a56] bg-[#0f2942] px-3 py-2 text-sm text-slate-200 hover:bg-[#0f2942]/80',
+        /**
+         * Aviso informativo (misma línea visual que bloques HE / hints en FormularioNovedad).
+         * Contraste legible en claro y oscuro.
+         */
+        infoCallout: L
+            ? 'rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-slate-800 font-body leading-relaxed'
+            : 'rounded-lg border border-[#2F7BB8]/45 bg-[#0a1f2e] px-4 py-3 text-sm text-[#e8f1ff] font-body leading-relaxed',
+        infoCalloutAccent: L ? 'font-semibold text-[#004D87]' : 'font-semibold text-[#65BCF7]',
+        /** Error de validación en formularios del módulo (equivalente a docErrorBox en novedades) */
+        formErrorBox: L
+            ? 'mt-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 font-body'
+            : 'mt-3 rounded-xl border border-rose-500/40 bg-rose-900/20 px-4 py-3 text-sm text-rose-100 font-body',
+        /** Mensaje de error arriba del lienzo (mismos colores que formErrorBox, distinto margen) */
+        pageErrorBanner: L
+            ? 'mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 font-body'
+            : 'mb-4 rounded-xl border border-rose-500/40 bg-rose-900/20 px-4 py-3 text-sm text-rose-100 font-body',
+        /** Botón destructivo suave (ej. quitar perfil en cotizador) */
+        dangerSoftBtn: L
+            ? 'w-full rounded border border-rose-200 bg-rose-50 px-2 py-2 text-sm font-medium text-rose-900 hover:bg-rose-100'
+            : 'w-full rounded border border-rose-500/40 bg-rose-950/30 px-2 py-2 text-sm font-medium text-rose-100 hover:bg-rose-900/40',
     };
 }
 

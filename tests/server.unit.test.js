@@ -423,7 +423,7 @@ describe('inferAreaFromNovedad()', () => {
   });
 
   it('debe inferir "Operaciones" por defecto para otros tipos', () => {
-    expect(inferAreaFromNovedad({ tipoNovedad: 'Vacaciones en tiempo' })).toBe('Operaciones');
+    expect(inferAreaFromNovedad({ tipoNovedad: 'Disponibilidad' })).toBe('Operaciones');
     expect(inferAreaFromNovedad({})).toBe('Operaciones');
   });
 

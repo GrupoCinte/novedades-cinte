@@ -41,7 +41,9 @@ const { createAuthHelpers } = require('./src/auth');
 const { toClientNovedad } = require('./src/novedadesMapper');
 const { createDataLayer } = require('./src/dataLayer');
 const { createCotizadorStore } = require('./src/cotizador/cotizadorStore');
+const { createTiRolesStore } = require('./src/cotizador/tiRolesStore');
 const { registerCotizadorRoutes } = require('./src/cotizador/registerCotizadorRoutes');
+const { registerTiRolesRoutes } = require('./src/cotizador/registerTiRolesRoutes');
 const { registerContratacionRoutes } = require('./src/contratacion/registerContratacionRoutes');
 const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
 const { createEmailNotificationsPublisher } = require('./src/notifications/emailNotificationsPublisher');
@@ -439,6 +441,7 @@ const upload = multer({
 const {
     ensureUserRoleEnumValues,
     ensureClientesLideresTable,
+    ensureClientesLideresNitColumn,
     ensureClientesLideresGpUserColumn,
     ensureNovedadesIndexes,
     ensureNovedadesHourSplitColumns,
@@ -457,6 +460,7 @@ const {
     getLideresByCliente,
     listClientesLideresPaged,
     listClientesLideresByClienteSummaryPaged,
+    getClientesNitMapFromLideres,
     insertClienteLider,
     updateClienteLiderById,
     listColaboradoresPaged,
@@ -487,6 +491,7 @@ const {
 const { registerRoutes } = require('./src/registerRoutes');
 const { startServer } = require('./src/startup');
 const cotizadorStore = createCotizadorStore({ pool });
+const tiRolesStore = createTiRolesStore({ pool });
 
 registerRoutes({
     app,
@@ -580,7 +585,18 @@ registerCotizadorRoutes({
     pdfLimiter,
     catalogLimiter,
     cotizadorStore,
-    getClientesList
+    getClientesList,
+    getClientesNitMapFromLideres
+});
+
+registerTiRolesRoutes({
+    app,
+    verificarToken,
+    allowAnyPanel,
+    allowRoles,
+    adminActionLimiter,
+    catalogLimiter,
+    tiRolesStore
 });
 
 registerContratacionRoutes({
@@ -601,6 +617,7 @@ startServer({
     pool,
     ensureUserRoleEnumValues,
     ensureClientesLideresTable,
+    ensureClientesLideresNitColumn,
     ensureClientesLideresGpUserColumn,
     ensureNovedadesIndexes,
     ensureNovedadesHourSplitColumns,

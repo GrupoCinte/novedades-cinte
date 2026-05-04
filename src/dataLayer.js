@@ -170,10 +170,25 @@ function createDataLayer(deps) {
         }
     }
 
+    /** NIT por fila (misma cadena en todas las filas de un `cliente`; fuente única para cotizador). */
+    async function ensureClientesLideresNitColumn() {
+        try {
+            await ensureClientesLideresTable();
+            await pool.query(`ALTER TABLE clientes_lideres ADD COLUMN IF NOT EXISTS nit TEXT NOT NULL DEFAULT ''`);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Catalogos] Permisos insuficientes para columna nit en clientes_lideres.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** GP por fila de catálogo (asignación desde módulo administración / cliente). */
     async function ensureClientesLideresGpUserColumn() {
         try {
             await ensureClientesLideresTable();
+            await ensureClientesLideresNitColumn();
             await pool.query('ALTER TABLE clientes_lideres ADD COLUMN IF NOT EXISTS gp_user_id UUID NULL');
             try {
                 await pool.query(`
@@ -252,6 +267,10 @@ function createDataLayer(deps) {
         return q2.rows[0]?.id || null;
     }
 
+    function normalizeNitDigits(nitRaw) {
+        return String(nitRaw || '').replace(/\D/g, '');
+    }
+
     async function migrateClientesLideresFromExcelIfNeeded() {
         await ensureClientesLideresTable();
         await ensureClientesLideresGpUserColumn();
@@ -285,8 +304,8 @@ function createDataLayer(deps) {
                     );
                 }
                 await client.query(
-                    `INSERT INTO clientes_lideres (cliente, lider, activo, gp_user_id)
-                     VALUES ($1, $2, TRUE, $3::uuid)
+                    `INSERT INTO clientes_lideres (cliente, lider, activo, gp_user_id, nit)
+                     VALUES ($1, $2, TRUE, $3::uuid, '')
                      ON CONFLICT (cliente, lider)
                      DO UPDATE SET activo = TRUE, gp_user_id = COALESCE(EXCLUDED.gp_user_id, clientes_lideres.gp_user_id), updated_at = NOW()`,
                     [clienteRaw, liderRaw, gpId]
@@ -399,9 +418,10 @@ function createDataLayer(deps) {
 
     async function ensureCinteLeonardoPair() {
         await ensureClientesLideresTable();
+        await ensureClientesLideresNitColumn();
         await pool.query(
-            `INSERT INTO clientes_lideres (cliente, lider, activo)
-             VALUES ('CINTE', 'Leonardo Rojas', TRUE)
+            `INSERT INTO clientes_lideres (cliente, lider, activo, nit)
+             VALUES ('CINTE', 'Leonardo Rojas', TRUE, '')
              ON CONFLICT (cliente, lider)
              DO UPDATE SET activo = TRUE, updated_at = NOW()`
         );
@@ -468,6 +488,7 @@ function createDataLayer(deps) {
                 cl.lider,
                 cl.activo,
                 cl.gp_user_id,
+                COALESCE(cl.nit, '') AS nit,
                 cl.created_at,
                 cl.updated_at,
                 NULLIF(BTRIM(u.full_name), '') AS gp_full_name
@@ -522,6 +543,7 @@ function createDataLayer(deps) {
                 agg.active_count,
                 agg.gp_distinct_count,
                 agg.gp_user_id,
+                agg.nit,
                 NULLIF(BTRIM(u.full_name), '') AS gp_full_name
              FROM (
                  SELECT
@@ -533,7 +555,8 @@ function createDataLayer(deps) {
                          WHEN COUNT(DISTINCT CASE WHEN cl.gp_user_id IS NOT NULL THEN cl.gp_user_id END) = 1
                          THEN MAX(cl.gp_user_id::text)::uuid
                          ELSE NULL
-                     END AS gp_user_id
+                     END AS gp_user_id,
+                     COALESCE(MAX(NULLIF(BTRIM(cl.nit), '')), '') AS nit
                  FROM clientes_lideres cl
                  ${whereAliasSql}
                  GROUP BY cl.cliente
@@ -550,30 +573,54 @@ function createDataLayer(deps) {
      * @param {string} cliente
      * @param {string} lider
      * @param {string|null|undefined} gpUserId UUID de users (rol gp) o null
+     * @param {string|null|undefined} nitRaw NIT solo dígitos (obligatorio en API de directorio)
      */
-    async function insertClienteLider(cliente, lider, gpUserId = null) {
+    async function insertClienteLider(cliente, lider, gpUserId = null, nitRaw = null) {
         const c = normalizeCatalogValue(cliente);
         const l = normalizeCatalogValue(lider);
         if (!c || !l) throw Object.assign(new Error('Cliente y líder son obligatorios'), { status: 400 });
         const gp = gpUserId === undefined || gpUserId === null || gpUserId === '' ? null : String(gpUserId).trim();
+        const nit = normalizeNitDigits(nitRaw);
+        if (!nit) throw Object.assign(new Error('NIT es obligatorio'), { status: 400 });
         const q = await pool.query(
-            `INSERT INTO clientes_lideres (cliente, lider, activo, gp_user_id)
-             VALUES ($1, $2, TRUE, $3::uuid)
+            `INSERT INTO clientes_lideres (cliente, lider, activo, gp_user_id, nit)
+             VALUES ($1, $2, TRUE, $3::uuid, $4)
              ON CONFLICT (cliente, lider)
-             DO UPDATE SET activo = TRUE, gp_user_id = COALESCE(EXCLUDED.gp_user_id, clientes_lideres.gp_user_id), updated_at = NOW()
-             RETURNING id, cliente, lider, activo, gp_user_id, created_at, updated_at`,
-            [c, l, gp]
+             DO UPDATE SET activo = TRUE,
+                 gp_user_id = COALESCE(EXCLUDED.gp_user_id, clientes_lideres.gp_user_id),
+                 nit = CASE WHEN NULLIF(BTRIM(EXCLUDED.nit), '') IS NOT NULL THEN EXCLUDED.nit ELSE clientes_lideres.nit END,
+                 updated_at = NOW()
+             RETURNING id, cliente, lider, activo, gp_user_id, nit, created_at, updated_at`,
+            [c, l, gp, nit]
         );
         return q.rows[0];
     }
 
     /**
+     * Mapa cliente canónico → NIT dígitos (todas las filas del cliente; agregado MAX).
+     */
+    async function getClientesNitMapFromLideres() {
+        await ensureClientesLideresNitColumn();
+        const q = await pool.query(
+            `SELECT cliente, COALESCE(MAX(NULLIF(BTRIM(nit), '')), '') AS nit
+             FROM clientes_lideres
+             GROUP BY cliente`
+        );
+        const m = new Map();
+        for (const r of q.rows || []) {
+            const c = normalizeCatalogValue(r.cliente);
+            if (c) m.set(c, normalizeNitDigits(r.nit));
+        }
+        return m;
+    }
+
+    /**
      * @param {string} id
-     * @param {{ activo?: boolean, cliente?: string, lider?: string, gp_user_id?: string|null }} patch
+     * @param {{ activo?: boolean, cliente?: string, lider?: string, gp_user_id?: string|null, nit?: string }} patch
      */
     async function updateClienteLiderById(id, patch) {
         const cur = await pool.query(
-            'SELECT id, cliente, lider, activo, gp_user_id FROM clientes_lideres WHERE id = $1::uuid LIMIT 1',
+            'SELECT id, cliente, lider, activo, gp_user_id, COALESCE(nit, \'\') AS nit FROM clientes_lideres WHERE id = $1::uuid LIMIT 1',
             [id]
         );
         if (!cur.rows[0]) return null;
@@ -587,13 +634,21 @@ function createDataLayer(deps) {
                     ? null
                     : String(patch.gp_user_id).trim()
                 : row.gp_user_id;
+        const nextNit =
+            patch.nit !== undefined ? normalizeNitDigits(patch.nit) : normalizeNitDigits(row.nit);
         if (!nextCliente || !nextLider) throw Object.assign(new Error('Cliente y líder no pueden quedar vacíos'), { status: 400 });
+        const touchesCatalog =
+            patch.cliente !== undefined || patch.lider !== undefined || patch.gp_user_id !== undefined;
+        if (touchesCatalog && !nextNit) {
+            throw Object.assign(new Error('NIT es obligatorio al actualizar cliente, líder o GP'), { status: 400 });
+        }
+        const nitForDb = touchesCatalog ? nextNit : normalizeNitDigits(row.nit);
         const q = await pool.query(
             `UPDATE clientes_lideres
-             SET cliente = $2, lider = $3, activo = $4, gp_user_id = $5::uuid, updated_at = NOW()
+             SET cliente = $2, lider = $3, activo = $4, gp_user_id = $5::uuid, nit = $6, updated_at = NOW()
              WHERE id = $1::uuid
-             RETURNING id, cliente, lider, activo, gp_user_id, created_at, updated_at`,
-            [id, nextCliente, nextLider, nextActivo, nextGp]
+             RETURNING id, cliente, lider, activo, gp_user_id, nit, created_at, updated_at`,
+            [id, nextCliente, nextLider, nextActivo, nextGp, nitForDb]
         );
         return q.rows[0] || null;
     }
@@ -1457,6 +1512,7 @@ function createDataLayer(deps) {
     return {
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
+        ensureClientesLideresNitColumn,
         ensureClientesLideresGpUserColumn,
         ensureNovedadesIndexes,
         ensureNovedadesHourSplitColumns,
@@ -1475,6 +1531,7 @@ function createDataLayer(deps) {
         getLideresByCliente,
         listClientesLideresPaged,
         listClientesLideresByClienteSummaryPaged,
+        getClientesNitMapFromLideres,
         insertClienteLider,
         updateClienteLiderById,
         listColaboradoresPaged,
