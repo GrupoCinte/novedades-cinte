@@ -61,7 +61,6 @@ if (SECRET_KEY.length < 32) {
     throw new Error('FATAL: JWT_SECRET debe tener al menos 32 caracteres en todos los entornos (HIGH-001).');
 }
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5175';
-const ALLOW_TRYCLOUDFLARE_DEV = String(process.env.ALLOW_TRYCLOUDFLARE_DEV || 'false').toLowerCase() === 'true';
 const CORS_EXTRA_ORIGINS = String(process.env.CORS_EXTRA_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
@@ -149,7 +148,9 @@ app.use(cors({
         if (allowedCorsOrigins.has(origin)) return callback(null, true);
         try {
             const parsed = new URL(origin);
-            if (!isProduction && ALLOW_TRYCLOUDFLARE_DEV && parsed.hostname.endsWith('.trycloudflare.com')) {
+            // Quick Tunnel (dev): el navegador envía Origin https://*.trycloudflare.com; sin esto CORS falla y el
+            // manejador global devuelve «Error interno del servidor» (mensaje genérico).
+            if (!isProduction && parsed.hostname.endsWith('.trycloudflare.com')) {
                 return callback(null, true);
             }
         } catch {
@@ -238,11 +239,45 @@ function rateLimitKeyByUserOrIp(req) {
     return `ip:${ipKeyGenerator(rawIp)}`;
 }
 
+/**
+ * Login / retos Cognito: sin esto el límite es solo por IP y toda una oficina (misma IP pública detrás de NAT
+ * o del balanceador) comparte la cuota → "Demasiados intentos" en producción.
+ * Clave = ruta + IP + email/username cuando el cuerpo lo trae; cambio de contraseña = usuario autenticado.
+ */
+function authRateLimitKey(req) {
+    const path = String(req.path || '');
+    const ipKey = ipKeyGenerator(req.ip || '127.0.0.1');
+    try {
+        if (path === '/api/auth/change-password' && req.user) {
+            const uid = String(req.user.sub || req.user.email || req.user.username || '').trim();
+            if (uid) return `auth:change-password:${uid}`;
+        }
+    } catch {
+        // req.user puede no existir si el orden de middleware cambia
+    }
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const identity = String(body.email || body.username || '').trim().toLowerCase().slice(0, 320);
+    if (identity) return `auth:${path}:${ipKey}:${identity}`;
+    return `auth:${path}:${ipKey}`;
+}
+
+/** Olvidé contraseña: misma lógica que auth (cuota por correo + IP, no solo IP). */
+function forgotPasswordRateLimitKey(req) {
+    const ipKey = ipKeyGenerator(req.ip || '127.0.0.1');
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const email = String(body.email || '').trim().toLowerCase().slice(0, 320);
+    if (email) return `forgot:${ipKey}:${email}`;
+    return `forgot:${ipKey}`;
+}
+
 const authLimiter = rateLimit({
     windowMs: AUTH_RATE_LIMIT_WINDOW_MIN * 60 * 1000,
     max: AUTH_RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: authRateLimitKey,
+    /** Los 200/204 no consumen cuota; solo fallos (401, 400, etc.) cuentan para frenar fuerza bruta. */
+    skipSuccessfulRequests: true,
     message: { ok: false, message: `Demasiados intentos. Espera ${AUTH_RATE_LIMIT_WINDOW_MIN} minutos.` }
 });
 
@@ -251,6 +286,7 @@ const forgotLimiter = rateLimit({
     max: FORGOT_RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: forgotPasswordRateLimitKey,
     message: { ok: false, message: `Demasiadas solicitudes. Espera ${FORGOT_RATE_LIMIT_WINDOW_MIN} minutos.` }
 });
 

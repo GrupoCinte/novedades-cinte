@@ -40,9 +40,31 @@ function mensajeErrorVerificacionCedula(err) {
     return raw || 'No se pudo verificar la cédula.';
 }
 
+/** Fecha local civil YYYY-MM-DD (navegador) para límites de calendario. */
+function localTodayYmd() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function addCalendarMonthsYmd(ymd, deltaMonths) {
+    const [y, m, day] = String(ymd || '').split('-').map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(day)) return ymd;
+    const d = new Date(y, m - 1, day);
+    d.setMonth(d.getMonth() + deltaMonths);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function addCalendarYearsYmd(ymd, deltaYears) {
+    const [y, m, day] = String(ymd || '').split('-').map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(day)) return ymd;
+    const d = new Date(y, m - 1, day);
+    d.setFullYear(d.getFullYear() + deltaYears);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const FORMULARIO_THEME_STORAGE_KEY = 'formularioNovedadTheme';
 
-/** Tokens de UI para el panel del formulario (oscuro = actual; claro = White). */
+/** Tokens de UI para el panel del formulario (oscuro = actual; claro = tema claro). */
 const FORM_THEMES = {
     dark: {
         pageOverlay: 'absolute inset-0 bg-[#04141E]/40 backdrop-blur-[2px]',
@@ -181,7 +203,6 @@ function isExcelAttachment(file) {
 }
 
 export default function FormularioNovedad() {
-    const todayIso = new Date().toISOString().slice(0, 10);
     const [formData, setFormData] = useState({
         nombre: '',
         cedula: '',
@@ -250,6 +271,11 @@ export default function FormularioNovedad() {
     const esDisponibilidad = formData.tipo === 'Disponibilidad';
     const esSinAdjuntosPublicos = esDisponibilidad;
     const esIncapacidad = formData.tipo === 'Incapacidad';
+    const todayLocalYmd = localTodayYmd();
+    /** Inicio: no antes de 1 mes calendario atrás; fin: no después de 1 año calendario desde hoy. */
+    const minFechaInicioYmd = addCalendarMonthsYmd(todayLocalYmd, -1);
+    const maxFechaFinYmd = addCalendarYearsYmd(todayLocalYmd, 1);
+    const maxFechaInicioYmd = esIncapacidad ? todayLocalYmd : maxFechaFinYmd;
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
     const usaBloqueHoras = isHoraExtra || requiereLapsoHora;
     /** Disponibilidad: días hábiles del rango solo informativos (el backend no persiste días en cantidad_horas). */
@@ -459,6 +485,12 @@ export default function FormularioNovedad() {
         && formData.fechaFin
         && formData.fechaFin < formData.fechaInicio;
 
+    const fechaInicioFueraDeVentana = Boolean(
+        formData.fechaInicio
+        && (formData.fechaInicio < minFechaInicioYmd || formData.fechaInicio > maxFechaInicioYmd)
+    );
+    const fechaFinFueraDeVentanaMax = Boolean(formData.fechaFin && formData.fechaFin > maxFechaFinYmd);
+
     const bloqueoEnvioHoraExtra = usaBloqueHoras
         && (
             !formData.fechaInicio
@@ -468,6 +500,8 @@ export default function FormularioNovedad() {
             || horaInicioFormatoInvalido
             || horaFinFormatoInvalido
             || horaFinInvalida
+            || fechaInicioFueraDeVentana
+            || fechaFinFueraDeVentanaMax
         );
 
     const bloqueoEnvioFechas = !usaBloqueHoras
@@ -475,6 +509,8 @@ export default function FormularioNovedad() {
             !formData.fechaInicio
             || fechaFinInvalida
             || (autocalculaDiasDesdeRango && !String(formData.fechaFin || '').trim())
+            || fechaInicioFueraDeVentana
+            || fechaFinFueraDeVentanaMax
         );
 
     const handleChange = (e) => {
@@ -752,6 +788,22 @@ export default function FormularioNovedad() {
             setStatus({ type: 'error', text: msg });
             return;
         }
+        if (fechaInicioFueraDeVentana) {
+            setStatus({
+                type: 'error',
+                text: esIncapacidad
+                    ? '❌ Fecha Incapacidad: desde hace un mes calendario como máximo hasta hoy.'
+                    : '❌ Fecha Inicio fuera del rango permitido (desde hace un mes calendario hasta un año calendario desde hoy).'
+            });
+            return;
+        }
+        if (fechaFinFueraDeVentanaMax) {
+            setStatus({
+                type: 'error',
+                text: '❌ Fecha Fin no puede ser posterior a un año calendario desde la fecha de hoy.'
+            });
+            return;
+        }
         if (bloqueoEnvioHoraExtra || bloqueoEnvioFechas) {
             const mensaje = isHoraExtra
                 ? '❌ Corrige fecha/horas de Hora Extra antes de enviar.'
@@ -769,7 +821,7 @@ export default function FormularioNovedad() {
             setStatus({ type: 'error', text: '❌ Debes comprobar la cédula y tener un colaborador válido antes de enviar.' });
             return;
         }
-        if (esIncapacidad && formData.fechaInicio && formData.fechaInicio > todayIso) {
+        if (esIncapacidad && formData.fechaInicio && formData.fechaInicio > todayLocalYmd) {
             setStatus({ type: 'error', text: '❌ Incapacidad no puede tener Fecha Inicio futura.' });
             return;
         }
@@ -1027,7 +1079,7 @@ export default function FormularioNovedad() {
                                         Solicitante
                                     </h2>
                                     <div className="flex shrink-0 items-center justify-end gap-3 sm:pl-2">
-                                        <span className={themeMode === 'light' ? theme.switchLabelActive : theme.switchLabelIdle}>White</span>
+                                        <span className={themeMode === 'light' ? theme.switchLabelActive : theme.switchLabelIdle}>Claro</span>
                                         <button
                                             type="button"
                                             role="switch"
@@ -1040,7 +1092,7 @@ export default function FormularioNovedad() {
                                                 className={`${theme.switchThumb} ${themeMode === 'light' ? theme.switchThumbOn : ''}`}
                                             />
                                         </button>
-                                        <span className={themeMode === 'dark' ? theme.switchLabelActive : theme.switchLabelIdle}>Dark</span>
+                                        <span className={themeMode === 'dark' ? theme.switchLabelActive : theme.switchLabelIdle}>Oscuro</span>
                                     </div>
                                 </div>
                                 <div className="space-y-4">
@@ -1194,7 +1246,7 @@ export default function FormularioNovedad() {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-300">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
-                                            <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Inicio (24h) {reqStar}</label>
@@ -1212,7 +1264,7 @@ export default function FormularioNovedad() {
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {reqStar}</label>
-                                            <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Fin (24h) {reqStar}</label>
@@ -1318,11 +1370,11 @@ export default function FormularioNovedad() {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
-                                            <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
-                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                             {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
                                         </div>
                                     </div>
