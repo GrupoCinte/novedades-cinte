@@ -577,7 +577,6 @@ export default function FormularioNovedad() {
             const nextRequiereDias = Boolean(nextRule.requiresDayCount);
             const nextAutoHabiles = Boolean(nextRule.autoBusinessDays);
             const nextAutoCalendario = Boolean(nextRule.autoCalendarDays);
-            const tipoVacio = !String(value || '').trim();
             let nextDias = '';
             if (nextAutoCalendario) {
                 nextDias = String(countCalendarDaysInclusive(formData.fechaInicio, formData.fechaFin));
@@ -586,15 +585,13 @@ export default function FormularioNovedad() {
             } else if (nextRequiereDias) {
                 nextDias = formData.diasSolicitados;
             }
+            // No borrar cliente/líder al deseleccionar tipo: vienen del directorio; limpiarlos obligaba a comprobar cédula otra vez.
             setFormData({
                 ...formData,
                 tipo: value,
-                cliente: tipoVacio ? '' : formData.cliente,
-                lider: tipoVacio ? '' : formData.lider,
                 diasSolicitados: nextDias,
                 montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ '
             });
-            if (tipoVacio) setLideres([]);
             if (value === 'Disponibilidad') {
                 setSelectedFiles([]);
             }
