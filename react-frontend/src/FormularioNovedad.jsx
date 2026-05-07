@@ -1234,7 +1234,8 @@ export default function FormularioNovedad() {
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {reqStar}</label>
-                                            <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
+                                            {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
                                             {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
                                             )}
@@ -1356,7 +1357,8 @@ export default function FormularioNovedad() {
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
-                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
+                                            {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
                                             {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
                                             {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
