@@ -226,20 +226,40 @@ export default function Login({ setAuth }) {
                 <div className={au.challengeHeading}>
                   Primer acceso: define nueva contraseña
                 </div>
-                <input
-                  type={showNewPassword ? "text" : "password"}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Nueva contraseña"
-                  className={au.authInput}
-                />
-                <input
-                  type={showNewPassword ? "text" : "password"}
-                  value={confirmNewPassword}
-                  onChange={(e) => setConfirmNewPassword(e.target.value)}
-                  placeholder="Confirmar nueva contraseña"
-                  className={au.authInput}
-                />
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Nueva contraseña"
+                    className={`${au.authInput} pr-10`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    className={`absolute inset-y-0 right-0 pr-3 flex items-center ${au.eyeBtn}`}
+                    aria-label={showNewPassword ? "Ocultar nueva contraseña" : "Mostrar nueva contraseña"}
+                  >
+                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    placeholder="Confirmar nueva contraseña"
+                    className={`${au.authInput} pr-10`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    className={`absolute inset-y-0 right-0 pr-3 flex items-center ${au.eyeBtn}`}
+                    aria-label={showNewPassword ? "Ocultar confirmación" : "Mostrar confirmación"}
+                  >
+                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={phoneNumber}
@@ -258,15 +278,6 @@ export default function Login({ setAuth }) {
                   placeholder="Teléfono (ej: +573001112233)"
                   className={au.authInput}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPassword((v) => !v)}
-                  className={`text-left text-xs ${au.backLink}`}
-                >
-                  {showNewPassword
-                    ? "Ocultar nueva contraseña"
-                    : "Mostrar nueva contraseña"}
-                </button>
                 <button
                   type="button"
                   disabled={loading}
