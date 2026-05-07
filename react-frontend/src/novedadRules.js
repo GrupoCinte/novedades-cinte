@@ -177,14 +177,19 @@ const TIPO_ALIAS_SNAKE = {
 };
 
 /** Días hábiles entre fechas YYYY-MM-DD (lun–vie), alineado con Formulario y registerRoutes. */
-export function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
+export function countBusinessDaysInclusive(startDateRaw, endDateRaw, festivosSet = new Set()) {
   if (!startDateRaw || !endDateRaw || endDateRaw < startDateRaw) return 0;
   const start = new Date(`${startDateRaw}T00:00:00`);
   const end = new Date(`${endDateRaw}T00:00:00`);
   let count = 0;
   for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
     const day = cursor.getDay();
-    if (day !== 0 && day !== 6) count += 1;
+    if (day !== 0 && day !== 6) {
+      const ymd = cursor.toISOString().slice(0, 10);
+      if (!festivosSet.has(ymd)) {
+        count += 1;
+      }
+    }
   }
   return count;
 }
@@ -202,7 +207,7 @@ export function countCalendarDaysInclusive(startDateRaw, endDateRaw) {
 }
 
 /** Prioriza cantidad guardada; si es 0 y hay rango, infiere días (hábiles o calendario según regla del tipo). */
-export function getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin) {
+export function getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin, festivosSet = new Set()) {
   const kind = getCantidadMedidaKind(tipoNovedad);
   if (kind !== 'days') return 0;
   const n = Number(cantidadRaw) || 0;
@@ -210,7 +215,7 @@ export function getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, f
   if (fechaInicio && fechaFin) {
     const rule = getNovedadRule(tipoNovedad);
     if (rule.autoCalendarDays) return countCalendarDaysInclusive(fechaInicio, fechaFin);
-    return countBusinessDaysInclusive(fechaInicio, fechaFin);
+    return countBusinessDaysInclusive(fechaInicio, fechaFin, festivosSet);
   }
   return 0;
 }
@@ -327,19 +332,21 @@ export function formatDiasCount(n) {
 }
 
 /**
- * @param {object} [context] registro de novedad o { fechaInicio, fechaFin } para inferir días cuando cantidad_horas es 0
+ * @param {object} [context] registro de novedad o { fechaInicio, fechaFin, festivosSet } para inferir días cuando cantidad_horas es 0
  */
 export function formatCantidadNovedad(tipoNovedad, cantidadRaw, context = null) {
   const n = Number(cantidadRaw);
   const kind = getCantidadMedidaKind(tipoNovedad);
   const fechaInicio = context?.fechaInicio || context?.fecha_inicio || '';
   const fechaFin = context?.fechaFin || context?.fecha_fin || '';
+  const festivosSet = context?.festivosSet || new Set();
+  
   if (kind === 'hours') {
     if (!Number.isFinite(n) || n === 0) return '—';
     return `${n}h`;
   }
   if (kind === 'days') {
-    const dias = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin);
+    const dias = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin, festivosSet);
     return formatDiasCount(dias);
   }
   if (kind === 'money') {

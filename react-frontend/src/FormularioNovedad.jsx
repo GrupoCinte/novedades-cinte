@@ -224,7 +224,19 @@ export default function FormularioNovedad() {
     const [heDomingoPreviewLoading, setHeDomingoPreviewLoading] = useState(false);
     const [heDomingoCompensacion, setHeDomingoCompensacion] = useState('');
     const [diaCompensatorioYmd, setDiaCompensatorioYmd] = useState('');
+    const [festivosSet, setFestivosSet] = useState(new Set());
     const heDomingoPreviewTimerRef = useRef(null);
+
+    useEffect(() => {
+        fetch('/api/festivos')
+            .then(res => res.json())
+            .then(data => {
+                if (data.ok && Array.isArray(data.festivos)) {
+                    setFestivosSet(new Set(data.festivos));
+                }
+            })
+            .catch(err => console.error('Error cargando festivos:', err));
+    }, []);
 
     /** Tras comprobar cédula, el correo no se edita (valor viene del directorio o queda vacío hasta que lo carguen). */
     const bloquearCorreo = colaboradorVerificado;
@@ -256,8 +268,8 @@ export default function FormularioNovedad() {
     const diasInformativosDisponibilidad = useMemo(() => {
         if (!esDisponibilidad || !formData.fechaInicio || !formData.fechaFin) return 0;
         if (formData.fechaFin < formData.fechaInicio) return 0;
-        return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin);
-    }, [esDisponibilidad, formData.fechaInicio, formData.fechaFin]);
+        return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin, festivosSet);
+    }, [esDisponibilidad, formData.fechaInicio, formData.fechaFin, festivosSet]);
 
     const parseMilitaryTimeToMinutes = (value) => {
         if (!value) return null;
@@ -408,10 +420,10 @@ export default function FormularioNovedad() {
             return countCalendarDaysInclusive(formData.fechaInicio, formData.fechaFin);
         }
         if (autocalculaDiasHabiles) {
-            return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin);
+            return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin, festivosSet);
         }
         return 0;
-    }, [autocalculaDiasCalendario, autocalculaDiasHabiles, formData.fechaInicio, formData.fechaFin]);
+    }, [autocalculaDiasCalendario, autocalculaDiasHabiles, formData.fechaInicio, formData.fechaFin, festivosSet]);
 
     /** Incluye el cliente del directorio aunque no coincida literalmente con la lista del catálogo (evita <select> en blanco). */
     const clientesParaSelect = useMemo(() => {
@@ -522,7 +534,7 @@ export default function FormularioNovedad() {
             const nextDias = autocalculaDiasCalendario
                 ? String(countCalendarDaysInclusive(value, nextFechaFin))
                 : autocalculaDiasHabiles
-                    ? String(countBusinessDaysInclusive(value, nextFechaFin))
+                    ? String(countBusinessDaysInclusive(value, nextFechaFin, festivosSet))
                     : formData.diasSolicitados;
             setFormData({ ...formData, fechaInicio: value, fechaFin: nextFechaFin, diasSolicitados: nextDias });
             return;
@@ -531,7 +543,7 @@ export default function FormularioNovedad() {
             const nextDias = autocalculaDiasCalendario
                 ? String(countCalendarDaysInclusive(formData.fechaInicio, value))
                 : autocalculaDiasHabiles
-                    ? String(countBusinessDaysInclusive(formData.fechaInicio, value))
+                    ? String(countBusinessDaysInclusive(formData.fechaInicio, value, festivosSet))
                     : formData.diasSolicitados;
             setFormData({ ...formData, fechaFin: value, diasSolicitados: nextDias });
             return;
@@ -546,7 +558,7 @@ export default function FormularioNovedad() {
             if (nextAutoCalendario) {
                 nextDias = String(countCalendarDaysInclusive(formData.fechaInicio, formData.fechaFin));
             } else if (nextAutoHabiles) {
-                nextDias = String(countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin));
+                nextDias = String(countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin, festivosSet));
             } else if (nextRequiereDias) {
                 nextDias = formData.diasSolicitados;
             }
@@ -1195,6 +1207,12 @@ export default function FormularioNovedad() {
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
                                             <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            {formData.fechaInicio && festivosSet.has(formData.fechaInicio) && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                            )}
+                                            {formData.fechaInicio && !festivosSet.has(formData.fechaInicio) && new Date(formData.fechaInicio + 'T12:00:00Z').getUTCDay() === 0 && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            )}
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Inicio (24h) {reqStar}</label>
@@ -1213,6 +1231,12 @@ export default function FormularioNovedad() {
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {reqStar}</label>
                                             <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                            )}
+                                            {formData.fechaFin && !festivosSet.has(formData.fechaFin) && new Date(formData.fechaFin + 'T12:00:00Z').getUTCDay() === 0 && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            )}
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Fin (24h) {reqStar}</label>
@@ -1319,11 +1343,23 @@ export default function FormularioNovedad() {
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
                                             <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            {formData.fechaInicio && festivosSet.has(formData.fechaInicio) && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                            )}
+                                            {formData.fechaInicio && !festivosSet.has(formData.fechaInicio) && new Date(formData.fechaInicio + 'T12:00:00Z').getUTCDay() === 0 && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            )}
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
                                             <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                             {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
+                                            {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                            )}
+                                            {formData.fechaFin && !festivosSet.has(formData.fechaFin) && new Date(formData.fechaFin + 'T12:00:00Z').getUTCDay() === 0 && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            )}
                                         </div>
                                     </div>
                                 )}
