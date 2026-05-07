@@ -35,7 +35,7 @@ function mensajeErrorVerificacionCedula(err) {
         err instanceof TypeError
         || /failed to fetch|networkerror|load failed|network request failed/i.test(raw);
     if (pareceFalloRed) {
-        return 'No se pudo conectar con el servidor del formulario. Comprueba que el API esté en marcha (en la raíz del repo: npm run dev; puerto por defecto 3005) y que esta página se abra desde el servidor de Vite del frontend, para que las rutas /api se reenvíen al backend.';
+        return 'Error en red';
     }
     return raw || 'No se pudo verificar la cédula.';
 }
@@ -945,7 +945,11 @@ export default function FormularioNovedad() {
             }
         } catch (error) {
             console.error(error);
-            setStatus({ type: 'error', text: `❌ ${error?.message || 'Error al enviar la solicitud'}` });
+            let errMsg = error?.message || 'Error al enviar la solicitud';
+            if (/failed to fetch|networkerror|load failed/i.test(errMsg)) {
+                errMsg = 'Error en red';
+            }
+            setStatus({ type: 'error', text: `❌ ${errMsg}` });
         } finally {
             setIsSubmitting(false);
         }
