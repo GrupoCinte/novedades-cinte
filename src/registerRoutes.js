@@ -1,4 +1,4 @@
-const { normalizeNovedadTypeKey, isNovedadTipoRetiradoDelFormulario } = require('./rbac');
+const { normalizeNovedadTypeKey, isNovedadTipoRetiradoDelFormulario, normalizeRoleOrNull } = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
 const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
@@ -303,7 +303,10 @@ function registerRoutes(deps) {
         xlsx,
         emailNotificationsPublisher,
         resolveApproverEmailsForNovedad,
-        revokeAppSessionToken
+        revokeAppSessionToken,
+        requireEntraConsultor,
+        requireCatalogConsultorOrStaff,
+        consultorFormPostLimiter
     } = deps;
     const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     const exposeInternalErrors = String(process.env.EXPOSE_INTERNAL_ERRORS || '').toLowerCase() === 'true';
@@ -311,6 +314,20 @@ function registerRoutes(deps) {
     const secureCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
     const sameSite = isProduction ? 'strict' : 'lax';
     const exportMaxRows = Math.max(1, Number(process.env.EXPORT_MAX_ROWS || 5000));
+
+    function requireColaboradorCatalogSelfOrStaff(req, res, next) {
+        const ap = String(req.user?.authProvider || '');
+        const role = normalizeRoleOrNull(req.user?.role);
+        const qCed = normalizeCedula(req.query?.cedula || '');
+        if (ap === 'entra_consultor' && role === 'consultor') {
+            const userCed = normalizeCedula(req.user.cedula || '');
+            if (qCed && userCed && qCed === userCed) return next();
+            return res.status(403).json({ ok: false, error: 'La cédula no coincide con tu sesión.' });
+        }
+        if ((ap === 'cognito_app' || ap === 'cognito') && role && POLICY[role]) return next();
+        if (!ap && role && POLICY[role]) return next();
+        return res.status(403).json({ ok: false, error: 'Sin permiso.' });
+    }
 
     function setSessionCookie(res, token, maxAgeSec) {
         const ms = Number(maxAgeSec || 0) > 0 ? Number(maxAgeSec) * 1000 : 8 * 60 * 60 * 1000;
@@ -1033,7 +1050,7 @@ function registerRoutes(deps) {
         }
     });
 
-    app.get('/api/catalogos/clientes', catalogLimiter, async (req, res) => {
+    app.get('/api/catalogos/clientes', verificarToken, requireCatalogConsultorOrStaff, catalogLimiter, async (req, res) => {
         try {
             const rawItems = await getClientesList();
             const items = rawItems.slice(0, 500).map((v) => String(v || '').trim()).filter(Boolean);
@@ -1044,7 +1061,7 @@ function registerRoutes(deps) {
         }
     });
 
-    app.get('/api/catalogos/lideres', catalogLimiter, async (req, res) => {
+    app.get('/api/catalogos/lideres', verificarToken, requireCatalogConsultorOrStaff, catalogLimiter, async (req, res) => {
         try {
             const cliente = normalizeCatalogValue(req.query?.cliente || '');
             if (!cliente) return res.status(400).json({ ok: false, error: 'Parametro cliente es obligatorio' });
@@ -1059,7 +1076,12 @@ function registerRoutes(deps) {
         }
     });
 
-    app.get('/api/catalogos/colaborador', catalogLimiter, async (req, res) => {
+    app.get(
+        '/api/catalogos/colaborador',
+        verificarToken,
+        requireColaboradorCatalogSelfOrStaff,
+        catalogLimiter,
+        async (req, res) => {
         try {
             const cedula = normalizeCedula(req.query?.cedula || '');
             if (!cedula) {
@@ -1105,14 +1127,26 @@ function registerRoutes(deps) {
             console.error('Error catalogo colaborador:', error);
             return res.status(500).json({ ok: false, error: 'No se pudo consultar el colaborador' });
         }
-    });
+        }
+    );
 
-    app.post('/api/hora-extra-domingo-preview', submitLimiter, async (req, res) => {
+    app.post(
+        '/api/hora-extra-domingo-preview',
+        verificarToken,
+        consultorFormPostLimiter,
+        requireEntraConsultor,
+        async (req, res) => {
         try {
             const body = req.body || {};
             const cedula = normalizeCedula(body.cedula || '');
             if (!cedula) {
                 return res.status(400).json({ ok: false, error: 'Cédula requerida (solo números).' });
+            }
+            if (req.user?.authProvider === 'entra_consultor') {
+                const tokenCed = normalizeCedula(req.user.cedula || '');
+                if (!tokenCed || tokenCed !== cedula) {
+                    return res.status(403).json({ ok: false, error: 'La cédula no coincide con tu sesión.' });
+                }
             }
             const col = await getColaboradorByCedula(cedula);
             if (!col) {
@@ -1156,9 +1190,16 @@ function registerRoutes(deps) {
             console.error('hora-extra-domingo-preview:', error);
             return res.status(500).json({ ok: false, error: 'No se pudo calcular la política de domingo.' });
         }
-    });
+        }
+    );
 
-    app.post('/api/enviar-novedad', submitLimiter, upload.any(), async (req, res) => {
+    app.post(
+        '/api/enviar-novedad',
+        verificarToken,
+        consultorFormPostLimiter,
+        requireEntraConsultor,
+        upload.any(),
+        async (req, res) => {
         try {
             const body = req.body || {};
             const files = (Array.isArray(req.files) ? req.files : [])
@@ -1255,6 +1296,12 @@ function registerRoutes(deps) {
             const cedulaNorm = normalizeCedula(body.cedula || '');
             if (!cedulaNorm) {
                 return res.status(400).json({ ok: false, error: 'Cédula inválida. Usa solo números, sin puntos ni comas.' });
+            }
+            if (req.user?.authProvider === 'entra_consultor') {
+                const tokenCed = normalizeCedula(req.user.cedula || '');
+                if (!tokenCed || tokenCed !== cedulaNorm) {
+                    return res.status(403).json({ ok: false, error: 'La cédula no coincide con tu sesión.' });
+                }
             }
             const colaborador = await getColaboradorByCedula(cedulaNorm);
             if (!colaborador) {
@@ -1547,7 +1594,8 @@ function registerRoutes(deps) {
             console.error('Error al guardar:', error);
             return res.status(500).json({ ok: false, error: 'Error al guardar' });
         }
-    });
+        }
+    );
 
     app.get('/api/soportes/url', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), async (req, res) => {
         try {

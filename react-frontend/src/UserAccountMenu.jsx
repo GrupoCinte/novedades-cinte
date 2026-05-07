@@ -50,6 +50,10 @@ export default function UserAccountMenu({ auth, onLogout, surface = 'banner', no
     const ini = initials(auth);
     const isBanner = surface === 'banner';
 
+    const isEntraConsultor =
+        auth?.user?.authProvider === 'entra_consultor' &&
+        String(auth?.user?.role || '').toLowerCase() === 'consultor';
+
     const bannerLight = isBanner && isLight;
 
     const panelClass = bannerLight
@@ -128,28 +132,37 @@ export default function UserAccountMenu({ auth, onLogout, surface = 'banner', no
                         className={`absolute right-0 top-[calc(100%+8px)] z-[80] w-64 overflow-hidden rounded-xl py-1.5 ${panelClass}`}
                         role="menu"
                     >
-                        <button type="button" role="menuitem" className={itemClass} onClick={() => go('/admin')}>
+                        <button
+                            type="button"
+                            role="menuitem"
+                            className={itemClass}
+                            onClick={() => go(isEntraConsultor ? '/consultor' : '/admin')}
+                        >
                             <User size={18} className="opacity-80" />
-                            Mi perfil
+                            {isEntraConsultor ? 'Inicio portal' : 'Mi perfil'}
                         </button>
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={itemClass}
-                            onClick={() => go(novedades ? '/admin/novedades' : '/admin')}
-                        >
-                            <Settings size={18} className="opacity-80" />
-                            Configuración
-                        </button>
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={itemClass}
-                            onClick={() => go('/perfil/cambiar-clave')}
-                        >
-                            <KeyRound size={18} className="opacity-80" />
-                            Cambiar contraseña
-                        </button>
+                        {!isEntraConsultor ? (
+                            <>
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    className={itemClass}
+                                    onClick={() => go(novedades ? '/admin/novedades' : '/admin')}
+                                >
+                                    <Settings size={18} className="opacity-80" />
+                                    Configuración
+                                </button>
+                                <button
+                                    type="button"
+                                    role="menuitem"
+                                    className={itemClass}
+                                    onClick={() => go('/perfil/cambiar-clave')}
+                                >
+                                    <KeyRound size={18} className="opacity-80" />
+                                    Cambiar contraseña
+                                </button>
+                            </>
+                        ) : null}
                         <div className={`my-1.5 h-px ${bannerLight ? 'bg-slate-200' : isBanner ? 'bg-white/10' : isLight ? 'bg-slate-200' : 'bg-[#1a3a56]'}`} />
                         <button
                             type="button"
@@ -182,21 +195,20 @@ export default function UserAccountMenu({ auth, onLogout, surface = 'banner', no
                 )}
             </button>
 
-            <button
-                type="button"
-                title="Notificaciones"
-                className={tileClass}
-                onClick={() => {
-                    go(novedades ? '/admin/novedades' : '/admin');
-                }}
+            <span
+                className="inline-flex"
+                title="Notificaciones: no disponible por el momento"
             >
-                <Bell size={20} strokeWidth={2} className={bannerLight ? 'text-[#004D87]' : isBanner ? 'text-white' : ''} />
-                {notificationCount > 0 ? (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#2F7BB8] px-0.5 text-[9px] font-bold text-white ring-2 ring-white/40 sm:h-4 sm:min-w-[1.05rem] sm:text-[10px]">
-                        {notificationCount > 9 ? '9+' : notificationCount}
-                    </span>
-                ) : null}
-            </button>
+                <button
+                    type="button"
+                    disabled
+                    aria-disabled="true"
+                    aria-label="Notificaciones no disponibles temporalmente"
+                    className={`${tileClass} cursor-not-allowed opacity-45`}
+                >
+                    <Bell size={20} strokeWidth={2} className={bannerLight ? 'text-[#004D87]' : isBanner ? 'text-white' : ''} />
+                </button>
+            </span>
         </div>
     );
 }

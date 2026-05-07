@@ -143,7 +143,7 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 key: 'directorio',
                 title: 'Módulo de administración',
                 description: 'Configuración de catálogo, permisos y datos maestros del directorio.',
-                path: '/admin/directorio',
+                path: '/admin/directorio?v=dashboard',
                 Icon: Building2
             });
         }

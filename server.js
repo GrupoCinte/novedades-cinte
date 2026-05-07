@@ -125,18 +125,19 @@ app.use(helmet({
             scriptSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
             imgSrc: ["'self'", 'data:', 'blob:'],
-            connectSrc: ["'self'"],
+            connectSrc: ["'self'", 'https://login.microsoftonline.com'],
             fontSrc: ["'self'", 'data:'],
             objectSrc: ["'none'"],
             frameAncestors: ["'none'"],
             baseUri: ["'self'"],
-            formAction: ["'self'"]
+            // Entra ID (OIDC): navegación y posibles comprobaciones hacia el IdP.
+            formAction: ["'self'", 'https://login.microsoftonline.com']
         }
     } : false,
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: isProduction ? { policy: 'same-origin' } : false,
     hsts: isProduction ? {
-        maxAge: 15552000, // 180 dias
+        maxAge: 31536000, // 1 año — coincide con Caddyfile y apto para preload list
         includeSubDomains: true,
         preload: true
     } : false,
@@ -181,9 +182,7 @@ const CSRF_SKIP_PATHS = new Set([
     '/api/login',
     '/api/auth/complete-new-password',
     '/api/auth/forgot-password',
-    '/api/auth/reset-password',
-    '/api/enviar-novedad',
-    '/api/hora-extra-domingo-preview'
+    '/api/auth/reset-password'
 ]);
 const csrfCookieSameSite = isProduction ? 'strict' : 'lax';
 const csrfCookieSecure =
@@ -223,9 +222,9 @@ const FORGOT_RATE_LIMIT_MAX = Number(process.env.FORGOT_RATE_LIMIT_MAX || 5);
 const PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN = Number(process.env.PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN || process.env.FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN || 60);
 const PUBLIC_FORM_SUBMIT_RATE_LIMIT_MAX = Number(process.env.PUBLIC_FORM_SUBMIT_RATE_LIMIT_MAX || process.env.FORM_SUBMIT_RATE_LIMIT_MAX || 30);
 const ADMIN_ACTION_RATE_LIMIT_WINDOW_MIN = Number(process.env.ADMIN_ACTION_RATE_LIMIT_WINDOW_MIN || 60);
-/** En producción se mantiene 200 por hora salvo env; en dev más alto para evitar bloqueos al usar directorio/cotizador. */
+/** En producción: 2000 acciones por ventana (60 min por defecto) salvo `ADMIN_ACTION_RATE_LIMIT_MAX`. En dev más alto. Aplica a mutaciones (cotizador, escrituras directorio), no a GET del directorio. */
 const ADMIN_ACTION_RATE_LIMIT_MAX = Number(
-    process.env.ADMIN_ACTION_RATE_LIMIT_MAX || (isProduction ? 200 : 5000)
+    process.env.ADMIN_ACTION_RATE_LIMIT_MAX || (isProduction ? 2000 : 5000)
 );
 const PDF_RATE_LIMIT_WINDOW_MIN = Number(process.env.PDF_RATE_LIMIT_WINDOW_MIN || 10);
 const PDF_RATE_LIMIT_MAX = Number(process.env.PDF_RATE_LIMIT_MAX || 120);
@@ -298,6 +297,18 @@ const submitLimiter = rateLimit({
     message: {
         ok: false,
         error: `Demasiados envíos al formulario público de novedades. Espera ${PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN} minutos.`
+    }
+});
+/** Radicación consultor (tras `verificarToken`): cuota por usuario, no solo por IP. */
+const consultorFormPostLimiter = rateLimit({
+    windowMs: PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN * 60 * 1000,
+    max: PUBLIC_FORM_SUBMIT_RATE_LIMIT_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKeyByUserOrIp,
+    message: {
+        ok: false,
+        error: `Demasiados envíos al formulario de novedades. Espera ${PUBLIC_FORM_SUBMIT_RATE_LIMIT_WINDOW_MIN} minutos.`
     }
 });
 const adminActionLimiter = rateLimit({
@@ -433,6 +444,9 @@ const emailNotificationsPublisher = createEmailNotificationsPublisher({
 const {
     resolveEffectiveRole,
     issueAppTokenFromCognito,
+    issueAppTokenForEntraConsultor,
+    requireEntraConsultor,
+    requireCatalogConsultorOrStaff,
     buildUserFromCognitoClaims,
     buildCognitoSecretHash,
     cognitoPublicApi,
@@ -489,9 +503,11 @@ const {
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,
     ensureColaboradoresDirectoryColumns,
+    ensureReubicacionesPipelineTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     getColaboradorByCedula,
+    getColaboradorByEmail,
     getClientesList,
     getLideresByCliente,
     listClientesLideresPaged,
@@ -502,6 +518,7 @@ const {
     listColaboradoresPaged,
     insertColaborador,
     updateColaboradorByCedula,
+    deleteColaboradorByCedula,
     listGpUsersForDirectorio,
     insertGpUserPlaceholder,
     updateGpUserById,
@@ -525,9 +542,22 @@ const {
 });
 
 const { registerRoutes } = require('./src/registerRoutes');
+const { registerEntraRoutes } = require('./src/auth/registerEntraRoutes');
 const { startServer } = require('./src/startup');
 const cotizadorStore = createCotizadorStore({ pool });
 const tiRolesStore = createTiRolesStore({ pool });
+
+const secureEntraCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
+const sameSiteEntra = isProduction ? 'strict' : 'lax';
+
+registerEntraRoutes(app, {
+    getColaboradorByEmail,
+    issueAppTokenForEntraConsultor,
+    FRONTEND_URL,
+    secureCookie: secureEntraCookie,
+    sameSite: sameSiteEntra,
+    logger
+});
 
 registerRoutes({
     app,
@@ -535,11 +565,14 @@ registerRoutes({
     authLimiter,
     forgotLimiter,
     submitLimiter,
+    consultorFormPostLimiter,
     catalogLimiter,
     normalizeCedula,
     getColaboradorByCedula,
     verificarToken,
     revokeAppSessionToken,
+    requireEntraConsultor,
+    requireCatalogConsultorOrStaff,
     isStrongPassword,
     COGNITO_ENABLED,
     COGNITO_APP_CLIENT_ID,
@@ -604,6 +637,7 @@ registerDirectorioRoutes({
     listColaboradoresPaged,
     insertColaborador,
     updateColaboradorByCedula,
+    deleteColaboradorByCedula,
     listGpUsersForDirectorio,
     insertGpUserPlaceholder,
     updateGpUserById,
@@ -666,6 +700,7 @@ startServer({
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,
     ensureColaboradoresDirectoryColumns,
+    ensureReubicacionesPipelineTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     PORT,

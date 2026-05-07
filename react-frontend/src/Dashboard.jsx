@@ -464,7 +464,7 @@ export default function Dashboard({ token, auth, onLogout }) {
     useEffect(() => {
         const loadCalClientes = async () => {
             try {
-                const res = await fetch('/api/catalogos/clientes');
+                const res = await fetch('/api/catalogos/clientes', { credentials: 'include' });
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) setCalendarClientesList(json.items);
             } catch (err) {

@@ -24,6 +24,7 @@ async function startServer(deps) {
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
+        ensureReubicacionesPipelineTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
@@ -53,6 +54,7 @@ async function startServer(deps) {
     await migrateClientesLideresFromExcelIfNeeded();
     await ensureColaboradoresTable();
     await ensureColaboradoresDirectoryColumns();
+    await ensureReubicacionesPipelineTable();
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
 

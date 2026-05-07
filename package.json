@@ -4,12 +4,17 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test tests/cotizador.resolveCargosLista.test.js tests/clienteNombreMatch.test.js tests/rbac.integration.test.js tests/resolveApproverEmailsFromCognito.test.js tests/colaboradorDirectory.test.js tests/loginClaimsSerialization.test.js tests/directorioClienteLiderGpSchema.test.js tests/cotizadorEngine.test.js tests/tiPerfilToCargoRow.test.js tests/taxonomiaDepuradaFinParse.test.js tests/tiCatalogColumnMap.test.js tests/utils.extended.test.js tests/wsTicket.test.js tests/heDomingoBogota.test.js tests/heDomingoCompensacion.test.js tests/heBogotaSplit.test.js tests/novedadHeExcelExport.test.js tests/auth.unit.test.js tests/registerRoutes.contract.test.js tests/novedadesMapper.test.js tests/infraData.test.js tests/server.unit.test.js tests/novedadAdminRoutes.test.js tests/api.integration.test.js src/notifications/emailNotificationsPublisher.test.js",
+    "test": "node --test tests/cotizador.resolveCargosLista.test.js tests/clienteNombreMatch.test.js tests/rbac.integration.test.js tests/resolveApproverEmailsFromCognito.test.js tests/colaboradorDirectory.test.js tests/loginClaimsSerialization.test.js tests/directorioClienteLiderGpSchema.test.js tests/cotizadorEngine.test.js tests/tiPerfilToCargoRow.test.js tests/taxonomiaDepuradaFinParse.test.js tests/tiCatalogColumnMap.test.js tests/utils.extended.test.js tests/wsTicket.test.js tests/heDomingoBogota.test.js tests/heDomingoCompensacion.test.js tests/heBogotaSplit.test.js tests/novedadHeExcelExport.test.js tests/auth.unit.test.js tests/entraConsultorAuth.test.js tests/registerRoutes.contract.test.js tests/novedadesMapper.test.js tests/infraData.test.js tests/server.unit.test.js tests/novedadAdminRoutes.test.js tests/reubicacionesSemaforo.test.js tests/reubicacionesPipeline.routes.test.js tests/migratePipelineExcelDate.test.js src/notifications/emailNotificationsPublisher.test.js",
+    "test:api-smoke": "node --test tests/api.integration.test.js",
     "test:rbac": "node --test tests/rbac.integration.test.js",
     "test:frontend": "npm --prefix react-frontend run test -- --run",
     "test:all": "npm run test && npm run test:frontend",
     "test:new": "node --test tests/cotizadorEngine.test.js tests/utils.extended.test.js tests/wsTicket.test.js",
-    "test:ci": "npm run test && npm run test:frontend"
+    "test:ci": "npm run test && npm run test:frontend",
+    "migrate:pipeline-swat": "node scripts/migrate-pipeline-swat-colaboradores.js",
+    "migrate:pipeline-swat:apply": "node scripts/migrate-pipeline-swat-colaboradores.js --apply",
+    "migrate:reubicaciones-pipeline": "node scripts/migrate-pipeline-excel-to-reubicaciones.js",
+    "migrate:reubicaciones-pipeline:apply": "node scripts/migrate-pipeline-excel-to-reubicaciones.js --apply"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1030.0",
@@ -27,6 +32,7 @@
     "express-rate-limit": "^8.3.1",
     "file-type": "^19.6.0",
     "helmet": "^8.1.0",
+    "jose": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.0",
     "pdfkit": "^0.18.0",

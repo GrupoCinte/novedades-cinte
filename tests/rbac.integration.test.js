@@ -12,7 +12,7 @@ const {
   isNovedadTipoRetiradoDelFormulario
 } = require('../src/rbac');
 
-const EXPECTED_ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial'];
+const EXPECTED_ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial', 'consultor'];
 const allRoles = Object.keys(POLICY).sort();
 
 describe('RBAC - prioridad de roles', () => {
@@ -20,6 +20,7 @@ describe('RBAC - prioridad de roles', () => {
     assert.equal(resolveRoleFromGroups(['gp', 'super_admin']), 'super_admin');
     assert.equal(resolveRoleFromGroups(['comercial', 'nomina']), 'nomina');
     assert.equal(resolveRoleFromGroups(['gp', 'team_ch']), 'team_ch');
+    assert.equal(resolveRoleFromGroups(['consultor']), 'consultor');
   });
 
   it('ROLE_PRIORITY coincide con política actual (CAC, sin admin_ops/sst)', () => {
@@ -87,7 +88,8 @@ describe('RBAC - matriz roles en POLICY x tipos', () => {
       team_ch: 'Capital Humano',
       gp: 'Operaciones',
       nomina: 'Financiero',
-      comercial: 'Comercial'
+      comercial: 'Comercial',
+      consultor: 'Operaciones'
     };
     for (const role of Object.keys(expectedAreaByRole)) {
       assert.equal(getAreaFromRole(role), expectedAreaByRole[role], `area inválida para ${role}`);

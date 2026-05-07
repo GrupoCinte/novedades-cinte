@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { NOVEDAD_TYPES, getNovedadRule, countBusinessDaysInclusive, countCalendarDaysInclusive } from './novedadRules';
 import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat';
 import { toUtcMsFromDateAndTime } from './heNovedadBogotaClient.js';
+import { buildCsrfHeaders } from './cognitoAuth.js';
+import { useUiTheme } from './UiThemeContext.jsx';
 
 function normalizeHoraHePayload(timeRaw) {
     const t = String(timeRaw || '').trim();
@@ -202,7 +205,7 @@ function isExcelAttachment(file) {
     return ALLOWED_EXCEL_EXT.has(extension);
 }
 
-export default function FormularioNovedad() {
+export default function FormularioNovedad({ consultorSession = null, onSessionChange = null }) {
     const [formData, setFormData] = useState({
         nombre: '',
         cedula: '',
@@ -246,6 +249,15 @@ export default function FormularioNovedad() {
     const [heDomingoCompensacion, setHeDomingoCompensacion] = useState('');
     const [diaCompensatorioYmd, setDiaCompensatorioYmd] = useState('');
     const heDomingoPreviewTimerRef = useRef(null);
+    const cedulaConsultorBloqueada = Boolean(consultorSession && consultorSession.cedula);
+
+    const { theme: uiTheme } = useUiTheme();
+
+    /** Entra consultor: el formulario sigue el tema global del portal (mismo `localStorage` que el hub). */
+    useEffect(() => {
+        if (!consultorSession) return;
+        setThemeMode(uiTheme === 'light' ? 'light' : 'dark');
+    }, [consultorSession, uiTheme]);
 
     /** Tras comprobar cédula, el correo no se edita (valor viene del directorio o queda vacío hasta que lo carguen). */
     const bloquearCorreo = colaboradorVerificado;
@@ -337,7 +349,8 @@ export default function FormularioNovedad() {
             try {
                 const res = await fetch('/api/hora-extra-domingo-preview', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    headers: buildCsrfHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({
                         cedula: c,
                         nombre: formData.nombre,
@@ -515,6 +528,7 @@ export default function FormularioNovedad() {
 
     const handleChange = (e) => {
         const { name, value } = e.target;
+        if (name === 'cedula' && cedulaConsultorBloqueada) return;
         if (name === 'cedula') {
             const digits = normalizeCedulaInput(value);
             setColaboradorVerificado(false);
@@ -605,6 +619,7 @@ export default function FormularioNovedad() {
     };
 
     const handleComprobarCedula = async () => {
+        if (cedulaConsultorBloqueada) return;
         const c = normalizeCedulaInput(formData.cedula);
         if (!c) {
             setDocumentoMensaje({
@@ -617,7 +632,9 @@ export default function FormularioNovedad() {
         setDocumentoMensaje({ tipo: '', text: '' });
         setStatus({ type: '', text: '' });
         try {
-            const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`);
+            const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`, {
+                credentials: 'include'
+            });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
                 throw new Error(data?.error || 'Cédula no registrada');
@@ -662,11 +679,47 @@ export default function FormularioNovedad() {
         }
     }, [themeMode]);
 
+    /** Sesión Entra: precarga colaborador sin paso manual de cédula. */
+    useEffect(() => {
+        if (!cedulaConsultorBloqueada) return undefined;
+        let cancelled = false;
+        const run = async () => {
+            const c = normalizeCedulaInput(String(consultorSession.cedula || ''));
+            if (!c) return;
+            setVerificandoCedula(true);
+            try {
+                const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`, {
+                    credentials: 'include'
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || cancelled) return;
+                setFormData((prev) => ({
+                    ...prev,
+                    cedula: data.cedula || c,
+                    nombre: data.nombre || '',
+                    correo: String(data.correo ?? '').trim(),
+                    cliente: String(data.cliente ?? '').trim(),
+                    lider: String(data.lider ?? '').trim()
+                }));
+                setCatalogLocks({ lider: Boolean(data.lockLider) });
+                setColaboradorVerificado(true);
+            } catch {
+                if (!cancelled) setColaboradorVerificado(false);
+            } finally {
+                if (!cancelled) setVerificandoCedula(false);
+            }
+        };
+        run();
+        return () => {
+            cancelled = true;
+        };
+    }, [cedulaConsultorBloqueada, consultorSession]);
+
     useEffect(() => {
         const loadClientes = async () => {
             setLoadingCatalogos(true);
             try {
-                const res = await fetch('/api/catalogos/clientes');
+                const res = await fetch('/api/catalogos/clientes', { credentials: 'include' });
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) {
                     setClientes(json.items);
@@ -688,7 +741,9 @@ export default function FormularioNovedad() {
             }
             setLoadingCatalogos(true);
             try {
-                const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(formData.cliente)}`);
+                const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(formData.cliente)}`, {
+                    credentials: 'include'
+                });
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) {
                     setLideres(json.items);
@@ -946,6 +1001,8 @@ export default function FormularioNovedad() {
 
             const res = await fetch('/api/enviar-novedad', {
                 method: 'POST',
+                credentials: 'include',
+                headers: buildCsrfHeaders({}),
                 body: payload
             });
 
@@ -953,28 +1010,61 @@ export default function FormularioNovedad() {
 
             if (res.ok) {
                 setStatus({ type: 'success', text: '✅ ¡Guardado con éxito!' });
-                setFormData({
-                    nombre: '',
-                    cedula: '',
-                    correo: '',
-                    cliente: '',
-                    lider: '',
-                    tipo: '',
-                    fecha: '',
-                    horaInicio: '',
-                    horaFin: '',
-                    cantidadHoras: '',
-                    fechaInicio: '',
-                    fechaFin: '',
-                    diasSolicitados: '',
-                    montoBono: '$ '
-                });
-                setColaboradorVerificado(false);
-                setCatalogLocks({ lider: false });
-                setDocumentoMensaje({ tipo: '', text: '' });
-                setSelectedFiles([]);
-                setLideres([]);
-                setAceptaPoliticaDatos(false);
+                if (consultorSession) {
+                    // Sesión Microsoft: conservar datos del solicitante y verificación; solo limpiar detalle de la novedad.
+                    setFormData((prev) => {
+                        const c = normalizeCedulaInput(
+                            String(consultorSession.cedula || prev.cedula || '')
+                        );
+                        const nom = String(prev.nombre || consultorSession.name || '').trim();
+                        const mail = String(prev.correo || consultorSession.email || '').trim();
+                        return {
+                            cedula: c,
+                            nombre: nom,
+                            correo: mail,
+                            cliente: String(prev.cliente || '').trim(),
+                            lider: String(prev.lider || '').trim(),
+                            tipo: '',
+                            fecha: '',
+                            horaInicio: '',
+                            horaFin: '',
+                            cantidadHoras: '',
+                            fechaInicio: '',
+                            fechaFin: '',
+                            diasSolicitados: '',
+                            montoBono: '$ '
+                        };
+                    });
+                    setSelectedFiles([]);
+                    setHeDomingoPreview(null);
+                    setHeDomingoCompensacion('');
+                    setDiaCompensatorioYmd('');
+                    setAceptaPoliticaDatos(false);
+                    setDocumentoMensaje({ tipo: '', text: '' });
+                } else {
+                    setFormData({
+                        nombre: '',
+                        cedula: '',
+                        correo: '',
+                        cliente: '',
+                        lider: '',
+                        tipo: '',
+                        fecha: '',
+                        horaInicio: '',
+                        horaFin: '',
+                        cantidadHoras: '',
+                        fechaInicio: '',
+                        fechaFin: '',
+                        diasSolicitados: '',
+                        montoBono: '$ '
+                    });
+                    setColaboradorVerificado(false);
+                    setCatalogLocks({ lider: false });
+                    setDocumentoMensaje({ tipo: '', text: '' });
+                    setSelectedFiles([]);
+                    setLideres([]);
+                    setAceptaPoliticaDatos(false);
+                }
                 // Limpiar mensaje de éxito después de unos segundos
                 setTimeout(() => setStatus({ type: '', text: '' }), 4000);
             } else {
@@ -1027,10 +1117,29 @@ export default function FormularioNovedad() {
     const labelCls = theme.label;
     const reqStar = <span className={theme.reqStar}>*</span>;
 
+    const pageBackgroundStyle = useMemo(() => {
+        const base = {
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
+            backgroundAttachment: 'fixed'
+        };
+        if (consultorSession && themeMode === 'light') {
+            return {
+                ...base,
+                backgroundImage: `linear-gradient(135deg, rgba(248,250,252,0.97) 0%, rgba(224,242,254,0.9) 100%), url('/img/bg-portal.jpg')`
+            };
+        }
+        return {
+            ...base,
+            backgroundImage: `linear-gradient(135deg, rgba(4,20,30,0.92) 0%, rgba(0,77,135,0.7) 100%), url('/img/bg-portal.jpg')`
+        };
+    }, [consultorSession, themeMode]);
+
     return (
         <div
             className="relative min-h-screen w-full flex items-center justify-center overflow-hidden font-body"
-            style={{ backgroundImage: `linear-gradient(135deg, rgba(4,20,30,0.92) 0%, rgba(0,77,135,0.7) 100%), url('/img/bg-portal.jpg')`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', backgroundAttachment: 'fixed' }}
+            style={pageBackgroundStyle}
         >
             <div className={theme.pageOverlay} />
 
@@ -1075,22 +1184,37 @@ export default function FormularioNovedad() {
                                         <span className={theme.sectionBar} />
                                         Solicitante
                                     </h2>
-                                    <div className="flex shrink-0 items-center justify-end gap-3 sm:pl-2">
-                                        <span className={themeMode === 'light' ? theme.switchLabelActive : theme.switchLabelIdle}>Claro</span>
-                                        <button
-                                            type="button"
-                                            role="switch"
-                                            aria-checked={themeMode === 'light'}
-                                            aria-label="Cambiar tema del formulario entre claro y oscuro"
-                                            onClick={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
-                                            className={`${theme.switchTrack} ${themeMode === 'light' ? theme.switchTrackOn : ''}`}
-                                        >
-                                            <span
-                                                className={`${theme.switchThumb} ${themeMode === 'light' ? theme.switchThumbOn : ''}`}
-                                            />
-                                        </button>
-                                        <span className={themeMode === 'dark' ? theme.switchLabelActive : theme.switchLabelIdle}>Oscuro</span>
-                                    </div>
+                                    {consultorSession ? (
+                                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+                                            <Link
+                                                to="/consultor"
+                                                className="text-xs font-semibold text-[#65BCF7] hover:text-white"
+                                            >
+                                                Volver al inicio
+                                            </Link>
+                                        </div>
+                                    ) : null}
+                                    {!consultorSession ? (
+                                        <div className="flex shrink-0 items-center justify-end gap-3 sm:pl-2">
+                                            <span className={themeMode === 'light' ? theme.switchLabelActive : theme.switchLabelIdle}>Claro</span>
+                                            <button
+                                                type="button"
+                                                role="switch"
+                                                aria-checked={themeMode === 'light'}
+                                                aria-label="Cambiar tema del formulario entre claro y oscuro"
+                                                onClick={() => {
+                                                    const next = themeMode === 'dark' ? 'light' : 'dark';
+                                                    setThemeMode(next);
+                                                }}
+                                                className={`${theme.switchTrack} ${themeMode === 'light' ? theme.switchTrackOn : ''}`}
+                                            >
+                                                <span
+                                                    className={`${theme.switchThumb} ${themeMode === 'light' ? theme.switchThumbOn : ''}`}
+                                                />
+                                            </button>
+                                            <span className={themeMode === 'dark' ? theme.switchLabelActive : theme.switchLabelIdle}>Oscuro</span>
+                                        </div>
+                                    ) : null}
                                 </div>
                                 <div className="space-y-4">
                                     <div>
@@ -1106,15 +1230,17 @@ export default function FormularioNovedad() {
                                                 inputMode="numeric"
                                                 autoComplete="off"
                                                 placeholder="Ej: 1234567890"
+                                                disabled={cedulaConsultorBloqueada}
+                                                readOnly={cedulaConsultorBloqueada}
                                                 className={`flex-1 ${inputCls}`}
                                             />
                                             <button
                                                 type="button"
                                                 onClick={handleComprobarCedula}
-                                                disabled={verificandoCedula}
+                                                disabled={cedulaConsultorBloqueada || verificandoCedula}
                                                 className="px-5 py-3 rounded-xl bg-[#2F7BB8] text-white font-semibold font-body text-sm hover:bg-[#004D87] disabled:opacity-50 transition-all shadow-md shadow-[#004D87]/20"
                                             >
-                                                {verificandoCedula ? 'Verificando...' : 'Comprobar'}
+                                                {verificandoCedula ? 'Verificando...' : cedulaConsultorBloqueada ? 'Sesión' : 'Comprobar'}
                                             </button>
                                         </div>
                                     </div>

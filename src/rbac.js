@@ -5,7 +5,9 @@ const POLICY = {
     team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] },
     comercial: { panels: ['comercial'] },
     gp: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
-    nomina: { panels: ['dashboard', 'calendar', 'gestion'], viewAllAreas: true }
+    nomina: { panels: ['dashboard', 'calendar', 'gestion'], viewAllAreas: true },
+    /** Radicación vía Microsoft Entra (sin paneles admin). */
+    consultor: { panels: [] }
 };
 
 const NOVELTY_RULES = {
@@ -120,7 +122,7 @@ function resolveRoleFromGroups(groups = []) {
 function getAreaFromRole(role) {
     if (role === 'super_admin') return 'Global';
     if (role === 'admin_ch' || role === 'team_ch' || role === 'cac') return 'Capital Humano';
-    if (role === 'gp') return 'Operaciones';
+    if (role === 'gp' || role === 'consultor') return 'Operaciones';
     if (role === 'comercial') return 'Comercial';
     if (role === 'nomina') return 'Financiero';
     return '';

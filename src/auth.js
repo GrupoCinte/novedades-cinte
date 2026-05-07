@@ -104,6 +104,67 @@ function createAuthHelpers(deps) {
         return { token, user, expiresInSec };
     }
 
+    function issueAppTokenForEntraConsultor(colaboradorRow = {}, entraSub = '', emailNorm = '') {
+        const role = 'consultor';
+        const area = getAreaFromRole(role);
+        const panels = POLICY[role]?.panels || [];
+        const cedula = String(colaboradorRow.cedula || '').trim();
+        const nombre = String(colaboradorRow.nombre || '').trim();
+        const email = String(emailNorm || '').trim().toLowerCase();
+        const sub = String(entraSub || '').trim();
+        let expiresInSec = Number(process.env.CONSULTOR_SESSION_TTL_SEC || 28800);
+        if (!Number.isFinite(expiresInSec) || expiresInSec <= 0) expiresInSec = 28800;
+        const jti = crypto.randomUUID();
+        const token = jwt.sign(
+            {
+                sub,
+                email,
+                username: email,
+                name: nombre || email,
+                role,
+                area,
+                panels,
+                cedula,
+                authProvider: 'entra_consultor',
+                jti
+            },
+            SECRET_KEY,
+            { expiresIn: `${expiresInSec}s` }
+        );
+        const user = {
+            sub,
+            email,
+            username: email,
+            name: nombre || email,
+            role,
+            area,
+            panels,
+            cedula,
+            authProvider: 'entra_consultor'
+        };
+        return { token, user, expiresInSec };
+    }
+
+    function requireEntraConsultor(req, res, next) {
+        if (req.user?.authProvider === 'entra_consultor' && normalizeRoleOrNull(req.user?.role) === 'consultor') {
+            return next();
+        }
+        return res.status(403).json({
+            ok: false,
+            error: 'Debes iniciar sesión con Microsoft como consultor para esta acción.'
+        });
+    }
+
+    function requireCatalogConsultorOrStaff(req, res, next) {
+        const ap = String(req.user?.authProvider || '');
+        const role = normalizeRoleOrNull(req.user?.role);
+        if (ap === 'entra_consultor' && role === 'consultor') return next();
+        if ((ap === 'cognito_app' || ap === 'cognito') && role && POLICY[role]) return next();
+        /** Tests y mocks sin `authProvider` explícito pero con rol en POLICY. */
+        if (!ap && role && POLICY[role]) return next();
+        return res.status(403).json({ ok: false, error: 'Autenticación requerida para catálogos.' });
+    }
+
     function buildUserFromCognitoClaims(claims = {}) {
         const groups = claims['cognito:groups'];
         const roleFromGroups = resolveRoleFromGroups(groups);
@@ -196,7 +257,8 @@ function createAuthHelpers(deps) {
             let userClaims = await verifyCognitoToken(token);
             if (!userClaims) {
                 userClaims = jwt.verify(token, SECRET_KEY);
-                if (userClaims?.authProvider !== 'cognito_app') {
+                const ap = String(userClaims?.authProvider || '');
+                if (ap !== 'cognito_app' && ap !== 'entra_consultor') {
                     throw new Error('Token de aplicación inválido');
                 }
                 const jti = String(userClaims.jti || '').trim();
@@ -266,7 +328,8 @@ function createAuthHelpers(deps) {
         if (!token || typeof token !== 'string') return;
         try {
             const payload = jwt.decode(token);
-            if (payload?.authProvider !== 'cognito_app') return;
+            const ap = String(payload?.authProvider || '');
+            if (ap !== 'cognito_app' && ap !== 'entra_consultor') return;
             const jti = String(payload.jti || '').trim();
             if (!jti) return;
             const expMs = typeof payload.exp === 'number' ? payload.exp * 1000 : Date.now() + 8 * 3600 * 1000;
@@ -298,6 +361,9 @@ function createAuthHelpers(deps) {
     return {
         resolveEffectiveRole,
         issueAppTokenFromCognito,
+        issueAppTokenForEntraConsultor,
+        requireEntraConsultor,
+        requireCatalogConsultorOrStaff,
         buildUserFromCognitoClaims,
         buildCognitoSecretHash,
         cognitoPublicApi,
