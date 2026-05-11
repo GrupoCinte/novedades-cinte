@@ -117,6 +117,15 @@ function toClientNovedad(row) {
         alertaHeResueltaEn: row.alerta_he_resuelta_en ? row.alerta_he_resuelta_en.toISOString() : '',
         alertaHeResueltaPorCorreo: pickEmailLikeOnly(row.alerta_he_resuelta_por_email),
         heDomingoObservacion: decodePossiblyMisencodedText(String(row.he_domingo_observacion || '').trim()),
+        nominaInfoCorrecta:
+            row.nomina_info_correcta === null || row.nomina_info_correcta === undefined
+                ? null
+                : Boolean(row.nomina_info_correcta),
+        nominaVerificacionObservacion: decodePossiblyMisencodedText(
+            String(row.nomina_verificacion_observacion || '').trim()
+        ),
+        nominaVerificacionEn: row.nomina_verificacion_en ? row.nomina_verificacion_en.toISOString() : '',
+        nominaVerificacionPorEmail: pickEmailLikeOnly(row.nomina_verificacion_por_email),
         asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta
     };
 }

@@ -124,6 +124,12 @@ CREATE TABLE IF NOT EXISTS novedades (
   rechazado_por_email   TEXT NULL,
   rechazado_en          TIMESTAMPTZ NULL,
 
+  nomina_info_correcta             BOOLEAN NULL,
+  nomina_verificacion_observacion  TEXT NULL,
+  nomina_verificacion_en           TIMESTAMPTZ NULL,
+  nomina_verificacion_por_user_id  UUID NULL,
+  nomina_verificacion_por_email    TEXT NULL,
+
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   -- Reglas básicas de consistencia

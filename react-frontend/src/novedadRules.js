@@ -4,7 +4,7 @@ export const NOVEDAD_RULES = {
   Incapacidad: {
     requiredDocuments: ['Incapacidad'],
     formatLinks: [],
-    approvers: ['admin_ch', 'team_ch', 'cac'],
+    approvers: ['admin_ch'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
@@ -14,7 +14,7 @@ export const NOVEDAD_RULES = {
   'Calamidad domestica': {
     requiredDocuments: ['Soporte de calamidad', 'Formato de permiso'],
     formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
-    approvers: ['admin_ch', 'team_ch', 'cac'],
+    approvers: ['admin_ch'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
@@ -23,7 +23,7 @@ export const NOVEDAD_RULES = {
   'Permiso remunerado': {
     requiredDocuments: ['Soporte adjunto', 'Formato permiso Excel'],
     formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
-    approvers: ['admin_ch', 'team_ch', 'cac'],
+    approvers: ['admin_ch'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
@@ -32,7 +32,7 @@ export const NOVEDAD_RULES = {
   'Licencia de luto': {
     requiredDocuments: ['Registro civil consultor', 'Soporte parentesco', 'Acta de defuncion'],
     formatLinks: [],
-    approvers: ['admin_ch', 'team_ch', 'cac'],
+    approvers: ['admin_ch'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
@@ -41,7 +41,7 @@ export const NOVEDAD_RULES = {
   'Licencia de paternidad': {
     requiredDocuments: ['Certificado nacido vivo', 'Registro civil bebe', 'Semanas de gestacion'],
     formatLinks: [],
-    approvers: ['admin_ch', 'team_ch', 'cac'],
+    approvers: ['admin_ch'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina', 'gp'],
     requiresDayCount: true,
     requiresTimeRange: false,
@@ -50,7 +50,7 @@ export const NOVEDAD_RULES = {
   'Licencia de maternidad': {
     requiredDocuments: ['Incapacidad', 'Registro civil nacido vivo', 'Semanas de gestacion'],
     formatLinks: [],
-    approvers: ['admin_ch', 'team_ch', 'cac'],
+    approvers: ['admin_ch'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina', 'gp'],
     requiresDayCount: true,
     requiresTimeRange: false,
@@ -59,7 +59,7 @@ export const NOVEDAD_RULES = {
   'Licencia remunerada': {
     requiredDocuments: ['Soporte de ausencia'],
     formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
-    approvers: ['admin_ch', 'team_ch', 'cac'],
+    approvers: ['admin_ch'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
@@ -68,7 +68,7 @@ export const NOVEDAD_RULES = {
   'Licencia no remunerada': {
     requiredDocuments: [],
     formatLinks: [{ label: 'F-002-GCH - Solicitud de Permisos', href: '/assets/formats/F-002-GCH%20-%20Solicitud%20de%20Permisos.xlsx' }],
-    approvers: ['gp', 'cac'],
+    approvers: ['admin_ch'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
@@ -77,7 +77,7 @@ export const NOVEDAD_RULES = {
   'Permiso no remunerado': {
     requiredDocuments: [],
     formatLinks: [],
-    approvers: ['gp', 'cac'],
+    approvers: ['admin_ch'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: true
@@ -85,7 +85,7 @@ export const NOVEDAD_RULES = {
   'Permiso compensatorio en tiempo': {
     requiredDocuments: ['Formato de permiso compensatorio'],
     formatLinks: [],
-    approvers: ['gp', 'cac'],
+    approvers: ['gp'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
@@ -98,7 +98,7 @@ export const NOVEDAD_RULES = {
   Disponibilidad: {
     requiredDocuments: [],
     formatLinks: [],
-    approvers: ['gp', 'cac'],
+    approvers: ['gp'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false,
@@ -133,7 +133,7 @@ export const NOVEDAD_RULES_LEGACY = {
   'Vacaciones en dinero': {
     requiredDocuments: ['Carta con firma manuscrita (solicitud formal en PDF)'],
     formatLinks: [],
-    approvers: ['admin_ch', 'team_ch', 'cac'],
+    approvers: ['admin_ch'],
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
@@ -142,7 +142,7 @@ export const NOVEDAD_RULES_LEGACY = {
   Bonos: {
     requiredDocuments: [],
     formatLinks: [],
-    approvers: ['gp', 'cac'],
+    approvers: ['gp'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false,
@@ -256,6 +256,25 @@ export function resolveCanonicalNovedadTipo(tipoRaw) {
   return raw;
 }
 
+/** Tipos que exigen verificación nómina antes de aprobar/rechazar. Alineado con `src/rbac.js` → `isNominaGateNovedadType`. */
+const NOMINA_GATE_CANONICAL_TIPOS = new Set([
+  'Incapacidad',
+  'Calamidad domestica',
+  'Permiso remunerado',
+  'Licencia de luto',
+  'Licencia de paternidad',
+  'Licencia de maternidad',
+  'Licencia remunerada',
+  'Licencia no remunerada',
+  'Permiso no remunerado',
+  'Vacaciones en dinero'
+]);
+
+export function isNominaGateTipoDisplay(tipoRaw) {
+  const canon = resolveCanonicalNovedadTipo(tipoRaw);
+  return NOMINA_GATE_CANONICAL_TIPOS.has(canon);
+}
+
 export function getNovedadRule(tipo) {
   const canon = resolveCanonicalNovedadTipo(tipo);
   const raw = NOVEDAD_RULES[canon] || NOVEDAD_RULES_LEGACY[canon];
@@ -263,7 +282,8 @@ export function getNovedadRule(tipo) {
     requiredDocuments: [],
     formatLinks: [],
     approvers: [],
-    viewers: ['super_admin'],
+    /** Tipos no catalogados: misma ampliación visual que backend `canRoleViewType` para CH. */
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false,
     autoBusinessDays: false,

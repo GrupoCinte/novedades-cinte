@@ -155,6 +155,26 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureNovedadesNominaVerificacionColumns() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_info_correcta BOOLEAN NULL');
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_verificacion_observacion TEXT NULL'
+            );
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_verificacion_en TIMESTAMPTZ NULL');
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_verificacion_por_user_id UUID NULL'
+            );
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_verificacion_por_email TEXT NULL');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para columnas de verificación nómina en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     async function ensureNovedadesHorasRecargoDomingoColumn() {
         try {
             await pool.query(
@@ -1227,9 +1247,9 @@ function createDataLayer(deps) {
             params.push(createdTo);
             whereParts.push(`nov.creado_en::date <= $${params.length}::date`);
         }
-        /** Super admin: filtrar por GP según catálogo `clientes_lideres` (clientes asignados a ese usuario GP), alineado con el alcance del rol `gp`. */
+        /** Super admin / CAC: filtrar por GP según catálogo `clientes_lideres` (clientes asignados a ese usuario GP), alineado con el alcance del rol `gp`. */
         const gpUserIdOpt = String(options?.gpUserId || '').trim();
-        if (role === 'super_admin' && gpUserIdOpt) {
+        if ((role === 'super_admin' || role === 'cac') && gpUserIdOpt) {
             if (gpUserIdOpt === '__null__') {
                 whereParts.push(`NOT EXISTS (
                     SELECT 1 FROM clientes_lideres cl
@@ -1265,6 +1285,8 @@ function createDataLayer(deps) {
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
                 nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
                 nov.he_domingo_observacion,
+                nov.nomina_info_correcta, nov.nomina_verificacion_observacion, nov.nomina_verificacion_en,
+                nov.nomina_verificacion_por_user_id, nov.nomina_verificacion_por_email,
                 COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
                 COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
              FROM novedades nov
@@ -1639,6 +1661,7 @@ function createDataLayer(deps) {
         ensureNovedadesApproverEmailColumns,
         ensureNovedadesHoraExtraAlertColumns,
         ensureNovedadesHeDomingoObservacionColumn,
+        ensureNovedadesNominaVerificacionColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,

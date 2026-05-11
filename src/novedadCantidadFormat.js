@@ -114,7 +114,7 @@ const NOVEDAD_RULES = {
     'Permiso compensatorio en tiempo': {
         requiredDocuments: ['Formato de permiso compensatorio'],
         formatLinks: [],
-        approvers: ['gp', 'cac'],
+        approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
         requiresDayCount: false,
         requiresTimeRange: false
@@ -122,7 +122,7 @@ const NOVEDAD_RULES = {
     Disponibilidad: {
         requiredDocuments: [],
         formatLinks: [],
-        approvers: ['gp', 'cac'],
+        approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
         requiresDayCount: false,
         requiresTimeRange: false,
@@ -165,7 +165,7 @@ const NOVEDAD_RULES_LEGACY = {
     Bonos: {
         requiredDocuments: [],
         formatLinks: [],
-        approvers: ['gp', 'cac'],
+        approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
         requiresDayCount: false,
         requiresTimeRange: false,

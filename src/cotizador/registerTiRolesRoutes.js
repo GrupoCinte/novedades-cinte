@@ -2,15 +2,16 @@ function registerTiRolesRoutes(deps) {
     const {
         app,
         verificarToken,
-        allowAnyPanel,
+        disallowRoles,
+        allowPanel,
         allowRoles,
         adminActionLimiter,
         catalogLimiter,
         tiRolesStore
     } = deps;
 
-    const readGuard = [verificarToken, allowAnyPanel(['dashboard', 'gestion', 'comercial', 'admin'])];
-    const writeGuard = [verificarToken, allowRoles(['super_admin', 'cac', 'admin_ch']), adminActionLimiter];
+    const readGuard = [verificarToken, disallowRoles(['gp']), allowPanel('comercial')];
+    const writeGuard = [verificarToken, allowRoles(['super_admin']), adminActionLimiter];
 
     app.get('/api/cotizador/ti-catalog/versions', ...readGuard, catalogLimiter, async (req, res) => {
         try {

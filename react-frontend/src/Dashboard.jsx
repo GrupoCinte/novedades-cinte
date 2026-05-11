@@ -3,7 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
 import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2 } from 'lucide-react';
 import ChatWidget from './ChatWidget';
-import { getNovedadRule, NOVEDAD_TYPES, formatCantidadNovedad, formatDiasCount, getCantidadMedidaKind, getCantidadDetalleEtiqueta, getDiasEfectivosNovedad, getAsignacionGestionNovedad, resolveCanonicalNovedadTipo } from './novedadRules';
+import {
+    getNovedadRule,
+    NOVEDAD_TYPES,
+    formatCantidadNovedad,
+    formatDiasCount,
+    getCantidadMedidaKind,
+    getCantidadDetalleEtiqueta,
+    getDiasEfectivosNovedad,
+    getAsignacionGestionNovedad,
+    resolveCanonicalNovedadTipo,
+    isNominaGateTipoDisplay
+} from './novedadRules';
 import {
     toUtcMsFromDateAndTime,
     collectHeDiurnaNocturnaSegmentsBogota,
@@ -271,10 +282,11 @@ export default function Dashboard({ token, auth, onLogout }) {
     ).toLowerCase();
     const PANEL_POLICY = {
         super_admin: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial'],
-        cac: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
-        admin_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
-        team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
-        gp: ['dashboard', 'calendar', 'gestion', 'contratacion'],
+        /** Alineado con `src/rbac.js` POLICY.cac — todos los tabs del shell novedades + directorio/admin JWT */
+        cac: ['dashboard', 'calendar', 'gestion', 'admin', 'directorio'],
+        admin_ch: ['dashboard', 'calendar', 'gestion', 'contratacion'],
+        team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion'],
+        gp: ['dashboard', 'calendar', 'gestion'],
         nomina: ['dashboard', 'calendar', 'gestion'],
         comercial: ['comercial']
     };
@@ -290,7 +302,13 @@ export default function Dashboard({ token, auth, onLogout }) {
     const canApproveItem = (item) => {
         if (!item || item.estado !== 'Pendiente') return false;
         if (currentRole === 'nomina') return false;
-        if (currentRole === 'super_admin') return true;
+        if (isNominaGateTipoDisplay(item.tipoNovedad)) {
+            const obs = String(item.nominaVerificacionObservacion || '').trim();
+            const hasCheck = item.nominaInfoCorrecta === true || item.nominaInfoCorrecta === false;
+            if (!hasCheck || !obs) return false;
+            return currentRole === 'super_admin' || currentRole === 'cac' || currentRole === 'admin_ch';
+        }
+        if (currentRole === 'super_admin' || currentRole === 'cac') return true;
         const rule = getNovedadRule(item.tipoNovedad);
         return Array.isArray(rule.approvers) && rule.approvers.includes(currentRole);
     };
@@ -318,7 +336,7 @@ export default function Dashboard({ token, auth, onLogout }) {
     /** Filtro por GP asociado (snapshot `novedades.gp_user_id`); solo efectivo para rol `super_admin` en API. */
     const [fGpUserId, setFGpUserId] = useState('');
     const [gpFilterOptions, setGpFilterOptions] = useState([]);
-    const isSuperAdminNovedades = currentRole === 'super_admin';
+    const isSuperAdminNovedades = currentRole === 'super_admin' || currentRole === 'cac';
     /** Temporal: ocultar el botón «Editar» en el modal de gestión (API PATCH sigue disponible). */
     const gestionMostrarEditar = false;
     const [calendarClientesList, setCalendarClientesList] = useState([]);
@@ -339,6 +357,11 @@ export default function Dashboard({ token, auth, onLogout }) {
         totalPages: 1
     });
     const [gestionDetailItem, setGestionDetailItem] = useState(null);
+    const [nominaVerifyBusy, setNominaVerifyBusy] = useState(false);
+    const [nominaVerifyErr, setNominaVerifyErr] = useState(null);
+    /** '' | 'ok' | 'bad' — antes de enviar verificación nómina */
+    const [nominaRadio, setNominaRadio] = useState('');
+    const [nominaObs, setNominaObs] = useState('');
     const [gestionEditMode, setGestionEditMode] = useState(false);
     const [gestionEditDraft, setGestionEditDraft] = useState(null);
     const [gestionDeleteOpen, setGestionDeleteOpen] = useState(false);
@@ -536,6 +559,13 @@ export default function Dashboard({ token, auth, onLogout }) {
     useEffect(() => {
         loadGestionData(currentPage, pageSize);
     }, [currentPage, pageSize, fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId]);
+
+    useEffect(() => {
+        if (!gestionDetailItem?.id) return;
+        setNominaRadio('');
+        setNominaObs('');
+        setNominaVerifyErr(null);
+    }, [gestionDetailItem?.id]);
     useEffect(() => {
         loadHoraExtraAlerts();
     }, [fCreadoDesde, fCreadoHasta, fGpUserId]);
@@ -598,6 +628,10 @@ export default function Dashboard({ token, auth, onLogout }) {
         setGestionDeleteOpen(false);
         setGestionDeleteMotivo('');
         setGestionAdminErr(null);
+        setNominaVerifyBusy(false);
+        setNominaVerifyErr(null);
+        setNominaRadio('');
+        setNominaObs('');
     };
 
     const gestionAdminHeaders = () => {
@@ -613,6 +647,44 @@ export default function Dashboard({ token, auth, onLogout }) {
         };
         if (csrfToken) headers['x-cinte-xsrf'] = csrfToken;
         return headers;
+    };
+
+    const submitNominaVerification = async () => {
+        if (!gestionDetailItem?.id) return;
+        if (nominaRadio !== 'ok' && nominaRadio !== 'bad') {
+            setNominaVerifyErr('Indica si la información es correcta o incorrecta.');
+            return;
+        }
+        const obs = String(nominaObs || '').trim();
+        if (!obs) {
+            setNominaVerifyErr('La observación es obligatoria.');
+            return;
+        }
+        setNominaVerifyBusy(true);
+        setNominaVerifyErr(null);
+        try {
+            const res = await fetch(`/api/novedades/${gestionDetailItem.id}/nomina-verificacion`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: gestionAdminHeaders(),
+                body: JSON.stringify({
+                    infoCorrecta: nominaRadio === 'ok',
+                    observacion: obs
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                setNominaVerifyErr(data?.error || `Error ${res.status}`);
+                return;
+            }
+            if (data?.item) setGestionDetailItem(data.item);
+            await loadGestionData(currentPage, pageSize);
+            await loadData();
+        } catch {
+            setNominaVerifyErr('Error de conexión al registrar la verificación.');
+        } finally {
+            setNominaVerifyBusy(false);
+        }
     };
 
     const buildGestionEditDraft = (it) => {
@@ -2623,6 +2695,118 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <div><span className={dash.modalMuted}>Líder:</span> {gestionDetailItem.lider || '-'}</div>
                             <div><span className={dash.modalMuted}>Estado:</span> {gestionDetailItem.estado}</div>
                             <div><span className={dash.modalMuted}>Asignado a (roles):</span> {asignacionEtiquetaForItem(gestionDetailItem)}</div>
+                            {isNominaGateTipoDisplay(gestionDetailItem.tipoNovedad) ? (
+                                <div
+                                    className={
+                                        isLight
+                                            ? 'md:col-span-2 rounded-xl border border-sky-200 bg-sky-50/95 p-4 text-sm text-slate-900'
+                                            : 'md:col-span-2 rounded-xl border border-sky-500/35 bg-sky-950/35 p-4 text-sm text-slate-100'
+                                    }
+                                >
+                                    <p
+                                        className={
+                                            isLight
+                                                ? 'mb-2 font-heading text-sm font-bold text-[#004D87]'
+                                                : 'mb-2 font-heading text-sm font-bold text-sky-200'
+                                        }
+                                    >
+                                        Verificación nómina
+                                    </p>
+                                    {gestionDetailItem.nominaInfoCorrecta === true
+                                    || gestionDetailItem.nominaInfoCorrecta === false ? (
+                                        <>
+                                            <p>
+                                                <span className={dash.modalMuted}>Información:</span>{' '}
+                                                {gestionDetailItem.nominaInfoCorrecta ? 'Correcta' : 'Incorrecta'}
+                                            </p>
+                                            <p className={`mt-2 whitespace-pre-wrap ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                                                <span className={dash.modalMuted}>Observación:</span>{' '}
+                                                {gestionDetailItem.nominaVerificacionObservacion || '—'}
+                                            </p>
+                                            {gestionDetailItem.nominaVerificacionEn ? (
+                                                <p className={`mt-2 text-xs ${dash.modalMuted}`}>
+                                                    Registrado:{' '}
+                                                    {new Date(gestionDetailItem.nominaVerificacionEn).toLocaleString('es-CO')}
+                                                    {gestionDetailItem.nominaVerificacionPorEmail
+                                                        ? ` · ${gestionDetailItem.nominaVerificacionPorEmail}`
+                                                        : ''}
+                                                </p>
+                                            ) : null}
+                                        </>
+                                    ) : currentRole === 'nomina' && gestionDetailItem.estado === 'Pendiente' ? (
+                                        <>
+                                            {nominaVerifyErr ? (
+                                                <p
+                                                    className={
+                                                        isLight
+                                                            ? 'mb-2 rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-sm text-rose-900'
+                                                            : 'mb-2 rounded border border-rose-500/40 bg-rose-950/40 px-2 py-1.5 text-sm text-rose-100'
+                                                    }
+                                                >
+                                                    {nominaVerifyErr}
+                                                </p>
+                                            ) : null}
+                                            <fieldset className="space-y-2">
+                                                <legend className="sr-only">Estado de la información</legend>
+                                                <label
+                                                    className={`flex cursor-pointer items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}
+                                                >
+                                                    <input
+                                                        type="radio"
+                                                        name="nomina-info-correcta"
+                                                        checked={nominaRadio === 'ok'}
+                                                        onChange={() => setNominaRadio('ok')}
+                                                    />
+                                                    Información correcta
+                                                </label>
+                                                <label
+                                                    className={`flex cursor-pointer items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}
+                                                >
+                                                    <input
+                                                        type="radio"
+                                                        name="nomina-info-correcta"
+                                                        checked={nominaRadio === 'bad'}
+                                                        onChange={() => setNominaRadio('bad')}
+                                                    />
+                                                    Información incorrecta
+                                                </label>
+                                            </fieldset>
+                                            <label className={`mt-3 block ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                                                <span className={dash.modalMuted}>Observación (obligatoria)</span>
+                                                <textarea
+                                                    value={nominaObs}
+                                                    onChange={(e) => setNominaObs(e.target.value)}
+                                                    rows={4}
+                                                    maxLength={2000}
+                                                    className={
+                                                        isLight
+                                                            ? 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900'
+                                                            : 'mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100'
+                                                    }
+                                                    placeholder="Describe el detalle de la verificación…"
+                                                />
+                                            </label>
+                                            <button
+                                                type="button"
+                                                disabled={nominaVerifyBusy}
+                                                onClick={() => void submitNominaVerification()}
+                                                className={
+                                                    isLight
+                                                        ? 'mt-3 inline-flex rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#25649a] disabled:opacity-50'
+                                                        : 'mt-3 inline-flex rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50'
+                                                }
+                                            >
+                                                {nominaVerifyBusy ? 'Guardando…' : 'Registrar verificación'}
+                                            </button>
+                                        </>
+                                    ) : gestionDetailItem.estado === 'Pendiente' ? (
+                                        <p className={`text-sm ${dash.modalMuted}`}>
+                                            Pendiente de verificación por nómina. Luego podrá aprobar o rechazar el rol Admin
+                                            Capital Humano (o Super Admin).
+                                        </p>
+                                    ) : null}
+                                </div>
+                            ) : null}
                             {gestionDetailItem.estado === 'Aprobado' && (
                                 <div><span className={dash.modalMuted}>Aprobado por (correo):</span> {correoAprobadoMostrar(gestionDetailItem)}</div>
                             )}

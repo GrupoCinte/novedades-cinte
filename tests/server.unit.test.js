@@ -54,7 +54,7 @@ const POLICY = {
   admin_ch: { panels: ['dashboard', 'calendar', 'gestion'] },
   team_ch: { panels: ['dashboard', 'calendar', 'gestion'] },
   admin_ops: { panels: ['dashboard', 'calendar'] },
-  gp: { panels: ['dashboard', 'calendar', 'gestion'] },
+  gp: { panels: ['gestion'] },
   nomina: { panels: ['dashboard', 'calendar', 'gestion'] },
   sst: { panels: ['dashboard', 'calendar', 'gestion'] },
 };
@@ -436,9 +436,14 @@ describe('inferAreaFromNovedad()', () => {
 describe('POLICY – configuración de paneles', () => {
   const ALL_ROLES = Object.keys(POLICY);
 
-  it('todos los roles deben tener al menos el panel "dashboard"', () => {
+  it('paneles mínimos: dashboard salvo gp (solo gestión de novedades)', () => {
     ALL_ROLES.forEach((role) => {
-      expect(POLICY[role].panels, `Sin dashboard para: ${role}`).toContain('dashboard');
+      const p = POLICY[role].panels;
+      if (role === 'gp') {
+        expect(p, 'gp solo usa gestion para novedades').toEqual(['gestion']);
+      } else {
+        expect(p, `Sin dashboard para: ${role}`).toContain('dashboard');
+      }
     });
   });
 

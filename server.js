@@ -454,6 +454,7 @@ const {
     allowPanel,
     allowAnyPanel,
     allowRoles,
+    disallowRoles,
     applyScope,
     revokeAppSessionToken
 } = createAuthHelpers({
@@ -499,6 +500,7 @@ const {
     ensureNovedadesApproverEmailColumns,
     ensureNovedadesHoraExtraAlertColumns,
     ensureNovedadesHeDomingoObservacionColumn,
+    ensureNovedadesNominaVerificacionColumns,
     ensureNovedadesHorasRecargoDomingoColumn,
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,
@@ -650,7 +652,8 @@ registerDirectorioRoutes({
 registerCotizadorRoutes({
     app,
     verificarToken,
-    allowAnyPanel,
+    disallowRoles,
+    allowPanel,
     adminActionLimiter,
     pdfLimiter,
     catalogLimiter,
@@ -662,7 +665,8 @@ registerCotizadorRoutes({
 registerTiRolesRoutes({
     app,
     verificarToken,
-    allowAnyPanel,
+    disallowRoles,
+    allowPanel,
     allowRoles,
     adminActionLimiter,
     catalogLimiter,
@@ -695,6 +699,7 @@ startServer({
     ensureNovedadesApproverEmailColumns,
     ensureNovedadesHoraExtraAlertColumns,
     ensureNovedadesHeDomingoObservacionColumn,
+    ensureNovedadesNominaVerificacionColumns,
     ensureNovedadesHorasRecargoDomingoColumn,
     migrateExcelIfNeeded,
     migrateClientesLideresFromExcelIfNeeded,
