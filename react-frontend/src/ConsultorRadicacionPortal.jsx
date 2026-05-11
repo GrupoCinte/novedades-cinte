@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { HelpCircle, LayoutGrid, Loader2, UserSquare } from 'lucide-react';
+import { HelpCircle, Loader2 } from 'lucide-react';
+import { useAuthSurface } from './moduleTheme.js';
 /** Misma imagen base que `FormularioNovedad.jsx`. */
 const PORTAL_BG_STYLE = {
   backgroundImage:
@@ -52,25 +53,29 @@ function PortalShell({ children }) {
     >
       <div className="pointer-events-none absolute inset-0 bg-[#04141E]/30 backdrop-blur-[1px]" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-[#004D87]/25" />
-      <div className="relative z-10 flex w-full max-w-md flex-col items-stretch justify-center px-5 py-10 sm:px-6">
+      <div className="relative z-10 flex w-full max-w-lg flex-col items-stretch justify-center px-4 py-10 sm:px-6">
         {children}
       </div>
     </div>
   );
 }
 
-/** Tarjeta glass compartida (login + carga): translúcida para que el fondo se filtre. */
+/** Misma tarjeta que login admin (`Login.jsx` → `au.loginCard`), con ancho algo mayor para este flujo. */
 function GlassCard({ children, className = '' }) {
+  const au = useAuthSurface();
   return (
-    <div
-      className={`rounded-2xl border border-white/25 bg-gradient-to-b from-white/[0.14] to-white/[0.05] p-8 shadow-[0_12px_48px_rgba(0,0,0,0.28)] ring-1 ring-inset ring-white/15 backdrop-blur-2xl backdrop-saturate-150 md:p-10 ${className}`}
-    >
+    <div className={`${au.loginCard} max-w-lg text-center ${className}`}>
+      <div
+        className="pointer-events-none absolute left-0 top-0 z-10 h-1 w-full bg-gradient-to-r from-[#004D87] to-[#65BCF7] opacity-90"
+        aria-hidden
+      />
       {children}
     </div>
   );
 }
 
 export default function ConsultorRadicacionPortal() {
+  const au = useAuthSurface();
   const [me, setMe] = useState(undefined);
   const [entraLoginError, setEntraLoginError] = useState('');
   const location = useLocation();
@@ -108,9 +113,9 @@ export default function ConsultorRadicacionPortal() {
   if (me === undefined) {
     return (
       <PortalShell>
-        <GlassCard className="flex flex-col items-center justify-center gap-4 py-14 text-center">
+        <GlassCard className="flex flex-col items-center justify-center gap-4 py-14">
           <Loader2 className="h-8 w-8 animate-spin text-[#65BCF7]" aria-hidden />
-          <p className="font-body text-sm text-[#9fb3c8]">Cargando sesión…</p>
+          <p className={`font-body text-sm ${au.authSubtitle}`}>Cargando sesión…</p>
         </GlassCard>
       </PortalShell>
     );
@@ -128,72 +133,63 @@ export default function ConsultorRadicacionPortal() {
 
   return (
     <PortalShell>
-      <GlassCard className="text-left">
-        <header className="mb-8 flex justify-center border-b border-white/10 pb-6">
+      <GlassCard>
+        <header
+          className={`mb-7 flex flex-col items-center border-b pb-7 sm:mb-8 sm:pb-8 ${au.isLight ? 'border-slate-200/90' : 'border-white/10'}`}
+        >
           <img
-            src="/assets/logo-cinte-header.png"
-            alt="Cinte"
-            className="h-11 w-auto drop-shadow-md sm:h-12"
+            src={au.isLight ? '/assets/logo-cinte-header-light.png' : '/assets/logo-cinte-header.png'}
+            alt="Grupo Cinte"
+            className="h-16 w-auto drop-shadow-[0_2px_12px_rgba(0,0,0,0.35)] sm:h-20 md:h-[5.25rem]"
           />
         </header>
 
-        <h1 className="mb-8 text-center font-heading text-xl font-bold leading-snug tracking-wide text-white md:text-2xl">
-          Portal Consultores y Staff Grupo Cinte
-        </h1>
-
         {entraLoginError ? (
-          <div
-            className="mb-6 rounded-lg border border-amber-500/40 bg-amber-950/40 px-4 py-3 font-body text-sm text-amber-100"
-            role="alert"
-          >
+          <div className={`mb-6 text-left ${au.pageErrorBanner}`} role="alert">
             {entraLoginError}
           </div>
         ) : null}
 
-        <ul className="mb-10 space-y-5">
-          <li className="flex gap-3">
-            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white">
-              <LayoutGrid className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-            </span>
-            <p className="font-body text-sm leading-relaxed text-[#9fb3c8]">
-              {`Utiliza tu `}
-              <strong className="font-semibold text-white">{`cuenta de Microsoft corporativa`}</strong>.
-            </p>
-          </li>
-          <li className="flex gap-3">
-            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white">
-              <UserSquare className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-            </span>
-            <p className="font-body text-sm leading-relaxed text-[#9fb3c8]">
-              {`Debes estar como `}
-              <strong className="font-semibold text-white">{`consultor activo`}</strong>
-              {` y con `}
-              <strong className="font-semibold text-white">{`correo Cinte`}</strong>
-              {` asignado.`}
-            </p>
-          </li>
-        </ul>
+        <div className="mb-6 flex justify-center sm:mb-7" aria-hidden>
+          <MicrosoftLogoMark className="h-8 w-8 sm:h-9 sm:w-9" />
+        </div>
+
+        <h1
+          className={`mx-auto mb-5 max-w-md font-heading text-xl font-extrabold leading-tight tracking-tight drop-shadow-sm sm:mb-6 sm:text-2xl md:text-[1.65rem] md:leading-snug ${au.isLight ? 'text-slate-900' : 'text-white'}`}
+        >
+          Inicia sesión con tu misma cuenta de Microsoft
+        </h1>
+
+        <p
+          className={`mx-auto mb-9 max-w-md font-body text-sm leading-relaxed sm:mb-10 sm:text-[0.95rem] md:text-base ${au.isLight ? 'text-slate-600' : 'text-white/88'}`}
+        >
+          Usa tu{' '}
+          <strong className={`font-semibold ${au.isLight ? 'text-slate-900' : 'text-white'}`}>mismo correo corporativo</strong>{' '}
+          asignado por Cinte para acceder de forma segura. No necesitas crear una cuenta nueva y tu contraseña es la
+          misma que usas en el trabajo.
+        </p>
 
         <a
           href={startUrl}
-          className="flex w-full items-center justify-center gap-3 rounded-xl bg-[#0078d4] px-5 py-3.5 text-center font-body text-sm font-semibold text-white shadow-lg shadow-black/25 transition-colors hover:bg-[#106ebe] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#65BCF7]"
+          className="mx-auto flex w-full max-w-sm items-center justify-center gap-3 rounded-xl bg-[#0078d4] px-5 py-3.5 text-center font-heading text-sm font-semibold text-white shadow-[0_8px_24px_rgba(0,120,212,0.35)] transition-colors hover:bg-[#106ebe] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#65BCF7] sm:py-4"
         >
-          <MicrosoftLogoMark />
+          <MicrosoftLogoMark className="h-5 w-5" />
           Iniciar sesión con Microsoft
         </a>
 
-        <footer className="mt-10 border-t border-white/10 pt-6">
-          <div className="flex gap-2.5 font-body text-xs leading-relaxed text-[#9fb3c8]">
-            <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#65BCF7]/90" strokeWidth={2} aria-hidden />
-            <p>
-              {'¿Problemas para acceder? '}
+        <footer className={`mt-9 border-t pt-6 sm:mt-10 ${au.isLight ? 'border-slate-200/90' : 'border-white/10'}`}>
+          <div
+            className={`mx-auto flex max-w-md items-start justify-center gap-2.5 font-body text-xs leading-relaxed sm:text-sm ${au.isLight ? 'text-slate-600' : 'text-white/80'}`}
+          >
+            <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-[#65BCF7]" strokeWidth={2} aria-hidden />
+            <p className="text-left sm:text-center">
+              ¿Problemas para acceder?{' '}
               <a
                 href="mailto:soporte@grupocinte.com?subject=Portal%20consultores%20-%20acceso"
-                className="font-semibold text-[#65BCF7] underline decoration-[#65BCF7]/50 underline-offset-2 transition-colors hover:text-white hover:decoration-white"
+                className={`font-semibold underline underline-offset-2 ${au.linkAccent}`}
               >
-                Contacta con Soporte
+                Contacta con Soporte.
               </a>
-              .
             </p>
           </div>
         </footer>

@@ -6,6 +6,7 @@ import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
 import UserAccountMenu from './UserAccountMenu.jsx';
 import { useUiTheme } from './UiThemeContext.jsx';
+import { ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
 
 function resolveWelcomeName(auth) {
     const u = auth?.user && typeof auth.user === 'object' ? auth.user : {};
@@ -150,7 +151,7 @@ export default function AdminPortalHome({ auth, onLogout }) {
         return out;
     }, [auth]);
 
-    /** Mismo color que el subtítulo «SISTEMA UNIFICADO DE GESTIÓN». */
+    /** Mismo color que el subtítulo del portal (título unificado bajo el logo). */
     const sectionModulesLabel = isLight ? 'text-[#004D87] drop-shadow-sm' : 'text-white drop-shadow-md';
 
     /** Misma idea que FormularioNovedad: cobertura total + `fixed` para efecto pantalla completa. */
@@ -194,7 +195,7 @@ export default function AdminPortalHome({ auth, onLogout }) {
                           Misma caja; el PNG claro suele llevar más “aire” en el lienzo → object-contain lo deja más chico.
                           En tema claro un scale compensa para igualar el tamaño visual al logo oscuro.
                         */}
-                        <div className="mx-auto flex h-[4.35rem] w-[min(100%,11.875rem)] max-w-full items-center justify-center overflow-visible px-1 py-1 sm:h-[4.65rem] sm:w-[min(100%,13.125rem)] sm:px-1.5 sm:py-1.5 md:h-[5rem] md:w-[min(100%,14.375rem)]">
+                        <div className="mx-auto flex h-[4.35rem] w-[min(100%,11.875rem)] max-w-full items-center justify-center overflow-visible px-1 py-1 sm:h-[4.65rem] sm:w-[min(100%,13.125rem)] sm:px-1.5 sm:py-1.5 md:h-[5.25rem] md:w-[min(100%,14.375rem)]">
                             <img
                                 src={isLight ? '/assets/logo-cinte-header-light.png' : '/assets/logo-cinte-header.png'}
                                 alt="CINTE"
@@ -208,7 +209,7 @@ export default function AdminPortalHome({ auth, onLogout }) {
                                 isLight ? 'text-[#004D87]' : 'text-white'
                             }`}
                         >
-                            SISTEMA UNIFICADO DE GESTIÓN
+                            {ADMIN_PORTAL_UNIFIED_TITLE}
                         </p>
                     </div>
                     <UserAccountMenu auth={auth} onLogout={onLogout} surface="banner" notificationCount={0} />

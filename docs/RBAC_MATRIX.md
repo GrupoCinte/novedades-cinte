@@ -104,9 +104,18 @@ Si un usuario pertenece a más de un grupo, el rol efectivo es **uno solo**, ele
 
 **Super administrador → CAC → Admin Capital Humano → Equipo Capital Humano → GP → Nómina → Comercial → Consultor**
 
+**Recomendación operativa:** asignar **un solo grupo** por usuario en Cognito cuando el puesto tenga un solo rol en la plataforma; así no hay ambigüedad. Si hay varios grupos, solo cuenta la prioridad anterior (no se puede elegir otro rol desde la pantalla de login).
+
 ---
 
-## 10. Mantenimiento y detalle técnico
+## 10. Inicio de sesión en el portal admin (`/admin`)
+
+- El acceso staff usa **solo usuario (correo) y contraseña**. El rol lo define **exclusivamente Cognito** (membresía en grupos); **no** hay selector de rol en el formulario de login.
+- **Futuro (si el negocio lo pide):** un usuario con **varios grupos** podría elegir un **rol activo para la sesión** desde **configuración de cuenta**, siempre que el servidor compruebe que ese rol está entre sus grupos en Cognito (sin conceder permisos nuevos). No forma parte del alcance actual.
+
+---
+
+## 11. Mantenimiento y detalle técnico
 
 - Los cambios de comportamiento se implementan en código; este documento debe **actualizarse** cuando cambien reglas de negocio visibles para el usuario.
 - Detalle de rutas, nombres de campos y middlewares: **repositorio** (`src/rbac.js`, rutas de API y componentes del frontend). No es necesario para el día a día de QA funcional.

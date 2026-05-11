@@ -1,5 +1,5 @@
 /** Título unificado del portal admin (misma cadena que `App.jsx` en rutas `/admin`). */
-export const ADMIN_PORTAL_UNIFIED_TITLE = 'SISTEMA UNIFICADO DE GESTIÓN';
+export const ADMIN_PORTAL_UNIFIED_TITLE = 'Sistema de Gestión Unificado';
 
 const MODULE_PREFIXES = ['/admin/novedades', '/admin/comercial', '/admin/contratacion', '/admin/directorio'];
 

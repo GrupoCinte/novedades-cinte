@@ -523,7 +523,7 @@ function registerRoutes(deps) {
 
     app.post('/api/login', authLimiter, async (req, res) => {
         try {
-            const { username, email, password, roleRequested } = req.body || {};
+            const { username, email, password } = req.body || {};
             const identity = email || username;
             if (!identity || !password) {
                 return res.status(400).json({ ok: false, message: 'Credenciales incompletas' });
@@ -538,7 +538,8 @@ function registerRoutes(deps) {
                     return res.status(404).json({ ok: false, message: 'Usuario de prueba no encontrado en la BD local' });
                 }
                 const baseUser = baseUserResult.rows[0];
-                const effectiveRole = resolveEffectiveRole(baseUser.role, roleRequested);
+                /** Login: rol solo desde Cognito/BD; no se acepta roleRequested desde el cliente. */
+                const effectiveRole = resolveEffectiveRole(baseUser.role, '');
                 const appAuth = issueAppTokenFromCognito(baseUser, { ExpiresIn: 3600 }, effectiveRole, loginIdentity);
                 setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
                 setXsrfCookie(res);
@@ -597,7 +598,8 @@ function registerRoutes(deps) {
                 return res.status(401).json({ ok: false, message: 'Token Cognito inválido.' });
             }
             const baseUser = buildUserFromCognitoClaims(claims);
-            const effectiveRole = resolveEffectiveRole(baseUser.role, roleRequested);
+            /** Login Cognito: rol efectivo solo desde grupos/claims; ignorar roleRequested del body. */
+            const effectiveRole = resolveEffectiveRole(baseUser.role, '');
             const loginIdentity = String(identity || '').trim();
             const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
             setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
@@ -624,7 +626,7 @@ function registerRoutes(deps) {
 
     app.post('/api/auth/complete-new-password', authLimiter, async (req, res) => {
         try {
-            const { email, newPassword, session, phoneNumber, roleRequested } = req.body || {};
+            const { email, newPassword, session, phoneNumber } = req.body || {};
             const username = String(email || '').trim();
             const challengeSession = String(session || '').trim();
             if (!username || !newPassword || !challengeSession) {
@@ -667,7 +669,8 @@ function registerRoutes(deps) {
                 return res.status(401).json({ ok: false, message: 'Token Cognito inválido.' });
             }
             const baseUser = buildUserFromCognitoClaims(claims);
-            const effectiveRole = resolveEffectiveRole(baseUser.role, roleRequested);
+            /** Primer acceso: mismo criterio que /api/login — rol solo desde Cognito. */
+            const effectiveRole = resolveEffectiveRole(baseUser.role, '');
             const loginIdentity = username;
             const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
             setSessionCookie(res, appAuth.token, appAuth.expiresInSec);

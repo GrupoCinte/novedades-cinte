@@ -206,8 +206,21 @@ export default function ConsultorPortalHome() {
       />
 
       <div className="relative z-10 flex min-h-0 w-full flex-1 flex-col px-3 pb-6 pt-4 sm:px-6 sm:pb-8 sm:pt-5 md:px-10">
-        <div className="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="inline-flex min-w-0 max-w-full flex-col items-center gap-1.5 text-center">
+        {/*
+          Móvil: menú (hamburguesa) anclado arriba a la derecha; logo centrado con padding lateral para no solaparse.
+          md+: misma fila que antes (logo + menú expandido).
+        */}
+        <header className="relative shrink-0 md:flex md:flex-row md:items-start md:justify-between md:gap-6">
+          <div className="absolute right-0 top-0 z-30 md:static md:z-auto md:order-2 md:shrink-0 md:self-start md:pt-0.5">
+            <UserAccountMenu
+              auth={auth}
+              onLogout={onLogout}
+              surface="banner"
+              notificationCount={0}
+              collapseToolbarOnMobile
+            />
+          </div>
+          <div className="flex min-w-0 flex-col items-center gap-2 px-11 text-center sm:px-14 md:order-1 md:px-0 md:pt-0.5">
             {/*
               Misma caja que AdminPortalHome; el PNG claro suele llevar más «aire» en el lienzo → object-contain lo deja más chico.
               En tema claro un scale compensa para igualar el tamaño visual al logo oscuro.
@@ -222,17 +235,19 @@ export default function ConsultorPortalHome() {
               />
             </div>
             <p
-              className={`w-full max-w-[min(100%,230px)] font-heading text-[10px] font-extrabold uppercase leading-tight tracking-wide drop-shadow-md sm:text-xs ${
+              className={`w-full max-w-[min(100%,280px)] shrink-0 font-heading text-[10px] font-extrabold uppercase leading-snug tracking-wide drop-shadow-md sm:text-xs ${
                 isLight ? 'text-[#004D87]' : 'text-white'
               }`}
             >
               Portal Consultores y Staff
             </p>
           </div>
-          <UserAccountMenu auth={auth} onLogout={onLogout} surface="banner" notificationCount={0} />
-        </div>
+        </header>
 
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 py-6 text-center sm:gap-4 sm:py-10">
+        {/*
+          Sin justify-center en móvil: si el contenido es alto, centrar el bloque entero subía el saludo y se montaba sobre el encabezado.
+        */}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-start gap-3 py-5 text-center sm:gap-4 sm:py-8 md:justify-center md:py-10">
           <h1
             className={`w-full font-heading text-2xl font-extrabold drop-shadow-md sm:text-3xl md:text-4xl ${
               isLight ? 'text-slate-900' : 'text-white'
@@ -247,7 +262,7 @@ export default function ConsultorPortalHome() {
           >
             Módulos
           </h2>
-          <div className="mx-auto flex w-full max-w-6xl flex-row flex-nowrap items-stretch justify-center gap-2 overflow-x-auto px-1 pb-1 sm:gap-3 md:overflow-x-visible">
+          <div className="mx-auto flex w-full max-w-6xl flex-col items-stretch gap-3 px-1 pb-1 sm:gap-4 md:flex-row md:flex-nowrap md:items-stretch md:justify-center md:gap-3">
             {MODULE_CARDS.map((card) => {
               const v = cardVisuals(card.key, isLight);
               const IconEl = card.CardIcon;
@@ -256,7 +271,7 @@ export default function ConsultorPortalHome() {
                   key={card.key}
                   type="button"
                   onClick={() => navigate(card.path)}
-                  className={`group relative flex h-auto min-w-0 max-w-sm flex-1 basis-0 flex-col items-center overflow-hidden rounded-xl px-3 py-3 text-center shadow-lg backdrop-blur-3xl backdrop-saturate-150 transition-all duration-200 hover:-translate-y-0.5 sm:rounded-2xl sm:px-4 sm:py-4 md:py-5 ring-1 ring-inset [box-shadow:inset_0_1px_0_0_rgba(255,255,255,0.05)] ${ringCard} ${v.shell}`}
+                  className={`group relative mx-auto flex h-auto w-full max-w-md flex-col items-center overflow-hidden rounded-xl px-3 py-3 text-center shadow-lg backdrop-blur-3xl backdrop-saturate-150 transition-all duration-200 hover:-translate-y-0.5 sm:rounded-2xl sm:px-4 sm:py-4 md:mx-0 md:max-w-sm md:flex-1 md:basis-0 md:min-w-0 md:py-5 ring-1 ring-inset [box-shadow:inset_0_1px_0_0_rgba(255,255,255,0.05)] ${ringCard} ${v.shell}`}
                 >
                   <span
                     className={`absolute left-0 top-0 h-full w-1 rounded-l-xl sm:w-1.5 sm:rounded-l-2xl ${v.bar}`}
