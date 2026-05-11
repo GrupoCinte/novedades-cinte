@@ -11,7 +11,6 @@ async function startServer(deps) {
         pool,
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
-        ensureClientesLideresNitColumn,
         ensureClientesLideresGpUserColumn,
         ensureNovedadesIndexes,
         ensureNovedadesHourSplitColumns,
@@ -40,7 +39,6 @@ async function startServer(deps) {
     await pool.query('SELECT NOW()');
     await ensureUserRoleEnumValues();
     await ensureClientesLideresTable();
-    await ensureClientesLideresNitColumn();
     await ensureClientesLideresGpUserColumn();
     await ensureNovedadesIndexes();
     await ensureNovedadesHourSplitColumns();

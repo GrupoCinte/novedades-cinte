@@ -246,14 +246,7 @@ function generarDashboardData(historial = []) {
 
         totalValor += cotValor;
         porComercialValor[comercial] = (porComercialValor[comercial] || 0) + cotValor;
-        const iso = String(cot?.fecha_generacion_iso || '');
-        const legacyFecha = String(cot?.fecha || '');
-        const fechaKey =
-            iso.length >= 7
-                ? iso.slice(0, 7)
-                : /^\d{4}-\d{2}/.test(legacyFecha)
-                  ? legacyFecha.slice(0, 7)
-                  : '';
+        const fechaKey = String(cot?.fecha || '').slice(0, 7);
         if (fechaKey) tendencia[fechaKey] = (tendencia[fechaKey] || 0) + 1;
     }
 

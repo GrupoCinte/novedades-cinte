@@ -4,7 +4,6 @@ import { motion } from 'framer-motion';
 import CandidateModal from './CandidateModal';
 import { normalizeStatus, getTrazabilidadStageKey, TRAZABILIDAD_STAGE_ORDER } from '../hooks/useMonitorData';
 import { TERMINAL_STATUSES_SET } from '../constants/trazabilidad.js';
-import { useModuleTheme } from '../../moduleTheme.js';
 
 /** Texto para búsqueda sin serializar todo fullData (mejor rendimiento y menos superficie). */
 function buildSearchHaystack(ex) {
@@ -92,16 +91,8 @@ function resolveCandidateWaitTime(execution, nowTs) {
     return formatDuration(Math.max(0, end - start));
 }
 
-function statusTone(status, statusId = null, isLight = false) {
+function statusTone(status, statusId = null) {
     const stage = getTrazabilidadStageKey(status, statusId);
-    if (isLight) {
-        if (stage === 'cargando') return 'border-sky-300 bg-sky-50 text-sky-900';
-        if (stage === 'contactado') return 'border-cyan-300 bg-cyan-50 text-cyan-900';
-        if (stage === 'whatsapp enviado') return 'border-emerald-300 bg-emerald-50 text-emerald-900';
-        if (stage === 'documentos recibidos') return 'border-slate-300 bg-slate-100 text-slate-800';
-        if (stage === 'sagrilaft enviado') return 'border-violet-300 bg-violet-50 text-violet-900';
-        return 'border-green-300 bg-green-50 text-green-900';
-    }
     if (stage === 'cargando') return 'bg-[rgba(42,144,255,0.12)] text-[#bfe6ff] border-[rgba(42,144,255,0.28)]';
     if (stage === 'contactado') return 'bg-[rgba(8,189,198,0.12)] text-[#7af2ea] border-[rgba(8,189,198,0.25)]';
     if (stage === 'whatsapp enviado') return 'bg-[rgba(31,199,106,0.12)] text-[#b8f7cd] border-[rgba(31,199,106,0.28)]';
@@ -155,15 +146,15 @@ function EliminarCandidatoOverlay({ candidate, obs, setObs, errorMsg, submitting
                 className="modal-glass-scrim absolute inset-0 transition-opacity"
                 onClick={submitting ? undefined : onClose}
             />
-            <div className="modal-glass-sheet relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl font-body">
-                <h3 className="text-lg font-semibold text-[var(--text)] font-heading">Eliminar candidato del flujo activo</h3>
-                <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+            <div className="modal-glass-sheet relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
+                <h3 className="text-lg font-semibold text-[var(--text)]">Eliminar candidato del flujo activo</h3>
+                <p className="mt-2 text-sm leading-relaxed text-[rgba(159,179,200,0.95)]">
                     El candidato pasará a <span className="font-semibold text-[var(--text)]">Historico</span> como{' '}
-                    <span className="font-semibold text-[var(--error)]">Eliminado</span>. En la observación debe indicarse el{' '}
+                    <span className="font-semibold text-red-300">Eliminado</span>. En la observación debe indicarse el{' '}
                     <span className="font-semibold text-[var(--text)]">motivo</span> por el que se elimina del seguimiento activo.
                 </p>
-                <p className="mt-3 font-mono text-xs text-[var(--muted)]">{candidate.workflowName}</p>
-                <label className="mt-4 block text-[11px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                <p className="mt-3 text-xs font-mono text-[rgba(159,179,200,0.85)]">{candidate.workflowName}</p>
+                <label className="mt-4 block text-[11px] font-bold uppercase tracking-wider text-[rgba(159,179,200,0.95)]">
                     Observación obligatoria
                 </label>
                 <textarea
@@ -174,14 +165,14 @@ function EliminarCandidatoOverlay({ candidate, obs, setObs, errorMsg, submitting
                     disabled={submitting}
                 />
                 {errorMsg ? (
-                    <p className="mt-2 text-sm text-[var(--error)]">{errorMsg}</p>
+                    <p className="mt-2 text-sm text-red-400">{errorMsg}</p>
                 ) : null}
                 <div className="mt-5 flex flex-wrap justify-end gap-3">
                     <button
                         type="button"
                         disabled={submitting}
                         onClick={onClose}
-                        className="rounded-xl border border-[var(--border)] bg-transparent px-4 py-2 text-sm font-semibold text-[var(--muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--text)] disabled:opacity-50"
+                        className="rounded-xl border border-[var(--border)] bg-transparent px-4 py-2 text-sm font-semibold text-[rgba(159,179,200,0.95)] transition hover:bg-slate-800/50 disabled:opacity-50"
                     >
                         Cancelar
                     </button>
@@ -189,7 +180,7 @@ function EliminarCandidatoOverlay({ candidate, obs, setObs, errorMsg, submitting
                         type="button"
                         disabled={submitting}
                         onClick={onConfirm}
-                        className="rounded-xl border border-red-500/65 bg-transparent px-4 py-2 text-sm font-semibold text-[var(--error)] transition hover:bg-[rgba(255,107,107,0.1)] disabled:opacity-50"
+                        className="rounded-xl border border-red-500/65 bg-transparent px-4 py-2 text-sm font-semibold text-red-400 transition hover:bg-[rgba(255,107,107,0.1)] disabled:opacity-50"
                     >
                         {submitting ? 'Guardando…' : 'Confirmar eliminación'}
                     </button>
@@ -206,7 +197,7 @@ function LiveDurations({ execution }) {
         return () => clearInterval(id);
     }, []);
     return (
-        <p className="text-xs text-[var(--muted)]">
+        <p className="text-xs text-[rgba(159,179,200,0.95)]">
             Flujo {resolveFlowProcessingTime(execution, nowTs)} · Espera {resolveCandidateWaitTime(execution, nowTs)}
         </p>
     );
@@ -224,22 +215,6 @@ export default function ActiveCandidates({
     dynamoConfigured,
     totalMonitorCount = 0
 }) {
-    const { isLight, field: fieldCls } = useModuleTheme();
-    const filterShell = isLight
-        ? 'flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-md'
-        : 'flex flex-col gap-3 rounded-2xl border border-slate-700/50 bg-[#1e293b] px-5 py-4 shadow-lg';
-    const infoBanner = isLight
-        ? 'rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600'
-        : 'rounded-xl border border-slate-600/50 bg-slate-800/40 px-4 py-3 text-xs text-slate-300';
-    const sepLine = isLight ? 'h-px bg-slate-200' : 'h-px bg-slate-700/50';
-    const rowHover = isLight ? 'transition hover:bg-slate-50' : 'transition hover:bg-slate-800/50';
-    const ghostNav = isLight
-        ? 'rounded-lg border border-slate-300 bg-transparent px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40'
-        : 'rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-xs font-semibold text-[rgba(159,179,200,0.95)] transition hover:bg-slate-800/50 disabled:cursor-not-allowed disabled:opacity-40';
-    const clearFiltros = isLight
-        ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-600 transition-all hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600'
-        : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400';
-
     const [selectedUser, setSelectedUser] = useState(null);
     const [eliminarTarget, setEliminarTarget] = useState(null);
     const [eliminarObs, setEliminarObs] = useState('');
@@ -428,7 +403,7 @@ export default function ActiveCandidates({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className="w-full min-w-0 space-y-5 font-body"
+            className="space-y-5"
         >
             {dynamoConfigured === false ? (
                 <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
@@ -441,7 +416,7 @@ export default function ActiveCandidates({
                 </div>
             ) : null}
             {dynamoConfigured === true && totalMonitorCount === 0 ? (
-                <div className={infoBanner}>
+                <div className="rounded-xl border border-slate-600/50 bg-slate-800/40 px-4 py-3 text-xs text-slate-300">
                     La tabla Dynamo configurada devolvió <strong>0</strong> registros en el scan. Comprueba que{' '}
                     <code className="rounded bg-black/25 px-1">DYNAMODB_TABLE_NAME</code> sea la misma que usa n8n, la región{' '}
                     <code className="rounded bg-black/25 px-1">AWS_REGION</code> y que las credenciales IAM (o keys) tengan{' '}
@@ -450,7 +425,7 @@ export default function ActiveCandidates({
             ) : null}
 
             {/* ── Barra de Filtros Avanzados ── */}
-            <div className={filterShell}>
+            <div className="flex flex-col gap-3 rounded-2xl border border-slate-700/50 bg-[#1e293b] px-5 py-4 shadow-lg">
 
                 {/* Fila 1: Búsqueda + Estado + Filas */}
                 <div className="flex flex-wrap items-center gap-3">
@@ -462,7 +437,7 @@ export default function ActiveCandidates({
                         </div>
                         <input
                             type="text"
-                            className={`${fieldCls} w-full py-1.5 pl-9 pr-3 text-sm`}
+                            className="w-full rounded-lg border border-slate-600 bg-slate-800 py-1.5 pl-9 pr-3 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                             placeholder="Buscar candidato, cargo, email…"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
@@ -470,11 +445,11 @@ export default function ActiveCandidates({
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <label className={`whitespace-nowrap text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Estado</label>
+                        <label className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-slate-500">Estado</label>
                         <select
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value)}
-                            className={`${fieldCls} cursor-pointer px-3 py-1.5 text-sm`}
+                            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                         >
                             <option value="all">Todos los estados</option>
                             <option value="cargando">Cargando</option>
@@ -487,11 +462,11 @@ export default function ActiveCandidates({
                     </div>
 
                     <div className="flex items-center gap-2">
-                        <label className={`whitespace-nowrap text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Filas</label>
+                        <label className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-slate-500">Filas</label>
                         <select
                             value={pageSize}
                             onChange={(e) => setPageSize(Number(e.target.value))}
-                            className={`${fieldCls} cursor-pointer px-3 py-1.5 text-sm`}
+                            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                         >
                             <option value={10}>10</option>
                             <option value={20}>20</option>
@@ -501,7 +476,7 @@ export default function ActiveCandidates({
 
                     {/* Badge de resultados */}
                     <div className="ml-auto flex items-center gap-2">
-                        <span className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Mostrando</span>
+                        <span className="text-xs text-slate-500">Mostrando</span>
                         <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-0.5 text-sm font-bold text-blue-400">
                             {filtered.length} de {executions.length}
                         </span>
@@ -509,7 +484,7 @@ export default function ActiveCandidates({
                 </div>
 
                 {/* Separador */}
-                <div className={sepLine} />
+                <div className="h-px bg-slate-700/50" />
 
                 {/* Fila 2: Filtros avanzados */}
                 <div className="flex flex-wrap items-center gap-3">
@@ -517,12 +492,12 @@ export default function ActiveCandidates({
                         <svg className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
                         </svg>
-                        <span className={`text-xs font-bold uppercase tracking-widest ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Filtros avanzados</span>
+                        <span className="text-xs font-bold uppercase tracking-widest text-slate-400">Filtros avanzados</span>
                     </div>
-                    <div className={`h-px min-w-[1rem] flex-1 ${isLight ? 'bg-slate-200' : 'bg-slate-700/50'}`} />
+                    <div className="h-px flex-1 bg-slate-700/50 min-w-[1rem]" />
 
                     {/* Solo activos toggle */}
-                    <label className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition hover:border-sky-500/50 ${isLight ? 'border-slate-300 bg-slate-50 text-slate-800' : 'border-slate-600 bg-slate-800 text-slate-200'}`}>
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 transition hover:border-blue-500/50">
                         <input
                             type="checkbox"
                             checked={fSoloActivos}
@@ -534,23 +509,23 @@ export default function ActiveCandidates({
 
                     {/* Fecha de ingreso desde */}
                     <div className="flex items-center gap-2">
-                        <label className={`whitespace-nowrap text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Ingreso desde</label>
+                        <label className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-slate-500">Ingreso desde</label>
                         <input
                             type="date"
                             value={fFechaDesde}
                             onChange={(e) => setFFechaDesde(e.target.value)}
-                            className={`${fieldCls} cursor-pointer px-3 py-1.5 text-sm`}
+                            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                         />
                     </div>
 
                     {/* Fecha de término hasta */}
                     <div className="flex items-center gap-2">
-                        <label className={`whitespace-nowrap text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Hasta</label>
+                        <label className="whitespace-nowrap text-xs font-semibold uppercase tracking-wider text-slate-500">Hasta</label>
                         <input
                             type="date"
                             value={fFechaHasta}
                             onChange={(e) => setFFechaHasta(e.target.value)}
-                            className={`${fieldCls} cursor-pointer px-3 py-1.5 text-sm`}
+                            className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                         />
                     </div>
 
@@ -559,7 +534,7 @@ export default function ActiveCandidates({
                         <button
                             type="button"
                             onClick={clearAllFilters}
-                            className={clearFiltros}
+                            className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400"
                         >
                             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -571,7 +546,7 @@ export default function ActiveCandidates({
             </div>
 
             <div className="surface-soft flex flex-wrap items-center justify-between gap-3 px-4 py-2 text-sm">
-                <p className={isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}>
+                <p className="text-[rgba(159,179,200,0.95)]">
                     {filtered.length === 0 ? (
                         <>Sin resultados en esta vista</>
                     ) : (
@@ -593,11 +568,11 @@ export default function ActiveCandidates({
 
             {filtered.length === 0 ? (
                 totalMonitorCount > 0 && executions.length === 0 ? (
-                    <div className={`rounded-xl border px-5 py-10 text-center ${isLight ? 'border-sky-200 bg-sky-50' : 'border-blue-500/35 bg-blue-500/10'}`}>
-                        <p className={`text-sm font-semibold ${isLight ? 'text-sky-900' : 'text-blue-100'}`}>
+                    <div className="rounded-xl border border-blue-500/35 bg-blue-500/10 px-5 py-10 text-center">
+                        <p className="text-sm font-semibold text-blue-100">
                             Hay {totalMonitorCount} ejecución{totalMonitorCount !== 1 ? 'es' : ''} en el flujo, pero ninguna en estado activo.
                         </p>
-                        <p className={`mt-2 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                        <p className="mt-2 text-xs text-slate-300">
                             Es probable que estén en etapa final (finalizado, rechazado, etc.). Abre{' '}
                             <strong>Historial</strong> en el menú lateral para verlas.
                         </p>
@@ -607,14 +582,14 @@ export default function ActiveCandidates({
                 )
             ) : (
                 <div className="surface-panel overflow-hidden">
-                    <div className={`grid grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-bold uppercase tracking-wide ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
+                    <div className="grid grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-[rgba(159,179,200,0.95)]">
                         <button
                             type="button"
                             className="flex items-center gap-2 text-left"
                             onClick={() => toggleSort('employee')}
                         >
                             Empleado
-                            {sortBy === 'employee' && <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-[rgba(159,179,200,0.95)]'}`}>{sortDir === 'desc' ? '▼' : '▲'}</span>}
+                            {sortBy === 'employee' && <span className="text-[10px] text-[rgba(159,179,200,0.95)]">{sortDir === 'desc' ? '▼' : '▲'}</span>}
                         </button>
                         <button
                             type="button"
@@ -622,7 +597,7 @@ export default function ActiveCandidates({
                             onClick={() => toggleSort('type')}
                         >
                             Tipo
-                            {sortBy === 'type' && <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-[rgba(159,179,200,0.95)]'}`}>{sortDir === 'desc' ? '▼' : '▲'}</span>}
+                            {sortBy === 'type' && <span className="text-[10px] text-[rgba(159,179,200,0.95)]">{sortDir === 'desc' ? '▼' : '▲'}</span>}
                         </button>
                         <button
                             type="button"
@@ -630,7 +605,7 @@ export default function ActiveCandidates({
                             onClick={() => toggleSort('start')}
                         >
                             Inicio de proceso
-                            {sortBy === 'start' && <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-[rgba(159,179,200,0.95)]'}`}>{sortDir === 'desc' ? '▼' : '▲'}</span>}
+                            {sortBy === 'start' && <span className="text-[10px] text-[rgba(159,179,200,0.95)]">{sortDir === 'desc' ? '▼' : '▲'}</span>}
                         </button>
                         <button
                             type="button"
@@ -638,7 +613,7 @@ export default function ActiveCandidates({
                             onClick={() => toggleSort('tasks')}
                         >
                             Tareas completadas
-                            {sortBy === 'tasks' && <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-[rgba(159,179,200,0.95)]'}`}>{sortDir === 'desc' ? '▼' : '▲'}</span>}
+                            {sortBy === 'tasks' && <span className="text-[10px] text-[rgba(159,179,200,0.95)]">{sortDir === 'desc' ? '▼' : '▲'}</span>}
                         </button>
                         <span className="text-right">Acción</span>
                     </div>
@@ -650,7 +625,7 @@ export default function ActiveCandidates({
                             return (
                                 <div
                                     key={ex.executionId}
-                                    className={`grid w-full grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] items-center gap-4 px-4 py-3 ${rowHover}`}
+                                    className="grid w-full grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] items-center gap-4 px-4 py-3 transition hover:bg-slate-800/50"
                                 >
                                     <button
                                         type="button"
@@ -659,23 +634,23 @@ export default function ActiveCandidates({
                                     >
                                         <div className="min-w-0">
                                             <p className="truncate text-sm font-semibold text-[var(--text)]">{ex.workflowName || 'Name Last Name'}</p>
-                                            <p className="truncate text-xs text-[var(--muted)]">{ex.fullData?.puesto || 'Puesto de trabajo'}</p>
+                                            <p className="truncate text-xs text-[rgba(159,179,200,0.95)]">{ex.fullData?.puesto || 'Puesto de trabajo'}</p>
                                         </div>
                                         <div className="min-w-0">
-                                            <span className={`inline-flex max-w-full truncate rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusTone(ex.realStatus, ex.statusId, isLight)}`}>
+                                            <span className={`inline-flex max-w-full truncate rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusTone(ex.realStatus, ex.statusId)}`}>
                                                 {ex.realStatus || 'Onboarding'}
                                             </span>
                                         </div>
-                                        <div className="text-xs text-[var(--muted)]">
+                                        <div className="text-xs text-[rgba(159,179,200,0.95)]">
                                             {startDate ? new Date(startDate).toLocaleDateString('es-CO') : 'DD/MM/YYYY'}
                                         </div>
                                         <div className="min-w-0">
                                             <LiveDurations execution={ex} />
                                             <div className="mt-1 flex items-center gap-3">
-                                                <div className="h-1.5 w-full max-w-[130px] overflow-hidden rounded-full bg-[var(--surface-muted)]">
+                                                <div className="h-1.5 w-full max-w-[130px] overflow-hidden rounded-full bg-[rgba(159,179,200,0.25)]">
                                                     <div className="h-full rounded-full bg-[var(--primary)]" style={{ width: `${(completedStages / maxStages) * 100}%` }} />
                                                 </div>
-                                                <span className="shrink-0 text-xs font-semibold text-[var(--muted)]">{completedStages} / {maxStages}</span>
+                                                <span className="shrink-0 text-xs font-semibold text-[rgba(159,179,200,0.95)]">{completedStages} / {maxStages}</span>
                                             </div>
                                         </div>
                                     </button>
@@ -693,7 +668,7 @@ export default function ActiveCandidates({
                                             <button
                                                 type="button"
                                                 onClick={(e) => openEliminar(ex, e)}
-                                                className="rounded-lg border border-red-500/65 bg-transparent px-3 py-1.5 text-xs font-semibold text-[var(--error)] transition hover:bg-[rgba(255,107,107,0.08)]"
+                                                className="rounded-lg border border-red-500/65 bg-transparent px-3 py-1.5 text-xs font-semibold text-red-400 transition hover:bg-[rgba(255,107,107,0.08)]"
                                             >
                                                 Eliminar
                                             </button>
@@ -709,11 +684,11 @@ export default function ActiveCandidates({
                                 type="button"
                                 onClick={goPrevPage}
                                 disabled={currentPage <= 1}
-                                className={ghostNav}
+                                className="rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-xs font-semibold text-[rgba(159,179,200,0.95)] transition hover:bg-slate-800/50 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 Anterior
                             </button>
-                            <p className={`text-xs ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
+                            <p className="text-xs text-[rgba(159,179,200,0.95)]">
                                 Página <span className="font-semibold text-[var(--text)]">{currentPage}</span> de{' '}
                                 <span className="font-semibold text-[var(--text)]">{totalPages}</span>
                             </p>
@@ -721,7 +696,7 @@ export default function ActiveCandidates({
                                 type="button"
                                 onClick={goNextPage}
                                 disabled={currentPage >= totalPages}
-                                className={ghostNav}
+                                className="rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-xs font-semibold text-[rgba(159,179,200,0.95)] transition hover:bg-slate-800/50 disabled:cursor-not-allowed disabled:opacity-40"
                             >
                                 Siguiente
                             </button>
@@ -746,7 +721,7 @@ export default function ActiveCandidates({
 
 function LoadingState() {
     return (
-        <div className="flex flex-col items-center justify-center py-32 font-body">
+        <div className="flex flex-col items-center justify-center py-32">
             <div className="relative">
                 <div className="h-16 w-16 border-2 border-zinc-800 rounded-full"></div>
                 <div className="absolute top-0 left-0 h-16 w-16 border-2 border-cinte-cyan border-t-transparent rounded-full animate-spin"></div>
@@ -758,7 +733,7 @@ function LoadingState() {
 
 function ErrorState({ error }) {
     return (
-            <div className="mb-8 rounded-xl border border-[rgba(255,107,107,0.35)] bg-[rgba(255,107,107,0.08)] p-6 font-body">
+            <div className="mb-8 rounded-xl border border-[rgba(255,107,107,0.35)] bg-[rgba(255,107,107,0.08)] p-6">
             <div className="flex items-center gap-4">
                 <div className="p-2 bg-[rgba(255,107,107,0.12)] rounded-lg">
                     <svg className="w-6 h-6 text-[var(--error)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -766,7 +741,7 @@ function ErrorState({ error }) {
                     </svg>
                 </div>
                 <div>
-                    <h3 className="text-[rgba(255,107,107,0.95)] font-semibold mb-1 font-heading">Error de Conexion</h3>
+                    <h3 className="text-[rgba(255,107,107,0.95)] font-semibold mb-1">Error de Conexion</h3>
                     <p className="text-[rgba(255,107,107,0.9)] text-sm">{error}</p>
                 </div>
             </div>
@@ -776,13 +751,13 @@ function ErrorState({ error }) {
 
 function EmptyState() {
     return (
-        <div className="surface-panel border-dashed py-24 text-center font-body">
+        <div className="surface-panel border-dashed py-24 text-center">
             <div className="mb-6 inline-flex h-20 w-20 items-center justify-center rounded-2xl border border-[var(--primary)]/20 bg-[var(--primary-soft)] shadow-sm">
                 <svg className="h-10 w-10 text-[var(--primary)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                 </svg>
             </div>
-            <h3 className="mb-2 text-2xl font-bold tracking-wide text-[var(--text)] font-heading">Sin Actividad</h3>
+            <h3 className="mb-2 text-2xl font-bold tracking-wide text-[var(--text)]">Sin Actividad</h3>
             <p className="mx-auto max-w-sm text-[var(--muted)]">No hay candidatos activos que coincidan con tu busqueda.</p>
         </div>
     );

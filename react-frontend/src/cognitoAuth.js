@@ -73,14 +73,12 @@ export async function cognitoSignIn(emailOrUsername, password, roleRequested = '
             })
         });
     } catch (e) {
-        let raw = e && e.message ? String(e.message) : 'Error en red';
-        const isNetworkError = /failed to fetch|networkerror|load failed/i.test(raw);
-        if (isNetworkError) raw = 'Error en red';
+        const raw = e && e.message ? String(e.message) : 'Error de red';
         const hint =
-            isNetworkError && import.meta.env.DEV
+            /failed to fetch|networkerror|load failed/i.test(raw) && import.meta.env.DEV
                 ? ' Comprueba que el backend esté en ejecución (p. ej. puerto 3005) y que Vite esté proxyando /api.'
                 : '';
-        throw new Error(hint ? `${raw}.${hint}` : raw);
+        throw new Error(`${raw}.${hint}`);
     }
     const data = await readResponseJson(res);
     if (!res.ok || !data?.ok || !data?.user) {

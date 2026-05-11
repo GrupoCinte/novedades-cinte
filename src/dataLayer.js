@@ -170,25 +170,10 @@ function createDataLayer(deps) {
         }
     }
 
-    /** NIT por fila (misma cadena en todas las filas de un `cliente`; fuente única para cotizador). */
-    async function ensureClientesLideresNitColumn() {
-        try {
-            await ensureClientesLideresTable();
-            await pool.query(`ALTER TABLE clientes_lideres ADD COLUMN IF NOT EXISTS nit TEXT NOT NULL DEFAULT ''`);
-        } catch (error) {
-            if (String(error?.code || '') === '42501') {
-                console.warn('[Catalogos] Permisos insuficientes para columna nit en clientes_lideres.');
-                return;
-            }
-            throw error;
-        }
-    }
-
     /** GP por fila de catálogo (asignación desde módulo administración / cliente). */
     async function ensureClientesLideresGpUserColumn() {
         try {
             await ensureClientesLideresTable();
-            await ensureClientesLideresNitColumn();
             await pool.query('ALTER TABLE clientes_lideres ADD COLUMN IF NOT EXISTS gp_user_id UUID NULL');
             try {
                 await pool.query(`
@@ -267,10 +252,6 @@ function createDataLayer(deps) {
         return q2.rows[0]?.id || null;
     }
 
-    function normalizeNitDigits(nitRaw) {
-        return String(nitRaw || '').replace(/\D/g, '');
-    }
-
     async function migrateClientesLideresFromExcelIfNeeded() {
         await ensureClientesLideresTable();
         await ensureClientesLideresGpUserColumn();
@@ -304,8 +285,8 @@ function createDataLayer(deps) {
                     );
                 }
                 await client.query(
-                    `INSERT INTO clientes_lideres (cliente, lider, activo, gp_user_id, nit)
-                     VALUES ($1, $2, TRUE, $3::uuid, '')
+                    `INSERT INTO clientes_lideres (cliente, lider, activo, gp_user_id)
+                     VALUES ($1, $2, TRUE, $3::uuid)
                      ON CONFLICT (cliente, lider)
                      DO UPDATE SET activo = TRUE, gp_user_id = COALESCE(EXCLUDED.gp_user_id, clientes_lideres.gp_user_id), updated_at = NOW()`,
                     [clienteRaw, liderRaw, gpId]
@@ -321,12 +302,10 @@ function createDataLayer(deps) {
     }
 
     async function getClientesList() {
-        /** `activo IS NOT FALSE`: incluye TRUE y NULL (filas legadas); excluye solo explícitamente inactivas. */
         const q = await pool.query(
             `SELECT DISTINCT cliente
              FROM clientes_lideres
-             WHERE activo IS NOT FALSE
-               AND NULLIF(BTRIM(cliente), '') IS NOT NULL
+             WHERE activo = TRUE
              ORDER BY cliente ASC`
         );
         return q.rows.map((r) => r.cliente);
@@ -418,10 +397,9 @@ function createDataLayer(deps) {
 
     async function ensureCinteLeonardoPair() {
         await ensureClientesLideresTable();
-        await ensureClientesLideresNitColumn();
         await pool.query(
-            `INSERT INTO clientes_lideres (cliente, lider, activo, nit)
-             VALUES ('CINTE', 'Leonardo Rojas', TRUE, '')
+            `INSERT INTO clientes_lideres (cliente, lider, activo)
+             VALUES ('CINTE', 'Leonardo Rojas', TRUE)
              ON CONFLICT (cliente, lider)
              DO UPDATE SET activo = TRUE, updated_at = NOW()`
         );
@@ -488,7 +466,6 @@ function createDataLayer(deps) {
                 cl.lider,
                 cl.activo,
                 cl.gp_user_id,
-                COALESCE(cl.nit, '') AS nit,
                 cl.created_at,
                 cl.updated_at,
                 NULLIF(BTRIM(u.full_name), '') AS gp_full_name
@@ -543,7 +520,6 @@ function createDataLayer(deps) {
                 agg.active_count,
                 agg.gp_distinct_count,
                 agg.gp_user_id,
-                agg.nit,
                 NULLIF(BTRIM(u.full_name), '') AS gp_full_name
              FROM (
                  SELECT
@@ -555,8 +531,7 @@ function createDataLayer(deps) {
                          WHEN COUNT(DISTINCT CASE WHEN cl.gp_user_id IS NOT NULL THEN cl.gp_user_id END) = 1
                          THEN MAX(cl.gp_user_id::text)::uuid
                          ELSE NULL
-                     END AS gp_user_id,
-                     COALESCE(MAX(NULLIF(BTRIM(cl.nit), '')), '') AS nit
+                     END AS gp_user_id
                  FROM clientes_lideres cl
                  ${whereAliasSql}
                  GROUP BY cl.cliente
@@ -573,54 +548,30 @@ function createDataLayer(deps) {
      * @param {string} cliente
      * @param {string} lider
      * @param {string|null|undefined} gpUserId UUID de users (rol gp) o null
-     * @param {string|null|undefined} nitRaw NIT solo dígitos (obligatorio en API de directorio)
      */
-    async function insertClienteLider(cliente, lider, gpUserId = null, nitRaw = null) {
+    async function insertClienteLider(cliente, lider, gpUserId = null) {
         const c = normalizeCatalogValue(cliente);
         const l = normalizeCatalogValue(lider);
         if (!c || !l) throw Object.assign(new Error('Cliente y líder son obligatorios'), { status: 400 });
         const gp = gpUserId === undefined || gpUserId === null || gpUserId === '' ? null : String(gpUserId).trim();
-        const nit = normalizeNitDigits(nitRaw);
-        if (!nit) throw Object.assign(new Error('NIT es obligatorio'), { status: 400 });
         const q = await pool.query(
-            `INSERT INTO clientes_lideres (cliente, lider, activo, gp_user_id, nit)
-             VALUES ($1, $2, TRUE, $3::uuid, $4)
+            `INSERT INTO clientes_lideres (cliente, lider, activo, gp_user_id)
+             VALUES ($1, $2, TRUE, $3::uuid)
              ON CONFLICT (cliente, lider)
-             DO UPDATE SET activo = TRUE,
-                 gp_user_id = COALESCE(EXCLUDED.gp_user_id, clientes_lideres.gp_user_id),
-                 nit = CASE WHEN NULLIF(BTRIM(EXCLUDED.nit), '') IS NOT NULL THEN EXCLUDED.nit ELSE clientes_lideres.nit END,
-                 updated_at = NOW()
-             RETURNING id, cliente, lider, activo, gp_user_id, nit, created_at, updated_at`,
-            [c, l, gp, nit]
+             DO UPDATE SET activo = TRUE, gp_user_id = COALESCE(EXCLUDED.gp_user_id, clientes_lideres.gp_user_id), updated_at = NOW()
+             RETURNING id, cliente, lider, activo, gp_user_id, created_at, updated_at`,
+            [c, l, gp]
         );
         return q.rows[0];
     }
 
     /**
-     * Mapa cliente canónico → NIT dígitos (todas las filas del cliente; agregado MAX).
-     */
-    async function getClientesNitMapFromLideres() {
-        await ensureClientesLideresNitColumn();
-        const q = await pool.query(
-            `SELECT cliente, COALESCE(MAX(NULLIF(BTRIM(nit), '')), '') AS nit
-             FROM clientes_lideres
-             GROUP BY cliente`
-        );
-        const m = new Map();
-        for (const r of q.rows || []) {
-            const c = normalizeCatalogValue(r.cliente);
-            if (c) m.set(c, normalizeNitDigits(r.nit));
-        }
-        return m;
-    }
-
-    /**
      * @param {string} id
-     * @param {{ activo?: boolean, cliente?: string, lider?: string, gp_user_id?: string|null, nit?: string }} patch
+     * @param {{ activo?: boolean, cliente?: string, lider?: string, gp_user_id?: string|null }} patch
      */
     async function updateClienteLiderById(id, patch) {
         const cur = await pool.query(
-            'SELECT id, cliente, lider, activo, gp_user_id, COALESCE(nit, \'\') AS nit FROM clientes_lideres WHERE id = $1::uuid LIMIT 1',
+            'SELECT id, cliente, lider, activo, gp_user_id FROM clientes_lideres WHERE id = $1::uuid LIMIT 1',
             [id]
         );
         if (!cur.rows[0]) return null;
@@ -634,21 +585,13 @@ function createDataLayer(deps) {
                     ? null
                     : String(patch.gp_user_id).trim()
                 : row.gp_user_id;
-        const nextNit =
-            patch.nit !== undefined ? normalizeNitDigits(patch.nit) : normalizeNitDigits(row.nit);
         if (!nextCliente || !nextLider) throw Object.assign(new Error('Cliente y líder no pueden quedar vacíos'), { status: 400 });
-        const touchesCatalog =
-            patch.cliente !== undefined || patch.lider !== undefined || patch.gp_user_id !== undefined;
-        if (touchesCatalog && !nextNit) {
-            throw Object.assign(new Error('NIT es obligatorio al actualizar cliente, líder o GP'), { status: 400 });
-        }
-        const nitForDb = touchesCatalog ? nextNit : normalizeNitDigits(row.nit);
         const q = await pool.query(
             `UPDATE clientes_lideres
-             SET cliente = $2, lider = $3, activo = $4, gp_user_id = $5::uuid, nit = $6, updated_at = NOW()
+             SET cliente = $2, lider = $3, activo = $4, gp_user_id = $5::uuid, updated_at = NOW()
              WHERE id = $1::uuid
-             RETURNING id, cliente, lider, activo, gp_user_id, nit, created_at, updated_at`,
-            [id, nextCliente, nextLider, nextActivo, nextGp, nitForDb]
+             RETURNING id, cliente, lider, activo, gp_user_id, created_at, updated_at`,
+            [id, nextCliente, nextLider, nextActivo, nextGp]
         );
         return q.rows[0] || null;
     }
@@ -874,39 +817,34 @@ function createDataLayer(deps) {
             let gpUserId = null;
             let createdGpUser = false;
 
-            /**
-             * Prioridad: usuario GP cuyo email coincide con el correo Cinte del colaborador.
-             * `colaboradores.gp_user_id` suele ser otro GP (p. ej. supervisor); si se consultara primero,
-             * al asignar «este colaborador como GP» del catálogo se persistiría el UUID equivocado.
-             */
-            const qEmail = await client.query(
-                `SELECT id::text AS id, role::text AS role
-                 FROM users
-                 WHERE lower(btrim(email)) = lower(btrim($1))
-                 LIMIT 1`,
-                [email]
-            );
-            if (qEmail.rows[0]) {
-                if (qEmail.rows[0].role !== 'gp') {
-                    throw Object.assign(
-                        new Error('El correo del colaborador ya existe en users con un rol distinto a GP.'),
-                        { status: 409 }
-                    );
-                }
-                gpUserId = qEmail.rows[0].id;
+            const currentGp = col.gp_user_id ? String(col.gp_user_id).trim() : '';
+            if (currentGp) {
+                const qgp = await client.query(
+                    `SELECT id::text AS id
+                     FROM users
+                     WHERE id = $1::uuid AND role = 'gp'::user_role
+                     LIMIT 1`,
+                    [currentGp]
+                );
+                if (qgp.rows[0]?.id) gpUserId = qgp.rows[0].id;
             }
 
             if (!gpUserId) {
-                const currentGp = col.gp_user_id ? String(col.gp_user_id).trim() : '';
-                if (currentGp) {
-                    const qgp = await client.query(
-                        `SELECT id::text AS id
-                         FROM users
-                         WHERE id = $1::uuid AND role = 'gp'::user_role
-                         LIMIT 1`,
-                        [currentGp]
-                    );
-                    if (qgp.rows[0]?.id) gpUserId = qgp.rows[0].id;
+                const qEmail = await client.query(
+                    `SELECT id::text AS id, role::text AS role
+                     FROM users
+                     WHERE lower(btrim(email)) = lower(btrim($1))
+                     LIMIT 1`,
+                    [email]
+                );
+                if (qEmail.rows[0]) {
+                    if (qEmail.rows[0].role !== 'gp') {
+                        throw Object.assign(
+                            new Error('El correo del colaborador ya existe en users con un rol distinto a GP.'),
+                            { status: 409 }
+                        );
+                    }
+                    gpUserId = qEmail.rows[0].id;
                 }
             }
 
@@ -1056,11 +994,7 @@ function createDataLayer(deps) {
         return id || null;
     }
 
-    /**
-     * Predicados WHERE compartidos para consultas sobre `novedades` con el mismo alcance que el listado principal.
-     * @returns {{ empty: true } | { empty: false, whereSql: string, params: unknown[] }}
-     */
-    async function buildScopedNovedadesWhere(scope, options = {}) {
+    async function getScopedNovedades(scope, options = {}) {
         const role = scope?.role || '';
         const tipo = String(options?.tipo || '').trim();
         const estado = String(options?.estado || '').trim();
@@ -1078,7 +1012,7 @@ function createDataLayer(deps) {
             const gpInternalId = await resolveGpInternalUserIdForScope(scope);
             const assignedClientes = await listAssignedClientesForGpUserId(gpInternalId);
             if (!assignedClientes.length) {
-                return { empty: true };
+                return [];
             }
             const normalized = assignedClientes.map((c) => String(c).toLowerCase());
             params.push(normalized);
@@ -1108,39 +1042,10 @@ function createDataLayer(deps) {
             params.push(createdTo);
             whereParts.push(`nov.creado_en::date <= $${params.length}::date`);
         }
-        /** Super admin: filtrar por GP según catálogo `clientes_lideres` (clientes asignados a ese usuario GP), alineado con el alcance del rol `gp`. */
-        const gpUserIdOpt = String(options?.gpUserId || '').trim();
-        if (role === 'super_admin' && gpUserIdOpt) {
-            if (gpUserIdOpt === '__null__') {
-                whereParts.push(`NOT EXISTS (
-                    SELECT 1 FROM clientes_lideres cl
-                    WHERE cl.activo = TRUE
-                      AND cl.gp_user_id IS NOT NULL
-                      AND lower(btrim(cl.cliente)) = lower(btrim(coalesce(nov.cliente, '')))
-                )`);
-            } else if (
-                /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(gpUserIdOpt)
-            ) {
-                const assignedClientes = await listAssignedClientesForGpUserId(gpUserIdOpt);
-                if (!assignedClientes.length) {
-                    return { empty: true };
-                }
-                const normalized = assignedClientes.map((c) => String(c).toLowerCase());
-                params.push(normalized);
-                whereParts.push(`lower(coalesce(nov.cliente, '')) = ANY($${params.length}::text[])`);
-            }
-        }
         const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
-        return { empty: false, whereSql, params };
-    }
-
-    async function getScopedNovedades(scope, options = {}) {
-        const role = scope?.role || '';
-        const w = await buildScopedNovedadesWhere(scope, options);
-        if (w.empty) return [];
         const q = await pool.query(
             `SELECT
-                nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.gp_user_id, nov.tipo_novedad, nov.area,
+                nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.tipo_novedad, nov.area,
                 nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas, nov.horas_recargo_domingo,
                 nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas,
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
@@ -1151,44 +1056,11 @@ function createDataLayer(deps) {
              FROM novedades nov
              LEFT JOIN users ua ON nov.aprobado_por_user_id = ua.id
              LEFT JOIN users ur ON nov.rechazado_por_user_id = ur.id
-             ${w.whereSql}
+             ${whereSql}
              ORDER BY nov.creado_en DESC`,
-            w.params
+            params
         );
         return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad));
-    }
-
-    /** Clientes distintos visibles con el mismo alcance que `getScopedNovedades` (sin filtros de listado salvo `gpUserId` opcional para super_admin). */
-    async function listScopedDistinctClientes(scope, options = {}) {
-        const role = scope?.role || '';
-        const gpOnly = String(options?.gpUserId || '').trim();
-        const w = await buildScopedNovedadesWhere(scope, {
-            tipo: '',
-            estado: '',
-            nombre: '',
-            cliente: '',
-            createdFrom: '',
-            createdTo: '',
-            ...(gpOnly ? { gpUserId: gpOnly } : {})
-        });
-        if (w.empty) return [];
-        const q = await pool.query(
-            `SELECT DISTINCT nov.cliente AS cliente, nov.tipo_novedad AS tipo_novedad
-             FROM novedades nov
-             ${w.whereSql}`,
-            w.params
-        );
-        const byKey = new Map();
-        for (const row of q.rows || []) {
-            if (!canRoleViewType(role, row.tipo_novedad)) continue;
-            const c = String(row.cliente || '').trim();
-            if (!c) continue;
-            const k = c.toLowerCase();
-            if (!byKey.has(k)) byKey.set(k, c);
-        }
-        return Array.from(byKey.values())
-            .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }))
-            .slice(0, 500);
     }
 
     /**
@@ -1282,12 +1154,10 @@ function createDataLayer(deps) {
         const maxMonthlyHours = Number(options?.maxMonthlyHours || 48);
         const createdFrom = String(options?.createdFrom || '').trim();
         const createdTo = String(options?.createdTo || '').trim();
-        const gpUserId = String(options?.gpUserId || '').trim();
         const rows = await getScopedNovedades(scope, {
             tipo: 'Hora Extra',
             createdFrom,
-            createdTo,
-            ...(gpUserId ? { gpUserId } : {})
+            createdTo
         });
 
         const actionableRows = (rows || []).filter((row) => {
@@ -1512,7 +1382,6 @@ function createDataLayer(deps) {
     return {
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
-        ensureClientesLideresNitColumn,
         ensureClientesLideresGpUserColumn,
         ensureNovedadesIndexes,
         ensureNovedadesHourSplitColumns,
@@ -1531,7 +1400,6 @@ function createDataLayer(deps) {
         getLideresByCliente,
         listClientesLideresPaged,
         listClientesLideresByClienteSummaryPaged,
-        getClientesNitMapFromLideres,
         insertClienteLider,
         updateClienteLiderById,
         listColaboradoresPaged,
@@ -1545,7 +1413,6 @@ function createDataLayer(deps) {
         linkGpCognitoSubByEmail,
         migrateExcelIfNeeded,
         getScopedNovedades,
-        listScopedDistinctClientes,
         getHoraExtraAlerts,
         listHoraExtraByCedulaForDomingoPolicy
     };

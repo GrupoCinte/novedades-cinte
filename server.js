@@ -41,9 +41,7 @@ const { createAuthHelpers } = require('./src/auth');
 const { toClientNovedad } = require('./src/novedadesMapper');
 const { createDataLayer } = require('./src/dataLayer');
 const { createCotizadorStore } = require('./src/cotizador/cotizadorStore');
-const { createTiRolesStore } = require('./src/cotizador/tiRolesStore');
 const { registerCotizadorRoutes } = require('./src/cotizador/registerCotizadorRoutes');
-const { registerTiRolesRoutes } = require('./src/cotizador/registerTiRolesRoutes');
 const { registerContratacionRoutes } = require('./src/contratacion/registerContratacionRoutes');
 const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
 const { createEmailNotificationsPublisher } = require('./src/notifications/emailNotificationsPublisher');
@@ -66,17 +64,16 @@ const CORS_EXTRA_ORIGINS = String(process.env.CORS_EXTRA_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-const COGNITO_ENABLED = String(process.env.COGNITO_ENABLED || 'true').toLowerCase() === 'true';
-const COGNITO_REGION = (process.env.COGNITO_REGION || 'us-east-1').trim();
-const COGNITO_USER_POOL_ID = (process.env.COGNITO_USER_POOL_ID || 'us-east-1_dev').trim();
-const COGNITO_APP_CLIENT_ID = (process.env.COGNITO_APP_CLIENT_ID || 'dev-client-id').trim();
+const COGNITO_ENABLED = String(process.env.COGNITO_ENABLED || 'false').toLowerCase() === 'true';
+const COGNITO_REGION = (process.env.COGNITO_REGION || '').trim();
+const COGNITO_USER_POOL_ID = (process.env.COGNITO_USER_POOL_ID || '').trim();
+const COGNITO_APP_CLIENT_ID = (process.env.COGNITO_APP_CLIENT_ID || '').trim();
 const COGNITO_APP_CLIENT_SECRET = (process.env.COGNITO_APP_CLIENT_SECRET || '').trim();
-// Para desarrollo local, permita funcionar sin Cognito completo
-if (isProduction && !COGNITO_ENABLED) {
-    throw new Error('FATAL: COGNITO_ENABLED=true es obligatorio en producción.');
+if (!COGNITO_ENABLED) {
+    throw new Error('FATAL: COGNITO_ENABLED=true es obligatorio para iniciar el backend.');
 }
-if (isProduction && (!COGNITO_REGION || !COGNITO_USER_POOL_ID || !COGNITO_APP_CLIENT_ID)) {
-    throw new Error('FATAL: Configuración Cognito incompleta en producción.');
+if (!COGNITO_REGION || !COGNITO_USER_POOL_ID || !COGNITO_APP_CLIENT_ID) {
+    throw new Error('FATAL: Configuración Cognito incompleta (COGNITO_REGION, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_ID).');
 }
 const S3_ENABLED = String(process.env.S3_ENABLED || 'false').toLowerCase() === 'true';
 const S3_BUCKET_NAME = (process.env.S3_BUCKET_NAME || '').trim();
@@ -442,7 +439,6 @@ const upload = multer({
 const {
     ensureUserRoleEnumValues,
     ensureClientesLideresTable,
-    ensureClientesLideresNitColumn,
     ensureClientesLideresGpUserColumn,
     ensureNovedadesIndexes,
     ensureNovedadesHourSplitColumns,
@@ -461,7 +457,6 @@ const {
     getLideresByCliente,
     listClientesLideresPaged,
     listClientesLideresByClienteSummaryPaged,
-    getClientesNitMapFromLideres,
     insertClienteLider,
     updateClienteLiderById,
     listColaboradoresPaged,
@@ -475,7 +470,6 @@ const {
     linkGpCognitoSubByEmail,
     migrateExcelIfNeeded,
     getScopedNovedades,
-    listScopedDistinctClientes,
     getHoraExtraAlerts,
     listHoraExtraByCedulaForDomingoPolicy
 } = createDataLayer({
@@ -492,7 +486,6 @@ const {
 const { registerRoutes } = require('./src/registerRoutes');
 const { startServer } = require('./src/startup');
 const cotizadorStore = createCotizadorStore({ pool });
-const tiRolesStore = createTiRolesStore({ pool });
 
 registerRoutes({
     app,
@@ -517,7 +510,6 @@ registerRoutes({
     allowPanel,
     applyScope,
     getScopedNovedades,
-    listScopedDistinctClientes,
     getHoraExtraAlerts,
     listHoraExtraByCedulaForDomingoPolicy,
     toClientNovedad,
@@ -586,18 +578,7 @@ registerCotizadorRoutes({
     pdfLimiter,
     catalogLimiter,
     cotizadorStore,
-    getClientesList,
-    getClientesNitMapFromLideres
-});
-
-registerTiRolesRoutes({
-    app,
-    verificarToken,
-    allowAnyPanel,
-    allowRoles,
-    adminActionLimiter,
-    catalogLimiter,
-    tiRolesStore
+    getClientesList
 });
 
 registerContratacionRoutes({
@@ -618,7 +599,6 @@ startServer({
     pool,
     ensureUserRoleEnumValues,
     ensureClientesLideresTable,
-    ensureClientesLideresNitColumn,
     ensureClientesLideresGpUserColumn,
     ensureNovedadesIndexes,
     ensureNovedadesHourSplitColumns,

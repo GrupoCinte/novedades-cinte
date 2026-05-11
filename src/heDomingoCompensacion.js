@@ -4,7 +4,6 @@ const {
     bogotaDateKeyFromMs,
     bogotaMidnightUtcMsFromYmd,
     isSundayBogotaYmd,
-    isDomingoOFestivoBogotaYmd,
     buildSundayReportedSetsFromHeRows,
     sundayStatsForConsultantMonth,
     resolveHourSplitBogotaForRow
@@ -64,9 +63,9 @@ function buildConsultantKeyDefault(row) {
  * @param {string} consultantKey
  * @returns {string|null} YYYY-MM-DD domingo trabajado que ancla la ventana
  */
-function pickWorkedSundayYmd(draftSplit, sundaySets, consultantKey, festivosSet) {
+function pickWorkedSundayYmd(draftSplit, sundaySets, consultantKey) {
     const draftSundays = [...draftSplit.entries()]
-        .filter(([k, h]) => isDomingoOFestivoBogotaYmd(k, festivosSet) && Number(h) > 0 && Number.isFinite(Number(h)))
+        .filter(([k, h]) => isSundayBogotaYmd(k) && Number(h) > 0 && Number.isFinite(Number(h)))
         .map(([k]) => k)
         .sort();
     if (!draftSundays.length) return null;
@@ -108,9 +107,8 @@ function computeHeDomingoCompensacionPreview(existingRows, syntheticRow, dep, bu
     const sundaySets = buildSundayReportedSetsFromHeRows(allRows, buildConsultantKey, dep);
     const draftSplit = resolveHourSplitBogotaForRow(syntheticRow, dep);
 
-    const festivosSet = dep.festivosSet;
     const draftSundays = [...draftSplit.entries()]
-        .filter(([k, h]) => isDomingoOFestivoBogotaYmd(k, festivosSet) && Number(h) > 0)
+        .filter(([k, h]) => isSundayBogotaYmd(k) && Number(h) > 0)
         .map(([k]) => k)
         .sort();
 
@@ -138,7 +136,7 @@ function computeHeDomingoCompensacionPreview(existingRows, syntheticRow, dep, bu
 
     const esTercerDomingoOMas = maxTier >= 3;
     const requiereEleccionCompensacion = maxTier === 1 || maxTier === 2;
-    const domingoTrabajadoYmd = pickWorkedSundayYmd(draftSplit, sundaySets, ck, festivosSet);
+    const domingoTrabajadoYmd = pickWorkedSundayYmd(draftSplit, sundaySets, ck);
     const vent =
         requiereEleccionCompensacion && domingoTrabajadoYmd
             ? getVentanaCompensatorioTiempo(domingoTrabajadoYmd)
