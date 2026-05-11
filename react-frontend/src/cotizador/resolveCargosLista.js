@@ -1,5 +1,7 @@
 /** Misma lógica que `src/cotizador/clienteNombreMatch.js` + `resolveCargosLista.js` (backend). */
 
+import { pickCargosPorClienteRaw } from './cotizadorClientesMerge.js';
+
 function normalizeLikeCatalog(value) {
     return String(value || '')
         .replace(/\s+/g, ' ')
@@ -35,5 +37,5 @@ function lookupCargosPorClienteMap(cargosPorCliente, clienteSeleccionado) {
 }
 
 export function resolveCargosLista(catalogos, cliente) {
-    return lookupCargosPorClienteMap(catalogos?.cargos_por_cliente, cliente);
+    return lookupCargosPorClienteMap(pickCargosPorClienteRaw(catalogos), cliente);
 }

@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, CartesianGrid } from 'recharts';
-import { RECHARTS_TOOLTIP_CONTENT_STYLE } from '../constants/rechartsTheme.js';
+import { RECHARTS_TOOLTIP_CONTENT_STYLE, RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT } from '../constants/rechartsTheme.js';
 import CandidateModal from './CandidateModal';
+import { useModuleTheme } from '../../moduleTheme.js';
 import { calculateProcessTime, getTrazabilidadStageKey, normalizeStatus } from '../hooks/useMonitorData';
 
 const CHANNELS = ['DocuSign', 'Portal', 'Correo'];
@@ -102,6 +103,7 @@ function isEliminadoRecord(ex) {
 }
 
 function SignedContractRow({ execution, onOpen }) {
+    const { isLight } = useModuleTheme();
     const channel = detectChannel(execution);
     const eliminado = isEliminadoRecord(execution);
     const signedDate = formatDate(execution.fullData?.ts_validacion_completada);
@@ -112,8 +114,13 @@ function SignedContractRow({ execution, onOpen }) {
     );
 
     const tipoBadgeTone = eliminado
-        ? 'border-red-500/55 bg-transparent text-red-400'
+        ? (isLight ? 'border-red-400 bg-red-50 text-red-700' : 'border-red-500/55 bg-transparent text-red-400')
         : (() => {
+            if (isLight) {
+                if (channel === 'DocuSign') return 'border-sky-300 bg-sky-50 text-sky-900';
+                if (channel === 'Portal') return 'border-cyan-300 bg-cyan-50 text-cyan-900';
+                return 'border-emerald-300 bg-emerald-50 text-emerald-900';
+            }
             if (channel === 'DocuSign') return 'border-[rgba(42,144,255,0.35)] bg-[rgba(42,144,255,0.14)] text-[#bfe6ff]';
             if (channel === 'Portal') return 'border-[rgba(8,189,198,0.28)] bg-[rgba(8,189,198,0.12)] text-[#7af2ea]';
             return 'border-[rgba(31,199,106,0.28)] bg-[rgba(31,199,106,0.12)] text-[#b8f7cd]';
@@ -125,25 +132,29 @@ function SignedContractRow({ execution, onOpen }) {
         <button
             type="button"
             onClick={onOpen}
-            className="grid w-full grid-cols-[2.2fr_1fr_1fr_1.5fr_auto] items-center gap-4 px-4 py-3 text-left transition hover:bg-slate-800/50"
+            className={`grid w-full grid-cols-[2.2fr_1fr_1fr_1.5fr_auto] items-center gap-4 px-4 py-3 text-left transition ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-800/50'}`}
         >
             <div>
                 <p className="text-sm font-semibold text-[var(--text)]">{execution.workflowName || 'Candidato'}</p>
-                <p className="mt-1 text-xs text-[rgba(159,179,200,0.95)]">{role}</p>
+                <p className="mt-1 text-xs text-[var(--muted)]">{role}</p>
             </div>
             <div>
                 <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${tipoBadgeTone}`}>
                     {tipoLabel}
                 </span>
             </div>
-            <p className="text-xs text-[rgba(159,179,200,0.95)]">{signedDate}</p>
-            <p className="text-xs text-[rgba(159,179,200,0.95)]">{duration || 'No calculado'}</p>
-            <span className="text-xl leading-none text-[rgba(159,179,200,0.95)]">⋮</span>
+            <p className="text-xs text-[var(--muted)]">{signedDate}</p>
+            <p className="text-xs text-[var(--muted)]">{duration || 'No calculado'}</p>
+            <span className="text-xl leading-none text-[var(--muted)]">⋮</span>
         </button>
     );
 }
 
 export default function HistoryCandidates({ executions, metrics, loading }) {
+    const { isLight } = useModuleTheme();
+    const chartTick = isLight ? '#64748b' : 'rgba(159,179,200,0.95)';
+    const chartGrid = isLight ? '#e2e8f0' : 'rgba(109, 129, 155, 0.2)';
+    const chartTooltip = isLight ? RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT : RECHARTS_TOOLTIP_CONTENT_STYLE;
     const [selectedUser, setSelectedUser] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [channelFilter, setChannelFilter] = useState('all');
@@ -179,7 +190,7 @@ export default function HistoryCandidates({ executions, metrics, loading }) {
 
     if (loading) {
         return (
-            <div className="flex flex-col items-center justify-center py-32">
+            <div className="flex flex-col items-center justify-center py-32 font-body">
                 <div className="relative">
                     <div className="h-16 w-16 rounded-full border-2 border-zinc-800" />
                     <div className="absolute left-0 top-0 h-16 w-16 animate-spin rounded-full border-2 border-cinte-green border-t-transparent" />
@@ -190,7 +201,7 @@ export default function HistoryCandidates({ executions, metrics, loading }) {
     }
 
     return (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5 font-body">
 
             <div className="surface-panel p-5">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto_auto]">
@@ -231,7 +242,7 @@ export default function HistoryCandidates({ executions, metrics, loading }) {
                         </div>
                     ) : (
                         <div className="surface-panel overflow-hidden">
-                            <div className="grid grid-cols-[2.2fr_1fr_1fr_1.5fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-[rgba(159,179,200,0.95)]">
+                            <div className={`grid grid-cols-[2.2fr_1fr_1fr_1.5fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-bold uppercase tracking-wide ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
                                 <span>Empleado</span>
                                 <span>Tipo</span>
                                 <span>Incorporacion/cese</span>
@@ -259,11 +270,11 @@ export default function HistoryCandidates({ executions, metrics, loading }) {
                                             <stop offset="100%" stopColor="#4F8831" stopOpacity={0.05} />
                                         </linearGradient>
                                     </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(109, 129, 155, 0.2)" />
-                                    <XAxis dataKey="month" stroke="rgba(159,179,200,0.95)" />
-                                    <YAxis stroke="rgba(159,179,200,0.95)" />
+                                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
+                                    <XAxis dataKey="month" stroke={chartTick} />
+                                    <YAxis stroke={chartTick} />
                                     <Tooltip
-                                        contentStyle={RECHARTS_TOOLTIP_CONTENT_STYLE}
+                                        contentStyle={chartTooltip}
                                     />
                                     <Area type="monotone" dataKey="firmas" stroke="#4F8831" fill="url(#growthFill)" strokeWidth={2} />
                                 </AreaChart>
@@ -276,20 +287,20 @@ export default function HistoryCandidates({ executions, metrics, loading }) {
                         <div className="h-[220px]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={descriptivoCinteBars} layout="vertical">
-                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(109, 129, 155, 0.2)" />
-                                    <XAxis type="number" stroke="rgba(159,179,200,0.95)" />
+                                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
+                                    <XAxis type="number" stroke={chartTick} />
                                     <YAxis
                                         type="category"
                                         dataKey="tipo"
                                         width={220}
-                                        stroke="rgba(159,179,200,0.95)"
+                                        stroke={chartTick}
                                         interval={0}
                                         ticks={descriptivoCinteBars.map((d) => d.tipo)}
-                                        tick={{ fontSize: 12 }}
+                                        tick={{ fontSize: 12, fill: chartTick }}
                                         tickFormatter={(v) => String(v).length > 24 ? `${String(v).slice(0, 24)}…` : String(v)}
                                     />
                                     <Tooltip
-                                        contentStyle={RECHARTS_TOOLTIP_CONTENT_STYLE}
+                                        contentStyle={chartTooltip}
                                     />
                                     <Bar dataKey="firmas" fill="#08bdc6" radius={[8, 8, 0, 0]} />
                                 </BarChart>

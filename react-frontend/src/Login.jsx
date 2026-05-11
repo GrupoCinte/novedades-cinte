@@ -3,6 +3,7 @@ import { Lock, User, Eye, EyeOff } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { buildCsrfHeaders, cognitoCompleteNewPassword, cognitoSignIn } from "./cognitoAuth";
 import ROLE_PRIORITY from "./constants/rolePriority.json";
+import { useAuthSurface } from "./moduleTheme.js";
 
 /** Intenta guardar cognito_sub en users para rol gp (no bloquea el login). */
 function tryGpVincularCognitoSelf(user) {
@@ -15,6 +16,7 @@ function tryGpVincularCognitoSelf(user) {
 }
 
 export default function Login({ setAuth }) {
+  const au = useAuthSurface();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -110,33 +112,29 @@ export default function Login({ setAuth }) {
 
   return (
     <div
-      className="relative flex min-h-0 w-full flex-1 overflow-y-auto"
+      className="relative flex min-h-0 w-full flex-1 overflow-y-auto font-body"
       style={{
-        backgroundImage:
-          "linear-gradient(135deg, rgba(4,20,30,0.65) 0%, rgba(0,77,135,0.45) 100%), url('/img/bg-login-cinte.png')",
+        backgroundImage: au.loginGradient,
         backgroundSize: "cover",
         backgroundPosition: "center",
         backgroundRepeat: "no-repeat",
         backgroundAttachment: "fixed",
       }}
     >
-      <div
-        className="pointer-events-none absolute inset-0 bg-[#04141E]/25 backdrop-blur-[2px]"
-        aria-hidden
-      />
+      <div className={au.loginScrim} aria-hidden />
       <div className="relative z-10 flex min-h-full min-w-0 flex-1 items-center justify-center px-4 py-4 animate-in fade-in zoom-in duration-300 md:py-6">
-        <div className="relative max-h-[min(100dvh-2rem,calc(100vh-2rem))] w-full max-w-md overflow-hidden overflow-y-auto rounded-2xl border border-[#65BCF7]/50 bg-[#04141E]/22 p-8 shadow-[0_0_32px_rgba(101,188,247,0.28),0_20px_50px_rgba(0,0,0,0.5)] ring-1 ring-inset ring-[#65BCF7]/25 backdrop-blur-2xl backdrop-saturate-150 md:p-12">
+        <div className={au.loginCard}>
           <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-[#004D87] to-[#65BCF7] opacity-90" />
 
           <div className="mb-8 text-center">
             <div className="mx-auto mb-4 flex justify-center">
               <img
-                src="/assets/logo-cinte-header.png"
+                src={au.isLight ? "/assets/logo-cinte-header-light.png" : "/assets/logo-cinte-header.png"}
                 alt="CINTE"
                 className="h-14 w-auto drop-shadow-md md:h-16"
               />
             </div>
-            <h1 className="font-heading text-xl font-bold uppercase leading-tight tracking-wide text-white md:text-2xl">
+            <h1 className={`font-heading text-xl font-bold uppercase leading-tight tracking-wide md:text-2xl ${au.isLight ? "text-slate-900" : "text-white"}`}>
                Portal de gestión de novedades
             </h1>
           </div>
@@ -146,12 +144,12 @@ export default function Login({ setAuth }) {
             className="flex flex-col gap-5 font-body"
           >
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-bold text-[#9fb3c8] uppercase tracking-wider font-body">
+              <label className={au.authLabel}>
                 Usuario (correo)
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User size={18} className="text-[#4a6f8f]" />
+                  <User size={18} className={au.userIcon} />
                 </div>
                 <input
                   type="text"
@@ -159,19 +157,19 @@ export default function Login({ setAuth }) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="usuario@empresa.com"
-                  className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 pl-10 rounded-xl focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
+                  className={`${au.authInput} pl-10`}
                 />
               </div>
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-bold text-[#9fb3c8] uppercase tracking-wider font-body">
+              <label className={au.authLabel}>
                 Ingresar como rol
               </label>
               <select
                 value={roleRequested}
                 onChange={(e) => setRoleRequested(e.target.value)}
-                className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-xl focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all"
+                className={au.authInput}
               >
                 <option value="">Mi rol asignado</option>
                 {ROLE_PRIORITY.map((role) => (
@@ -183,12 +181,12 @@ export default function Login({ setAuth }) {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-xs font-bold text-[#9fb3c8] uppercase tracking-wider font-body">
+              <label className={au.authLabel}>
                 Contraseña
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock size={18} className="text-[#4a6f8f]" />
+                  <Lock size={18} className={au.userIcon} />
                 </div>
                 <input
                   type={showPassword ? "text" : "password"}
@@ -196,12 +194,12 @@ export default function Login({ setAuth }) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 pl-10 pr-10 rounded-xl focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
+                  className={`${au.authInput} pl-10 pr-10`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((prev) => !prev)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-[#9fb3c8] hover:text-white"
+                  className={`absolute inset-y-0 right-0 pr-3 flex items-center ${au.eyeBtn}`}
                   aria-label={
                     showPassword ? "Ocultar contraseña" : "Mostrar contraseña"
                   }
@@ -212,30 +210,56 @@ export default function Login({ setAuth }) {
             </div>
 
             {error && (
-              <div className="bg-[#ff6b6b]/10 border border-[#ff6b6b]/30 text-[#ff6b6b] text-sm p-3 rounded-lg text-center animate-in mb-2 mt-2 font-medium">
+              <div
+                className={
+                  au.isLight
+                    ? "mb-2 mt-2 animate-in rounded-lg border border-rose-200 bg-rose-50 p-3 text-center text-sm font-medium text-rose-800"
+                    : "mb-2 mt-2 animate-in rounded-lg border border-[#ff6b6b]/30 bg-[#ff6b6b]/10 p-3 text-center text-sm font-medium text-[#ff6b6b]"
+                }
+              >
                 {error}
               </div>
             )}
 
             {challengeSession && (
-              <div className="mt-2 p-4 rounded-xl border border-[#1a3a56] bg-[#0b1e30]/60 flex flex-col gap-3">
-                <div className="text-sm text-[#9fb3c8] font-semibold font-subtitle">
+              <div className={au.challengePanel}>
+                <div className={au.challengeHeading}>
                   Primer acceso: define nueva contraseña
                 </div>
-                <input
-                  type={showNewPassword ? "text" : "password"}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Nueva contraseña"
-                  className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-xl focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
-                />
-                <input
-                  type={showNewPassword ? "text" : "password"}
-                  value={confirmNewPassword}
-                  onChange={(e) => setConfirmNewPassword(e.target.value)}
-                  placeholder="Confirmar nueva contraseña"
-                  className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-xl focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
-                />
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Nueva contraseña"
+                    className={`${au.authInput} pr-10`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    className={`absolute inset-y-0 right-0 pr-3 flex items-center ${au.eyeBtn}`}
+                    aria-label={showNewPassword ? "Ocultar nueva contraseña" : "Mostrar nueva contraseña"}
+                  >
+                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? "text" : "password"}
+                    value={confirmNewPassword}
+                    onChange={(e) => setConfirmNewPassword(e.target.value)}
+                    placeholder="Confirmar nueva contraseña"
+                    className={`${au.authInput} pr-10`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword((v) => !v)}
+                    className={`absolute inset-y-0 right-0 pr-3 flex items-center ${au.eyeBtn}`}
+                    aria-label={showNewPassword ? "Ocultar confirmación" : "Mostrar confirmación"}
+                  >
+                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={phoneNumber}
@@ -252,17 +276,8 @@ export default function Login({ setAuth }) {
                     setPhoneNumber(v);
                   }}
                   placeholder="Teléfono (ej: +573001112233)"
-                  className="w-full bg-[#0b1e30]/80 border border-[#1a3a56] text-white p-3 rounded-xl focus:outline-none focus:border-[#65BCF7] focus:ring-2 focus:ring-[#65BCF7]/20 transition-all placeholder-[#3c5d7a]"
+                  className={au.authInput}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPassword((v) => !v)}
-                  className="text-xs text-[#9fb3c8] hover:text-white text-left"
-                >
-                  {showNewPassword
-                    ? "Ocultar nueva contraseña"
-                    : "Mostrar nueva contraseña"}
-                </button>
                 <button
                   type="button"
                   disabled={loading}
@@ -286,7 +301,7 @@ export default function Login({ setAuth }) {
             <div className="mt-1 text-right">
               <Link
                 to="/admin/forgot"
-                className="text-sm text-[#65BCF7] hover:underline font-body"
+                className={au.linkAccent}
               >
                 ¿Olvidaste tu contraseña?
               </Link>

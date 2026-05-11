@@ -2,6 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const { toUtcMsFromDateAndTime } = require('../src/novedadHeTime');
 const {
     buildHoraExtraExportSlices,
     compensacionDominicalExcelEtiqueta,
@@ -61,5 +62,32 @@ describe('novedadHeExcelExport', () => {
             horasRecargoDomingo: 0
         };
         assert.equal(buildHoraExtraExportSlices(it), null);
+    });
+
+    it('con dep: HE diurna/nocturna en domingo Bogotá llevan «dominical» en etiqueta Excel', () => {
+        const dep = { toUtcMsFromDateAndTime };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            fechaInicio: '2026-03-01',
+            fechaFin: '2026-03-01',
+            horaInicio: '09:00',
+            horaFin: '22:00',
+            horasDiurnas: 2.67,
+            horasNocturnas: 3,
+            horasRecargoDomingoDiurnas: 7.33,
+            horasRecargoDomingoNocturnas: 0,
+            horasRecargoDomingo: 7.33,
+            heDomingoObservacion: ''
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        const di = slices.find((s) => s.sliceKey === 'diurna');
+        const no = slices.find((s) => s.sliceKey === 'nocturna');
+        const rd = slices.find((s) => s.sliceKey === 'recargo_diurno');
+        assert.ok(di);
+        assert.ok(no);
+        assert.ok(rd);
+        assert.match(di.tipoLabel, /dominical/i);
+        assert.match(no.tipoLabel, /dominical/i);
+        assert.match(rd.tipoLabel, /Recargo dominical diurno/);
     });
 });

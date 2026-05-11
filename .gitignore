@@ -1,4 +1,4 @@
-# Cursor IDE (reglas y estado local del editor)
+# Reglas y estado local del editor (no versionar)
 .cursor/
 
 # Dependencias
@@ -43,7 +43,6 @@ data/
 *.xlsx
 *.xls
 *.csv
-!scripts/vacaciones-import-centro-a-cliente.csv
 *.tsv
 *.parquet
 consultores-activos-import-report.csv
@@ -56,8 +55,9 @@ seed_colaboradores*.sql
 !README.md
 !**/README.md
 
-# Salidas locales de scripts (no versionar)
-scripts/out/
+# Operaciones locales (no versionar; sync y utilidades se ejecutan desde entorno de desarrollo / repo ops)
+scripts/
+tooling/
 
 # Scripts y migraciones locales
 migrations/

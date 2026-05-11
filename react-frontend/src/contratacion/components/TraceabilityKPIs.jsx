@@ -27,7 +27,7 @@ function KpiGlassCard({ label, value, sparkline, suffix = '', tone, warn }) {
   return (
     <div className={`surface-panel p-4 ${warn ? 'ring-1 ring-[rgba(255,107,107,0.45)]' : ''}`}>
       <div className={`pointer-events-none -mb-2 -mt-4 h-10 rounded-xl bg-gradient-to-r ${tone} opacity-70 blur-xl`} />
-      <p className="text-[11px] uppercase tracking-wider text-[rgba(159,179,200,0.95)]">{label}</p>
+      <p className="text-[11px] uppercase tracking-wider text-[var(--muted)]">{label}</p>
       <p className="kpi-value mt-1 text-2xl">
         {value}
         {suffix}
@@ -63,7 +63,7 @@ export default function TraceabilityKPIs({ metrics, variant = 'trazabilidad' }) 
       : 'grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3';
 
   return (
-    <section className={gridClass}>
+    <section className={`${gridClass} font-body`}>
       {config.map((kpi) => {
         const raw = metrics[kpi.key] ?? 0;
         const isSla = kpi.key === 'slaAlerts';

@@ -1,6 +1,8 @@
 const { calcularCotizacion, generarDashboardData } = require('./cotizadorEngine');
 const { buildCotizacionPdfBuffer } = require('./cotizadorPdf');
-const { resolveCargosLista } = require('./resolveCargosLista');
+const { formatDateTimeBogota } = require('../utils/formatDateTimeBogota');
+const { resolveCargosLista, pickCargosPorClienteRaw } = require('./resolveCargosLista');
+const { normalizeCatalogValue } = require('../utils');
 
 function registerCotizadorRoutes(deps) {
     const {
@@ -11,10 +13,49 @@ function registerCotizadorRoutes(deps) {
         pdfLimiter,
         catalogLimiter,
         cotizadorStore,
-        getClientesList
+        getClientesList,
+        getClientesNitMapFromLideres
     } = deps;
 
     const guard = [verificarToken, allowAnyPanel(['dashboard', 'gestion', 'comercial', 'admin'])];
+
+    /**
+     * Lista de clientes para el cotizador: nombres desde `clientes_lideres` + claves de `cargos_por_cliente`;
+     * NIT solo desde columna `clientes_lideres.nit` (no desde JSON del catálogo).
+     */
+    async function buildCotizadorClientesItems() {
+        const catalogos = await cotizadorStore.getCatalogos();
+        const nitByCliente =
+            typeof getClientesNitMapFromLideres === 'function' ? await getClientesNitMapFromLideres() : new Map();
+        const byKey = new Map();
+        const add = (nombreRaw) => {
+            const nombre = String(nombreRaw || '').trim();
+            if (!nombre) return;
+            const k = nombre.toLowerCase();
+            const canon = normalizeCatalogValue(nombre);
+            const nit = canon ? nitByCliente.get(canon) || '' : '';
+            if (!byKey.has(k)) {
+                byKey.set(k, { nombre, nit });
+            } else if (nit && !byKey.get(k).nit) {
+                byKey.set(k, { nombre: byKey.get(k).nombre, nit });
+            }
+        };
+        if (typeof getClientesList === 'function') {
+            const names = await getClientesList();
+            for (const n of Array.isArray(names) ? names : []) add(n);
+        }
+        const cpc = pickCargosPorClienteRaw(catalogos);
+        if (cpc && typeof cpc === 'object' && !Array.isArray(cpc)) {
+            for (const key of Object.keys(cpc)) add(key);
+        } else if (Array.isArray(cpc)) {
+            for (const entry of cpc) {
+                add(entry?.cliente || entry?.CLIENTE || entry?.nombre || entry?.name || entry?.client);
+            }
+        }
+        return [...byKey.values()].sort((a, b) =>
+            a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })
+        );
+    }
 
     app.get('/api/cotizador/catalogos', ...guard, catalogLimiter, async (req, res) => {
         try {
@@ -26,17 +67,13 @@ function registerCotizadorRoutes(deps) {
         }
     });
 
-    /** Clientes = mismos que el formulario de novedades (`clientes_lideres`), no solo JSON del cotizador. */
+    /** Clientes = `clientes_lideres` + claves de `cargos_por_cliente`; NIT en columnas `clientes_lideres.nit`. */
     app.get('/api/cotizador/clientes-formulario', ...guard, catalogLimiter, async (req, res) => {
         try {
             if (typeof getClientesList !== 'function') {
                 return res.status(500).json({ ok: false, error: 'Catálogo de clientes no disponible' });
             }
-            const names = await getClientesList();
-            const items = (Array.isArray(names) ? names : []).map((n) => ({
-                nombre: String(n || '').trim(),
-                nit: ''
-            })).filter((x) => x.nombre);
+            const items = await buildCotizadorClientesItems();
             return res.json({ ok: true, items });
         } catch (error) {
             console.error('Error cotizador/clientes-formulario:', error);
@@ -62,8 +99,14 @@ function registerCotizadorRoutes(deps) {
                     error: 'Sin tarifas configuradas para el cliente seleccionado.'
                 });
             }
+            const generatedAt = new Date();
             const result = calcularCotizacion(payload, { ...catalogos, cargos });
-            return res.json({ ok: true, ...result });
+            return res.json({
+                ok: true,
+                ...result,
+                fecha_generacion_iso: generatedAt.toISOString(),
+                fecha: formatDateTimeBogota(generatedAt)
+            });
         } catch (error) {
             const status = Number(error?.status || 500);
             return res.status(status).json({ ok: false, error: error?.message || 'Error al calcular cotización' });
@@ -131,7 +174,9 @@ function registerCotizadorRoutes(deps) {
                 meses: row.meses,
                 moneda: row.moneda,
                 codigo: row.codigo || '',
-                resultados: row.resultados
+                resultados: row.resultados,
+                fecha: row.fecha,
+                fecha_generacion_iso: row.fecha_generacion_iso
             };
             const pdfBuffer = await buildCotizacionPdfBuffer(payload);
             const baseName = row.codigo ? `${String(row.codigo).replace(/[^\w\-]+/g, '_')}.pdf` : `cotizacion_${id}.pdf`;

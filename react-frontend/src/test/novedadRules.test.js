@@ -7,15 +7,19 @@
 import { describe, it, expect } from 'vitest';
 import {
   NOVEDAD_RULES,
+  NOVEDAD_RULES_LEGACY,
   NOVEDAD_TYPES,
   getNovedadRule,
+  getDiasEfectivosNovedad,
+  countBusinessDaysInclusive,
+  countCalendarDaysInclusive,
 } from '../novedadRules.js';
 
 // ─── Constantes de dominio ────────────────────────────────────────────────────
 // Roles actuales según src/rbac.js → ROLE_PRIORITY (cac reemplaza admin_ops/sst; comercial añadido)
 const ALL_ROLES = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial'];
 
-// Catálogo vigente: 15 tipos (Disponibilidad reemplaza Apoyo/Apoyo Standby).
+// Catálogo vigente en formulario: 12 tipos (vacaciones tiempo/dinero y Bonos solo histórico en NOVEDAD_RULES_LEGACY).
 const ALL_NOVEDAD_TYPES = [
   'Incapacidad',
   'Calamidad domestica',
@@ -26,18 +30,15 @@ const ALL_NOVEDAD_TYPES = [
   'Licencia remunerada',
   'Licencia no remunerada',
   'Permiso no remunerado',
-  'Vacaciones en tiempo',
-  'Vacaciones en dinero',
   'Permiso compensatorio en tiempo',
   'Disponibilidad',
-  'Bonos',
   'Hora Extra',
 ];
 
 // ─── Estructura del catálogo ──────────────────────────────────────────────────
 describe('NOVEDAD_RULES – estructura del catálogo', () => {
-  it('debe exportar exactamente los 15 tipos de novedad definidos', () => {
-    expect(NOVEDAD_TYPES).toHaveLength(15);
+  it('debe exportar exactamente los 12 tipos de novedad activos en el catálogo', () => {
+    expect(NOVEDAD_TYPES).toHaveLength(12);
     ALL_NOVEDAD_TYPES.forEach((tipo) => {
       expect(NOVEDAD_TYPES).toContain(tipo);
     });
@@ -95,12 +96,21 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
       expect(rule.approvers).toContain('admin_ch');
       expect(rule.approvers).toContain('team_ch');
     });
-    it('no debe requerir conteo de días ni rango de horas', () => {
-      expect(rule.requiresDayCount).toBe(false);
+    it('debe calcular días de calendario automáticamente con rango de fechas (sin rango de horas)', () => {
+      expect(rule.requiresDayCount).toBe(true);
+      expect(rule.autoCalendarDays).toBe(true);
+      expect(rule.autoBusinessDays).toBeFalsy();
       expect(rule.requiresTimeRange).toBe(false);
     });
     it('cac debe poder visualizar Incapacidad (reemplaza a sst)', () => {
       expect(rule.viewers).toContain('cac');
+    });
+    it('debe contar sábado–domingo como 2 días calendario (no 0 hábiles)', () => {
+      const fi = '2026-01-10';
+      const ff = '2026-01-11';
+      expect(countBusinessDaysInclusive(fi, ff)).toBe(0);
+      expect(countCalendarDaysInclusive(fi, ff)).toBe(2);
+      expect(getDiasEfectivosNovedad('Incapacidad', '', fi, ff)).toBe(2);
     });
   });
 
@@ -111,8 +121,9 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
       expect(rule.requiredDocuments).toContain('Soporte de calamidad');
       expect(rule.requiredDocuments).toContain('Formato de permiso');
     });
-    it('debe requerir conteo de días', () => {
+    it('debe requerir conteo de días con cálculo automático hábil', () => {
       expect(rule.requiresDayCount).toBe(true);
+      expect(rule.autoBusinessDays).toBe(true);
     });
     it('admin_ch y team_ch deben ser aprobadores', () => {
       expect(rule.approvers).toContain('admin_ch');
@@ -164,9 +175,9 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
     });
   });
 
-  // Vacaciones en tiempo
+  // Vacaciones en tiempo (solo histórico; no en selector del formulario)
   describe('Vacaciones en tiempo', () => {
-    const rule = NOVEDAD_RULES['Vacaciones en tiempo'];
+    const rule = NOVEDAD_RULES_LEGACY['Vacaciones en tiempo'];
     it('debe requerir conteo de días', () => {
       expect(rule.requiresDayCount).toBe(true);
     });
@@ -177,9 +188,9 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
     });
   });
 
-  // Vacaciones en dinero
+  // Vacaciones en dinero (solo histórico)
   describe('Vacaciones en dinero', () => {
-    const rule = NOVEDAD_RULES['Vacaciones en dinero'];
+    const rule = NOVEDAD_RULES_LEGACY['Vacaciones en dinero'];
     it('requiere carta y solicitud formal en PDF', () => {
       expect(rule.requiredDocuments).toEqual(['Carta con firma manuscrita (solicitud formal en PDF)']);
     });
@@ -194,8 +205,9 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
     it('no debe requerir documentos', () => {
       expect(rule.requiredDocuments).toHaveLength(0);
     });
-    it('debe requerir conteo de días', () => {
+    it('debe requerir conteo de días con cálculo automático hábil', () => {
       expect(rule.requiresDayCount).toBe(true);
+      expect(rule.autoBusinessDays).toBe(true);
     });
     it('gp y cac deben ser aprobadores', () => {
       expect(rule.approvers).toContain('gp');
@@ -233,6 +245,12 @@ describe('getNovedadRule()', () => {
     expect(() => getNovedadRule(null)).not.toThrow();
     const rule = getNovedadRule(null);
     expect(rule.viewers).toContain('super_admin');
+  });
+
+  it('resuelve tipos retirados del selector (legacy) con las mismas reglas de negocio', () => {
+    const bonos = getNovedadRule('Bonos');
+    expect(bonos.requiresMonetaryAmount).toBe(true);
+    expect(getNovedadRule('vacaciones_tiempo').requiresDayCount).toBe(true);
   });
 
   it('resuelve correctamente variantes de mayúsculas via alias (resolveCanonicalNovedadTipo)', () => {

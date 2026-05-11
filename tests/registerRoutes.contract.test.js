@@ -39,6 +39,7 @@ function buildApp() {
     allowPanel: () => (_req, _res, next) => next(),
     applyScope: (_req, _res, next) => next(),
     getScopedNovedades: async () => [],
+    listScopedDistinctClientes: async () => [],
     getHoraExtraAlerts: async () => ({}),
     toClientNovedad: (v) => v,
     allowAnyPanel: () => (_req, _res, next) => next(),

@@ -8,7 +8,8 @@ const {
   canRoleApproveType,
   getNovedadRuleByType,
   NOVELTY_RULES,
-  getAreaFromRole
+  getAreaFromRole,
+  isNovedadTipoRetiradoDelFormulario
 } = require('../src/rbac');
 
 const EXPECTED_ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial'];
@@ -26,9 +27,19 @@ describe('RBAC - prioridad de roles', () => {
   });
 });
 
+describe('RBAC - tipos retirados del formulario público', () => {
+  it('marca vacaciones en tiempo/dinero y bonos como no admitidos en solicitud pública', () => {
+    assert.equal(isNovedadTipoRetiradoDelFormulario('Vacaciones en tiempo'), true);
+    assert.equal(isNovedadTipoRetiradoDelFormulario('Vacaciones en dinero'), true);
+    assert.equal(isNovedadTipoRetiradoDelFormulario('Bonos'), true);
+    assert.equal(isNovedadTipoRetiradoDelFormulario('Incapacidad'), false);
+    assert.equal(isNovedadTipoRetiradoDelFormulario('Disponibilidad'), false);
+  });
+});
+
 describe('RBAC - permisos por tipo', () => {
   it('super_admin puede ver/aprobar cualquier tipo', () => {
-    const tipos = ['Incapacidad', 'Permiso remunerado', 'Vacaciones en dinero', 'Permiso compensatorio en tiempo'];
+    const tipos = ['Incapacidad', 'Permiso remunerado', 'Licencia remunerada', 'Permiso compensatorio en tiempo'];
     for (const tipo of tipos) {
       assert.equal(canRoleViewType('super_admin', tipo), true);
       assert.equal(canRoleApproveType('super_admin', tipo), true);
@@ -42,7 +53,7 @@ describe('RBAC - permisos por tipo', () => {
   it('gp aprueba tipos asignados y no otros', () => {
     assert.equal(canRoleApproveType('gp', 'Permiso no remunerado'), true);
     assert.equal(canRoleApproveType('gp', 'Permiso compensatorio en tiempo'), true);
-    assert.equal(canRoleApproveType('gp', 'Vacaciones en dinero'), false);
+    assert.equal(canRoleApproveType('gp', 'Incapacidad'), false);
   });
 
   it('reglas de novedad existen para tipos críticos', () => {

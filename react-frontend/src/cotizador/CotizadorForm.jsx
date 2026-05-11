@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatSalarioMoneda, parseSalarioLoose } from './salarioFormat';
+import { mergeCotizadorClienteRows } from './cotizadorClientesMerge.js';
+import { useModuleTheme } from '../moduleTheme.js';
 
 export default function CotizadorForm({
     catalogos,
@@ -10,6 +12,19 @@ export default function CotizadorForm({
     onCotizar,
     loading
 }) {
+    const {
+        cardPanel,
+        field,
+        fieldManual,
+        labelMuted,
+        insetWell,
+        ghostBtn,
+        panelTitle,
+        infoCallout,
+        infoCalloutAccent,
+        formErrorBox,
+        dangerSoftBtn
+    } = useModuleTheme();
     const cargos = Array.isArray(cargosResueltos) ? cargosResueltos : [];
     const prevClienteRef = useRef(form.cliente);
     const [salarioFocusedIdx, setSalarioFocusedIdx] = useState(null);
@@ -39,10 +54,10 @@ export default function CotizadorForm({
         });
     }, [cargos.length, setForm]);
 
-    const desdeFormulario = Array.isArray(clientesLista) && clientesLista.length > 0;
-    const clientes = desdeFormulario
-        ? clientesLista
-        : (Array.isArray(catalogos?.clientes) ? catalogos.clientes : []);
+    const clientes = useMemo(
+        () => mergeCotizadorClienteRows(clientesLista, catalogos || {}),
+        [clientesLista, catalogos]
+    );
     const comerciales = Array.isArray(catalogos?.comerciales) ? catalogos.comerciales : [];
     const monedas = catalogos?.parametros?.monedas || {};
     const tasas = catalogos?.parametros?.tasas || {};
@@ -119,13 +134,13 @@ export default function CotizadorForm({
     const clientNit = clientes.find((c) => c.nombre === form.cliente)?.nit || '';
 
     return (
-        <div className="bg-[#0b1e30] border border-[#1a3a56] rounded-xl p-4 font-body">
-            <h3 className="text-white font-heading font-bold mb-4">Cotizador</h3>
+        <div className={cardPanel}>
+            <h3 className={`${panelTitle} mb-4`}>Cotizador</h3>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="md:col-span-2">
-                    <label className="text-xs text-slate-400">Cliente</label>
+                    <label className={`text-xs ${labelMuted}`}>Cliente</label>
                     <select
-                        className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-slate-200"
+                        className={`w-full ${field}`}
                         value={form.cliente}
                         onChange={(e) => setForm((p) => ({ ...p, cliente: e.target.value }))}
                     >
@@ -134,13 +149,17 @@ export default function CotizadorForm({
                     </select>
                 </div>
                 <div>
-                    <label className="text-xs text-slate-400">NIT</label>
-                    <input value={clientNit} readOnly className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-slate-300" />
+                    <label className={`text-xs ${labelMuted}`}>NIT</label>
+                    <input
+                        value={clientNit}
+                        readOnly
+                        className={`w-full ${field} cursor-default tabular-nums opacity-90`}
+                    />
                 </div>
                 <div>
-                    <label className="text-xs text-slate-400">Comercial</label>
+                    <label className={`text-xs ${labelMuted}`}>Comercial</label>
                     <select
-                        className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-slate-200"
+                        className={`w-full ${field}`}
                         value={form.comercial}
                         onChange={(e) => setForm((p) => ({ ...p, comercial: e.target.value }))}
                     >
@@ -149,34 +168,34 @@ export default function CotizadorForm({
                     </select>
                 </div>
                 <div>
-                    <label className="text-xs text-slate-400">Plazo</label>
-                    <select className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-slate-200" value={form.plazo} onChange={(e) => setForm((p) => ({ ...p, plazo: e.target.value }))}>
+                    <label className={`text-xs ${labelMuted}`}>Plazo</label>
+                    <select className={`w-full ${field}`} value={form.plazo} onChange={(e) => setForm((p) => ({ ...p, plazo: e.target.value }))}>
                         <option value="30">30</option>
                         <option value="45">45</option>
                         <option value="60">60</option>
                     </select>
                 </div>
                 <div>
-                    <label className="text-xs text-slate-400">Margen (%) min {Math.round(margenMin * 100)}</label>
+                    <label className={`text-xs ${labelMuted}`}>Margen (%) min {Math.round(margenMin * 100)}</label>
                     <input
                         type="number"
                         min={Math.round(margenMin * 100)}
-                        className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-slate-200"
+                        className={`w-full ${field}`}
                         value={form.margenPct}
                         onChange={(e) => setForm((p) => ({ ...p, margenPct: e.target.value }))}
                     />
                 </div>
                 <div>
-                    <label className="text-xs text-slate-400">Meses</label>
-                    <input type="number" min="1" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-slate-200" value={form.meses} onChange={(e) => setForm((p) => ({ ...p, meses: e.target.value }))} />
+                    <label className={`text-xs ${labelMuted}`}>Meses</label>
+                    <input type="number" min="1" className={`w-full ${field}`} value={form.meses} onChange={(e) => setForm((p) => ({ ...p, meses: e.target.value }))} />
                 </div>
                 <div>
-                    <label className="text-xs text-slate-400">Moneda</label>
-                    <select className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-slate-200" value={form.moneda} onChange={(e) => setForm((p) => ({ ...p, moneda: e.target.value }))}>
+                    <label className={`text-xs ${labelMuted}`}>Moneda</label>
+                    <select className={`w-full ${field}`} value={form.moneda} onChange={(e) => setForm((p) => ({ ...p, moneda: e.target.value }))}>
                         {Object.keys(monedas).map((m) => <option key={m} value={m}>{m}</option>)}
                     </select>
                 </div>
-                <div className="md:col-span-4 text-xs text-slate-400 flex gap-4">
+                <div className={`md:col-span-4 text-xs flex gap-4 ${labelMuted}`}>
                     <span>Tasa financiera: {(tasaFin * 100).toFixed(2)}%</span>
                     <span>Tasa conversión: {form.moneda === 'COP' ? 'N/A' : tasaConv.toLocaleString('es-CO')}</span>
                 </div>
@@ -184,14 +203,15 @@ export default function CotizadorForm({
 
             <div className="mt-4 space-y-3">
                 {!form.cliente && (
-                    <p className="text-xs text-slate-400 border border-slate-600/50 rounded p-2 bg-slate-900/50">
+                    <p className={`text-xs ${labelMuted} p-2 ${insetWell}`}>
                         Seleccione un cliente para cargar las tarifas disponibles.
                     </p>
                 )}
                 {form.cliente && cargos.length === 0 && (
-                    <p className="text-xs text-amber-200/95 border border-amber-500/25 rounded p-2 bg-amber-950/20">
-                        Sin tarifas en catálogo para este cliente. Puede usar modo MANUAL para escribir cargo y salario, o comunique al equipo de sistemas si faltan datos importados.
-                    </p>
+                    <div className={infoCallout} role="status">
+                        Sin tarifas en catálogo para este cliente. Puede usar modo{' '}
+                        <strong className={infoCalloutAccent}>MANUAL</strong> para escribir cargo y salario.
+                    </div>
                 )}
                 {form.perfiles.map((p, idx) => {
                     const esManual = String(p.modo || '').toUpperCase() === 'MANUAL';
@@ -199,12 +219,12 @@ export default function CotizadorForm({
                     const selected = cargos.length > 0 ? (cargos[ix] || {}) : {};
                     const salarioCatalogo = Number(selected.salario ?? 0);
                     return (
-                        <div key={`perfil-${idx}`} className="border border-slate-700 rounded p-3 bg-slate-900/40">
+                        <div key={`perfil-${idx}`} className={`${insetWell} p-3`}>
                             <div className="grid grid-cols-1 md:grid-cols-6 gap-2 md:items-end">
                                 <div>
-                                    <label className="text-xs text-slate-400">Modo</label>
+                                    <label className={`text-xs ${labelMuted}`}>Modo</label>
                                     <select
-                                        className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-slate-200"
+                                        className={`w-full ${field}`}
                                         value={p.modo}
                                         onChange={(e) => onModoChange(idx, e.target.value, p)}
                                     >
@@ -213,18 +233,18 @@ export default function CotizadorForm({
                                     </select>
                                 </div>
                                 <div className="md:col-span-2">
-                                    <label className="text-xs text-slate-400">Cargo</label>
+                                    <label className={`text-xs ${labelMuted}`}>Cargo</label>
                                     {esManual ? (
                                         <input
                                             type="text"
-                                            className="w-full bg-slate-800 border border-amber-500/40 rounded p-2 text-slate-200 placeholder:text-slate-500"
+                                            className={fieldManual}
                                             placeholder="Escriba el nombre del cargo"
                                             value={p.cargo_manual || ''}
                                             onChange={(e) => updatePerfil(idx, { cargo_manual: e.target.value })}
                                         />
                                     ) : (
                                         <select
-                                            className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-slate-200 disabled:opacity-60"
+                                            className={`w-full ${field} disabled:opacity-60`}
                                             disabled={cargos.length === 0}
                                             value={cargos.length === 0 ? '' : String(ix)}
                                             onChange={(e) => updatePerfil(idx, { indice: Number(e.target.value) })}
@@ -232,25 +252,33 @@ export default function CotizadorForm({
                                             {cargos.length === 0 ? (
                                                 <option value="">— Sin opciones —</option>
                                             ) : (
-                                                cargos.map((c, i) => (
-                                                    <option key={`${c.cargo}-${i}`} value={String(i)}>{c.cargo}</option>
-                                                ))
+                                                cargos.map((c, i) => {
+                                                    const ro = String(c.rol_original_cinte || '').trim();
+                                                    const cg = String(c.cargo || '').trim();
+                                                    const label =
+                                                        ro && ro !== cg ? `${ro} — ${cg}` : cg || ro || `Cargo ${i + 1}`;
+                                                    return (
+                                                        <option key={`${c.cargo}-${i}`} value={String(i)}>
+                                                            {label}
+                                                        </option>
+                                                    );
+                                                })
                                             )}
                                         </select>
                                     )}
                                 </div>
                                 <div>
-                                    <label className="text-xs text-slate-400">Cantidad</label>
-                                    <input type="number" min="1" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-slate-200" value={p.cantidad} onChange={(e) => updatePerfil(idx, { cantidad: Number(e.target.value || 1) })} />
+                                    <label className={`text-xs ${labelMuted}`}>Cantidad</label>
+                                    <input type="number" min="1" className={`w-full ${field}`} value={p.cantidad} onChange={(e) => updatePerfil(idx, { cantidad: Number(e.target.value || 1) })} />
                                 </div>
                                 <div>
-                                    <label className="text-xs text-slate-400">Salario</label>
+                                    <label className={`text-xs ${labelMuted}`}>Salario</label>
                                     {esManual ? (
                                         <input
                                             type="text"
                                             inputMode="decimal"
                                             autoComplete="off"
-                                            className="w-full bg-slate-800 border border-amber-500/40 rounded p-2 text-slate-200 text-right tabular-nums tracking-tight"
+                                            className={`${fieldManual} text-right tabular-nums tracking-tight`}
                                             value={
                                                 salarioFocusedIdx === idx
                                                     ? (p.salario_manual ?? '')
@@ -268,7 +296,7 @@ export default function CotizadorForm({
                                         />
                                     ) : (
                                         <div
-                                            className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-slate-200 text-right tabular-nums tracking-tight min-h-[42px] flex items-center justify-end px-2"
+                                            className={`w-full ${field} flex items-center justify-end tabular-nums tracking-tight cursor-default`}
                                             title="Salario según catálogo del cliente"
                                         >
                                             {cargos.length ? formatSalarioMoneda(salarioCatalogo) : '—'}
@@ -276,20 +304,18 @@ export default function CotizadorForm({
                                     )}
                                 </div>
                                 <div className="flex items-end pb-0.5">
-                                    <button type="button" onClick={() => removePerfil(idx)} className="w-full bg-rose-600/20 border border-rose-500/40 text-rose-300 rounded p-2">Quitar</button>
+                                    <button type="button" onClick={() => removePerfil(idx)} className={dangerSoftBtn}>
+                                        Quitar
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     );
                 })}
-                <button type="button" onClick={addPerfil} className="px-3 py-2 rounded border border-slate-600 text-slate-200 hover:bg-slate-800">+ Agregar perfil</button>
+                <button type="button" onClick={addPerfil} className={ghostBtn}>+ Agregar perfil</button>
             </div>
 
-            {formError && (
-                <div className="mt-3 border border-rose-500/40 bg-rose-950/40 text-rose-100 rounded-lg px-3 py-2 text-sm">
-                    {formError}
-                </div>
-            )}
+            {formError && <div className={formErrorBox}>{formError}</div>}
 
             <div className="mt-4">
                 <button

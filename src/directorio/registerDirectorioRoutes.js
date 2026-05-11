@@ -89,6 +89,7 @@ function registerDirectorioRoutes(deps) {
         .object({
             cliente: z.string().min(1).max(500),
             lider: z.string().min(1).max(500),
+            nit: z.string().min(1).max(40),
             gp_user_id: z.string().uuid().optional().nullable(),
             gp_colaborador_cedula: z.string().min(5).max(20).optional().nullable()
         })
@@ -99,6 +100,14 @@ function registerDirectorioRoutes(deps) {
                     message: 'Usa gp_user_id o gp_colaborador_cedula, no ambos.'
                 });
             }
+            const nd = String(data.nit || '').replace(/\D/g, '');
+            if (!nd) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: 'NIT obligatorio (al menos un dígito)',
+                    path: ['nit']
+                });
+            }
         });
 
     const clienteLiderPatchSchema = z
@@ -107,13 +116,28 @@ function registerDirectorioRoutes(deps) {
             cliente: z.string().min(1).max(500).optional(),
             lider: z.string().min(1).max(500).optional(),
             gp_user_id: z.string().uuid().optional().nullable(),
-            gp_colaborador_cedula: z.string().min(5).max(20).optional().nullable()
+            gp_colaborador_cedula: z.string().min(5).max(20).optional().nullable(),
+            nit: z.string().max(40).optional()
         })
         .superRefine((data, ctx) => {
             if (data.gp_user_id && data.gp_colaborador_cedula) {
                 ctx.addIssue({
                     code: z.ZodIssueCode.custom,
                     message: 'Usa gp_user_id o gp_colaborador_cedula, no ambos.'
+                });
+            }
+            const touches =
+                data.cliente !== undefined ||
+                data.lider !== undefined ||
+                data.gp_user_id !== undefined ||
+                data.gp_colaborador_cedula !== undefined;
+            if (!touches) return;
+            const nd = data.nit !== undefined ? String(data.nit).replace(/\D/g, '') : '';
+            if (!nd) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: 'NIT obligatorio al actualizar cliente, líder o GP',
+                    path: ['nit']
                 });
             }
         });
@@ -220,7 +244,7 @@ function registerDirectorioRoutes(deps) {
             const parsed = clienteLiderCreateSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const { gpUserId, gpResolution } = await resolveGpForClienteLiderPayload(parsed.data);
-            const row = await insertClienteLider(parsed.data.cliente, parsed.data.lider, gpUserId);
+            const row = await insertClienteLider(parsed.data.cliente, parsed.data.lider, gpUserId, parsed.data.nit);
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user?.sub),
                 actorRole: normalizeRoleOrNull(req.user?.role),
@@ -230,6 +254,7 @@ function registerDirectorioRoutes(deps) {
                 metadata: {
                     cliente: row.cliente,
                     lider: row.lider,
+                    nit: row.nit,
                     gp_user_id: row.gp_user_id,
                     gp_colaborador_cedula: parsed.data.gp_colaborador_cedula || null,
                     gp_created_user: Boolean(gpResolution?.created_gp_user)
