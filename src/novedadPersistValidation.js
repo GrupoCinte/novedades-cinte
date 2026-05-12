@@ -130,6 +130,44 @@ function validateMergedNovedadForAdmin(merged, opts) {
         return { ok: false, error: 'Vacaciones en tiempo requiere fecha fin.' };
     }
 
+    // ── Validaciones específicas: Compensatorio por votación/jurado ──
+    if (tipoKey === 'compensatorio_votacion') {
+        const ymdVotacion = toYmd(merged.fecha_votacion);
+        if (!ymdVotacion) {
+            return { ok: false, error: 'La fecha de la jornada electoral es obligatoria.' };
+        }
+        const hoy = new Date().toISOString().slice(0, 10);
+        if (ymdVotacion > hoy) {
+            return { ok: false, error: 'La fecha de votación no puede ser una fecha futura.' };
+        }
+        // CA-02: plazo máximo 30 días calendario
+        const msVotacion = new Date(ymdVotacion + 'T12:00:00Z').getTime();
+        const msHoy = new Date(hoy + 'T12:00:00Z').getTime();
+        const diasDesdeVotacion = Math.floor((msHoy - msVotacion) / 86400000);
+        if (diasDesdeVotacion > 30) {
+            return { ok: false, error: 'Plazo vencido: el compensatorio debe solicitarse dentro de los 30 días calendario posteriores a la votación.' };
+        }
+        // Modalidad válida
+        const modalesPermitidas = ['solo_voto', 'solo_jurado', 'jurado_voto'];
+        const modalidad = String(merged.modalidad_votacion || '').trim();
+        if (!modalesPermitidas.includes(modalidad)) {
+            return { ok: false, error: 'Modalidad inválida. Use: solo_voto, solo_jurado o jurado_voto.' };
+        }
+        // CA-01: cantidad_dias debe coincidir con modalidad
+        const diasEsperados = { solo_voto: 0.5, solo_jurado: 1, jurado_voto: 1.5 };
+        if (Number(merged.cantidad_dias) !== diasEsperados[modalidad]) {
+            return { ok: false, error: `La cantidad de días no coincide con la modalidad seleccionada (esperado: ${diasEsperados[modalidad]}).` };
+        }
+        // CA-03: fecha de disfrute dentro del rango [fecha_votacion, fecha_votacion + 30 días]
+        if (ymdStart) {
+            const msDisfrute = new Date(ymdStart + 'T12:00:00Z').getTime();
+            const msVotacion30 = msVotacion + 30 * 86400000;
+            if (msDisfrute < msVotacion || msDisfrute > msVotacion30) {
+                return { ok: false, error: 'La fecha de disfrute debe estar dentro de los 30 días calendario siguientes a la votación.' };
+            }
+        }
+    }
+
     return { ok: true };
 }
 

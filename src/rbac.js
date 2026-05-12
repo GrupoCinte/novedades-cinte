@@ -98,6 +98,15 @@ const NOVELTY_RULES = {
         requiredMinSupports: 1,
         approvers: ['gp', 'cac'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
+    },
+    // EXCEPCIÓN RBAC: este tipo rompe el patrón "compensatorio → GP".
+    // Por decisión de negocio (spec compensatorio-votacion-jurado §4) el aprobador
+    // es Admin Capital Humano, no GP. Ver docs/RBAC_MATRIX.md sección 4.C.
+    compensatorio_votacion: {
+        displayName: 'Compensatorio por votación/jurado',
+        requiredMinSupports: 1,
+        approvers: ['admin_ch', 'cac'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina']
     }
 };
 
@@ -160,7 +169,11 @@ function normalizeNovedadTypeKey(value = '') {
         'apoyo standy': 'apoyo',
         bono: 'bonos',
         bonos: 'bonos',
-        'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo'
+        'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo',
+        'compensatorio por votacion/jurado': 'compensatorio_votacion',
+        'compensatorio por votacion jurado': 'compensatorio_votacion',
+        'compensatorio votacion': 'compensatorio_votacion',
+        'compensatorio jurado': 'compensatorio_votacion'
     };
     if (map[compact]) return map[compact];
     const snake = compact.replace(/[\s-]+/g, '_').replace(/_+/g, '_');

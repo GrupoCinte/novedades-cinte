@@ -111,6 +111,15 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: true
+  },
+  'Compensatorio por votación/jurado': {
+    requiredDocuments: [],  // dinámico por modalidad — ver FormularioNovedad
+    formatLinks: [],
+    approvers: ['admin_ch', 'cac'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina'],
+    requiresDayCount: false,   // cantidad_dias es fija por modalidad
+    requiresTimeRange: false,
+    requiresVotacionModalidad: true
   }
 };
 
@@ -167,6 +176,7 @@ const TIPO_ALIAS_SNAKE = {
   licencia_no_remunerada: 'Licencia no remunerada',
   permiso_no_remunerado: 'Permiso no remunerado',
   permiso_compensatorio_tiempo: 'Permiso compensatorio en tiempo',
+  compensatorio_votacion: 'Compensatorio por votación/jurado',
   incapacidad: 'Incapacidad',
   hora_extra: 'Hora Extra',
   apoyo: 'Disponibilidad',

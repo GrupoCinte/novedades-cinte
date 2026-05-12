@@ -28,7 +28,9 @@ const PATCH_CAMEL_TO_SNAKE = {
     montoCop: 'monto_cop',
     estado: 'estado',
     heDomingoObservacion: 'he_domingo_observacion',
-    soporteRuta: 'soporte_ruta'
+    soporteRuta: 'soporte_ruta',
+    fechaVotacion: 'fecha_votacion',
+    modalidadVotacion: 'modalidad_votacion'
 };
 
 async function writeNovedadAudit(pool, { actorUserId, actorRole, action, entityId, metadata }) {
@@ -133,7 +135,7 @@ function mergeAdminPatch(existingRow, body, normalizeEstado, parseDateOrNull, pa
             merged[snake] = normalizeEstado(v);
             continue;
         }
-        if (snake === 'fecha' || snake === 'fecha_inicio' || snake === 'fecha_fin') {
+        if (snake === 'fecha' || snake === 'fecha_inicio' || snake === 'fecha_fin' || snake === 'fecha_votacion') {
             const d = parseDateOrNull(v);
             merged[snake] = d || null;
             continue;
@@ -165,7 +167,7 @@ function mergeAdminPatch(existingRow, body, normalizeEstado, parseDateOrNull, pa
             }
             continue;
         }
-        if (snake === 'correo_solicitante' || snake === 'tipo_hora_extra' || snake === 'he_domingo_observacion' || snake === 'soporte_ruta') {
+        if (snake === 'correo_solicitante' || snake === 'tipo_hora_extra' || snake === 'he_domingo_observacion' || snake === 'soporte_ruta' || snake === 'modalidad_votacion') {
             merged[snake] = v == null || v === '' ? null : String(v);
             continue;
         }
@@ -210,7 +212,7 @@ async function adminDeleteNovedad({ pool, req, idParam }) {
 
 function appendSetForColumn(setParts, vals, col, val) {
     let i = vals.length + 1;
-    if (col === 'fecha' || col === 'fecha_inicio' || col === 'fecha_fin') {
+    if (col === 'fecha' || col === 'fecha_inicio' || col === 'fecha_fin' || col === 'fecha_votacion') {
         const y = toYmd(val);
         setParts.push(`${col} = $${i}::date`);
         vals.push(y);

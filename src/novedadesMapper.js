@@ -117,6 +117,8 @@ function toClientNovedad(row) {
         alertaHeResueltaEn: row.alerta_he_resuelta_en ? row.alerta_he_resuelta_en.toISOString() : '',
         alertaHeResueltaPorCorreo: pickEmailLikeOnly(row.alerta_he_resuelta_por_email),
         heDomingoObservacion: decodePossiblyMisencodedText(String(row.he_domingo_observacion || '').trim()),
+        modalidadVotacion: row.modalidad_votacion || null,
+        fechaVotacion: row.fecha_votacion ? row.fecha_votacion.toISOString().slice(0, 10) : null,
         asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta
     };
 }

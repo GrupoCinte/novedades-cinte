@@ -1489,16 +1489,43 @@ function registerRoutes(deps) {
                 insertFechaFin = null;
             }
 
+            if (novedadTypeKey === 'compensatorio_votacion') {
+                const modVot = String(body.modalidad_votacion || body.modalidadVotacion || '').trim();
+                const fVot = parseDateOrNull(body.fecha_votacion || body.fechaVotacion);
+                const vMap = { solo_voto: 0.5, solo_jurado: 1, jurado_voto: 1.5 };
+                cantidadHoras = vMap[modVot] || 0;
+
+                // CA-07: Bloqueo de duplicados (un registro activo por jornada electoral)
+                const dupCheck = await pool.query(
+                    `SELECT id FROM novedades 
+                     WHERE cedula = $1 
+                       AND fecha_votacion = $2 
+                       AND tipo_novedad = 'Compensatorio por votación/jurado' 
+                       AND estado != 'Rechazado'`,
+                    [cedulaNorm, fVot]
+                );
+                if (dupCheck.rows.length > 0) {
+                    return res.status(409).json({
+                        ok: false,
+                        error: 'Ya existe una solicitud de compensatorio (en proceso o aprobada) para esta jornada electoral.'
+                    });
+                }
+            }
+
             const insertResult = await pool.query(
                 `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
-                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion, estado
+                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion,
+                    fecha_votacion, modalidad_votacion,
+                    estado
                 )
                 VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8::user_area,
                     $9::date, $10::time, $11::time, $12::date, $13::date,
-                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'Pendiente'::novedad_estado
+                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                    $24::date, $25,
+                    'Pendiente'::novedad_estado
                 )
                 RETURNING id`,
                 [
@@ -1524,7 +1551,9 @@ function registerRoutes(deps) {
                     tipoHoraExtra,
                     archivoRuta,
                     montoCop,
-                    heDomingoObservacionInsert || null
+                    heDomingoObservacionInsert || null,
+                    parseDateOrNull(body.fecha_votacion || body.fechaVotacion),
+                    String(body.modalidad_votacion || body.modalidadVotacion || '').trim() || null
                 ]
             );
             const novedadId = insertResult?.rows?.[0]?.id || '';

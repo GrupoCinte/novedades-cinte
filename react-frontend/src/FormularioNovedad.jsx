@@ -96,8 +96,9 @@ const FORM_THEMES = {
         switchLabelIdle: 'text-xs font-semibold font-body text-[#4a6f8f]',
         switchTrack: 'relative h-8 w-14 shrink-0 rounded-full border border-[#1a3a56] bg-[#0b1e30] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#65BCF7]/50',
         switchTrackOn: 'border-[#2F7BB8] bg-[#2F7BB8]/40',
-        switchThumb: 'pointer-events-none absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform duration-200',
-        switchThumbOn: 'translate-x-6'
+        switchThumb: 'pointer-events-none absolute top-1 left-1 h-6 w-6 rounded-full  shadow-md transition-transform duration-200',
+        switchThumbOn: 'translate-x-6',
+        votacionBlock: 'grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 p-4 bg-[#1a3a56]/30 rounded-xl border border-[#1a3a56]/50 shadow-inner animate-in fade-in slide-in-from-top-1 duration-300'
     },
     light: {
         pageOverlay: 'absolute inset-0 bg-slate-200/55 backdrop-blur-[2px]',
@@ -126,6 +127,7 @@ const FORM_THEMES = {
         heText: 'text-sm text-slate-700 font-body',
         heStrong: 'text-slate-900',
         radioLabel: 'flex items-center gap-2 text-sm text-slate-700 cursor-pointer font-body',
+        votacionBlock: 'grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 p-4 bg-slate-50/80 rounded-xl border border-slate-200 shadow-sm animate-in fade-in slide-in-from-top-1 duration-300',
         hintStrong: 'text-slate-800',
         hintLine: 'md:col-span-2 text-xs text-slate-500 font-body',
         fileDropDisabled: 'opacity-50 cursor-not-allowed pointer-events-none border-slate-200 bg-slate-50',
@@ -151,7 +153,7 @@ const FORM_THEMES = {
         switchLabelIdle: 'text-xs font-semibold font-body text-slate-400',
         switchTrack: 'relative h-8 w-14 shrink-0 rounded-full border border-slate-300 bg-slate-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2F7BB8]/40',
         switchTrackOn: 'border-[#2F7BB8] bg-sky-100',
-        switchThumb: 'pointer-events-none absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform duration-200 ring-1 ring-slate-300/60',
+        switchThumb: 'pointer-events-none absolute top-1 left-1 h-6 w-6 rounded-full  shadow-md transition-transform duration-200 ring-1 ring-slate-300/60',
         switchThumbOn: 'translate-x-6'
     }
 };
@@ -170,7 +172,9 @@ const EMPTY_DETALLE_FORM = {
     fechaInicio: '',
     fechaFin: '',
     diasSolicitados: '',
-    montoBono: '$ '
+    montoBono: '$ ',
+    fechaVotacion: '',
+    modalidadVotacion: ''
 };
 
 function isExcelAttachment(file) {
@@ -196,7 +200,9 @@ export default function FormularioNovedad() {
         fechaInicio: '',
         fechaFin: '',
         diasSolicitados: '',
-        montoBono: '$ '
+        montoBono: '$ ',
+        fechaVotacion: '',
+        modalidadVotacion: ''
     });
 
     const [status, setStatus] = useState({ type: '', text: '' });
@@ -249,6 +255,7 @@ export default function FormularioNovedad() {
     const normalizeCedulaInput = (value) => String(value || '').replace(/\D/g, '');
 
     const isHoraExtra = formData.tipo === 'Hora Extra';
+    const isCompensatorioVotacion = formData.tipo === 'Compensatorio por votación/jurado';
     const rule = useMemo(() => getNovedadRule(formData.tipo), [formData.tipo]);
     const requiredDocuments = rule.requiredDocuments || [];
     const requiredDocsCount = requiredDocuments.length;
@@ -264,6 +271,42 @@ export default function FormularioNovedad() {
     const esIncapacidad = formData.tipo === 'Incapacidad';
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
     const usaBloqueHoras = isHoraExtra || requiereLapsoHora;
+
+    // ── Compensatorio votación: cálculos y validaciones derivadas ──
+    const DIAS_VOTACION = { solo_voto: 0.5, solo_jurado: 1, jurado_voto: 1.5 };
+    const diasVotacionAuto = isCompensatorioVotacion
+        ? (DIAS_VOTACION[formData.modalidadVotacion] ?? '')
+        : '';
+    const hoyMs = new Date().setHours(0, 0, 0, 0);
+    const votacionMs = formData.fechaVotacion
+        ? new Date(formData.fechaVotacion + 'T12:00:00Z').getTime()
+        : null;
+    const diasDesdeVotacion = votacionMs != null
+        ? Math.floor((hoyMs - votacionMs) / 86400000)
+        : null;
+    const plazoVencido = diasDesdeVotacion != null && diasDesdeVotacion > 30;
+    const fechaDisfrute = formData.fechaInicio;
+    const disfruteMs = fechaDisfrute ? new Date(fechaDisfrute + 'T12:00:00Z').getTime() : null;
+    const disfruteFueraRango = isCompensatorioVotacion && votacionMs != null && disfruteMs != null
+        && (disfruteMs < votacionMs || disfruteMs > votacionMs + 30 * 86400000);
+    // Soportes dinámicos por modalidad (CA-06)
+    const soportesVotacionRequeridos = isCompensatorioVotacion
+        ? formData.modalidadVotacion === 'solo_voto'
+            ? ['Certificado electoral']
+            : formData.modalidadVotacion === 'solo_jurado'
+                ? ['Certificado de jurado de votación']
+                : formData.modalidadVotacion === 'jurado_voto'
+                    ? ['Certificado electoral', 'Certificado de jurado de votación']
+                    : []
+        : [];
+    const bloqueoEnvioVotacion = isCompensatorioVotacion && (
+        !formData.fechaVotacion ||
+        !formData.modalidadVotacion ||
+        plazoVencido ||
+        !fechaDisfrute ||
+        disfruteFueraRango ||
+        selectedFiles.length < soportesVotacionRequeridos.length
+    );
     /** Disponibilidad: días hábiles del rango solo informativos (el backend no persiste días en cantidad_horas). */
     const diasInformativosDisponibilidad = useMemo(() => {
         if (!esDisponibilidad || !formData.fechaInicio || !formData.fechaFin) return 0;
@@ -568,12 +611,23 @@ export default function FormularioNovedad() {
                 cliente: tipoVacio ? '' : formData.cliente,
                 lider: tipoVacio ? '' : formData.lider,
                 diasSolicitados: nextDias,
-                montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ '
+                montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ ',
+                fechaVotacion: '',
+                modalidadVotacion: ''
             });
             if (tipoVacio) setLideres([]);
             if (value === 'Disponibilidad') {
                 setSelectedFiles([]);
             }
+            return;
+        }
+        if (name === 'modalidadVotacion') {
+            const dias = { solo_voto: '0.5', solo_jurado: '1', jurado_voto: '1.5' };
+            setFormData({ ...formData, modalidadVotacion: value, diasSolicitados: dias[value] || '' });
+            return;
+        }
+        if (name === 'fechaVotacion') {
+            setFormData({ ...formData, fechaVotacion: value, fechaInicio: '', fechaFin: '' });
             return;
         }
         if (name === 'montoBono') {
@@ -788,10 +842,12 @@ export default function FormularioNovedad() {
 
 
         if (!esSinAdjuntosPublicos) {
-            if (requiereAdjunto && selectedFiles.length < requiredDocsCount) {
+            if (requiereAdjunto && selectedFiles.length < (isCompensatorioVotacion ? soportesVotacionRequeridos.length : requiredDocsCount)) {
                 setStatus({
                     type: 'error',
-                    text: `❌ Debes adjuntar todos los documentos requeridos: ${requiredDocuments.join(', ')}.`
+                    text: isCompensatorioVotacion 
+                        ? `❌ Debes adjuntar los soportes requeridos: ${soportesVotacionRequeridos.join(', ')}.`
+                        : `❌ Debes adjuntar todos los documentos requeridos: ${requiredDocuments.join(', ')}.`
                 });
                 return;
             }
@@ -813,6 +869,11 @@ export default function FormularioNovedad() {
                     return;
                 }
             }
+        }
+
+        if (bloqueoEnvioVotacion) {
+            setStatus({ type: 'error', text: '❌ Verifica la fecha de votación, la modalidad y que los soportes obligatorios estén adjuntos.' });
+            return;
         }
 
         if (autocalculaDiasDesdeRango && !(diasAutoCalculados > 0)) {
@@ -888,12 +949,19 @@ export default function FormularioNovedad() {
             } else {
                 payload.append('fechaInicio', formData.fechaInicio);
                 payload.append('fechaFin', formData.fechaFin || 'N/A');
-                const diasValuePayload = autocalculaDiasDesdeRango
+                let diasValuePayload = autocalculaDiasDesdeRango
                     ? diasAutoCalculados
                     : (requiereDias ? Number(formData.diasSolicitados || 0) : Number(formData.cantidadHoras || 0));
+                
+                if (isCompensatorioVotacion) {
+                    diasValuePayload = Number(diasVotacionAuto);
+                    payload.append('fechaVotacion', formData.fechaVotacion);
+                    payload.append('modalidadVotacion', formData.modalidadVotacion);
+                }
+
                 payload.append(
                     'cantidadHoras',
-                    (requiereDias || autocalculaDiasDesdeRango) ? diasValuePayload : (formData.cantidadHoras || 0)
+                    (requiereDias || autocalculaDiasDesdeRango || isCompensatorioVotacion) ? diasValuePayload : (formData.cantidadHoras || 0)
                 );
             }
             if (requiereMontoCop) {
@@ -1343,33 +1411,71 @@ export default function FormularioNovedad() {
                                     </div>
                                 )}
 
-                                {!usaBloqueHoras && (
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {isCompensatorioVotacion ? (
+                                    <div className={theme.votacionBlock}>
                                         <div className="flex flex-col gap-1">
-                                            <label className={labelCls}>Fecha Inicio {reqStar}</label>
-                                            <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
-                                            {formData.fechaInicio && festivosSet.has(formData.fechaInicio) && (
-                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
-                                            )}
-                                            {formData.fechaInicio && !festivosSet.has(formData.fechaInicio) && new Date(formData.fechaInicio + 'T12:00:00Z').getUTCDay() === 0 && (
-                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            <label className={labelCls}>Fecha de la jornada electoral {reqStar}</label>
+                                            <input required name="fechaVotacion" value={formData.fechaVotacion} onChange={handleChange} type="date" max={todayIso} disabled={!detalleFormularioActivo} className={inputCls} />
+                                            {plazoVencido && (
+                                                <div className="text-xs text-rose-400 font-bold mt-1">❌ Plazo vencido: el compensatorio debe solicitarse dentro de los 30 días calendario posteriores a la votación.</div>
                                             )}
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
-                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
-                                            {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
-                                            {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
-                                            {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
-                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
-                                            )}
-                                            {formData.fechaFin && !festivosSet.has(formData.fechaFin) && new Date(formData.fechaFin + 'T12:00:00Z').getUTCDay() === 0 && (
-                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            <label className={labelCls}>Modalidad {reqStar}</label>
+                                            <select name="modalidadVotacion" required value={formData.modalidadVotacion} onChange={handleChange} disabled={!detalleFormularioActivo} className={inputCls}>
+                                                <option value="">-- Seleccionar --</option>
+                                                <option value="solo_voto">Solo voto (0.5 días)</option>
+                                                <option value="solo_jurado">Solo jurado (1 día)</option>
+                                                <option value="jurado_voto">Jurado y voto (1.5 días)</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div className="flex flex-col gap-1">
+                                            <label className={labelCls}>Fecha de Disfrute {reqStar}</label>
+                                            <input
+                                                required
+                                                name="fechaInicio"
+                                                value={formData.fechaInicio}
+                                                onChange={handleChange}
+                                                type="date"
+                                                max={isCompensatorioVotacion && formData.fechaVotacion ? new Date(new Date(formData.fechaVotacion + 'T12:00:00Z').getTime() + 30 * 86400000).toISOString().slice(0, 10) : undefined}
+                                                min={formData.fechaVotacion || undefined}
+                                                disabled={!detalleFormularioActivo || !formData.fechaVotacion}
+                                                className={inputCls}
+                                            />
+                                            {disfruteFueraRango && (
+                                                <div className="text-xs text-rose-400 font-bold mt-1">❌ La fecha de disfrute debe estar dentro de los 30 días calendario siguientes a la votación.</div>
                                             )}
                                         </div>
-                                    </div>
-                                )}
 
+                                        <div className="flex flex-col gap-1">
+                                            <label className={labelCls}>Días a compensar</label>
+                                            <input readOnly value={diasVotacionAuto || '—'} className={inputCls + ' ' + theme.inputReadonly} />
+                                        </div>
+
+                                        {formData.modalidadVotacion && (
+                                            <div className="col-span-1 md:col-span-2 text-sm text-sky-200 bg-sky-900/30 p-2.5 rounded-lg border border-sky-800/50">
+                                                <strong className="text-sky-100">Soportes requeridos:</strong> {soportesVotacionRequeridos.join(' y ')}
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    !usaBloqueHoras && (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="flex flex-col gap-1">
+                                                <label className={labelCls}>Fecha Inicio {reqStar}</label>
+                                                <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} disabled={!detalleFormularioActivo} className={inputCls} />
+                                                {formData.fechaInicio && festivosSet.has(formData.fechaInicio) && (
+                                                    <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                                )}
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
+                                                <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={inputCls} />
+                                            </div>
+                                        </div>
+                                    )
+                                )}
                                 {esDisponibilidad && detalleFormularioActivo && (
                                     <div className="flex flex-col gap-1 mt-4 max-w-xs">
                                         <label className={labelCls}>Días hábiles en el rango (referencia)</label>
