@@ -156,7 +156,8 @@ function registerEntraRoutes(app, deps) {
             setXsrfCookie(res);
             return res.redirect(302, `${front}/`);
         } catch (e) {
-            logger?.error?.(`[entra/callback] ${e?.message || e}`);
+            const msg = e?.message || String(e);
+            logger?.error?.({ err: msg, stack: e?.stack }, '[entra/callback] fallo en intercambio o validación de token');
             return failRedirect('token');
         }
     });

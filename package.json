@@ -14,7 +14,8 @@
     "migrate:pipeline-swat": "node scripts/migrate-pipeline-swat-colaboradores.js",
     "migrate:pipeline-swat:apply": "node scripts/migrate-pipeline-swat-colaboradores.js --apply",
     "migrate:reubicaciones-pipeline": "node scripts/migrate-pipeline-excel-to-reubicaciones.js",
-    "migrate:reubicaciones-pipeline:apply": "node scripts/migrate-pipeline-excel-to-reubicaciones.js --apply"
+    "migrate:reubicaciones-pipeline:apply": "node scripts/migrate-pipeline-excel-to-reubicaciones.js --apply",
+    "seed:conciliaciones-demo": "node scripts/seed-conciliaciones-demo-novedades.js"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1030.0",

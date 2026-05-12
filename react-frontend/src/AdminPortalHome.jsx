@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Building2, Calculator, Users } from 'lucide-react';
+import { Briefcase, Building2, Calculator, Scale, Users } from 'lucide-react';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
@@ -97,6 +97,24 @@ function cardVisuals(key) {
                 cta: 'text-[#1a5f8a]'
             }
         },
+        conciliaciones: {
+            dark: {
+                shell: 'border border-[#65BCF7]/16 bg-gradient-to-br from-[#2F7BB8]/12 via-[#0b2844]/18 to-[#04141E]/28 shadow-[0_8px_36px_-10px_rgba(0,0,0,0.35)] hover:border-[#65BCF7]/32 hover:shadow-[0_14px_48px_-8px_rgba(47,123,184,0.26)]',
+                bar: 'bg-[#65BCF7]/85',
+                iconWrap: 'border border-[#65BCF7]/28 bg-[#2F7BB8]/16 text-[#a8dcff] backdrop-blur-md',
+                title: 'text-white drop-shadow-[0_1px_10px_rgba(0,0,0,0.55)] group-hover:text-[#a8dcff]',
+                desc: 'text-slate-100/88 drop-shadow-[0_1px_6px_rgba(0,0,0,0.45)]',
+                cta: 'text-[#a8dcff] drop-shadow-[0_1px_6px_rgba(0,0,0,0.4)]'
+            },
+            light: {
+                shell: 'border border-sky-200/40 bg-gradient-to-br from-white/28 via-sky-50/22 to-blue-50/24 shadow-[0_8px_36px_-12px_rgba(14,116,188,0.12)] hover:border-sky-300/55 hover:shadow-[0_14px_44px_-10px_rgba(14,116,188,0.18)]',
+                bar: 'bg-[#65BCF7]',
+                iconWrap: 'border border-sky-300/45 bg-sky-100/45 text-[#1e5a8a] backdrop-blur-md',
+                title: 'text-slate-900 group-hover:text-[#2F7BB8]',
+                desc: 'text-slate-700/92',
+                cta: 'text-[#2F7BB8]'
+            }
+        }
     };
     return map[key] || map.novedades;
 }
@@ -119,6 +137,13 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 description: 'Registro, seguimiento y reportes de incidencias.',
                 path: '/admin/novedades',
                 Icon: Briefcase
+            });
+            out.push({
+                key: 'conciliaciones',
+                title: 'Conciliaciones',
+                description: 'Tarifas por cliente y mes frente a novedades aprobadas (solo lectura).',
+                path: '/admin/conciliaciones/dashboard',
+                Icon: Scale
             });
         }
         if (userHasCotizadorAccess(auth)) {

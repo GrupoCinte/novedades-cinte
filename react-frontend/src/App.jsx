@@ -14,6 +14,9 @@ import ChangePassword from './ChangePassword';
 import ComercialModule from './ComercialModule';
 import ContratacionModule from './ContratacionModule';
 import DirectorioClienteColaboradorModule from './DirectorioClienteColaboradorModule';
+import ConciliacionesModule from './conciliaciones/ConciliacionesModule.jsx';
+import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboardPage.jsx';
+import ConciliacionesPage from './conciliaciones/ConciliacionesPage.jsx';
 import AdminPortalHome from './AdminPortalHome';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
@@ -49,7 +52,10 @@ function AdminPortalSinModulos({ onLogout }) {
 
 function adminPortalModuleCount(auth) {
   let n = 0;
-  if (userHasNovedadesAdminAccess(auth)) n += 1;
+  if (userHasNovedadesAdminAccess(auth)) {
+    n += 1;
+    n += 1;
+  }
   if (userHasCotizadorAccess(auth)) n += 1;
   if (userHasContratacionPanel(auth)) n += 1;
   if (userHasDirectorioPanel(auth)) n += 1;
@@ -269,6 +275,25 @@ function App() {
               </ProtectedRoute>
             )}
           />
+          <Route
+            path="/admin/conciliaciones"
+            element={(
+              <ProtectedRoute auth={auth}>
+                {userHasNovedadesAdminAccess(auth) ? (
+                  <ConciliacionesModule auth={auth} />
+                ) : (
+                  <Navigate to="/admin" replace />
+                )}
+              </ProtectedRoute>
+            )}
+          >
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route
+              path="dashboard"
+              element={<ConciliacionesDashboardPage token={auth?.token || ''} />}
+            />
+            <Route path="resumen" element={<ConciliacionesPage token={auth?.token || ''} />} />
+          </Route>
           <Route
             path="/admin"
             element={

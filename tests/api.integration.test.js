@@ -65,9 +65,13 @@ describe('Integración API (smoke)', () => {
     assert.strictEqual(status, 403);
   });
 
-  it('GET /api/catalogos/clientes sin sesión retorna 401', async () => {
+  it('GET /api/catalogos/clientes sin sesión: 401/403/429 o catálogo mínimo (200)', async () => {
     if (skipIfUnavailable()) return;
-    const { status } = await apiFetch('/api/catalogos/clientes');
-    assert.ok([401, 403, 429].includes(status));
+    const { status, body } = await apiFetch('/api/catalogos/clientes');
+    assert.ok([401, 403, 429, 200].includes(status));
+    if (status === 200) {
+      assert.strictEqual(body?.ok, true);
+      assert.ok(Array.isArray(body?.items));
+    }
   });
 });

@@ -150,7 +150,7 @@ export default function Login({ setAuth }) {
           >
             <div className="flex flex-col gap-2">
               <label className={au.authLabel}>
-                Usuario (correo)
+                Correo corporativo
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">

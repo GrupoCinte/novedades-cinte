@@ -14,6 +14,7 @@ const {
     resolveHourSplitBogotaForRow,
     isSundayBogotaYmd
 } = require('./heDomingoBogota');
+const conciliacionesQueries = require('./conciliaciones/conciliacionesQueries');
 
 function createDataLayer(deps) {
     const {
@@ -1650,6 +1651,58 @@ function createDataLayer(deps) {
         };
     }
 
+    const conciliacionesDeps = {
+        pool,
+        getClientesList,
+        normalizeCatalogValue,
+        listScopedDistinctClientes,
+        listAssignedClientesForGpUserId,
+        resolveGpInternalUserIdForScope,
+        normalizeCedula,
+        canRoleViewType
+    };
+
+    async function listConciliacionesClientesForScope(scope) {
+        return conciliacionesQueries.listConciliacionesClientes(conciliacionesDeps, scope);
+    }
+
+    async function getConciliacionResumenPorClienteMesForScope(scope, clienteRaw, year, month) {
+        const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
+        if (!chk.ok) return chk;
+        const payload = await conciliacionesQueries.getConciliacionResumenPorClienteMes(
+            conciliacionesDeps,
+            scope,
+            chk.canon,
+            year,
+            month
+        );
+        return { ok: true, clienteCanon: chk.canon, ...payload };
+    }
+
+    async function listConciliacionNovedadesDetalleForScope(scope, clienteRaw, cedulaRaw, year, month) {
+        const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
+        if (!chk.ok) return chk;
+        const items = await conciliacionesQueries.listConciliacionNovedadesDetalle(
+            conciliacionesDeps,
+            scope,
+            chk.canon,
+            cedulaRaw,
+            year,
+            month
+        );
+        return { ok: true, clienteCanon: chk.canon, items };
+    }
+
+    async function getConciliacionesDashboardResumenForScope(scope, year, month) {
+        const payload = await conciliacionesQueries.getConciliacionesDashboardResumen(
+            conciliacionesDeps,
+            scope,
+            year,
+            month
+        );
+        return { ok: true, ...payload };
+    }
+
     return {
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
@@ -1693,7 +1746,11 @@ function createDataLayer(deps) {
         getScopedNovedades,
         listScopedDistinctClientes,
         getHoraExtraAlerts,
-        listHoraExtraByCedulaForDomingoPolicy
+        listHoraExtraByCedulaForDomingoPolicy,
+        listConciliacionesClientesForScope,
+        getConciliacionResumenPorClienteMesForScope,
+        listConciliacionNovedadesDetalleForScope,
+        getConciliacionesDashboardResumenForScope
     };
 }
 

@@ -69,6 +69,7 @@ Pueden **aprobar o rechazar cualquier tipo** según las validaciones del sistema
 Al entrar a **`/admin`** con sesión válida, según el rol aparecen tarjetas como:
 
 - **Gestión de Novedades** — quien tenga permiso de novedades.
+- **Conciliaciones** — misma condición de acceso que Gestión de Novedades; en la versión actual es **solo lectura** (resumen por cliente y mes con novedades **aprobadas**).
 - **Módulo Comercial** — cotizador; **no** aplica a **CAC**, **GP**, **Nómina**, ni a **Admin CH** ni **Equipo CH** (solo quienes tienen rol pensado para comercial o super administrador).
 - **Capital Humano Onboarding** — contratación; **sí** aplica a **Admin CH** y **Equipo CH**; **no** aplica a **CAC**.
 - **Módulo de administración** (Directorio) — **Super administrador** y **CAC**; **Admin CH** y **Equipo CH** **no** tienen esta tarjeta.

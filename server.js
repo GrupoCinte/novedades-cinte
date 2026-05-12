@@ -46,12 +46,23 @@ const { registerCotizadorRoutes } = require('./src/cotizador/registerCotizadorRo
 const { registerTiRolesRoutes } = require('./src/cotizador/registerTiRolesRoutes');
 const { registerContratacionRoutes } = require('./src/contratacion/registerContratacionRoutes');
 const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
+const { registerConciliacionesRoutes } = require('./src/conciliaciones/registerConciliacionesRoutes');
 const { createEmailNotificationsPublisher } = require('./src/notifications/emailNotificationsPublisher');
 const { createResolveApproverEmailsFromCognito } = require('./src/notifications/resolveApproverEmailsFromCognito');
 
 const app = express();
 const PORT = process.env.PORT || 3005;
+/** Producción real (EC2, etc.): `NODE_ENV=production`. En local deja `development` o sin definir. */
 const isProduction = process.env.NODE_ENV === 'production';
+/**
+ * Orígenes `*.trycloudflare.com` (Quick Tunnel): permitidos siempre en no-producción.
+ * Si por error tienes `NODE_ENV=production` en tu PC pero sigues usando el túnel, define `CORS_ALLOW_TRY_CLOUDFLARE=1`.
+ * En el servidor de producción no actives esto salvo que sepas por qué.
+ */
+const corsAllowTryCloudflare =
+    !isProduction ||
+    String(process.env.CORS_ALLOW_TRY_CLOUDFLARE || '').toLowerCase() === 'true' ||
+    String(process.env.CORS_ALLOW_TRY_CLOUDFLARE || '').trim() === '1';
 
 const SECRET_KEY = (process.env.JWT_SECRET || '').trim();
 if (!SECRET_KEY) {
@@ -115,6 +126,15 @@ for (const o of CORS_EXTRA_ORIGINS) {
     allowedCorsOrigins.add(o);
 }
 
+/** Orígenes de IdP Microsoft en redirecciones OIDC (GET al callback pueden traer Origin del IdP, no del SPA). */
+function isMicrosoftEntraOidcOrigin(hostname) {
+    const h = String(hostname || '').toLowerCase();
+    if (!h) return false;
+    if (h === 'login.microsoftonline.com' || h.endsWith('.login.microsoftonline.com')) return true;
+    if (h === 'login.microsoft.com' || h === 'login.live.com' || h === 'sts.windows.net') return true;
+    return false;
+}
+
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(helmet({
@@ -147,12 +167,19 @@ app.use(helmet({
 app.use(cors({
     origin(origin, callback) {
         if (!origin) return callback(null, true);
+        // Algunos clientes envían el literal "null" en navegaciones / iframes.
+        if (origin === 'null') return callback(null, true);
         if (allowedCorsOrigins.has(origin)) return callback(null, true);
         try {
             const parsed = new URL(origin);
+            // Tras consentimiento / primer login, el GET a /api/auth/entra/callback a veces llega con Origin del IdP.
+            // Si se rechaza aquí, cors pasa Error → Express responde 500; un F5 puede cambiar Origin y «arreglar» el flujo.
+            if (isMicrosoftEntraOidcOrigin(parsed.hostname)) {
+                return callback(null, true);
+            }
             // Quick Tunnel (dev): el navegador envía Origin https://*.trycloudflare.com; sin esto CORS falla y el
             // manejador global devuelve «Error interno del servidor» (mensaje genérico).
-            if (!isProduction && parsed.hostname.endsWith('.trycloudflare.com')) {
+            if (corsAllowTryCloudflare && parsed.hostname.endsWith('.trycloudflare.com')) {
                 return callback(null, true);
             }
         } catch {
@@ -532,7 +559,11 @@ const {
     getScopedNovedades,
     listScopedDistinctClientes,
     getHoraExtraAlerts,
-    listHoraExtraByCedulaForDomingoPolicy
+    listHoraExtraByCedulaForDomingoPolicy,
+    listConciliacionesClientesForScope,
+    getConciliacionResumenPorClienteMesForScope,
+    listConciliacionNovedadesDetalleForScope,
+    getConciliacionesDashboardResumenForScope
 } = createDataLayer({
     pool,
     fs,
@@ -648,6 +679,17 @@ registerDirectorioRoutes({
     clearGpUserReferences,
     linkGpCognitoSubByEmail,
     normalizeCedula
+});
+
+registerConciliacionesRoutes({
+    app,
+    verificarToken,
+    allowAnyPanel,
+    applyScope,
+    listConciliacionesClientesForScope,
+    getConciliacionResumenPorClienteMesForScope,
+    listConciliacionNovedadesDetalleForScope,
+    getConciliacionesDashboardResumenForScope
 });
 
 registerCotizadorRoutes({
