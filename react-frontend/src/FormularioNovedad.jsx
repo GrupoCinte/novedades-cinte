@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { NOVEDAD_TYPES, getNovedadRule, countBusinessDaysInclusive, countCalendarDaysInclusive } from './novedadRules';
 import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat';
 import { toUtcMsFromDateAndTime } from './heNovedadBogotaClient.js';
+import { buildCsrfHeaders } from './cognitoAuth.js';
+import { useUiTheme } from './UiThemeContext.jsx';
 
 function normalizeHoraHePayload(timeRaw) {
     const t = String(timeRaw || '').trim();
@@ -35,14 +38,36 @@ function mensajeErrorVerificacionCedula(err) {
         err instanceof TypeError
         || /failed to fetch|networkerror|load failed|network request failed/i.test(raw);
     if (pareceFalloRed) {
-        return 'No se pudo conectar con el servidor del formulario. Comprueba que el API esté en marcha (en la raíz del repo: npm run dev; puerto por defecto 3005) y que esta página se abra desde el servidor de Vite del frontend, para que las rutas /api se reenvíen al backend.';
+        return 'Error en red';
     }
     return raw || 'No se pudo verificar la cédula.';
 }
 
+/** Fecha local civil YYYY-MM-DD (navegador) para límites de calendario. */
+function localTodayYmd() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function addCalendarMonthsYmd(ymd, deltaMonths) {
+    const [y, m, day] = String(ymd || '').split('-').map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(day)) return ymd;
+    const d = new Date(y, m - 1, day);
+    d.setMonth(d.getMonth() + deltaMonths);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function addCalendarYearsYmd(ymd, deltaYears) {
+    const [y, m, day] = String(ymd || '').split('-').map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(day)) return ymd;
+    const d = new Date(y, m - 1, day);
+    d.setFullYear(d.getFullYear() + deltaYears);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const FORMULARIO_THEME_STORAGE_KEY = 'formularioNovedadTheme';
 
-/** Tokens de UI para el panel del formulario (oscuro = actual; claro = White). */
+/** Tokens de UI para el panel del formulario (oscuro = actual; claro = tema claro). */
 const FORM_THEMES = {
     dark: {
         pageOverlay: 'absolute inset-0 bg-[#04141E]/40 backdrop-blur-[2px]',
@@ -180,8 +205,7 @@ function isExcelAttachment(file) {
     return ALLOWED_EXCEL_EXT.has(extension);
 }
 
-export default function FormularioNovedad() {
-    const todayIso = new Date().toISOString().slice(0, 10);
+export default function FormularioNovedad({ consultorSession = null, onSessionChange = null }) {
     const [formData, setFormData] = useState({
         nombre: '',
         cedula: '',
@@ -224,7 +248,28 @@ export default function FormularioNovedad() {
     const [heDomingoPreviewLoading, setHeDomingoPreviewLoading] = useState(false);
     const [heDomingoCompensacion, setHeDomingoCompensacion] = useState('');
     const [diaCompensatorioYmd, setDiaCompensatorioYmd] = useState('');
+    const [festivosSet, setFestivosSet] = useState(new Set());
     const heDomingoPreviewTimerRef = useRef(null);
+    const cedulaConsultorBloqueada = Boolean(consultorSession && consultorSession.cedula);
+
+    const { theme: uiTheme } = useUiTheme();
+
+    /** Entra consultor: el formulario sigue el tema global del portal (mismo `localStorage` que el hub). */
+    useEffect(() => {
+        if (!consultorSession) return;
+        setThemeMode(uiTheme === 'light' ? 'light' : 'dark');
+    }, [consultorSession, uiTheme]);
+
+    useEffect(() => {
+        fetch('/api/festivos')
+            .then(res => res.json())
+            .then(data => {
+                if (data.ok && Array.isArray(data.festivos)) {
+                    setFestivosSet(new Set(data.festivos));
+                }
+            })
+            .catch(err => console.error('Error cargando festivos:', err));
+    }, []);
 
     /** Tras comprobar cédula, el correo no se edita (valor viene del directorio o queda vacío hasta que lo carguen). */
     const bloquearCorreo = colaboradorVerificado;
@@ -250,14 +295,19 @@ export default function FormularioNovedad() {
     const esDisponibilidad = formData.tipo === 'Disponibilidad';
     const esSinAdjuntosPublicos = esDisponibilidad;
     const esIncapacidad = formData.tipo === 'Incapacidad';
+    const todayLocalYmd = localTodayYmd();
+    /** Inicio: no antes de 1 mes calendario atrás; fin: no después de 1 año calendario desde hoy. */
+    const minFechaInicioYmd = addCalendarMonthsYmd(todayLocalYmd, -1);
+    const maxFechaFinYmd = addCalendarYearsYmd(todayLocalYmd, 1);
+    const maxFechaInicioYmd = esIncapacidad ? todayLocalYmd : maxFechaFinYmd;
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
     const usaBloqueHoras = isHoraExtra || requiereLapsoHora;
     /** Disponibilidad: días hábiles del rango solo informativos (el backend no persiste días en cantidad_horas). */
     const diasInformativosDisponibilidad = useMemo(() => {
         if (!esDisponibilidad || !formData.fechaInicio || !formData.fechaFin) return 0;
         if (formData.fechaFin < formData.fechaInicio) return 0;
-        return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin);
-    }, [esDisponibilidad, formData.fechaInicio, formData.fechaFin]);
+        return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin, festivosSet);
+    }, [esDisponibilidad, formData.fechaInicio, formData.fechaFin, festivosSet]);
 
     const parseMilitaryTimeToMinutes = (value) => {
         if (!value) return null;
@@ -311,7 +361,8 @@ export default function FormularioNovedad() {
             try {
                 const res = await fetch('/api/hora-extra-domingo-preview', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    headers: buildCsrfHeaders({ 'Content-Type': 'application/json' }),
                     body: JSON.stringify({
                         cedula: c,
                         nombre: formData.nombre,
@@ -408,10 +459,10 @@ export default function FormularioNovedad() {
             return countCalendarDaysInclusive(formData.fechaInicio, formData.fechaFin);
         }
         if (autocalculaDiasHabiles) {
-            return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin);
+            return countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin, festivosSet);
         }
         return 0;
-    }, [autocalculaDiasCalendario, autocalculaDiasHabiles, formData.fechaInicio, formData.fechaFin]);
+    }, [autocalculaDiasCalendario, autocalculaDiasHabiles, formData.fechaInicio, formData.fechaFin, festivosSet]);
 
     /** Incluye el cliente del directorio aunque no coincida literalmente con la lista del catálogo (evita <select> en blanco). */
     const clientesParaSelect = useMemo(() => {
@@ -459,6 +510,12 @@ export default function FormularioNovedad() {
         && formData.fechaFin
         && formData.fechaFin < formData.fechaInicio;
 
+    const fechaInicioFueraDeVentana = Boolean(
+        formData.fechaInicio
+        && (formData.fechaInicio < minFechaInicioYmd || formData.fechaInicio > maxFechaInicioYmd)
+    );
+    const fechaFinFueraDeVentanaMax = Boolean(formData.fechaFin && formData.fechaFin > maxFechaFinYmd);
+
     const bloqueoEnvioHoraExtra = usaBloqueHoras
         && (
             !formData.fechaInicio
@@ -468,6 +525,8 @@ export default function FormularioNovedad() {
             || horaInicioFormatoInvalido
             || horaFinFormatoInvalido
             || horaFinInvalida
+            || fechaInicioFueraDeVentana
+            || fechaFinFueraDeVentanaMax
         );
 
     const bloqueoEnvioFechas = !usaBloqueHoras
@@ -475,10 +534,13 @@ export default function FormularioNovedad() {
             !formData.fechaInicio
             || fechaFinInvalida
             || (autocalculaDiasDesdeRango && !String(formData.fechaFin || '').trim())
+            || fechaInicioFueraDeVentana
+            || fechaFinFueraDeVentanaMax
         );
 
     const handleChange = (e) => {
         const { name, value } = e.target;
+        if (name === 'cedula' && cedulaConsultorBloqueada) return;
         if (name === 'cedula') {
             const digits = normalizeCedulaInput(value);
             setColaboradorVerificado(false);
@@ -522,7 +584,7 @@ export default function FormularioNovedad() {
             const nextDias = autocalculaDiasCalendario
                 ? String(countCalendarDaysInclusive(value, nextFechaFin))
                 : autocalculaDiasHabiles
-                    ? String(countBusinessDaysInclusive(value, nextFechaFin))
+                    ? String(countBusinessDaysInclusive(value, nextFechaFin, festivosSet))
                     : formData.diasSolicitados;
             setFormData({ ...formData, fechaInicio: value, fechaFin: nextFechaFin, diasSolicitados: nextDias });
             return;
@@ -531,7 +593,7 @@ export default function FormularioNovedad() {
             const nextDias = autocalculaDiasCalendario
                 ? String(countCalendarDaysInclusive(formData.fechaInicio, value))
                 : autocalculaDiasHabiles
-                    ? String(countBusinessDaysInclusive(formData.fechaInicio, value))
+                    ? String(countBusinessDaysInclusive(formData.fechaInicio, value, festivosSet))
                     : formData.diasSolicitados;
             setFormData({ ...formData, fechaFin: value, diasSolicitados: nextDias });
             return;
@@ -541,24 +603,21 @@ export default function FormularioNovedad() {
             const nextRequiereDias = Boolean(nextRule.requiresDayCount);
             const nextAutoHabiles = Boolean(nextRule.autoBusinessDays);
             const nextAutoCalendario = Boolean(nextRule.autoCalendarDays);
-            const tipoVacio = !String(value || '').trim();
             let nextDias = '';
             if (nextAutoCalendario) {
                 nextDias = String(countCalendarDaysInclusive(formData.fechaInicio, formData.fechaFin));
             } else if (nextAutoHabiles) {
-                nextDias = String(countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin));
+                nextDias = String(countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin, festivosSet));
             } else if (nextRequiereDias) {
                 nextDias = formData.diasSolicitados;
             }
+            // No borrar cliente/líder al deseleccionar tipo: vienen del directorio; limpiarlos obligaba a comprobar cédula otra vez.
             setFormData({
                 ...formData,
                 tipo: value,
-                cliente: tipoVacio ? '' : formData.cliente,
-                lider: tipoVacio ? '' : formData.lider,
                 diasSolicitados: nextDias,
                 montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ '
             });
-            if (tipoVacio) setLideres([]);
             if (value === 'Disponibilidad') {
                 setSelectedFiles([]);
             }
@@ -572,6 +631,7 @@ export default function FormularioNovedad() {
     };
 
     const handleComprobarCedula = async () => {
+        if (cedulaConsultorBloqueada) return;
         const c = normalizeCedulaInput(formData.cedula);
         if (!c) {
             setDocumentoMensaje({
@@ -584,7 +644,9 @@ export default function FormularioNovedad() {
         setDocumentoMensaje({ tipo: '', text: '' });
         setStatus({ type: '', text: '' });
         try {
-            const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`);
+            const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`, {
+                credentials: 'include'
+            });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
                 throw new Error(data?.error || 'Cédula no registrada');
@@ -629,11 +691,47 @@ export default function FormularioNovedad() {
         }
     }, [themeMode]);
 
+    /** Sesión Entra: precarga colaborador sin paso manual de cédula. */
+    useEffect(() => {
+        if (!cedulaConsultorBloqueada) return undefined;
+        let cancelled = false;
+        const run = async () => {
+            const c = normalizeCedulaInput(String(consultorSession.cedula || ''));
+            if (!c) return;
+            setVerificandoCedula(true);
+            try {
+                const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`, {
+                    credentials: 'include'
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || cancelled) return;
+                setFormData((prev) => ({
+                    ...prev,
+                    cedula: data.cedula || c,
+                    nombre: data.nombre || '',
+                    correo: String(data.correo ?? '').trim(),
+                    cliente: String(data.cliente ?? '').trim(),
+                    lider: String(data.lider ?? '').trim()
+                }));
+                setCatalogLocks({ lider: Boolean(data.lockLider) });
+                setColaboradorVerificado(true);
+            } catch {
+                if (!cancelled) setColaboradorVerificado(false);
+            } finally {
+                if (!cancelled) setVerificandoCedula(false);
+            }
+        };
+        run();
+        return () => {
+            cancelled = true;
+        };
+    }, [cedulaConsultorBloqueada, consultorSession]);
+
     useEffect(() => {
         const loadClientes = async () => {
             setLoadingCatalogos(true);
             try {
-                const res = await fetch('/api/catalogos/clientes');
+                const res = await fetch('/api/catalogos/clientes', { credentials: 'include' });
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) {
                     setClientes(json.items);
@@ -655,7 +753,9 @@ export default function FormularioNovedad() {
             }
             setLoadingCatalogos(true);
             try {
-                const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(formData.cliente)}`);
+                const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(formData.cliente)}`, {
+                    credentials: 'include'
+                });
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) {
                     setLideres(json.items);
@@ -752,6 +852,22 @@ export default function FormularioNovedad() {
             setStatus({ type: 'error', text: msg });
             return;
         }
+        if (fechaInicioFueraDeVentana) {
+            setStatus({
+                type: 'error',
+                text: esIncapacidad
+                    ? '❌ Fecha Incapacidad: desde hace un mes calendario como máximo hasta hoy.'
+                    : '❌ Fecha Inicio fuera del rango permitido (desde hace un mes calendario hasta un año calendario desde hoy).'
+            });
+            return;
+        }
+        if (fechaFinFueraDeVentanaMax) {
+            setStatus({
+                type: 'error',
+                text: '❌ Fecha Fin no puede ser posterior a un año calendario desde la fecha de hoy.'
+            });
+            return;
+        }
         if (bloqueoEnvioHoraExtra || bloqueoEnvioFechas) {
             const mensaje = isHoraExtra
                 ? '❌ Corrige fecha/horas de Hora Extra antes de enviar.'
@@ -769,7 +885,7 @@ export default function FormularioNovedad() {
             setStatus({ type: 'error', text: '❌ Debes comprobar la cédula y tener un colaborador válido antes de enviar.' });
             return;
         }
-        if (esIncapacidad && formData.fechaInicio && formData.fechaInicio > todayIso) {
+        if (esIncapacidad && formData.fechaInicio && formData.fechaInicio > todayLocalYmd) {
             setStatus({ type: 'error', text: '❌ Incapacidad no puede tener Fecha Inicio futura.' });
             return;
         }
@@ -897,6 +1013,8 @@ export default function FormularioNovedad() {
 
             const res = await fetch('/api/enviar-novedad', {
                 method: 'POST',
+                credentials: 'include',
+                headers: buildCsrfHeaders({}),
                 body: payload
             });
 
@@ -904,28 +1022,61 @@ export default function FormularioNovedad() {
 
             if (res.ok) {
                 setStatus({ type: 'success', text: '✅ ¡Guardado con éxito!' });
-                setFormData({
-                    nombre: '',
-                    cedula: '',
-                    correo: '',
-                    cliente: '',
-                    lider: '',
-                    tipo: '',
-                    fecha: '',
-                    horaInicio: '',
-                    horaFin: '',
-                    cantidadHoras: '',
-                    fechaInicio: '',
-                    fechaFin: '',
-                    diasSolicitados: '',
-                    montoBono: '$ '
-                });
-                setColaboradorVerificado(false);
-                setCatalogLocks({ lider: false });
-                setDocumentoMensaje({ tipo: '', text: '' });
-                setSelectedFiles([]);
-                setLideres([]);
-                setAceptaPoliticaDatos(false);
+                if (consultorSession) {
+                    // Sesión Microsoft: conservar datos del solicitante y verificación; solo limpiar detalle de la novedad.
+                    setFormData((prev) => {
+                        const c = normalizeCedulaInput(
+                            String(consultorSession.cedula || prev.cedula || '')
+                        );
+                        const nom = String(prev.nombre || consultorSession.name || '').trim();
+                        const mail = String(prev.correo || consultorSession.email || '').trim();
+                        return {
+                            cedula: c,
+                            nombre: nom,
+                            correo: mail,
+                            cliente: String(prev.cliente || '').trim(),
+                            lider: String(prev.lider || '').trim(),
+                            tipo: '',
+                            fecha: '',
+                            horaInicio: '',
+                            horaFin: '',
+                            cantidadHoras: '',
+                            fechaInicio: '',
+                            fechaFin: '',
+                            diasSolicitados: '',
+                            montoBono: '$ '
+                        };
+                    });
+                    setSelectedFiles([]);
+                    setHeDomingoPreview(null);
+                    setHeDomingoCompensacion('');
+                    setDiaCompensatorioYmd('');
+                    setAceptaPoliticaDatos(false);
+                    setDocumentoMensaje({ tipo: '', text: '' });
+                } else {
+                    setFormData({
+                        nombre: '',
+                        cedula: '',
+                        correo: '',
+                        cliente: '',
+                        lider: '',
+                        tipo: '',
+                        fecha: '',
+                        horaInicio: '',
+                        horaFin: '',
+                        cantidadHoras: '',
+                        fechaInicio: '',
+                        fechaFin: '',
+                        diasSolicitados: '',
+                        montoBono: '$ '
+                    });
+                    setColaboradorVerificado(false);
+                    setCatalogLocks({ lider: false });
+                    setDocumentoMensaje({ tipo: '', text: '' });
+                    setSelectedFiles([]);
+                    setLideres([]);
+                    setAceptaPoliticaDatos(false);
+                }
                 // Limpiar mensaje de éxito después de unos segundos
                 setTimeout(() => setStatus({ type: '', text: '' }), 4000);
             } else {
@@ -933,7 +1084,11 @@ export default function FormularioNovedad() {
             }
         } catch (error) {
             console.error(error);
-            setStatus({ type: 'error', text: `❌ ${error?.message || 'Error al enviar la solicitud'}` });
+            let errMsg = error?.message || 'Error al enviar la solicitud';
+            if (/failed to fetch|networkerror|load failed/i.test(errMsg)) {
+                errMsg = 'Error en red';
+            }
+            setStatus({ type: 'error', text: `❌ ${errMsg}` });
         } finally {
             setIsSubmitting(false);
         }
@@ -978,10 +1133,29 @@ export default function FormularioNovedad() {
     const labelCls = theme.label;
     const reqStar = <span className={theme.reqStar}>*</span>;
 
+    const pageBackgroundStyle = useMemo(() => {
+        const base = {
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
+            backgroundAttachment: 'fixed'
+        };
+        if (consultorSession && themeMode === 'light') {
+            return {
+                ...base,
+                backgroundImage: `linear-gradient(135deg, rgba(248,250,252,0.97) 0%, rgba(224,242,254,0.9) 100%), url('/img/bg-portal.jpg')`
+            };
+        }
+        return {
+            ...base,
+            backgroundImage: `linear-gradient(135deg, rgba(4,20,30,0.92) 0%, rgba(0,77,135,0.7) 100%), url('/img/bg-portal.jpg')`
+        };
+    }, [consultorSession, themeMode]);
+
     return (
         <div
             className="relative min-h-screen w-full flex items-center justify-center overflow-hidden font-body"
-            style={{ backgroundImage: `linear-gradient(135deg, rgba(4,20,30,0.92) 0%, rgba(0,77,135,0.7) 100%), url('/img/bg-portal.jpg')`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', backgroundAttachment: 'fixed' }}
+            style={pageBackgroundStyle}
         >
             <div className={theme.pageOverlay} />
 
@@ -1026,22 +1200,37 @@ export default function FormularioNovedad() {
                                         <span className={theme.sectionBar} />
                                         Solicitante
                                     </h2>
-                                    <div className="flex shrink-0 items-center justify-end gap-3 sm:pl-2">
-                                        <span className={themeMode === 'light' ? theme.switchLabelActive : theme.switchLabelIdle}>White</span>
-                                        <button
-                                            type="button"
-                                            role="switch"
-                                            aria-checked={themeMode === 'light'}
-                                            aria-label="Cambiar tema del formulario entre claro y oscuro"
-                                            onClick={() => setThemeMode((m) => (m === 'dark' ? 'light' : 'dark'))}
-                                            className={`${theme.switchTrack} ${themeMode === 'light' ? theme.switchTrackOn : ''}`}
-                                        >
-                                            <span
-                                                className={`${theme.switchThumb} ${themeMode === 'light' ? theme.switchThumbOn : ''}`}
-                                            />
-                                        </button>
-                                        <span className={themeMode === 'dark' ? theme.switchLabelActive : theme.switchLabelIdle}>Dark</span>
-                                    </div>
+                                    {consultorSession ? (
+                                        <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+                                            <Link
+                                                to="/consultor"
+                                                className="text-xs font-semibold text-[#65BCF7] hover:text-white"
+                                            >
+                                                Volver al inicio
+                                            </Link>
+                                        </div>
+                                    ) : null}
+                                    {!consultorSession ? (
+                                        <div className="flex shrink-0 items-center justify-end gap-3 sm:pl-2">
+                                            <span className={themeMode === 'light' ? theme.switchLabelActive : theme.switchLabelIdle}>Claro</span>
+                                            <button
+                                                type="button"
+                                                role="switch"
+                                                aria-checked={themeMode === 'light'}
+                                                aria-label="Cambiar tema del formulario entre claro y oscuro"
+                                                onClick={() => {
+                                                    const next = themeMode === 'dark' ? 'light' : 'dark';
+                                                    setThemeMode(next);
+                                                }}
+                                                className={`${theme.switchTrack} ${themeMode === 'light' ? theme.switchTrackOn : ''}`}
+                                            >
+                                                <span
+                                                    className={`${theme.switchThumb} ${themeMode === 'light' ? theme.switchThumbOn : ''}`}
+                                                />
+                                            </button>
+                                            <span className={themeMode === 'dark' ? theme.switchLabelActive : theme.switchLabelIdle}>Oscuro</span>
+                                        </div>
+                                    ) : null}
                                 </div>
                                 <div className="space-y-4">
                                     <div>
@@ -1057,15 +1246,17 @@ export default function FormularioNovedad() {
                                                 inputMode="numeric"
                                                 autoComplete="off"
                                                 placeholder="Ej: 1234567890"
+                                                disabled={cedulaConsultorBloqueada}
+                                                readOnly={cedulaConsultorBloqueada}
                                                 className={`flex-1 ${inputCls}`}
                                             />
                                             <button
                                                 type="button"
                                                 onClick={handleComprobarCedula}
-                                                disabled={verificandoCedula}
+                                                disabled={cedulaConsultorBloqueada || verificandoCedula}
                                                 className="px-5 py-3 rounded-xl bg-[#2F7BB8] text-white font-semibold font-body text-sm hover:bg-[#004D87] disabled:opacity-50 transition-all shadow-md shadow-[#004D87]/20"
                                             >
-                                                {verificandoCedula ? 'Verificando...' : 'Comprobar'}
+                                                {verificandoCedula ? 'Verificando...' : cedulaConsultorBloqueada ? 'Sesión' : 'Comprobar'}
                                             </button>
                                         </div>
                                     </div>
@@ -1194,7 +1385,13 @@ export default function FormularioNovedad() {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-300">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
-                                            <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            {formData.fechaInicio && festivosSet.has(formData.fechaInicio) && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                            )}
+                                            {formData.fechaInicio && !festivosSet.has(formData.fechaInicio) && new Date(formData.fechaInicio + 'T12:00:00Z').getUTCDay() === 0 && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            )}
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Inicio (24h) {reqStar}</label>
@@ -1212,7 +1409,14 @@ export default function FormularioNovedad() {
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {reqStar}</label>
-                                            <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
+                                            {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
+                                            {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                            )}
+                                            {formData.fechaFin && !festivosSet.has(formData.fechaFin) && new Date(formData.fechaFin + 'T12:00:00Z').getUTCDay() === 0 && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            )}
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Fin (24h) {reqStar}</label>
@@ -1318,12 +1522,25 @@ export default function FormularioNovedad() {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
-                                            <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" max={esIncapacidad ? todayIso : undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            {formData.fechaInicio && festivosSet.has(formData.fechaInicio) && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                            )}
+                                            {formData.fechaInicio && !festivosSet.has(formData.fechaInicio) && new Date(formData.fechaInicio + 'T12:00:00Z').getUTCDay() === 0 && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            )}
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
-                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || undefined} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
+                                            {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
                                             {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
+                                            {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                            )}
+                                            {formData.fechaFin && !festivosSet.has(formData.fechaFin) && new Date(formData.fechaFin + 'T12:00:00Z').getUTCDay() === 0 && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            )}
                                         </div>
                                     </div>
                                 )}

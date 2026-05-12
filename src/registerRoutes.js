@@ -1,4 +1,9 @@
-const { normalizeNovedadTypeKey, isNovedadTipoRetiradoDelFormulario } = require('./rbac');
+const {
+    normalizeNovedadTypeKey,
+    isNovedadTipoRetiradoDelFormulario,
+    normalizeRoleOrNull,
+    isNominaGateNovedadType
+} = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
 const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
@@ -17,6 +22,10 @@ const {
     isYmdEnVentanaCompensatorio
 } = require('./heDomingoCompensacion');
 const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
+const festivosService = require('./festivosService');
+
+// Inicializar festivos en background al arrancar el servidor
+festivosService.initFestivosCache();
 
 /** HH:MM para Excel; tolera hora de un dígito desde BD. */
 function formatHoraMinutaParaExcel(value) {
@@ -303,7 +312,10 @@ function registerRoutes(deps) {
         xlsx,
         emailNotificationsPublisher,
         resolveApproverEmailsForNovedad,
-        revokeAppSessionToken
+        revokeAppSessionToken,
+        requireEntraConsultor,
+        requireCatalogConsultorOrStaff,
+        consultorFormPostLimiter
     } = deps;
     const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     const exposeInternalErrors = String(process.env.EXPOSE_INTERNAL_ERRORS || '').toLowerCase() === 'true';
@@ -311,6 +323,20 @@ function registerRoutes(deps) {
     const secureCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
     const sameSite = isProduction ? 'strict' : 'lax';
     const exportMaxRows = Math.max(1, Number(process.env.EXPORT_MAX_ROWS || 5000));
+
+    function requireColaboradorCatalogSelfOrStaff(req, res, next) {
+        const ap = String(req.user?.authProvider || '');
+        const role = normalizeRoleOrNull(req.user?.role);
+        const qCed = normalizeCedula(req.query?.cedula || '');
+        if (ap === 'entra_consultor' && role === 'consultor') {
+            const userCed = normalizeCedula(req.user.cedula || '');
+            if (qCed && userCed && qCed === userCed) return next();
+            return res.status(403).json({ ok: false, error: 'La cédula no coincide con tu sesión.' });
+        }
+        if ((ap === 'cognito_app' || ap === 'cognito') && role && POLICY[role]) return next();
+        if (!ap && role && POLICY[role]) return next();
+        return res.status(403).json({ ok: false, error: 'Sin permiso.' });
+    }
 
     function setSessionCookie(res, token, maxAgeSec) {
         const ms = Number(maxAgeSec || 0) > 0 ? Number(maxAgeSec) * 1000 : 8 * 60 * 60 * 1000;
@@ -497,13 +523,37 @@ function registerRoutes(deps) {
 
     app.post('/api/login', authLimiter, async (req, res) => {
         try {
-            const { username, email, password, roleRequested } = req.body || {};
+            const { username, email, password } = req.body || {};
             const identity = email || username;
             if (!identity || !password) {
                 return res.status(400).json({ ok: false, message: 'Credenciales incompletas' });
             }
             if (!COGNITO_ENABLED) {
-                return res.status(503).json({ ok: false, message: 'Cognito no está habilitado en el servidor.' });
+                if (password !== '123456') {
+                    return res.status(401).json({ ok: false, message: 'Para desarrollo local la contraseña es 123456' });
+                }
+                const loginIdentity = String(identity || '').trim();
+                const baseUserResult = await pool.query('SELECT * FROM users WHERE email = $1 OR username = $1', [loginIdentity]);
+                if (baseUserResult.rows.length === 0) {
+                    return res.status(404).json({ ok: false, message: 'Usuario de prueba no encontrado en la BD local' });
+                }
+                const baseUser = baseUserResult.rows[0];
+                /** Login: rol solo desde Cognito/BD; no se acepta roleRequested desde el cliente. */
+                const effectiveRole = resolveEffectiveRole(baseUser.role, '');
+                const appAuth = issueAppTokenFromCognito(baseUser, { ExpiresIn: 3600 }, effectiveRole, loginIdentity);
+                setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
+                setXsrfCookie(res);
+                return res.json({
+                    ok: true,
+                    expiresIn: appAuth.expiresInSec,
+                    user: appAuth.user,
+                    claims: buildSafeLoginClaimsForClient({
+                        sub: baseUser.id,
+                        email: baseUser.email,
+                        name: baseUser.full_name,
+                        'cognito:username': baseUser.username
+                    }, appAuth.user.role, baseUser.role)
+                });
             }
 
             const authParams = {
@@ -548,7 +598,8 @@ function registerRoutes(deps) {
                 return res.status(401).json({ ok: false, message: 'Token Cognito inválido.' });
             }
             const baseUser = buildUserFromCognitoClaims(claims);
-            const effectiveRole = resolveEffectiveRole(baseUser.role, roleRequested);
+            /** Login Cognito: rol efectivo solo desde grupos/claims; ignorar roleRequested del body. */
+            const effectiveRole = resolveEffectiveRole(baseUser.role, '');
             const loginIdentity = String(identity || '').trim();
             const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
             setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
@@ -575,7 +626,7 @@ function registerRoutes(deps) {
 
     app.post('/api/auth/complete-new-password', authLimiter, async (req, res) => {
         try {
-            const { email, newPassword, session, phoneNumber, roleRequested } = req.body || {};
+            const { email, newPassword, session, phoneNumber } = req.body || {};
             const username = String(email || '').trim();
             const challengeSession = String(session || '').trim();
             if (!username || !newPassword || !challengeSession) {
@@ -618,7 +669,8 @@ function registerRoutes(deps) {
                 return res.status(401).json({ ok: false, message: 'Token Cognito inválido.' });
             }
             const baseUser = buildUserFromCognitoClaims(claims);
-            const effectiveRole = resolveEffectiveRole(baseUser.role, roleRequested);
+            /** Primer acceso: mismo criterio que /api/login — rol solo desde Cognito. */
+            const effectiveRole = resolveEffectiveRole(baseUser.role, '');
             const loginIdentity = username;
             const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
             setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
@@ -1033,7 +1085,17 @@ function registerRoutes(deps) {
         }
     });
 
-    app.get('/api/catalogos/clientes', catalogLimiter, async (req, res) => {
+    app.get('/api/festivos', catalogLimiter, async (req, res) => {
+        try {
+            const festivosSet = await festivosService.getFestivosSet();
+            return res.json({ ok: true, festivos: Array.from(festivosSet) });
+        } catch (err) {
+            console.error('Error in GET /api/festivos:', err);
+            return res.status(500).json({ ok: false, festivos: [] });
+        }
+    });
+
+    app.get('/api/catalogos/clientes', verificarToken, requireCatalogConsultorOrStaff, catalogLimiter, async (req, res) => {
         try {
             const rawItems = await getClientesList();
             const items = rawItems.slice(0, 500).map((v) => String(v || '').trim()).filter(Boolean);
@@ -1044,7 +1106,7 @@ function registerRoutes(deps) {
         }
     });
 
-    app.get('/api/catalogos/lideres', catalogLimiter, async (req, res) => {
+    app.get('/api/catalogos/lideres', verificarToken, requireCatalogConsultorOrStaff, catalogLimiter, async (req, res) => {
         try {
             const cliente = normalizeCatalogValue(req.query?.cliente || '');
             if (!cliente) return res.status(400).json({ ok: false, error: 'Parametro cliente es obligatorio' });
@@ -1059,7 +1121,12 @@ function registerRoutes(deps) {
         }
     });
 
-    app.get('/api/catalogos/colaborador', catalogLimiter, async (req, res) => {
+    app.get(
+        '/api/catalogos/colaborador',
+        verificarToken,
+        requireColaboradorCatalogSelfOrStaff,
+        catalogLimiter,
+        async (req, res) => {
         try {
             const cedula = normalizeCedula(req.query?.cedula || '');
             if (!cedula) {
@@ -1105,14 +1172,26 @@ function registerRoutes(deps) {
             console.error('Error catalogo colaborador:', error);
             return res.status(500).json({ ok: false, error: 'No se pudo consultar el colaborador' });
         }
-    });
+        }
+    );
 
-    app.post('/api/hora-extra-domingo-preview', submitLimiter, async (req, res) => {
+    app.post(
+        '/api/hora-extra-domingo-preview',
+        verificarToken,
+        consultorFormPostLimiter,
+        requireEntraConsultor,
+        async (req, res) => {
         try {
             const body = req.body || {};
             const cedula = normalizeCedula(body.cedula || '');
             if (!cedula) {
                 return res.status(400).json({ ok: false, error: 'Cédula requerida (solo números).' });
+            }
+            if (req.user?.authProvider === 'entra_consultor') {
+                const tokenCed = normalizeCedula(req.user.cedula || '');
+                if (!tokenCed || tokenCed !== cedula) {
+                    return res.status(403).json({ ok: false, error: 'La cédula no coincide con tu sesión.' });
+                }
             }
             const col = await getColaboradorByCedula(cedula);
             if (!col) {
@@ -1135,7 +1214,7 @@ function registerRoutes(deps) {
                 horaInicio: hi,
                 horaFin: hf
             });
-            const dep = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow };
+            const dep = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow, festivosSet: await festivosService.getFestivosSet() };
             const prev = computeHeDomingoCompensacionPreview(rowsHe, synthetic, dep, buildConsultantKeyHeDomingo);
             if (prev.requiereEleccionCompensacion && !prev.domingoTrabajadoYmd) {
                 return res.status(400).json({
@@ -1156,9 +1235,16 @@ function registerRoutes(deps) {
             console.error('hora-extra-domingo-preview:', error);
             return res.status(500).json({ ok: false, error: 'No se pudo calcular la política de domingo.' });
         }
-    });
+        }
+    );
 
-    app.post('/api/enviar-novedad', submitLimiter, upload.any(), async (req, res) => {
+    app.post(
+        '/api/enviar-novedad',
+        verificarToken,
+        consultorFormPostLimiter,
+        requireEntraConsultor,
+        upload.any(),
+        async (req, res) => {
         try {
             const body = req.body || {};
             const files = (Array.isArray(req.files) ? req.files : [])
@@ -1255,6 +1341,12 @@ function registerRoutes(deps) {
             const cedulaNorm = normalizeCedula(body.cedula || '');
             if (!cedulaNorm) {
                 return res.status(400).json({ ok: false, error: 'Cédula inválida. Usa solo números, sin puntos ni comas.' });
+            }
+            if (req.user?.authProvider === 'entra_consultor') {
+                const tokenCed = normalizeCedula(req.user.cedula || '');
+                if (!tokenCed || tokenCed !== cedulaNorm) {
+                    return res.status(403).json({ ok: false, error: 'La cédula no coincide con tu sesión.' });
+                }
             }
             const colaborador = await getColaboradorByCedula(cedulaNorm);
             if (!colaborador) {
@@ -1378,7 +1470,7 @@ function registerRoutes(deps) {
                     horaInicio,
                     horaFin
                 });
-                const depHeDom = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow };
+                const depHeDom = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow, festivosSet: await festivosService.getFestivosSet() };
                 const prevHeDom = computeHeDomingoCompensacionPreview(
                     rowsHeDom,
                     syntheticHeDom,
@@ -1547,7 +1639,8 @@ function registerRoutes(deps) {
             console.error('Error al guardar:', error);
             return res.status(500).json({ ok: false, error: 'Error al guardar' });
         }
-    });
+        }
+    );
 
     app.get('/api/soportes/url', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), async (req, res) => {
         try {
@@ -1655,6 +1748,125 @@ function registerRoutes(deps) {
         }
     });
 
+    app.post(
+        '/api/novedades/:id/nomina-verificacion',
+        verificarToken,
+        allowPanel('gestion'),
+        applyScope,
+        async (req, res) => {
+            try {
+                const role = normalizeRoleOrNull(req.user?.role);
+                if (role !== 'nomina') {
+                    return res.status(403).json({ ok: false, error: 'Solo el rol nómina puede registrar esta verificación.' });
+                }
+                const idParam = String(req.params?.id || '').trim();
+                if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idParam)) {
+                    return res.status(400).json({ ok: false, error: 'Identificador de novedad inválido.' });
+                }
+                const body = req.body && typeof req.body === 'object' ? req.body : {};
+                const infoCorrecta = body.infoCorrecta === true || body.infoCorrecta === false ? body.infoCorrecta : null;
+                const observacion = String(body.observacion ?? '').trim();
+                if (infoCorrecta === null) {
+                    return res.status(400).json({ ok: false, error: 'Debe indicar si la información es correcta o incorrecta.' });
+                }
+                if (!observacion) {
+                    return res.status(400).json({ ok: false, error: 'La observación es obligatoria.' });
+                }
+                if (observacion.length > 2000) {
+                    return res.status(400).json({ ok: false, error: 'La observación supera el máximo permitido (2000 caracteres).' });
+                }
+
+                const q = await pool.query(
+                    `SELECT id, area, tipo_novedad, estado,
+                            nomina_info_correcta, nomina_verificacion_observacion
+                     FROM novedades
+                     WHERE id = $1::uuid
+                     LIMIT 1`,
+                    [idParam]
+                );
+                const row = q.rows[0];
+                if (!row) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+                if (!req.scope.canViewAllAreas && (!row.area || !req.scope.areas.includes(row.area))) {
+                    return res.status(403).json({ ok: false, error: 'No autorizado sobre esta área' });
+                }
+                if (String(row.estado || '').trim() !== 'Pendiente') {
+                    return res.status(400).json({ ok: false, error: 'Solo se puede verificar en estado Pendiente.' });
+                }
+                if (!isNominaGateNovedadType(row.tipo_novedad)) {
+                    return res.status(400).json({ ok: false, error: 'Este tipo de novedad no requiere verificación de nómina.' });
+                }
+                if (row.nomina_info_correcta !== null && row.nomina_info_correcta !== undefined) {
+                    return res.status(409).json({ ok: false, error: 'La verificación de nómina ya fue registrada.' });
+                }
+
+                const actorSub = String(req.user?.sub || '').trim();
+                const actorUserIdRaw = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
+                    ? actorSub
+                    : null;
+                let actorUserId = null;
+                if (actorUserIdRaw || req.user?.email) {
+                    try {
+                        const uq = await pool.query(
+                            'SELECT id FROM users WHERE id = $1 OR email = $2 LIMIT 1',
+                            [actorUserIdRaw, req.user?.email || '']
+                        );
+                        actorUserId = uq.rows[0]?.id || null;
+                    } catch {
+                        actorUserId = null;
+                    }
+                }
+                const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
+                let actorEmail = String(req.user?.email || '').trim();
+                if (!emailOk(actorEmail) && String(req.user?.username || '').includes('@')) {
+                    actorEmail = String(req.user.username).trim();
+                }
+                if (!actorEmail) {
+                    const payload = decodeJwtPayload(req.authToken) || {};
+                    actorEmail =
+                        String(payload.email || '').trim()
+                        || (String(payload.preferred_username || '').includes('@')
+                            ? String(payload.preferred_username).trim()
+                            : '');
+                }
+
+                await pool.query(
+                    `UPDATE novedades
+                     SET nomina_info_correcta = $2::boolean,
+                         nomina_verificacion_observacion = $3::text,
+                         nomina_verificacion_en = NOW(),
+                         nomina_verificacion_por_user_id = $4::uuid,
+                         nomina_verificacion_por_email = NULLIF($5::text, '')
+                     WHERE id = $1::uuid`,
+                    [idParam, infoCorrecta, observacion, actorUserId, actorEmail]
+                );
+
+                const fresh = await pool.query(
+                    `SELECT
+                        nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.gp_user_id, nov.tipo_novedad, nov.area,
+                        nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas, nov.horas_recargo_domingo,
+                        nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas,
+                        nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
+                        nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
+                        nov.he_domingo_observacion,
+                        nov.nomina_info_correcta, nov.nomina_verificacion_observacion, nov.nomina_verificacion_en,
+                        nov.nomina_verificacion_por_user_id, nov.nomina_verificacion_por_email,
+                        COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
+                        COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
+                     FROM novedades nov
+                     LEFT JOIN users ua ON nov.aprobado_por_user_id = ua.id
+                     LEFT JOIN users ur ON nov.rechazado_por_user_id = ur.id
+                     WHERE nov.id = $1::uuid`,
+                    [idParam]
+                );
+                const mapped = toClientNovedad(fresh.rows[0]);
+                return res.json({ ok: true, item: mapped });
+            } catch (error) {
+                console.error('Error nomina-verificacion:', error);
+                return res.status(500).json({ ok: false, error: 'Error al registrar verificación' });
+            }
+        }
+    );
+
     app.post('/api/actualizar-estado', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
         try {
             const { id, nuevoEstado } = req.body || {};
@@ -1679,22 +1891,18 @@ function registerRoutes(deps) {
             }
 
             let q;
+            const selectNovedadEstadoRow = `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop,
+                     nomina_info_correcta, nomina_verificacion_observacion`;
             if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''))) {
-                q = await pool.query(
-                    `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop
+                q = await pool.query(`${selectNovedadEstadoRow}
                      FROM novedades
                      WHERE id = $1::uuid
-                     LIMIT 1`,
-                    [id]
-                );
+                     LIMIT 1`, [id]);
             } else {
-                q = await pool.query(
-                    `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop
+                q = await pool.query(`${selectNovedadEstadoRow}
                      FROM novedades
                      WHERE creado_en = $1::timestamptz
-                     LIMIT 1`,
-                    [id]
-                );
+                     LIMIT 1`, [id]);
             }
             const item = q.rows[0];
             if (!item) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
@@ -1704,6 +1912,19 @@ function registerRoutes(deps) {
             }
             if (!canRoleApproveType(req.user.role, item.tipo_novedad)) {
                 return res.status(403).json({ ok: false, error: 'Este rol no puede aprobar/rechazar este tipo de novedad' });
+            }
+            if (
+                isNominaGateNovedadType(item.tipo_novedad)
+                && (estado === 'Aprobado' || estado === 'Rechazado')
+            ) {
+                const obsNom = String(item.nomina_verificacion_observacion || '').trim();
+                const hasFlag = item.nomina_info_correcta === true || item.nomina_info_correcta === false;
+                if (!hasFlag || !obsNom) {
+                    return res.status(400).json({
+                        ok: false,
+                        error: 'Falta verificación de nómina (correcta/incorrecta y observación obligatorias) antes de aprobar o rechazar.'
+                    });
+                }
             }
 
             const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());

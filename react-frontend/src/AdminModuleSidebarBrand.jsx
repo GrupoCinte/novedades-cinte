@@ -1,7 +1,7 @@
 /** Título unificado del portal admin (misma cadena que `App.jsx` en rutas `/admin`). */
-export const ADMIN_PORTAL_UNIFIED_TITLE = 'SISTEMA UNIFICADO DE GESTIÓN';
+export const ADMIN_PORTAL_UNIFIED_TITLE = 'Sistema de Gestión Unificado';
 
-const MODULE_PREFIXES = ['/admin/novedades', '/admin/comercial', '/admin/contratacion', '/admin/directorio'];
+const MODULE_PREFIXES = ['/admin/novedades', '/admin/conciliaciones', '/admin/comercial', '/admin/contratacion', '/admin/directorio'];
 
 /**
  * Rutas que usan shell de módulo (sidebar propio): sin logo/título duplicado en el header global.

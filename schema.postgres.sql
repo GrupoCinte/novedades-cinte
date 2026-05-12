@@ -124,6 +124,12 @@ CREATE TABLE IF NOT EXISTS novedades (
   rechazado_por_email   TEXT NULL,
   rechazado_en          TIMESTAMPTZ NULL,
 
+  nomina_info_correcta             BOOLEAN NULL,
+  nomina_verificacion_observacion  TEXT NULL,
+  nomina_verificacion_en           TIMESTAMPTZ NULL,
+  nomina_verificacion_por_user_id  UUID NULL,
+  nomina_verificacion_por_email    TEXT NULL,
+
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   -- Reglas básicas de consistencia
@@ -177,6 +183,20 @@ CREATE INDEX IF NOT EXISTS idx_clientes_lideres_cliente ON clientes_lideres(clie
 CREATE INDEX IF NOT EXISTS idx_clientes_lideres_activo ON clientes_lideres(activo);
 CREATE INDEX IF NOT EXISTS idx_colaboradores_activo ON colaboradores(activo);
 CREATE INDEX IF NOT EXISTS idx_colaboradores_gp_user ON colaboradores(gp_user_id) WHERE gp_user_id IS NOT NULL;
+
+-- ========= Reubicaciones PIPELINE (administración; datos maestros via JOIN colaboradores) =========
+CREATE TABLE IF NOT EXISTS reubicaciones_pipeline (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+    fecha_fin           DATE NOT NULL,
+    cliente_destino     TEXT NULL,
+    causal              TEXT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_reubicaciones_pipeline_cedula UNIQUE (cedula)
+);
+CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_fecha_fin ON reubicaciones_pipeline(fecha_fin);
+
 CREATE INDEX IF NOT EXISTS idx_novedades_area_estado ON novedades(area, estado);
 CREATE INDEX IF NOT EXISTS idx_novedades_tipo ON novedades(tipo_novedad);
 CREATE INDEX IF NOT EXISTS idx_novedades_fecha_inicio ON novedades(fecha_inicio);

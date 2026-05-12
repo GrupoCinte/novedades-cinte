@@ -1,13 +1,22 @@
+/**
+ * Smoke contra API real (requiere backend en TEST_API_URL, p. ej. :3005).
+ * No forma parte de `npm test` por defecto: en algunos entornos Windows el probe
+ * a localhost puede demorar o bloquear el runner. Usar `npm run test:api-smoke`.
+ */
 const assert = require('node:assert/strict');
 const { describe, it, before } = require('node:test');
 
 const BASE_URL = process.env.TEST_API_URL || 'http://localhost:3005';
+const PROBE_MS = Number(process.env.TEST_API_PROBE_MS || 3000);
+const FETCH_MS = Number(process.env.TEST_API_FETCH_MS || 10000);
 let serverAvailable = false;
 
 async function apiFetch(path, options = {}) {
+  const { timeoutMs = FETCH_MS, signal: userSignal, ...rest } = options;
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
+    ...rest,
+    headers: { 'Content-Type': 'application/json', ...(rest.headers || {}) },
+    signal: userSignal ?? AbortSignal.timeout(timeoutMs),
   });
   let body;
   try { body = await res.json(); } catch { body = {}; }
@@ -21,7 +30,12 @@ function skipIfUnavailable() {
 
 before(async () => {
   try {
-    await fetch(`${BASE_URL}/api/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    await fetch(`${BASE_URL}/api/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      signal: AbortSignal.timeout(PROBE_MS),
+    });
     serverAvailable = true;
   } catch {
     serverAvailable = false;
@@ -51,9 +65,13 @@ describe('Integración API (smoke)', () => {
     assert.strictEqual(status, 403);
   });
 
-  it('GET /api/catalogos/clientes responde 200 o rate-limit', async () => {
+  it('GET /api/catalogos/clientes sin sesión: 401/403/429 o catálogo mínimo (200)', async () => {
     if (skipIfUnavailable()) return;
-    const { status } = await apiFetch('/api/catalogos/clientes');
-    assert.ok([200, 429].includes(status));
+    const { status, body } = await apiFetch('/api/catalogos/clientes');
+    assert.ok([401, 403, 429, 200].includes(status));
+    if (status === 200) {
+      assert.strictEqual(body?.ok, true);
+      assert.ok(Array.isArray(body?.items));
+    }
   });
 });

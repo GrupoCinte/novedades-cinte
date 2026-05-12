@@ -1,4 +1,9 @@
 const crypto = require('node:crypto');
+const {
+    COLABORADORES_EXTENDED_COLUMNS,
+    COLABORADORES_EXTENDED_KEYS,
+    normalizeExtendedFieldForDb
+} = require('./colaboradores/colaboradoresExtendedColumns');
 const { buildFoldToCanonicoMap, matchExcelClienteABd } = require('./cotizador/clienteNombreMatch');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const {
@@ -9,6 +14,7 @@ const {
     resolveHourSplitBogotaForRow,
     isSundayBogotaYmd
 } = require('./heDomingoBogota');
+const conciliacionesQueries = require('./conciliaciones/conciliacionesQueries');
 
 function createDataLayer(deps) {
     const {
@@ -144,6 +150,26 @@ function createDataLayer(deps) {
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[DB] Permisos insuficientes para he_domingo_observacion en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureNovedadesNominaVerificacionColumns() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_info_correcta BOOLEAN NULL');
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_verificacion_observacion TEXT NULL'
+            );
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_verificacion_en TIMESTAMPTZ NULL');
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_verificacion_por_user_id UUID NULL'
+            );
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_verificacion_por_email TEXT NULL');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para columnas de verificación nómina en novedades.');
                 return;
             }
             throw error;
@@ -368,6 +394,7 @@ function createDataLayer(deps) {
             `);
             await pool.query('CREATE INDEX IF NOT EXISTS idx_colaboradores_activo ON colaboradores(activo)');
             await ensureColaboradoresDirectoryColumns();
+            await ensureColaboradoresExtendedColumns();
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Colaboradores] Permisos insuficientes para crear tabla colaboradores.');
@@ -415,6 +442,52 @@ function createDataLayer(deps) {
             throw error;
         }
     }
+
+    /** Columnas extendidas consultores (DDL incremental). Ver `src/colaboradores/colaboradoresExtendedColumns.js`. */
+    async function ensureColaboradoresExtendedColumns() {
+        try {
+            for (const col of COLABORADORES_EXTENDED_COLUMNS) {
+                await pool.query(
+                    `ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS ${col.key} ${col.sqlType} NULL`
+                );
+            }
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Colaboradores] Permisos insuficientes para columnas extendidas de consultores.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    /** Una fila por cédula (PIPELINE). FK a `colaboradores`. Ver `migrations/reubicaciones_pipeline.sql`. */
+    async function ensureReubicacionesPipelineTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS reubicaciones_pipeline (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cedula TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    fecha_fin DATE NOT NULL,
+                    cliente_destino TEXT NULL,
+                    causal TEXT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_reubicaciones_pipeline_cedula UNIQUE (cedula)
+                )
+            `);
+            await pool.query(
+                'CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_fecha_fin ON reubicaciones_pipeline(fecha_fin)'
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Reubicaciones] Permisos insuficientes para crear reubicaciones_pipeline.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    const COLAB_SELECT_FIELDS = `cedula, nombre, activo, correo_cinte, cliente, lider_catalogo, gp_user_id, created_at, updated_at, ${COLABORADORES_EXTENDED_KEYS.join(', ')}`;
 
     async function ensureCinteLeonardoPair() {
         await ensureClientesLideresTable();
@@ -656,6 +729,7 @@ function createDataLayer(deps) {
     const COLAB_LIST_SORT = {
         nombre: 'nombre',
         cedula: 'cedula',
+        codigo: 'codigo',
         correo: 'correo_cinte',
         cliente: 'cliente',
         lider: 'lider_catalogo',
@@ -686,6 +760,13 @@ function createDataLayer(deps) {
                   OR lower(coalesce(cliente, '')) LIKE $${i})`
             );
         }
+        const tipoCt = String(opts.tipoContrato || '').trim();
+        if (tipoCt === 'Sin clasificar' || tipoCt === '__sin_clasificar__') {
+            where.push(`(tipo_contrato IS NULL OR trim(COALESCE(tipo_contrato::text, '')) = '')`);
+        } else if (tipoCt) {
+            params.push(tipoCt);
+            where.push(`lower(trim(COALESCE(tipo_contrato::text, ''))) = lower(trim($${params.length}))`);
+        }
         const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
         const countQ = await pool.query(`SELECT COUNT(*)::int AS total FROM colaboradores ${whereSql}`, params);
         params.push(limit, offset);
@@ -696,7 +777,7 @@ function createDataLayer(deps) {
         const orderDir = String(opts.dir || '').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
         const orderBySql = `ORDER BY ${orderCol} ${orderDir} NULLS LAST`;
         const listQ = await pool.query(
-            `SELECT cedula, nombre, activo, correo_cinte, cliente, lider_catalogo, gp_user_id, created_at, updated_at
+            `SELECT ${COLAB_SELECT_FIELDS}
              FROM colaboradores
              ${whereSql}
              ${orderBySql}
@@ -715,11 +796,27 @@ function createDataLayer(deps) {
         const cliente = row.cliente ? normalizeCatalogValue(row.cliente) : null;
         const lider = row.lider_catalogo ? normalizeCatalogValue(row.lider_catalogo) : null;
         const gpId = row.gp_user_id || null;
+        const insertCols = [
+            'cedula',
+            'nombre',
+            'activo',
+            'correo_cinte',
+            'cliente',
+            'lider_catalogo',
+            'gp_user_id',
+            ...COLABORADORES_EXTENDED_KEYS
+        ];
+        const vals = [ced, nombre, row.activo !== false, correo, cliente, lider, gpId];
+        for (const k of COLABORADORES_EXTENDED_KEYS) {
+            const v = normalizeExtendedFieldForDb(k, row[k]);
+            vals.push(v === undefined ? null : v);
+        }
+        const ph = vals.map((_, i) => `$${i + 1}`).join(', ');
         const q = await pool.query(
-            `INSERT INTO colaboradores (cedula, nombre, activo, correo_cinte, cliente, lider_catalogo, gp_user_id)
-             VALUES ($1, $2, COALESCE($3, TRUE), $4, $5, $6, $7)
-             RETURNING cedula, nombre, activo, correo_cinte, cliente, lider_catalogo, gp_user_id, created_at, updated_at`,
-            [ced, nombre, row.activo !== false, correo, cliente, lider, gpId]
+            `INSERT INTO colaboradores (${insertCols.join(', ')})
+             VALUES (${ph})
+             RETURNING ${COLAB_SELECT_FIELDS}`,
+            vals
         );
         return q.rows[0];
     }
@@ -727,10 +824,9 @@ function createDataLayer(deps) {
     async function updateColaboradorByCedula(cedulaRaw, patch) {
         const ced = normalizeCedula(cedulaRaw);
         if (!ced) throw Object.assign(new Error('Cédula inválida'), { status: 400 });
-        const cur = await pool.query(
-            `SELECT cedula, nombre, activo, correo_cinte, cliente, lider_catalogo, gp_user_id FROM colaboradores WHERE cedula = $1 LIMIT 1`,
-            [ced]
-        );
+        const cur = await pool.query(`SELECT ${COLAB_SELECT_FIELDS} FROM colaboradores WHERE cedula = $1 LIMIT 1`, [
+            ced
+        ]);
         if (!cur.rows[0]) return null;
         const r = cur.rows[0];
         const nombre = patch.nombre !== undefined ? normalizeCatalogValue(patch.nombre) : r.nombre;
@@ -751,19 +847,42 @@ function createDataLayer(deps) {
                 : r.lider_catalogo;
         const activo = patch.activo !== undefined ? Boolean(patch.activo) : r.activo;
         const gpId = patch.gp_user_id !== undefined ? patch.gp_user_id || null : r.gp_user_id;
+
+        const merged = { ...r, nombre, correo_cinte: correo, cliente, lider_catalogo: lider, activo, gp_user_id: gpId };
+        for (const k of COLABORADORES_EXTENDED_KEYS) {
+            if (Object.prototype.hasOwnProperty.call(patch, k)) {
+                const nv = normalizeExtendedFieldForDb(k, patch[k]);
+                merged[k] = nv === undefined ? null : nv;
+            }
+        }
+
+        const updateCols = [
+            'nombre',
+            'activo',
+            'correo_cinte',
+            'cliente',
+            'lider_catalogo',
+            'gp_user_id',
+            ...COLABORADORES_EXTENDED_KEYS
+        ];
+        const setParts = updateCols.map((col, i) => `${col} = $${i + 1}`);
+        const vals = updateCols.map((col) => merged[col]);
+        vals.push(ced);
         const q = await pool.query(
             `UPDATE colaboradores SET
-                nombre = $2,
-                activo = $3,
-                correo_cinte = $4,
-                cliente = $5,
-                lider_catalogo = $6,
-                gp_user_id = $7,
+                ${setParts.join(', ')},
                 updated_at = NOW()
-             WHERE cedula = $1
-             RETURNING cedula, nombre, activo, correo_cinte, cliente, lider_catalogo, gp_user_id, created_at, updated_at`,
-            [ced, nombre, activo, correo, cliente, lider, gpId]
+             WHERE cedula = $${vals.length}
+             RETURNING ${COLAB_SELECT_FIELDS}`,
+            vals
         );
+        return q.rows[0] || null;
+    }
+
+    async function deleteColaboradorByCedula(cedulaRaw) {
+        const ced = normalizeCedula(cedulaRaw);
+        if (!ced) throw Object.assign(new Error('Cédula inválida'), { status: 400 });
+        const q = await pool.query(`DELETE FROM colaboradores WHERE cedula = $1 RETURNING cedula`, [ced]);
         return q.rows[0] || null;
     }
 
@@ -1013,6 +1132,27 @@ function createDataLayer(deps) {
         }
     }
 
+    /** Login Entra: correlación `correo_cinte` ↔ UPN/email (normalizado). */
+    async function getColaboradorByEmail(emailRaw) {
+        const em = String(emailRaw || '').trim().toLowerCase();
+        if (!em) return null;
+        try {
+            const q = await pool.query(
+                `SELECT cedula, nombre, correo_cinte, cliente, lider_catalogo, gp_user_id
+                 FROM colaboradores
+                 WHERE activo = TRUE
+                   AND correo_cinte IS NOT NULL
+                   AND lower(btrim(correo_cinte)) = $1
+                 LIMIT 1`,
+                [em]
+            );
+            return q.rows[0] || null;
+        } catch (error) {
+            if (String(error?.code || '') !== '42703') throw error;
+            return null;
+        }
+    }
+
     /**
      * @param {string|null|undefined} gpUserId
      * @returns {Promise<string[]>}
@@ -1108,9 +1248,9 @@ function createDataLayer(deps) {
             params.push(createdTo);
             whereParts.push(`nov.creado_en::date <= $${params.length}::date`);
         }
-        /** Super admin: filtrar por GP según catálogo `clientes_lideres` (clientes asignados a ese usuario GP), alineado con el alcance del rol `gp`. */
+        /** Super admin / CAC: filtrar por GP según catálogo `clientes_lideres` (clientes asignados a ese usuario GP), alineado con el alcance del rol `gp`. */
         const gpUserIdOpt = String(options?.gpUserId || '').trim();
-        if (role === 'super_admin' && gpUserIdOpt) {
+        if ((role === 'super_admin' || role === 'cac') && gpUserIdOpt) {
             if (gpUserIdOpt === '__null__') {
                 whereParts.push(`NOT EXISTS (
                     SELECT 1 FROM clientes_lideres cl
@@ -1146,6 +1286,8 @@ function createDataLayer(deps) {
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
                 nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
                 nov.he_domingo_observacion,
+                nov.nomina_info_correcta, nov.nomina_verificacion_observacion, nov.nomina_verificacion_en,
+                nov.nomina_verificacion_por_user_id, nov.nomina_verificacion_por_email,
                 COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
                 COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
              FROM novedades nov
@@ -1509,6 +1651,58 @@ function createDataLayer(deps) {
         };
     }
 
+    const conciliacionesDeps = {
+        pool,
+        getClientesList,
+        normalizeCatalogValue,
+        listScopedDistinctClientes,
+        listAssignedClientesForGpUserId,
+        resolveGpInternalUserIdForScope,
+        normalizeCedula,
+        canRoleViewType
+    };
+
+    async function listConciliacionesClientesForScope(scope) {
+        return conciliacionesQueries.listConciliacionesClientes(conciliacionesDeps, scope);
+    }
+
+    async function getConciliacionResumenPorClienteMesForScope(scope, clienteRaw, year, month) {
+        const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
+        if (!chk.ok) return chk;
+        const payload = await conciliacionesQueries.getConciliacionResumenPorClienteMes(
+            conciliacionesDeps,
+            scope,
+            chk.canon,
+            year,
+            month
+        );
+        return { ok: true, clienteCanon: chk.canon, ...payload };
+    }
+
+    async function listConciliacionNovedadesDetalleForScope(scope, clienteRaw, cedulaRaw, year, month) {
+        const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
+        if (!chk.ok) return chk;
+        const items = await conciliacionesQueries.listConciliacionNovedadesDetalle(
+            conciliacionesDeps,
+            scope,
+            chk.canon,
+            cedulaRaw,
+            year,
+            month
+        );
+        return { ok: true, clienteCanon: chk.canon, items };
+    }
+
+    async function getConciliacionesDashboardResumenForScope(scope, year, month) {
+        const payload = await conciliacionesQueries.getConciliacionesDashboardResumen(
+            conciliacionesDeps,
+            scope,
+            year,
+            month
+        );
+        return { ok: true, ...payload };
+    }
+
     return {
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
@@ -1520,13 +1714,17 @@ function createDataLayer(deps) {
         ensureNovedadesApproverEmailColumns,
         ensureNovedadesHoraExtraAlertColumns,
         ensureNovedadesHeDomingoObservacionColumn,
+        ensureNovedadesNominaVerificacionColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
+        ensureColaboradoresExtendedColumns,
+        ensureReubicacionesPipelineTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         getColaboradorByCedula,
+        getColaboradorByEmail,
         getClientesList,
         getLideresByCliente,
         listClientesLideresPaged,
@@ -1537,6 +1735,7 @@ function createDataLayer(deps) {
         listColaboradoresPaged,
         insertColaborador,
         updateColaboradorByCedula,
+        deleteColaboradorByCedula,
         listGpUsersForDirectorio,
         insertGpUserPlaceholder,
         updateGpUserById,
@@ -1547,7 +1746,11 @@ function createDataLayer(deps) {
         getScopedNovedades,
         listScopedDistinctClientes,
         getHoraExtraAlerts,
-        listHoraExtraByCedulaForDomingoPolicy
+        listHoraExtraByCedulaForDomingoPolicy,
+        listConciliacionesClientesForScope,
+        getConciliacionResumenPorClienteMesForScope,
+        listConciliacionNovedadesDetalleForScope,
+        getConciliacionesDashboardResumenForScope
     };
 }
 

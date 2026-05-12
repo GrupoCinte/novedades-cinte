@@ -4,6 +4,7 @@
  */
 export function parseMontoCOPInput(str) {
     const raw = String(str || '')
+        .replace(/[\u00a0\u202f\u2009\u2007]/g, '')
         .replace(/\$/g, '')
         .replace(/\s/g, '')
         .trim();

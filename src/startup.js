@@ -19,11 +19,13 @@ async function startServer(deps) {
         ensureNovedadesApproverEmailColumns,
         ensureNovedadesHoraExtraAlertColumns,
         ensureNovedadesHeDomingoObservacionColumn,
+        ensureNovedadesNominaVerificacionColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         migrateExcelIfNeeded,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
+        ensureReubicacionesPipelineTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
@@ -48,11 +50,13 @@ async function startServer(deps) {
     await ensureNovedadesApproverEmailColumns();
     await ensureNovedadesHoraExtraAlertColumns();
     await ensureNovedadesHeDomingoObservacionColumn();
+    await ensureNovedadesNominaVerificacionColumns();
     await ensureNovedadesHorasRecargoDomingoColumn();
     await migrateExcelIfNeeded();
     await migrateClientesLideresFromExcelIfNeeded();
     await ensureColaboradoresTable();
     await ensureColaboradoresDirectoryColumns();
+    await ensureReubicacionesPipelineTable();
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
 

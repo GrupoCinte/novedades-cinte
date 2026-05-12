@@ -2,7 +2,11 @@ import { useEffect, useState, useCallback } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import UserAccountMenu from './UserAccountMenu.jsx';
 import Dashboard from './Dashboard';
-import FormularioNovedad from './FormularioNovedad';
+import ConsultorRadicacionPortal from './ConsultorRadicacionPortal.jsx';
+import ConsultorProtectedLayout from './ConsultorProtectedLayout.jsx';
+import ConsultorPortalHome from './ConsultorPortalHome.jsx';
+import ConsultorNovedadesPage from './ConsultorNovedadesPage.jsx';
+import ConsultorModulePlaceholder from './ConsultorModulePlaceholder.jsx';
 import Login from './Login';
 import ForgotPassword from './ForgotPassword';
 import ResetPassword from './ResetPassword';
@@ -10,6 +14,9 @@ import ChangePassword from './ChangePassword';
 import ComercialModule from './ComercialModule';
 import ContratacionModule from './ContratacionModule';
 import DirectorioClienteColaboradorModule from './DirectorioClienteColaboradorModule';
+import ConciliacionesModule from './conciliaciones/ConciliacionesModule.jsx';
+import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboardPage.jsx';
+import ConciliacionesPage from './conciliaciones/ConciliacionesPage.jsx';
 import AdminPortalHome from './AdminPortalHome';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
@@ -45,7 +52,10 @@ function AdminPortalSinModulos({ onLogout }) {
 
 function adminPortalModuleCount(auth) {
   let n = 0;
-  if (userHasNovedadesAdminAccess(auth)) n += 1;
+  if (userHasNovedadesAdminAccess(auth)) {
+    n += 1;
+    n += 1;
+  }
   if (userHasCotizadorAccess(auth)) n += 1;
   if (userHasContratacionPanel(auth)) n += 1;
   if (userHasDirectorioPanel(auth)) n += 1;
@@ -73,6 +83,7 @@ function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const isFormularioPublico = location.pathname === '/';
+  const isConsultorShell = location.pathname.startsWith('/consultor');
   const isAdminRoute = location.pathname.startsWith('/admin');
   const moduleCount = adminPortalModuleCount(auth);
   /** Hub con tarjetas: sin cabecera duplicada; logo/título van sobre el banner en AdminPortalHome. */
@@ -81,17 +92,31 @@ function App() {
   const isAdminModuleShell = Boolean(auth?.user) && pathIsAdminModuleShell(location.pathname);
   /** Login / forgot / reset: sin cabecera global para usar viewport completo. */
   const showGlobalHeader =
-    !isFormularioPublico && !(isAdminRoute && !auth?.user) && !isAdminHubHome;
+    !isFormularioPublico &&
+    !isConsultorShell &&
+    !(isAdminRoute && !auth?.user) &&
+    !isAdminHubHome;
 
   const handleLogout = useCallback(async () => {
-    // CRIT-002 + LOW-005: Llama al endpoint de logout para revocar el token en servidor y limpiar cookies.
+    // CRIT-002 + LOW-005: Logout diferenciado por proveedor de identidad.
+    const isEntraConsultor = auth?.user?.authProvider === 'entra_consultor';
+
+    if (isEntraConsultor) {
+      // Consultor Entra ID: redirigir al endpoint de Single Sign-Out.
+      // El endpoint limpia las cookies locales y luego redirige a Microsoft
+      // para cerrar la sesión en todo el tenant (Outlook, Teams, etc.).
+      window.location.href = '/api/auth/entra/logout';
+      return;
+    }
+
+    // Administradores Cognito: flujo existente (fetch + cognitoSignOut).
     try {
       await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     } catch { /* ignora error de red en logout */ }
     cognitoSignOut();
     setAuth(null);
     navigate('/admin', { replace: true });
-  }, [navigate]);
+  }, [navigate, auth]);
 
   useEffect(() => {
     let mounted = true;
@@ -114,7 +139,28 @@ function App() {
     };
   }, []);
 
-  /** Tema global: variables CSS de contratación / surface-panel (`index.css`) + Capital Humano. */
+  /** Sincronizar `auth` al entrar al hub consultor (p. ej. tras redirect Entra con cookie recién fijada). */
+  useEffect(() => {
+    if (!isConsultorShell) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/me', { credentials: 'include' });
+        const data = await res.json().catch(() => ({}));
+        if (!mounted) return;
+        if (res.ok && data?.ok && data?.me) {
+          setAuth({ ok: true, user: data.me, claims: data.me });
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [isConsultorShell, location.pathname]);
+
+  /** Tema global: variables CSS (`index.css`). Radicación pública `/` no usa el toggle. Portal Entra consultor sí. */
   useEffect(() => {
     const root = document.documentElement;
     if (isFormularioPublico) {
@@ -150,12 +196,13 @@ function App() {
     ? 'flex-1 min-h-0 bg-slate-50 text-slate-900'
     : 'flex-1 min-h-0 bg-[#04141E] text-slate-200';
 
-  /** Radicación pública (`/`): look fijo oscuro; no sigue el toggle del portal admin. */
-  const appRootClass = isFormularioPublico
-    ? 'flex h-screen flex-col overflow-hidden font-body bg-[#04141E] text-slate-200'
-    : `flex h-screen flex-col overflow-hidden font-body ${
-        isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#04141E] text-slate-200'
-      }`;
+  /** Radicación pública (`/`): look fijo oscuro. Portal consultor Entra sigue `UiThemeContext` como el admin. */
+  const appRootClass =
+    isFormularioPublico
+      ? 'flex h-screen flex-col overflow-hidden font-body bg-[#04141E] text-slate-200'
+      : `flex h-screen flex-col overflow-hidden font-body ${
+          isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#04141E] text-slate-200'
+        }`;
 
   return (
     <div className={appRootClass}>
@@ -191,13 +238,31 @@ function App() {
         className={
           isFormularioPublico
             ? 'flex-1 min-h-0 flex flex-col overflow-hidden'
-            : isAdminRoute
+            : isConsultorShell
               ? `${mainShell} flex flex-col overflow-hidden`
-              : `${mainShell} w-full overflow-y-auto p-6 md:p-10`
+              : isAdminRoute
+                ? `${mainShell} flex flex-col overflow-hidden`
+                : `${mainShell} w-full overflow-y-auto p-6 md:p-10`
         }
       >
         <Routes>
-          <Route path="/" element={<FormularioNovedad />} />
+          <Route path="/" element={<ConsultorRadicacionPortal />} />
+          <Route path="/consultor" element={<ConsultorProtectedLayout />}>
+            <Route index element={<ConsultorPortalHome />} />
+            <Route path="novedades" element={<ConsultorNovedadesPage />} />
+            <Route
+              path="vacaciones"
+              element={<ConsultorModulePlaceholder title="Gestión de Vacaciones" />}
+            />
+            <Route
+              path="examenes-evaluaciones"
+              element={<ConsultorModulePlaceholder title="Exámenes y Evaluaciones" />}
+            />
+            <Route
+              path="documentacion"
+              element={<ConsultorModulePlaceholder title="Documentación" />}
+            />
+          </Route>
           <Route
             path="/admin/novedades"
             element={(
@@ -211,14 +276,36 @@ function App() {
             )}
           />
           <Route
+            path="/admin/conciliaciones"
+            element={(
+              <ProtectedRoute auth={auth}>
+                {userHasNovedadesAdminAccess(auth) ? (
+                  <ConciliacionesModule auth={auth} />
+                ) : (
+                  <Navigate to="/admin" replace />
+                )}
+              </ProtectedRoute>
+            )}
+          >
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route
+              path="dashboard"
+              element={<ConciliacionesDashboardPage token={auth?.token || ''} />}
+            />
+            <Route path="resumen" element={<ConciliacionesPage token={auth?.token || ''} />} />
+          </Route>
+          <Route
             path="/admin"
             element={
-              auth?.user ? (
-                moduleCount === 0 ? (
-                  <AdminPortalSinModulos onLogout={handleLogout} />
-                ) : (
-                  <AdminPortalHome auth={auth} onLogout={handleLogout} />
-                )
+              auth?.user?.authProvider === 'entra_consultor'
+              && String(auth?.user?.role || '').toLowerCase() === 'consultor' ? (
+                  <Navigate to="/consultor" replace />
+              ) : auth?.user ? (
+                  moduleCount === 0 ? (
+                    <AdminPortalSinModulos onLogout={handleLogout} />
+                  ) : (
+                    <AdminPortalHome auth={auth} onLogout={handleLogout} />
+                  )
               ) : (
                 <Login setAuth={onLoggedIn} />
               )
@@ -230,7 +317,11 @@ function App() {
             path="/perfil/cambiar-clave"
             element={(
               <ProtectedRoute auth={auth}>
-                <ChangePassword />
+                {auth?.user?.authProvider === 'entra_consultor' ? (
+                  <Navigate to="/consultor" replace />
+                ) : (
+                  <ChangePassword />
+                )}
               </ProtectedRoute>
             )}
           />
@@ -275,7 +366,22 @@ function App() {
           />
           <Route path="/admin/cotizador" element={<Navigate to="/admin/comercial" replace />} />
           <Route path="/admin/comercial/catalogo-roles-ti" element={<Navigate to="/admin/directorio?v=catalogo-ti" replace />} />
-          <Route path="*" element={<Navigate to={auth?.user ? '/admin' : '/'} replace />} />
+          <Route
+            path="*"
+            element={(
+              <Navigate
+                to={
+                  auth?.user?.authProvider === 'entra_consultor' &&
+                  String(auth?.user?.role || '').toLowerCase() === 'consultor'
+                    ? '/consultor'
+                    : auth?.user
+                      ? '/admin'
+                      : '/'
+                }
+                replace
+              />
+            )}
+          />
         </Routes>
       </main>
     </div>

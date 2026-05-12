@@ -91,10 +91,8 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
     it('debe requerir solo el documento de Incapacidad', () => {
       expect(rule.requiredDocuments).toEqual(['Incapacidad']);
     });
-    it('cac, admin_ch y team_ch deben ser aprobadores (flujo de aprobación CAC)', () => {
-      expect(rule.approvers).toContain('cac');
-      expect(rule.approvers).toContain('admin_ch');
-      expect(rule.approvers).toContain('team_ch');
+    it('solo admin_ch aprueba tras flujo nómina (alineado con src/rbac.js)', () => {
+      expect(rule.approvers).toEqual(['admin_ch']);
     });
     it('debe calcular días de calendario automáticamente con rango de fechas (sin rango de horas)', () => {
       expect(rule.requiresDayCount).toBe(true);
@@ -125,9 +123,8 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
       expect(rule.requiresDayCount).toBe(true);
       expect(rule.autoBusinessDays).toBe(true);
     });
-    it('admin_ch y team_ch deben ser aprobadores', () => {
-      expect(rule.approvers).toContain('admin_ch');
-      expect(rule.approvers).toContain('team_ch');
+    it('solo admin_ch es aprobador (alineado con src/rbac.js)', () => {
+      expect(rule.approvers).toEqual(['admin_ch']);
     });
     it('debe tener link de formato de permiso', () => {
       expect(rule.formatLinks).toHaveLength(1);
@@ -156,10 +153,8 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
       expect(rule.requiredDocuments).toContain('Certificado nacido vivo');
       expect(rule.requiredDocuments).toContain('Registro civil bebe');
     });
-    it('cac, admin_ch y team_ch deben ser aprobadores', () => {
-      expect(rule.approvers).toContain('cac');
-      expect(rule.approvers).toContain('admin_ch');
-      expect(rule.approvers).toContain('team_ch');
+    it('solo admin_ch es aprobador (alineado con src/rbac.js)', () => {
+      expect(rule.approvers).toEqual(['admin_ch']);
     });
   });
 
@@ -209,10 +204,16 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
       expect(rule.requiresDayCount).toBe(true);
       expect(rule.autoBusinessDays).toBe(true);
     });
-    it('gp y cac deben ser aprobadores', () => {
-      expect(rule.approvers).toContain('gp');
-      expect(rule.approvers).toContain('cac');
+    it('solo admin_ch es aprobador (alineado con src/rbac.js)', () => {
+      expect(rule.approvers).toEqual(['admin_ch']);
     });
+  });
+
+  it('tipos operación: solo gp aprueba (alineado con src/rbac.js)', () => {
+    expect(NOVEDAD_RULES['Permiso compensatorio en tiempo'].approvers).toEqual(['gp']);
+    expect(NOVEDAD_RULES.Disponibilidad.approvers).toEqual(['gp']);
+    expect(NOVEDAD_RULES['Hora Extra'].approvers).toEqual(['gp']);
+    expect(NOVEDAD_RULES_LEGACY.Bonos.approvers).toEqual(['gp']);
   });
 });
 

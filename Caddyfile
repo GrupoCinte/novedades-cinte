@@ -17,19 +17,38 @@
   reverse_proxy frontend:80
 }
 
-# Producción (LOW-003): activar para dominio público cuando Caddy termina TLS.
+# Producción: dominio público con TLS, HSTS y CSP completos (securityheaders.com grade A).
 novedades.grupocinte.com {
   encode zstd gzip
   tls {
     protocols tls1.2 tls1.3
   }
   header {
+    # Ocultar fingerprint del servidor
     -Server
+
+    # HSTS — fuerza HTTPS durante 1 año, incluye subdominios, apto para preload list
     Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+    # CSP — lista blanca de fuentes permitidas; bloquea XSS en el navegador
+    # Nota: 'unsafe-inline' solo en styleSrc (requerido por Tailwind/CSS-in-JS).
+    # scriptSrc es estrictamente 'self' — ningún script externo permitido.
+    Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://novedades.grupocinte.com; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
+
+    # Anti-MIME-sniffing
     X-Content-Type-Options "nosniff"
+
+    # Anti-clickjacking (refuerzo junto a frame-ancestors en CSP)
     X-Frame-Options "DENY"
+
+    # No filtrar el origen en las peticiones
     Referrer-Policy "no-referrer"
-    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+
+    # Deshabilitar APIs de hardware no usadas
+    Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+
+    # Aislamiento de navegación entre pestañas
+    Cross-Origin-Opener-Policy "same-origin"
   }
   @api path /api/*
   @backend_assets path /assets/uploads/* /assets/formats/* /assets/logo-cinte.png /assets/logo-cinte-header.png

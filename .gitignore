@@ -22,6 +22,8 @@ react-frontend/.vite/
 react-frontend/src/test/
 react-frontend/e2e/
 docs/
+!docs/
+!docs/RBAC_MATRIX.md
 
 # Archivos de sistema
 .DS_Store
@@ -64,3 +66,6 @@ migrations/
 *.sql
 *.sh
 *.ps1
+
+# Matriz RBAC versionada (excepción a *.md)
+!docs/RBAC_MATRIX.md

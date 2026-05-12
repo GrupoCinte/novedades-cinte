@@ -4,6 +4,7 @@ import {
     Bell,
     KeyRound,
     LogOut,
+    Menu,
     Moon,
     Settings,
     Sun,
@@ -30,25 +31,40 @@ function initials(auth) {
 /**
  * Campana (placeholder), menú usuario estilo tarjeta y toggle tema.
  * `surface`: "banner" (sobre imagen) | "header" (barra App).
+ * `collapseToolbarOnMobile`: en &lt; md un solo botón abre panel con cuenta, tema y alertas (evita barra apretada en móvil).
  */
-export default function UserAccountMenu({ auth, onLogout, surface = 'banner', notificationCount = 0 }) {
+export default function UserAccountMenu({
+    auth,
+    onLogout,
+    surface = 'banner',
+    notificationCount = 0,
+    collapseToolbarOnMobile = false
+}) {
     const navigate = useNavigate();
     const { theme, toggleTheme } = useUiTheme();
     const isLight = theme === 'light';
     const [open, setOpen] = useState(false);
+    const [sheetOpen, setSheetOpen] = useState(false);
     const wrapRef = useRef(null);
 
     useEffect(() => {
-        if (!open) return;
+        if (!open && !sheetOpen) return;
         const onDoc = (e) => {
-            if (!wrapRef.current?.contains(e.target)) setOpen(false);
+            if (!wrapRef.current?.contains(e.target)) {
+                setOpen(false);
+                setSheetOpen(false);
+            }
         };
         document.addEventListener('mousedown', onDoc);
         return () => document.removeEventListener('mousedown', onDoc);
-    }, [open]);
+    }, [open, sheetOpen]);
 
     const ini = initials(auth);
     const isBanner = surface === 'banner';
+
+    const isEntraConsultor =
+        auth?.user?.authProvider === 'entra_consultor' &&
+        String(auth?.user?.role || '').toLowerCase() === 'consultor';
 
     const bannerLight = isBanner && isLight;
 
@@ -93,16 +109,67 @@ export default function UserAccountMenu({ auth, onLogout, surface = 'banner', no
 
     const go = (path) => {
         setOpen(false);
+        setSheetOpen(false);
         navigate(path);
     };
 
     const novedades = userHasNovedadesAdminAccess(auth);
 
-    return (
+    const accountMenuPanel = open ? (
         <div
-            ref={wrapRef}
-            className={`relative flex flex-wrap items-center justify-end gap-2 font-body sm:gap-2.5 ${isBanner ? 'z-[25] isolate' : ''}`}
+            className={`absolute right-0 top-[calc(100%+8px)] z-[80] w-64 overflow-hidden rounded-xl py-1.5 ${panelClass}`}
+            role="menu"
         >
+            <button
+                type="button"
+                role="menuitem"
+                className={itemClass}
+                onClick={() => go(isEntraConsultor ? '/consultor' : '/admin')}
+            >
+                <User size={18} className="opacity-80" />
+                {isEntraConsultor ? 'Inicio portal' : 'Mi perfil'}
+            </button>
+            {!isEntraConsultor ? (
+                <>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={itemClass}
+                        onClick={() => go(novedades ? '/admin/novedades' : '/admin')}
+                    >
+                        <Settings size={18} className="opacity-80" />
+                        Configuración
+                    </button>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={itemClass}
+                        onClick={() => go('/perfil/cambiar-clave')}
+                    >
+                        <KeyRound size={18} className="opacity-80" />
+                        Cambiar contraseña
+                    </button>
+                </>
+            ) : null}
+            <div className={`my-1.5 h-px ${bannerLight ? 'bg-slate-200' : isBanner ? 'bg-white/10' : isLight ? 'bg-slate-200' : 'bg-[#1a3a56]'}`} />
+            <button
+                type="button"
+                role="menuitem"
+                className={itemDanger}
+                onClick={() => {
+                    setOpen(false);
+                    setSheetOpen(false);
+                    onLogout?.();
+                }}
+            >
+                <LogOut size={18} />
+                Cerrar sesión
+            </button>
+        </div>
+    ) : null;
+
+    const toolbarTiles = (
+        <>
             <div className="relative">
                 <button
                     type="button"
@@ -122,49 +189,7 @@ export default function UserAccountMenu({ auth, onLogout, surface = 'banner', no
                 >
                     {ini}
                 </button>
-
-                {open ? (
-                    <div
-                        className={`absolute right-0 top-[calc(100%+8px)] z-[80] w-64 overflow-hidden rounded-xl py-1.5 ${panelClass}`}
-                        role="menu"
-                    >
-                        <button type="button" role="menuitem" className={itemClass} onClick={() => go('/admin')}>
-                            <User size={18} className="opacity-80" />
-                            Mi perfil
-                        </button>
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={itemClass}
-                            onClick={() => go(novedades ? '/admin/novedades' : '/admin')}
-                        >
-                            <Settings size={18} className="opacity-80" />
-                            Configuración
-                        </button>
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={itemClass}
-                            onClick={() => go('/perfil/cambiar-clave')}
-                        >
-                            <KeyRound size={18} className="opacity-80" />
-                            Cambiar contraseña
-                        </button>
-                        <div className={`my-1.5 h-px ${bannerLight ? 'bg-slate-200' : isBanner ? 'bg-white/10' : isLight ? 'bg-slate-200' : 'bg-[#1a3a56]'}`} />
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={itemDanger}
-                            onClick={() => {
-                                setOpen(false);
-                                onLogout?.();
-                            }}
-                        >
-                            <LogOut size={18} />
-                            Cerrar sesión
-                        </button>
-                    </div>
-                ) : null}
+                {accountMenuPanel}
             </div>
 
             <button
@@ -182,21 +207,122 @@ export default function UserAccountMenu({ auth, onLogout, surface = 'banner', no
                 )}
             </button>
 
+            <span className="inline-flex" title="Notificaciones: no disponible por el momento">
+                <button
+                    type="button"
+                    disabled
+                    aria-disabled="true"
+                    aria-label="Notificaciones no disponibles temporalmente"
+                    className={`${tileClass} cursor-not-allowed opacity-45`}
+                >
+                    <Bell size={20} strokeWidth={2} className={bannerLight ? 'text-[#004D87]' : isBanner ? 'text-white' : ''} />
+                </button>
+            </span>
+        </>
+    );
+
+    const mobileSheet = sheetOpen ? (
+        <div
+            className={`absolute right-0 top-[calc(100%+8px)] z-[90] w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-xl py-1.5 ${panelClass}`}
+            role="menu"
+            aria-label="Acciones de cuenta y preferencias"
+        >
+            <div className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide ${bannerLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                Cuenta ({ini})
+            </div>
+            <button type="button" role="menuitem" className={itemClass} onClick={() => go(isEntraConsultor ? '/consultor' : '/admin')}>
+                <User size={18} className="opacity-80" />
+                {isEntraConsultor ? 'Inicio portal' : 'Mi perfil'}
+            </button>
+            {!isEntraConsultor ? (
+                <>
+                    <button type="button" role="menuitem" className={itemClass} onClick={() => go(novedades ? '/admin/novedades' : '/admin')}>
+                        <Settings size={18} className="opacity-80" />
+                        Configuración
+                    </button>
+                    <button type="button" role="menuitem" className={itemClass} onClick={() => go('/perfil/cambiar-clave')}>
+                        <KeyRound size={18} className="opacity-80" />
+                        Cambiar contraseña
+                    </button>
+                </>
+            ) : null}
+            <div className={`my-1.5 h-px ${bannerLight ? 'bg-slate-200' : isBanner ? 'bg-white/10' : isLight ? 'bg-slate-200' : 'bg-[#1a3a56]'}`} />
             <button
                 type="button"
-                title="Notificaciones"
-                className={tileClass}
+                role="menuitem"
+                className={itemClass}
                 onClick={() => {
-                    go(novedades ? '/admin/novedades' : '/admin');
+                    toggleTheme();
+                    setSheetOpen(false);
                 }}
             >
-                <Bell size={20} strokeWidth={2} className={bannerLight ? 'text-[#004D87]' : isBanner ? 'text-white' : ''} />
-                {notificationCount > 0 ? (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#2F7BB8] px-0.5 text-[9px] font-bold text-white ring-2 ring-white/40 sm:h-4 sm:min-w-[1.05rem] sm:text-[10px]">
-                        {notificationCount > 9 ? '9+' : notificationCount}
-                    </span>
-                ) : null}
+                {isLight ? (
+                    <Moon size={18} className="opacity-80" />
+                ) : (
+                    <Sun size={18} className="opacity-80" />
+                )}
+                {isLight ? 'Modo oscuro' : 'Modo claro'}
             </button>
+            <button
+                type="button"
+                disabled
+                className={`flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium opacity-45 ${bannerLight ? 'text-slate-600' : 'text-slate-300'}`}
+                title="Notificaciones: no disponible por el momento"
+            >
+                <Bell size={18} />
+                Notificaciones (pronto)
+            </button>
+            <div className={`my-1.5 h-px ${bannerLight ? 'bg-slate-200' : isBanner ? 'bg-white/10' : isLight ? 'bg-slate-200' : 'bg-[#1a3a56]'}`} />
+            <button
+                type="button"
+                role="menuitem"
+                className={itemDanger}
+                onClick={() => {
+                    setSheetOpen(false);
+                    onLogout?.();
+                }}
+            >
+                <LogOut size={18} />
+                Cerrar sesión
+            </button>
+        </div>
+    ) : null;
+
+    return (
+        <div
+            ref={wrapRef}
+            className={`relative flex flex-wrap items-center justify-end gap-2 font-body sm:gap-2.5 ${isBanner ? 'z-[25] isolate' : ''}`}
+        >
+            {collapseToolbarOnMobile ? (
+                <>
+                    <div className="relative md:hidden">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setOpen(false);
+                                setSheetOpen((s) => !s);
+                            }}
+                            aria-expanded={sheetOpen}
+                            aria-haspopup="menu"
+                            title="Menú de cuenta y opciones"
+                            className={tileClass}
+                            aria-label="Abrir menú de cuenta y opciones"
+                        >
+                            <Menu
+                                size={22}
+                                strokeWidth={2}
+                                className={bannerLight ? 'text-[#004D87]' : isBanner ? 'text-[#d4efff]' : themeIconClass || ''}
+                            />
+                        </button>
+                        {mobileSheet}
+                    </div>
+                    <div className={`hidden md:flex flex-wrap items-center justify-end gap-2 sm:gap-2.5 ${isBanner ? 'isolate' : ''}`}>
+                        {toolbarTiles}
+                    </div>
+                </>
+            ) : (
+                toolbarTiles
+            )}
         </div>
     );
 }

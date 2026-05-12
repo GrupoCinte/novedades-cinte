@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     ArrowDown,
+    ArrowRightLeft,
     ArrowUp,
     Building2,
     ChevronLeft,
     ChevronRight,
     Home,
+    LayoutDashboard,
     Layers,
     Menu,
     Users,
@@ -16,6 +18,16 @@ import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
+import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
+import AdministracionDashboardPage from './AdministracionDashboardPage';
+import {
+    initialStaffForm,
+    mapRowToStaffForm,
+    buildStaffColaboradorPayload,
+    CO_CONSULTOR_SECTIONS,
+    getFieldMeta
+} from './constants/colaboradoresConsultorFields.js';
+import { currencyNarrowSymbol, formatMoneyAmountOnly, parseMoneyInput } from './multiCurrencyMoney.js';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -124,6 +136,20 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const showTiCatalogSubmod = userHasRolesTiCatalogRead(auth);
     useEffect(() => {
         const v = searchParams.get('v');
+        if (v === 'dashboard') {
+            setMainView('dashboardAdmin');
+            const next = new URLSearchParams(searchParams);
+            next.delete('v');
+            setSearchParams(next, { replace: true });
+            return;
+        }
+        if (v === 'reubicaciones') {
+            setMainView('reubicaciones');
+            const next = new URLSearchParams(searchParams);
+            next.delete('v');
+            setSearchParams(next, { replace: true });
+            return;
+        }
         if (v !== 'catalogo-ti') return;
         if (!showTiCatalogSubmod) {
             const next = new URLSearchParams(searchParams);
@@ -175,6 +201,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const [coPage, setCoPage] = useState(1);
     const [coPageSize, setCoPageSize] = useState(10);
     const [coQ, setCoQ] = useState('');
+    /** Filtro exacto por tipo de contrato (API `tipo_contrato`), p. ej. desde el dashboard. */
+    const [coTipoContrato, setCoTipoContrato] = useState('');
     const [coActivo, setCoActivo] = useState('all');
     const [coLoading, setCoLoading] = useState(false);
     const [selectedCoCedula, setSelectedCoCedula] = useState(null);
@@ -182,19 +210,60 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const [coSort, setCoSort] = useState({ key: null, dir: 'asc' });
     const [staffModalOpen, setStaffModalOpen] = useState(false);
     const [staffModalMode, setStaffModalMode] = useState('create');
-    const [coForm, setCoForm] = useState({
-        cedula: '',
-        nombre: '',
-        correo_cinte: '',
-        cliente: '',
-        lider_catalogo: ''
-    });
+    const [coForm, setCoForm] = useState(() => initialStaffForm());
     const [catalogClientes, setCatalogClientes] = useState([]);
     const [liderOptions, setLiderOptions] = useState([]);
     const [liderLoading, setLiderLoading] = useState(false);
 
     const [gpItems, setGpItems] = useState([]);
     const [gpSelectOptions, setGpSelectOptions] = useState([]);
+
+    /** Navegación remota hacia Reubicaciones (dashboard): incrementar `seq` para aplicar filtros en la página hija. */
+    const [reubicacionesNavIntent, setReubicacionesNavIntent] = useState(() => ({ seq: 0 }));
+
+    const administracionDrillDown = useCallback((action) => {
+        const t = action?.type;
+        if (t === 'cliente') {
+            setClQ(String(action.q || '').trim());
+            setClPage(1);
+            setMainView('cliente');
+            setMobileMenuOpen(false);
+            return;
+        }
+        if (t === 'consultoresPorCliente') {
+            setCoTipoContrato('');
+            setCoQ(String(action.q || '').trim());
+            setCoPage(1);
+            setMainView('consultores');
+            setMobileMenuOpen(false);
+            return;
+        }
+        if (t === 'consultoresPorTipoContrato') {
+            setCoTipoContrato(String(action.tipoContrato || '').trim());
+            setCoQ('');
+            setCoPage(1);
+            setMainView('consultores');
+            setMobileMenuOpen(false);
+            return;
+        }
+        if (t === 'reubicaciones') {
+            setReubicacionesNavIntent((prev) => ({
+                seq: prev.seq + 1,
+                reset: false,
+                fechaFinDesde: action.fechaFinDesde ?? '',
+                fechaFinHasta: action.fechaFinHasta ?? '',
+                semaforo: action.semaforo ?? ''
+            }));
+            setMainView('reubicaciones');
+            setMobileMenuOpen(false);
+            return;
+        }
+        if (t === 'reubicacionesSinFiltro') {
+            setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
+            setMainView('reubicaciones');
+            setMobileMenuOpen(false);
+        }
+    }, []);
 
     const [leadersModalRows, setLeadersModalRows] = useState([]);
     const [leadersModalLoading, setLeadersModalLoading] = useState(false);
@@ -288,6 +357,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             const u = new URLSearchParams();
             u.set('activo', coActivo);
             if (coQ.trim()) u.set('q', coQ.trim());
+            if (coTipoContrato.trim()) u.set('tipo_contrato', coTipoContrato.trim());
             u.set('limit', String(coPageSize));
             u.set('offset', String((coPage - 1) * coPageSize));
             if (coSort.key) {
@@ -304,11 +374,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         } finally {
             setCoLoading(false);
         }
-    }, [token, coActivo, coQ, flash, coPage, coPageSize, coSort]);
+    }, [token, coActivo, coQ, coTipoContrato, flash, coPage, coPageSize, coSort]);
 
     const fetchCatalogClientes = useCallback(async () => {
         try {
-            const res = await fetch('/api/catalogos/clientes');
+            const res = await fetch('/api/catalogos/clientes', { credentials: 'include' });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) return;
             setCatalogClientes(Array.isArray(data.items) ? data.items : []);
@@ -325,7 +395,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         }
         setLiderLoading(true);
         try {
-            const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(c)}`);
+            const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(c)}`, {
+                credentials: 'include'
+            });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) {
                 setLiderOptions([]);
@@ -355,7 +427,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
 
     useEffect(() => {
         setCoPage(1);
-    }, [coActivo, coQ, coPageSize, coSort]);
+    }, [coActivo, coQ, coTipoContrato, coPageSize, coSort]);
 
     useEffect(() => {
         const tp = Math.max(1, Math.ceil((coTotal || 0) / coPageSize) || 1);
@@ -755,6 +827,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     async function submitStaffModal(e) {
         e.preventDefault();
         const gpDerived = resolveGpUserIdFromCatalogRows(clItemsActive, coForm.cliente, coForm.lider_catalogo);
+        const ext = buildStaffColaboradorPayload(coForm);
         try {
             if (staffModalMode === 'create') {
                 const body = {
@@ -763,7 +836,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     correo_cinte: coForm.correo_cinte || null,
                     cliente: coForm.cliente || null,
                     lider_catalogo: coForm.lider_catalogo || null,
-                    gp_user_id: gpDerived
+                    gp_user_id: gpDerived,
+                    ...ext
                 };
                 const res = await fetch('/api/directorio/colaboradores', {
                     method: 'POST',
@@ -784,7 +858,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         correo_cinte: coForm.correo_cinte || null,
                         cliente: coForm.cliente || null,
                         lider_catalogo: coForm.lider_catalogo || null,
-                        gp_user_id: gpDerived
+                        gp_user_id: gpDerived,
+                        ...ext
                     })
                 });
                 const data = await res.json().catch(() => ({}));
@@ -792,6 +867,28 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 flash('Colaborador actualizado.');
             }
             setStaffModalOpen(false);
+            loadColaboradores();
+        } catch (err) {
+            flash(String(err.message || err), false);
+        }
+    }
+
+    async function deleteColaboradorRow(row) {
+        if (!row?.cedula) return;
+        const ok = window.confirm(
+            `¿Eliminar definitivamente al colaborador con cédula ${row.cedula}? Esta acción no se puede deshacer.`
+        );
+        if (!ok) return;
+        try {
+            const res = await fetch(`/api/directorio/colaboradores/${encodeURIComponent(row.cedula)}`, {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: authHeaders(token)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || res.statusText);
+            flash('Colaborador eliminado.');
+            setSelectedCoCedula(null);
             loadColaboradores();
         } catch (err) {
             flash(String(err.message || err), false);
@@ -817,13 +914,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
 
     function openStaffModalCreate() {
         setStaffModalMode('create');
-        setCoForm({
-            cedula: '',
-            nombre: '',
-            correo_cinte: '',
-            cliente: '',
-            lider_catalogo: ''
-        });
+        setCoForm(initialStaffForm());
         setLiderOptions([]);
         fetchCatalogClientes();
         setStaffModalOpen(true);
@@ -833,13 +924,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         if (!row) return;
         setSelectedCoCedula(row.cedula);
         setStaffModalMode('edit');
-        setCoForm({
-            cedula: row.cedula,
-            nombre: row.nombre || '',
-            correo_cinte: row.correo_cinte || '',
-            cliente: row.cliente || '',
-            lider_catalogo: row.lider_catalogo || ''
-        });
+        setCoForm(mapRowToStaffForm(row));
         fetchCatalogClientes();
         if (row.cliente) fetchLideresForCliente(row.cliente);
         else setLiderOptions([]);
@@ -872,6 +957,15 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 }}
             />
             <NavBtn
+                active={mainView === 'dashboardAdmin'}
+                icon={LayoutDashboard}
+                label="Dashboard"
+                onClick={() => {
+                    setMainView('dashboardAdmin');
+                    setMobileMenuOpen(false);
+                }}
+            />
+            <NavBtn
                 active={mainView === 'cliente'}
                 icon={Building2}
                 label="Cliente"
@@ -885,7 +979,19 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 icon={Users}
                 label="Consultores / Staff"
                 onClick={() => {
+                    setCoTipoContrato('');
+                    setCoQ('');
                     setMainView('consultores');
+                    setMobileMenuOpen(false);
+                }}
+            />
+            <NavBtn
+                active={mainView === 'reubicaciones'}
+                icon={ArrowRightLeft}
+                label="Reubicaciones"
+                onClick={() => {
+                    setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
+                    setMainView('reubicaciones');
                     setMobileMenuOpen(false);
                 }}
             />
@@ -1032,7 +1138,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         <p className={`text-xs mt-1 ${labelMuted}`}>
                             {mainView === 'catalogoTi'
                                 ? 'Submódulo Catálogo roles TI: taxonomía financiera y perfiles del cliente interno en cotizador.'
-                                : 'Catálogo por cliente (líderes y GP) y colaboradores (roles autorizados).'}
+                                : mainView === 'reubicaciones'
+                                  ? 'Submódulo Reubicaciones: seguimiento PIPELINE (fecha fin, destino y causal; datos del consultor desde el directorio).'
+                                  : mainView === 'dashboardAdmin'
+                                    ? 'Dashboard: KPIs y gráficas solo de clientes, consultores y reubicaciones (sin catálogo roles TI).'
+                                    : 'Catálogo por cliente (líderes y GP) y colaboradores (roles autorizados).'}
                         </p>
                     </div>
                 </header>
@@ -1048,6 +1158,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 ) : null}
 
                 <main className={`flex-1 overflow-y-auto p-4 md:p-8 ${mainCanvas}`}>
+                    {mainView === 'dashboardAdmin' ? (
+                        <div className="space-y-4 w-full max-w-[95rem]">
+                            <AdministracionDashboardPage token={token} onDrillDown={administracionDrillDown} />
+                        </div>
+                    ) : null}
+
                     {mainView === 'cliente' && (
                         <div className="space-y-4 w-full max-w-[95rem]">
                             <div className="flex flex-wrap gap-2 items-center">
@@ -1316,6 +1432,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                             {(
                                                 [
                                                     ['cedula', 'Cédula'],
+                                                    ['codigo', 'Código'],
                                                     ['nombre', 'Nombre'],
                                                     ['correo', 'Correo'],
                                                     ['cliente', 'Cliente'],
@@ -1347,7 +1464,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                     <tbody>
                                         {coLoading ? (
                                             <tr>
-                                                <td colSpan={9} className="p-4 text-center">
+                                                <td colSpan={10} className="p-4 text-center">
                                                     Cargando…
                                                 </td>
                                             </tr>
@@ -1378,6 +1495,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                                         />
                                                     </td>
                                                     <td className="p-2 whitespace-nowrap">{row.cedula}</td>
+                                                    <td className="p-2 max-w-[8rem] truncate" title={row.codigo || ''}>
+                                                        {row.codigo || '—'}
+                                                    </td>
                                                     <td className="p-2">{row.nombre}</td>
                                                     <td className="p-2">{row.correo_cinte || '—'}</td>
                                                     <td className="p-2">{row.cliente || '—'}</td>
@@ -1396,16 +1516,30 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                                         </button>
                                                     </td>
                                                     <td className="p-2 whitespace-nowrap">
-                                                        <button
-                                                            type="button"
-                                                            className="text-[#65BCF7] hover:underline"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                patchColaborador(row.cedula, { activo: !row.activo });
-                                                            }}
-                                                        >
-                                                            {row.activo ? 'Desactivar' : 'Activar'}
-                                                        </button>
+                                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                            <button
+                                                                type="button"
+                                                                className="text-[#65BCF7] hover:underline"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    patchColaborador(row.cedula, {
+                                                                        activo: !row.activo
+                                                                    });
+                                                                }}
+                                                            >
+                                                                {row.activo ? 'Desactivar' : 'Activar'}
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="text-red-400 hover:text-red-300 hover:underline"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    deleteColaboradorRow(row);
+                                                                }}
+                                                            >
+                                                                Eliminar
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))
@@ -1444,6 +1578,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     {mainView === 'catalogoTi' && showTiCatalogSubmod ? (
                         <div className="space-y-4 w-full max-w-[95rem]">
                             <RolesTiCatalogPage token={token} auth={auth} embedInDirectorio />
+                        </div>
+                    ) : null}
+
+                    {mainView === 'reubicaciones' ? (
+                        <div className="space-y-4 w-full max-w-[95rem]">
+                            <ReubicacionesPipelinePage token={token} navIntent={reubicacionesNavIntent} />
                         </div>
                     ) : null}
                 </main>
@@ -1697,7 +1837,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         className="modal-glass-scrim absolute inset-0 transition-opacity"
                         onClick={() => setStaffModalOpen(false)}
                     />
-                    <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
+                    <div className="modal-glass-sheet font-body relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
                         <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
                             <h2 className="text-lg font-heading font-bold text-[var(--text)]">
                                 {staffModalMode === 'create' ? 'Crear colaborador' : `Editar colaborador`}
@@ -1779,6 +1919,202 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                             <p className={`text-xs ${labelMuted}`}>
                                 El GP se toma automáticamente del par cliente–líder en el catálogo (si está definido).
                             </p>
+
+                            <div className="border-t border-[var(--border)] pt-4 mt-4 space-y-6">
+                                <p className="text-sm font-semibold text-[var(--text)]">Ficha extendida</p>
+                                {CO_CONSULTOR_SECTIONS.map((sec) => (
+                                    <div key={sec.title} className="space-y-3">
+                                        <h3
+                                            className={`text-xs font-bold uppercase tracking-wide ${labelMuted}`}
+                                        >
+                                            {sec.title}
+                                        </h3>
+                                        <div className="grid gap-3 sm:grid-cols-2">
+                                            {sec.keys.map((key) => {
+                                                const meta = getFieldMeta(key);
+                                                if (!meta) return null;
+                                                const val = coForm[key] ?? '';
+                                                const cellWide =
+                                                    meta.kind === 'textarea' ? 'sm:col-span-2' : '';
+                                                let control;
+                                                if (meta.kind === 'bool') {
+                                                    control = (
+                                                        <select
+                                                            className={`w-full ${field}`}
+                                                            value={val}
+                                                            onChange={(e) =>
+                                                                setCoForm((f) => ({
+                                                                    ...f,
+                                                                    [key]: e.target.value
+                                                                }))
+                                                            }
+                                                        >
+                                                            <option value="">Sin especificar</option>
+                                                            <option value="true">Sí</option>
+                                                            <option value="false">No</option>
+                                                        </select>
+                                                    );
+                                                } else if (meta.kind === 'date') {
+                                                    control = (
+                                                        <input
+                                                            type="date"
+                                                            className={`w-full ${field}`}
+                                                            value={val}
+                                                            onChange={(e) =>
+                                                                setCoForm((f) => ({
+                                                                    ...f,
+                                                                    [key]: e.target.value
+                                                                }))
+                                                            }
+                                                        />
+                                                    );
+                                                } else if (meta.kind === 'money') {
+                                                    const ccy = coForm.montos_divisa?.[key] || 'COP';
+                                                    const sym = currencyNarrowSymbol(ccy);
+                                                    control = (
+                                                        <div className="flex flex-wrap gap-2 items-center">
+                                                            <select
+                                                                className={`w-[4.75rem] shrink-0 rounded-md border px-2 py-2 text-sm ${field}`}
+                                                                value={ccy}
+                                                                onChange={(e) => {
+                                                                    const next = e.target.value;
+                                                                    setCoForm((f) => {
+                                                                        const prevCcy = f.montos_divisa?.[key] || 'COP';
+                                                                        const rawVal = f[key];
+                                                                        const n = parseMoneyInput(rawVal, prevCcy);
+                                                                        const nextMd = {
+                                                                            ...(f.montos_divisa || {}),
+                                                                            [key]: next
+                                                                        };
+                                                                        if (
+                                                                            n != null &&
+                                                                            Number.isFinite(n)
+                                                                        ) {
+                                                                            return {
+                                                                                ...f,
+                                                                                montos_divisa: nextMd,
+                                                                                [key]: formatMoneyAmountOnly(n, next)
+                                                                            };
+                                                                        }
+                                                                        return {
+                                                                            ...f,
+                                                                            montos_divisa: nextMd
+                                                                        };
+                                                                    });
+                                                                }}
+                                                            >
+                                                                <option value="COP">COP</option>
+                                                                <option value="CLP">CLP</option>
+                                                                <option value="USD">USD</option>
+                                                            </select>
+                                                            <span
+                                                                className={`text-sm tabular-nums shrink-0 ${labelMuted}`}
+                                                                title={ccy}
+                                                            >
+                                                                {sym}
+                                                            </span>
+                                                            <input
+                                                                type="text"
+                                                                inputMode="decimal"
+                                                                className={`min-w-0 flex-1 rounded-md border px-3 py-2 ${field}`}
+                                                                value={val}
+                                                                onChange={(e) =>
+                                                                    setCoForm((f) => ({
+                                                                        ...f,
+                                                                        [key]: e.target.value
+                                                                    }))
+                                                                }
+                                                                onBlur={(e) => {
+                                                                    const rawBlur = e.target.value;
+                                                                    setCoForm((f) => {
+                                                                        const cur =
+                                                                            f.montos_divisa?.[key] ||
+                                                                            'COP';
+                                                                        const n = parseMoneyInput(
+                                                                            rawBlur,
+                                                                            cur
+                                                                        );
+                                                                        if (
+                                                                            n == null ||
+                                                                            !Number.isFinite(n)
+                                                                        ) {
+                                                                            return { ...f, [key]: '' };
+                                                                        }
+                                                                        return {
+                                                                            ...f,
+                                                                            [key]: formatMoneyAmountOnly(
+                                                                                n,
+                                                                                cur
+                                                                            )
+                                                                        };
+                                                                    });
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    );
+                                                } else if (
+                                                    meta.kind === 'number' ||
+                                                    meta.kind === 'int'
+                                                ) {
+                                                    control = (
+                                                        <input
+                                                            type="text"
+                                                            inputMode="decimal"
+                                                            className={`w-full ${field}`}
+                                                            value={val}
+                                                            onChange={(e) =>
+                                                                setCoForm((f) => ({
+                                                                    ...f,
+                                                                    [key]: e.target.value
+                                                                }))
+                                                            }
+                                                        />
+                                                    );
+                                                } else if (meta.kind === 'textarea') {
+                                                    control = (
+                                                        <textarea
+                                                            rows={3}
+                                                            className={`w-full ${field}`}
+                                                            value={val}
+                                                            onChange={(e) =>
+                                                                setCoForm((f) => ({
+                                                                    ...f,
+                                                                    [key]: e.target.value
+                                                                }))
+                                                            }
+                                                        />
+                                                    );
+                                                } else {
+                                                    control = (
+                                                        <input
+                                                            type="text"
+                                                            className={`w-full ${field}`}
+                                                            value={val}
+                                                            onChange={(e) =>
+                                                                setCoForm((f) => ({
+                                                                    ...f,
+                                                                    [key]: e.target.value
+                                                                }))
+                                                            }
+                                                        />
+                                                    );
+                                                }
+                                                return (
+                                                    <div key={key} className={cellWide}>
+                                                        <label
+                                                            className={`block text-xs ${labelMuted} mb-1`}
+                                                        >
+                                                            {meta.label}
+                                                        </label>
+                                                        {control}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
                             <div className="flex gap-2 pt-2">
                                 <button
                                     type="submit"

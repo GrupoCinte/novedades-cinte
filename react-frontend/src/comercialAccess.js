@@ -5,17 +5,21 @@
 
 const NOVEDADES_PANELS = new Set(['dashboard', 'calendar', 'gestion', 'admin']);
 
-const COTIZADOR_PANELS = new Set(['comercial', 'dashboard', 'gestion', 'admin']);
+/** Solo el panel JWT `comercial` habilita el módulo cotizador (evita acceso vía dashboard/gestión sin comercial). */
+const COTIZADOR_PANELS = new Set(['comercial']);
 
 /** Debe coincidir con `POLICY` en `src/rbac.js` (fallback si el JWT no trae `panels`). */
 const POLICY_PANELS_BY_ROLE = {
     super_admin: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial', 'directorio'],
-    cac: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial', 'directorio'],
-    admin_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
-    team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'],
+    /** Paridad backend `POLICY`: submódulos novedades (dashboard/calendario/gestión) + admin + directorio; sin comercial ni contratación. */
+    cac: ['dashboard', 'calendar', 'gestion', 'admin', 'directorio'],
+    admin_ch: ['dashboard', 'calendar', 'gestion', 'contratacion'],
+    team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion'],
     comercial: ['comercial'],
-    gp: ['dashboard', 'calendar', 'gestion', 'contratacion'],
-    nomina: ['dashboard', 'calendar', 'gestion']
+    gp: ['gestion'],
+    nomina: ['dashboard', 'calendar', 'gestion'],
+    /** Entra consultor: sin paneles admin (docs/RBAC_MATRIX.md). */
+    consultor: []
 };
 
 function normalizePayload(authOrToken) {
@@ -62,11 +66,12 @@ export function userHasNovedadesAdminAccess(authOrToken) {
     return panels.some((p) => NOVEDADES_PANELS.has(p));
 }
 
-/** Puede usar el cotizador (API /admin/comercial). */
+/** Puede usar el cotizador (`/admin/comercial`): solo roles con panel `comercial` o super_admin. */
 export function userHasCotizadorAccess(authOrToken) {
     const payload = normalizePayload(authOrToken);
     const role = String(payload?.role || '').trim().toLowerCase();
-    if (role === 'nomina') return false;
+    if (role === 'nomina' || role === 'gp' || role === 'cac') return false;
+    if (role === 'super_admin') return true;
     const panels = getPanelsFromToken(authOrToken);
     return panels.some((p) => COTIZADOR_PANELS.has(p));
 }
