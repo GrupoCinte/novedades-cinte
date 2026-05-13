@@ -14,6 +14,7 @@ react-frontend/.env.*
 !react-frontend/.env.example
 
 # Artefactos de build/test/reportes
+artifacts/
 react-frontend/dist/
 react-frontend/coverage/
 react-frontend/playwright-report/

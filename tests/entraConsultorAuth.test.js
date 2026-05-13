@@ -78,3 +78,40 @@ test('revokeAppSessionToken invalida entra_consultor', () => {
         assert.equal(res.statusCode, 403);
     });
 });
+
+test('GET /api/auth/entra/start: cookie entraOidcState con SameSite=Lax (deps sameSite strict)', async () => {
+    const express = require('express');
+    const request = require('supertest');
+    const { registerEntraRoutes } = require('../src/auth/registerEntraRoutes');
+    const keys = ['ENTRA_TENANT_ID', 'ENTRA_CLIENT_ID', 'ENTRA_CLIENT_SECRET', 'ENTRA_REDIRECT_URI'];
+    const prev = {};
+    for (const k of keys) prev[k] = process.env[k];
+    process.env.ENTRA_TENANT_ID = '11111111-1111-1111-1111-111111111111';
+    process.env.ENTRA_CLIENT_ID = 'cid-entra-test';
+    process.env.ENTRA_CLIENT_SECRET = 'secret-entra-test-at-least-some-chars';
+    process.env.ENTRA_REDIRECT_URI = 'http://localhost:3005/api/auth/entra/callback';
+    try {
+        const app = express();
+        registerEntraRoutes(app, {
+            getColaboradorByEmail: async () => null,
+            issueAppTokenForEntraConsultor: () => ({ token: 'x', expiresInSec: 60 }),
+            revokeAppSessionToken: () => {},
+            verificarToken: (req, res, next) => next(),
+            FRONTEND_URL: 'http://localhost:5175',
+            secureCookie: false,
+            sameSite: 'strict'
+        });
+        const res = await request(app).get('/api/auth/entra/start').expect(302);
+        const raw = res.headers['set-cookie'];
+        assert.ok(Array.isArray(raw) && raw.length > 0, 'Set-Cookie presente');
+        const stateLine = raw.find((c) => String(c).startsWith('entraOidcState='));
+        assert.ok(stateLine, 'cookie entraOidcState');
+        assert.match(stateLine, /SameSite=Lax/i);
+        assert.doesNotMatch(stateLine, /SameSite=Strict/i);
+    } finally {
+        for (const k of keys) {
+            if (prev[k] === undefined) delete process.env[k];
+            else process.env[k] = prev[k];
+        }
+    }
+});

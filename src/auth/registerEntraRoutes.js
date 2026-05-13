@@ -56,6 +56,8 @@ function registerEntraRoutes(app, deps) {
 
     const STATE_COOKIE = 'entraOidcState';
     const STATE_MAX_AGE_MS = 12 * 60 * 1000;
+    /** GET de vuelta desde el IdP es navegación cross-site; Strict no envía la cookie en el callback. */
+    const sameSiteOidcState = 'lax';
 
     function setSessionCookie(res, token, maxAgeSec) {
         const ms = Number(maxAgeSec || 0) > 0 ? Number(maxAgeSec) * 1000 : 8 * 60 * 60 * 1000;
@@ -90,7 +92,7 @@ function registerEntraRoutes(app, deps) {
         res.cookie(STATE_COOKIE, state, {
             httpOnly: true,
             secure: secureCookie,
-            sameSite,
+            sameSite: sameSiteOidcState,
             path: '/api',
             maxAge: STATE_MAX_AGE_MS
         });
@@ -114,7 +116,7 @@ function registerEntraRoutes(app, deps) {
         }
         const qState = String(req.query?.state || '').trim();
         const cookieState = readCookieValue(req.headers.cookie, STATE_COOKIE).trim();
-        res.clearCookie(STATE_COOKIE, { path: '/api', sameSite, secure: secureCookie });
+        res.clearCookie(STATE_COOKIE, { path: '/api', sameSite: sameSiteOidcState, secure: secureCookie });
         if (!qState || !cookieState || qState !== cookieState) {
             return failRedirect('state');
         }
