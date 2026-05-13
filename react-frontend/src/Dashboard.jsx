@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
-import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2 } from 'lucide-react';
+import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import ChatWidget from './ChatWidget';
 import {
     getNovedadRule,
@@ -174,6 +174,15 @@ export default function Dashboard({ token, auth, onLogout }) {
             borrarFiltros: L
                 ? 'rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition-all hover:bg-slate-100'
                 : 'rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-300 transition-all hover:bg-slate-700/60',
+            filtrosAvanzadosBtn: L
+                ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-600/35 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-900 shadow-sm transition-all hover:bg-cyan-100'
+                : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm font-semibold text-cyan-100 shadow-sm transition-all hover:bg-cyan-500/20',
+            filtrosPanelMobile: L
+                ? 'grid max-h-[min(70vh,28rem)] grid-cols-1 gap-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 shadow-inner md:max-h-none md:grid-cols-2 md:overflow-visible xl:grid-cols-3'
+                : 'grid max-h-[min(70vh,28rem)] grid-cols-1 gap-3 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900/40 p-3 shadow-inner md:max-h-none md:grid-cols-2 md:overflow-visible xl:grid-cols-3',
+            filtrosChip: L
+                ? 'inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-lg border border-slate-300 bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700'
+                : 'inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-lg border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300',
             emptyHe: L ? 'rounded-xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600' : 'rounded-xl border border-slate-700 bg-slate-900/40 p-6 text-sm text-slate-400',
             calShell: L
                 ? 'animate-in fade-in zoom-in-95 flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white pb-20 shadow-md duration-300'
@@ -369,6 +378,8 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [gestionAdminBusy, setGestionAdminBusy] = useState(false);
     const [gestionAdminErr, setGestionAdminErr] = useState(null);
     const [alertaHeDetailItem, setAlertaHeDetailItem] = useState(null);
+    /** Panel colapsable de filtros avanzados en Gestión (todos los tamaños de pantalla). */
+    const [gestionFiltersPanelOpen, setGestionFiltersPanelOpen] = useState(false);
     const navigate = useNavigate();
 
     const loadData = async () => {
@@ -995,6 +1006,42 @@ export default function Dashboard({ token, auth, onLogout }) {
     const typeDataSorted = useMemo(() => [...typeData].sort((a, b) => b.value - a.value), [typeData]);
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
+    const gestionFiltrosResumen = useMemo(() => {
+        const parts = [];
+        let n = 0;
+        if (String(fTipo || '').trim()) {
+            n += 1;
+            parts.push(`Tipo: ${fTipo}`);
+        }
+        if (String(fEstado || '').trim()) {
+            n += 1;
+            parts.push(`Estado: ${fEstado}`);
+        }
+        const nom = String(fNombre || '').trim();
+        if (nom) {
+            n += 1;
+            parts.push(nom.length > 22 ? `${nom.slice(0, 20)}…` : nom);
+        }
+        if (String(fCliente || '').trim()) {
+            n += 1;
+            const c = fCliente;
+            parts.push(c.length > 26 ? `${c.slice(0, 24)}…` : c);
+        }
+        if (String(fCreadoDesde || '').trim() || String(fCreadoHasta || '').trim()) {
+            n += 1;
+            parts.push('Rango fechas');
+        }
+        if (String(fGpUserId || '').trim()) {
+            n += 1;
+            parts.push('GP');
+        }
+        const head = parts.slice(0, 2).join(', ');
+        const more = parts.length > 2 ? '…' : '';
+        const chipLabel =
+            n === 0 ? 'Sin filtros activos' : `${n} filtro${n === 1 ? '' : 's'} activo${n === 1 ? '' : 's'}${head ? ` (${head}${more})` : ''}`;
+        return { chipLabel };
+    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId]);
+
     // 3. Monitor de Tendencia – agrupa dashItems por mes del año en curso
     const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const currentYear = new Date().getFullYear();
@@ -1153,7 +1200,6 @@ export default function Dashboard({ token, auth, onLogout }) {
         const hf = normalizeHoraHePayload(it.horaFin);
         const startMs = toUtcMsFromDateAndTime(it.fechaInicio, hi);
         const endMs = toUtcMsFromDateAndTime(it.fechaFin, hf);
-        const dash = { diurna: [], nocturna: [] };
         if (startMs == null || endMs == null || endMs <= startMs) {
             return {
                 recargoDiurnaFranja: '—',
@@ -1336,6 +1382,10 @@ export default function Dashboard({ token, auth, onLogout }) {
             setActiveTab(allowedTabs[0] || 'Calendario');
         }
     }, [activeTab, navItems]);
+
+    useEffect(() => {
+        if (activeTab !== 'Gestión') setGestionFiltersPanelOpen(false);
+    }, [activeTab]);
 
     const superAdminGpSelect = isSuperAdminNovedades ? (
         <div className="flex flex-wrap items-center gap-2">
@@ -1937,50 +1987,115 @@ export default function Dashboard({ token, auth, onLogout }) {
                         )}
                         <div className={dash.cardFlex}>
                             <div className={`sticky top-0 z-20 p-4 ${dash.gestionHead}`}>
-                                <h2 className={`${dash.titleXl} mb-4`}>Gestión Operativa de Novedades</h2>
-                                <div className="flex flex-wrap gap-3 items-center">
-                                    <select onChange={e => setFTipo(e.target.value)} value={fTipo} className={`${fieldInput} text-sm`}>
-                                        <option value="">Todos los tipos</option>
-                                        {Object.keys(typeDataMap).map(k => <option key={k} value={k}>{k}</option>)}
-                                    </select>
-                                    <select onChange={e => setFEstado(e.target.value)} value={fEstado} className={`${fieldInput} text-sm`}>
-                                        <option value="">Todos los estados</option>
-                                        <option value="Pendiente">Pendientes</option>
-                                        <option value="Aprobado">Aprobados</option>
-                                        <option value="Rechazado">Rechazados</option>
-                                    </select>
-                                    <input type="text" placeholder="Buscar por nombre..." value={fNombre} onChange={(e) => setFNombre(e.target.value)} className={`${fieldInput} min-w-[180px] text-sm`} />
-                                    <select onChange={(e) => setFCliente(e.target.value)} value={fCliente} className={`${fieldInput} min-w-[220px] text-sm`}>
-                                        <option value="">Todos los clientes</option>
-                                        {gestionClienteOptions.map((c) => (
-                                            <option key={c} value={c}>{c}</option>
-                                        ))}
-                                    </select>
-                                    {superAdminGpSelect}
-                                    <div className={dash.dateRangeWrap}>
-                                        <span className={dash.dateRangeLbl}>Rango de fechas</span>
-                                        <input type="date" value={fCreadoDesde} onChange={(e) => setFCreadoDesde(e.target.value)} className={`${fieldInput} px-2 py-1 text-sm`} />
-                                        <span className={`${dash.modalMuted} text-xs`}>a</span>
-                                        <input type="date" value={fCreadoHasta} onChange={(e) => setFCreadoHasta(e.target.value)} className={`${fieldInput} px-2 py-1 text-sm`} />
+                                <h2 className={`${dash.titleXl} mb-3 md:mb-4`}>Gestión Operativa de Novedades</h2>
+
+                                {/* Barra compacta + panel colapsable (todos los tamaños de pantalla) */}
+                                <div className="mb-2 flex flex-col gap-2 md:gap-3">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className={dash.filtrosChip} title={gestionFiltrosResumen.chipLabel}>
+                                            {gestionFiltrosResumen.chipLabel}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            id="gestion-filtros-avanzados-toggle"
+                                            aria-expanded={gestionFiltersPanelOpen}
+                                            aria-controls="gestion-filtros-avanzados-panel"
+                                            onClick={() => setGestionFiltersPanelOpen((o) => !o)}
+                                            className={dash.filtrosAvanzadosBtn}
+                                        >
+                                            <Filter size={16} className="shrink-0 opacity-90" aria-hidden />
+                                            <span>Filtros avanzados</span>
+                                            {gestionFiltersPanelOpen ? (
+                                                <ChevronUp size={18} className="shrink-0 opacity-90" aria-hidden />
+                                            ) : (
+                                                <ChevronDown size={18} className="shrink-0 opacity-90" aria-hidden />
+                                            )}
+                                        </button>
+                                        <input
+                                            type="search"
+                                            enterKeyHint="search"
+                                            placeholder="Buscar por nombre..."
+                                            value={fNombre}
+                                            onChange={(e) => setFNombre(e.target.value)}
+                                            className={`${fieldInput} w-[min(100%,11rem)] max-w-[13rem] shrink-0 text-sm`}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={exportExcel}
+                                            className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[#2F7BB8] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#004D87] sm:px-4 font-body"
+                                            aria-label="Exportar reporte Excel"
+                                        >
+                                            <Download size={16} aria-hidden />
+                                            <span className="hidden sm:inline">Exportar Reporte Excel</span>
+                                            <span className="sm:hidden">Exportar</span>
+                                        </button>
                                     </div>
-                                    <select onChange={e => setPageSize(Number(e.target.value))} value={pageSize} className={`${fieldInput} text-sm`}>
-                                        <option value={10}>10 por página</option>
-                                        <option value={20}>20 por página</option>
-                                        <option value={50}>50 por página</option>
-                                    </select>
-                                    <button
-                                        type="button"
-                                        onClick={clearGestionFilters}
-                                        className={dash.borrarFiltros}
+                                    <div
+                                        id="gestion-filtros-avanzados-panel"
+                                        role="region"
+                                        aria-labelledby="gestion-filtros-avanzados-toggle"
+                                        className={gestionFiltersPanelOpen ? dash.filtrosPanelMobile : 'hidden'}
                                     >
-                                        Borrar filtros
-                                    </button>
-
-                                    <div className="flex-1"></div>
-
-                                    <button onClick={exportExcel} className="bg-[#2F7BB8] hover:bg-[#004D87] text-white px-4 py-2 rounded-lg text-sm transition-all flex items-center gap-2 shadow-sm font-body font-medium">
-                                        <Download size={16} /> Exportar Reporte Excel
-                                    </button>
+                                        <select onChange={(e) => setFTipo(e.target.value)} value={fTipo} className={`${fieldInput} w-full text-sm`}>
+                                            <option value="">Todos los tipos</option>
+                                            {Object.keys(typeDataMap).map((k) => (
+                                                <option key={k} value={k}>
+                                                    {k}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <select onChange={(e) => setFEstado(e.target.value)} value={fEstado} className={`${fieldInput} w-full text-sm`}>
+                                            <option value="">Todos los estados</option>
+                                            <option value="Pendiente">Pendientes</option>
+                                            <option value="Aprobado">Aprobados</option>
+                                            <option value="Rechazado">Rechazados</option>
+                                        </select>
+                                        <select onChange={(e) => setFCliente(e.target.value)} value={fCliente} className={`${fieldInput} w-full text-sm`}>
+                                            <option value="">Todos los clientes</option>
+                                            {gestionClienteOptions.map((c) => (
+                                                <option key={c} value={c}>
+                                                    {c}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {superAdminGpSelect ? (
+                                            <div className="min-w-0 md:col-span-2 xl:col-span-3">{superAdminGpSelect}</div>
+                                        ) : null}
+                                        <div
+                                            className={`${dash.dateRangeWrap} flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center md:col-span-2 xl:col-span-3`}
+                                        >
+                                            <span className={`${dash.dateRangeLbl} shrink-0`}>Rango de fechas</span>
+                                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                                                <input
+                                                    type="date"
+                                                    value={fCreadoDesde}
+                                                    onChange={(e) => setFCreadoDesde(e.target.value)}
+                                                    className={`${fieldInput} min-w-0 flex-1 px-2 py-1 text-sm sm:min-w-[9rem]`}
+                                                />
+                                                <span className={`${dash.modalMuted} shrink-0 text-xs`}>a</span>
+                                                <input
+                                                    type="date"
+                                                    value={fCreadoHasta}
+                                                    onChange={(e) => setFCreadoHasta(e.target.value)}
+                                                    className={`${fieldInput} min-w-0 flex-1 px-2 py-1 text-sm sm:min-w-[9rem]`}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center md:col-span-2 xl:col-span-3">
+                                            <select
+                                                onChange={(e) => setPageSize(Number(e.target.value))}
+                                                value={pageSize}
+                                                className={`${fieldInput} w-full text-sm sm:w-auto sm:min-w-[11rem]`}
+                                            >
+                                                <option value={10}>10 por página</option>
+                                                <option value={20}>20 por página</option>
+                                                <option value={50}>50 por página</option>
+                                            </select>
+                                            <button type="button" onClick={clearGestionFilters} className={`${dash.borrarFiltros} w-full sm:ml-auto sm:w-auto`}>
+                                                Borrar filtros
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 

@@ -130,4 +130,4 @@ function toClientNovedad(row) {
     };
 }
 
-module.exports = { toClientNovedad };
+module.exports = { toClientNovedad, decodePossiblyMisencodedText };

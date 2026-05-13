@@ -416,7 +416,9 @@ const pool = new Pool({
     port: Number(process.env.DB_PORT || 5432),
     database: process.env.DB_NAME || 'novedades_cinte',
     user: process.env.DB_USER || 'cinte_app',
-    password: DB_PASSWORD
+    password: DB_PASSWORD,
+    /** Evita texto con tildes/ñ mal interpretado si el servidor PG no usa UTF8 por defecto. */
+    options: '-c client_encoding=UTF8'
 });
 
 const CLIENTES_LIDERES_XLSX_PATH = String(process.env.CLIENTES_LIDERES_XLSX_PATH || '').trim();

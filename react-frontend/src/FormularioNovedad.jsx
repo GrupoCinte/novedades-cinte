@@ -122,7 +122,10 @@ const FORM_THEMES = {
         switchTrack: 'relative h-8 w-14 shrink-0 rounded-full border border-[#1a3a56] bg-[#0b1e30] transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#65BCF7]/50',
         switchTrackOn: 'border-[#2F7BB8] bg-[#2F7BB8]/40',
         switchThumb: 'pointer-events-none absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform duration-200',
-        switchThumbOn: 'translate-x-6'
+        switchThumbOn: 'translate-x-6',
+        /** Enlace «Volver al inicio» (sesión consultor): no usar hover:text-white — se pierde sobre fondo claro. */
+        navHomeLink:
+            'text-xs font-semibold text-[#65BCF7] hover:text-[#88cffc] focus-visible:rounded focus-visible:outline focus-visible:ring-2 focus-visible:ring-[#65BCF7]/45'
     },
     light: {
         pageOverlay: 'absolute inset-0 bg-slate-200/55 backdrop-blur-[2px]',
@@ -177,7 +180,9 @@ const FORM_THEMES = {
         switchTrack: 'relative h-8 w-14 shrink-0 rounded-full border border-slate-300 bg-slate-200 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2F7BB8]/40',
         switchTrackOn: 'border-[#2F7BB8] bg-sky-100',
         switchThumb: 'pointer-events-none absolute top-1 left-1 h-6 w-6 rounded-full bg-white shadow-md transition-transform duration-200 ring-1 ring-slate-300/60',
-        switchThumbOn: 'translate-x-6'
+        switchThumbOn: 'translate-x-6',
+        navHomeLink:
+            'text-xs font-semibold text-[#004D87] hover:text-[#002a52] hover:underline focus-visible:rounded focus-visible:outline focus-visible:ring-2 focus-visible:ring-[#2F7BB8]/40'
     }
 };
 
@@ -1202,10 +1207,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                     </h2>
                                     {consultorSession ? (
                                         <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
-                                            <Link
-                                                to="/consultor"
-                                                className="text-xs font-semibold text-[#65BCF7] hover:text-white"
-                                            >
+                                            <Link to="/consultor" className={theme.navHomeLink}>
                                                 Volver al inicio
                                             </Link>
                                         </div>

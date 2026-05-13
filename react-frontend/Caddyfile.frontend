@@ -1,5 +1,13 @@
 :80 {
   root * /usr/share/caddy
+  @charsetJs path *.js
+  header @charsetJs Content-Type "application/javascript; charset=utf-8"
+  @charsetCss path *.css
+  header @charsetCss Content-Type "text/css; charset=utf-8"
+  @charsetJson path *.json
+  header @charsetJson Content-Type "application/json; charset=utf-8"
+  @charsetHtml path *.html
+  header @charsetHtml Content-Type "text/html; charset=utf-8"
   try_files {path} /index.html
   file_server
 }

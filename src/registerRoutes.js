@@ -23,6 +23,7 @@ const {
 } = require('./heDomingoCompensacion');
 const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
 const festivosService = require('./festivosService');
+const { decodePossiblyMisencodedText } = require('./novedadesMapper');
 
 // Inicializar festivos en background al arrancar el servidor
 festivosService.initFestivosCache();
@@ -1098,7 +1099,10 @@ function registerRoutes(deps) {
     app.get('/api/catalogos/clientes', verificarToken, requireCatalogConsultorOrStaff, catalogLimiter, async (req, res) => {
         try {
             const rawItems = await getClientesList();
-            const items = rawItems.slice(0, 500).map((v) => String(v || '').trim()).filter(Boolean);
+            const items = rawItems
+                .slice(0, 500)
+                .map((v) => decodePossiblyMisencodedText(String(v || '').trim()))
+                .filter(Boolean);
             return res.json({ ok: true, items });
         } catch (error) {
             console.error('Error catalogo clientes:', error);
@@ -1112,7 +1116,7 @@ function registerRoutes(deps) {
             if (!cliente) return res.status(400).json({ ok: false, error: 'Parametro cliente es obligatorio' });
             const items = (await getLideresByCliente(cliente))
                 .slice(0, 500)
-                .map((v) => String(v || '').trim())
+                .map((v) => decodePossiblyMisencodedText(String(v || '').trim()))
                 .filter(Boolean);
             return res.json({ ok: true, items, cliente });
         } catch (error) {
@@ -1158,13 +1162,13 @@ function registerRoutes(deps) {
             return res.json({
                 ok: true,
                 cedula: row.cedula,
-                nombre: row.nombre,
+                nombre: decodePossiblyMisencodedText(String(row.nombre || '').trim()),
                 // Precarga el correo Cinte en el formulario público. Riesgo de enumeración mitigado con
                 // catalogLimiter; el POST /api/enviar-novedad sigue resolviendo el correo desde BD (no confía solo en el cliente).
                 correo: correoOut,
                 lockCorreo,
-                cliente: clienteOut,
-                lider: liderOut,
+                cliente: decodePossiblyMisencodedText(String(clienteOut || '').trim()),
+                lider: decodePossiblyMisencodedText(String(liderOut || '').trim()),
                 lockCliente,
                 lockLider
             });
