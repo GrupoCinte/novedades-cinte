@@ -28,7 +28,8 @@ const PATCH_CAMEL_TO_SNAKE = {
     montoCop: 'monto_cop',
     estado: 'estado',
     heDomingoObservacion: 'he_domingo_observacion',
-    soporteRuta: 'soporte_ruta'
+    soporteRuta: 'soporte_ruta',
+    unidad: 'unidad'
 };
 
 async function writeNovedadAudit(pool, { actorUserId, actorRole, action, entityId, metadata }) {
@@ -256,6 +257,11 @@ function appendSetForColumn(setParts, vals, col, val) {
     if (col === 'estado') {
         setParts.push(`${col} = $${i}::novedad_estado`);
         vals.push(String(val));
+        return;
+    }
+    if (col === 'unidad') {
+        setParts.push(`${col} = $${i}`);
+        vals.push(String(val || 'dias'));
         return;
     }
     setParts.push(`${col} = $${i}`);
