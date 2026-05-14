@@ -9,6 +9,18 @@
     Permissions-Policy "camera=(), microphone=(), geolocation=()"
   }
 
+  # Detrás de Cloudflare + cloudflared el origen es HTTP (puerto 80 del contenedor).
+  # NO usar un bloque `dominio { tls { ... } }` aquí: Caddy fuerza redirección HTTPS y el túnel
+  # vuelve a entrar por HTTP → ERR_TOO_MANY_REDIRECTS.
+  @prod host novedades.grupocinte.com
+  header @prod Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+  header @prod Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://novedades.grupocinte.com; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests"
+  header @prod X-Content-Type-Options "nosniff"
+  header @prod X-Frame-Options "DENY"
+  header @prod Referrer-Policy "no-referrer"
+  header @prod Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+  header @prod Cross-Origin-Opener-Policy "same-origin"
+
   @api path /api/*
   @backend_assets path /assets/uploads/* /assets/formats/* /assets/logo-cinte.png /assets/logo-cinte-header.png
   # Mismo upstream para REST y WebSocket (p. ej. /api/contratacion/ws). Caddy reenvía Upgrade/Connection automáticamente.
@@ -16,25 +28,3 @@
   reverse_proxy @backend_assets backend:3005
   reverse_proxy frontend:80
 }
-
-# Producción (LOW-003): activar para dominio público cuando Caddy termina TLS.
-novedades.grupocinte.com {
-  encode zstd gzip
-  tls {
-    protocols tls1.2 tls1.3
-  }
-  header {
-    -Server
-    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-    X-Content-Type-Options "nosniff"
-    X-Frame-Options "DENY"
-    Referrer-Policy "no-referrer"
-    Permissions-Policy "camera=(), microphone=(), geolocation=()"
-  }
-  @api path /api/*
-  @backend_assets path /assets/uploads/* /assets/formats/* /assets/logo-cinte.png /assets/logo-cinte-header.png
-  reverse_proxy @api backend:3005
-  reverse_proxy @backend_assets backend:3005
-  reverse_proxy frontend:80
-}
-
