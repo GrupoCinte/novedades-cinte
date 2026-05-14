@@ -451,6 +451,7 @@ function registerRoutes(deps) {
                 fechaFin: fechaFin || null,
                 cantidadHoras: Number(cantidadHoras || 0),
                 montoCop: montoCop == null ? null : Number(montoCop),
+                unidad: String(body?.unidad || '').trim().toLowerCase() || 'dias',
                 estado: 'Pendiente'
             },
             meta: {
@@ -471,6 +472,7 @@ function registerRoutes(deps) {
         fechaFin,
         cantidadHoras,
         montoCop,
+        unidad,
         previousEstado,
         newEstado,
         changedByEmail
@@ -497,6 +499,7 @@ function registerRoutes(deps) {
                 fechaFin: fechaFin || null,
                 cantidadHoras: Number(cantidadHoras || 0),
                 montoCop: montoCop == null ? null : Number(montoCop),
+                unidad: String(unidad || '').trim().toLowerCase() || 'dias',
                 estado: String(newEstado || '').trim()
             },
             statusChange: {
@@ -1381,6 +1384,7 @@ function registerRoutes(deps) {
                 return res.status(400).json({ ok: false, error: 'El lider no pertenece al cliente seleccionado.' });
             }
 
+            const unidad = String(body.unidad || '').trim().toLowerCase() || 'dias';
             const fecha = parseDateOrNull(body.fecha);
             const horaInicio = parseTimeOrNull(body.horaInicio);
             const horaFin = parseTimeOrNull(body.horaFin);
@@ -1407,6 +1411,34 @@ function registerRoutes(deps) {
             let horasRecargoDomingoNocturnas = 0;
             let tipoHoraExtra = String(body.tipoHoraExtra || '').trim() || null;
             let heDomingoObservacionInsert = null;
+
+            if (novedadTypeKey === 'permiso_remunerado') {
+                if (unidad === 'horas') {
+                    if (!fecha || !horaInicio || !horaFin) {
+                        return res.status(400).json({ ok: false, error: 'Permiso remunerado en horas requiere fecha, hora inicio y hora fin.' });
+                    }
+                    const [h1, m1] = horaInicio.split(':').map(Number);
+                    const [h2, m2] = horaFin.split(':').map(Number);
+                    const t1 = h1 * 60 + m1;
+                    const t2 = h2 * 60 + m2;
+                    if (t2 <= t1) {
+                        return res.status(400).json({ ok: false, error: 'La hora de fin debe ser posterior a la hora de inicio.' });
+                    }
+                    cantidadHoras = Number(((t2 - t1) / 60).toFixed(2));
+                } else {
+                    if (!fechaInicio || !fechaFin) {
+                        return res.status(400).json({ ok: false, error: 'Permiso remunerado en días requiere fecha inicio y fecha fin.' });
+                    }
+                    if (fechaFin < fechaInicio) {
+                        return res.status(400).json({ ok: false, error: 'La fecha de fin debe ser posterior o igual a la fecha de inicio.' });
+                    }
+                    const businessDays = countBusinessDaysInclusive(fechaInicio, fechaFin);
+                    if (businessDays <= 0) {
+                        return res.status(400).json({ ok: false, error: 'El rango de fechas no contiene días hábiles para el permiso.' });
+                    }
+                    cantidadHoras = businessDays;
+                }
+            }
 
             if (novedadTypeKey === 'vacaciones_tiempo') {
                 if (!fechaFin) {
@@ -1552,12 +1584,12 @@ function registerRoutes(deps) {
                 `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
-                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion, estado
+                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion, unidad, estado
                 )
                 VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8::user_area,
                     $9::date, $10::time, $11::time, $12::date, $13::date,
-                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'Pendiente'::novedad_estado
+                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'Pendiente'::novedad_estado
                 )
                 RETURNING id`,
                 [
@@ -1583,7 +1615,8 @@ function registerRoutes(deps) {
                     tipoHoraExtra,
                     archivoRuta,
                     montoCop,
-                    heDomingoObservacionInsert || null
+                    heDomingoObservacionInsert || null,
+                    unidad
                 ]
             );
             const novedadId = insertResult?.rows?.[0]?.id || '';
@@ -1858,7 +1891,7 @@ function registerRoutes(deps) {
                         nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
                         nov.he_domingo_observacion,
                         nov.nomina_info_correcta, nov.nomina_verificacion_observacion, nov.nomina_verificacion_en,
-                        nov.nomina_verificacion_por_user_id, nov.nomina_verificacion_por_email,
+                        nov.nomina_verificacion_por_user_id, nov.nomina_verificacion_por_email, nov.unidad,
                         COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
                         COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
                      FROM novedades nov
@@ -1900,7 +1933,7 @@ function registerRoutes(deps) {
             }
 
             let q;
-            const selectNovedadEstadoRow = `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop,
+            const selectNovedadEstadoRow = `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop, unidad,
                      nomina_info_correcta, nomina_verificacion_observacion`;
             if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''))) {
                 q = await pool.query(`${selectNovedadEstadoRow}
@@ -1997,6 +2030,7 @@ function registerRoutes(deps) {
                     fechaFin: item.fecha_fin,
                     cantidadHoras: item.cantidad_horas,
                     montoCop: item.monto_cop,
+                    unidad: item.unidad,
                     previousEstado: normalizeEstado(item.estado),
                     newEstado: estado,
                     changedByEmail: actorEmail

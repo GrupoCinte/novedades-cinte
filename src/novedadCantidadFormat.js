@@ -50,8 +50,10 @@ const NOVEDAD_RULES = {
         ],
         approvers: ['admin_ch', 'team_ch', 'cac'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
-        requiresDayCount: false,
-        requiresTimeRange: false
+        requiresDayCount: true,
+        requiresTimeRange: false,
+        autoBusinessDays: true,
+        allowHoursMode: true
     },
     'Licencia de luto': {
         requiredDocuments: ['Registro civil consultor', 'Soporte parentesco', 'Acta de defuncion'],
@@ -307,6 +309,16 @@ function formatDiasCount(n) {
 
 function formatCantidadNovedad(tipoNovedad, cantidadRaw, context = null) {
     const n = Number(cantidadRaw);
+    const unidad = context?.unidad || null;
+
+    if (unidad === 'horas') {
+        if (!Number.isFinite(n) || n === 0) return '—';
+        return `${n}h`;
+    }
+    if (unidad === 'dias') {
+        return formatDiasCount(n);
+    }
+
     const kind = getCantidadMedidaKind(tipoNovedad);
     const fechaInicio = context?.fechaInicio || context?.fecha_inicio || '';
     const fechaFin = context?.fechaFin || context?.fecha_fin || '';

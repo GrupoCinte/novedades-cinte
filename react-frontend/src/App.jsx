@@ -17,6 +17,7 @@ import DirectorioClienteColaboradorModule from './DirectorioClienteColaboradorMo
 import ConciliacionesModule from './conciliaciones/ConciliacionesModule.jsx';
 import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboardPage.jsx';
 import ConciliacionesPage from './conciliaciones/ConciliacionesPage.jsx';
+import FormularioNovedad from './FormularioNovedad.jsx';
 import AdminPortalHome from './AdminPortalHome';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
@@ -246,7 +247,7 @@ function App() {
         }
       >
         <Routes>
-          <Route path="/" element={<ConsultorRadicacionPortal />} />
+          <Route path="/" element={<FormularioNovedad />} />
           <Route path="/consultor" element={<ConsultorProtectedLayout />}>
             <Route index element={<ConsultorPortalHome />} />
             <Route path="novedades" element={<ConsultorNovedadesPage />} />
