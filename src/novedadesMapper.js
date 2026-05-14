@@ -126,7 +126,10 @@ function toClientNovedad(row) {
         ),
         nominaVerificacionEn: row.nomina_verificacion_en ? row.nomina_verificacion_en.toISOString() : '',
         nominaVerificacionPorEmail: pickEmailLikeOnly(row.nomina_verificacion_por_email),
-        asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta
+        asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta,
+        modalidad: row.modalidad != null ? String(row.modalidad).trim() : '',
+        fechaVotacion: row.fecha_votacion ? row.fecha_votacion.toISOString().slice(0, 10) : '',
+        unidad: row.unidad != null ? String(row.unidad).trim() : ''
     };
 }
 

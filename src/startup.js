@@ -21,6 +21,7 @@ async function startServer(deps) {
         ensureNovedadesHeDomingoObservacionColumn,
         ensureNovedadesNominaVerificacionColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
+        ensureNovedadesModalidadVotacionUnidadColumns,
         migrateExcelIfNeeded,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
@@ -52,6 +53,7 @@ async function startServer(deps) {
     await ensureNovedadesHeDomingoObservacionColumn();
     await ensureNovedadesNominaVerificacionColumns();
     await ensureNovedadesHorasRecargoDomingoColumn();
+    await ensureNovedadesModalidadVotacionUnidadColumns();
     await migrateExcelIfNeeded();
     await migrateClientesLideresFromExcelIfNeeded();
     await ensureColaboradoresTable();

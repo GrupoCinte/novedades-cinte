@@ -109,6 +109,13 @@ const NOVELTY_RULES = {
         requiredMinSupports: 1,
         approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
+    },
+    compensatorio_votacion_jurado: {
+        displayName: 'Compensatorio por votación/jurado',
+        /** La ruta POST valida el conteo por modalidad (1 o 2 archivos). */
+        requiredMinSupports: 0,
+        approvers: ['admin_ch'],
+        viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina']
     }
 };
 
@@ -172,7 +179,11 @@ function normalizeNovedadTypeKey(value = '') {
         'apoyo standy': 'apoyo',
         bono: 'bonos',
         bonos: 'bonos',
-        'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo'
+        'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo',
+        'compensatorio por votacion jurado': 'compensatorio_votacion_jurado',
+        'compensatorio por votacion y jurado': 'compensatorio_votacion_jurado',
+        'compensatorio por votación/jurado': 'compensatorio_votacion_jurado',
+        'compensatorio por votacion/jurado': 'compensatorio_votacion_jurado'
     };
     if (map[compact]) return map[compact];
     const snake = compact.replace(/[\s-]+/g, '_').replace(/_+/g, '_');

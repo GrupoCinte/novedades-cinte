@@ -13,13 +13,16 @@ import {
   getDiasEfectivosNovedad,
   countBusinessDaysInclusive,
   countCalendarDaysInclusive,
+  getCantidadMedidaKind,
+  formatCantidadNovedad,
+  getCantidadDetalleEtiqueta,
 } from '../novedadRules.js';
 
 // ─── Constantes de dominio ────────────────────────────────────────────────────
 // Roles actuales según src/rbac.js → ROLE_PRIORITY (cac reemplaza admin_ops/sst; comercial añadido)
 const ALL_ROLES = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial'];
 
-// Catálogo vigente en formulario: 12 tipos (vacaciones tiempo/dinero y Bonos solo histórico en NOVEDAD_RULES_LEGACY).
+// Catálogo vigente en formulario: 13 tipos (vacaciones tiempo/dinero y Bonos solo histórico en NOVEDAD_RULES_LEGACY).
 const ALL_NOVEDAD_TYPES = [
   'Incapacidad',
   'Calamidad domestica',
@@ -31,14 +34,15 @@ const ALL_NOVEDAD_TYPES = [
   'Licencia no remunerada',
   'Permiso no remunerado',
   'Permiso compensatorio en tiempo',
+  'Compensatorio por votación/jurado',
   'Disponibilidad',
   'Hora Extra',
 ];
 
 // ─── Estructura del catálogo ──────────────────────────────────────────────────
 describe('NOVEDAD_RULES – estructura del catálogo', () => {
-  it('debe exportar exactamente los 12 tipos de novedad activos en el catálogo', () => {
-    expect(NOVEDAD_TYPES).toHaveLength(12);
+  it('debe exportar exactamente los 13 tipos de novedad activos en el catálogo', () => {
+    expect(NOVEDAD_TYPES).toHaveLength(13);
     ALL_NOVEDAD_TYPES.forEach((tipo) => {
       expect(NOVEDAD_TYPES).toContain(tipo);
     });
@@ -214,6 +218,31 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
     expect(NOVEDAD_RULES.Disponibilidad.approvers).toEqual(['gp']);
     expect(NOVEDAD_RULES['Hora Extra'].approvers).toEqual(['gp']);
     expect(NOVEDAD_RULES_LEGACY.Bonos.approvers).toEqual(['gp']);
+  });
+
+  describe('Compensatorio por votación/jurado', () => {
+    const rule = NOVEDAD_RULES['Compensatorio por votación/jurado'];
+    it('no incluye gp en viewers (alineado con src/rbac.js)', () => {
+      expect(rule.viewers).not.toContain('gp');
+      expect(rule.viewers).toContain('nomina');
+    });
+    it('mide cantidad en días (medida días)', () => {
+      expect(getCantidadMedidaKind('Compensatorio por votación/jurado')).toBe('days');
+    });
+  });
+
+  describe('Permiso remunerado — unidad horas', () => {
+    const ctx = { unidad: 'horas' };
+    it('getCantidadMedidaKind usa contexto unidad=horas', () => {
+      expect(getCantidadMedidaKind('Permiso remunerado', ctx)).toBe('hours');
+    });
+    it('formatCantidadNovedad muestra horas con sufijo h', () => {
+      expect(formatCantidadNovedad('Permiso remunerado', 2.5, ctx)).toMatch(/2[,.]5/);
+      expect(formatCantidadNovedad('Permiso remunerado', 2.5, ctx)).toMatch(/h\b/i);
+    });
+    it('etiqueta de detalle distingue horas', () => {
+      expect(getCantidadDetalleEtiqueta('Permiso remunerado', ctx)).toMatch(/hora/i);
+    });
   });
 });
 

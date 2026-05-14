@@ -28,7 +28,10 @@ const PATCH_CAMEL_TO_SNAKE = {
     montoCop: 'monto_cop',
     estado: 'estado',
     heDomingoObservacion: 'he_domingo_observacion',
-    soporteRuta: 'soporte_ruta'
+    soporteRuta: 'soporte_ruta',
+    modalidad: 'modalidad',
+    fechaVotacion: 'fecha_votacion',
+    unidad: 'unidad'
 };
 
 async function writeNovedadAudit(pool, { actorUserId, actorRole, action, entityId, metadata }) {
@@ -169,6 +172,14 @@ function mergeAdminPatch(existingRow, body, normalizeEstado, parseDateOrNull, pa
             merged[snake] = v == null || v === '' ? null : String(v);
             continue;
         }
+        if (snake === 'modalidad' || snake === 'unidad') {
+            merged[snake] = v == null || v === '' ? null : String(v).trim();
+            continue;
+        }
+        if (snake === 'fecha_votacion') {
+            merged[snake] = parseDateOrNull(v) || null;
+            continue;
+        }
         merged[snake] = v == null ? '' : String(v).trim();
     }
 
@@ -214,7 +225,7 @@ async function adminDeleteNovedad({ pool, req, idParam }) {
 
 function appendSetForColumn(setParts, vals, col, val) {
     let i = vals.length + 1;
-    if (col === 'fecha' || col === 'fecha_inicio' || col === 'fecha_fin') {
+    if (col === 'fecha' || col === 'fecha_inicio' || col === 'fecha_fin' || col === 'fecha_votacion') {
         const y = toYmd(val);
         setParts.push(`${col} = $${i}::date`);
         vals.push(y);
@@ -241,6 +252,11 @@ function appendSetForColumn(setParts, vals, col, val) {
     if (col === 'monto_cop') {
         setParts.push(`${col} = $${i}::numeric`);
         vals.push(val == null ? null : Number(val));
+        return;
+    }
+    if (col === 'modalidad' || col === 'unidad') {
+        setParts.push(`${col} = $${i}::text`);
+        vals.push(val == null || val === '' ? null : String(val).trim());
         return;
     }
     if (col === 'gp_user_id') {

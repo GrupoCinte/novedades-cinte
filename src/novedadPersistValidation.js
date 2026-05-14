@@ -130,6 +130,11 @@ function validateMergedNovedadForAdmin(merged, opts) {
         return { ok: false, error: 'Vacaciones en tiempo requiere fecha fin.' };
     }
 
+    const unidadNorm = merged.unidad != null && merged.unidad !== '' ? String(merged.unidad).trim().toLowerCase() : null;
+    if (unidadNorm && !['dias', 'horas'].includes(unidadNorm)) {
+        return { ok: false, error: 'Unidad inválida: use dias u horas.' };
+    }
+
     return { ok: true };
 }
 

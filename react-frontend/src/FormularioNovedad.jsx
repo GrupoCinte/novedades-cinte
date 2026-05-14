@@ -200,7 +200,11 @@ const EMPTY_DETALLE_FORM = {
     fechaInicio: '',
     fechaFin: '',
     diasSolicitados: '',
-    montoBono: '$ '
+    montoBono: '$ ',
+    permisoUnidad: '',
+    modalidadVotacion: '',
+    fechaVotacion: '',
+    fechaDisfruteVotacion: ''
 };
 
 function isExcelAttachment(file) {
@@ -225,7 +229,11 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         fechaInicio: '',
         fechaFin: '',
         diasSolicitados: '',
-        montoBono: '$ '
+        montoBono: '$ ',
+        permisoUnidad: '',
+        modalidadVotacion: '',
+        fechaVotacion: '',
+        fechaDisfruteVotacion: ''
     });
 
     const [status, setStatus] = useState({ type: '', text: '' });
@@ -287,14 +295,25 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const normalizeCedulaInput = (value) => String(value || '').replace(/\D/g, '');
 
     const isHoraExtra = formData.tipo === 'Hora Extra';
+    const esPermisoRemunerado = formData.tipo === 'Permiso remunerado';
+    const esPermisoHoras = esPermisoRemunerado && formData.permisoUnidad === 'horas';
+    const esCompensatorioVotacion = formData.tipo === 'Compensatorio por votación/jurado';
     const rule = useMemo(() => getNovedadRule(formData.tipo), [formData.tipo]);
-    const requiredDocuments = rule.requiredDocuments || [];
+    const docsVotacion = useMemo(() => {
+        if (!esCompensatorioVotacion) return null;
+        const m = String(formData.modalidadVotacion || '').trim();
+        if (m === 'jurado_y_voto') return ['Certificado de jurado de votación', 'Certificado electoral'];
+        if (m === 'solo_jurado') return ['Certificado de jurado de votación'];
+        if (m === 'solo_voto') return ['Certificado electoral'];
+        return ['Certificado (elige modalidad arriba)'];
+    }, [esCompensatorioVotacion, formData.modalidadVotacion]);
+    const requiredDocuments = docsVotacion != null ? docsVotacion : (rule.requiredDocuments || []);
     const requiredDocsCount = requiredDocuments.length;
     const requiereAdjunto = requiredDocsCount > 0;
     const requierePlantillaExcel = Array.isArray(rule.formatLinks) && rule.formatLinks.length > 0;
-    const requiereDias = Boolean(rule.requiresDayCount);
-    const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays);
-    const autocalculaDiasCalendario = Boolean(rule.autoCalendarDays);
+    const requiereDias = Boolean(rule.requiresDayCount) && !(esPermisoRemunerado && esPermisoHoras);
+    const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays) && !(esPermisoRemunerado && esPermisoHoras);
+    const autocalculaDiasCalendario = Boolean(rule.autoCalendarDays) && !(esPermisoRemunerado && esPermisoHoras);
     const autocalculaDiasDesdeRango = autocalculaDiasHabiles || autocalculaDiasCalendario;
     const requiereMontoCop = Boolean(rule.requiresMonetaryAmount);
     const esDisponibilidad = formData.tipo === 'Disponibilidad';
@@ -459,6 +478,14 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         return Number(((finMs - inicioMs) / (1000 * 60 * 60)).toFixed(2));
     }, [usaBloqueHoras, isHoraExtra, formData.fechaInicio, formData.fechaFin, formData.horaInicio, formData.horaFin]);
 
+    const permisoHorasCalculadas = useMemo(() => {
+        if (!esPermisoHoras || !formData.fecha) return 0;
+        const inicioMs = buildDateTimeMs(formData.fecha, formData.horaInicio);
+        const finMs = buildDateTimeMs(formData.fecha, formData.horaFin);
+        if (inicioMs === null || finMs === null || finMs <= inicioMs) return 0;
+        return Number(((finMs - inicioMs) / (1000 * 60 * 60)).toFixed(2));
+    }, [esPermisoHoras, formData.fecha, formData.horaInicio, formData.horaFin]);
+
     const diasAutoCalculados = useMemo(() => {
         if (autocalculaDiasCalendario) {
             return countCalendarDaysInclusive(formData.fechaInicio, formData.fechaFin);
@@ -502,24 +529,33 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                 : buildDateTimeMs(formData.fechaFin, formData.horaFin) <= buildDateTimeMs(formData.fechaInicio, formData.horaInicio)
         );
 
-    const horaInicioFormatoInvalido = usaBloqueHoras
+    const horaInicioFormatoInvalido = (usaBloqueHoras || esPermisoHoras)
         && Boolean(formData.horaInicio)
         && !isValidMilitaryTime(formData.horaInicio);
 
-    const horaFinFormatoInvalido = usaBloqueHoras
+    const horaFinFormatoInvalido = (usaBloqueHoras || esPermisoHoras)
         && Boolean(formData.horaFin)
         && !isValidMilitaryTime(formData.horaFin);
 
     const fechaFinInvalida = !usaBloqueHoras
+        && !esCompensatorioVotacion
+        && !esPermisoHoras
         && formData.fechaInicio
         && formData.fechaFin
         && formData.fechaFin < formData.fechaInicio;
 
     const fechaInicioFueraDeVentana = Boolean(
-        formData.fechaInicio
+        !esCompensatorioVotacion
+        && !esPermisoHoras
+        && formData.fechaInicio
         && (formData.fechaInicio < minFechaInicioYmd || formData.fechaInicio > maxFechaInicioYmd)
     );
-    const fechaFinFueraDeVentanaMax = Boolean(formData.fechaFin && formData.fechaFin > maxFechaFinYmd);
+    const fechaFinFueraDeVentanaMax = Boolean(
+        !esCompensatorioVotacion
+        && !esPermisoHoras
+        && formData.fechaFin
+        && formData.fechaFin > maxFechaFinYmd
+    );
 
     const bloqueoEnvioHoraExtra = usaBloqueHoras
         && (
@@ -535,6 +571,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         );
 
     const bloqueoEnvioFechas = !usaBloqueHoras
+        && !esCompensatorioVotacion
+        && !esPermisoHoras
         && (
             !formData.fechaInicio
             || fechaFinInvalida
@@ -542,6 +580,23 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             || fechaInicioFueraDeVentana
             || fechaFinFueraDeVentanaMax
         );
+
+    const bloqueoEnvioCompVotacion = esCompensatorioVotacion && (
+        !String(formData.modalidadVotacion || '').trim()
+        || !String(formData.fechaVotacion || '').trim()
+        || !String(formData.fechaDisfruteVotacion || '').trim()
+    );
+
+    const bloqueoEnvioPermisoSinUnidad = esPermisoRemunerado && !String(formData.permisoUnidad || '').trim();
+
+    const bloqueoEnvioPermisoHoras = esPermisoHoras && (
+        !String(formData.fecha || '').trim()
+        || !String(formData.horaInicio || '').trim()
+        || !String(formData.horaFin || '').trim()
+        || horaInicioFormatoInvalido
+        || horaFinFormatoInvalido
+        || (Boolean(formData.fecha) && buildDateTimeMs(formData.fecha, formData.horaFin) <= buildDateTimeMs(formData.fecha, formData.horaInicio))
+    );
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -569,11 +624,33 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             setFormData({ ...formData, cliente: value, lider: '' });
             return;
         }
+        if (name === 'permisoUnidad') {
+            if (value === 'horas') {
+                setFormData({
+                    ...formData,
+                    permisoUnidad: value,
+                    fechaInicio: '',
+                    fechaFin: '',
+                    diasSolicitados: ''
+                });
+            } else {
+                setFormData({
+                    ...formData,
+                    permisoUnidad: value,
+                    fecha: '',
+                    horaInicio: '',
+                    horaFin: ''
+                });
+            }
+            return;
+        }
         if (name === 'horaInicio') {
             const formattedHoraInicio = formatTimeDigitsInput(value);
             const nuevaHoraInicio = parseMilitaryTimeToMinutes(formattedHoraInicio);
             const horaFinActual = parseMilitaryTimeToMinutes(formData.horaFin);
-            const mismoDia = String(formData.fechaInicio || '') === String(formData.fechaFin || '');
+            const esPermisoHorasCampo = formData.tipo === 'Permiso remunerado' && formData.permisoUnidad === 'horas';
+            const mismoDiaRango = String(formData.fechaInicio || '') === String(formData.fechaFin || '');
+            const mismoDia = esPermisoHorasCampo || mismoDiaRango;
             const resetHoraFin = mismoDia && horaFinActual !== null && nuevaHoraInicio !== null && horaFinActual <= nuevaHoraInicio;
             setFormData({ ...formData, horaInicio: formattedHoraInicio, horaFin: resetHoraFin ? '' : formData.horaFin });
             return;
@@ -605,22 +682,19 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         }
         if (name === 'tipo') {
             const nextRule = getNovedadRule(value);
-            const nextRequiereDias = Boolean(nextRule.requiresDayCount);
-            const nextAutoHabiles = Boolean(nextRule.autoBusinessDays);
-            const nextAutoCalendario = Boolean(nextRule.autoCalendarDays);
-            let nextDias = '';
-            if (nextAutoCalendario) {
-                nextDias = String(countCalendarDaysInclusive(formData.fechaInicio, formData.fechaFin));
-            } else if (nextAutoHabiles) {
-                nextDias = String(countBusinessDaysInclusive(formData.fechaInicio, formData.fechaFin, festivosSet));
-            } else if (nextRequiereDias) {
-                nextDias = formData.diasSolicitados;
-            }
-            // No borrar cliente/líder al deseleccionar tipo: vienen del directorio; limpiarlos obligaba a comprobar cédula otra vez.
             setFormData({
                 ...formData,
                 tipo: value,
-                diasSolicitados: nextDias,
+                fecha: '',
+                horaInicio: '',
+                horaFin: '',
+                fechaInicio: '',
+                fechaFin: '',
+                diasSolicitados: '',
+                permisoUnidad: value === 'Permiso remunerado' ? '' : 'dias',
+                modalidadVotacion: '',
+                fechaVotacion: '',
+                fechaDisfruteVotacion: '',
                 montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ '
             });
             if (value === 'Disponibilidad') {
@@ -873,12 +947,18 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             });
             return;
         }
-        if (bloqueoEnvioHoraExtra || bloqueoEnvioFechas) {
-            const mensaje = isHoraExtra
-                ? '❌ Corrige fecha/horas de Hora Extra antes de enviar.'
-                : autocalculaDiasDesdeRango && !String(formData.fechaFin || '').trim()
-                    ? '❌ Indica Fecha Inicio y Fecha Fin para calcular los días.'
-                    : '❌ Corrige las fechas (Fecha Fin no puede ser menor a Fecha Inicio o falta Fecha Inicio).';
+        if (bloqueoEnvioPermisoSinUnidad || bloqueoEnvioCompVotacion || bloqueoEnvioPermisoHoras || bloqueoEnvioHoraExtra || bloqueoEnvioFechas) {
+            const mensaje = bloqueoEnvioPermisoSinUnidad
+                ? '❌ Elige si el permiso remunerado es en días o en horas.'
+                : bloqueoEnvioCompVotacion
+                ? '❌ Indica modalidad, fecha de votación y fecha de disfrute del compensatorio.'
+                : bloqueoEnvioPermisoHoras
+                    ? '❌ En modo horas indica la fecha del permiso y hora inicio/fin válidas (HH:mm); la hora fin debe ser posterior a la de inicio.'
+                    : isHoraExtra
+                        ? '❌ Corrige fecha/horas de Hora Extra antes de enviar.'
+                        : autocalculaDiasDesdeRango && !String(formData.fechaFin || '').trim()
+                            ? '❌ Indica Fecha Inicio y Fecha Fin para calcular los días.'
+                            : '❌ Corrige las fechas (Fecha Fin no puede ser menor a Fecha Inicio o falta Fecha Inicio).';
             setStatus({ type: 'error', text: mensaje });
             return;
         }
@@ -924,7 +1004,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             }
         }
 
-        if (autocalculaDiasDesdeRango && !(diasAutoCalculados > 0)) {
+        if (!esCompensatorioVotacion && !esPermisoHoras && autocalculaDiasDesdeRango && !(diasAutoCalculados > 0)) {
             const msgDias = autocalculaDiasCalendario
                 ? '❌ El rango de fechas no genera días de calendario válidos (revisa inicio y fin).'
                 : '❌ El rango seleccionado no contiene dias hábiles (lunes a viernes).';
@@ -976,7 +1056,23 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             payload.append('tipoNovedad', formData.tipo);
             payload.append('aceptaPoliticaDatos', aceptaPoliticaDatos ? 'true' : 'false');
 
-            if (usaBloqueHoras) {
+            if (esPermisoRemunerado) {
+                payload.append('unidad', formData.permisoUnidad);
+            }
+            if (esCompensatorioVotacion) {
+                payload.append('modalidad', formData.modalidadVotacion);
+                payload.append('fechaVotacion', formData.fechaVotacion);
+                payload.append('fechaDisfrute', formData.fechaDisfruteVotacion);
+            }
+
+            if (esPermisoHoras) {
+                payload.append('fecha', formData.fecha);
+                payload.append('horaInicio', formData.horaInicio);
+                payload.append('horaFin', formData.horaFin);
+                payload.append('fechaInicio', formData.fecha);
+                payload.append('fechaFin', formData.fecha);
+                payload.append('cantidadHoras', String(permisoHorasCalculadas));
+            } else if (usaBloqueHoras) {
                 payload.append('fecha', formData.fechaInicio);
                 payload.append('horaInicio', formData.horaInicio);
                 payload.append('horaFin', formData.horaFin);
@@ -1049,7 +1145,11 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                             fechaInicio: '',
                             fechaFin: '',
                             diasSolicitados: '',
-                            montoBono: '$ '
+                            montoBono: '$ ',
+                            permisoUnidad: '',
+                            modalidadVotacion: '',
+                            fechaVotacion: '',
+                            fechaDisfruteVotacion: ''
                         };
                     });
                     setSelectedFiles([]);
@@ -1073,7 +1173,11 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                         fechaInicio: '',
                         fechaFin: '',
                         diasSolicitados: '',
-                        montoBono: '$ '
+                        montoBono: '$ ',
+                        permisoUnidad: '',
+                        modalidadVotacion: '',
+                        fechaVotacion: '',
+                        fechaDisfruteVotacion: ''
                     });
                     setColaboradorVerificado(false);
                     setCatalogLocks({ lider: false });
@@ -1353,6 +1457,74 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                             {NOVEDAD_TYPES.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
                                         </select>
                                     </div>
+                                    {esPermisoRemunerado && detalleFormularioActivo && (
+                                        <div className="md:col-span-2 rounded-xl border border-[#1a3a56]/50 bg-[#0b1e30]/40 p-4 space-y-3">
+                                            <span className={`${labelCls} block`}>Unidad de medida {reqStar}</span>
+                                            <div className="flex flex-wrap gap-6 text-sm text-[#9fb3c8] font-body">
+                                                <label className={theme.radioLabel}>
+                                                    <input
+                                                        type="radio"
+                                                        name="permisoUnidad"
+                                                        value="dias"
+                                                        checked={formData.permisoUnidad === 'dias'}
+                                                        onChange={handleChange}
+                                                    />
+                                                    Días hábiles
+                                                </label>
+                                                <label className={theme.radioLabel}>
+                                                    <input
+                                                        type="radio"
+                                                        name="permisoUnidad"
+                                                        value="horas"
+                                                        checked={formData.permisoUnidad === 'horas'}
+                                                        onChange={handleChange}
+                                                    />
+                                                    Horas (mismo día)
+                                                </label>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {esCompensatorioVotacion && detalleFormularioActivo && (
+                                        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 rounded-xl border border-[#1a3a56]/50 bg-[#0b1e30]/40 p-4">
+                                            <div className="md:col-span-2 flex flex-col gap-1">
+                                                <label className={labelCls}>Modalidad {reqStar}</label>
+                                                <select
+                                                    name="modalidadVotacion"
+                                                    value={formData.modalidadVotacion}
+                                                    onChange={handleChange}
+                                                    className={inputCls}
+                                                >
+                                                    <option value="">Selecciona modalidad…</option>
+                                                    <option value="solo_voto">Solo voto (0,5 día)</option>
+                                                    <option value="solo_jurado">Solo jurado (1 día)</option>
+                                                    <option value="jurado_y_voto">Jurado y voto (1,5 días)</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                <label className={labelCls}>Fecha de la votación {reqStar}</label>
+                                                <input
+                                                    name="fechaVotacion"
+                                                    value={formData.fechaVotacion}
+                                                    onChange={handleChange}
+                                                    type="date"
+                                                    className={inputCls}
+                                                />
+                                            </div>
+                                            <div className="flex flex-col gap-1">
+                                                <label className={labelCls}>Fecha de disfrute {reqStar}</label>
+                                                <input
+                                                    name="fechaDisfruteVotacion"
+                                                    value={formData.fechaDisfruteVotacion}
+                                                    onChange={handleChange}
+                                                    type="date"
+                                                    className={inputCls}
+                                                />
+                                            </div>
+                                            <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
+                                                Debes radicar y disfrutar dentro de los 30 días calendario posteriores a la fecha de votación. Adjunta el(los) certificado(s) según la modalidad.
+                                            </p>
+                                        </div>
+                                    )}
                                     {requiereMontoCop && (
                                         <div className="flex flex-col gap-1 md:col-span-2 animate-in fade-in duration-300">
                                             <label className={labelCls}>
@@ -1520,7 +1692,69 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                     </div>
                                 )}
 
-                                {!usaBloqueHoras && (
+                                {esPermisoHoras && detalleFormularioActivo && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-300">
+                                        <div className="flex flex-col gap-1 md:col-span-2">
+                                            <label className={labelCls}>Fecha del permiso {reqStar}</label>
+                                            <input
+                                                required
+                                                name="fecha"
+                                                value={formData.fecha}
+                                                onChange={handleChange}
+                                                type="date"
+                                                disabled={!detalleFormularioActivo}
+                                                className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className={labelCls}>Hora inicio (24h) {reqStar}</label>
+                                            <input
+                                                required
+                                                name="horaInicio"
+                                                value={formData.horaInicio}
+                                                onChange={handleChange}
+                                                type="text"
+                                                inputMode="numeric"
+                                                placeholder="HH:mm"
+                                                disabled={!detalleFormularioActivo}
+                                                className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1">
+                                            <label className={labelCls}>Hora fin (24h) {reqStar}</label>
+                                            <input
+                                                required
+                                                name="horaFin"
+                                                value={formData.horaFin}
+                                                onChange={handleChange}
+                                                type="text"
+                                                inputMode="numeric"
+                                                placeholder="HH:mm"
+                                                disabled={!detalleFormularioActivo}
+                                                className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
+                                            />
+                                        </div>
+                                        <div className="flex flex-col gap-1 md:col-span-2">
+                                            <label className={labelCls}>Duración calculada</label>
+                                            <input
+                                                readOnly
+                                                type="text"
+                                                value={permisoHorasCalculadas > 0 ? `${permisoHorasCalculadas} h` : '—'}
+                                                className={`${inputCls} ${theme.inputReadonly}`}
+                                            />
+                                        </div>
+                                        {(horaInicioFormatoInvalido || horaFinFormatoInvalido) && (
+                                            <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">
+                                                Formato de hora inválido. Usa formato 24H: HH:mm (ejemplo: 08:30).
+                                            </div>
+                                        )}
+                                        <div className={`md:col-span-2 ${theme.hintLine}`}>
+                                            Mismo día calendario; la hora fin debe ser posterior a la de inicio.
+                                        </div>
+                                    </div>
+                                )}
+
+                                {!usaBloqueHoras && !esCompensatorioVotacion && !esPermisoHoras && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>

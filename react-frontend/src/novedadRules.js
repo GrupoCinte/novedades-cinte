@@ -27,7 +27,9 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
-    autoBusinessDays: true
+    autoBusinessDays: true,
+    /** Modo horas: `unidad` en el registro o payload; días = comportamiento actual. */
+    permisoRemuneradoHoras: true
   },
   'Licencia de luto': {
     requiredDocuments: ['Registro civil consultor', 'Soporte parentesco', 'Acta de defuncion'],
@@ -90,6 +92,15 @@ export const NOVEDAD_RULES = {
     requiresDayCount: true,
     requiresTimeRange: false,
     autoBusinessDays: true
+  },
+  'Compensatorio por votación/jurado': {
+    requiredDocuments: ['Certificado electoral o certificado de jurado (según modalidad)'],
+    formatLinks: [],
+    approvers: ['admin_ch'],
+    viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina'],
+    requiresDayCount: false,
+    requiresTimeRange: false,
+    autoCalendarDays: true
   },
   /**
    * Disponibilidad: el backend guarda cantidad_horas = 0 y el valor en monto_cop.
@@ -167,6 +178,7 @@ const TIPO_ALIAS_SNAKE = {
   licencia_no_remunerada: 'Licencia no remunerada',
   permiso_no_remunerado: 'Permiso no remunerado',
   permiso_compensatorio_tiempo: 'Permiso compensatorio en tiempo',
+  compensatorio_votacion_jurado: 'Compensatorio por votación/jurado',
   incapacidad: 'Incapacidad',
   hora_extra: 'Hora Extra',
   apoyo: 'Disponibilidad',
@@ -207,8 +219,15 @@ export function countCalendarDaysInclusive(startDateRaw, endDateRaw) {
 }
 
 /** Prioriza cantidad guardada; si es 0 y hay rango, infiere días (hábiles o calendario según regla del tipo). */
-export function getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin, festivosSet = new Set()) {
-  const kind = getCantidadMedidaKind(tipoNovedad);
+export function getDiasEfectivosNovedad(
+  tipoNovedad,
+  cantidadRaw,
+  fechaInicio,
+  fechaFin,
+  festivosSet = new Set(),
+  measureContext = null
+) {
+  const kind = getCantidadMedidaKind(tipoNovedad, measureContext);
   if (kind !== 'days') return 0;
   const n = Number(cantidadRaw) || 0;
   if (n > 0) return n;
@@ -246,6 +265,9 @@ export function resolveCanonicalNovedadTipo(tipoRaw) {
   if (f === 'vacaciones') return 'Vacaciones en tiempo';
   if (f === 'vacaciones en tiempo') return 'Vacaciones en tiempo';
   if (f === 'vacaciones en dinero') return 'Vacaciones en dinero';
+  if (f === 'compensatorio por votacion jurado' || f === 'compensatorio por votacion/jurado') {
+    return 'Compensatorio por votación/jurado';
+  }
   /* Etiqueta corta en datos demo/legacy; el flujo de horas coincide con Permiso no remunerado. */
   if (f === 'permiso') return 'Permiso no remunerado';
   /* Renombre de producto: antes "Apoyo"; standby y variantes pasan a Disponibilidad única. */
@@ -334,8 +356,11 @@ export function getAsignacionGestionNovedad(tipoNovedad) {
   };
 }
 
-/** Alineado con FormularioNovedad: cantidad_horas almacena horas o días según el tipo. */
-export function getCantidadMedidaKind(tipoNovedad) {
+/** Alineado con FormularioNovedad: cantidad_horas almacena horas o días según el tipo. `context` incluye `unidad` para Permiso remunerado en horas. */
+export function getCantidadMedidaKind(tipoNovedad, context = null) {
+  const canon = resolveCanonicalNovedadTipo(tipoNovedad);
+  const unidad = String(context?.unidad || '').trim().toLowerCase();
+  if (canon === 'Permiso remunerado' && unidad === 'horas') return 'hours';
   const rule = getNovedadRule(tipoNovedad);
   if (rule.requiresTimeRange) return 'hours';
   if (rule.requiresMonetaryAmount) return 'money';
@@ -356,17 +381,18 @@ export function formatDiasCount(n) {
  */
 export function formatCantidadNovedad(tipoNovedad, cantidadRaw, context = null) {
   const n = Number(cantidadRaw);
-  const kind = getCantidadMedidaKind(tipoNovedad);
+  const kind = getCantidadMedidaKind(tipoNovedad, context);
   const fechaInicio = context?.fechaInicio || context?.fecha_inicio || '';
   const fechaFin = context?.fechaFin || context?.fecha_fin || '';
   const festivosSet = context?.festivosSet || new Set();
   
   if (kind === 'hours') {
     if (!Number.isFinite(n) || n === 0) return '—';
-    return `${n}h`;
+    const rounded = Math.round(n * 100) / 100;
+    return `${rounded}h`;
   }
   if (kind === 'days') {
-    const dias = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin, festivosSet);
+    const dias = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin, festivosSet, context);
     return formatDiasCount(dias);
   }
   if (kind === 'money') {
@@ -381,8 +407,8 @@ export function formatCantidadNovedad(tipoNovedad, cantidadRaw, context = null) 
   return String(n);
 }
 
-export function getCantidadDetalleEtiqueta(tipoNovedad) {
-  const kind = getCantidadMedidaKind(tipoNovedad);
+export function getCantidadDetalleEtiqueta(tipoNovedad, context = null) {
+  const kind = getCantidadMedidaKind(tipoNovedad, context);
   if (kind === 'hours') return 'Total horas';
   if (kind === 'days') return 'Días solicitados';
   if (kind === 'money') return 'Valor (COP)';

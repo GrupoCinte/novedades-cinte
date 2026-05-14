@@ -106,6 +106,11 @@ CREATE TABLE IF NOT EXISTS novedades (
   tipo_hora_extra       TEXT NULL,
   monto_cop             NUMERIC(16,2) NULL,
 
+  -- Extensiones por tipo (compensatorio votación/jurado, permiso remunerado horas)
+  modalidad             TEXT NULL,
+  fecha_votacion        DATE NULL,
+  unidad                TEXT NULL,
+
   -- Soporte
   soporte_ruta          TEXT NULL,
 

@@ -719,6 +719,9 @@ export default function Dashboard({ token, auth, onLogout }) {
             horaFin: normalizeHoraHePayload(it.horaFin).slice(0, 5) || '',
             fechaInicio: it.fechaInicio || '',
             fechaFin: it.fechaFin || '',
+            modalidad: it.modalidad || '',
+            fechaVotacion: it.fechaVotacion || '',
+            unidad: it.unidad || '',
             cantidadHoras: String(it.cantidadHoras ?? 0),
             horasDiurnas: String(it.horasDiurnas ?? 0),
             horasNocturnas: String(it.horasNocturnas ?? 0),
@@ -744,6 +747,8 @@ export default function Dashboard({ token, auth, onLogout }) {
             const mn = Number(montoRaw);
             montoCop = Number.isFinite(mn) ? Number(mn.toFixed(2)) : null;
         }
+        const unidadRaw = String(draft.unidad || '').trim().toLowerCase();
+        const unidadPatch = unidadRaw === 'dias' || unidadRaw === 'horas' ? unidadRaw : null;
         return {
             nombre: String(draft.nombre || '').trim(),
             cedula: String(draft.cedula || '').replace(/\D/g, ''),
@@ -758,6 +763,9 @@ export default function Dashboard({ token, auth, onLogout }) {
             horaFin: draft.horaFin ? normalizeHoraHePayload(draft.horaFin) : null,
             fechaInicio: String(draft.fechaInicio || '').trim() || null,
             fechaFin: String(draft.fechaFin || '').trim() || null,
+            modalidad: String(draft.modalidad || '').trim() || null,
+            fechaVotacion: String(draft.fechaVotacion || '').trim() || null,
+            unidad: unidadPatch,
             cantidadHoras: num(draft.cantidadHoras),
             horasDiurnas: num(draft.horasDiurnas),
             horasNocturnas: num(draft.horasNocturnas),
@@ -1312,6 +1320,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         if (t.includes('incapacidad')) return L ? 'border-rose-300 bg-rose-100 text-rose-900' : 'text-rose-400 bg-rose-500/20 border-rose-500/50';
         if (t.includes('vacacion')) return L ? 'border-amber-300 bg-amber-100 text-amber-900' : 'text-amber-400 bg-amber-500/20 border-amber-500/50';
         if (t.includes('permiso')) return L ? 'border-blue-300 bg-blue-100 text-blue-900' : 'text-blue-400 bg-blue-500/20 border-blue-500/50';
+        if (t.includes('votacion') || t.includes('votación') || t.includes('jurado')) return L ? 'border-cyan-300 bg-cyan-100 text-cyan-900' : 'text-cyan-400 bg-cyan-500/20 border-cyan-500/50';
         if (t.includes('extra')) return L ? 'border-emerald-300 bg-emerald-100 text-emerald-900' : 'text-emerald-400 bg-emerald-500/20 border-emerald-500/50';
         if (t.includes('licencia')) return L ? 'border-purple-300 bg-purple-100 text-purple-900' : 'text-purple-400 bg-purple-500/20 border-purple-500/50';
         return L ? 'border-slate-300 bg-slate-100 text-slate-700' : 'text-slate-400 bg-slate-400/20 border-slate-400/50';
@@ -2583,11 +2592,18 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         const riesgoMap = {};
                                         items.forEach(it => {
                                             if (!riesgoMap[it.nombre]) riesgoMap[it.nombre] = { puntos: 0, sumHoras: 0, sumDias: 0, novedades: 0 };
-                                            const kind = getCantidadMedidaKind(it.tipoNovedad);
+                                            const kind = getCantidadMedidaKind(it.tipoNovedad, it);
                                             const v = Number(it.cantidadHoras) || 0;
                                             if (kind === 'hours') riesgoMap[it.nombre].sumHoras += v;
                                             else if (kind === 'days') {
-                                                riesgoMap[it.nombre].sumDias += getDiasEfectivosNovedad(it.tipoNovedad, it.cantidadHoras, it.fechaInicio, it.fechaFin);
+                                                riesgoMap[it.nombre].sumDias += getDiasEfectivosNovedad(
+                                                    it.tipoNovedad,
+                                                    it.cantidadHoras,
+                                                    it.fechaInicio,
+                                                    it.fechaFin,
+                                                    new Set(),
+                                                    it
+                                                );
                                             }
                                             riesgoMap[it.nombre].novedades += 1;
                                             const tipoNorm = String(it.tipoNovedad || '').toLowerCase();
@@ -2930,8 +2946,23 @@ export default function Dashboard({ token, auth, onLogout }) {
                             )}
                             <div><span className={dash.modalMuted}>Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
                             <div><span className={dash.modalMuted}>Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
+                            {gestionDetailItem.modalidad ? (
+                                <div><span className={dash.modalMuted}>Modalidad (votación/jurado):</span> {gestionDetailItem.modalidad}</div>
+                            ) : null}
+                            {gestionDetailItem.fechaVotacion ? (
+                                <div><span className={dash.modalMuted}>Fecha de votación / actuación:</span> {gestionDetailItem.fechaVotacion}</div>
+                            ) : null}
+                            {gestionDetailItem.unidad ? (
+                                <div>
+                                    <span className={dash.modalMuted}>Unidad (permiso remunerado):</span>{' '}
+                                    {gestionDetailItem.unidad === 'horas' ? 'Horas' : gestionDetailItem.unidad === 'dias' ? 'Días' : gestionDetailItem.unidad}
+                                </div>
+                            ) : null}
                             {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) !== 'Hora Extra' && (
-                                <div><span className={dash.modalMuted}>{getCantidadDetalleEtiqueta(gestionDetailItem.tipoNovedad)}:</span> {formatCantidadNovedad(gestionDetailItem.tipoNovedad, gestionDetailItem.cantidadHoras, gestionDetailItem)}</div>
+                                <div>
+                                    <span className={dash.modalMuted}>{getCantidadDetalleEtiqueta(gestionDetailItem.tipoNovedad, gestionDetailItem)}:</span>{' '}
+                                    {formatCantidadNovedad(gestionDetailItem.tipoNovedad, gestionDetailItem.cantidadHoras, gestionDetailItem)}
+                                </div>
                             )}
                             {gestionDetailItem.alertaHeResueltaEstado ? (
                                 <div
@@ -3234,6 +3265,19 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Fecha fin
                                     <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaFin} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaFin: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Modalidad (votación/jurado)
+                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.modalidad || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, modalidad: e.target.value }))} placeholder="votación | jurado" />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Fecha votación / actuación
+                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaVotacion || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaVotacion: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Unidad (permiso remunerado)
+                                    <select className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.unidad || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, unidad: e.target.value }))}>
+                                        <option value="">(sin especificar)</option>
+                                        <option value="dias">días</option>
+                                        <option value="horas">horas</option>
+                                    </select>
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Cantidad / horas total
                                     <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.cantidadHoras} onChange={(e) => setGestionEditDraft((d) => ({ ...d, cantidadHoras: e.target.value }))} />
@@ -3554,7 +3598,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 return (
                                                     <span className={isLight ? 'text-xs font-bold text-blue-800' : 'text-xs font-bold text-blue-400'}>
                                                         {qtyTxt}
-                                                        {getCantidadMedidaKind(it.tipoNovedad) === 'hours' && it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : ''}
+                                                        {getCantidadMedidaKind(it.tipoNovedad, it) === 'hours' && it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : ''}
                                                     </span>
                                                 );
                                             })()}

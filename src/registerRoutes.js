@@ -396,6 +396,34 @@ function registerRoutes(deps) {
         return dateValue;
     }
 
+    function ymdAddCalendarDaysUTC(ymd, deltaDays) {
+        const d = parseDateAtUtcStart(ymd);
+        if (!d || !Number.isFinite(deltaDays)) return null;
+        d.setUTCDate(d.getUTCDate() + deltaDays);
+        return d.toISOString().slice(0, 10);
+    }
+
+    /** -1 si a<b, 0 si a===b, 1 si a>b (solo YYYY-MM-DD). */
+    function ymdCompareStrings(a, b) {
+        if (!a || !b) return null;
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return 0;
+    }
+
+    function diffDecimalHoursFromHhmmss(hiStr, hfStr) {
+        if (!hiStr || !hfStr) return null;
+        const parse = (s) => {
+            const m = String(s).match(/^(\d{2}):(\d{2}):(\d{2})$/);
+            if (!m) return null;
+            return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+        };
+        const a = parse(hiStr);
+        const b = parse(hfStr);
+        if (a == null || b == null || b <= a) return null;
+        return (b - a) / 3600;
+    }
+
     function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
         const start = parseDateAtUtcStart(startDateRaw);
         const end = parseDateAtUtcStart(endDateRaw);
@@ -976,7 +1004,7 @@ function registerRoutes(deps) {
                 const it = items[i];
                 const row = rows[i];
                 const correoActor = it.estado === 'Rechazado' ? (it.rechazadoPorCorreo || '') : (it.aprobadoPorCorreo || '');
-                const esPorHoras = getCantidadMedidaKind(it.tipoNovedad) === 'hours';
+                const esPorHoras = getCantidadMedidaKind(it.tipoNovedad, it) === 'hours';
                 let observacionHeDomingo = '';
                 if (rowIsHoraExtraTipo(row)) {
                     observacionHeDomingo = computeHeDomingoObservacionForRow(row, sundaySetsExport, buildConsultantKeyHeDomingo, heDomingoDep);
@@ -1253,7 +1281,7 @@ function registerRoutes(deps) {
             const body = req.body || {};
             const files = (Array.isArray(req.files) ? req.files : [])
                 .filter((f) => ['soporte', 'soportes'].includes(String(f.fieldname || '').toLowerCase()));
-            const tipoNovedad = String(body.tipoNovedad || body.tipo || '').trim();
+            let tipoNovedad = String(body.tipoNovedad || body.tipo || '').trim();
             if (isNovedadTipoRetiradoDelFormulario(tipoNovedad)) {
                 return res.status(400).json({
                     ok: false,
@@ -1381,13 +1409,163 @@ function registerRoutes(deps) {
                 return res.status(400).json({ ok: false, error: 'El lider no pertenece al cliente seleccionado.' });
             }
 
-            const fecha = parseDateOrNull(body.fecha);
-            const horaInicio = parseTimeOrNull(body.horaInicio);
-            const horaFin = parseTimeOrNull(body.horaFin);
-            const fechaInicio = parseDateOrNull(body.fechaInicio) || fecha;
-            const fechaFin = parseDateOrNull(body.fechaFin);
+            let fecha = parseDateOrNull(body.fecha);
+            let horaInicio = parseTimeOrNull(body.horaInicio);
+            let horaFin = parseTimeOrNull(body.horaFin);
+            let fechaInicio = parseDateOrNull(body.fechaInicio) || fecha;
+            let fechaFin = parseDateOrNull(body.fechaFin);
             const novedadTypeKey = String(rule?.key || normalizeNovedadTypeKey(tipoNovedad) || '');
             const todayUtc = new Date().toISOString().slice(0, 10);
+
+            let insertModalidad = null;
+            let insertFechaVotacion = null;
+            let insertUnidad = null;
+
+            if (novedadTypeKey === 'compensatorio_votacion_jurado') {
+                const tipoCanonInsert = String(rule?.displayName || tipoNovedad).trim();
+                tipoNovedad = tipoCanonInsert;
+                const rawMod = String(body.modalidad || body.modalidadVotacion || '')
+                    .trim()
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, '_')
+                    .replace(/\+/g, '_');
+                const modAlias = {
+                    solo_voto: 'solo_voto',
+                    solovoto: 'solo_voto',
+                    solo_jurado: 'solo_jurado',
+                    solojurado: 'solo_jurado',
+                    jurado_y_voto: 'jurado_y_voto',
+                    juradoyvoto: 'jurado_y_voto',
+                    jurado_voto: 'jurado_y_voto'
+                };
+                const modalidadKey = modAlias[rawMod] || (['solo_voto', 'solo_jurado', 'jurado_y_voto'].includes(rawMod) ? rawMod : '');
+                if (!modalidadKey) {
+                    return res.status(422).json({ ok: false, error: 'Selecciona una modalidad válida (solo voto, solo jurado o jurado y voto).' });
+                }
+                const fv = parseDateOrNull(body.fechaVotacion || body.fecha_votacion);
+                const fd = parseDateOrNull(body.fechaDisfrute || body.fechaDisfruteVotacion || body.fechaInicio);
+                if (!fv) {
+                    return res.status(422).json({ ok: false, error: 'La fecha de votación es obligatoria.' });
+                }
+                if (!fd) {
+                    return res.status(422).json({ ok: false, error: 'La fecha de disfrute es obligatoria.' });
+                }
+                if (ymdCompareStrings(fv, todayUtc) > 0) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'La fecha de la jornada electoral debe ser anterior o igual a hoy.'
+                    });
+                }
+                const maxVentana = ymdAddCalendarDaysUTC(fv, 30);
+                if (!maxVentana || ymdCompareStrings(todayUtc, maxVentana) > 0) {
+                    return res.status(422).json({
+                        ok: false,
+                        error:
+                            'Plazo vencido: el compensatorio debe solicitarse dentro de los 30 días calendario posteriores a la votación'
+                    });
+                }
+                if (ymdCompareStrings(fd, fv) < 0 || ymdCompareStrings(fd, maxVentana) > 0) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'La fecha de disfrute debe estar dentro de los 30 días calendario siguientes a la votación'
+                    });
+                }
+                const expectedFiles = modalidadKey === 'jurado_y_voto' ? 2 : 1;
+                if (files.length < expectedFiles) {
+                    const msg =
+                        modalidadKey === 'jurado_y_voto'
+                            ? 'Faltan soportes obligatorios: certificado de jurado de votación'
+                            : modalidadKey === 'solo_jurado'
+                              ? 'Faltan soportes obligatorios: certificado de jurado de votación'
+                              : 'Faltan soportes obligatorios: certificado electoral';
+                    return res.status(422).json({ ok: false, error: msg });
+                }
+                const dupQ = await pool.query(
+                    `SELECT id FROM novedades
+                     WHERE cedula = $1
+                       AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                           = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                       AND fecha_votacion = $3::date
+                       AND estado IN ('Pendiente'::novedad_estado, 'Aprobado'::novedad_estado)
+                     LIMIT 1`,
+                    [cedulaNorm, tipoCanonInsert, fv]
+                );
+                if (dupQ.rows.length) {
+                    return res.status(409).json({ ok: false, error: 'Ya existe una solicitud para esta jornada electoral' });
+                }
+                const diasCant =
+                    modalidadKey === 'solo_voto' ? 0.5 : modalidadKey === 'solo_jurado' ? 1 : 1.5;
+                fechaInicio = fd;
+                fechaFin = fd;
+                fecha = null;
+                horaInicio = null;
+                horaFin = null;
+                insertModalidad = modalidadKey;
+                insertFechaVotacion = fv;
+            }
+
+            if (novedadTypeKey === 'permiso_remunerado') {
+                const unidadRaw = String(body.unidad || body.permisoUnidad || 'dias').trim().toLowerCase();
+                const unidad = unidadRaw === 'horas' ? 'horas' : 'dias';
+                const pFi = parseDateOrNull(body.fechaInicio);
+                const pFf = parseDateOrNull(body.fechaFin);
+                const pF = parseDateOrNull(body.fecha);
+                const pHi = parseTimeOrNull(body.horaInicio);
+                const pHf = parseTimeOrNull(body.horaFin);
+                const rangoDistinto = Boolean(pFi && pFf && pFf !== pFi);
+                if (unidad === 'horas') {
+                    if (rangoDistinto) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'Modo inválido: combinación de campos no permitida.'
+                        });
+                    }
+                    const day = pF || pFi || pFf;
+                    if (!day || !pHi || !pHf) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'En modo horas indica la fecha del permiso y hora de inicio y fin.'
+                        });
+                    }
+                    const horasVal = diffDecimalHoursFromHhmmss(pHi, pHf);
+                    if (horasVal == null) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'La hora de fin debe ser posterior a la hora de inicio'
+                        });
+                    }
+                    fechaInicio = day;
+                    fechaFin = day;
+                    fecha = day;
+                    horaInicio = pHi;
+                    horaFin = pHf;
+                    insertUnidad = 'horas';
+                } else {
+                    if (pHi && pHf) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'Modo inválido: combinación de campos no permitida.'
+                        });
+                    }
+                    if (!pFi || !pFf) {
+                        return res.status(400).json({ ok: false, error: 'Permiso remunerado en días requiere fecha inicio y fecha fin.' });
+                    }
+                    if (pFf < pFi) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'La fecha de fin debe ser posterior o igual a la fecha de inicio'
+                        });
+                    }
+                    fechaInicio = pFi;
+                    fechaFin = pFf;
+                    horaInicio = null;
+                    horaFin = null;
+                    fecha = null;
+                    insertUnidad = 'dias';
+                }
+            }
 
             if (novedadTypeKey !== 'vacaciones_dinero' && !fechaInicio) {
                 return res.status(400).json({ ok: false, error: 'Fecha Inicio es obligatoria.' });
@@ -1407,6 +1585,26 @@ function registerRoutes(deps) {
             let horasRecargoDomingoNocturnas = 0;
             let tipoHoraExtra = String(body.tipoHoraExtra || '').trim() || null;
             let heDomingoObservacionInsert = null;
+
+            if (novedadTypeKey === 'compensatorio_votacion_jurado') {
+                const mk = insertModalidad;
+                cantidadHoras = mk === 'solo_voto' ? 0.5 : mk === 'solo_jurado' ? 1 : 1.5;
+            }
+
+            if (novedadTypeKey === 'permiso_remunerado' && insertUnidad === 'horas' && horaInicio && horaFin) {
+                const hv = diffDecimalHoursFromHhmmss(horaInicio, horaFin);
+                cantidadHoras = hv != null ? Number(hv.toFixed(2)) : 0;
+            }
+
+            if (novedadTypeKey === 'permiso_remunerado' && insertUnidad === 'dias' && fechaInicio && fechaFin) {
+                cantidadHoras = countBusinessDaysInclusive(fechaInicio, fechaFin);
+                if (cantidadHoras <= 0) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'El rango seleccionado no contiene días hábiles para el permiso remunerado.'
+                    });
+                }
+            }
 
             if (novedadTypeKey === 'vacaciones_tiempo') {
                 if (!fechaFin) {
@@ -1552,12 +1750,16 @@ function registerRoutes(deps) {
                 `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
-                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion, estado
+                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion,
+                    modalidad, fecha_votacion, unidad,
+                    estado
                 )
                 VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8::user_area,
                     $9::date, $10::time, $11::time, $12::date, $13::date,
-                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'Pendiente'::novedad_estado
+                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                    $24, $25::date, $26,
+                    'Pendiente'::novedad_estado
                 )
                 RETURNING id`,
                 [
@@ -1583,7 +1785,10 @@ function registerRoutes(deps) {
                     tipoHoraExtra,
                     archivoRuta,
                     montoCop,
-                    heDomingoObservacionInsert || null
+                    heDomingoObservacionInsert || null,
+                    insertModalidad,
+                    insertFechaVotacion || null,
+                    insertUnidad || null
                 ]
             );
             const novedadId = insertResult?.rows?.[0]?.id || '';
@@ -1847,6 +2052,7 @@ function registerRoutes(deps) {
                 const fresh = await pool.query(
                     `SELECT
                         nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.gp_user_id, nov.tipo_novedad, nov.area,
+                        nov.modalidad, nov.fecha_votacion, nov.unidad,
                         nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas, nov.horas_recargo_domingo,
                         nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas,
                         nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,

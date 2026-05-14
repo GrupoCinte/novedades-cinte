@@ -196,6 +196,20 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureNovedadesModalidadVotacionUnidadColumns() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS modalidad TEXT NULL');
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS fecha_votacion DATE NULL');
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS unidad TEXT NULL');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para modalidad/fecha_votacion/unidad en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** NIT por fila (misma cadena en todas las filas de un `cliente`; fuente única para cotizador). */
     async function ensureClientesLideresNitColumn() {
         try {
@@ -1281,6 +1295,7 @@ function createDataLayer(deps) {
         const q = await pool.query(
             `SELECT
                 nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.gp_user_id, nov.tipo_novedad, nov.area,
+                nov.modalidad, nov.fecha_votacion, nov.unidad,
                 nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas, nov.horas_recargo_domingo,
                 nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas,
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
@@ -1716,6 +1731,7 @@ function createDataLayer(deps) {
         ensureNovedadesHeDomingoObservacionColumn,
         ensureNovedadesNominaVerificacionColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
+        ensureNovedadesModalidadVotacionUnidadColumns,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
