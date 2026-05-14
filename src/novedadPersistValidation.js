@@ -103,19 +103,6 @@ function validateMergedNovedadForAdmin(merged, opts) {
         }
     }
 
-    if (tipoKey === 'permiso_remunerado' && merged.unidad === 'horas') {
-        const hi = toHms(merged.hora_inicio);
-        const hf = toHms(merged.hora_fin);
-        if (!hi || !hf) {
-            return { ok: false, error: 'Permiso remunerado en modo horas requiere hora inicio y hora fin.' };
-        }
-        const [h1, m1] = hi.split(':').map(Number);
-        const [h2, m2] = hf.split(':').map(Number);
-        if (h2 * 60 + m2 <= h1 * 60 + m1) {
-            return { ok: false, error: 'En modo horas, la hora de fin debe ser posterior a la hora de inicio.' };
-        }
-    }
-
     if (tipoKey === 'hora_extra') {
         const hi = toHms(merged.hora_inicio);
         const hf = toHms(merged.hora_fin);

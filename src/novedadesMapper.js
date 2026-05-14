@@ -126,8 +126,7 @@ function toClientNovedad(row) {
         ),
         nominaVerificacionEn: row.nomina_verificacion_en ? row.nomina_verificacion_en.toISOString() : '',
         nominaVerificacionPorEmail: pickEmailLikeOnly(row.nomina_verificacion_por_email),
-        asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta,
-        unidad: String(row.unidad || '').trim() || 'dias'
+        asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta
     };
 }
 

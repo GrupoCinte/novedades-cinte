@@ -200,8 +200,7 @@ const EMPTY_DETALLE_FORM = {
     fechaInicio: '',
     fechaFin: '',
     diasSolicitados: '',
-    montoBono: '$ ',
-    unidad: 'dias'
+    montoBono: '$ '
 };
 
 function isExcelAttachment(file) {
@@ -226,8 +225,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         fechaInicio: '',
         fechaFin: '',
         diasSolicitados: '',
-        montoBono: '$ ',
-        unidad: 'dias'
+        montoBono: '$ '
     });
 
     const [status, setStatus] = useState({ type: '', text: '' });
@@ -308,11 +306,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const maxFechaFinYmd = addCalendarYearsYmd(todayLocalYmd, 1);
     const maxFechaInicioYmd = esIncapacidad ? todayLocalYmd : maxFechaFinYmd;
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
-    
-    const allowsBothModes = Boolean(rule.allowHoursMode);
-    const mode = allowsBothModes ? (formData.unidad || 'dias') : (requiereLapsoHora ? 'horas' : 'dias');
-    const isModeHoras = mode === 'horas';
-    const usaBloqueHoras = isHoraExtra || requiereLapsoHora || (allowsBothModes && isModeHoras);
+    const usaBloqueHoras = isHoraExtra || requiereLapsoHora;
     /** Disponibilidad: días hábiles del rango solo informativos (el backend no persiste días en cantidad_horas). */
     const diasInformativosDisponibilidad = useMemo(() => {
         if (!esDisponibilidad || !formData.fechaInicio || !formData.fechaFin) return 0;
@@ -459,18 +453,11 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             if (a == null || b == null || b <= a) return 0;
             return Number(((b - a) / (1000 * 60 * 60)).toFixed(2));
         }
-        if (isModeHoras) {
-            const f = formData.fecha || formData.fechaInicio;
-            const inicioMs = buildDateTimeMs(f, formData.horaInicio);
-            const finMs = buildDateTimeMs(f, formData.horaFin);
-            if (inicioMs === null || finMs === null || finMs <= inicioMs) return 0;
-            return Number(((finMs - inicioMs) / (1000 * 60 * 60)).toFixed(2));
-        }
         const inicioMs = buildDateTimeMs(formData.fechaInicio, formData.horaInicio);
         const finMs = buildDateTimeMs(formData.fechaFin, formData.horaFin);
         if (inicioMs === null || finMs === null || finMs <= inicioMs) return 0;
         return Number(((finMs - inicioMs) / (1000 * 60 * 60)).toFixed(2));
-    }, [usaBloqueHoras, isHoraExtra, isModeHoras, formData.fecha, formData.fechaInicio, formData.fechaFin, formData.horaInicio, formData.horaFin]);
+    }, [usaBloqueHoras, isHoraExtra, formData.fechaInicio, formData.fechaFin, formData.horaInicio, formData.horaFin]);
 
     const diasAutoCalculados = useMemo(() => {
         if (autocalculaDiasCalendario) {
@@ -501,7 +488,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     }, [lideres, formData.lider]);
 
     const horaFinInvalida = usaBloqueHoras
-        && (isModeHoras ? formData.fecha : (formData.fechaInicio && formData.fechaFin))
+        && formData.fechaInicio
+        && formData.fechaFin
         && formData.horaInicio
         && formData.horaFin
         && (
@@ -511,10 +499,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                     const b = toUtcMsFromDateAndTime(formData.fechaFin, normalizeHoraHePayload(formData.horaFin));
                     return a == null || b == null || b <= a;
                 })()
-                : (isModeHoras 
-                    ? buildDateTimeMs(formData.fecha || formData.fechaInicio, formData.horaFin) <= buildDateTimeMs(formData.fecha || formData.fechaInicio, formData.horaInicio)
-                    : buildDateTimeMs(formData.fechaFin, formData.horaFin) <= buildDateTimeMs(formData.fechaInicio, formData.horaInicio)
-                  )
+                : buildDateTimeMs(formData.fechaFin, formData.horaFin) <= buildDateTimeMs(formData.fechaInicio, formData.horaInicio)
         );
 
     const horaInicioFormatoInvalido = usaBloqueHoras
@@ -538,16 +523,15 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
 
     const bloqueoEnvioHoraExtra = usaBloqueHoras
         && (
-            (isModeHoras ? !formData.fecha : (!formData.fechaInicio || !formData.fechaFin))
+            !formData.fechaInicio
+            || !formData.fechaFin
             || !formData.horaInicio
             || !formData.horaFin
             || horaInicioFormatoInvalido
             || horaFinFormatoInvalido
             || horaFinInvalida
-            || (isModeHoras 
-                ? (formData.fecha < minFechaInicioYmd || formData.fecha > maxFechaInicioYmd)
-                : (fechaInicioFueraDeVentana || fechaFinFueraDeVentanaMax)
-               )
+            || fechaInicioFueraDeVentana
+            || fechaFinFueraDeVentanaMax
         );
 
     const bloqueoEnvioFechas = !usaBloqueHoras
@@ -617,24 +601,6 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                     ? String(countBusinessDaysInclusive(formData.fechaInicio, value, festivosSet))
                     : formData.diasSolicitados;
             setFormData({ ...formData, fechaFin: value, diasSolicitados: nextDias });
-            return;
-        }
-        if (name === 'unidad') {
-            setFormData({
-                ...formData,
-                unidad: value,
-                fecha: '',
-                fechaInicio: '',
-                fechaFin: '',
-                horaInicio: '',
-                horaFin: '',
-                diasSolicitados: '',
-                cantidadHoras: ''
-            });
-            return;
-        }
-        if (name === 'fecha') {
-            setFormData({ ...formData, fecha: value });
             return;
         }
         if (name === 'tipo') {
@@ -1009,22 +975,13 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             payload.append('lider', formData.lider || '');
             payload.append('tipoNovedad', formData.tipo);
             payload.append('aceptaPoliticaDatos', aceptaPoliticaDatos ? 'true' : 'false');
-            payload.append('unidad', formData.unidad || 'dias');
 
             if (usaBloqueHoras) {
-                if (isModeHoras && !isHoraExtra) {
-                    payload.append('fecha', formData.fecha);
-                    payload.append('horaInicio', formData.horaInicio);
-                    payload.append('horaFin', formData.horaFin);
-                    payload.append('fechaInicio', formData.fecha);
-                    payload.append('fechaFin', formData.fecha);
-                } else {
-                    payload.append('fecha', formData.fechaInicio);
-                    payload.append('horaInicio', formData.horaInicio);
-                    payload.append('horaFin', formData.horaFin);
-                    payload.append('fechaInicio', formData.fechaInicio);
-                    payload.append('fechaFin', formData.fechaFin);
-                }
+                payload.append('fecha', formData.fechaInicio);
+                payload.append('horaInicio', formData.horaInicio);
+                payload.append('horaFin', formData.horaFin);
+                payload.append('fechaInicio', formData.fechaInicio);
+                payload.append('fechaFin', formData.fechaFin);
                 payload.append('cantidadHoras', String(horasCalculadas));
                 if (!isHoraExtra) {
                     payload.append('horasDiurnas', '0');
@@ -1092,8 +1049,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                             fechaInicio: '',
                             fechaFin: '',
                             diasSolicitados: '',
-                            montoBono: '$ ',
-                            unidad: 'dias'
+                            montoBono: '$ '
                         };
                     });
                     setSelectedFiles([]);
@@ -1117,8 +1073,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                         fechaInicio: '',
                         fechaFin: '',
                         diasSolicitados: '',
-                        montoBono: '$ ',
-                        unidad: 'dias'
+                        montoBono: '$ '
                     });
                     setColaboradorVerificado(false);
                     setCatalogLocks({ lider: false });
@@ -1398,35 +1353,6 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                             {NOVEDAD_TYPES.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
                                         </select>
                                     </div>
-                                    {allowsBothModes && (
-                                        <div className="flex flex-col gap-1 md:col-span-2 animate-in slide-in-from-top-2 duration-300">
-                                            <label className={labelCls}>¿Cómo deseas reportar este permiso? {reqStar}</label>
-                                            <div className="flex gap-4 p-2">
-                                                <label className={theme.radioLabel}>
-                                                    <input
-                                                        type="radio"
-                                                        name="unidad"
-                                                        value="dias"
-                                                        checked={formData.unidad === 'dias'}
-                                                        onChange={handleChange}
-                                                        className="w-4 h-4 text-[#2F7BB8]"
-                                                    />
-                                                    📅 Por días completos
-                                                </label>
-                                                <label className={theme.radioLabel}>
-                                                    <input
-                                                        type="radio"
-                                                        name="unidad"
-                                                        value="horas"
-                                                        checked={formData.unidad === 'horas'}
-                                                        onChange={handleChange}
-                                                        className="w-4 h-4 text-[#2F7BB8]"
-                                                    />
-                                                    ⏱️ Por horas (permiso parcial)
-                                                </label>
-                                            </div>
-                                        </div>
-                                    )}
                                     {requiereMontoCop && (
                                         <div className="flex flex-col gap-1 md:col-span-2 animate-in fade-in duration-300">
                                             <label className={labelCls}>
@@ -1460,22 +1386,12 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                 {usaBloqueHoras && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-300">
                                         <div className="flex flex-col gap-1">
-                                            <label className={labelCls}>{isModeHoras ? 'Fecha' : 'Fecha Inicio'} {reqStar}</label>
-                                            <input
-                                                required={usaBloqueHoras}
-                                                name={isModeHoras ? 'fecha' : 'fechaInicio'}
-                                                value={isModeHoras ? formData.fecha : formData.fechaInicio}
-                                                onChange={handleChange}
-                                                type="date"
-                                                min={minFechaInicioYmd}
-                                                max={maxFechaInicioYmd}
-                                                disabled={!detalleFormularioActivo}
-                                                className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
-                                            />
-                                            {(isModeHoras ? formData.fecha : formData.fechaInicio) && festivosSet.has(isModeHoras ? formData.fecha : formData.fechaInicio) && (
+                                            <label className={labelCls}>Fecha Inicio {reqStar}</label>
+                                            <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            {formData.fechaInicio && festivosSet.has(formData.fechaInicio) && (
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
                                             )}
-                                            {(isModeHoras ? formData.fecha : formData.fechaInicio) && !festivosSet.has(isModeHoras ? formData.fecha : formData.fechaInicio) && new Date((isModeHoras ? formData.fecha : formData.fechaInicio) + 'T12:00:00Z').getUTCDay() === 0 && (
+                                            {formData.fechaInicio && !festivosSet.has(formData.fechaInicio) && new Date(formData.fechaInicio + 'T12:00:00Z').getUTCDay() === 0 && (
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
                                             )}
                                         </div>
@@ -1493,29 +1409,17 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                 className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
                                             />
                                         </div>
-                                        {!isModeHoras && (
-                                            <div className="flex flex-col gap-1">
-                                                <label className={labelCls}>Fecha Fin {reqStar}</label>
-                                                <input
-                                                    required={usaBloqueHoras && !isModeHoras}
-                                                    name="fechaFin"
-                                                    value={formData.fechaFin}
-                                                    onChange={handleChange}
-                                                    type="date"
-                                                    min={formData.fechaInicio || minFechaInicioYmd}
-                                                    max={maxFechaFinYmd}
-                                                    disabled={!detalleFormularioActivo || !formData.fechaInicio}
-                                                    className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                                                />
-                                                {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
-                                                {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
-                                                    <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
-                                                )}
-                                                {formData.fechaFin && !festivosSet.has(formData.fechaFin) && new Date(formData.fechaFin + 'T12:00:00Z').getUTCDay() === 0 && (
-                                                    <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
-                                                )}
-                                            </div>
-                                        )}
+                                        <div className="flex flex-col gap-1">
+                                            <label className={labelCls}>Fecha Fin {reqStar}</label>
+                                            <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
+                                            {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
+                                            {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                            )}
+                                            {formData.fechaFin && !festivosSet.has(formData.fechaFin) && new Date(formData.fechaFin + 'T12:00:00Z').getUTCDay() === 0 && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            )}
+                                        </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora Fin (24h) {reqStar}</label>
                                             <input
