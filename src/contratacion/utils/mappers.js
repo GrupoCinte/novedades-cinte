@@ -1,5 +1,3 @@
-const crypto = require('node:crypto');
-
 const SAFE_FULLDATA_KEYS = new Set([
     'email',
     'puesto',
@@ -130,19 +128,8 @@ function mapDynamoItemToExecution(data) {
 
     const effectiveTimestamp = tsCandidates.length > 0 ? Math.max(...tsCandidates) : Date.now();
 
-    const executionId =
-        data.whatsapp_number != null && String(data.whatsapp_number).trim() !== ''
-            ? data.whatsapp_number
-            : data.whatsappNumber != null && String(data.whatsappNumber).trim() !== ''
-              ? data.whatsappNumber
-              : data.id != null && String(data.id).trim() !== ''
-                ? data.id
-                : data.email
-                  ? `email:${String(data.email).trim()}`
-                  : `sin-clave:${crypto.createHash('sha1').update(JSON.stringify({ n: displayName, s: currentStatus, t: effectiveTimestamp })).digest('hex').slice(0, 24)}`;
-
     return {
-        executionId,
+        executionId: data.whatsapp_number,
         workflowName: displayName,
         currentNodeName: currentStatus,
         status: 'running',

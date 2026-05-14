@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Lock, User, Eye, EyeOff } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { buildCsrfHeaders, cognitoCompleteNewPassword, cognitoSignIn } from "./cognitoAuth";
+import ROLE_PRIORITY from "./constants/rolePriority.json";
 import { useAuthSurface } from "./moduleTheme.js";
-import { ADMIN_PORTAL_UNIFIED_TITLE } from "./AdminModuleSidebarBrand.jsx";
 
 /** Intenta guardar cognito_sub en users para rol gp (no bloquea el login). */
 function tryGpVincularCognitoSelf(user) {
@@ -27,6 +27,7 @@ export default function Login({ setAuth }) {
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("+57");
   const [challengeSession, setChallengeSession] = useState("");
+  const [roleRequested, setRoleRequested] = useState("");
   const nav = useNavigate();
 
   const handleSubmit = async (e) => {
@@ -35,7 +36,7 @@ export default function Login({ setAuth }) {
     setLoading(true);
 
     try {
-      const authData = await cognitoSignIn(username, password);
+      const authData = await cognitoSignIn(username, password, roleRequested);
       if (!authData?.user) {
         throw new Error("Autenticación fallida");
       }
@@ -94,6 +95,7 @@ export default function Login({ setAuth }) {
         challengeSession,
         newPassword,
         phone,
+        roleRequested,
       );
       setAuth(authData);
       tryGpVincularCognitoSelf(authData.user);
@@ -125,22 +127,15 @@ export default function Login({ setAuth }) {
           <div className="absolute top-0 left-0 h-1 w-full bg-gradient-to-r from-[#004D87] to-[#65BCF7] opacity-90" />
 
           <div className="mb-8 text-center">
-            {/*
-              Misma caja que AdminPortalHome: el PNG claro lleva más aire → scale en tema claro para igualar tamaño visual al oscuro.
-            */}
-            <div className="mx-auto mb-4 flex h-[4.35rem] w-[min(100%,11.875rem)] max-w-full items-center justify-center overflow-visible px-1 py-1 sm:h-[4.65rem] sm:w-[min(100%,13.125rem)] sm:px-1.5 sm:py-1.5 md:h-[5.25rem] md:w-[min(100%,14.375rem)]">
+            <div className="mx-auto mb-4 flex justify-center">
               <img
                 src={au.isLight ? "/assets/logo-cinte-header-light.png" : "/assets/logo-cinte-header.png"}
                 alt="CINTE"
-                className={`h-full w-full object-contain object-center drop-shadow-md ${
-                  au.isLight ? "origin-center scale-[1.72] sm:scale-[1.63] md:scale-[1.55]" : ""
-                }`}
+                className="h-14 w-auto drop-shadow-md md:h-16"
               />
             </div>
-            <h1
-              className={`font-heading text-2xl font-extrabold uppercase leading-tight tracking-wide sm:text-[1.65rem] md:text-[1.75rem] ${au.isLight ? "text-slate-900" : "text-white"}`}
-            >
-              {ADMIN_PORTAL_UNIFIED_TITLE}
+            <h1 className={`font-heading text-xl font-bold uppercase leading-tight tracking-wide md:text-2xl ${au.isLight ? "text-slate-900" : "text-white"}`}>
+               Portal de gestión de novedades
             </h1>
           </div>
 
@@ -150,7 +145,7 @@ export default function Login({ setAuth }) {
           >
             <div className="flex flex-col gap-2">
               <label className={au.authLabel}>
-                Correo corporativo
+                Usuario (correo)
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -165,6 +160,24 @@ export default function Login({ setAuth }) {
                   className={`${au.authInput} pl-10`}
                 />
               </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className={au.authLabel}>
+                Ingresar como rol
+              </label>
+              <select
+                value={roleRequested}
+                onChange={(e) => setRoleRequested(e.target.value)}
+                className={au.authInput}
+              >
+                <option value="">Mi rol asignado</option>
+                {ROLE_PRIORITY.map((role) => (
+                  <option key={role} value={role}>
+                    {String(role).replace(/_/g, " ").toUpperCase()}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="flex flex-col gap-2">
@@ -213,40 +226,20 @@ export default function Login({ setAuth }) {
                 <div className={au.challengeHeading}>
                   Primer acceso: define nueva contraseña
                 </div>
-                <div className="relative">
-                  <input
-                    type={showNewPassword ? "text" : "password"}
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="Nueva contraseña"
-                    className={`${au.authInput} pr-10`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword((v) => !v)}
-                    className={`absolute inset-y-0 right-0 pr-3 flex items-center ${au.eyeBtn}`}
-                    aria-label={showNewPassword ? "Ocultar nueva contraseña" : "Mostrar nueva contraseña"}
-                  >
-                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-                <div className="relative">
-                  <input
-                    type={showNewPassword ? "text" : "password"}
-                    value={confirmNewPassword}
-                    onChange={(e) => setConfirmNewPassword(e.target.value)}
-                    placeholder="Confirmar nueva contraseña"
-                    className={`${au.authInput} pr-10`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowNewPassword((v) => !v)}
-                    className={`absolute inset-y-0 right-0 pr-3 flex items-center ${au.eyeBtn}`}
-                    aria-label={showNewPassword ? "Ocultar confirmación" : "Mostrar confirmación"}
-                  >
-                    {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
+                <input
+                  type={showNewPassword ? "text" : "password"}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="Nueva contraseña"
+                  className={au.authInput}
+                />
+                <input
+                  type={showNewPassword ? "text" : "password"}
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  placeholder="Confirmar nueva contraseña"
+                  className={au.authInput}
+                />
                 <input
                   type="text"
                   value={phoneNumber}
@@ -265,6 +258,15 @@ export default function Login({ setAuth }) {
                   placeholder="Teléfono (ej: +573001112233)"
                   className={au.authInput}
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((v) => !v)}
+                  className={`text-left text-xs ${au.backLink}`}
+                >
+                  {showNewPassword
+                    ? "Ocultar nueva contraseña"
+                    : "Mostrar nueva contraseña"}
+                </button>
                 <button
                   type="button"
                   disabled={loading}

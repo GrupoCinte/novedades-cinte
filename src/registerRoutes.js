@@ -1624,7 +1624,12 @@ function registerRoutes(deps) {
                 if (publishResult?.accepted) {
                     console.log('[email-notifications] Evento form_submitted aceptado.', {
                         eventId: emailPayload.eventId,
-                        requestId: publishResult.requestId
+                        requestId: publishResult.requestId,
+                        novedadId: emailPayload.novedadId,
+                        toUser: emailPayload.user?.email || null,
+                        toAdmins: Array.isArray(emailPayload.admin?.notifyTo)
+                            ? [...emailPayload.admin.notifyTo]
+                            : []
                     });
                 } else if (!publishResult?.skipped) {
                     console.warn('[email-notifications] Evento no aceptado.', {
@@ -2002,7 +2007,9 @@ function registerRoutes(deps) {
                         console.log('[email-notifications] Evento form_status_changed aceptado.', {
                             eventId: statusPayload.eventId,
                             requestId: publishResult.requestId,
-                            novedadId: item.id
+                            novedadId: item.id,
+                            toUser: statusPayload.user?.email || null,
+                            newEstado: statusPayload.statusChange?.newEstado || null
                         });
                     } else if (!publishResult?.skipped) {
                         console.warn('[email-notifications] Evento form_status_changed no aceptado.', {

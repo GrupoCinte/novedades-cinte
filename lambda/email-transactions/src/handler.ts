@@ -99,11 +99,18 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
         }
       });
       const userResult = await sesClient.send(userCommand);
+      const userMsgId = userResult.MessageId || null;
+      console.log('[email-transactions] form_status_changed enviado', {
+        eventId: payload.eventId,
+        novedadId: payload.novedadId,
+        toUser: payload.user.email,
+        messageIdUser: userMsgId
+      });
       return json(200, {
         ok: true,
         eventId: payload.eventId,
         messageIds: {
-          user: userResult.MessageId || null
+          user: userMsgId
         }
       });
     }
@@ -122,15 +129,19 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
     const adminRecipients = resolveAdminRecipientsForSubmitted(payload);
     if (adminRecipients.length === 0) {
       const userOnly = await sesClient.send(userCommand);
+      const userMsgId = userOnly.MessageId || null;
       console.warn('[email-transactions] Sin destinatarios admin (notifyTo vacío y sin EMAIL_ADMIN_TO*)', {
-        eventId: payload.eventId
+        eventId: payload.eventId,
+        novedadId: payload.novedadId,
+        toUser: payload.user.email,
+        messageIdUser: userMsgId
       });
       return json(200, {
         ok: true,
         warn: 'no_admin_recipients',
         eventId: payload.eventId,
         messageIds: {
-          user: userOnly.MessageId || null,
+          user: userMsgId,
           admin: null
         }
       });
@@ -201,6 +212,9 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
     if (failures.length > 0) {
       console.error('[email-transactions] Algunos envíos fallaron', {
         eventId: payload.eventId,
+        novedadId: payload.novedadId,
+        toUser: payload.user.email,
+        toAdmins: adminRecipients,
         failures,
         adminRecipientsTried: adminRecipients
       });
@@ -215,6 +229,19 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
       });
     }
 
+    console.log('[email-transactions] form_submitted enviado', {
+      eventId: payload.eventId,
+      novedadId: payload.novedadId,
+      toUser: payload.user.email,
+      toAdmins: adminRecipients,
+      messageIds: {
+        user: userMessageId,
+        admin:
+          adminRecipients.length === 1
+            ? adminMessageIds[adminRecipients[0]] || null
+            : adminMessageIds
+      }
+    });
     return json(200, {
       ok: true,
       eventId: payload.eventId,
