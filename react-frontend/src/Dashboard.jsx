@@ -24,6 +24,7 @@ import {
 import { formatHeDomingoCompGestionResumen } from './heDomingoCompDisplay.js';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
+import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 
 /** Primer y último día (YYYY-MM-DD) del mes 0–11 en `year`, para filtros de creación en Gestión. */
 function creadoEnRangeForMonthIndex(monthIndex, year) {
@@ -94,6 +95,31 @@ function normalizeHoraHePayload(timeRaw) {
     if (/^\d{2}:\d{2}:\d{2}$/.test(t)) return t.slice(0, 8);
     if (/^\d{2}:\d{2}$/.test(t)) return `${t}:00`;
     return t.slice(0, 8);
+}
+
+/** `YYYY-MM-DD` + mediodía UTC — mismo criterio que FormularioNovedad para domingo civil. */
+function ymdIsDomingoCivilUtc(ymd) {
+    const s = String(ymd || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    return new Date(`${s}T12:00:00Z`).getUTCDay() === 0;
+}
+
+/** Nota informativa en gestión: festivo o domingo (no altera la fecha guardada). */
+function GestionCalendarioCivilNotas({ ymd, festivosSet }) {
+    const s = String(ymd || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+    const fest = festivosSet instanceof Set && festivosSet.has(s);
+    const dom = !fest && ymdIsDomingoCivilUtc(s);
+    if (!fest && !dom) return null;
+    return (
+        <div
+            className="mt-1 rounded-md border border-amber-400/50 bg-amber-500/15 px-2 py-1.5 text-[11px] font-semibold leading-snug text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+            role="status"
+        >
+            {fest ? <div>Nota: festivo nacional en esta fecha.</div> : null}
+            {dom ? <div>Nota: esta fecha cae en domingo.</div> : null}
+        </div>
+    );
 }
 
 export default function Dashboard({ token, auth, onLogout }) {
@@ -391,12 +417,26 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [gestionDeleteMotivo, setGestionDeleteMotivo] = useState('');
     const [gestionAdminBusy, setGestionAdminBusy] = useState(false);
     const [gestionAdminErr, setGestionAdminErr] = useState(null);
+    const [gestionFestivosSet, setGestionFestivosSet] = useState(() => new Set());
     const [alertaHeDetailItem, setAlertaHeDetailItem] = useState(null);
     /** Panel colapsable de filtros avanzados en Gestión (todos los tamaños de pantalla). */
     const [gestionFiltersPanelOpen, setGestionFiltersPanelOpen] = useState(false);
     const navigate = useNavigate();
     /** Evita parpadeo “se cayó el panel”: en refetch con datos ya cargados no forzar `listLoading`. */
     const novedadesListCountRef = useRef(0);
+
+    useEffect(() => {
+        const ac = new AbortController();
+        fetch('/api/festivos', { credentials: 'include', signal: ac.signal })
+            .then((r) => r.json())
+            .then((data) => {
+                if (data?.ok && Array.isArray(data.festivos)) {
+                    setGestionFestivosSet(new Set(data.festivos));
+                }
+            })
+            .catch(() => {});
+        return () => ac.abort();
+    }, []);
 
     const loadData = useCallback(async (opts = {}) => {
         const { signal } = opts;
@@ -2259,6 +2299,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             <span className={`${dash.dateRangeLbl} shrink-0`}>Rango de fechas</span>
                                             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                                                 <input
+                                                    {...nativeCalendarOnlyInputProps}
                                                     type="date"
                                                     value={fCreadoDesde}
                                                     onChange={(e) => setFCreadoDesde(e.target.value)}
@@ -2266,6 +2307,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 />
                                                 <span className={`${dash.modalMuted} shrink-0 text-xs`}>a</span>
                                                 <input
+                                                    {...nativeCalendarOnlyInputProps}
                                                     type="date"
                                                     value={fCreadoHasta}
                                                     onChange={(e) => setFCreadoHasta(e.target.value)}
@@ -3135,9 +3177,13 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <div><span className={dash.modalMuted}>Modalidad (votación/jurado):</span> {gestionDetailItem.modalidad}</div>
                                     ) : null}
                                     {gestionDetailItem.fechaVotacion ? (
-                                        <div><span className={dash.modalMuted}>Fecha de votación:</span> {gestionDetailItem.fechaVotacion}</div>
+                                        <>
+                                            <div><span className={dash.modalMuted}>Fecha de votación:</span> {gestionDetailItem.fechaVotacion}</div>
+                                            <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaVotacion} festivosSet={gestionFestivosSet} />
+                                        </>
                                     ) : null}
                                     <div><span className={dash.modalMuted}>Fecha de disfrute:</span> {gestionDetailItem.fechaInicio || '-'}</div>
+                                    <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                                     {String(gestionDetailItem.modalidad || '').trim() === 'solo_voto' &&
                                     (gestionDetailItem.horaInicio || gestionDetailItem.horaFin) ? (
                                         <div>
@@ -3149,15 +3195,21 @@ export default function Dashboard({ token, auth, onLogout }) {
                             ) : (
                                 <>
                                     <div><span className={dash.modalMuted}>Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
+                                    <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                                     <div><span className={dash.modalMuted}>Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
+                                    <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
                                     {gestionDetailItem.modalidad ? (
                                         <div><span className={dash.modalMuted}>Modalidad (votación/jurado):</span> {gestionDetailItem.modalidad}</div>
                                     ) : null}
                                     {gestionDetailItem.fechaVotacion ? (
-                                        <div><span className={dash.modalMuted}>Fecha de votación / actuación:</span> {gestionDetailItem.fechaVotacion}</div>
+                                        <>
+                                            <div><span className={dash.modalMuted}>Fecha de votación / actuación:</span> {gestionDetailItem.fechaVotacion}</div>
+                                            <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaVotacion} festivosSet={gestionFestivosSet} />
+                                        </>
                                     ) : null}
                                 </>
-                            )}                            {gestionDetailItem.unidad ? (
+                            )}
+                            {gestionDetailItem.unidad ? (
                                 <div>
                                     <span className={dash.modalMuted}>Unidad (permiso remunerado):</span>{' '}
                                     {gestionDetailItem.unidad === 'horas' ? 'Horas' : gestionDetailItem.unidad === 'dias' ? 'Días' : gestionDetailItem.unidad}
@@ -3393,12 +3445,14 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     </span>{' '}
                                                     {gestionDetailItem.fechaInicio || '-'}
                                                 </div>
+                                                <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                                                 <div>
                                                     <span className={isLight ? 'font-semibold text-emerald-900' : 'font-semibold text-emerald-300'}>
                                                         Fecha fin:
                                                     </span>{' '}
                                                     {gestionDetailItem.fechaFin || '-'}
                                                 </div>
+                                                <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
                                             </div>
                                         </div>
                                     </div>
@@ -3457,7 +3511,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     </select>
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Fecha (HE)
-                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fecha} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fecha: e.target.value }))} />
+                                    <input {...nativeCalendarOnlyInputProps} className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fecha} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fecha: e.target.value }))} />
+                                    <GestionCalendarioCivilNotas ymd={gestionEditDraft.fecha} festivosSet={gestionFestivosSet} />
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Hora inicio / fin (HE)
                                     <div className="mt-1 flex gap-2">
@@ -3467,16 +3522,20 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>
                                     {esTipoCompensatorioVotacionJurado(gestionEditDraft.tipoNovedad) ? 'Fecha de disfrute (inicio)' : 'Fecha inicio'}
-                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaInicio} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaInicio: e.target.value }))} />
+                                    <input {...nativeCalendarOnlyInputProps} className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaInicio} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaInicio: e.target.value }))} />
+                                    <GestionCalendarioCivilNotas ymd={gestionEditDraft.fechaInicio} festivosSet={gestionFestivosSet} />
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>
                                     {esTipoCompensatorioVotacionJurado(gestionEditDraft.tipoNovedad) ? 'Fecha de disfrute (fin)' : 'Fecha fin'}
-                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaFin} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaFin: e.target.value }))} />
-                                </label>                                <label className={`${dash.labelUpper} col-span-full`}>Modalidad (votación/jurado)
+                                    <input {...nativeCalendarOnlyInputProps} className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaFin} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaFin: e.target.value }))} />
+                                    <GestionCalendarioCivilNotas ymd={gestionEditDraft.fechaFin} festivosSet={gestionFestivosSet} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Modalidad (votación/jurado)
                                     <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.modalidad || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, modalidad: e.target.value }))} placeholder="solo_jurado | solo_voto" />
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Fecha votación / actuación
-                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaVotacion || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaVotacion: e.target.value }))} />
+                                    <input {...nativeCalendarOnlyInputProps} className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaVotacion || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaVotacion: e.target.value }))} />
+                                    <GestionCalendarioCivilNotas ymd={gestionEditDraft.fechaVotacion} festivosSet={gestionFestivosSet} />
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Unidad (permiso remunerado)
                                     <select className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.unidad || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, unidad: e.target.value }))}>
@@ -3687,7 +3746,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <div><span className={dash.modalMuted}>Cliente:</span> {alertaHeDetailItem.cliente || '-'}</div>
                             <div><span className={dash.modalMuted}>Líder:</span> {alertaHeDetailItem.lider || '-'}</div>
                             <div><span className={dash.modalMuted}>Fecha inicio:</span> {alertaHeDetailItem.fechaInicio || '-'}</div>
+                            <GestionCalendarioCivilNotas ymd={alertaHeDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                             <div><span className={dash.modalMuted}>Fecha fin:</span> {alertaHeDetailItem.fechaFin || '-'}</div>
+                            <GestionCalendarioCivilNotas ymd={alertaHeDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
                             <div><span className={dash.modalMuted}>Franja cargada:</span> {(alertaHeDetailItem.horaInicio && alertaHeDetailItem.horaFin) ? `${alertaHeDetailItem.horaInicio} - ${alertaHeDetailItem.horaFin}` : '-'}</div>
                             <div><span className={dash.modalMuted}>Horas cargadas:</span> {alertaHeDetailItem.cantidadHoras || 0}h</div>
                             {Array.isArray(alertaHeDetailItem.dailyReasons) && alertaHeDetailItem.dailyReasons.length > 0 && (

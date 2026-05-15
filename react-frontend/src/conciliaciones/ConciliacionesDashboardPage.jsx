@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useModuleTheme } from '../moduleTheme.js';
+import { nativeCalendarOnlyInputProps } from '../nativeCalendarOnlyInputProps.js';
 import { fetchConciliacionesDashboardResumen } from './conciliacionesApi.js';
 
 function currentMonthValue() {
@@ -103,7 +104,7 @@ export default function ConciliacionesDashboardPage({ token }) {
                     </div>
                     <label className="flex w-full max-w-xs flex-col gap-1.5">
                         <span className={`text-[10px] font-heading font-bold uppercase tracking-wider ${labelMuted}`}>Mes</span>
-                        <input type="month" className={field} value={monthValue} onChange={(e) => setMonthValue(e.target.value)} />
+                        <input {...nativeCalendarOnlyInputProps} type="month" className={field} value={monthValue} onChange={(e) => setMonthValue(e.target.value)} />
                     </label>
                 </div>
             </header>

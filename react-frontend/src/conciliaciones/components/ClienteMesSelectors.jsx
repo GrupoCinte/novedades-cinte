@@ -1,3 +1,5 @@
+import { nativeCalendarOnlyInputProps } from '../../nativeCalendarOnlyInputProps.js';
+
 export default function ClienteMesSelectors({
     clientes,
     clienteValue,
@@ -23,7 +25,7 @@ export default function ClienteMesSelectors({
             </label>
             <label className="flex w-full min-w-[10rem] max-w-xs flex-col gap-1.5 sm:w-auto">
                 <span className={`text-[10px] font-heading font-bold uppercase tracking-wider ${labelMuted}`}>Mes de facturación</span>
-                <input type="month" className={field} value={monthValue} onChange={(e) => onMonthChange(e.target.value)} />
+                <input {...nativeCalendarOnlyInputProps} type="month" className={field} value={monthValue} onChange={(e) => onMonthChange(e.target.value)} />
             </label>
         </div>
     );

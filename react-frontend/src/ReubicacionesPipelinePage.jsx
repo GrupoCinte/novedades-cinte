@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDown, ArrowUp, Plus, Pencil, Trash2 } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
+import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
 
 function readCookie(name) {
@@ -377,6 +378,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                     <div>
                         <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin desde</label>
                         <input
+                            {...nativeCalendarOnlyInputProps}
                             type="date"
                             className={`min-w-[10rem] ${field}`}
                             value={fechaFinDesde}
@@ -389,6 +391,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                     <div>
                         <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin hasta</label>
                         <input
+                            {...nativeCalendarOnlyInputProps}
                             type="date"
                             className={`min-w-[10rem] ${field}`}
                             value={fechaFinHasta}
@@ -559,6 +562,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                             <div>
                                 <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
                                 <input
+                                    {...nativeCalendarOnlyInputProps}
                                     type="date"
                                     className={`w-full ${field}`}
                                     value={createForm.fecha_fin}
@@ -610,6 +614,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                             <div>
                                 <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
                                 <input
+                                    {...nativeCalendarOnlyInputProps}
                                     type="date"
                                     className={`w-full ${field}`}
                                     value={editForm.fecha_fin}

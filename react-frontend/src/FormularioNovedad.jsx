@@ -5,6 +5,7 @@ import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat';
 import { toUtcMsFromDateAndTime } from './heNovedadBogotaClient.js';
 import { buildCsrfHeaders } from './cognitoAuth.js';
 import { useUiTheme } from './UiThemeContext.jsx';
+import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 
 function normalizeHoraHePayload(timeRaw) {
     const t = String(timeRaw || '').trim();
@@ -1753,6 +1754,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                             <div className="flex flex-col gap-1">
                                                 <label className={labelCls}>Fecha de la votación {reqStar}</label>
                                                 <input
+                                                    {...nativeCalendarOnlyInputProps}
                                                     name="fechaVotacion"
                                                     value={formData.fechaVotacion}
                                                     onChange={handleChange}
@@ -1761,10 +1763,17 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                     max={fechaVotacionMaxYmd}
                                                     className={inputCls}
                                                 />
+                                                {formData.fechaVotacion && festivosSet.has(formData.fechaVotacion) && (
+                                                    <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                                )}
+                                                {formData.fechaVotacion && !festivosSet.has(formData.fechaVotacion) && new Date(`${formData.fechaVotacion}T12:00:00Z`).getUTCDay() === 0 && (
+                                                    <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                                )}
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 <label className={labelCls}>Fecha de disfrute {reqStar}</label>
                                                 <input
+                                                    {...nativeCalendarOnlyInputProps}
                                                     name="fechaDisfruteVotacion"
                                                     value={formData.fechaDisfruteVotacion}
                                                     onChange={handleChange}
@@ -1779,6 +1788,12 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                         ? 'Hasta 30 días calendario después de la fecha de votación.'
                                                         : 'Selecciona primero la fecha de votación.'}
                                                 </small>
+                                                {formData.fechaDisfruteVotacion && festivosSet.has(formData.fechaDisfruteVotacion) && (
+                                                    <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                                )}
+                                                {formData.fechaDisfruteVotacion && !festivosSet.has(formData.fechaDisfruteVotacion) && new Date(`${formData.fechaDisfruteVotacion}T12:00:00Z`).getUTCDay() === 0 && (
+                                                    <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                                )}
                                             </div>
                                             {esCompVotacionMedioDia && (
                                                 <>
@@ -1871,7 +1886,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-300">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
-                                            <input required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input {...nativeCalendarOnlyInputProps} required={usaBloqueHoras} name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                             {formData.fechaInicio && festivosSet.has(formData.fechaInicio) && (
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
                                             )}
@@ -1895,7 +1910,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {reqStar}</label>
-                                            <input required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
+                                            <input {...nativeCalendarOnlyInputProps} required={usaBloqueHoras} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
                                             {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
                                             {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
@@ -1982,6 +1997,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                             Día compensatorio (calendario; solo entre {heDomingoPreview.compensatorioTiempoMinYmd} y {heDomingoPreview.compensatorioTiempoMaxYmd})
                                                         </label>
                                                         <input
+                                                            {...nativeCalendarOnlyInputProps}
                                                             id="diaCompensatorioHe"
                                                             type="date"
                                                             required={heDomingoCompensacion === 'tiempo'}
@@ -2009,6 +2025,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                         <div className="flex flex-col gap-1 md:col-span-2">
                                             <label className={labelCls}>Fecha del permiso {reqStar}</label>
                                             <input
+                                                {...nativeCalendarOnlyInputProps}
                                                 required
                                                 name="fecha"
                                                 value={formData.fecha}
@@ -2022,6 +2039,12 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                             <small className={theme.helperMutedPlain}>
                                                 Desde mañana (no hoy ni fechas pasadas), hasta un año calendario desde hoy (misma regla que otras novedades).
                                             </small>
+                                            {formData.fecha && festivosSet.has(formData.fecha) && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
+                                            )}
+                                            {formData.fecha && !festivosSet.has(formData.fecha) && new Date(`${formData.fecha}T12:00:00Z`).getUTCDay() === 0 && (
+                                                <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
+                                            )}
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora inicio (24h) {reqStar}</label>
@@ -2075,7 +2098,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
-                                            <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioEfectivaYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input {...nativeCalendarOnlyInputProps} required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioEfectivaYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                             {formData.fechaInicio && festivosSet.has(formData.fechaInicio) && (
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
                                             )}
@@ -2085,7 +2108,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
-                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioEfectivaYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
+                                            <input {...nativeCalendarOnlyInputProps} required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioEfectivaYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
                                             {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
                                             {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
                                             {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
