@@ -281,6 +281,136 @@ function registerDirectorioRoutes(deps) {
         };
     }
 
+    const MONTH_SHORT_ES_DASH = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    function formatMonthYmDash(ym) {
+        const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
+        if (!m) return String(ym || '');
+        const mi = Number(m[2]) - 1;
+        if (mi < 0 || mi > 11) return String(ym || '');
+        return `${MONTH_SHORT_ES_DASH[mi]} ${m[1]}`;
+    }
+
+    /**
+     * Métricas pre-agregadas para `AdministracionDashboardPage` (una ronda de SQL en paralelo).
+     * Evita decenas/centenares de GET paginados que dejaban el dashboard lento o colgando el proxy.
+     */
+    async function queryAdminDashboardMetrics() {
+        const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
+        const semaforoSql = `(CASE WHEN ${diasSql} < 0 THEN 'Vencido' WHEN ${diasSql} > 30 THEN 'Verde' WHEN ${diasSql} >= 15 THEN 'Amarillo' ELSE 'Rojo' END)`;
+        const SEMAFORO_LABEL_LOCAL = {
+            Verde: 'Proyectado',
+            Amarillo: 'En riesgo',
+            Rojo: 'Urgente',
+            Vencido: 'Vencido'
+        };
+        const [
+            clientesRes,
+            colabRes,
+            reubTotalRes,
+            semRes,
+            tipoCtRes,
+            topCliCons,
+            mesFinRes,
+            topActivosRes
+        ] = await Promise.all([
+            pool.query(
+                `SELECT COUNT(*)::int AS total FROM (
+                    SELECT cl.cliente FROM clientes_lideres cl WHERE cl.activo = true GROUP BY cl.cliente
+                ) t`
+            ),
+            pool.query(
+                `SELECT COUNT(*)::int AS total,
+                        COUNT(*) FILTER (WHERE activo)::int AS activos,
+                        COUNT(*) FILTER (WHERE NOT activo)::int AS inactivos
+                 FROM colaboradores`
+            ),
+            pool.query(
+                `SELECT COUNT(*)::int AS total
+                 FROM reubicaciones_pipeline rp
+                 INNER JOIN colaboradores c ON c.cedula = rp.cedula`
+            ),
+            pool.query(
+                `SELECT ${semaforoSql} AS semaforo, COUNT(*)::int AS n
+                 FROM reubicaciones_pipeline rp
+                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 GROUP BY 1`
+            ),
+            pool.query(
+                `SELECT COALESCE(NULLIF(TRIM(tipo_contrato::text), ''), 'Sin clasificar') AS name, COUNT(*)::int AS value
+                 FROM colaboradores
+                 GROUP BY 1 ORDER BY value DESC`
+            ),
+            pool.query(
+                `SELECT COALESCE(NULLIF(TRIM(cliente), ''), 'Sin cliente') AS name, COUNT(*)::int AS value
+                 FROM colaboradores
+                 GROUP BY 1 ORDER BY value DESC LIMIT 12`
+            ),
+            pool.query(
+                `SELECT to_char(rp.fecha_fin, 'YYYY-MM') AS month, COUNT(*)::int AS count
+                 FROM reubicaciones_pipeline rp
+                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 WHERE rp.fecha_fin IS NOT NULL
+                 GROUP BY 1 ORDER BY 1`
+            ),
+            pool.query(
+                `SELECT agg.cliente AS name, agg.active_count::int AS value
+                 FROM (
+                     SELECT cl.cliente, COUNT(*) FILTER (WHERE cl.activo)::int AS active_count
+                     FROM clientes_lideres cl WHERE cl.activo = true GROUP BY cl.cliente
+                 ) agg
+                 ORDER BY agg.active_count DESC, agg.cliente ASC LIMIT 12`
+            )
+        ]);
+
+        const col = colabRes.rows[0] || {};
+        const counts = { Verde: 0, Amarillo: 0, Rojo: 0, Vencido: 0 };
+        for (const row of semRes.rows || []) {
+            const k = String(row.semaforo || '');
+            if (Object.prototype.hasOwnProperty.call(counts, k)) counts[k] = Number(row.n) || 0;
+        }
+        const semaforoOrder = ['Verde', 'Amarillo', 'Rojo', 'Vencido'];
+        const semaforoSeries = semaforoOrder.map((key) => ({
+            key,
+            name: SEMAFORO_LABEL_LOCAL[key],
+            value: counts[key]
+        }));
+        let riesgoCount = 0;
+        for (const key of ['Amarillo', 'Rojo', 'Vencido']) {
+            riesgoCount += counts[key] || 0;
+        }
+
+        const mesFinData = (mesFinRes.rows || []).map((r) => ({
+            month: r.month,
+            label: formatMonthYmDash(r.month),
+            count: Number(r.count) || 0
+        }));
+
+        return {
+            ok: true,
+            clientesActivosTotal: clientesRes.rows[0]?.total ?? 0,
+            colaboradoresTotal: col.total ?? 0,
+            colaboradoresActivos: col.activos ?? 0,
+            colaboradoresInactivos: col.inactivos ?? 0,
+            reubicacionesTotal: reubTotalRes.rows[0]?.total ?? 0,
+            semaforoSeries,
+            tipoContratoData: tipoCtRes.rows || [],
+            topClientesConsultores: topCliCons.rows || [],
+            mesFinData,
+            topActivosCatalogo: topActivosRes.rows || [],
+            riesgoCount
+        };
+    }
+
+    app.get('/api/directorio/admin-dashboard-metrics', ...readGuard, async (_req, res) => {
+        try {
+            const data = await queryAdminDashboardMetrics();
+            return res.json(data);
+        } catch (e) {
+            console.error('GET directorio admin-dashboard-metrics:', e);
+            return res.status(500).json({ ok: false, error: 'No se pudieron calcular las métricas del dashboard.' });
+        }
+    });
+
     app.get('/api/directorio/clientes-resumen', ...readGuard, async (req, res) => {
         try {
             const q = clienteResumenListSchema.safeParse(req.query);
