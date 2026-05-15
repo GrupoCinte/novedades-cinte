@@ -347,6 +347,8 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [fClienteCalendario, setFClienteCalendario] = useState('');
     /** Filtro por GP asociado (snapshot `novedades.gp_user_id`); solo efectivo para rol `super_admin` en API. */
     const [fGpUserId, setFGpUserId] = useState('');
+    /** '' | '0'..'3' — franja de tiempo hasta decisión (KPI dashboard); ver `leadTimeBucket` en API. */
+    const [fLeadTimeBucket, setFLeadTimeBucket] = useState('');
     const [gpFilterOptions, setGpFilterOptions] = useState([]);
     const isSuperAdminNovedades = currentRole === 'super_admin' || currentRole === 'cac';
     /** Temporal: ocultar el botón «Editar» en el modal de gestión (API PATCH sigue disponible). */
@@ -429,6 +431,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
             if (fCreadoHasta) params.createdTo = fCreadoHasta;
             if (fGpUserId) params.gpUserId = fGpUserId;
+            if (fLeadTimeBucket && /^[0-3]$/.test(fLeadTimeBucket)) params.leadTimeBucket = fLeadTimeBucket;
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades?${query}`, {
                 credentials: 'include',
@@ -462,6 +465,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         fCreadoDesde,
         fCreadoHasta,
         fGpUserId,
+        fLeadTimeBucket,
         token
     ]);
 
@@ -1088,12 +1092,17 @@ export default function Dashboard({ token, auth, onLogout }) {
             n += 1;
             parts.push('GP');
         }
+        if (String(fLeadTimeBucket || '').trim() && /^[0-3]$/.test(fLeadTimeBucket)) {
+            const leadLabels = ['≤24 h', '1–3 d', '3–7 d', '>7 d'];
+            n += 1;
+            parts.push(`Tiempo decisión: ${leadLabels[Number(fLeadTimeBucket)] || fLeadTimeBucket}`);
+        }
         const head = parts.slice(0, 2).join(', ');
         const more = parts.length > 2 ? '…' : '';
         const chipLabel =
             n === 0 ? 'Sin filtros activos' : `${n} filtro${n === 1 ? '' : 's'} activo${n === 1 ? '' : 's'}${head ? ` (${head}${more})` : ''}`;
         return { chipLabel };
-    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId]);
+    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket]);
 
     // 3. Monitor de Tendencia – agrupa dashItems por mes del año en curso
     const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -1133,6 +1142,9 @@ export default function Dashboard({ token, auth, onLogout }) {
         const nextCliente = Object.prototype.hasOwnProperty.call(partial, 'cliente') ? partial.cliente : fClienteInicio;
         const nextNombre = Object.prototype.hasOwnProperty.call(partial, 'nombre') ? partial.nombre : '';
         const nextEstado = Object.prototype.hasOwnProperty.call(partial, 'estado') ? partial.estado : '';
+        const nextLeadTimeBucket = Object.prototype.hasOwnProperty.call(partial, 'leadTimeBucket')
+            ? String(partial.leadTimeBucket ?? '').trim()
+            : '';
 
         let desde = '';
         let hasta = '';
@@ -1149,6 +1161,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         setFCliente(nextCliente || '');
         setFNombre(nextNombre || '');
         setFEstado(nextEstado || '');
+        setFLeadTimeBucket(nextLeadTimeBucket && /^[0-3]$/.test(nextLeadTimeBucket) ? nextLeadTimeBucket : '');
         setFCreadoDesde(desde);
         setFCreadoHasta(hasta);
         setCurrentPage(1);
@@ -1298,7 +1311,7 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, pageSize]);
+    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket, pageSize]);
     useEffect(() => {
         if (currentPage > totalPages) {
             setCurrentPage(totalPages);
@@ -1396,6 +1409,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
             if (fCreadoHasta) params.createdTo = fCreadoHasta;
             if (fGpUserId) params.gpUserId = fGpUserId;
+            if (fLeadTimeBucket && /^[0-3]$/.test(fLeadTimeBucket)) params.leadTimeBucket = fLeadTimeBucket;
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades/export-excel?${query}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -1430,6 +1444,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         setFCreadoDesde('');
         setFCreadoHasta('');
         setFGpUserId('');
+        setFLeadTimeBucket('');
         setCurrentPage(1);
     };
 
@@ -1939,12 +1954,18 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     cursor="pointer"
                                                     isAnimationActive={false}
                                                 >
-                                                    {leadTimeStats.buckets.map((b) => (
+                                                    {leadTimeStats.buckets.map((b, bucketIndex) => (
                                                         <Cell
                                                             key={`leadtime-bucket-${b.name}`}
                                                             fill="#0ea5e9"
                                                             cursor="pointer"
-                                                            onClick={() => navigateGestionWithDashboardFilters({ estado: '' })}
+                                                            onClick={(e) => {
+                                                                e?.stopPropagation?.();
+                                                                navigateGestionWithDashboardFilters({
+                                                                    estado: '',
+                                                                    leadTimeBucket: String(bucketIndex)
+                                                                });
+                                                            }}
                                                         />
                                                     ))}
                                                 </Bar>

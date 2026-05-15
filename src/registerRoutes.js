@@ -906,6 +906,8 @@ function registerRoutes(deps) {
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
             const gpUserId = String(req.query.gpUserId || '').trim();
+            const leadTimeBucketRaw = String(req.query.leadTimeBucket || '').trim();
+            const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
             const rows = await getScopedNovedades(req.scope, {
                 tipo,
                 estado,
@@ -913,7 +915,8 @@ function registerRoutes(deps) {
                 cliente,
                 createdFrom,
                 createdTo,
-                ...(gpUserId ? { gpUserId } : {})
+                ...(gpUserId ? { gpUserId } : {}),
+                ...(leadTimeBucket ? { leadTimeBucket } : {})
             });
             const page = Math.max(1, Number(req.query.page || 1));
             const limitRaw = Number(req.query.limit || 0);
@@ -951,6 +954,8 @@ function registerRoutes(deps) {
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
             const gpUserId = String(req.query.gpUserId || '').trim();
+            const leadTimeBucketRaw = String(req.query.leadTimeBucket || '').trim();
+            const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
             const rows = await getScopedNovedades(req.scope, {
                 tipo,
                 estado,
@@ -958,7 +963,8 @@ function registerRoutes(deps) {
                 cliente,
                 createdFrom,
                 createdTo,
-                ...(gpUserId ? { gpUserId } : {})
+                ...(gpUserId ? { gpUserId } : {}),
+                ...(leadTimeBucket ? { leadTimeBucket } : {})
             });
             if (rows.length > exportMaxRows) {
                 return res.status(413).json({
