@@ -316,7 +316,8 @@ function registerRoutes(deps) {
         revokeAppSessionToken,
         requireEntraConsultor,
         requireCatalogConsultorOrStaff,
-        consultorFormPostLimiter
+        consultorFormPostLimiter,
+        findPendingNovedadDuplicate
     } = deps;
     const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     const exposeInternalErrors = String(process.env.EXPOSE_INTERNAL_ERRORS || '').toLowerCase() === 'true';
@@ -324,6 +325,21 @@ function registerRoutes(deps) {
     const secureCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
     const sameSite = isProduction ? 'strict' : 'lax';
     const exportMaxRows = Math.max(1, Number(process.env.EXPORT_MAX_ROWS || 5000));
+
+    /** Solo no-producción: ayuda a diagnosticar «en prod hay datos y en local no». */
+    async function attachDevDbProbe(payload) {
+        if (isDeployedEnv || !pool || !payload || typeof payload !== 'object') return;
+        try {
+            const r = await pool.query('SELECT COUNT(*)::int AS c FROM novedades');
+            payload.devDb = {
+                novedadesTotalEnTabla: Number(r.rows[0]?.c) || 0,
+                dbName: String(process.env.DB_NAME || 'novedades_cinte'),
+                dbHost: String(process.env.DB_HOST || 'localhost')
+            };
+        } catch {
+            payload.devDb = { novedadesTotalEnTabla: null, error: 'count_failed' };
+        }
+    }
 
     function requireColaboradorCatalogSelfOrStaff(req, res, next) {
         const ap = String(req.user?.authProvider || '');
@@ -572,7 +588,7 @@ function registerRoutes(deps) {
                 const appAuth = issueAppTokenFromCognito(baseUser, { ExpiresIn: 3600 }, effectiveRole, loginIdentity);
                 setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
                 setXsrfCookie(res);
-                return res.json({
+                const loginBody = {
                     ok: true,
                     expiresIn: appAuth.expiresInSec,
                     user: appAuth.user,
@@ -582,7 +598,9 @@ function registerRoutes(deps) {
                         name: baseUser.full_name,
                         'cognito:username': baseUser.username
                     }, appAuth.user.role, baseUser.role)
-                });
+                };
+                await attachDevDbProbe(loginBody);
+                return res.json(loginBody);
             }
 
             const authParams = {
@@ -633,12 +651,14 @@ function registerRoutes(deps) {
             const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
             setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
             setXsrfCookie(res);
-            return res.json({
+            const loginBody = {
                 ok: true,
                 expiresIn: appAuth.expiresInSec,
                 user: appAuth.user,
                 claims: buildSafeLoginClaimsForClient(claims, appAuth.user.role, baseUser.role)
-            });
+            };
+            await attachDevDbProbe(loginBody);
+            return res.json(loginBody);
         } catch (error) {
             console.error('Error login:', error);
             const status = Number(error?.status);
@@ -704,12 +724,14 @@ function registerRoutes(deps) {
             const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
             setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
             setXsrfCookie(res);
-            return res.json({
+            const loginBody = {
                 ok: true,
                 expiresIn: appAuth.expiresInSec,
                 user: appAuth.user,
                 claims: buildSafeLoginClaimsForClient(claims, appAuth.user.role, baseUser.role)
-            });
+            };
+            await attachDevDbProbe(loginBody);
+            return res.json(loginBody);
         } catch (error) {
             console.error('Error complete-new-password:', error);
             const status = Number(error?.status);
@@ -724,8 +746,10 @@ function registerRoutes(deps) {
         }
     });
 
-    app.get('/api/me', verificarToken, (req, res) => {
-        res.json({ ok: true, me: req.user });
+    app.get('/api/me', verificarToken, async (req, res) => {
+        const payload = { ok: true, me: req.user };
+        await attachDevDbProbe(payload);
+        res.json(payload);
     });
 
     app.post('/api/auth/forgot-password', forgotLimiter, async (req, res) => {
@@ -882,6 +906,8 @@ function registerRoutes(deps) {
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
             const gpUserId = String(req.query.gpUserId || '').trim();
+            const leadTimeBucketRaw = String(req.query.leadTimeBucket || '').trim();
+            const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
             const rows = await getScopedNovedades(req.scope, {
                 tipo,
                 estado,
@@ -889,7 +915,8 @@ function registerRoutes(deps) {
                 cliente,
                 createdFrom,
                 createdTo,
-                ...(gpUserId ? { gpUserId } : {})
+                ...(gpUserId ? { gpUserId } : {}),
+                ...(leadTimeBucket ? { leadTimeBucket } : {})
             });
             const page = Math.max(1, Number(req.query.page || 1));
             const limitRaw = Number(req.query.limit || 0);
@@ -927,6 +954,8 @@ function registerRoutes(deps) {
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
             const gpUserId = String(req.query.gpUserId || '').trim();
+            const leadTimeBucketRaw = String(req.query.leadTimeBucket || '').trim();
+            const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
             const rows = await getScopedNovedades(req.scope, {
                 tipo,
                 estado,
@@ -934,7 +963,8 @@ function registerRoutes(deps) {
                 cliente,
                 createdFrom,
                 createdTo,
-                ...(gpUserId ? { gpUserId } : {})
+                ...(gpUserId ? { gpUserId } : {}),
+                ...(leadTimeBucket ? { leadTimeBucket } : {})
             });
             if (rows.length > exportMaxRows) {
                 return res.status(413).json({
@@ -1270,6 +1300,61 @@ function registerRoutes(deps) {
         }
     );
 
+    /**
+     * Pre-chequeo de duplicado pendiente para el formulario (spec evitar-duplicados-radicacion-novedad).
+     * Permite a la UI deshabilitar el botón Enviar antes del POST. No hace falta el lock de cédula
+     * (ya lo cubre `requireEntraConsultor` + comparación con la sesión Entra).
+     *
+     * GET /api/novedades/duplicado-pendiente?tipo=...&fechaInicio=YYYY-MM-DD[&fechaFin=...&horaInicio=HH:MM&horaFin=HH:MM]
+     * → { ok: true, duplicado: boolean }
+     */
+    app.get(
+        '/api/novedades/duplicado-pendiente',
+        verificarToken,
+        consultorFormPostLimiter,
+        requireEntraConsultor,
+        async (req, res) => {
+            try {
+                const tipoNovedadRaw = String(req.query.tipo || req.query.tipoNovedad || '').trim();
+                if (!tipoNovedadRaw) {
+                    return res.status(400).json({ ok: false, error: 'tipo requerido' });
+                }
+                const ruleType = getNovedadRuleByType(tipoNovedadRaw);
+                const tipoKey = String(ruleType?.key || normalizeNovedadTypeKey(tipoNovedadRaw) || '');
+                if (!tipoKey) {
+                    return res.status(400).json({ ok: false, error: 'tipo no válido' });
+                }
+                if (tipoKey === 'compensatorio_votacion_jurado') {
+                    return res.json({ ok: true, duplicado: false, scope: 'fuera_de_alcance' });
+                }
+                const fechaInicio = parseDateOrNull(req.query.fechaInicio);
+                const fechaFin = parseDateOrNull(req.query.fechaFin);
+                const horaInicio = parseTimeOrNull(req.query.horaInicio);
+                const horaFin = parseTimeOrNull(req.query.horaFin);
+                if (!fechaInicio) {
+                    return res.json({ ok: true, duplicado: false });
+                }
+                const cedulaToken = normalizeCedula(req.user?.cedula || '');
+                if (!cedulaToken) {
+                    return res.status(403).json({ ok: false, error: 'Sesión sin cédula asociada.' });
+                }
+                const tipoNovedad = String(ruleType?.displayName || tipoNovedadRaw).trim();
+                const result = await findPendingNovedadDuplicate({
+                    cedula: cedulaToken,
+                    tipoNovedad,
+                    fechaInicio,
+                    fechaFin,
+                    horaInicio,
+                    horaFin
+                });
+                return res.json({ ok: true, duplicado: Boolean(result?.duplicado) });
+            } catch (error) {
+                console.error('duplicado-pendiente:', error);
+                return res.status(500).json({ ok: false, error: 'No se pudo verificar duplicado.' });
+            }
+        }
+    );
+
     app.post(
         '/api/enviar-novedad',
         verificarToken,
@@ -1567,6 +1652,36 @@ function registerRoutes(deps) {
                 }
             }
 
+            if (novedadTypeKey === 'permiso_remunerado' && (insertUnidad === 'horas' || insertUnidad === 'dias')) {
+                const minPermisoRem = ymdAddCalendarDaysUTC(todayUtc, 1);
+                const maxPermisoRem = (() => {
+                    const d = parseDateAtUtcStart(todayUtc);
+                    if (!d) return null;
+                    d.setUTCFullYear(d.getUTCFullYear() + 1);
+                    return d.toISOString().slice(0, 10);
+                })();
+                const antesDeMin = (ymd) => Boolean(ymd) && ymdCompareStrings(String(ymd), minPermisoRem) < 0;
+                const despuesDeMax = (ymd) =>
+                    Boolean(maxPermisoRem) && Boolean(ymd) && ymdCompareStrings(String(ymd), maxPermisoRem) > 0;
+                if (insertUnidad === 'horas') {
+                    if (antesDeMin(fechaInicio) || despuesDeMax(fechaInicio)) {
+                        return res.status(422).json({
+                            ok: false,
+                            error:
+                                'Permiso remunerado (horas): la fecha debe ser desde el día siguiente al de hoy y no posterior a un año calendario desde hoy.'
+                        });
+                    }
+                } else {
+                    if (antesDeMin(fechaInicio) || despuesDeMax(fechaInicio) || antesDeMin(fechaFin) || despuesDeMax(fechaFin)) {
+                        return res.status(422).json({
+                            ok: false,
+                            error:
+                                'Permiso remunerado (días): las fechas deben ser desde el día siguiente al de hoy y no posteriores a un año calendario desde hoy.'
+                        });
+                    }
+                }
+            }
+
             if (novedadTypeKey !== 'vacaciones_dinero' && !fechaInicio) {
                 return res.status(400).json({ ok: false, error: 'Fecha Inicio es obligatoria.' });
             }
@@ -1746,7 +1861,49 @@ function registerRoutes(deps) {
                 insertFechaFin = null;
             }
 
-            const insertResult = await pool.query(
+            /**
+             * Anti-duplicados (spec evitar-duplicados-radicacion-novedad):
+             * Bloquear si la misma cédula ya tiene una novedad PENDIENTE con el mismo tipo y mismas
+             * fechas/horas. No aplica a `compensatorio_votacion_jurado` (tiene su propia regla previa).
+             * Defensa en profundidad: SELECT preventivo aquí + índice único parcial en BD + manejo del
+             * 23505 más abajo (carrera entre POST simultáneos).
+             */
+            if (
+                novedadTypeKey !== 'compensatorio_votacion_jurado' &&
+                insertFechaInicio
+            ) {
+                const dupPend = await pool.query(
+                    `SELECT id FROM novedades
+                     WHERE cedula = $1
+                       AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                           = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                       AND fecha_inicio = $3::date
+                       AND COALESCE(fecha_fin, fecha_inicio) = COALESCE($4::date, $3::date)
+                       AND COALESCE(hora_inicio, TIME '00:00:00') = COALESCE($5::time, TIME '00:00:00')
+                       AND COALESCE(hora_fin,    TIME '00:00:00') = COALESCE($6::time, TIME '00:00:00')
+                       AND estado = 'Pendiente'::novedad_estado
+                     LIMIT 1`,
+                    [
+                        cedulaNorm,
+                        tipoNovedad,
+                        insertFechaInicio,
+                        insertFechaFin,
+                        horaInicio,
+                        horaFin
+                    ]
+                );
+                if (dupPend.rows.length) {
+                    return res.status(409).json({
+                        ok: false,
+                        error:
+                            'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
+                    });
+                }
+            }
+
+            let insertResult;
+            try {
+                insertResult = await pool.query(
                 `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
@@ -1791,6 +1948,19 @@ function registerRoutes(deps) {
                     insertUnidad || null
                 ]
             );
+            } catch (insertError) {
+                if (
+                    String(insertError?.code || '') === '23505' &&
+                    String(insertError?.constraint || '') === 'uq_novedades_pendiente_dedup'
+                ) {
+                    return res.status(409).json({
+                        ok: false,
+                        error:
+                            'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
+                    });
+                }
+                throw insertError;
+            }
             const novedadId = insertResult?.rows?.[0]?.id || '';
             const emailPayload = buildFormSubmittedNotificationEvent({
                 novedadId,

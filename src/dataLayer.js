@@ -1536,6 +1536,36 @@ function createDataLayer(deps) {
                 whereParts.push(`lower(coalesce(nov.cliente, '')) = ANY($${params.length}::text[])`);
             }
         }
+        /**
+         * Franja de tiempo entre creado_en y la decisión (aprobado_en / rechazado_en), solo Aprobado/Rechazado.
+         * Alineado con KPI «Tiempo medio hasta decisión» en Dashboard.jsx (índices 0..3).
+         */
+        const leadTimeBucket = String(options?.leadTimeBucket || '').trim();
+        if (leadTimeBucket === '0' || leadTimeBucket === '1' || leadTimeBucket === '2' || leadTimeBucket === '3') {
+            const MS_DAY_MS = 86400000;
+            const msExpr = `(EXTRACT(EPOCH FROM (
+                CASE
+                    WHEN nov.estado = 'Aprobado'::novedad_estado THEN nov.aprobado_en
+                    WHEN nov.estado = 'Rechazado'::novedad_estado THEN nov.rechazado_en
+                    ELSE NULL::timestamptz
+                END - nov.creado_en
+            )) * 1000)`;
+            whereParts.push(`nov.estado IN ('Aprobado'::novedad_estado, 'Rechazado'::novedad_estado)`);
+            whereParts.push(`nov.creado_en IS NOT NULL`);
+            whereParts.push(
+                `(CASE WHEN nov.estado = 'Aprobado'::novedad_estado THEN nov.aprobado_en WHEN nov.estado = 'Rechazado'::novedad_estado THEN nov.rechazado_en ELSE NULL END) IS NOT NULL`
+            );
+            whereParts.push(`${msExpr} > 0`);
+            if (leadTimeBucket === '0') {
+                whereParts.push(`${msExpr} < ${MS_DAY_MS}`);
+            } else if (leadTimeBucket === '1') {
+                whereParts.push(`(${msExpr} >= ${MS_DAY_MS} AND ${msExpr} < ${3 * MS_DAY_MS})`);
+            } else if (leadTimeBucket === '2') {
+                whereParts.push(`(${msExpr} >= ${3 * MS_DAY_MS} AND ${msExpr} < ${7 * MS_DAY_MS})`);
+            } else {
+                whereParts.push(`${msExpr} >= ${7 * MS_DAY_MS}`);
+            }
+        }
         const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
         return { empty: false, whereSql, params };
     }

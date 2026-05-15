@@ -19,22 +19,8 @@ import {
     RECHARTS_TOOLTIP_CONTENT_STYLE,
     RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT
 } from './contratacion/constants/rechartsTheme.js';
-import {
-    aggregateReubicacionesPorMesFechaFin,
-    aggregateSemaforoReubicaciones,
-    aggregateTipoContrato,
-    countConsultoresByActivo,
-    countReubicacionesEnRiesgo,
-    monthCalendarRangeFromYm,
-    SEMAFORO_CHART_COLOR,
-    topCatalogClientesByActiveCount,
-    topClientesPorConsultores
-} from './administracionDashboardAggregate.js';
-import {
-    fetchAllClientesResumen,
-    fetchAllColaboradores,
-    fetchAllReubicacionesPipeline
-} from './administracionDashboardApi.js';
+import { monthCalendarRangeFromYm, SEMAFORO_CHART_COLOR } from './administracionDashboardAggregate.js';
+import { fetchAdminDashboardMetrics } from './administracionDashboardApi.js';
 
 /** Recharts Bar `onClick` puede exponer el payload en formas distintas según versión. */
 function barEventPayload(ev) {
@@ -134,9 +120,8 @@ export default function AdministracionDashboardPage({ token, onDrillDown }) {
     const { isLight, labelMuted, headingAccent } = useModuleTheme();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [clientesRows, setClientesRows] = useState([]);
-    const [colabRows, setColabRows] = useState([]);
-    const [reubRows, setReubRows] = useState([]);
+    /** Payload de `GET /api/directorio/admin-dashboard-metrics` (agregados en servidor). */
+    const [metrics, setMetrics] = useState(null);
 
     const drill = useCallback(
         (action) => {
@@ -145,39 +130,45 @@ export default function AdministracionDashboardPage({ token, onDrillDown }) {
         [onDrillDown]
     );
 
-    const load = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const [cr, co, ru] = await Promise.all([
-                fetchAllClientesResumen(token, 'true'),
-                fetchAllColaboradores(token, 'all'),
-                fetchAllReubicacionesPipeline(token)
-            ]);
-            setClientesRows(cr);
-            setColabRows(co);
-            setReubRows(ru);
-        } catch (e) {
-            setError(e?.message || String(e));
-        } finally {
-            setLoading(false);
-        }
+    /**
+     * StrictMode en dev monta/desmonta dos veces: `signal.aborted` en `finally` dejaba `loading` en true
+     * hasta que terminara el segundo intento; con `cancelled` solo evitamos setState en instancias obsoletas.
+     */
+    useEffect(() => {
+        const ac = new AbortController();
+        let cancelled = false;
+        (async () => {
+            setLoading(true);
+            setError(null);
+            try {
+                const data = await fetchAdminDashboardMetrics(token, ac.signal);
+                if (cancelled) return;
+                setMetrics(data);
+            } catch (e) {
+                if (cancelled) return;
+                if (e && e.name === 'AbortError') return;
+                setError(e?.message || String(e));
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+            ac.abort();
+        };
     }, [token]);
 
-    useEffect(() => {
-        load();
-    }, [load]);
-
-    const semaforoSeries = useMemo(() => aggregateSemaforoReubicaciones(reubRows), [reubRows]);
+    const semaforoSeries = metrics?.semaforoSeries || [];
     const semaforoPieData = useMemo(() => semaforoSeries.filter((d) => d.value > 0), [semaforoSeries]);
 
-    const tipoContratoData = useMemo(() => aggregateTipoContrato(colabRows), [colabRows]);
-    const topClientesConsultores = useMemo(() => topClientesPorConsultores(colabRows, 12), [colabRows]);
-    const mesFinData = useMemo(() => aggregateReubicacionesPorMesFechaFin(reubRows), [reubRows]);
-    const topActivosCatalogo = useMemo(() => topCatalogClientesByActiveCount(clientesRows, 12), [clientesRows]);
+    const tipoContratoData = metrics?.tipoContratoData || [];
+    const topClientesConsultores = metrics?.topClientesConsultores || [];
+    const mesFinData = metrics?.mesFinData || [];
+    const topActivosCatalogo = metrics?.topActivosCatalogo || [];
 
-    const { activos: coActivos, inactivos: coInactivos } = useMemo(() => countConsultoresByActivo(colabRows), [colabRows]);
-    const riesgoCount = useMemo(() => countReubicacionesEnRiesgo(reubRows), [reubRows]);
+    const coActivos = metrics?.colaboradoresActivos ?? 0;
+    const coInactivos = metrics?.colaboradoresInactivos ?? 0;
+    const riesgoCount = metrics?.riesgoCount ?? 0;
 
     const tooltipStyle = isLight ? RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT : RECHARTS_TOOLTIP_CONTENT_STYLE;
     const gridColor = isLight ? '#e2e8f0' : '#334155';
@@ -226,7 +217,7 @@ export default function AdministracionDashboardPage({ token, onDrillDown }) {
                     isLight={isLight}
                     icon={Building2}
                     label="Clientes en catálogo"
-                    value={clientesRows.length}
+                    value={metrics?.clientesActivosTotal ?? 0}
                     hint="Fila por cliente (filtro activos, coherente con la tabla Cliente)."
                     onNavigate={() => drill({ type: 'cliente', q: '' })}
                 />
@@ -234,7 +225,7 @@ export default function AdministracionDashboardPage({ token, onDrillDown }) {
                     isLight={isLight}
                     icon={Users}
                     label="Consultores / staff"
-                    value={colabRows.length}
+                    value={metrics?.colaboradoresTotal ?? 0}
                     hint={`${coActivos} activos · ${coInactivos} inactivos`}
                     onNavigate={() => drill({ type: 'consultoresPorCliente', q: '' })}
                 />
@@ -242,7 +233,7 @@ export default function AdministracionDashboardPage({ token, onDrillDown }) {
                     isLight={isLight}
                     icon={LayoutDashboard}
                     label="Reubicaciones (pipeline)"
-                    value={reubRows.length}
+                    value={metrics?.reubicacionesTotal ?? 0}
                     hint="Seguimiento con fecha fin y causal."
                     onNavigate={() => drill({ type: 'reubicacionesSinFiltro' })}
                 />

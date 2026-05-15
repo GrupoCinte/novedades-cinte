@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
 import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2, Filter, ChevronDown, ChevronUp } from 'lucide-react';
@@ -217,17 +217,17 @@ export default function Dashboard({ token, auth, onLogout }) {
                 ? 'fixed inset-0 z-50 flex animate-in items-center justify-center bg-slate-900/40 p-4 backdrop-blur fade-in duration-200'
                 : 'fixed inset-0 z-50 flex animate-in items-center justify-center bg-[#0f172a]/90 p-4 backdrop-blur fade-in duration-200',
             modalCard: L
-                ? 'relative flex w-full max-w-4xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
-                : 'relative flex w-full max-w-4xl flex-col rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
+                ? 'relative flex w-full min-w-0 max-w-4xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
+                : 'relative flex w-full min-w-0 max-w-4xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
             modalCardMd: L
-                ? 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
-                : 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
+                ? 'relative flex w-full min-w-0 max-w-3xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
+                : 'relative flex w-full min-w-0 max-w-3xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
             modalCardWide: L
-                ? 'relative flex w-full max-w-5xl flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]'
-                : 'relative flex w-full max-w-5xl flex-col items-center justify-center rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]',
+                ? 'relative flex w-full min-w-0 max-w-5xl flex-col items-center justify-center overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]'
+                : 'relative flex w-full min-w-0 max-w-5xl flex-col items-center justify-center overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]',
             modalCardDay: L
-                ? 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[85vh]'
-                : 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[85vh]',
+                ? 'relative flex w-full min-w-0 max-w-3xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[85vh]'
+                : 'relative flex w-full min-w-0 max-w-3xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[85vh]',
             modalHeadBorder: L ? 'mb-4 flex items-start justify-between border-b border-slate-200 pb-4' : 'mb-4 flex items-start justify-between border-b border-slate-700/50 pb-4',
             modalClose: L
                 ? 'flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition-all hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600'
@@ -254,7 +254,10 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [isLight]);
 
     const [items, setItems] = useState([]);
-    const [loading, setLoading] = useState(true);
+    /** Listado completo para Dashboard / Calendario / Análisis (no mezclar con carga paginada de Gestión). */
+    const [listLoading, setListLoading] = useState(true);
+    /** Solo tabla Gestión: evita que un refetch de Gestión ponga en “cargando” el dashboard general. */
+    const [gestionLoading, setGestionLoading] = useState(true);
     const [soporteModal, setSoporteModal] = useState(null);
     const [activeTab, setActiveTab] = useState('DashboardGeneral');
     const [stateError, setStateError] = useState(null);
@@ -344,6 +347,8 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [fClienteCalendario, setFClienteCalendario] = useState('');
     /** Filtro por GP asociado (snapshot `novedades.gp_user_id`); solo efectivo para rol `super_admin` en API. */
     const [fGpUserId, setFGpUserId] = useState('');
+    /** '' | '0'..'3' — franja de tiempo hasta decisión (KPI dashboard); ver `leadTimeBucket` en API. */
+    const [fLeadTimeBucket, setFLeadTimeBucket] = useState('');
     const [gpFilterOptions, setGpFilterOptions] = useState([]);
     const isSuperAdminNovedades = currentRole === 'super_admin' || currentRole === 'cac';
     /** Temporal: ocultar el botón «Editar» en el modal de gestión (API PATCH sigue disponible). */
@@ -381,28 +386,39 @@ export default function Dashboard({ token, auth, onLogout }) {
     /** Panel colapsable de filtros avanzados en Gestión (todos los tamaños de pantalla). */
     const [gestionFiltersPanelOpen, setGestionFiltersPanelOpen] = useState(false);
     const navigate = useNavigate();
+    /** Evita parpadeo “se cayó el panel”: en refetch con datos ya cargados no forzar `listLoading`. */
+    const novedadesListCountRef = useRef(0);
 
-    const loadData = async () => {
-        setLoading(true);
+    const loadData = useCallback(async (opts = {}) => {
+        const { signal } = opts;
+        if (novedadesListCountRef.current === 0) setListLoading(true);
         try {
             const qp = new URLSearchParams();
             if (fGpUserId) qp.set('gpUserId', fGpUserId);
             const qs = qp.toString();
             const res = await fetch(qs ? `/api/novedades?${qs}` : '/api/novedades', {
-                headers: { 'Authorization': `Bearer ${token}` }
+                credentials: 'include',
+                headers: { Authorization: `Bearer ${token}` },
+                signal
             });
+            if (signal?.aborted) return;
             if (!res.ok) throw new Error('No autorizado');
             const data = await res.json();
-            setItems(data.items || []);
+            if (signal?.aborted) return;
+            const nextItems = data.items || [];
+            novedadesListCountRef.current = nextItems.length;
+            setItems(nextItems);
         } catch (err) {
+            if (signal?.aborted || err?.name === 'AbortError') return;
             console.error(err);
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) setListLoading(false);
         }
-    };
+    }, [fGpUserId, token]);
 
-    const loadGestionData = async (page = currentPage, limit = pageSize) => {
-        setLoading(true);
+    const loadGestionData = useCallback(async (page = currentPage, limit = pageSize, opts = {}) => {
+        const { signal } = opts;
+        setGestionLoading(true);
         try {
             const params = {
                 page: String(page),
@@ -415,12 +431,17 @@ export default function Dashboard({ token, auth, onLogout }) {
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
             if (fCreadoHasta) params.createdTo = fCreadoHasta;
             if (fGpUserId) params.gpUserId = fGpUserId;
+            if (fLeadTimeBucket && /^[0-3]$/.test(fLeadTimeBucket)) params.leadTimeBucket = fLeadTimeBucket;
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades?${query}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+                credentials: 'include',
+                headers: { Authorization: `Bearer ${token}` },
+                signal
             });
+            if (signal?.aborted) return;
             if (!res.ok) throw new Error('No autorizado');
             const data = await res.json();
+            if (signal?.aborted) return;
             setGestionItems(data.items || []);
             setGestionPagination({
                 page: Number(data?.pagination?.page || page || 1),
@@ -429,13 +450,34 @@ export default function Dashboard({ token, auth, onLogout }) {
                 totalPages: Number(data?.pagination?.totalPages || 1)
             });
         } catch (err) {
+            if (signal?.aborted || err?.name === 'AbortError') return;
             console.error(err);
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) setGestionLoading(false);
         }
-    };
+    }, [
+        currentPage,
+        pageSize,
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket,
+        token
+    ]);
 
-    const loadHoraExtraAlerts = async () => {
+    const loadHoraExtraAlerts = useCallback(async (opts = {}) => {
+        const { signal } = opts;
+        const emptyPayload = {
+            generatedAt: '',
+            summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, sundayAlertsCount: 0, totalAlerts: 0 },
+            dailyAlerts: [],
+            monthlyAlerts: [],
+            items: []
+        };
         try {
             const params = {};
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
@@ -444,32 +486,30 @@ export default function Dashboard({ token, auth, onLogout }) {
             const query = new URLSearchParams(params).toString();
             const url = query ? `/api/novedades/hora-extra-alertas?${query}` : '/api/novedades/hora-extra-alertas';
             const alertRes = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${token}` }
+                credentials: 'include',
+                headers: { Authorization: `Bearer ${token}` },
+                signal
             });
+            if (signal?.aborted) return;
             if (!alertRes.ok) throw new Error('No se pudieron cargar alertas HE');
             const alertJson = await alertRes.json();
-            setHoraExtraAlerts(alertJson?.data || {
-                generatedAt: '',
-                summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, sundayAlertsCount: 0, totalAlerts: 0 },
-                dailyAlerts: [],
-                monthlyAlerts: [],
-                items: []
-            });
+            if (signal?.aborted) return;
+            setHoraExtraAlerts(alertJson?.data || emptyPayload);
         } catch (err) {
+            if (signal?.aborted || err?.name === 'AbortError') return;
             console.error(err);
-            setHoraExtraAlerts({
-                generatedAt: '',
-                summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, sundayAlertsCount: 0, totalAlerts: 0 },
-                dailyAlerts: [],
-                monthlyAlerts: [],
-                items: []
-            });
+            setHoraExtraAlerts(emptyPayload);
         }
-    };
+    }, [fCreadoDesde, fCreadoHasta, fGpUserId, token]);
 
+    /** Una sola cancelación al desmontar / StrictMode: menos carreras y menos abortos en paralelo. */
     useEffect(() => {
-        loadData();
-    }, [fGpUserId]);
+        const ac = new AbortController();
+        const { signal } = ac;
+        void loadData({ signal });
+        void loadGestionData(currentPage, pageSize, { signal });
+        return () => ac.abort();
+    }, [loadData, loadGestionData, currentPage, pageSize]);
 
     useEffect(() => {
         if (!isSuperAdminNovedades) {
@@ -479,7 +519,10 @@ export default function Dashboard({ token, auth, onLogout }) {
         let cancelled = false;
         (async () => {
             try {
-                const res = await fetch('/api/directorio/gp', { headers: { Authorization: `Bearer ${token}` } });
+                const res = await fetch('/api/directorio/gp', {
+                    credentials: 'include',
+                    headers: { Authorization: `Bearer ${token}` }
+                });
                 const json = await res.json().catch(() => ({}));
                 if (!cancelled && res.ok && Array.isArray(json.items)) setGpFilterOptions(json.items);
             } catch (err) {
@@ -498,7 +541,9 @@ export default function Dashboard({ token, auth, onLogout }) {
     useEffect(() => {
         const loadCalClientes = async () => {
             try {
-                const res = await fetch('/api/catalogos/clientes', { credentials: 'include' });
+                const headers = {};
+                if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
+                const res = await fetch('/api/catalogos/clientes', { credentials: 'include', headers });
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) setCalendarClientesList(json.items);
             } catch (err) {
@@ -506,7 +551,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             }
         };
         loadCalClientes();
-    }, []);
+    }, [token]);
 
     useEffect(() => {
         const loadDashboardClientes = async () => {
@@ -520,7 +565,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                 const qs = qp.toString();
                 const res = await fetch(
                     qs ? `/api/novedades/clientes-filtro?${qs}` : '/api/novedades/clientes-filtro',
-                    { headers: { Authorization: `Bearer ${token}` } }
+                    { credentials: 'include', headers: { Authorization: `Bearer ${token}` } }
                 );
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) {
@@ -568,18 +613,16 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [gestionClienteOptions, fCliente]);
 
     useEffect(() => {
-        loadGestionData(currentPage, pageSize);
-    }, [currentPage, pageSize, fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId]);
-
-    useEffect(() => {
         if (!gestionDetailItem?.id) return;
         setNominaRadio('');
         setNominaObs('');
         setNominaVerifyErr(null);
     }, [gestionDetailItem?.id]);
     useEffect(() => {
-        loadHoraExtraAlerts();
-    }, [fCreadoDesde, fCreadoHasta, fGpUserId]);
+        const ac = new AbortController();
+        loadHoraExtraAlerts({ signal: ac.signal });
+        return () => ac.abort();
+    }, [loadHoraExtraAlerts]);
 
     const changeState = async (id, nuevoEstado, options = {}) => {
         setStateError(null);
@@ -973,10 +1016,16 @@ export default function Dashboard({ token, auth, onLogout }) {
         : null;
 
     // ── Dashboard filter helper ──────────────────────────────────────────────
-    // Helper: get the reference date for an item (fechaInicio preferred, else creadoEn)
+    /**
+     * Fecha de referencia para conteos del Dashboard general (KPI Total, Monitor de Tendencia, Mapa de Frecuencia).
+     * Regla de negocio: el conteo es por **fecha de creación** (`creadoEn`), no por la fecha del evento (`fechaInicio`).
+     * Así se alinea con el filtro `creadoDesde/creadoHasta` que aplica Gestión cuando se navega desde una barra.
+     * Si el item no trae `creadoEn` (caso muy raro) se cae a `fechaInicio` como fallback.
+     */
     const getItemDate = (it) => {
-        if (it.fechaInicio) return new Date(it.fechaInicio + 'T00:00:00');
-        return new Date(it.creadoEn);
+        if (it?.creadoEn) return new Date(it.creadoEn);
+        if (it?.fechaInicio) return new Date(it.fechaInicio + 'T00:00:00');
+        return new Date(NaN);
     };
 
     // Ítems visibles en Dashboard general (mes + tipo + cliente; el alcance por rol viene de `items` / API)
@@ -1043,12 +1092,17 @@ export default function Dashboard({ token, auth, onLogout }) {
             n += 1;
             parts.push('GP');
         }
+        if (String(fLeadTimeBucket || '').trim() && /^[0-3]$/.test(fLeadTimeBucket)) {
+            const leadLabels = ['≤24 h', '1–3 d', '3–7 d', '>7 d'];
+            n += 1;
+            parts.push(`Tiempo decisión: ${leadLabels[Number(fLeadTimeBucket)] || fLeadTimeBucket}`);
+        }
         const head = parts.slice(0, 2).join(', ');
         const more = parts.length > 2 ? '…' : '';
         const chipLabel =
             n === 0 ? 'Sin filtros activos' : `${n} filtro${n === 1 ? '' : 's'} activo${n === 1 ? '' : 's'}${head ? ` (${head}${more})` : ''}`;
         return { chipLabel };
-    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId]);
+    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket]);
 
     // 3. Monitor de Tendencia – agrupa dashItems por mes del año en curso
     const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -1088,6 +1142,9 @@ export default function Dashboard({ token, auth, onLogout }) {
         const nextCliente = Object.prototype.hasOwnProperty.call(partial, 'cliente') ? partial.cliente : fClienteInicio;
         const nextNombre = Object.prototype.hasOwnProperty.call(partial, 'nombre') ? partial.nombre : '';
         const nextEstado = Object.prototype.hasOwnProperty.call(partial, 'estado') ? partial.estado : '';
+        const nextLeadTimeBucket = Object.prototype.hasOwnProperty.call(partial, 'leadTimeBucket')
+            ? String(partial.leadTimeBucket ?? '').trim()
+            : '';
 
         let desde = '';
         let hasta = '';
@@ -1104,6 +1161,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         setFCliente(nextCliente || '');
         setFNombre(nextNombre || '');
         setFEstado(nextEstado || '');
+        setFLeadTimeBucket(nextLeadTimeBucket && /^[0-3]$/.test(nextLeadTimeBucket) ? nextLeadTimeBucket : '');
         setFCreadoDesde(desde);
         setFCreadoHasta(hasta);
         setCurrentPage(1);
@@ -1111,16 +1169,30 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [fTipoInicio, fClienteInicio, fMes]);
 
     const MS_DAY = 86400000;
+    /**
+     * Tiempo medio hasta la decisión: cruce entre `creadoEn` y la fecha en que la
+     * novedad fue **resuelta** (Aprobado → `aprobadoEn`; Rechazado → `rechazadoEn`).
+     * Se descartan: novedades pendientes y registros sin marca temporal de decisión.
+     * Anteriormente solo se contaban Aprobadas, lo que sub-representaba el indicador.
+     */
     const leadTimeStats = useMemo(() => {
         const deltas = [];
+        let aprobadas = 0;
+        let rechazadas = 0;
         for (const it of dashItems) {
-            if (String(it.estado || '') !== 'Aprobado') continue;
+            const estado = String(it.estado || '');
+            let decisionIso = '';
+            if (estado === 'Aprobado') decisionIso = it.aprobadoEn || '';
+            else if (estado === 'Rechazado') decisionIso = it.rechazadoEn || '';
+            else continue;
+            if (!it.creadoEn || !decisionIso) continue;
             const c0 = new Date(it.creadoEn);
-            const c1 = new Date(it.aprobadoEn);
+            const c1 = new Date(decisionIso);
             if (Number.isNaN(c0.getTime()) || Number.isNaN(c1.getTime())) continue;
             const ms = c1 - c0;
             if (ms <= 0) continue;
             deltas.push(ms);
+            if (estado === 'Aprobado') aprobadas += 1; else rechazadas += 1;
         }
         const n = deltas.length;
         const buckets = [
@@ -1137,7 +1209,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             else buckets[3].n += 1;
         }
         const avgMs = n > 0 ? deltas.reduce((a, b) => a + b, 0) / n : null;
-        return { n, avgMs, buckets };
+        return { n, avgMs, buckets, aprobadas, rechazadas };
     }, [dashItems]);
 
     // ── Gestión table filters ─────────────────────────────────────────────────
@@ -1239,7 +1311,7 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, pageSize]);
+    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket, pageSize]);
     useEffect(() => {
         if (currentPage > totalPages) {
             setCurrentPage(totalPages);
@@ -1337,6 +1409,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
             if (fCreadoHasta) params.createdTo = fCreadoHasta;
             if (fGpUserId) params.gpUserId = fGpUserId;
+            if (fLeadTimeBucket && /^[0-3]$/.test(fLeadTimeBucket)) params.leadTimeBucket = fLeadTimeBucket;
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades/export-excel?${query}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -1371,6 +1444,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         setFCreadoDesde('');
         setFCreadoHasta('');
         setFGpUserId('');
+        setFLeadTimeBucket('');
         setCurrentPage(1);
     };
 
@@ -1385,8 +1459,13 @@ export default function Dashboard({ token, auth, onLogout }) {
         { id: 'Alertas HE', icon: Bell, label: 'Alertas HE' },
     ].filter((item) => canAccessPanel(tabPanelMap[item.id]));
 
+    /**
+     * Si `navItems` queda vacío un instante (p. ej. rol aún no resuelto tras hidratar sesión),
+     * no forzar cambio de pestaña: en dev con StrictMode eso mandaba al usuario fuera de «Dashboard general».
+     */
     useEffect(() => {
         const allowedTabs = navItems.map((n) => n.id);
+        if (allowedTabs.length === 0) return;
         if (!allowedTabs.includes(activeTab)) {
             setActiveTab(allowedTabs[0] || 'Calendario');
         }
@@ -1719,6 +1798,56 @@ export default function Dashboard({ token, auth, onLogout }) {
                             </div>
                         </div>
 
+                        {(() => {
+                            const d = auth?.devDb;
+                            if (!d || typeof d.novedadesTotalEnTabla !== 'number') return null;
+                            const emptyDb = d.novedadesTotalEnTabla === 0;
+                            const gpSinAlcance =
+                                d.novedadesTotalEnTabla > 0 &&
+                                currentRole === 'gp' &&
+                                !listLoading &&
+                                items.length === 0;
+                            if (!emptyDb && !gpSinAlcance) return null;
+                            return (
+                                <div
+                                    className={`rounded-xl border px-4 py-3 text-sm ${
+                                        isLight
+                                            ? 'border-amber-300 bg-amber-50 text-amber-950'
+                                            : 'border-amber-500/40 bg-amber-950/30 text-amber-100'
+                                    }`}
+                                    role="status"
+                                >
+                                    {emptyDb ? (
+                                        <>
+                                            <span className="font-semibold">Entorno de desarrollo:</span> la tabla{' '}
+                                            <code className="rounded bg-black/10 px-1">novedades</code> tiene{' '}
+                                            <strong>0 filas</strong> en{' '}
+                                            <code className="rounded bg-black/10 px-1">{d.dbName || 'novedades_cinte'}</code>
+                                            {d.dbHost ? (
+                                                <>
+                                                    {' '}
+                                                    @ <code className="rounded bg-black/10 px-1">{d.dbHost}</code>
+                                                </>
+                                            ) : null}
+                                            . En producción el mismo código lee el PostgreSQL del servidor, donde sí hay
+                                            datos. Para ver novedades en local hace falta importar un respaldo o poblar la
+                                            base local.
+                                        </>
+                                    ) : null}
+                                    {gpSinAlcance ? (
+                                        <>
+                                            <span className="font-semibold">Alcance GP:</span> en esta base hay{' '}
+                                            {d.novedadesTotalEnTabla} registro(s) en{' '}
+                                            <code className="rounded bg-black/10 px-1">novedades</code>, pero con rol GP
+                                            solo ves clientes asignados en el directorio. Si no tienes clientes
+                                            asignados, el listado puede quedar en 0 aunque existan otras novedades en el
+                                            sistema.
+                                        </>
+                                    ) : null}
+                                </div>
+                            );
+                        })()}
+
                         {/* KPIs Row */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
@@ -1728,7 +1857,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <p className={dash.kpiSub}>Total novedades</p>
                                         <h3 className={`${dash.title3xl} mt-1`}>{dashItems.length}</h3>
                                         {dashItems.length !== items.length && <p className="text-[10px] text-blue-400 mt-0.5">de {items.length} totales</p>}
-                                        <p className={`text-[10px] ${dash.muted} mt-1`}>Por mes (año en curso). Clic en una barra: abre Gestión con rango de creación de ese mes.</p>
+                                        <p className={`text-[10px] ${dash.muted} mt-1`}>Por mes de creación (año en curso). Clic en una barra: abre Gestión con rango de creación de ese mes.</p>
                                     </div>
                                     <div className="bg-blue-500/10 p-2.5 rounded-lg border border-blue-500/20">
                                         <Activity size={20} className="text-blue-500" />
@@ -1736,24 +1865,38 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </div>
                                 <div className="h-16 mt-3 -mx-1 opacity-90 group-hover:opacity-100 transition-opacity cursor-pointer">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={kpiBarMonthData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                                        <BarChart
+                                            data={kpiBarMonthData}
+                                            margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
+                                        >
                                             <XAxis dataKey="mes" tick={{ fontSize: 8 }} interval={0} stroke="#64748b" axisLine={false} tickLine={false} />
                                             <Tooltip contentStyle={dash.chartTooltip} formatter={(v) => [v, 'Novedades']} />
+                                            {/**
+                                              * Recharts 3.x: el `onClick` en `<Bar>` o en `<BarChart>` dispara
+                                              * con el dataset COMPLETO de la serie (todas las barras), no con la
+                                              * barra clickeada. La forma confiable de filtrar por barra individual
+                                              * es poner el `onClick` en cada `<Cell>` y mantener el dataset chico.
+                                              */}
                                             <Bar
                                                 dataKey="count"
-                                                fill="#3b82f6"
                                                 radius={[2, 2, 0, 0]}
                                                 maxBarSize={18}
                                                 cursor="pointer"
-                                                onClick={(_entry, index) => {
-                                                    const row = kpiBarMonthData[index];
-                                                    if (row && typeof row.monthIndex === 'number') {
-                                                        const y = new Date().getFullYear();
-                                                        const r = creadoEnRangeForMonthIndex(row.monthIndex, y);
-                                                        navigateGestionWithDashboardFilters({ creadoDesde: r.desde, creadoHasta: r.hasta });
-                                                    }
-                                                }}
-                                            />
+                                                isAnimationActive={false}
+                                            >
+                                                {kpiBarMonthData.map((row) => (
+                                                    <Cell
+                                                        key={`kpi-mes-${row.monthIndex}`}
+                                                        fill="#3b82f6"
+                                                        cursor="pointer"
+                                                        onClick={() => {
+                                                            const y = new Date().getFullYear();
+                                                            const r = creadoEnRangeForMonthIndex(row.monthIndex, y);
+                                                            navigateGestionWithDashboardFilters({ creadoDesde: r.desde, creadoHasta: r.hasta });
+                                                        }}
+                                                    />
+                                                ))}
+                                            </Bar>
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -1765,14 +1908,14 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </div>
                                 <div className="flex justify-between items-start relative">
                                     <div className="min-w-0 pr-2">
-                                        <p className={dash.kpiSub}>Tiempo medio hasta aprobación</p>
+                                        <p className={dash.kpiSub}>Tiempo medio hasta decisión</p>
                                         <h3 className="mt-1 text-2xl sm:text-3xl font-bold text-sky-500 tabular-nums">
                                             {leadTimeStats.n > 0 ? formatDurationMs(leadTimeStats.avgMs) : '—'}
                                         </h3>
                                         <p className={`text-xs ${dash.muted} mt-1`}>
                                             {leadTimeStats.n > 0
-                                                ? 'Indicador calculado a partir del tiempo entre el registro de la novedad y su aprobación.'
-                                                : 'No hay suficientes registros aprobados para mostrar este indicador.'}
+                                                ? `Tiempo entre la creación y la decisión (Aprobado o Rechazado). Base: ${leadTimeStats.n} novedades (${leadTimeStats.aprobadas} aprobadas + ${leadTimeStats.rechazadas} rechazadas).`
+                                                : 'No hay suficientes registros resueltos (Aprobado/Rechazado) para mostrar este indicador.'}
                                         </p>
                                     </div>
                                     <div className="bg-sky-500/10 p-2.5 rounded-lg border border-sky-500/20 flex-shrink-0">
@@ -1799,20 +1942,38 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     axisLine={false}
                                                     tickLine={false}
                                                 />
-                                                <Tooltip contentStyle={dash.chartTooltip} formatter={(v) => [v, 'Novedades']} />
+                                <Tooltip contentStyle={dash.chartTooltip} formatter={(v) => [v, 'Novedades']} />
+                                                {/**
+                                                  * Recharts 3.x: ver nota en KPI "Total novedades". Cell-level
+                                                  * onClick es la única forma confiable de filtrar por barra.
+                                                  */}
                                                 <Bar
                                                     dataKey="n"
-                                                    fill="#0ea5e9"
                                                     radius={[0, 4, 4, 0]}
                                                     barSize={14}
                                                     cursor="pointer"
-                                                    onClick={() => navigateGestionWithDashboardFilters({ estado: 'Aprobado' })}
-                                                />
+                                                    isAnimationActive={false}
+                                                >
+                                                    {leadTimeStats.buckets.map((b, bucketIndex) => (
+                                                        <Cell
+                                                            key={`leadtime-bucket-${b.name}`}
+                                                            fill="#0ea5e9"
+                                                            cursor="pointer"
+                                                            onClick={(e) => {
+                                                                e?.stopPropagation?.();
+                                                                navigateGestionWithDashboardFilters({
+                                                                    estado: '',
+                                                                    leadTimeBucket: String(bucketIndex)
+                                                                });
+                                                            }}
+                                                        />
+                                                    ))}
+                                                </Bar>
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </div>
                                 ) : (
-                                    <p className={`text-xs ${dash.muted} mt-3`}>Solo cuenta novedades en estado Aprobado con fechas válidas.</p>
+                                    <p className={`text-xs ${dash.muted} mt-3`}>Solo cuenta novedades resueltas (Aprobado/Rechazado) con fechas válidas.</p>
                                 )}
                             </div>
 
@@ -1895,7 +2056,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <p className={`text-xs ${dash.muted} -mt-4 mb-4`}>Clic en una barra para filtrar por tipo en Gestión.</p>
                                 <div className="h-72 w-full cursor-pointer">
                                     <ResponsiveContainer>
-                                        <BarChart data={typeDataSorted} layout="vertical" margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
+                                        <BarChart
+                                            data={typeDataSorted}
+                                            layout="vertical"
+                                            margin={{ top: 4, right: 8, bottom: 4, left: 8 }}
+                                        >
                                             <CartesianGrid strokeDasharray="3 3" stroke={dash.chGrid} opacity={0.3} horizontal={false} />
                                             <XAxis type="number" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                                             <YAxis
@@ -1913,18 +2078,27 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 contentStyle={dash.chartTooltipSm}
                                                 formatter={(value, name, props) => [value, props?.payload?.name || name]}
                                             />
+                                            {/**
+                                              * Recharts 3.x: ver nota en KPI "Total novedades". El `onClick` por
+                                              * barra individual debe vivir en cada `<Cell>` para que sólo se
+                                              * filtre el tipo específico que el usuario clickeó.
+                                              */}
                                             <Bar
                                                 dataKey="value"
                                                 radius={[0, 6, 6, 0]}
                                                 cursor="pointer"
-                                                onClick={(_entry, index) => {
-                                                    const row = typeDataSorted[index];
-                                                    const tipoNom = String(row?.name || '').trim();
-                                                    if (tipoNom) navigateGestionWithDashboardFilters({ tipo: tipoNom });
-                                                }}
+                                                isAnimationActive={false}
                                             >
                                                 {typeDataSorted.map((entry, index) => (
-                                                    <Cell key={`bar-tipologia-${entry.name}-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                    <Cell
+                                                        key={`bar-tipologia-${entry.name}-${index}`}
+                                                        fill={COLORS[index % COLORS.length]}
+                                                        cursor="pointer"
+                                                        onClick={() => {
+                                                            const tipoNom = String(entry?.name || '').trim();
+                                                            if (tipoNom) navigateGestionWithDashboardFilters({ tipo: tipoNom });
+                                                        }}
+                                                    />
                                                 ))}
                                             </Bar>
                                         </BarChart>
@@ -2126,7 +2300,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             </tr>
                                         </thead>
                                         <tbody className={dash.tbody}>
-                                            {loading ? (
+                                            {gestionLoading ? (
                                                 <tr><td colSpan="10" className={`p-12 text-center font-medium ${dash.muted}`}>Cargando base de datos...</td></tr>
                                             ) : sortedItems.length === 0 ? (
                                                 <tr><td colSpan="10" className={`p-12 text-center font-medium ${dash.muted}`}>No se encontraron registros.</td></tr>
@@ -2220,7 +2394,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         </tbody>
                                     </table>
                                 </div>
-                                {!loading && sortedItems.length > 0 && (
+                                {!gestionLoading && sortedItems.length > 0 && (
                                     <div className={dash.footerBar}>
                                         <span>Mostrando {pagedItems.length} de {gestionPagination.total || 0} registros</span>
                                         <div className="flex items-center gap-2">
@@ -2514,11 +2688,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </div>
 
                         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                            {/* Mapa de Frecuencia (Por Día de la Semana) */}
+                            {/* Mapa de Frecuencia (Por Día de la Semana de creación) */}
                             <div className={`${dash.card} p-6`}>
                                 <h3 className={`${dash.titleXl} mb-1`}>Mapa de Frecuencia (Días de la Semana)</h3>
                                 <p className={`mb-5 text-xs ${dash.muted}`}>
-                                    Distribución de novedades según el día de inicio. Barras más oscuras indican mayor concentración — útil para detectar patrones de ausentismo recurrente.
+                                    Distribución de novedades según el día de la semana en que se **registraron**. Barras más oscuras indican mayor concentración — útil para detectar patrones recurrentes de radicación.
                                 </p>
                                 <div className="h-64 w-full">
                                     <ResponsiveContainer>
@@ -2526,7 +2700,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             const daysInfo = { 0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb' };
                                             const heatMap = { Dom: 0, Lun: 0, Mar: 0, Mié: 0, Jue: 0, Vie: 0, Sáb: 0 };
                                             items.forEach(it => {
-                                                const d = it.fechaInicio ? new Date(it.fechaInicio) : new Date(it.creadoEn);
+                                                if (!it?.creadoEn) return;
+                                                const d = new Date(it.creadoEn);
                                                 if (!isNaN(d.getTime())) {
                                                     heatMap[daysInfo[d.getDay()]] += 1;
                                                 }
@@ -2560,7 +2735,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                         const daysInfo = { 0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb' };
                                                         const heatMap = { Dom: 0, Lun: 0, Mar: 0, Mié: 0, Jue: 0, Vie: 0, Sáb: 0 };
                                                         items.forEach(it => {
-                                                            const d = it.fechaInicio ? new Date(it.fechaInicio) : new Date(it.creadoEn);
+                                                            if (!it?.creadoEn) return;
+                                                            const d = new Date(it.creadoEn);
                                                             if (!isNaN(d.getTime())) heatMap[daysInfo[d.getDay()]] += 1;
                                                         });
                                                         return Object.keys(heatMap).map(k => ({ name: k, count: heatMap[k] }));
@@ -3314,21 +3490,21 @@ export default function Dashboard({ token, auth, onLogout }) {
                         )}
 
                         {!gestionEditMode ? (
-                        <div className={isLight ? 'mt-5 border-t border-slate-200 pt-4' : 'mt-5 border-t border-slate-700/50 pt-4'}>
+                        <div className={isLight ? 'mt-5 min-w-0 border-t border-slate-200 pt-4' : 'mt-5 min-w-0 border-t border-slate-700/50 pt-4'}>
                             <h3 className={isLight ? 'mb-3 text-sm font-bold uppercase tracking-wider text-slate-600' : 'mb-3 text-sm font-bold uppercase tracking-wider text-slate-400'}>
                                 Soportes
                             </h3>
                             {buildSupportList(gestionDetailItem).length === 0 ? (
                                 <p className={isLight ? 'text-sm text-slate-600' : 'text-sm text-slate-500'}>Sin soportes adjuntos.</p>
                             ) : (
-                                <div className="flex flex-wrap gap-2">
+                                <div className="flex min-w-0 flex-col gap-2">
                                     {buildSupportList(gestionDetailItem).map((support) => (
                                         <div
                                             key={support.id}
                                             className={
                                                 isLight
-                                                    ? 'inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 shadow-sm transition-all hover:border-sky-300 hover:bg-sky-50/80'
-                                                    : 'inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs transition-all hover:border-blue-500/50'
+                                                    ? 'flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 shadow-sm transition-all hover:border-sky-300 hover:bg-sky-50/80'
+                                                    : 'flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs transition-all hover:border-blue-500/50'
                                             }
                                         >
                                             <button
@@ -3336,23 +3512,27 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 onClick={() => openSupport(gestionDetailItem, support)}
                                                 className={
                                                     isLight
-                                                        ? 'inline-flex items-center gap-2 rounded-lg border-none bg-transparent px-0 py-0 text-slate-800 hover:text-sky-800'
-                                                        : 'inline-flex items-center gap-2 rounded-lg border-none bg-transparent px-0 py-0 hover:text-blue-300'
+                                                        ? 'flex min-w-0 flex-1 items-start gap-2 rounded-lg border-none bg-transparent px-0 py-0 text-left text-slate-800 hover:text-sky-800 sm:items-center'
+                                                        : 'flex min-w-0 flex-1 items-start gap-2 rounded-lg border-none bg-transparent px-0 py-0 text-left hover:text-blue-300 sm:items-center'
                                                 }
                                             >
-                                                {support.type === 'pdf' && <FileText size={14} />}
-                                                {support.type === 'image' && <FileImage size={14} />}
-                                                {support.type === 'excel' && <FileSpreadsheet size={14} />}
-                                                {support.type === 'other' && <Eye size={14} />}
-                                                <span className="whitespace-nowrap">Visualizar: {support.name}</span>
+                                                <span className="mt-0.5 shrink-0 sm:mt-0">
+                                                    {support.type === 'pdf' && <FileText size={14} />}
+                                                    {support.type === 'image' && <FileImage size={14} />}
+                                                    {support.type === 'excel' && <FileSpreadsheet size={14} />}
+                                                    {support.type === 'other' && <Eye size={14} />}
+                                                </span>
+                                                <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
+                                                    Visualizar: {support.name}
+                                                </span>
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={() => downloadSupport(support)}
                                                 className={
                                                     isLight
-                                                        ? 'rounded-lg border border-sky-300 bg-white px-2 py-1 text-sky-800 transition-all hover:border-sky-500 hover:bg-sky-100'
-                                                        : 'rounded-lg border border-blue-500/30 px-2 py-1 text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10'
+                                                        ? 'shrink-0 rounded-lg border border-sky-300 bg-white px-2 py-1 text-sky-800 transition-all hover:border-sky-500 hover:bg-sky-100'
+                                                        : 'shrink-0 rounded-lg border border-blue-500/30 px-2 py-1 text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10'
                                                 }
                                             >
                                                 Descargar
@@ -3651,30 +3831,30 @@ export default function Dashboard({ token, auth, onLogout }) {
                         <button type="button" onClick={() => setSoporteModal(null)} className={`absolute right-4 top-4 ${dash.modalClose}`}>
                             <X size={20} strokeWidth={2.5} />
                         </button>
-                        <div className="mb-4 mt-2 flex w-full items-center justify-between">
-                            <h2 className={`${dash.titleXl} flex items-center gap-2`}>
-                                <BadgeCheck className="text-blue-500" size={22} /> Vista del documento
+                        <div className="mb-4 mt-2 flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <h2 className={`${dash.titleXl} min-w-0 flex flex-wrap items-center gap-2`}>
+                                <BadgeCheck className="shrink-0 text-blue-500" size={22} /> Vista del documento
                             </h2>
                             {soporteModalCurrentSupport && (
                                 <button
                                     type="button"
                                     onClick={() => downloadSupport(soporteModalCurrentSupport)}
-                                    className="px-3 py-2 rounded-lg border border-blue-500/30 text-blue-300 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all text-sm font-medium"
+                                    className="shrink-0 rounded-lg border border-blue-500/30 px-3 py-2 text-sm font-medium text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10"
                                 >
                                     Descargar
                                 </button>
                             )}
                         </div>
                         {Array.isArray(soporteModal?.supports) && soporteModal.supports.length > 1 && (
-                            <div className="w-full mb-3 flex flex-wrap gap-2">
+                            <div className="mb-3 flex w-full min-w-0 flex-col gap-2">
                                 {soporteModal.supports.map((support) => (
-                                    <div key={support.id} className="inline-flex items-center gap-2">
+                                    <div key={support.id} className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2">
                                         <button
                                             type="button"
                                             onClick={() => openSupportFromModal(support)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs border transition-all ${soporteModal.currentKey === support.key
-                                                ? 'border-blue-500/60 text-blue-300 bg-blue-500/10'
-                                                : 'border-slate-700 text-slate-300 hover:border-blue-500/40 hover:text-blue-300'
+                                            className={`min-w-0 flex-1 break-words px-3 py-1.5 text-left text-xs [overflow-wrap:anywhere] transition-all ${soporteModal.currentKey === support.key
+                                                ? 'rounded-lg border border-blue-500/60 bg-blue-500/10 text-blue-300'
+                                                : 'rounded-lg border border-slate-700 text-slate-300 hover:border-blue-500/40 hover:text-blue-300'
                                                 }`}
                                         >
                                             {support.name}
@@ -3682,7 +3862,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <button
                                             type="button"
                                             onClick={() => downloadSupport(support)}
-                                            className="px-2 py-1 rounded-lg border border-blue-500/30 text-blue-300 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all text-xs"
+                                            className="shrink-0 rounded-lg border border-blue-500/30 px-2 py-1 text-xs text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10"
                                         >
                                             Descargar
                                         </button>
