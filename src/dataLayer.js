@@ -210,6 +210,98 @@ function createDataLayer(deps) {
         }
     }
 
+    /**
+     * Detección de duplicado de novedad Pendiente con la llave de negocio acordada.
+     * No incluye `compensatorio_votacion_jurado`: ese tipo conserva su regla propia (ver POST /api/enviar-novedad).
+     * Devuelve `{ duplicado: boolean, id: string|null }`. Las horas pueden ser `null` (tipos por días).
+     *
+     * @param {{ cedula: string, tipoNovedad: string, fechaInicio: string|Date,
+     *           fechaFin?: string|Date|null, horaInicio?: string|null, horaFin?: string|null }} args
+     */
+    async function findPendingNovedadDuplicate(args = {}) {
+        const cedula = String(args.cedula || '').trim();
+        const tipoNovedad = String(args.tipoNovedad || '').trim();
+        const fechaInicio = args.fechaInicio || null;
+        const fechaFin = args.fechaFin ?? null;
+        const horaInicio = args.horaInicio ?? null;
+        const horaFin = args.horaFin ?? null;
+        if (!cedula || !tipoNovedad || !fechaInicio) {
+            return { duplicado: false, id: null };
+        }
+        const q = await pool.query(
+            `SELECT id::text AS id FROM novedades
+              WHERE cedula = $1
+                AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                    = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                AND fecha_inicio = $3::date
+                AND COALESCE(fecha_fin, fecha_inicio) = COALESCE($4::date, $3::date)
+                AND COALESCE(hora_inicio, TIME '00:00:00') = COALESCE($5::time, TIME '00:00:00')
+                AND COALESCE(hora_fin,    TIME '00:00:00') = COALESCE($6::time, TIME '00:00:00')
+                AND estado = 'Pendiente'::novedad_estado
+              LIMIT 1`,
+            [cedula, tipoNovedad, fechaInicio, fechaFin, horaInicio, horaFin]
+        );
+        const id = q.rows?.[0]?.id || null;
+        return { duplicado: Boolean(id), id };
+    }
+
+    /**
+     * Anti-duplicados de radicación (spec `evitar-duplicados-radicacion-novedad`):
+     * Crea un índice único parcial que impide tener dos novedades en estado `Pendiente` con la misma
+     * llave (cédula + tipo normalizado + fecha_inicio + fecha_fin + hora_inicio + hora_fin), excluyendo
+     * el tipo "Compensatorio por votación/jurado" que conserva su propia regla por `fecha_votacion`.
+     *
+     * Si en arranque se detectan duplicados Pendientes pre-existentes, NO crea el índice y deja un WARN
+     * para que el equipo limpie/decida antes (no se rompe el arranque del backend).
+     */
+    async function ensureNovedadesDuplicadoPendienteIndex() {
+        try {
+            const dup = await pool.query(
+                `SELECT cedula,
+                        lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g')) AS tipo_norm,
+                        fecha_inicio,
+                        COALESCE(fecha_fin, fecha_inicio) AS fecha_fin_norm,
+                        COALESCE(hora_inicio, TIME '00:00:00') AS hora_inicio_norm,
+                        COALESCE(hora_fin,    TIME '00:00:00') AS hora_fin_norm,
+                        COUNT(*)::int AS cnt
+                 FROM novedades
+                 WHERE estado = 'Pendiente'
+                   AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                       <> 'compensatorio por votación/jurado'
+                 GROUP BY 1, 2, 3, 4, 5, 6
+                 HAVING COUNT(*) > 1
+                 LIMIT 5`
+            );
+            if (dup.rows.length) {
+                console.warn(
+                    '[DB] No se crea uq_novedades_pendiente_dedup: hay duplicados Pendientes pre-existentes; revísalos antes.',
+                    { ejemplos: dup.rows }
+                );
+                return;
+            }
+            await pool.query(
+                `CREATE UNIQUE INDEX IF NOT EXISTS uq_novedades_pendiente_dedup
+                   ON novedades (
+                     cedula,
+                     lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g')),
+                     fecha_inicio,
+                     COALESCE(fecha_fin, fecha_inicio),
+                     COALESCE(hora_inicio, TIME '00:00:00'),
+                     COALESCE(hora_fin,    TIME '00:00:00')
+                   )
+                   WHERE estado = 'Pendiente'
+                     AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                         <> 'compensatorio por votación/jurado'`
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para crear uq_novedades_pendiente_dedup.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** NIT por fila (misma cadena en todas las filas de un `cliente`; fuente única para cotizador). */
     async function ensureClientesLideresNitColumn() {
         try {
@@ -501,6 +593,161 @@ function createDataLayer(deps) {
         }
     }
 
+    /** Malla de turnos por día y franja (FK a colaboradores). */
+    async function ensureMallaTurnosCeldaTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS malla_turnos_celda (
+                    fecha DATE NOT NULL,
+                    franja TEXT NOT NULL CHECK (franja IN ('06_14', '14_22', '22_06')),
+                    cedula TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (fecha, franja)
+                )
+            `);
+            await pool.query('CREATE INDEX IF NOT EXISTS idx_malla_turnos_celda_fecha ON malla_turnos_celda(fecha)');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Mallas] Permisos insuficientes para crear malla_turnos_celda.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    /** Varias personas por franja/día, acotadas por cliente del directorio. */
+    async function ensureMallaTurnoAsignacionTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS malla_turno_asignacion (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cliente TEXT NOT NULL,
+                    fecha DATE NOT NULL,
+                    franja TEXT NOT NULL CHECK (franja IN ('06_14', '14_22', '22_06')),
+                    cedula TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    orden SMALLINT NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_malla_turno_asignacion UNIQUE (cliente, fecha, franja, cedula)
+                )
+            `);
+            await pool.query(
+                'CREATE INDEX IF NOT EXISTS idx_malla_turno_asignacion_lookup ON malla_turno_asignacion (cliente, fecha, franja)'
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Mallas] Permisos insuficientes para crear malla_turno_asignacion.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    const MALLA_FRANJAS = new Set(['06_14', '14_22', '22_06']);
+
+    /**
+     * @param {{ cliente: string, desde: string, hasta: string }} rango YYYY-MM-DD inclusive
+     * @returns {Promise<Array<{ fecha: string, franja: string, cedula: string, orden: number, nombre: string, codigo: string | null }>>}
+     */
+    async function listMallaTurnosCeldasRange({ cliente, desde, hasta }) {
+        const cli = normalizeCatalogValue(cliente);
+        if (!cli) {
+            throw Object.assign(new Error('Cliente es obligatorio'), { status: 400 });
+        }
+        const q = await pool.query(
+            `SELECT a.fecha::text AS fecha, a.franja, a.cedula, a.orden, c.nombre, c.codigo
+             FROM malla_turno_asignacion a
+             INNER JOIN colaboradores c ON c.cedula = a.cedula
+             WHERE a.cliente = $1 AND a.fecha >= $2::date AND a.fecha <= $3::date
+             ORDER BY a.fecha ASC, a.franja ASC, a.orden ASC, a.cedula ASC`,
+            [cli, desde, hasta]
+        );
+        return (q.rows || []).map((row) => ({
+            fecha: String(row.fecha),
+            franja: String(row.franja),
+            cedula: String(row.cedula),
+            orden: Number(row.orden) || 0,
+            nombre: String(row.nombre || ''),
+            codigo: row.codigo != null && String(row.codigo).trim() !== '' ? String(row.codigo).trim() : null
+        }));
+    }
+
+    /**
+     * Reemplaza por completo cada (cliente, fecha, franja) según patches.
+     * @param {{ cliente: string, patches: Array<{ fecha: string, franja: string, cedulas: string[] }> }} payload
+     */
+    async function upsertMallaTurnosCeldas({ cliente: clienteRaw, patches }) {
+        const cliente = normalizeCatalogValue(clienteRaw);
+        if (!cliente) {
+            throw Object.assign(new Error('Cliente es obligatorio'), { status: 400 });
+        }
+        const list = Array.isArray(patches) ? patches : [];
+        const dbClient = await pool.connect();
+        try {
+            await dbClient.query('BEGIN');
+            for (const raw of list) {
+                const fecha = String(raw.fecha || '').trim();
+                const franja = String(raw.franja || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+                    throw Object.assign(new Error('Fecha inválida'), { status: 400 });
+                }
+                if (!MALLA_FRANJAS.has(franja)) {
+                    throw Object.assign(new Error('Franja inválida'), { status: 400 });
+                }
+                const rawList = Array.isArray(raw.cedulas) ? raw.cedulas : [];
+                const seen = new Set();
+                const cedulas = [];
+                for (const c of rawList) {
+                    const ced = normalizeCedula(c);
+                    if (!ced || seen.has(ced)) continue;
+                    seen.add(ced);
+                    cedulas.push(ced);
+                    if (cedulas.length >= 10) break;
+                }
+                await dbClient.query(
+                    `DELETE FROM malla_turno_asignacion WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
+                    [cliente, fecha, franja]
+                );
+                let orden = 0;
+                for (const ced of cedulas) {
+                    const chk = await dbClient.query(
+                        `SELECT activo FROM colaboradores
+                         WHERE cedula = $1
+                           AND lower(trim(COALESCE(cliente, ''))) = lower(trim($2))
+                         LIMIT 1`,
+                        [ced, cliente]
+                    );
+                    if (!chk.rows[0]) {
+                        throw Object.assign(
+                            new Error('Colaborador no encontrado o no pertenece al cliente seleccionado'),
+                            { status: 400 }
+                        );
+                    }
+                    if (!chk.rows[0].activo) {
+                        throw Object.assign(new Error('El colaborador debe estar activo para asignarlo en la malla'), {
+                            status: 400
+                        });
+                    }
+                    await dbClient.query(
+                        `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, updated_at)
+                         VALUES ($1, $2::date, $3, $4, $5, NOW())`,
+                        [cliente, fecha, franja, ced, orden]
+                    );
+                    orden += 1;
+                }
+            }
+            await dbClient.query('COMMIT');
+        } catch (e) {
+            try {
+                await dbClient.query('ROLLBACK');
+            } catch {
+                /* ignore */
+            }
+            throw e;
+        } finally {
+            dbClient.release();
+        }
+    }
+
     const COLAB_SELECT_FIELDS = `cedula, nombre, activo, correo_cinte, cliente, lider_catalogo, gp_user_id, created_at, updated_at, ${COLABORADORES_EXTENDED_KEYS.join(', ')}`;
 
     async function ensureCinteLeonardoPair() {
@@ -751,7 +998,7 @@ function createDataLayer(deps) {
     };
 
     /**
-     * @param {{ q?: string, activo?: boolean|null, limit?: number, offset?: number, sort?: string, dir?: string }} opts
+     * @param {{ q?: string, activo?: boolean|null, cliente?: string|null, tipoContrato?: string, limit?: number, offset?: number, sort?: string, dir?: string }} opts
      */
     async function listColaboradoresPaged(opts = {}) {
         const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
@@ -780,6 +1027,11 @@ function createDataLayer(deps) {
         } else if (tipoCt) {
             params.push(tipoCt);
             where.push(`lower(trim(COALESCE(tipo_contrato::text, ''))) = lower(trim($${params.length}))`);
+        }
+        const clienteColab = opts.cliente ? normalizeCatalogValue(opts.cliente) : '';
+        if (clienteColab) {
+            params.push(clienteColab);
+            where.push(`lower(trim(COALESCE(cliente, ''))) = lower(trim($${params.length}))`);
         }
         const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
         const countQ = await pool.query(`SELECT COUNT(*)::int AS total FROM colaboradores ${whereSql}`, params);
@@ -1732,11 +1984,17 @@ function createDataLayer(deps) {
         ensureNovedadesNominaVerificacionColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         ensureNovedadesModalidadVotacionUnidadColumns,
+        ensureNovedadesDuplicadoPendienteIndex,
+        findPendingNovedadDuplicate,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
         ensureColaboradoresExtendedColumns,
         ensureReubicacionesPipelineTable,
+        ensureMallaTurnosCeldaTable,
+        ensureMallaTurnoAsignacionTable,
+        listMallaTurnosCeldasRange,
+        upsertMallaTurnosCeldas,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         getColaboradorByCedula,

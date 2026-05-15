@@ -5,6 +5,7 @@ import {
     ArrowRightLeft,
     ArrowUp,
     Building2,
+    CalendarDays,
     ChevronLeft,
     ChevronRight,
     Home,
@@ -20,6 +21,7 @@ import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
+import MallasTurnosPage from './MallasTurnosPage';
 import {
     initialStaffForm,
     mapRowToStaffForm,
@@ -145,6 +147,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         }
         if (v === 'reubicaciones') {
             setMainView('reubicaciones');
+            const next = new URLSearchParams(searchParams);
+            next.delete('v');
+            setSearchParams(next, { replace: true });
+            return;
+        }
+        if (v === 'mallas-turnos') {
+            setMainView('mallasTurnos');
             const next = new URLSearchParams(searchParams);
             next.delete('v');
             setSearchParams(next, { replace: true });
@@ -995,6 +1004,15 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     setMobileMenuOpen(false);
                 }}
             />
+            <NavBtn
+                active={mainView === 'mallasTurnos'}
+                icon={CalendarDays}
+                label="Mallas de turnos"
+                onClick={() => {
+                    setMainView('mallasTurnos');
+                    setMobileMenuOpen(false);
+                }}
+            />
             {showTiCatalogSubmod ? (
                 <NavBtn
                     active={mainView === 'catalogoTi'}
@@ -1142,7 +1160,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                   ? 'Submódulo Reubicaciones: seguimiento PIPELINE (fecha fin, destino y causal; datos del consultor desde el directorio).'
                                   : mainView === 'dashboardAdmin'
                                     ? 'Dashboard: KPIs y gráficas solo de clientes, consultores y reubicaciones (sin catálogo roles TI).'
-                                    : 'Catálogo por cliente (líderes y GP) y colaboradores (roles autorizados).'}
+                                    : mainView === 'mallasTurnos'
+                                      ? 'Submódulo Mallas de turnos: calendario mensual con tres franjas por día y cobertura por colaborador del directorio.'
+                                      : 'Catálogo por cliente (líderes y GP) y colaboradores (roles autorizados).'}
                         </p>
                     </div>
                 </header>
@@ -1584,6 +1604,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     {mainView === 'reubicaciones' ? (
                         <div className="space-y-4 w-full max-w-[95rem]">
                             <ReubicacionesPipelinePage token={token} navIntent={reubicacionesNavIntent} />
+                        </div>
+                    ) : null}
+
+                    {mainView === 'mallasTurnos' ? (
+                        <div className="space-y-4 w-full max-w-[95rem]">
+                            <MallasTurnosPage token={token} />
                         </div>
                     ) : null}
                 </main>

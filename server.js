@@ -1,6 +1,52 @@
 require('dotenv').config({ override: true });
 const express = require('express');
 const { logger } = require('./src/logger');
+
+/**
+ * Red de seguridad de proceso (CRÍTICO).
+ *
+ * Sin estos listeners, cualquier promesa rechazada (p. ej. una llamada a Cognito,
+ * S3, PG idle client, lambda de notificaciones) o `throw` en código asíncrono
+ * **mata el proceso entero** (Node ≥15: `unhandled-rejections=throw` por defecto;
+ * `uncaughtException` sin handler también termina el proceso).
+ *
+ * Esto producía "desconexiones arbitrarias y aleatorias" del backend mientras el
+ * usuario navegaba entre pantallas: un endpoint con un await sin try/catch hacía
+ * caer todo, y los siguientes requests veían `ECONNRESET` desde el proxy de Vite.
+ *
+ * Política:
+ *  - **Local / dev / qa**: registrar y NO terminar el proceso (mejor servir 5xx
+ *    al request actual que tirar todas las sesiones del equipo).
+ *  - **Producción real**: registrar y dejar que el orquestador (Docker, systemd)
+ *    reinicie el proceso de forma controlada.
+ */
+const isProductionProcess = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+process.on('unhandledRejection', (reason, promise) => {
+    try {
+        const err = reason instanceof Error ? reason : new Error(String(reason));
+        logger.error({
+            err: { message: err.message, stack: err.stack, name: err.name },
+            promiseInfo: String(promise)
+        }, '[unhandledRejection] Promesa rechazada sin manejar');
+    } catch {
+        // logger no debe romper el handler
+    }
+    if (isProductionProcess) {
+        setTimeout(() => process.exit(1), 250).unref();
+    }
+});
+process.on('uncaughtException', (err) => {
+    try {
+        logger.error({
+            err: { message: err && err.message, stack: err && err.stack, name: err && err.name }
+        }, '[uncaughtException] Excepción no capturada');
+    } catch {
+        // logger no debe romper el handler
+    }
+    if (isProductionProcess) {
+        setTimeout(() => process.exit(1), 250).unref();
+    }
+});
 const xlsx = require('xlsx');
 const fs = require('fs');
 const path = require('path');
@@ -54,6 +100,7 @@ const app = express();
 const PORT = process.env.PORT || 3005;
 /** Producción real (EC2, etc.): `NODE_ENV=production`. En local deja `development` o sin definir. */
 const isProduction = process.env.NODE_ENV === 'production';
+const { createRuntimeAuditMiddleware, registerRuntimeClientTraceRoute } = require('./src/runtimeAudit');
 /**
  * Orígenes `*.trycloudflare.com` (Quick Tunnel): permitidos siempre en no-producción.
  * Si por error tienes `NODE_ENV=production` en tu PC pero sigues usando el túnel, define `CORS_ALLOW_TRY_CLOUDFLARE=1`.
@@ -189,10 +236,30 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-cinte-xsrf']
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-cinte-xsrf', 'X-Request-Id'],
+    exposedHeaders: ['X-Request-Id']
 }));
 
 app.use(express.json({ limit: '50mb' }));
+app.use(createRuntimeAuditMiddleware({ logger, fs, path, rootDir: __dirname, isProduction }));
+
+/**
+ * Anti 304/cacheo de respuestas /api: las respuestas dependen del usuario autenticado (Bearer/cookie).
+ * Sin esto, Express genera ETag por body y el navegador puede reusar respuestas antiguas (incluido un
+ * `items: []` previo cuando el scope estaba vacío) → paneles que muestran 0 aunque haya datos en BD.
+ * Aplica solo a rutas /api porque /assets sí debe poder cachearse normalmente.
+ */
+app.disable('etag');
+app.use((req, res, next) => {
+    const url = String(req.originalUrl || req.url || '');
+    if (url.startsWith('/api')) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Vary', 'Authorization, Cookie');
+    }
+    next();
+});
 
 /** CSRF doble envío (LOW-002): cookie legible + header en mutaciones /api. */
 function readCookieValue(cookieHeader, cookieName) {
@@ -365,6 +432,15 @@ const catalogLimiter = rateLimit({
     keyGenerator: rateLimitKeyByUserOrIp,
     message: { ok: false, error: 'Demasiadas consultas de catálogo. Intenta de nuevo en unos minutos.' }
 });
+const RUNTIME_CLIENT_TRACE_MAX = Number(process.env.RUNTIME_CLIENT_TRACE_MAX || 240);
+const clientTraceLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: RUNTIME_CLIENT_TRACE_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: rateLimitKeyByUserOrIp,
+    message: { ok: false, error: 'Demasiados informes de diagnóstico desde el cliente. Espera un minuto.' }
+});
 
 const CONTRATACION_RATE_WINDOW_MIN = Number(process.env.CONTRATACION_RATE_LIMIT_WINDOW_MIN || 15);
 const CONTRATACION_MONITOR_MAX = Number(process.env.CONTRATACION_MONITOR_RATE_LIMIT_MAX || 120);
@@ -419,6 +495,23 @@ const pool = new Pool({
     password: DB_PASSWORD,
     /** Evita texto con tildes/ñ mal interpretado si el servidor PG no usa UTF8 por defecto. */
     options: '-c client_encoding=UTF8'
+});
+
+/**
+ * `pg` documenta explícitamente que sin este listener, cualquier error en un
+ * cliente *idle* del pool (desconexión de red, kill de PG, etc.) se convierte
+ * en `uncaughtException` y mata el proceso. Esto producía "el backend se cae
+ * de la nada" mientras el usuario sólo cambiaba de pantalla.
+ */
+pool.on('error', (err, client) => {
+    try {
+        logger.error({
+            err: { message: err && err.message, stack: err && err.stack, code: err && err.code },
+            clientPid: client && client.processID
+        }, '[pg.pool] Error en cliente idle del pool');
+    } catch {
+        // ignorar fallos del logger
+    }
 });
 
 const CLIENTES_LIDERES_XLSX_PATH = String(process.env.CLIENTES_LIDERES_XLSX_PATH || '').trim();
@@ -533,10 +626,16 @@ const {
     ensureNovedadesNominaVerificacionColumns,
     ensureNovedadesHorasRecargoDomingoColumn,
     ensureNovedadesModalidadVotacionUnidadColumns,
+    ensureNovedadesDuplicadoPendienteIndex,
+    findPendingNovedadDuplicate,
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,
     ensureColaboradoresDirectoryColumns,
     ensureReubicacionesPipelineTable,
+    ensureMallaTurnosCeldaTable,
+    ensureMallaTurnoAsignacionTable,
+    listMallaTurnosCeldasRange,
+    upsertMallaTurnosCeldas,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     getColaboradorByCedula,
@@ -594,6 +693,16 @@ registerEntraRoutes(app, {
     secureCookie: secureEntraCookie,
     sameSite: sameSiteEntra,
     logger
+});
+
+registerRuntimeClientTraceRoute(app, {
+    verificarToken,
+    clientTraceLimiter,
+    logger,
+    fs,
+    path,
+    rootDir: __dirname,
+    isProduction
 });
 
 registerRoutes({
@@ -656,7 +765,8 @@ registerRoutes({
     POLICY,
     xlsx,
     emailNotificationsPublisher,
-    resolveApproverEmailsForNovedad
+    resolveApproverEmailsForNovedad,
+    findPendingNovedadDuplicate
 });
 
 registerDirectorioRoutes({
@@ -681,7 +791,9 @@ registerDirectorioRoutes({
     resolveOrCreateGpUserIdForColaboradorCedula,
     clearGpUserReferences,
     linkGpCognitoSubByEmail,
-    normalizeCedula
+    normalizeCedula,
+    listMallaTurnosCeldasRange,
+    upsertMallaTurnosCeldas
 });
 
 registerConciliacionesRoutes({
@@ -748,11 +860,14 @@ startServer({
     ensureNovedadesNominaVerificacionColumns,
     ensureNovedadesHorasRecargoDomingoColumn,
     ensureNovedadesModalidadVotacionUnidadColumns,
+    ensureNovedadesDuplicadoPendienteIndex,
     migrateExcelIfNeeded,
     migrateClientesLideresFromExcelIfNeeded,
     ensureColaboradoresTable,
     ensureColaboradoresDirectoryColumns,
     ensureReubicacionesPipelineTable,
+    ensureMallaTurnosCeldaTable,
+    ensureMallaTurnoAsignacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     PORT,
