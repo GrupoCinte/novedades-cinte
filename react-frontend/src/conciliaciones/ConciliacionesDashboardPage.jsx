@@ -50,7 +50,12 @@ export default function ConciliacionesDashboardPage({ token }) {
     const ym = useMemo(() => parseMonthValue(monthValue), [monthValue]);
 
     const load = useCallback(async () => {
-        if (!ym.year || !ym.month) return;
+        if (!ym.year || !ym.month) {
+            setPayload(null);
+            setError('');
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         setError('');
         try {

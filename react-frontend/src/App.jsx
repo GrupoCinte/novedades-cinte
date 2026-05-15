@@ -24,6 +24,7 @@ import { userHasDirectorioPanel } from './directorioAccess';
 import { cognitoSignOut } from './cognitoAuth';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { pathIsAdminModuleShell, ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
+import { installRuntimeClientTrace } from './runtimeClientTrace.js';
 
 function AdminPortalSinModulos({ onLogout }) {
   const { theme } = useUiTheme();
@@ -126,7 +127,14 @@ function App() {
         const data = await res.json().catch(() => ({}));
         if (!mounted) return;
         if (res.ok && data?.ok && data?.me) {
-          setAuth((prev) => prev || { ok: true, user: data.me, claims: data.me });
+          setAuth((prev) =>
+            prev || {
+              ok: true,
+              user: data.me,
+              claims: data.me,
+              ...(data.devDb ? { devDb: data.devDb } : {})
+            }
+          );
         } else {
           setAuth(null);
         }
@@ -139,6 +147,10 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (import.meta.env.DEV) installRuntimeClientTrace();
+  }, []);
+
   /** Sincronizar `auth` al entrar al hub consultor (p. ej. tras redirect Entra con cookie recién fijada). */
   useEffect(() => {
     if (!isConsultorShell) return;
@@ -149,7 +161,12 @@ function App() {
         const data = await res.json().catch(() => ({}));
         if (!mounted) return;
         if (res.ok && data?.ok && data?.me) {
-          setAuth({ ok: true, user: data.me, claims: data.me });
+          setAuth({
+            ok: true,
+            user: data.me,
+            claims: data.me,
+            ...(data.devDb ? { devDb: data.devDb } : {})
+          });
         }
       } catch {
         /* ignore */

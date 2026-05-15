@@ -14,7 +14,7 @@ function noAuth(req, _res, next) {
 
 function limiter(_req, _res, next) { next(); }
 
-function buildApp() {
+function buildApp(overrides = {}) {
   const app = express();
   app.use(express.json());
   registerRoutes({
@@ -27,6 +27,7 @@ function buildApp() {
     catalogLimiter: limiter,
     normalizeCedula: (v) => String(v || '').replace(/\D/g, ''),
     getColaboradorByCedula: async () => null,
+    findPendingNovedadDuplicate: async () => ({ duplicado: false, id: null }),
     verificarToken: noAuth,
     isStrongPassword: () => true,
     COGNITO_ENABLED: false,
@@ -48,7 +49,13 @@ function buildApp() {
     normalizeCatalogValue: (v) => String(v || '').trim(),
     getLideresByCliente: async () => ['Lider A'],
     upload: { any: () => (_req, _res, next) => next() },
-    getNovedadRuleByType: () => ({ key: 'incapacidad', requiredMinSupports: 0 }),
+    getNovedadRuleByType: (typeName = '') => {
+      const t = String(typeName || '').toLowerCase();
+      if (/votaci.n/.test(t) || /jurado/.test(t)) {
+        return { key: 'compensatorio_votacion_jurado', displayName: 'Compensatorio por votación/jurado', requiredMinSupports: 1 };
+      }
+      return { key: 'incapacidad', displayName: 'Incapacidad', requiredMinSupports: 0 };
+    },
     path,
     allowedMimes: new Set(['application/pdf']),
     allowedExt: new Set(['.pdf']),
@@ -60,8 +67,8 @@ function buildApp() {
     fs,
     uploadDir: process.cwd(),
     inferAreaFromNovedad: () => 'admin',
-    parseDateOrNull: () => null,
-    parseTimeOrNull: () => null,
+    parseDateOrNull: (v) => (v ? String(v) : null),
+    parseTimeOrNull: (v) => (v ? String(v) : null),
     pool: { query: async () => ({ rows: [] }) },
     S3_SIGNED_URL_TTL_SEC: 60,
     PutObjectCommand: function PutObjectCommand() {},
@@ -75,8 +82,14 @@ function buildApp() {
     emailNotificationsPublisher: {},
     resolveApproverEmailsForNovedad: async () => ({ emails: [] }),
     revokeAppSessionToken: () => {},
-    requireEntraConsultor: () => (_req, _res, next) => next(),
-    requireCatalogConsultorOrStaff: () => (_req, _res, next) => next()
+    requireEntraConsultor: (req, _res, next) => {
+      req.user = req.user || {};
+      req.user.cedula = req.user.cedula || '1015123456';
+      req.user.authProvider = 'entra_consultor';
+      next();
+    },
+    requireCatalogConsultorOrStaff: (_req, _res, next) => next(),
+    ...overrides
   });
   return app;
 }
@@ -94,4 +107,58 @@ test('GET /api/catalogos/lideres exige cliente', async () => {
   const res = await request(app).get('/api/catalogos/lideres');
   assert.equal(res.status, 400);
   assert.equal(res.body.ok, false);
+});
+
+test('GET /api/novedades/duplicado-pendiente requiere tipo', async () => {
+  const app = buildApp();
+  const res = await request(app).get('/api/novedades/duplicado-pendiente');
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+});
+
+test('GET /api/novedades/duplicado-pendiente devuelve duplicado=true cuando el helper detecta una previa Pendiente', async () => {
+  const app = buildApp({
+    findPendingNovedadDuplicate: async () => ({ duplicado: true, id: 'nov-uuid-1' })
+  });
+  const res = await request(app)
+    .get('/api/novedades/duplicado-pendiente')
+    .query({ tipo: 'Incapacidad', fechaInicio: '2026-06-01', fechaFin: '2026-06-05' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.duplicado, true);
+});
+
+test('GET /api/novedades/duplicado-pendiente excluye Compensatorio por votación/jurado (fuera_de_alcance)', async () => {
+  const helperCalls = [];
+  const app = buildApp({
+    findPendingNovedadDuplicate: async (args) => {
+      helperCalls.push(args);
+      return { duplicado: true, id: 'no-debe-llegar' };
+    }
+  });
+  const res = await request(app)
+    .get('/api/novedades/duplicado-pendiente')
+    .query({ tipo: 'Compensatorio por votación/jurado', fechaInicio: '2026-05-26' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.duplicado, false);
+  assert.equal(res.body.scope, 'fuera_de_alcance');
+  assert.equal(helperCalls.length, 0, 'no debe consultar el helper para votación/jurado');
+});
+
+test('GET /api/novedades/duplicado-pendiente sin fechaInicio devuelve duplicado=false sin consultar helper', async () => {
+  let consulto = false;
+  const app = buildApp({
+    findPendingNovedadDuplicate: async () => {
+      consulto = true;
+      return { duplicado: true, id: 'x' };
+    }
+  });
+  const res = await request(app)
+    .get('/api/novedades/duplicado-pendiente')
+    .query({ tipo: 'Incapacidad' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.duplicado, false);
+  assert.equal(consulto, false);
 });

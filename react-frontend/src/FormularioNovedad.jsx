@@ -65,6 +65,15 @@ function addCalendarYearsYmd(ymd, deltaYears) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** Primer día permitido “estrictamente después de hoy” (hoy y el pasado quedan excluidos). */
+function addCalendarDaysYmd(ymd, deltaDays) {
+    const [y, m, day] = String(ymd || '').split('-').map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(day)) return ymd;
+    const d = new Date(y, m - 1, day);
+    d.setDate(d.getDate() + deltaDays);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const FORMULARIO_THEME_STORAGE_KEY = 'formularioNovedadTheme';
 
 /** Tokens de UI para el panel del formulario (oscuro = actual; claro = tema claro). */
@@ -85,6 +94,7 @@ const FORM_THEMES = {
         sectionBarFechas: 'w-1.5 h-5 bg-[#2F7BB8] rounded-full inline-block',
         helperMuted: 'text-xs text-[#4a6f8f] mb-1.5 font-body',
         helperMutedPlain: 'text-xs text-[#4a6f8f] font-body',
+        nestedPanel: 'rounded-xl border border-[#1a3a56]/50 bg-[#0b1e30]/40 p-4',
         docErrorBox: 'rounded-xl border border-rose-500/40 bg-rose-900/20 px-4 py-3 text-sm text-rose-100 font-body',
         avatarRow: 'flex items-center gap-4 p-4 rounded-xl bg-[#0b1e30]/60 border border-[#1a3a56]',
         avatarName: 'text-white font-body font-semibold text-sm',
@@ -143,6 +153,7 @@ const FORM_THEMES = {
         sectionBarFechas: 'w-1.5 h-5 bg-[#004D87] rounded-full inline-block',
         helperMuted: 'text-xs text-slate-500 mb-1.5 font-body',
         helperMutedPlain: 'text-xs text-slate-500 font-body',
+        nestedPanel: 'rounded-xl border border-slate-200 bg-white p-4 shadow-sm',
         docErrorBox: 'rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 font-body',
         avatarRow: 'flex items-center gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200',
         avatarName: 'text-slate-900 font-body font-semibold text-sm',
@@ -298,6 +309,44 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const esPermisoRemunerado = formData.tipo === 'Permiso remunerado';
     const esPermisoHoras = esPermisoRemunerado && formData.permisoUnidad === 'horas';
     const esCompensatorioVotacion = formData.tipo === 'Compensatorio por votación/jurado';
+
+    /**
+     * Restricción Compensatorio por votación/jurado:
+     * - Fecha de la votación: solo fechas del mes calendario en curso (zona local del navegador).
+     * - Fecha de disfrute: hasta 30 días calendario posteriores a la fecha de votación elegida.
+     * Importante: usar año/mes derivados del navegador para no caer en el pivote UTC del input date.
+     */
+    const fechaVotacionTodayParts = useMemo(() => {
+        const d = new Date();
+        return { year: d.getFullYear(), month: d.getMonth() };
+    }, []);
+    const fechaVotacionMinYmd = useMemo(() => {
+        const { year, month } = fechaVotacionTodayParts;
+        return `${year}-${String(month + 1).padStart(2, '0')}-01`;
+    }, [fechaVotacionTodayParts]);
+    const fechaVotacionMaxYmd = useMemo(() => {
+        const { year, month } = fechaVotacionTodayParts;
+        const lastDay = new Date(year, month + 1, 0).getDate();
+        return `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    }, [fechaVotacionTodayParts]);
+    const nombreMesEnCurso = useMemo(() => {
+        const fmt = new Intl.DateTimeFormat('es-CO', { month: 'long', year: 'numeric' });
+        return fmt.format(new Date(fechaVotacionTodayParts.year, fechaVotacionTodayParts.month, 1));
+    }, [fechaVotacionTodayParts]);
+    const fechaDisfruteMinYmd = useMemo(() => {
+        const v = String(formData.fechaVotacion || '').trim();
+        if (!v) return undefined;
+        return v;
+    }, [formData.fechaVotacion]);
+    const fechaDisfruteMaxYmd = useMemo(() => {
+        const v = String(formData.fechaVotacion || '').trim();
+        if (!v) return undefined;
+        const [y, m, d] = v.split('-').map(Number);
+        if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return undefined;
+        const base = new Date(y, m - 1, d);
+        base.setDate(base.getDate() + 30);
+        return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}`;
+    }, [formData.fechaVotacion]);
     const rule = useMemo(() => getNovedadRule(formData.tipo), [formData.tipo]);
     const docsVotacion = useMemo(() => {
         if (!esCompensatorioVotacion) return null;
@@ -320,10 +369,19 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const esSinAdjuntosPublicos = esDisponibilidad;
     const esIncapacidad = formData.tipo === 'Incapacidad';
     const todayLocalYmd = localTodayYmd();
+    /** Permiso remunerado (días u horas): no hoy ni fechas pasadas; tope superior = mismo “un año calendario” que el resto de novedades. */
+    const minFechaPermisoRemuneradoYmd = addCalendarDaysYmd(todayLocalYmd, 1);
+    /** Rango de fechas del permiso (días o unidad aún no elegida); excluye modo horas. */
+    const esPermisoRemuneradoBloqueDias = esPermisoRemunerado && formData.permisoUnidad !== 'horas';
     /** Inicio: no antes de 1 mes calendario atrás; fin: no después de 1 año calendario desde hoy. */
     const minFechaInicioYmd = addCalendarMonthsYmd(todayLocalYmd, -1);
     const maxFechaFinYmd = addCalendarYearsYmd(todayLocalYmd, 1);
     const maxFechaInicioYmd = esIncapacidad ? todayLocalYmd : maxFechaFinYmd;
+    /** Límite inferior de “Fecha inicio” en el bloque genérico: permiso remunerado (salvo modo horas) = desde mañana. */
+    const minFechaInicioEfectivaYmd =
+        esPermisoRemuneradoBloqueDias
+            ? minFechaPermisoRemuneradoYmd
+            : minFechaInicioYmd;
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
     const usaBloqueHoras = isHoraExtra || requiereLapsoHora;
     /** Disponibilidad: días hábiles del rango solo informativos (el backend no persiste días en cantidad_horas). */
@@ -548,13 +606,27 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         !esCompensatorioVotacion
         && !esPermisoHoras
         && formData.fechaInicio
-        && (formData.fechaInicio < minFechaInicioYmd || formData.fechaInicio > maxFechaInicioYmd)
+        && (formData.fechaInicio < minFechaInicioEfectivaYmd || formData.fechaInicio > maxFechaInicioYmd)
     );
     const fechaFinFueraDeVentanaMax = Boolean(
         !esCompensatorioVotacion
         && !esPermisoHoras
         && formData.fechaFin
         && formData.fechaFin > maxFechaFinYmd
+    );
+    /** Permiso remunerado en días: la fecha fin tampoco puede ser hoy ni anterior. */
+    const fechaFinPermisoDiasAntesDeMin = Boolean(
+        esPermisoRemuneradoBloqueDias
+        && formData.fechaFin
+        && formData.fechaFin < minFechaPermisoRemuneradoYmd
+    );
+    const fechaPermisoHorasFueraDeVentana = Boolean(
+        esPermisoHoras
+        && String(formData.fecha || '').trim()
+        && (
+            formData.fecha < minFechaPermisoRemuneradoYmd
+            || formData.fecha > maxFechaFinYmd
+        )
     );
 
     const bloqueoEnvioHoraExtra = usaBloqueHoras
@@ -579,12 +651,31 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             || (autocalculaDiasDesdeRango && !String(formData.fechaFin || '').trim())
             || fechaInicioFueraDeVentana
             || fechaFinFueraDeVentanaMax
+            || fechaFinPermisoDiasAntesDeMin
+        );
+
+    const fechaVotacionFueraDeMes = esCompensatorioVotacion
+        && Boolean(String(formData.fechaVotacion || '').trim())
+        && (
+            String(formData.fechaVotacion) < fechaVotacionMinYmd
+            || String(formData.fechaVotacion) > fechaVotacionMaxYmd
+        );
+
+    const fechaDisfruteFueraVentana = esCompensatorioVotacion
+        && Boolean(String(formData.fechaDisfruteVotacion || '').trim())
+        && Boolean(fechaDisfruteMinYmd)
+        && Boolean(fechaDisfruteMaxYmd)
+        && (
+            String(formData.fechaDisfruteVotacion) < fechaDisfruteMinYmd
+            || String(formData.fechaDisfruteVotacion) > fechaDisfruteMaxYmd
         );
 
     const bloqueoEnvioCompVotacion = esCompensatorioVotacion && (
         !String(formData.modalidadVotacion || '').trim()
         || !String(formData.fechaVotacion || '').trim()
         || !String(formData.fechaDisfruteVotacion || '').trim()
+        || fechaVotacionFueraDeMes
+        || fechaDisfruteFueraVentana
     );
 
     const bloqueoEnvioPermisoSinUnidad = esPermisoRemunerado && !String(formData.permisoUnidad || '').trim();
@@ -595,8 +686,79 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         || !String(formData.horaFin || '').trim()
         || horaInicioFormatoInvalido
         || horaFinFormatoInvalido
+        || fechaPermisoHorasFueraDeVentana
         || (Boolean(formData.fecha) && buildDateTimeMs(formData.fecha, formData.horaFin) <= buildDateTimeMs(formData.fecha, formData.horaInicio))
     );
+
+    /**
+     * Pre-chequeo de duplicado pendiente (spec evitar-duplicados-radicacion-novedad).
+     * Solo aplica al portal consultor (Entra) y a tipos distintos de Compensatorio por votación/jurado.
+     * Si el endpoint devuelve `duplicado:true`, se muestra el banner uniforme y se bloquea Enviar.
+     */
+    const [duplicadoPendiente, setDuplicadoPendiente] = useState(false);
+    useEffect(() => {
+        if (!consultorSession || !colaboradorVerificado) {
+            setDuplicadoPendiente(false);
+            return undefined;
+        }
+        const tipo = String(formData.tipo || '').trim();
+        if (!tipo || esCompensatorioVotacion) {
+            setDuplicadoPendiente(false);
+            return undefined;
+        }
+        const fechaInicio = esPermisoHoras
+            ? String(formData.fecha || '').trim()
+            : String(formData.fechaInicio || '').trim();
+        const fechaFin = esPermisoHoras
+            ? String(formData.fecha || '').trim()
+            : String(formData.fechaFin || '').trim();
+        const horaInicio = (usaBloqueHoras || esPermisoHoras)
+            ? String(formData.horaInicio || '').trim()
+            : '';
+        const horaFin = (usaBloqueHoras || esPermisoHoras)
+            ? String(formData.horaFin || '').trim()
+            : '';
+        if (!fechaInicio) {
+            setDuplicadoPendiente(false);
+            return undefined;
+        }
+        const params = new URLSearchParams({ tipo, fechaInicio });
+        if (fechaFin) params.set('fechaFin', fechaFin);
+        if (horaInicio) params.set('horaInicio', horaInicio);
+        if (horaFin) params.set('horaFin', horaFin);
+        const ctrl = new AbortController();
+        const timer = window.setTimeout(() => {
+            fetch(`/api/novedades/duplicado-pendiente?${params.toString()}`, {
+                method: 'GET',
+                credentials: 'include',
+                signal: ctrl.signal
+            })
+                .then((res) => (res.ok ? res.json() : null))
+                .then((data) => {
+                    if (!data) return;
+                    setDuplicadoPendiente(Boolean(data.duplicado));
+                })
+                .catch(() => {
+                    // Falla de red: no bloqueamos en UI; el backend decidirá al enviar (RNF UX en spec).
+                });
+        }, 400);
+        return () => {
+            window.clearTimeout(timer);
+            ctrl.abort();
+        };
+    }, [
+        consultorSession,
+        colaboradorVerificado,
+        formData.tipo,
+        formData.fecha,
+        formData.fechaInicio,
+        formData.fechaFin,
+        formData.horaInicio,
+        formData.horaFin,
+        esCompensatorioVotacion,
+        esPermisoHoras,
+        usaBloqueHoras
+    ]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -936,7 +1098,9 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                 type: 'error',
                 text: esIncapacidad
                     ? '❌ Fecha Incapacidad: desde hace un mes calendario como máximo hasta hoy.'
-                    : '❌ Fecha Inicio fuera del rango permitido (desde hace un mes calendario hasta un año calendario desde hoy).'
+                    : esPermisoRemuneradoBloqueDias
+                      ? '❌ Permiso remunerado: la fecha de inicio debe ser desde mañana en adelante y no más allá de un año calendario desde hoy.'
+                      : '❌ Fecha Inicio fuera del rango permitido (desde hace un mes calendario hasta un año calendario desde hoy).'
             });
             return;
         }
@@ -947,13 +1111,27 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             });
             return;
         }
+        if (fechaFinPermisoDiasAntesDeMin) {
+            setStatus({
+                type: 'error',
+                text: '❌ Permiso remunerado: la fecha de fin no puede ser hoy ni una fecha pasada; debe ser desde mañana en adelante.'
+            });
+            return;
+        }
+        if (fechaPermisoHorasFueraDeVentana) {
+            setStatus({
+                type: 'error',
+                text: '❌ Permiso remunerado (horas): la fecha del permiso debe ser desde mañana en adelante y dentro de un año calendario desde hoy.'
+            });
+            return;
+        }
         if (bloqueoEnvioPermisoSinUnidad || bloqueoEnvioCompVotacion || bloqueoEnvioPermisoHoras || bloqueoEnvioHoraExtra || bloqueoEnvioFechas) {
             const mensaje = bloqueoEnvioPermisoSinUnidad
                 ? '❌ Elige si el permiso remunerado es en días o en horas.'
                 : bloqueoEnvioCompVotacion
                 ? '❌ Indica modalidad, fecha de votación y fecha de disfrute del compensatorio.'
                 : bloqueoEnvioPermisoHoras
-                    ? '❌ En modo horas indica la fecha del permiso y hora inicio/fin válidas (HH:mm); la hora fin debe ser posterior a la de inicio.'
+                    ? '❌ En modo horas: fecha desde mañana (mismo tope de un año que otras novedades) y hora inicio/fin válidas (HH:mm); la hora fin debe ser posterior a la de inicio.'
                     : isHoraExtra
                         ? '❌ Corrige fecha/horas de Hora Extra antes de enviar.'
                         : autocalculaDiasDesdeRango && !String(formData.fechaFin || '').trim()
@@ -1458,9 +1636,9 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                         </select>
                                     </div>
                                     {esPermisoRemunerado && detalleFormularioActivo && (
-                                        <div className="md:col-span-2 rounded-xl border border-[#1a3a56]/50 bg-[#0b1e30]/40 p-4 space-y-3">
+                                        <div className={`md:col-span-2 ${theme.nestedPanel} space-y-3`}>
                                             <span className={`${labelCls} block`}>Unidad de medida {reqStar}</span>
-                                            <div className="flex flex-wrap gap-6 text-sm text-[#9fb3c8] font-body">
+                                            <div className="flex flex-wrap gap-6">
                                                 <label className={theme.radioLabel}>
                                                     <input
                                                         type="radio"
@@ -1485,7 +1663,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                         </div>
                                     )}
                                     {esCompensatorioVotacion && detalleFormularioActivo && (
-                                        <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 rounded-xl border border-[#1a3a56]/50 bg-[#0b1e30]/40 p-4">
+                                        <div className={`md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 ${theme.nestedPanel}`}>
                                             <div className="md:col-span-2 flex flex-col gap-1">
                                                 <label className={labelCls}>Modalidad {reqStar}</label>
                                                 <select
@@ -1507,8 +1685,13 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                     value={formData.fechaVotacion}
                                                     onChange={handleChange}
                                                     type="date"
+                                                    min={fechaVotacionMinYmd}
+                                                    max={fechaVotacionMaxYmd}
                                                     className={inputCls}
                                                 />
+                                                <small className={theme.helperMutedPlain}>
+                                                    Solo fechas del mes en curso ({nombreMesEnCurso}).
+                                                </small>
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 <label className={labelCls}>Fecha de disfrute {reqStar}</label>
@@ -1517,8 +1700,16 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                     value={formData.fechaDisfruteVotacion}
                                                     onChange={handleChange}
                                                     type="date"
-                                                    className={inputCls}
+                                                    min={fechaDisfruteMinYmd}
+                                                    max={fechaDisfruteMaxYmd}
+                                                    disabled={!String(formData.fechaVotacion || '').trim()}
+                                                    className={`${inputCls} disabled:opacity-50`}
                                                 />
+                                                <small className={theme.helperMutedPlain}>
+                                                    {String(formData.fechaVotacion || '').trim()
+                                                        ? 'Hasta 30 días calendario después de la fecha de votación.'
+                                                        : 'Selecciona primero la fecha de votación.'}
+                                                </small>
                                             </div>
                                             <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
                                                 Debes radicar y disfrutar dentro de los 30 días calendario posteriores a la fecha de votación. Adjunta el(los) certificado(s) según la modalidad.
@@ -1702,9 +1893,14 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                 value={formData.fecha}
                                                 onChange={handleChange}
                                                 type="date"
+                                                min={minFechaPermisoRemuneradoYmd}
+                                                max={maxFechaFinYmd}
                                                 disabled={!detalleFormularioActivo}
                                                 className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
                                             />
+                                            <small className={theme.helperMutedPlain}>
+                                                Desde mañana (no hoy ni fechas pasadas), hasta un año calendario desde hoy (misma regla que otras novedades).
+                                            </small>
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Hora inicio (24h) {reqStar}</label>
@@ -1758,7 +1954,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
-                                            <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
+                                            <input required name="fechaInicio" value={formData.fechaInicio} onChange={handleChange} type="date" min={minFechaInicioEfectivaYmd} max={maxFechaInicioYmd} disabled={!detalleFormularioActivo} className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`} />
                                             {formData.fechaInicio && festivosSet.has(formData.fechaInicio) && (
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
                                             )}
@@ -1768,7 +1964,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                         </div>
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
-                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
+                                            <input required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioEfectivaYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
                                             {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
                                             {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
                                             {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
@@ -1778,6 +1974,11 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
                                             )}
                                         </div>
+                                        {esPermisoRemuneradoBloqueDias && (
+                                            <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
+                                                Las fechas deben ser desde mañana (no hoy ni días pasados), hasta un año calendario desde hoy.
+                                            </p>
+                                        )}
                                     </div>
                                 )}
 
@@ -1904,9 +2105,18 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                 </p>
                             </div>
 
+                            {duplicadoPendiente && (
+                                <div
+                                    role="alert"
+                                    className="rounded-xl border border-amber-300/60 bg-amber-50 p-3 text-sm font-medium text-amber-800"
+                                >
+                                    Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.
+                                </div>
+                            )}
+
                             {/* ═══ Botón Enviar ═══ */}
                             <button
-                                disabled={isSubmitting || bloqueHeDomingoComp || !colaboradorVerificado || !aceptaPoliticaDatos}
+                                disabled={isSubmitting || bloqueHeDomingoComp || !colaboradorVerificado || !aceptaPoliticaDatos || duplicadoPendiente}
                                 type="submit"
                                 className="w-full py-4 px-6 rounded-xl font-heading font-bold text-base text-white transition-all shadow-lg hover:shadow-xl disabled:opacity-50 bg-gradient-to-r from-[#004D87] to-[#2F7BB8] hover:from-[#004D87] hover:to-[#088DC6]"
                             >
