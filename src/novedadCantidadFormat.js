@@ -296,6 +296,17 @@ function getCantidadMedidaKind(tipoNovedad, context = null) {
     const canon = resolveCanonicalNovedadTipo(tipoNovedad);
     const unidad = String(context?.unidad || context?.Unidad || '').trim().toLowerCase();
     if (canon === 'Permiso remunerado' && unidad === 'horas') return 'hours';
+    if (canon === 'Compensatorio por votación/jurado') {
+        const mod = String(context?.modalidad || context?.modalidad_votacion || '').trim().toLowerCase();
+        if (mod === 'solo_voto') return 'hours';
+        if (mod === 'solo_jurado') return 'days';
+        const fi = String(context?.fechaInicio || context?.fecha_inicio || '').trim();
+        const ff = String(context?.fechaFin || context?.fecha_fin || '').trim();
+        const hi = String(context?.horaInicio || context?.hora_inicio || '').trim();
+        const hf = String(context?.horaFin || context?.hora_fin || '').trim();
+        if (hi && hf && fi && ff && fi === ff) return 'hours';
+        return 'days';
+    }
     const rule = getNovedadRule(tipoNovedad);
     if (rule.requiresTimeRange) return 'hours';
     if (rule.requiresMonetaryAmount) return 'money';

@@ -226,8 +226,25 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
       expect(rule.viewers).not.toContain('gp');
       expect(rule.viewers).toContain('nomina');
     });
-    it('mide cantidad en días (medida días)', () => {
+    it('sin modalidad en contexto: medida días por defecto (p. ej. jurado legacy)', () => {
       expect(getCantidadMedidaKind('Compensatorio por votación/jurado')).toBe('days');
+    });
+    it('modalidad solo_voto: cantidad_horas son horas de franja', () => {
+      expect(getCantidadMedidaKind('Compensatorio por votación/jurado', { modalidad: 'solo_voto' })).toBe('hours');
+      expect(formatCantidadNovedad('Compensatorio por votación/jurado', 4, { modalidad: 'solo_voto' })).toBe('4h');
+    });
+    it('modalidad solo_jurado: un día', () => {
+      expect(getCantidadMedidaKind('Compensatorio por votación/jurado', { modalidad: 'solo_jurado' })).toBe('days');
+      expect(formatCantidadNovedad('Compensatorio por votación/jurado', 1, { modalidad: 'solo_jurado' })).toBe('1 día');
+    });
+    it('inferencia medio día sin modalidad: misma fecha + horas', () => {
+      const ctx = {
+        fechaInicio: '2026-06-08',
+        fechaFin: '2026-06-08',
+        horaInicio: '08:00',
+        horaFin: '12:00'
+      };
+      expect(getCantidadMedidaKind('Compensatorio por votación/jurado', ctx)).toBe('hours');
     });
   });
 
