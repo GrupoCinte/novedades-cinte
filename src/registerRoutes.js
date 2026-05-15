@@ -1,8 +1,7 @@
 const {
     normalizeNovedadTypeKey,
     isNovedadTipoRetiradoDelFormulario,
-    normalizeRoleOrNull,
-    isNominaGateNovedadType
+    normalizeRoleOrNull
 } = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
@@ -2179,126 +2178,6 @@ function registerRoutes(deps) {
         }
     });
 
-    app.post(
-        '/api/novedades/:id/nomina-verificacion',
-        verificarToken,
-        allowPanel('gestion'),
-        applyScope,
-        async (req, res) => {
-            try {
-                const role = normalizeRoleOrNull(req.user?.role);
-                if (role !== 'nomina') {
-                    return res.status(403).json({ ok: false, error: 'Solo el rol nómina puede registrar esta verificación.' });
-                }
-                const idParam = String(req.params?.id || '').trim();
-                if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idParam)) {
-                    return res.status(400).json({ ok: false, error: 'Identificador de novedad inválido.' });
-                }
-                const body = req.body && typeof req.body === 'object' ? req.body : {};
-                const infoCorrecta = body.infoCorrecta === true || body.infoCorrecta === false ? body.infoCorrecta : null;
-                const observacion = String(body.observacion ?? '').trim();
-                if (infoCorrecta === null) {
-                    return res.status(400).json({ ok: false, error: 'Debe indicar si la información es correcta o incorrecta.' });
-                }
-                if (!observacion) {
-                    return res.status(400).json({ ok: false, error: 'La observación es obligatoria.' });
-                }
-                if (observacion.length > 2000) {
-                    return res.status(400).json({ ok: false, error: 'La observación supera el máximo permitido (2000 caracteres).' });
-                }
-
-                const q = await pool.query(
-                    `SELECT id, area, tipo_novedad, estado,
-                            nomina_info_correcta, nomina_verificacion_observacion
-                     FROM novedades
-                     WHERE id = $1::uuid
-                     LIMIT 1`,
-                    [idParam]
-                );
-                const row = q.rows[0];
-                if (!row) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
-                if (!req.scope.canViewAllAreas && (!row.area || !req.scope.areas.includes(row.area))) {
-                    return res.status(403).json({ ok: false, error: 'No autorizado sobre esta área' });
-                }
-                if (String(row.estado || '').trim() !== 'Pendiente') {
-                    return res.status(400).json({ ok: false, error: 'Solo se puede verificar en estado Pendiente.' });
-                }
-                if (!isNominaGateNovedadType(row.tipo_novedad)) {
-                    return res.status(400).json({ ok: false, error: 'Este tipo de novedad no requiere verificación de nómina.' });
-                }
-                if (row.nomina_info_correcta !== null && row.nomina_info_correcta !== undefined) {
-                    return res.status(409).json({ ok: false, error: 'La verificación de nómina ya fue registrada.' });
-                }
-
-                const actorSub = String(req.user?.sub || '').trim();
-                const actorUserIdRaw = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
-                    ? actorSub
-                    : null;
-                let actorUserId = null;
-                if (actorUserIdRaw || req.user?.email) {
-                    try {
-                        const uq = await pool.query(
-                            'SELECT id FROM users WHERE id = $1 OR email = $2 LIMIT 1',
-                            [actorUserIdRaw, req.user?.email || '']
-                        );
-                        actorUserId = uq.rows[0]?.id || null;
-                    } catch {
-                        actorUserId = null;
-                    }
-                }
-                const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
-                let actorEmail = String(req.user?.email || '').trim();
-                if (!emailOk(actorEmail) && String(req.user?.username || '').includes('@')) {
-                    actorEmail = String(req.user.username).trim();
-                }
-                if (!actorEmail) {
-                    const payload = decodeJwtPayload(req.authToken) || {};
-                    actorEmail =
-                        String(payload.email || '').trim()
-                        || (String(payload.preferred_username || '').includes('@')
-                            ? String(payload.preferred_username).trim()
-                            : '');
-                }
-
-                await pool.query(
-                    `UPDATE novedades
-                     SET nomina_info_correcta = $2::boolean,
-                         nomina_verificacion_observacion = $3::text,
-                         nomina_verificacion_en = NOW(),
-                         nomina_verificacion_por_user_id = $4::uuid,
-                         nomina_verificacion_por_email = NULLIF($5::text, '')
-                     WHERE id = $1::uuid`,
-                    [idParam, infoCorrecta, observacion, actorUserId, actorEmail]
-                );
-
-                const fresh = await pool.query(
-                    `SELECT
-                        nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.gp_user_id, nov.tipo_novedad, nov.area,
-                        nov.modalidad, nov.fecha_votacion, nov.unidad,
-                        nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas, nov.horas_recargo_domingo,
-                        nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas,
-                        nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
-                        nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
-                        nov.he_domingo_observacion,
-                        nov.nomina_info_correcta, nov.nomina_verificacion_observacion, nov.nomina_verificacion_en,
-                        nov.nomina_verificacion_por_user_id, nov.nomina_verificacion_por_email,
-                        COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
-                        COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
-                     FROM novedades nov
-                     LEFT JOIN users ua ON nov.aprobado_por_user_id = ua.id
-                     LEFT JOIN users ur ON nov.rechazado_por_user_id = ur.id
-                     WHERE nov.id = $1::uuid`,
-                    [idParam]
-                );
-                const mapped = toClientNovedad(fresh.rows[0]);
-                return res.json({ ok: true, item: mapped });
-            } catch (error) {
-                console.error('Error nomina-verificacion:', error);
-                return res.status(500).json({ ok: false, error: 'Error al registrar verificación' });
-            }
-        }
-    );
-
     app.post('/api/actualizar-estado', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
         try {
             const { id, nuevoEstado } = req.body || {};
@@ -2323,8 +2202,7 @@ function registerRoutes(deps) {
             }
 
             let q;
-            const selectNovedadEstadoRow = `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop,
-                     nomina_info_correcta, nomina_verificacion_observacion`;
+            const selectNovedadEstadoRow = `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop`;
             if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''))) {
                 q = await pool.query(`${selectNovedadEstadoRow}
                      FROM novedades
@@ -2344,19 +2222,6 @@ function registerRoutes(deps) {
             }
             if (!canRoleApproveType(req.user.role, item.tipo_novedad)) {
                 return res.status(403).json({ ok: false, error: 'Este rol no puede aprobar/rechazar este tipo de novedad' });
-            }
-            if (
-                isNominaGateNovedadType(item.tipo_novedad)
-                && (estado === 'Aprobado' || estado === 'Rechazado')
-            ) {
-                const obsNom = String(item.nomina_verificacion_observacion || '').trim();
-                const hasFlag = item.nomina_info_correcta === true || item.nomina_info_correcta === false;
-                if (!hasFlag || !obsNom) {
-                    return res.status(400).json({
-                        ok: false,
-                        error: 'Falta verificación de nómina (correcta/incorrecta y observación obligatorias) antes de aprobar o rechazar.'
-                    });
-                }
             }
 
             const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());

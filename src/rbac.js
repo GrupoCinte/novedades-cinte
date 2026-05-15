@@ -210,28 +210,6 @@ function normalizeNovedadTypeKey(value = '') {
     return '';
 }
 
-/**
- * Tipos que exigen verificación de nómina (correcta/incorrecta + observación) antes de aprobar/rechazar.
- * Mantener alineado con react-frontend/src/novedadRules.js → isNominaGateTipoDisplay.
- */
-const NOMINA_GATE_NOVELTY_KEYS = new Set([
-    'incapacidad',
-    'calamidad_domestica',
-    'permiso_remunerado',
-    'licencia_luto',
-    'licencia_paternidad',
-    'licencia_maternidad',
-    'licencia_remunerada',
-    'licencia_no_remunerada',
-    'permiso_no_remunerado',
-    'vacaciones_dinero'
-]);
-
-function isNominaGateNovedadType(typeName = '') {
-    const key = normalizeNovedadTypeKey(typeName);
-    return Boolean(key && NOMINA_GATE_NOVELTY_KEYS.has(key));
-}
-
 /** Ya no se ofrecen en el formulario público; siguen en NOVELTY_RULES para registros históricos y gestión. */
 const NOVEDAD_TIPOS_RETIRADOS_FORMULARIO_KEYS = new Set(['vacaciones_tiempo', 'vacaciones_dinero', 'bonos']);
 
@@ -277,7 +255,6 @@ module.exports = {
     resolveRoleFromGroups,
     getAreaFromRole,
     normalizeNovedadTypeKey,
-    isNominaGateNovedadType,
     isNovedadTipoRetiradoDelFormulario,
     getNovedadRuleByType,
     canRoleViewType,

@@ -283,25 +283,6 @@ export function resolveCanonicalNovedadTipo(tipoRaw) {
   return raw;
 }
 
-/** Tipos que exigen verificación nómina antes de aprobar/rechazar. Alineado con `src/rbac.js` → `isNominaGateNovedadType`. */
-const NOMINA_GATE_CANONICAL_TIPOS = new Set([
-  'Incapacidad',
-  'Calamidad domestica',
-  'Permiso remunerado',
-  'Licencia de luto',
-  'Licencia de paternidad',
-  'Licencia de maternidad',
-  'Licencia remunerada',
-  'Licencia no remunerada',
-  'Permiso no remunerado',
-  'Vacaciones en dinero'
-]);
-
-export function isNominaGateTipoDisplay(tipoRaw) {
-  const canon = resolveCanonicalNovedadTipo(tipoRaw);
-  return NOMINA_GATE_CANONICAL_TIPOS.has(canon);
-}
-
 export function getNovedadRule(tipo) {
   const canon = resolveCanonicalNovedadTipo(tipo);
   const raw = NOVEDAD_RULES[canon] || NOVEDAD_RULES_LEGACY[canon];
