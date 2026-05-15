@@ -215,7 +215,9 @@ const EMPTY_DETALLE_FORM = {
     permisoUnidad: '',
     modalidadVotacion: '',
     fechaVotacion: '',
-    fechaDisfruteVotacion: ''
+    fechaDisfruteVotacion: '',
+    horaDisfruteInicio: '',
+    horaDisfruteFin: ''
 };
 
 function isExcelAttachment(file) {
@@ -244,7 +246,9 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         permisoUnidad: '',
         modalidadVotacion: '',
         fechaVotacion: '',
-        fechaDisfruteVotacion: ''
+        fechaDisfruteVotacion: '',
+        horaDisfruteInicio: '',
+        horaDisfruteFin: ''
     });
 
     const [status, setStatus] = useState({ type: '', text: '' });
@@ -309,10 +313,12 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const esPermisoRemunerado = formData.tipo === 'Permiso remunerado';
     const esPermisoHoras = esPermisoRemunerado && formData.permisoUnidad === 'horas';
     const esCompensatorioVotacion = formData.tipo === 'Compensatorio por votación/jurado';
+    const modalidadCompVotacion = String(formData.modalidadVotacion || '').trim();
+    const esCompVotacionMedioDia = esCompensatorioVotacion && modalidadCompVotacion === 'solo_voto';
 
     /**
      * Restricción Compensatorio por votación/jurado:
-     * - Fecha de la votación: solo fechas del mes calendario en curso (zona local del navegador).
+     * - Fecha de la votación: cualquier día del mes calendario en curso (zona local; puede ser futuro dentro del mes).
      * - Fecha de disfrute: hasta 30 días calendario posteriores a la fecha de votación elegida.
      * Importante: usar año/mes derivados del navegador para no caer en el pivote UTC del input date.
      */
@@ -328,10 +334,6 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         const { year, month } = fechaVotacionTodayParts;
         const lastDay = new Date(year, month + 1, 0).getDate();
         return `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    }, [fechaVotacionTodayParts]);
-    const nombreMesEnCurso = useMemo(() => {
-        const fmt = new Intl.DateTimeFormat('es-CO', { month: 'long', year: 'numeric' });
-        return fmt.format(new Date(fechaVotacionTodayParts.year, fechaVotacionTodayParts.month, 1));
     }, [fechaVotacionTodayParts]);
     const fechaDisfruteMinYmd = useMemo(() => {
         const v = String(formData.fechaVotacion || '').trim();
@@ -350,12 +352,10 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const rule = useMemo(() => getNovedadRule(formData.tipo), [formData.tipo]);
     const docsVotacion = useMemo(() => {
         if (!esCompensatorioVotacion) return null;
-        const m = String(formData.modalidadVotacion || '').trim();
-        if (m === 'jurado_y_voto') return ['Certificado de jurado de votación', 'Certificado electoral'];
-        if (m === 'solo_jurado') return ['Certificado de jurado de votación'];
-        if (m === 'solo_voto') return ['Certificado electoral'];
-        return ['Certificado (elige modalidad arriba)'];
-    }, [esCompensatorioVotacion, formData.modalidadVotacion]);
+        if (modalidadCompVotacion === 'solo_jurado') return ['Certificado de jurado de votación'];
+        if (modalidadCompVotacion === 'solo_voto') return ['Certificado electoral'];
+        return ['Certificado (elige si actuaste como jurado o como votante)'];
+    }, [esCompensatorioVotacion, modalidadCompVotacion]);
     const requiredDocuments = docsVotacion != null ? docsVotacion : (rule.requiredDocuments || []);
     const requiredDocsCount = requiredDocuments.length;
     const requiereAdjunto = requiredDocsCount > 0;
@@ -384,6 +384,13 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             : minFechaInicioYmd;
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
     const usaBloqueHoras = isHoraExtra || requiereLapsoHora;
+    /** Sin bloque de «Fechas» cuando todo el contenido vive en otro panel (p. ej. compensatorio por votación). */
+    const hayContenidoSeccionFechas =
+        usaBloqueHoras
+        || (esPermisoHoras && detalleFormularioActivo)
+        || (!usaBloqueHoras && !esCompensatorioVotacion && !esPermisoHoras)
+        || (esDisponibilidad && detalleFormularioActivo)
+        || requiereDias;
     /** Disponibilidad: días hábiles del rango solo informativos (el backend no persiste días en cantidad_horas). */
     const diasInformativosDisponibilidad = useMemo(() => {
         if (!esDisponibilidad || !formData.fechaInicio || !formData.fechaFin) return 0;
@@ -544,6 +551,14 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         return Number(((finMs - inicioMs) / (1000 * 60 * 60)).toFixed(2));
     }, [esPermisoHoras, formData.fecha, formData.horaInicio, formData.horaFin]);
 
+    const compVotacionHorasDisfrute = useMemo(() => {
+        if (!esCompVotacionMedioDia || !formData.fechaDisfruteVotacion) return null;
+        const inicioMs = buildDateTimeMs(formData.fechaDisfruteVotacion, formData.horaDisfruteInicio);
+        const finMs = buildDateTimeMs(formData.fechaDisfruteVotacion, formData.horaDisfruteFin);
+        if (inicioMs === null || finMs === null || finMs <= inicioMs) return null;
+        return Number(((finMs - inicioMs) / (1000 * 60 * 60)).toFixed(2));
+    }, [esCompVotacionMedioDia, formData.fechaDisfruteVotacion, formData.horaDisfruteInicio, formData.horaDisfruteFin]);
+
     const diasAutoCalculados = useMemo(() => {
         if (autocalculaDiasCalendario) {
             return countCalendarDaysInclusive(formData.fechaInicio, formData.fechaFin);
@@ -594,6 +609,13 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const horaFinFormatoInvalido = (usaBloqueHoras || esPermisoHoras)
         && Boolean(formData.horaFin)
         && !isValidMilitaryTime(formData.horaFin);
+
+    const compVotacionHoraDisfruteIniInvalida = esCompVotacionMedioDia
+        && Boolean(String(formData.horaDisfruteInicio || '').trim())
+        && !isValidMilitaryTime(formData.horaDisfruteInicio);
+    const compVotacionHoraDisfruteFinInvalida = esCompVotacionMedioDia
+        && Boolean(String(formData.horaDisfruteFin || '').trim())
+        && !isValidMilitaryTime(formData.horaDisfruteFin);
 
     const fechaFinInvalida = !usaBloqueHoras
         && !esCompensatorioVotacion
@@ -676,6 +698,15 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         || !String(formData.fechaDisfruteVotacion || '').trim()
         || fechaVotacionFueraDeMes
         || fechaDisfruteFueraVentana
+        || (esCompVotacionMedioDia && (
+            !String(formData.horaDisfruteInicio || '').trim()
+            || !String(formData.horaDisfruteFin || '').trim()
+            || compVotacionHoraDisfruteIniInvalida
+            || compVotacionHoraDisfruteFinInvalida
+            || compVotacionHorasDisfrute == null
+            || compVotacionHorasDisfrute <= 0
+            || compVotacionHorasDisfrute > 4
+        ))
     );
 
     const bloqueoEnvioPermisoSinUnidad = esPermisoRemunerado && !String(formData.permisoUnidad || '').trim();
@@ -822,6 +853,22 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             setFormData({ ...formData, horaFin: formattedHoraFin });
             return;
         }
+        if (name === 'horaDisfruteInicio') {
+            const formatted = formatTimeDigitsInput(value);
+            const nuevaHoraInicio = parseMilitaryTimeToMinutes(formatted);
+            const horaFinActual = parseMilitaryTimeToMinutes(formData.horaDisfruteFin);
+            const resetHoraFin = horaFinActual !== null && nuevaHoraInicio !== null && horaFinActual <= nuevaHoraInicio;
+            setFormData({
+                ...formData,
+                horaDisfruteInicio: formatted,
+                horaDisfruteFin: resetHoraFin ? '' : formData.horaDisfruteFin
+            });
+            return;
+        }
+        if (name === 'horaDisfruteFin') {
+            setFormData({ ...formData, horaDisfruteFin: formatTimeDigitsInput(value) });
+            return;
+        }
         if (name === 'fechaInicio') {
             const resetFechaFin = formData.fechaFin && formData.fechaFin < value;
             const nextFechaFin = resetFechaFin ? '' : formData.fechaFin;
@@ -842,6 +889,15 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             setFormData({ ...formData, fechaFin: value, diasSolicitados: nextDias });
             return;
         }
+        if (name === 'modalidadVotacion') {
+            setFormData({
+                ...formData,
+                modalidadVotacion: value,
+                horaDisfruteInicio: value === 'solo_jurado' ? '' : formData.horaDisfruteInicio,
+                horaDisfruteFin: value === 'solo_jurado' ? '' : formData.horaDisfruteFin
+            });
+            return;
+        }
         if (name === 'tipo') {
             const nextRule = getNovedadRule(value);
             setFormData({
@@ -857,6 +913,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                 modalidadVotacion: '',
                 fechaVotacion: '',
                 fechaDisfruteVotacion: '',
+                horaDisfruteInicio: '',
+                horaDisfruteFin: '',
                 montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ '
             });
             if (value === 'Disponibilidad') {
@@ -1129,7 +1187,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             const mensaje = bloqueoEnvioPermisoSinUnidad
                 ? '❌ Elige si el permiso remunerado es en días o en horas.'
                 : bloqueoEnvioCompVotacion
-                ? '❌ Indica modalidad, fecha de votación y fecha de disfrute del compensatorio.'
+                ? '❌ Elige jurado o votación (medio día), fechas de votación y disfrute y, si es votación, rango horario (HH:mm, máx. 4 h).'
                 : bloqueoEnvioPermisoHoras
                     ? '❌ En modo horas: fecha desde mañana (mismo tope de un año que otras novedades) y hora inicio/fin válidas (HH:mm); la hora fin debe ser posterior a la de inicio.'
                     : isHoraExtra
@@ -1241,6 +1299,10 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                 payload.append('modalidad', formData.modalidadVotacion);
                 payload.append('fechaVotacion', formData.fechaVotacion);
                 payload.append('fechaDisfrute', formData.fechaDisfruteVotacion);
+                if (formData.modalidadVotacion === 'solo_voto') {
+                    payload.append('horaDisfruteInicio', formData.horaDisfruteInicio);
+                    payload.append('horaDisfruteFin', formData.horaDisfruteFin);
+                }
             }
 
             if (esPermisoHoras) {
@@ -1327,7 +1389,9 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                             permisoUnidad: '',
                             modalidadVotacion: '',
                             fechaVotacion: '',
-                            fechaDisfruteVotacion: ''
+                            fechaDisfruteVotacion: '',
+                            horaDisfruteInicio: '',
+                            horaDisfruteFin: ''
                         };
                     });
                     setSelectedFiles([]);
@@ -1355,7 +1419,9 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                         permisoUnidad: '',
                         modalidadVotacion: '',
                         fechaVotacion: '',
-                        fechaDisfruteVotacion: ''
+                        fechaDisfruteVotacion: '',
+                        horaDisfruteInicio: '',
+                        horaDisfruteFin: ''
                     });
                     setColaboradorVerificado(false);
                     setCatalogLocks({ lider: false });
@@ -1665,18 +1731,24 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                     {esCompensatorioVotacion && detalleFormularioActivo && (
                                         <div className={`md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4 ${theme.nestedPanel}`}>
                                             <div className="md:col-span-2 flex flex-col gap-1">
-                                                <label className={labelCls}>Modalidad {reqStar}</label>
+                                                <label className={labelCls}>¿Actuaste como jurado o solo votaste? {reqStar}</label>
                                                 <select
                                                     name="modalidadVotacion"
                                                     value={formData.modalidadVotacion}
                                                     onChange={handleChange}
                                                     className={inputCls}
                                                 >
-                                                    <option value="">Selecciona modalidad…</option>
-                                                    <option value="solo_voto">Solo voto (0,5 día)</option>
-                                                    <option value="solo_jurado">Solo jurado (1 día)</option>
-                                                    <option value="jurado_y_voto">Jurado y voto (1,5 días)</option>
+                                                    <option value="">Selecciona…</option>
+                                                    <option value="solo_jurado">Jurado de votación (1 día de disfrute)</option>
+                                                    <option value="solo_voto">Votación — medio día (franja horaria el mismo día)</option>
                                                 </select>
+                                            </div>
+                                            <div className="md:col-span-2 flex flex-col gap-2">
+                                                <p className={`text-sm ${theme.hintLine}`}>
+                                                    Si en la misma jornada electoral fuiste <strong>jurado</strong> y además{' '}
+                                                    <strong>votaste</strong>, son dos figuras distintas: haz <strong>doble radicación</strong>{' '}
+                                                    (una solicitud como jurado con su certificado y otra como votante con el electoral).
+                                                </p>
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 <label className={labelCls}>Fecha de la votación {reqStar}</label>
@@ -1689,9 +1761,6 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                     max={fechaVotacionMaxYmd}
                                                     className={inputCls}
                                                 />
-                                                <small className={theme.helperMutedPlain}>
-                                                    Solo fechas del mes en curso ({nombreMesEnCurso}).
-                                                </small>
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 <label className={labelCls}>Fecha de disfrute {reqStar}</label>
@@ -1711,8 +1780,65 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                         : 'Selecciona primero la fecha de votación.'}
                                                 </small>
                                             </div>
+                                            {esCompVotacionMedioDia && (
+                                                <>
+                                                    <div className="flex flex-col gap-1">
+                                                        <label className={labelCls}>Hora inicio del disfrute (24h) {reqStar}</label>
+                                                        <input
+                                                            name="horaDisfruteInicio"
+                                                            value={formData.horaDisfruteInicio}
+                                                            onChange={handleChange}
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            placeholder="HH:mm"
+                                                            disabled={!String(formData.fechaDisfruteVotacion || '').trim()}
+                                                            className={`${inputCls} disabled:opacity-50`}
+                                                        />
+                                                    </div>
+                                                    <div className="flex flex-col gap-1">
+                                                        <label className={labelCls}>Hora fin del disfrute (24h) {reqStar}</label>
+                                                        <input
+                                                            name="horaDisfruteFin"
+                                                            value={formData.horaDisfruteFin}
+                                                            onChange={handleChange}
+                                                            type="text"
+                                                            inputMode="numeric"
+                                                            placeholder="HH:mm"
+                                                            disabled={!String(formData.fechaDisfruteVotacion || '').trim()}
+                                                            className={`${inputCls} disabled:opacity-50`}
+                                                        />
+                                                    </div>
+                                                    <div className="flex flex-col gap-1 md:col-span-2">
+                                                        <label className={labelCls}>Duración del disfrute (calculada)</label>
+                                                        <input
+                                                            readOnly
+                                                            type="text"
+                                                            value={
+                                                                compVotacionHorasDisfrute != null && compVotacionHorasDisfrute > 0
+                                                                    ? `${compVotacionHorasDisfrute} h`
+                                                                    : '—'
+                                                            }
+                                                            className={`${inputCls} ${theme.inputReadonly}`}
+                                                        />
+                                                    </div>
+                                                    {(compVotacionHoraDisfruteIniInvalida || compVotacionHoraDisfruteFinInvalida) && (
+                                                        <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">
+                                                            Formato de hora inválido. Usa formato 24H: HH:mm (ejemplo: 08:30).
+                                                        </div>
+                                                    )}
+                                                    {compVotacionHorasDisfrute != null && compVotacionHorasDisfrute > 4 && (
+                                                        <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">
+                                                            El rango horario no puede superar 4 horas.
+                                                        </div>
+                                                    )}
+                                                    <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
+                                                        Mismo día que la fecha de disfrute; la hora fin debe ser posterior a la de inicio. Máximo
+                                                        4 horas continuas.
+                                                    </p>
+                                                </>
+                                            )}
                                             <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
-                                                Debes radicar y disfrutar dentro de los 30 días calendario posteriores a la fecha de votación. Adjunta el(los) certificado(s) según la modalidad.
+                                                La solicitud debe presentarse dentro de los 30 días calendario posteriores a la fecha de votación.
                                             </p>
                                         </div>
                                     )}
@@ -1739,13 +1865,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                 </div>
                             </section>
 
-                            {/* ═══ Sección: Fechas / Horas ═══ */}
+                            {hayContenidoSeccionFechas && (
                             <section>
-                                <h2 className={theme.sectionTitle}>
-                                    <span className={theme.sectionBarFechas} />
-                                    Fechas
-                                </h2>
-
                                 {usaBloqueHoras && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in duration-300">
                                         <div className="flex flex-col gap-1">
@@ -2008,6 +2129,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                     </div>
                                 )}
                             </section>
+                            )}
 
                             {/* ═══ Sección: Soportes / Adjuntos (no aplica a Disponibilidad) ═══ */}
                             {!esSinAdjuntosPublicos && (

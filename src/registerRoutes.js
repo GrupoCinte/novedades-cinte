@@ -1516,18 +1516,30 @@ function registerRoutes(deps) {
                     .replace(/[\u0300-\u036f]/g, '')
                     .replace(/\s+/g, '_')
                     .replace(/\+/g, '_');
+                const combinaUnaSolaLegacy = new Set(['jurado_y_voto', 'juradoyvoto', 'jurado_voto']);
+                if (combinaUnaSolaLegacy.has(rawMod)) {
+                    return res.status(422).json({
+                        ok: false,
+                        error:
+                            'La modalidad «jurado y voto» en una sola solicitud ya no aplica. Si cumpliste ambas figuras, radica dos veces: una como jurado (1 día) y otra como votante (medio día con franja horaria).'
+                    });
+                }
                 const modAlias = {
                     solo_voto: 'solo_voto',
                     solovoto: 'solo_voto',
+                    voto: 'solo_voto',
+                    votante: 'solo_voto',
                     solo_jurado: 'solo_jurado',
                     solojurado: 'solo_jurado',
-                    jurado_y_voto: 'jurado_y_voto',
-                    juradoyvoto: 'jurado_y_voto',
-                    jurado_voto: 'jurado_y_voto'
+                    jurado: 'solo_jurado'
                 };
-                const modalidadKey = modAlias[rawMod] || (['solo_voto', 'solo_jurado', 'jurado_y_voto'].includes(rawMod) ? rawMod : '');
-                if (!modalidadKey) {
-                    return res.status(422).json({ ok: false, error: 'Selecciona una modalidad válida (solo voto, solo jurado o jurado y voto).' });
+                const modalidadKey =
+                    modAlias[rawMod] || (['solo_voto', 'solo_jurado'].includes(rawMod) ? rawMod : '');
+                if (!modalidadKey || !['solo_jurado', 'solo_voto'].includes(modalidadKey)) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'Selecciona modalidad: jurado (1 día) o votación / medio día (con horas de disfrute).'
+                    });
                 }
                 const fv = parseDateOrNull(body.fechaVotacion || body.fecha_votacion);
                 const fd = parseDateOrNull(body.fechaDisfrute || body.fechaDisfruteVotacion || body.fechaInicio);
@@ -1537,14 +1549,17 @@ function registerRoutes(deps) {
                 if (!fd) {
                     return res.status(422).json({ ok: false, error: 'La fecha de disfrute es obligatoria.' });
                 }
-                if (ymdCompareStrings(fv, todayUtc) > 0) {
+                const fvYm = fv.slice(0, 7);
+                const mesEnCursoYm = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }).slice(0, 7);
+                if (fvYm !== mesEnCursoYm) {
                     return res.status(422).json({
                         ok: false,
-                        error: 'La fecha de la jornada electoral debe ser anterior o igual a hoy.'
+                        error: 'La fecha de la jornada electoral debe pertenecer al mes calendario en curso (cualquier día de ese mes).'
                     });
                 }
                 const maxVentana = ymdAddCalendarDaysUTC(fv, 30);
-                if (!maxVentana || ymdCompareStrings(todayUtc, maxVentana) > 0) {
+                const hoyBogotaYmd = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+                if (!maxVentana || ymdCompareStrings(hoyBogotaYmd, maxVentana) > 0) {
                     return res.status(422).json({
                         ok: false,
                         error:
@@ -1557,36 +1572,69 @@ function registerRoutes(deps) {
                         error: 'La fecha de disfrute debe estar dentro de los 30 días calendario siguientes a la votación'
                     });
                 }
-                const expectedFiles = modalidadKey === 'jurado_y_voto' ? 2 : 1;
-                if (files.length < expectedFiles) {
-                    const msg =
-                        modalidadKey === 'jurado_y_voto'
-                            ? 'Faltan soportes obligatorios: certificado de jurado de votación'
-                            : modalidadKey === 'solo_jurado'
-                              ? 'Faltan soportes obligatorios: certificado de jurado de votación'
-                              : 'Faltan soportes obligatorios: certificado electoral';
-                    return res.status(422).json({ ok: false, error: msg });
+
+                if (modalidadKey === 'solo_jurado') {
+                    if (files.length < 1) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'Faltan soportes obligatorios: certificado de jurado de votación'
+                        });
+                    }
+                    fechaInicio = fd;
+                    fechaFin = fd;
+                    fecha = null;
+                    horaInicio = null;
+                    horaFin = null;
+                } else {
+                    const hiVote = parseTimeOrNull(body.horaDisfruteInicio || body.horaDisfruteVotoInicio);
+                    const hfVote = parseTimeOrNull(body.horaDisfruteFin || body.horaDisfruteVotoFin);
+                    if (!hiVote || !hfVote) {
+                        return res.status(422).json({
+                            ok: false,
+                            error:
+                                'En votación / medio día indica hora de inicio y fin del disfrute (HH:mm) sobre la misma fecha de disfrute; el rango no puede superar 4 horas.'
+                        });
+                    }
+                    const hvVote = diffDecimalHoursFromHhmmss(hiVote, hfVote);
+                    if (hvVote == null) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'La hora fin del disfrute debe ser posterior a la hora de inicio.'
+                        });
+                    }
+                    if (hvVote > 4) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'El rango horario del disfrute no puede superar 4 horas.'
+                        });
+                    }
+                    if (files.length < 1) {
+                        return res.status(422).json({ ok: false, error: 'Faltan soportes obligatorios: certificado electoral' });
+                    }
+                    fechaInicio = fd;
+                    fechaFin = fd;
+                    fecha = fd;
+                    horaInicio = hiVote;
+                    horaFin = hfVote;
                 }
+
                 const dupQ = await pool.query(
                     `SELECT id FROM novedades
                      WHERE cedula = $1
                        AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
                            = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
                        AND fecha_votacion = $3::date
+                       AND coalesce(modalidad, '') = $4
                        AND estado IN ('Pendiente'::novedad_estado, 'Aprobado'::novedad_estado)
                      LIMIT 1`,
-                    [cedulaNorm, tipoCanonInsert, fv]
+                    [cedulaNorm, tipoCanonInsert, fv, modalidadKey]
                 );
                 if (dupQ.rows.length) {
-                    return res.status(409).json({ ok: false, error: 'Ya existe una solicitud para esta jornada electoral' });
+                    return res.status(409).json({
+                        ok: false,
+                        error: 'Ya existe una solicitud de esta misma modalidad para esta jornada electoral'
+                    });
                 }
-                const diasCant =
-                    modalidadKey === 'solo_voto' ? 0.5 : modalidadKey === 'solo_jurado' ? 1 : 1.5;
-                fechaInicio = fd;
-                fechaFin = fd;
-                fecha = null;
-                horaInicio = null;
-                horaFin = null;
                 insertModalidad = modalidadKey;
                 insertFechaVotacion = fv;
             }
@@ -1702,8 +1750,12 @@ function registerRoutes(deps) {
             let heDomingoObservacionInsert = null;
 
             if (novedadTypeKey === 'compensatorio_votacion_jurado') {
-                const mk = insertModalidad;
-                cantidadHoras = mk === 'solo_voto' ? 0.5 : mk === 'solo_jurado' ? 1 : 1.5;
+                if (insertModalidad === 'solo_jurado') {
+                    cantidadHoras = 1;
+                } else if (insertModalidad === 'solo_voto' && horaInicio && horaFin) {
+                    const hvComp = diffDecimalHoursFromHhmmss(horaInicio, horaFin);
+                    cantidadHoras = hvComp != null ? Number(hvComp.toFixed(2)) : 0;
+                }
             }
 
             if (novedadTypeKey === 'permiso_remunerado' && insertUnidad === 'horas' && horaInicio && horaFin) {

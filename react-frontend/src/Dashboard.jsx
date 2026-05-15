@@ -39,6 +39,15 @@ function creadoEnRangeForMonthIndex(monthIndex, year) {
     };
 }
 
+/** Gestión / UI: tipo compensatorio por votación (jurado). */
+function esTipoCompensatorioVotacionJurado(tipo) {
+    const t = String(tipo || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    return t.includes('compensatorio') && t.includes('votacion') && t.includes('jurado');
+}
+
 /** Si el dashboard tiene `fMes` seleccionado, Gestión usa rango de creado_en en el año actual (no equivale a getItemDate del dashboard). */
 function creadoEnRangeForDashboardMesFilter(fMesStr, year = new Date().getFullYear()) {
     if (fMesStr === '' || fMesStr == null) return { desde: '', hasta: '' };
@@ -3120,15 +3129,35 @@ export default function Dashboard({ token, auth, onLogout }) {
                             {gestionDetailItem.estado === 'Rechazado' && (
                                 <div><span className={dash.modalMuted}>Rechazado por (correo):</span> {correoRechazadoMostrar(gestionDetailItem)}</div>
                             )}
-                            <div><span className={dash.modalMuted}>Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
-                            <div><span className={dash.modalMuted}>Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
-                            {gestionDetailItem.modalidad ? (
-                                <div><span className={dash.modalMuted}>Modalidad (votación/jurado):</span> {gestionDetailItem.modalidad}</div>
-                            ) : null}
-                            {gestionDetailItem.fechaVotacion ? (
-                                <div><span className={dash.modalMuted}>Fecha de votación / actuación:</span> {gestionDetailItem.fechaVotacion}</div>
-                            ) : null}
-                            {gestionDetailItem.unidad ? (
+                            {esTipoCompensatorioVotacionJurado(gestionDetailItem.tipoNovedad) ? (
+                                <>
+                                    {gestionDetailItem.modalidad ? (
+                                        <div><span className={dash.modalMuted}>Modalidad (votación/jurado):</span> {gestionDetailItem.modalidad}</div>
+                                    ) : null}
+                                    {gestionDetailItem.fechaVotacion ? (
+                                        <div><span className={dash.modalMuted}>Fecha de votación:</span> {gestionDetailItem.fechaVotacion}</div>
+                                    ) : null}
+                                    <div><span className={dash.modalMuted}>Fecha de disfrute:</span> {gestionDetailItem.fechaInicio || '-'}</div>
+                                    {String(gestionDetailItem.modalidad || '').trim() === 'solo_voto' &&
+                                    (gestionDetailItem.horaInicio || gestionDetailItem.horaFin) ? (
+                                        <div>
+                                            <span className={dash.modalMuted}>Franja horaria de disfrute:</span>{' '}
+                                            {gestionDetailItem.horaInicio || '—'} – {gestionDetailItem.horaFin || '—'}
+                                        </div>
+                                    ) : null}
+                                </>
+                            ) : (
+                                <>
+                                    <div><span className={dash.modalMuted}>Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
+                                    <div><span className={dash.modalMuted}>Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
+                                    {gestionDetailItem.modalidad ? (
+                                        <div><span className={dash.modalMuted}>Modalidad (votación/jurado):</span> {gestionDetailItem.modalidad}</div>
+                                    ) : null}
+                                    {gestionDetailItem.fechaVotacion ? (
+                                        <div><span className={dash.modalMuted}>Fecha de votación / actuación:</span> {gestionDetailItem.fechaVotacion}</div>
+                                    ) : null}
+                                </>
+                            )}                            {gestionDetailItem.unidad ? (
                                 <div>
                                     <span className={dash.modalMuted}>Unidad (permiso remunerado):</span>{' '}
                                     {gestionDetailItem.unidad === 'horas' ? 'Horas' : gestionDetailItem.unidad === 'dias' ? 'Días' : gestionDetailItem.unidad}
@@ -3436,14 +3465,15 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <input className={`flex-1 ${fieldInput}`} type="time" value={gestionEditDraft.horaFin} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horaFin: e.target.value }))} />
                                     </div>
                                 </label>
-                                <label className={`${dash.labelUpper} col-span-full`}>Fecha inicio
+                                <label className={`${dash.labelUpper} col-span-full`}>
+                                    {esTipoCompensatorioVotacionJurado(gestionEditDraft.tipoNovedad) ? 'Fecha de disfrute (inicio)' : 'Fecha inicio'}
                                     <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaInicio} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaInicio: e.target.value }))} />
                                 </label>
-                                <label className={`${dash.labelUpper} col-span-full`}>Fecha fin
+                                <label className={`${dash.labelUpper} col-span-full`}>
+                                    {esTipoCompensatorioVotacionJurado(gestionEditDraft.tipoNovedad) ? 'Fecha de disfrute (fin)' : 'Fecha fin'}
                                     <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaFin} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaFin: e.target.value }))} />
-                                </label>
-                                <label className={`${dash.labelUpper} col-span-full`}>Modalidad (votación/jurado)
-                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.modalidad || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, modalidad: e.target.value }))} placeholder="votación | jurado" />
+                                </label>                                <label className={`${dash.labelUpper} col-span-full`}>Modalidad (votación/jurado)
+                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.modalidad || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, modalidad: e.target.value }))} placeholder="solo_jurado | solo_voto" />
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Fecha votación / actuación
                                     <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaVotacion || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaVotacion: e.target.value }))} />

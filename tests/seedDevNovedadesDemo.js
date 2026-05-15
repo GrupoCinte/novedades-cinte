@@ -1,6 +1,6 @@
 /**
  * Inserta ~50 novedades de demo en PostgreSQL local (variables DB_* del .env).
- * Mezcla: compensatorio votación/jurado (solo jurado, mixto, solo voto) + permiso remunerado (horas y días).
+ * Mezcla: compensatorio (jurado 1 día y votación medio día con horas) + permiso remunerado (horas y días).
  *
  * Uso: node tests/seedDevNovedadesDemo.js
  */
@@ -93,8 +93,8 @@ async function main() {
 
     const payloads = [];
 
-    // 10 solo jurado
-    for (let i = 0; i < 10; i += 1) {
+    // 15 jurado (1 día, sin franja horaria)
+    for (let i = 0; i < 15; i += 1) {
         const fv = ymdAddDays('2026-04-01', i);
         const fd = ymdAddDays(fv, 5);
         payloads.push({
@@ -112,39 +112,24 @@ async function main() {
             unidad: null
         });
     }
-    // 10 mixto (jurado y voto)
-    for (let i = 0; i < 10; i += 1) {
-        const fv = ymdAddDays('2026-04-12', i);
+    // 15 votación (medio día con franja)
+    for (let i = 0; i < 15; i += 1) {
+        const fv = ymdAddDays('2026-04-16', i);
         const fd = ymdAddDays(fv, 4);
+        const sh = 8 + (i % 4);
+        const eh = sh + 2;
+        const hi = `${String(sh).padStart(2, '0')}:00:00`;
+        const hf = `${String(eh).padStart(2, '0')}:00:00`;
         payloads.push({
-            nombre: `Demo Mixto ${i + 1}`,
-            cedula: padCedula(10 + i),
+            nombre: `Demo Votación ${i + 1}`,
+            cedula: padCedula(15 + i),
             tipo: TIPO_COMP,
             fecha: null,
-            hi: null,
-            hf: null,
+            hi,
+            hf,
             fi: fd,
             ff: fd,
-            ch: 1.5,
-            modalidad: 'jurado_y_voto',
-            fv,
-            unidad: null
-        });
-    }
-    // 10 solo votación
-    for (let i = 0; i < 10; i += 1) {
-        const fv = ymdAddDays('2026-04-22', i);
-        const fd = ymdAddDays(fv, 3);
-        payloads.push({
-            nombre: `Demo Solo voto ${i + 1}`,
-            cedula: padCedula(20 + i),
-            tipo: TIPO_COMP,
-            fecha: null,
-            hi: null,
-            hf: null,
-            fi: fd,
-            ff: fd,
-            ch: 0.5,
+            ch: 2,
             modalidad: 'solo_voto',
             fv,
             unidad: null
