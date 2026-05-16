@@ -132,20 +132,20 @@ function SignedContractRow({ execution, onOpen }) {
         <button
             type="button"
             onClick={onOpen}
-            className={`grid w-full grid-cols-[2.2fr_1fr_1fr_1.5fr_auto] items-center gap-4 px-4 py-3 text-left transition ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-800/50'}`}
+            className={`grid w-full grid-cols-[2.2fr_1fr_1fr_1.5fr_auto] items-center gap-4 px-4 py-3 text-left transition ${isLight ? 'hover:bg-slate-50' : 'hover:bg-white/5'}`}
         >
             <div>
-                <p className="text-sm font-semibold text-[var(--text)]">{execution.workflowName || 'Candidato'}</p>
-                <p className="mt-1 text-xs text-[var(--muted)]">{role}</p>
+                <p className={`text-sm font-semibold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>{execution.workflowName || 'Candidato'}</p>
+                <p className={`mt-1 text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{role}</p>
             </div>
             <div>
                 <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${tipoBadgeTone}`}>
                     {tipoLabel}
                 </span>
             </div>
-            <p className="text-xs text-[var(--muted)]">{signedDate}</p>
-            <p className="text-xs text-[var(--muted)]">{duration || 'No calculado'}</p>
-            <span className="text-xl leading-none text-[var(--muted)]">⋮</span>
+            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{signedDate}</p>
+            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{duration || 'No calculado'}</p>
+            <span className={`text-xl leading-none ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>⋮</span>
         </button>
     );
 }
@@ -200,10 +200,12 @@ export default function HistoryCandidates({ executions, metrics, loading }) {
         );
     }
 
+    const glassPanel = isLight ? 'overflow-hidden rounded-2xl border backdrop-blur-xl bg-white/80 border-white/40 shadow-xl' : 'glass-card';
+
     return (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5 font-body">
 
-            <div className="surface-panel p-5">
+            <div className={`${glassPanel} p-5`}>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto_auto]">
                 <input
                     type="text"
@@ -237,19 +239,19 @@ export default function HistoryCandidates({ executions, metrics, loading }) {
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.35fr_1fr]">
                 <section className="space-y-4">
                     {filtered.length === 0 ? (
-                        <div className="surface-panel border-dashed p-10 text-center">
-                            <p className="text-lg font-semibold text-[var(--text)]">Sin histórico en el filtro actual</p>
+                        <div className={`${glassPanel} border-dashed p-10 text-center`}>
+                            <p className={`text-lg font-semibold ${isLight ? 'text-slate-800' : 'title-gradient'}`}>Sin histórico en el filtro actual</p>
                         </div>
                     ) : (
-                        <div className="surface-panel overflow-hidden">
-                            <div className={`grid grid-cols-[2.2fr_1fr_1fr_1.5fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-bold uppercase tracking-wide ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
+                        <div className={`${glassPanel} overflow-hidden`}>
+                            <div className={`grid grid-cols-[2.2fr_1fr_1fr_1.5fr_auto] gap-4 border-b px-4 py-3 text-[11px] font-bold uppercase tracking-wide ${isLight ? 'border-slate-200/50 bg-slate-50/50 text-slate-600' : 'border-white/5 bg-white/5 text-[rgba(159,179,200,0.95)]'}`}>
                                 <span>Empleado</span>
                                 <span>Tipo</span>
                                 <span>Incorporacion/cese</span>
                                 <span>Tareas completadas</span>
                                 <span />
                             </div>
-                            <div className="max-h-[64vh] divide-y divide-[var(--border)] overflow-y-auto">
+                            <div className={`max-h-[64vh] divide-y overflow-y-auto ${isLight ? 'divide-slate-200' : 'divide-white/5'}`}>
                             {visible.map((ex) => (
                                 <SignedContractRow key={ex.executionId} execution={ex} onOpen={() => setSelectedUser(ex)} />
                             ))}
@@ -258,51 +260,60 @@ export default function HistoryCandidates({ executions, metrics, loading }) {
                     )}
                 </section>
 
-                <section className="space-y-4">
-                    <article className="surface-panel p-4">
-                        <h3 className="mb-3 text-sm font-semibold text-[var(--text)]">Total de ingresos reales mensual</h3>
-                        <div className="h-[220px]">
+                <section className="space-y-6">
+                    <article className={`${glassPanel} p-5`}>
+                        <div className="mb-4 flex items-center justify-between">
+                            <h3 className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Total de ingresos reales mensual</h3>
+                            <span className="text-[10px] font-bold text-[#14ffec] bg-[#14ffec]/10 px-2 py-1 rounded-full border border-[#14ffec]/20">Métrica Global</span>
+                        </div>
+                        <div className="h-[250px]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={monthlyGrowth}>
                                     <defs>
                                         <linearGradient id="growthFill" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="0%" stopColor="#4F8831" stopOpacity={0.7} />
-                                            <stop offset="100%" stopColor="#4F8831" stopOpacity={0.05} />
+                                            <stop offset="0%" stopColor="#14ffec" stopOpacity={0.5} />
+                                            <stop offset="100%" stopColor="#14ffec" stopOpacity={0.0} />
                                         </linearGradient>
                                     </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
-                                    <XAxis dataKey="month" stroke={chartTick} />
-                                    <YAxis stroke={chartTick} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
+                                    <XAxis dataKey="month" stroke={chartTick} axisLine={false} tickLine={false} />
+                                    <YAxis stroke={chartTick} axisLine={false} tickLine={false} />
                                     <Tooltip
                                         contentStyle={chartTooltip}
+                                        cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
                                     />
-                                    <Area type="monotone" dataKey="firmas" stroke="#4F8831" fill="url(#growthFill)" strokeWidth={2} />
+                                    <Area type="monotone" dataKey="firmas" stroke="#14ffec" fill="url(#growthFill)" strokeWidth={3} />
                                 </AreaChart>
                             </ResponsiveContainer>
                         </div>
                     </article>
 
-                    <article className="surface-panel p-4">
-                        <h3 className="mb-3 text-sm font-semibold text-[var(--text)]">Conteo por tipo Descriptivo CINTE</h3>
-                        <div className="h-[220px]">
+                    <article className={`${glassPanel} p-5`}>
+                        <div className="mb-4 flex items-center justify-between">
+                            <h3 className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Conteo por tipo Descriptivo</h3>
+                        </div>
+                        <div className="h-[250px]">
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={descriptivoCinteBars} layout="vertical">
-                                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
-                                    <XAxis type="number" stroke={chartTick} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} horizontal={false} />
+                                    <XAxis type="number" stroke={chartTick} axisLine={false} tickLine={false} />
                                     <YAxis
                                         type="category"
                                         dataKey="tipo"
-                                        width={220}
+                                        width={200}
                                         stroke={chartTick}
                                         interval={0}
+                                        axisLine={false}
+                                        tickLine={false}
                                         ticks={descriptivoCinteBars.map((d) => d.tipo)}
-                                        tick={{ fontSize: 12, fill: chartTick }}
-                                        tickFormatter={(v) => String(v).length > 24 ? `${String(v).slice(0, 24)}…` : String(v)}
+                                        tick={{ fontSize: 11, fill: chartTick }}
+                                        tickFormatter={(v) => String(v).length > 22 ? `${String(v).slice(0, 22)}…` : String(v)}
                                     />
                                     <Tooltip
                                         contentStyle={chartTooltip}
+                                        cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
                                     />
-                                    <Bar dataKey="firmas" fill="#08bdc6" radius={[8, 8, 0, 0]} />
+                                    <Bar dataKey="firmas" fill="#ffb347" radius={[0, 4, 4, 0]} barSize={20} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>

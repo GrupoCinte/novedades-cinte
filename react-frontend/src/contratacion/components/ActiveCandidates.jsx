@@ -149,7 +149,7 @@ function resolveWhatsAppDigits(ex) {
 function EliminarCandidatoOverlay({ candidate, obs, setObs, errorMsg, submitting, onClose, onConfirm }) {
     if (!candidate) return null;
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
             <div
                 role="presentation"
                 className="modal-glass-scrim absolute inset-0 transition-opacity"
@@ -199,14 +199,14 @@ function EliminarCandidatoOverlay({ candidate, obs, setObs, errorMsg, submitting
     );
 }
 
-function LiveDurations({ execution }) {
+function LiveDurations({ execution, isLight }) {
     const [nowTs, setNowTs] = useState(Date.now());
     useEffect(() => {
         const id = setInterval(() => setNowTs(Date.now()), 1000);
         return () => clearInterval(id);
     }, []);
     return (
-        <p className="text-xs text-[var(--muted)]">
+        <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-[var(--muted)]'}`}>
             Flujo {resolveFlowProcessingTime(execution, nowTs)} · Espera {resolveCandidateWaitTime(execution, nowTs)}
         </p>
     );
@@ -226,19 +226,19 @@ export default function ActiveCandidates({
 }) {
     const { isLight, field: fieldCls } = useModuleTheme();
     const filterShell = isLight
-        ? 'flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-md'
-        : 'flex flex-col gap-3 rounded-2xl border border-slate-700/50 bg-[#1e293b] px-5 py-4 shadow-lg';
+        ? 'flex flex-col gap-2 rounded-2xl border border-white/40 bg-white/60 px-4 py-3 shadow-md backdrop-blur-xl'
+        : 'flex flex-col gap-2 rounded-2xl border border-white/5 bg-[#0a1520]/60 px-4 py-3 shadow-lg backdrop-blur-xl';
     const infoBanner = isLight
         ? 'rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600'
         : 'rounded-xl border border-slate-600/50 bg-slate-800/40 px-4 py-3 text-xs text-slate-300';
     const sepLine = isLight ? 'h-px bg-slate-200' : 'h-px bg-slate-700/50';
     const rowHover = isLight ? 'transition hover:bg-slate-50' : 'transition hover:bg-slate-800/50';
     const ghostNav = isLight
-        ? 'rounded-lg border border-slate-300 bg-transparent px-4 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40'
-        : 'rounded-lg border border-[var(--border)] bg-transparent px-4 py-2 text-xs font-semibold text-[rgba(159,179,200,0.95)] transition hover:bg-slate-800/50 disabled:cursor-not-allowed disabled:opacity-40';
+        ? 'rounded-lg border border-slate-300 bg-transparent px-3 py-1.5 text-[10px] font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40'
+        : 'rounded-lg border border-[var(--border)] bg-transparent px-3 py-1.5 text-[10px] font-semibold text-[rgba(159,179,200,0.95)] transition hover:bg-slate-800/50 disabled:cursor-not-allowed disabled:opacity-40';
     const clearFiltros = isLight
-        ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-600 transition-all hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600'
-        : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400';
+        ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2 py-1 text-[10px] text-slate-600 transition-all hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600'
+        : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] text-slate-400 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400';
 
     const [selectedUser, setSelectedUser] = useState(null);
     const [eliminarTarget, setEliminarTarget] = useState(null);
@@ -474,7 +474,7 @@ export default function ActiveCandidates({
                         <select
                             value={statusFilter}
                             onChange={(e) => setStatusFilter(e.target.value)}
-                            className={`${fieldCls} cursor-pointer px-3 py-1.5 text-sm`}
+                            className={`${fieldCls} cursor-pointer px-2 py-1 text-xs`}
                         >
                             <option value="all">Todos los estados</option>
                             <option value="cargando">Cargando</option>
@@ -491,7 +491,7 @@ export default function ActiveCandidates({
                         <select
                             value={pageSize}
                             onChange={(e) => setPageSize(Number(e.target.value))}
-                            className={`${fieldCls} cursor-pointer px-3 py-1.5 text-sm`}
+                            className={`${fieldCls} cursor-pointer px-2 py-1 text-xs`}
                         >
                             <option value={10}>10</option>
                             <option value={20}>20</option>
@@ -522,7 +522,7 @@ export default function ActiveCandidates({
                     <div className={`h-px min-w-[1rem] flex-1 ${isLight ? 'bg-slate-200' : 'bg-slate-700/50'}`} />
 
                     {/* Solo activos toggle */}
-                    <label className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition hover:border-sky-500/50 ${isLight ? 'border-slate-300 bg-slate-50 text-slate-800' : 'border-slate-600 bg-slate-800 text-slate-200'}`}>
+                    <label className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition hover:border-sky-500/50 ${isLight ? 'border-slate-300 bg-slate-50 text-slate-800' : 'border-slate-600 bg-slate-800 text-slate-200'}`}>
                         <input
                             type="checkbox"
                             checked={fSoloActivos}
@@ -539,7 +539,7 @@ export default function ActiveCandidates({
                             type="date"
                             value={fFechaDesde}
                             onChange={(e) => setFFechaDesde(e.target.value)}
-                            className={`${fieldCls} cursor-pointer px-3 py-1.5 text-sm`}
+                            className={`${fieldCls} cursor-pointer px-2 py-1 text-xs`}
                         />
                     </div>
 
@@ -550,7 +550,7 @@ export default function ActiveCandidates({
                             type="date"
                             value={fFechaHasta}
                             onChange={(e) => setFFechaHasta(e.target.value)}
-                            className={`${fieldCls} cursor-pointer px-3 py-1.5 text-sm`}
+                            className={`${fieldCls} cursor-pointer px-2 py-1 text-xs`}
                         />
                     </div>
 
@@ -606,8 +606,8 @@ export default function ActiveCandidates({
                     <EmptyState />
                 )
             ) : (
-                <div className="surface-panel overflow-hidden">
-                    <div className={`grid grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-bold uppercase tracking-wide ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
+                <div className={isLight ? 'overflow-hidden rounded-2xl border backdrop-blur-xl bg-white/80 border-white/40 shadow-xl' : 'glass-card w-full p-0'}>
+                    <div className={`grid grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] gap-3 border-b px-4 py-3 text-[11px] font-bold uppercase tracking-wide ${isLight ? 'border-slate-200/50 bg-slate-50/50 text-slate-600' : 'border-white/5 bg-white/5 text-[rgba(159,179,200,0.95)]'}`}>
                         <button
                             type="button"
                             className="flex items-center gap-2 text-left"
@@ -650,7 +650,7 @@ export default function ActiveCandidates({
                             return (
                                 <div
                                     key={ex.executionId}
-                                    className={`grid w-full grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] items-center gap-4 px-4 py-3 ${rowHover}`}
+                                    className={`grid w-full grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] items-center gap-4 px-4 py-3 transition-colors ${isLight ? 'hover:bg-white/60' : 'hover:bg-white/5'}`}
                                 >
                                     <button
                                         type="button"
@@ -658,24 +658,24 @@ export default function ActiveCandidates({
                                         className="col-span-4 grid min-w-0 grid-cols-[2.2fr_1.1fr_1fr_1.7fr] items-center gap-4 text-left"
                                     >
                                         <div className="min-w-0">
-                                            <p className="truncate text-sm font-semibold text-[var(--text)]">{ex.workflowName || 'Name Last Name'}</p>
-                                            <p className="truncate text-xs text-[var(--muted)]">{ex.fullData?.puesto || 'Puesto de trabajo'}</p>
+                                            <p className={`truncate text-sm font-semibold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>{ex.workflowName || 'Name Last Name'}</p>
+                                            <p className={`truncate text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{ex.fullData?.puesto || 'Puesto de trabajo'}</p>
                                         </div>
                                         <div className="min-w-0">
                                             <span className={`inline-flex max-w-full truncate rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusTone(ex.realStatus, ex.statusId, isLight)}`}>
                                                 {ex.realStatus || 'Onboarding'}
                                             </span>
                                         </div>
-                                        <div className="text-xs text-[var(--muted)]">
+                                        <div className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
                                             {startDate ? new Date(startDate).toLocaleDateString('es-CO') : 'DD/MM/YYYY'}
                                         </div>
                                         <div className="min-w-0">
-                                            <LiveDurations execution={ex} />
+                                            <LiveDurations execution={ex} isLight={isLight} />
                                             <div className="mt-1 flex items-center gap-3">
-                                                <div className="h-1.5 w-full max-w-[130px] overflow-hidden rounded-full bg-[var(--surface-muted)]">
-                                                    <div className="h-full rounded-full bg-[var(--primary)]" style={{ width: `${(completedStages / maxStages) * 100}%` }} />
+                                                <div className={`h-1.5 w-full max-w-[130px] overflow-hidden rounded-full ${isLight ? 'bg-slate-200' : 'bg-slate-700'}`}>
+                                                    <div className={`h-full rounded-full ${isLight ? 'bg-blue-500' : 'bg-blue-400'}`} style={{ width: `${(completedStages / maxStages) * 100}%` }} />
                                                 </div>
-                                                <span className="shrink-0 text-xs font-semibold text-[var(--muted)]">{completedStages} / {maxStages}</span>
+                                                <span className={`shrink-0 text-xs font-semibold ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{completedStages} / {maxStages}</span>
                                             </div>
                                         </div>
                                     </button>
@@ -685,15 +685,15 @@ export default function ActiveCandidates({
                                             title="Abrir WhatsApp Web / app"
                                             aria-label="Abrir conversación en WhatsApp"
                                             onClick={(e) => openWhatsApp(ex, e)}
-                                            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[rgba(37,211,102,0.55)] bg-transparent text-[#25D366] transition hover:bg-[rgba(37,211,102,0.12)]"
+                                            className="flex h-7 w-7 items-center justify-center rounded-md border border-[rgba(37,211,102,0.55)] bg-transparent text-[#25D366] transition hover:bg-[rgba(37,211,102,0.12)]"
                                         >
-                                            <WhatsAppGlyph className="h-5 w-5" />
+                                            <WhatsAppGlyph className="h-4 w-4" />
                                         </button>
                                         {canEliminarCandidato ? (
                                             <button
                                                 type="button"
                                                 onClick={(e) => openEliminar(ex, e)}
-                                                className="rounded-lg border border-red-500/65 bg-transparent px-3 py-1.5 text-xs font-semibold text-[var(--error)] transition hover:bg-[rgba(255,107,107,0.08)]"
+                                                className="rounded-md border border-red-500/65 bg-transparent px-2 py-1 text-[10px] font-semibold text-[var(--error)] transition hover:bg-[rgba(255,107,107,0.08)]"
                                             >
                                                 Eliminar
                                             </button>
@@ -704,12 +704,12 @@ export default function ActiveCandidates({
                         })}
                     </div>
                     {filtered.length > pageSize ? (
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3">
+                        <div className={`flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 ${isLight ? 'border-slate-200/50 bg-slate-50/50' : 'border-white/5 bg-transparent'}`}>
                             <button
                                 type="button"
                                 onClick={goPrevPage}
                                 disabled={currentPage <= 1}
-                                className={ghostNav}
+                                className={isLight ? ghostNav : 'neon-button w-auto px-4 py-1 text-[10px]'}
                             >
                                 Anterior
                             </button>
@@ -721,7 +721,7 @@ export default function ActiveCandidates({
                                 type="button"
                                 onClick={goNextPage}
                                 disabled={currentPage >= totalPages}
-                                className={ghostNav}
+                                className={isLight ? ghostNav : 'neon-button w-auto px-4 py-1 text-[10px]'}
                             >
                                 Siguiente
                             </button>

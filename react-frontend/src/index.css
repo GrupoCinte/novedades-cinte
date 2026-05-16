@@ -246,4 +246,51 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(51, 65, 85, 0.85);
   border-radius: 10px;
+
+/* ── Glassmorphism & Neon (Prueba.html) ── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 24px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+}
+
+.glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+}
+
+.title-gradient {
+  background: linear-gradient(90deg, #ffb347 0%, #ffcc33 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.neon-button {
+  background: transparent;
+  color: #14ffec;
+  border: 1px solid #14ffec;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.neon-button:hover {
+  background: rgba(20, 255, 236, 0.1);
+  box-shadow: 0 0 15px rgba(20, 255, 236, 0.4), inset 0 0 10px rgba(20, 255, 236, 0.2);
+  text-shadow: 0 0 8px rgba(20, 255, 236, 0.6);
 }

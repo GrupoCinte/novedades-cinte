@@ -79,9 +79,19 @@ function App() {
   const isAdminHubHome = Boolean(auth?.user && location.pathname === '/admin' && moduleCount > 0);
   /** Módulos con sidebar propio: logo y título van en el panel lateral, no en el header global. */
   const isAdminModuleShell = Boolean(auth?.user) && pathIsAdminModuleShell(location.pathname);
+  /** Contratación usa una barra superior propia (TopNavbar) que reemplaza al header global. */
+  const isContratacion = location.pathname.startsWith('/admin/contratacion');
   /** Login / forgot / reset: sin cabecera global para usar viewport completo. */
   const showGlobalHeader =
+<<<<<<< Updated upstream
     !isFormularioPublico && !(isAdminRoute && !auth?.user) && !isAdminHubHome;
+=======
+    !isFormularioPublico &&
+    !isConsultorShell &&
+    !(isAdminRoute && !auth?.user) &&
+    !isAdminHubHome &&
+    !isContratacion;
+>>>>>>> Stashed changes
 
   const handleLogout = useCallback(async () => {
     // CRIT-002 + LOW-005: Llama al endpoint de logout para revocar el token en servidor y limpiar cookies.

@@ -220,10 +220,24 @@ function TypingDots() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-export default function ChatWidget({ ctx }) {
+export default function ChatWidget({ ctx, forceOpen, setForceOpen }) {
     const welcomeText = useMemo(() => buildWelcomeText(ctx), [ctx?.role, ctx?.pendientesCount]);
 
     const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        if (forceOpen !== undefined) {
+            setOpen(forceOpen);
+        }
+    }, [forceOpen]);
+
+    const toggleOpen = () => {
+        const next = !open;
+        setOpen(next);
+        if (typeof setForceOpen === 'function') {
+            setForceOpen(next);
+        }
+    };
     const [messages, setMessages] = useState(() => [
         {
             id: 0,
@@ -310,7 +324,7 @@ export default function ChatWidget({ ctx }) {
         <>
             {/* ── Floating Button ─────────────────────────────────── */}
             <button
-                onClick={() => setOpen((o) => !o)}
+                onClick={toggleOpen}
                 className="group fixed bottom-6 right-6 z-50"
                 title="Asistente CINTE"
                 type="button"
@@ -357,7 +371,7 @@ export default function ChatWidget({ ctx }) {
                     </div>
                     <button
                         type="button"
-                        onClick={() => setOpen(false)}
+                        onClick={toggleOpen}
                         className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 transition-all hover:bg-rose-500/20 hover:text-rose-400"
                     >
                         <X size={13} />

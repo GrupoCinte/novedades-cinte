@@ -1,25 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-    ChevronLeft,
-    ChevronRight,
-    Code2,
-    Home,
-    Menu,
-    X,
-    Users,
-    History,
-    BarChart3
-} from 'lucide-react';
 import Layout from './contratacion/components/Layout';
 import ActiveCandidates from './contratacion/components/ActiveCandidates';
 import HistoryCandidates from './contratacion/components/HistoryCandidates';
 import MetricsDashboard from './contratacion/components/MetricsDashboard';
+import ChatWidget from './ChatWidget';
 import useMonitorData from './contratacion/hooks/useMonitorData';
 import { getContratacionPermissions } from './contratacion/contratacionAccess';
 import { useModuleTheme } from './moduleTheme.js';
+import { Users, History, BarChart3, ChevronRight, ChevronLeft, Home } from 'lucide-react';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
+import UserAccountMenu from './UserAccountMenu.jsx';
 
 export { userHasContratacionPanel } from './contratacion/contratacionAccess';
 
@@ -42,10 +34,10 @@ function ContratacionDashboard({ auth, currentView, onNavigate, isLight }) {
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={currentView}
-                        initial={{ opacity: 0, y: 14 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        transition={{ duration: 0.22 }}
+                        initial={{ opacity: 0, scale: 0.98, y: 10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.98, y: -10 }}
+                        transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
                         className="min-h-0"
                     >
                         {currentView === 'active' && (
@@ -76,184 +68,115 @@ function ContratacionDashboard({ auth, currentView, onNavigate, isLight }) {
 }
 
 export default function ContratacionModule({ auth }) {
-    const navigate = useNavigate();
     const mt = useModuleTheme();
-    const { isLight, shell, aside, asideHeaderBorder, asideFooterBorder, scrim, menuFab, sidebarIconBtn, navOutline, email, borderSubtle } = mt;
-    const [sidebarOpen, setSidebarOpen] = useState(true);
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const { isLight, shell } = mt;
     const [navView, setNavView] = useState('active');
+    const [aiOpen, setAiOpen] = useState(false);
+    const chatRef = useRef(null);
 
-    // CRIT-002: Derivar de la prop auth (cookie HttpOnly), sin leer localStorage
-    const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
-    const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
+    const handleLogout = async () => {
+        try {
+            await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+        } catch { /* ignore */ }
+        window.location.href = '/admin';
+    };
 
-    const sidebarNav = [
+    const currentRole = String(auth?.user?.role || auth?.claims?.role || 'ADMIN').toLowerCase();
+    const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'usuario@cinte.com').toLowerCase();
+
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+
+    const navItems = [
         { id: 'active', label: 'Activos', icon: Users },
         { id: 'history', label: 'Historial', icon: History },
         { id: 'metrics', label: 'Métricas', icon: BarChart3 }
     ];
 
     return (
-        <div className={shell}>
-            <button
-                type="button"
-                onClick={() => setMobileMenuOpen(true)}
-                className={`fixed left-4 top-16 z-40 flex h-10 w-10 items-center justify-center shadow-lg md:hidden ${menuFab}`}
-                aria-label="Abrir menú contratación"
-            >
-                <Menu size={18} />
-            </button>
-            {mobileMenuOpen ? (
-                <div className={`fixed inset-0 z-40 md:hidden ${scrim}`} onClick={() => setMobileMenuOpen(false)} />
-            ) : null}
+        <div className={`${shell} flex-col h-screen overflow-hidden bg-[#0b0f19]`}>
+            {/* Fondo decorativo inspirado en prueba.html */}
+            <div className="absolute inset-0 z-0 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 15% 50%, rgba(20, 255, 236, 0.04), transparent 25%), radial-gradient(circle at 85% 30%, rgba(255, 179, 71, 0.04), transparent 25%)' }} />
 
-            <aside
-                className={`fixed left-0 top-0 z-50 h-full w-72 shadow-2xl transition-transform duration-300 font-body md:hidden ${aside} ${
-                    mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-                }`}
-            >
-                <AdminModuleSidebarBrand
-                    variant="drawer"
-                    isLight={isLight}
-                    asideHeaderBorder={asideHeaderBorder}
-                    moduleContext={(
-                        <>
-                            <p className="text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">Módulo de Capital Humano</p>
-                            <p className="text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">Onboarding</p>
-                        </>
-                    )}
-                    endAction={(
-                        <button
-                            type="button"
-                            onClick={() => setMobileMenuOpen(false)}
-                            className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
-                            aria-label="Cerrar menú"
-                        >
-                            <X size={16} />
-                        </button>
-                    )}
-                />
-                <nav className="flex flex-col gap-2 p-3">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            navigate('/admin');
-                            setMobileMenuOpen(false);
-                        }}
-                        className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${navOutline}`}
-                    >
-                        <Home size={17} />
-                        <span>Inicio portal</span>
-                    </button>
-                    {sidebarNav.map(({ id, label, icon: Icon }) => (
-                        <button
-                            key={id}
-                            type="button"
-                            onClick={() => {
-                                setNavView(id);
-                                setMobileMenuOpen(false);
-                            }}
-                            className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
-                                navView === id ? 'bg-[#2F7BB8] text-white' : mt.navInactive
-                            }`}
-                        >
-                            <Icon size={17} />
-                            <span>{label}</span>
-                        </button>
-                    ))}
-                </nav>
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`truncate text-[10px] font-body font-black ${email}`}>{currentEmail}</p>
-                    <p className="text-[10px] font-body font-semibold uppercase text-[#65BCF7]">{currentRoleLabel}</p>
-                </div>
-            </aside>
+            {/* AI Widget integration (hidden trigger handled externally or via floating button) */}
+            <ChatWidget ctx={{ role: currentRole }} forceOpen={aiOpen} setForceOpen={setAiOpen} />
 
-            <aside
-                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-hidden shadow-2xl transition-all duration-300 ease-in-out font-body md:flex ${aside} ${
-                    sidebarOpen ? 'w-64' : 'w-16'
-                }`}
-            >
-                <AdminModuleSidebarBrand
-                    variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
-                    isLight={isLight}
-                    asideHeaderBorder={asideHeaderBorder}
-                    moduleContext={(
-                        <>
-                            <p className="whitespace-nowrap text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">Módulo de Capital Humano</p>
-                            <p className="whitespace-nowrap text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">Onboarding</p>
-                        </>
-                    )}
-                    endAction={(
-                        <button
-                            type="button"
-                            onClick={() => setSidebarOpen((o) => !o)}
-                            title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
-                            className={`flex h-7 w-7 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
-                        >
-                            {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
-                        </button>
-                    )}
-                />
+            <section className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden z-10">
+                {/* ───────── HOVERABLE SIDEBAR ───────── */}
+                <aside
+                    onMouseEnter={() => setSidebarOpen(true)}
+                    onMouseLeave={() => setSidebarOpen(false)}
+                    className={`
+                        flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-20 font-body
+                        transition-all duration-300 ease-in-out
+                        ${isLight ? 'bg-white/70 backdrop-blur-xl border-r border-white/40' : 'bg-[#0a1520]/70 backdrop-blur-xl border-r border-white/10'}
+                        ${sidebarOpen ? 'w-64' : 'w-16'}
+                    `}
+                >
+                    <AdminModuleSidebarBrand
+                        variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
+                        isLight={isLight}
+                        asideHeaderBorder={isLight ? 'border-b border-slate-200/50' : 'border-b border-white/5'}
+                        moduleContext={(
+                            <>
+                                <p className="whitespace-nowrap text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">
+                                    Capital Humano
+                                </p>
+                                <p className="whitespace-nowrap text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">
+                                    System Core
+                                </p>
+                            </>
+                        )}
+                        endAction={null}
+                    />
 
-                <nav className="mt-1 flex flex-1 flex-col gap-1 p-2">
-                    <button
-                        type="button"
-                        onClick={() => navigate('/admin')}
-                        title={!sidebarOpen ? 'Inicio portal' : undefined}
-                        className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${navOutline} ${
-                            sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
-                        }`}
-                    >
-                        <Home size={18} className="flex-shrink-0" />
-                        {sidebarOpen ? <span className="truncate">Inicio portal</span> : null}
-                    </button>
-                    {sidebarNav.map(({ id, label, icon: Icon }) => (
-                        <button
-                            key={id}
-                            type="button"
-                            onClick={() => setNavView(id)}
-                            title={!sidebarOpen ? label : undefined}
-                            className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
-                                sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
-                            } ${
-                                navView === id
-                                    ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.35)]'
-                                    : mt.navInactive
-                            }`}
-                        >
-                            <Icon size={18} className="flex-shrink-0" />
-                            {sidebarOpen ? <span className="truncate">{label}</span> : null}
-                        </button>
-                    ))}
-                </nav>
+                    <nav className="flex flex-col gap-2 p-2 flex-1 mt-2">
+                        {navItems.map(item => {
+                            const Icon = item.icon;
+                            const active = navView === item.id;
+                            return (
+                                <button
+                                    key={item.id}
+                                    onClick={() => setNavView(item.id)}
+                                    title={!sidebarOpen ? item.label : undefined}
+                                    className={`
+                                        flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left
+                                        ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'}
+                                        ${active
+                                            ? 'bg-gradient-to-r from-[#2F7BB8] to-[#65BCF7] shadow-[0_4px_15px_rgba(47,123,184,0.3)] text-white'
+                                            : isLight ? 'text-slate-600 hover:bg-slate-200/50' : 'text-slate-400 hover:bg-white/5 hover:text-white'
+                                        }
+                                    `}
+                                >
+                                    <Icon size={18} className={`flex-shrink-0 ${active ? 'text-white' : isLight ? 'text-slate-500' : 'text-slate-400'}`} />
+                                    {sidebarOpen && (
+                                        <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">
+                                            {item.label}
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </nav>
 
-                <div className={`border-t ${borderSubtle} ${sidebarOpen ? 'p-4' : 'p-2'}`}>
-                    {sidebarOpen ? (
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                                <div className="min-w-0 overflow-hidden">
-                                    <p className={`truncate text-[10px] font-body font-black leading-tight ${email}`}>{currentEmail}</p>
-                                    <p className="truncate text-[9px] font-body font-semibold leading-tight text-[#65BCF7]">{currentRoleLabel}</p>
-                                </div>
-                            </div>
+                    <div className={`border-t flex justify-center p-3 overflow-hidden ${isLight ? 'border-slate-200/50' : 'border-white/5'}`}>
+                        <div className={sidebarOpen ? 'w-full flex justify-center' : 'scale-90 origin-bottom'}>
+                            <UserAccountMenu 
+                                auth={auth} 
+                                onLogout={handleLogout} 
+                                surface="sidebar-footer" 
+                            />
                         </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-2 py-1">
-                            <div className="flex justify-center" title={`${currentEmail} · ${currentRoleLabel}`}>
-                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </aside>
+                    </div>
+                </aside>
 
-            <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                <ContratacionDashboard auth={auth} currentView={navView} onNavigate={setNavView} isLight={isLight} />
+                <div className="flex-1 flex flex-col min-w-0 min-h-0 relative z-10">
+                    <ContratacionDashboard 
+                        auth={auth} 
+                        currentView={navView} 
+                        onNavigate={setNavView} 
+                        isLight={isLight} 
+                    />
+                </div>
             </section>
         </div>
     );

@@ -36,6 +36,12 @@ export default function UserAccountMenu({ auth, onLogout, surface = 'banner', no
     const { theme, toggleTheme } = useUiTheme();
     const isLight = theme === 'light';
     const [open, setOpen] = useState(false);
+<<<<<<< Updated upstream
+=======
+    const [sheetOpen, setSheetOpen] = useState(false);
+    const [bellOpen, setBellOpen] = useState(false);
+    const [themeHover, setThemeHover] = useState(false);
+>>>>>>> Stashed changes
     const wrapRef = useRef(null);
 
     useEffect(() => {
@@ -45,7 +51,11 @@ export default function UserAccountMenu({ auth, onLogout, surface = 'banner', no
         };
         document.addEventListener('mousedown', onDoc);
         return () => document.removeEventListener('mousedown', onDoc);
+<<<<<<< Updated upstream
     }, [open]);
+=======
+    }, [open, sheetOpen, bellOpen]);
+>>>>>>> Stashed changes
 
     const ini = initials(auth);
     const isBanner = surface === 'banner';
@@ -98,12 +108,77 @@ export default function UserAccountMenu({ auth, onLogout, surface = 'banner', no
 
     const novedades = userHasNovedadesAdminAccess(auth);
 
+<<<<<<< Updated upstream
     return (
         <div
             ref={wrapRef}
             className={`relative flex flex-wrap items-center justify-end gap-2 font-body sm:gap-2.5 ${isBanner ? 'z-[25] isolate' : ''}`}
         >
             <div className="relative">
+=======
+    const isSidebarFooter = surface === 'sidebar-footer';
+
+    const accountMenuPanel = open ? (
+        <div
+            className={`absolute ${isSidebarFooter ? 'left-0 bottom-[calc(100%+8px)]' : 'right-0 top-[calc(100%+8px)]'} z-[80] w-64 overflow-hidden rounded-xl py-1.5 ${panelClass}`}
+            role="menu"
+        >
+            <button
+                type="button"
+                role="menuitem"
+                className={itemClass}
+                onClick={() => go(isEntraConsultor ? '/consultor' : '/admin')}
+            >
+                <User size={18} className="opacity-80" />
+                {isEntraConsultor ? 'Inicio portal' : 'Mi perfil'}
+            </button>
+            {!isEntraConsultor ? (
+                <>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={itemClass}
+                        onClick={() => go(novedades ? '/admin/novedades' : '/admin')}
+                    >
+                        <Settings size={18} className="opacity-80" />
+                        Configuración
+                    </button>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        className={itemClass}
+                        onClick={() => go('/perfil/cambiar-clave')}
+                    >
+                        <KeyRound size={18} className="opacity-80" />
+                        Cambiar contraseña
+                    </button>
+                </>
+            ) : null}
+            <div className={`my-1.5 h-px ${bannerLight ? 'bg-slate-200' : isBanner ? 'bg-white/10' : isLight ? 'bg-slate-200' : 'bg-[#1a3a56]'}`} />
+            <button
+                type="button"
+                role="menuitem"
+                className={itemDanger}
+                onClick={() => {
+                    setOpen(false);
+                    setSheetOpen(false);
+                    onLogout?.();
+                }}
+            >
+                <LogOut size={18} />
+                Cerrar sesión
+            </button>
+        </div>
+    ) : null;
+
+    const toolbarTiles = (
+        <>
+            <div 
+                className="relative"
+                onMouseEnter={() => setOpen(true)}
+                onMouseLeave={() => setOpen(false)}
+            >
+>>>>>>> Stashed changes
                 <button
                     type="button"
                     onClick={() => setOpen((o) => !o)}
@@ -170,18 +245,81 @@ export default function UserAccountMenu({ auth, onLogout, surface = 'banner', no
             <button
                 type="button"
                 onClick={toggleTheme}
+                onMouseEnter={() => setThemeHover(true)}
+                onMouseLeave={() => setThemeHover(false)}
                 aria-pressed={isLight}
                 aria-label={isLight ? 'Activar modo oscuro' : 'Activar modo claro'}
                 title={isLight ? 'Modo oscuro' : 'Modo claro'}
                 className={tileClass}
             >
                 {isLight ? (
-                    <Moon size={20} strokeWidth={2} className={themeIconClass} />
+                    <Moon size={20} strokeWidth={2} className={`${themeIconClass} transition-colors duration-300 ${themeHover ? 'text-indigo-500' : ''}`} />
                 ) : (
-                    <Sun size={20} strokeWidth={2} className={themeIconClass} />
+                    <Sun size={20} strokeWidth={2} className={`${themeIconClass} transition-colors duration-300 ${themeHover ? 'text-[#ffcc33]' : ''}`} />
                 )}
             </button>
 
+<<<<<<< Updated upstream
+=======
+            <div 
+                className="relative inline-flex"
+                onMouseEnter={() => setBellOpen(true)}
+                onMouseLeave={() => setBellOpen(false)}
+            >
+                <button
+                    type="button"
+                    aria-label="Notificaciones"
+                    className={tileClass}
+                >
+                    <Bell size={20} strokeWidth={2} className={bannerLight ? 'text-[#004D87]' : isBanner ? 'text-white' : ''} />
+                    {notificationCount > 0 && (
+                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-bold text-white">
+                            {notificationCount}
+                        </span>
+                    )}
+                </button>
+                {bellOpen && (
+                    <div
+                        className={`absolute ${isSidebarFooter ? 'left-0 bottom-[calc(100%+8px)]' : 'right-0 top-[calc(100%+8px)]'} z-[80] w-64 overflow-hidden rounded-xl py-3 px-4 ${panelClass}`}
+                        role="menu"
+                    >
+                        <p className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Notificaciones</p>
+                        <p className={`mt-2 text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                            No tienes nuevas notificaciones por el momento.
+                        </p>
+                    </div>
+                )}
+            </div>
+        </>
+    );
+
+    const mobileSheet = sheetOpen ? (
+        <div
+            className={`absolute right-0 top-[calc(100%+8px)] z-[90] w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-xl py-1.5 ${panelClass}`}
+            role="menu"
+            aria-label="Acciones de cuenta y preferencias"
+        >
+            <div className={`px-3 py-2 text-xs font-semibold uppercase tracking-wide ${bannerLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                Cuenta ({ini})
+            </div>
+            <button type="button" role="menuitem" className={itemClass} onClick={() => go(isEntraConsultor ? '/consultor' : '/admin')}>
+                <User size={18} className="opacity-80" />
+                {isEntraConsultor ? 'Inicio portal' : 'Mi perfil'}
+            </button>
+            {!isEntraConsultor ? (
+                <>
+                    <button type="button" role="menuitem" className={itemClass} onClick={() => go(novedades ? '/admin/novedades' : '/admin')}>
+                        <Settings size={18} className="opacity-80" />
+                        Configuración
+                    </button>
+                    <button type="button" role="menuitem" className={itemClass} onClick={() => go('/perfil/cambiar-clave')}>
+                        <KeyRound size={18} className="opacity-80" />
+                        Cambiar contraseña
+                    </button>
+                </>
+            ) : null}
+            <div className={`my-1.5 h-px ${bannerLight ? 'bg-slate-200' : isBanner ? 'bg-white/10' : isLight ? 'bg-slate-200' : 'bg-[#1a3a56]'}`} />
+>>>>>>> Stashed changes
             <button
                 type="button"
                 title="Notificaciones"

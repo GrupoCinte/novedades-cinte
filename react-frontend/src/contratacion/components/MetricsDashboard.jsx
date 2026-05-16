@@ -70,11 +70,11 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
     }, [stageCounts, selectedStageKey]);
 
     const stageColors = {
-        contactado: '#08bdc6',
-        'whatsapp enviado': '#1fc76a',
-        'documentos recibidos': '#6d819b',
-        'sagrilaft enviado': '#494294',
-        finalizado: '#4F8831',
+        contactado: '#ffb347',
+        'whatsapp enviado': '#14ffec',
+        'documentos recibidos': '#2F7BB8',
+        'sagrilaft enviado': '#A259FF',
+        finalizado: '#FF3366',
     };
 
     const stageDescriptions = {
@@ -123,17 +123,22 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
         );
     }
 
+    const glassPanel = isLight ? 'overflow-hidden rounded-2xl border backdrop-blur-xl bg-white/80 border-white/40 shadow-xl' : 'glass-card';
+
     return (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5 font-body">
-            <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <MetricTile isLight={isLight} title="Tiempo prom. pipeline" value={metrics.averageTime} subtitle="Pipeline automático" />
-                <MetricTile isLight={isLight} title="Espera de Firma" value={metrics.avgWaitTime} subtitle="Friccion del candidato" />
-                <MetricTile isLight={isLight} title="Ahorro Estimado" value={metrics.costSaved} subtitle={metrics.costSavedSubtext || 'Costo evitado'} />
+            <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
+                <MetricTile isLight={isLight} glassPanel={glassPanel} title="Tiempo prom. pipeline" value={metrics.averageTime} subtitle="Pipeline automático" />
+                <MetricTile isLight={isLight} glassPanel={glassPanel} title="Espera de Firma" value={metrics.avgWaitTime} subtitle="Friccion del candidato" />
+                <MetricTile isLight={isLight} glassPanel={glassPanel} title="Ahorro Estimado" value={metrics.costSaved} subtitle={metrics.costSavedSubtext || 'Costo evitado'} />
             </section>
 
-            <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.3fr_1fr]">
-                <article className="surface-panel p-4">
-                    <h3 className="mb-3 text-sm font-semibold text-[var(--text)] font-subtitle">Conteo por Etapa (sin cargando)</h3>
+            <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.3fr_1fr]">
+                <article className={`${glassPanel} p-6`}>
+                    <div className="mb-6 flex items-center justify-between">
+                        <h3 className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Conteo por Etapa</h3>
+                        <span className="text-[10px] font-bold text-[#ffb347] bg-[#ffb347]/10 px-2 py-1 rounded-full border border-[#ffb347]/20">Pipeline Activo</span>
+                    </div>
                     <div className="h-[300px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
@@ -193,12 +198,15 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
                     </div>
                 </article>
 
-                <article className="surface-panel p-4">
-                    <h3 className="mb-3 text-sm font-semibold text-[var(--text)] font-subtitle">Heatmap de Friccion</h3>
+                <article className={`${glassPanel} p-6 flex flex-col`}>
+                    <div className="mb-6 flex items-center justify-between">
+                        <h3 className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Heatmap de Fricción</h3>
+                        <span className="text-[10px] font-bold text-[#ff3366] bg-[#ff3366]/10 px-2 py-1 rounded-full border border-[#ff3366]/20">Cuellos de Botella</span>
+                    </div>
                     <div className="space-y-2">
                         {heatmap.map((row) => (
                             <div key={row.actor} className="grid grid-cols-4 gap-2 text-xs">
-                                <div className={`surface-soft px-3 py-2 font-semibold ${isLight ? 'text-slate-700' : 'text-[rgba(159,179,200,0.95)]'}`}>
+                                <div className={`px-3 py-2 font-semibold rounded-lg ${isLight ? 'bg-slate-50/50 text-slate-700 border border-slate-200/50' : 'bg-white/5 border border-white/5 text-[rgba(159,179,200,0.95)]'}`}>
                                     {row.actor}
                                 </div>
                                 <HeatCell isLight={isLight} value={row.inicio} label="Inicio" />
@@ -216,11 +224,11 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
     );
 }
 
-function MetricTile({ isLight, title, value, subtitle }) {
+function MetricTile({ isLight, glassPanel, title, value, subtitle }) {
     return (
-        <div className="surface-panel p-4">
+        <div className={`${glassPanel} p-4`}>
             <p className={`text-[11px] uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>{title}</p>
-            <p className="kpi-value mt-1 text-2xl">{value || 'N/A'}</p>
+            <p className={`mt-1 text-2xl ${isLight ? 'kpi-value' : 'title-gradient font-bold tracking-tight'}`}>{value || 'N/A'}</p>
             <p className={`mt-1 text-xs ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>{subtitle}</p>
         </div>
     );

@@ -67,6 +67,44 @@ function registerContratacionRoutes(deps) {
                 }
             });
         } catch (error) {
+            if (process.env.NODE_ENV === 'development') {
+                console.warn('[Contratacion] Fallo DynamoDB en dev: devolviendo datos mock.');
+                const mockItems = [
+                    {
+                        whatsapp_number: '573001112233',
+                        nombre: 'Andrés',
+                        apellido: 'Castaño',
+                        status: 'Cargando Documentos',
+                        puesto: 'Desarrollador Senior',
+                        email: 'andres@example.com',
+                        ts_primer_contacto_candidato: new Date().toISOString()
+                    },
+                    {
+                        whatsapp_number: '573004445566',
+                        nombre: 'Beatriz',
+                        apellido: 'Mendoza',
+                        status: 'Sagrilaft Pendiente',
+                        puesto: 'Analista de Datos',
+                        email: 'beatriz@example.com',
+                        ts_documentos_recibidos: new Date(Date.now() - 3600000).toISOString()
+                    },
+                    {
+                        whatsapp_number: '573007778899',
+                        nombre_y_apellido: 'Carlos Restrepo',
+                        status: 'Finalizado',
+                        puesto: 'Gerente Proyecto',
+                        email: 'carlos@example.com',
+                        ts_validacion_completada: new Date(Date.now() - 86400000).toISOString()
+                    }
+                ];
+                const executions = mockItems.map(mapDynamoItemToExecution);
+                return res.json({
+                    success: true,
+                    count: executions.length,
+                    executions,
+                    meta: { mock: true, error: error.message }
+                });
+            }
             console.error('Contratación GET /monitor:', error.message);
             return res.status(500).json({
                 success: false,
@@ -110,6 +148,20 @@ function registerContratacionRoutes(deps) {
                 users: safeUsers
             });
         } catch (error) {
+            if (process.env.NODE_ENV === 'development') {
+                return res.json({
+                    success: true,
+                    count: 1,
+                    users: [{
+                        email: req.query.email,
+                        nombre_y_apellido: 'Usuario Mock',
+                        puesto: 'Candidato Prueba',
+                        status: 'Activo',
+                        edad: 30
+                    }],
+                    meta: { mock: true, error: error.message }
+                });
+            }
             console.error('Contratación users-by-email:', error.message);
             return res.status(500).json({
                 success: false,
