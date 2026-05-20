@@ -27,7 +27,7 @@ export default function Layout({
             {/* Cyber Grid Background */}
             <div className={`absolute inset-0 z-0 pointer-events-none ${gridOverlay}`} />
 
-            <main className={`flex min-h-0 flex-1 flex-col font-body ${mainBg} relative z-10`}>
+            <main className={`flex min-h-0 flex-1 flex-col font-body ${mainBg} relative z-10 overflow-hidden`}>
                 {/* Header Integrado */}
                 <header className={`relative z-40 flex-shrink-0 px-4 py-3 backdrop-blur-md border-b ${headerBg}`}>
                     <div className="flex flex-wrap items-center justify-between gap-4">

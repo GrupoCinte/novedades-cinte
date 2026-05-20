@@ -83,15 +83,10 @@ function App() {
   const isContratacion = location.pathname.startsWith('/admin/contratacion');
   /** Login / forgot / reset: sin cabecera global para usar viewport completo. */
   const showGlobalHeader =
-<<<<<<< Updated upstream
-    !isFormularioPublico && !(isAdminRoute && !auth?.user) && !isAdminHubHome;
-=======
     !isFormularioPublico &&
-    !isConsultorShell &&
     !(isAdminRoute && !auth?.user) &&
     !isAdminHubHome &&
-    !isContratacion;
->>>>>>> Stashed changes
+    !isAdminModuleShell;
 
   const handleLogout = useCallback(async () => {
     // CRIT-002 + LOW-005: Llama al endpoint de logout para revocar el token en servidor y limpiar cookies.
@@ -206,6 +201,7 @@ function App() {
               : `${mainShell} w-full overflow-y-auto p-6 md:p-10`
         }
       >
+        <div className={isAdminRoute ? 'flex flex-col flex-1 min-h-0' : 'contents'}>
         <Routes>
           <Route path="/" element={<FormularioNovedad />} />
           <Route
@@ -287,6 +283,7 @@ function App() {
           <Route path="/admin/comercial/catalogo-roles-ti" element={<Navigate to="/admin/directorio?v=catalogo-ti" replace />} />
           <Route path="*" element={<Navigate to={auth?.user ? '/admin' : '/'} replace />} />
         </Routes>
+        </div>
       </main>
     </div>
   );

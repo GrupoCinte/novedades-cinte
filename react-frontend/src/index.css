@@ -246,6 +246,7 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(51, 65, 85, 0.85);
   border-radius: 10px;
+}
 
 /* ── Glassmorphism & Neon (Prueba.html) ── */
 .glass-card {

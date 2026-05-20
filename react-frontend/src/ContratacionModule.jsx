@@ -93,11 +93,11 @@ export default function ContratacionModule({ auth }) {
     ];
 
     return (
-        <div className={`${shell} flex-col h-screen overflow-hidden bg-[#0b0f19]`}>
-            {/* Fondo decorativo inspirado en prueba.html */}
+        <div className={`flex flex-col flex-1 min-h-0 w-full overflow-hidden font-body ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#04141E] text-slate-200'}`}>
+            {/* Fondo decorativo */}
             <div className="absolute inset-0 z-0 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 15% 50%, rgba(20, 255, 236, 0.04), transparent 25%), radial-gradient(circle at 85% 30%, rgba(255, 179, 71, 0.04), transparent 25%)' }} />
 
-            {/* AI Widget integration (hidden trigger handled externally or via floating button) */}
+            {/* AI Widget: posición fixed, no consume espacio en el flujo */}
             <ChatWidget ctx={{ role: currentRole }} forceOpen={aiOpen} setForceOpen={setAiOpen} />
 
             <section className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden z-10">
@@ -111,6 +111,7 @@ export default function ContratacionModule({ auth }) {
                         ${isLight ? 'bg-white/70 backdrop-blur-xl border-r border-white/40' : 'bg-[#0a1520]/70 backdrop-blur-xl border-r border-white/10'}
                         ${sidebarOpen ? 'w-64' : 'w-16'}
                     `}
+                    style={{ overflow: 'visible' }}
                 >
                     <AdminModuleSidebarBrand
                         variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
@@ -158,8 +159,8 @@ export default function ContratacionModule({ auth }) {
                         })}
                     </nav>
 
-                    <div className={`border-t flex justify-center p-3 overflow-hidden ${isLight ? 'border-slate-200/50' : 'border-white/5'}`}>
-                        <div className={sidebarOpen ? 'w-full flex justify-center' : 'scale-90 origin-bottom'}>
+                    <div className={`border-t flex justify-center p-3 ${isLight ? 'border-slate-200/50' : 'border-white/5'}`} style={{ overflow: 'visible' }}>
+                        <div className={sidebarOpen ? 'w-full flex justify-center' : 'scale-90 origin-bottom'} style={{ overflow: 'visible' }}>
                             <UserAccountMenu 
                                 auth={auth} 
                                 onLogout={handleLogout} 
