@@ -142,6 +142,9 @@ function normalizeNovedadTypeKey(value = '') {
     'vacaciones en tiempo': 'vacaciones_tiempo',
     'vacaciones en dinero': 'vacaciones_dinero',
     'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo',
+    suspension: 'suspension',
+    'suspension contrato': 'suspension',
+    'suspension de contrato': 'suspension',
   };
   return map[compact] || '';
 }
@@ -351,6 +354,10 @@ describe('normalizeNovedadTypeKey()', () => {
     expect(normalizeNovedadTypeKey('Vacaciones en Dinero')).toBe('vacaciones_dinero');
     expect(normalizeNovedadTypeKey('Permiso no Remunerado')).toBe('permiso_no_remunerado');
     expect(normalizeNovedadTypeKey('Permisos no Remunerados')).toBe('permiso_no_remunerado'); // plural alias
+    // Suspensión: backend mapea con/sin tilde, mayúsculas y variantes "de contrato".
+    expect(normalizeNovedadTypeKey('Suspensión')).toBe('suspension');
+    expect(normalizeNovedadTypeKey('SUSPENSION')).toBe('suspension');
+    expect(normalizeNovedadTypeKey('suspensión de contrato')).toBe('suspension');
   });
 
   it('debe retornar string vacío para tipos no reconocidos', () => {
@@ -426,6 +433,7 @@ describe('inferAreaFromNovedad()', () => {
 
   it('debe inferir "Operaciones" por defecto para otros tipos', () => {
     expect(inferAreaFromNovedad({ tipoNovedad: 'Disponibilidad' })).toBe('Operaciones');
+    expect(inferAreaFromNovedad({ tipoNovedad: 'Suspensión' })).toBe('Operaciones');
     expect(inferAreaFromNovedad({})).toBe('Operaciones');
   });
 

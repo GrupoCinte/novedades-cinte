@@ -31,7 +31,8 @@ const PATCH_CAMEL_TO_SNAKE = {
     soporteRuta: 'soporte_ruta',
     modalidad: 'modalidad',
     fechaVotacion: 'fecha_votacion',
-    unidad: 'unidad'
+    unidad: 'unidad',
+    observaciones: 'observaciones'
 };
 
 async function writeNovedadAudit(pool, { actorUserId, actorRole, action, entityId, metadata }) {
@@ -169,6 +170,10 @@ function mergeAdminPatch(existingRow, body, normalizeEstado, parseDateOrNull, pa
             continue;
         }
         if (snake === 'correo_solicitante' || snake === 'tipo_hora_extra' || snake === 'he_domingo_observacion' || snake === 'soporte_ruta') {
+            merged[snake] = v == null || v === '' ? null : String(v);
+            continue;
+        }
+        if (snake === 'observaciones') {
             merged[snake] = v == null || v === '' ? null : String(v);
             continue;
         }

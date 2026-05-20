@@ -4,7 +4,6 @@ const {
     bogotaDateKeyFromMs,
     bogotaMidnightUtcMsFromYmd,
     isSundayBogotaYmd,
-    isDomingoOFestivoBogotaYmd,
     buildSundayReportedSetsFromHeRows,
     sundayStatsForConsultantMonth,
     resolveHourSplitBogotaForRow
@@ -62,11 +61,12 @@ function buildConsultantKeyDefault(row) {
  * @param {Map<string, number>} draftSplit resolveHourSplitBogotaForRow
  * @param {Map<string, Set<string>>} sundaySets con filas existentes + borrador
  * @param {string} consultantKey
- * @returns {string|null} YYYY-MM-DD domingo trabajado que ancla la ventana
+ * @returns {string|null} YYYY-MM-DD domingo trabajado que ancla la ventana.
+ *   Solo cuenta domingos reales; festivos no-domingo no anclan compensatorio.
  */
-function pickWorkedSundayYmd(draftSplit, sundaySets, consultantKey, festivosSet) {
+function pickWorkedSundayYmd(draftSplit, sundaySets, consultantKey) {
     const draftSundays = [...draftSplit.entries()]
-        .filter(([k, h]) => isDomingoOFestivoBogotaYmd(k, festivosSet) && Number(h) > 0 && Number.isFinite(Number(h)))
+        .filter(([k, h]) => isSundayBogotaYmd(k) && Number(h) > 0 && Number.isFinite(Number(h)))
         .map(([k]) => k)
         .sort();
     if (!draftSundays.length) return null;
@@ -99,7 +99,9 @@ function pickWorkedSundayYmd(draftSplit, sundaySets, consultantKey, festivosSet)
 /**
  * @param {object[]} existingRows filas HE desde BD
  * @param {object} syntheticRow borrador con nombre, cedula, fecha_inicio/fin, hora_inicio/fin
- * @param {{ toUtcMsFromDateAndTime: Function, resolveFallbackDateKeyFromRow: Function }} dep
+ * @param {{ toUtcMsFromDateAndTime: Function, resolveFallbackDateKeyFromRow: Function, festivosSet?: Set<string> }} dep
+ *   `dep.festivosSet` se ignora: la regla de compensación dominical (tier 1/2/3) cuenta solo domingos reales.
+ *   Se mantiene en la firma por compatibilidad con los call-sites actuales.
  * @param {Function} [buildConsultantKey]
  */
 function computeHeDomingoCompensacionPreview(existingRows, syntheticRow, dep, buildConsultantKey = buildConsultantKeyDefault) {
@@ -108,9 +110,8 @@ function computeHeDomingoCompensacionPreview(existingRows, syntheticRow, dep, bu
     const sundaySets = buildSundayReportedSetsFromHeRows(allRows, buildConsultantKey, dep);
     const draftSplit = resolveHourSplitBogotaForRow(syntheticRow, dep);
 
-    const festivosSet = dep.festivosSet;
     const draftSundays = [...draftSplit.entries()]
-        .filter(([k, h]) => isDomingoOFestivoBogotaYmd(k, festivosSet) && Number(h) > 0)
+        .filter(([k, h]) => isSundayBogotaYmd(k) && Number(h) > 0)
         .map(([k]) => k)
         .sort();
 
@@ -138,7 +139,7 @@ function computeHeDomingoCompensacionPreview(existingRows, syntheticRow, dep, bu
 
     const esTercerDomingoOMas = maxTier >= 3;
     const requiereEleccionCompensacion = maxTier === 1 || maxTier === 2;
-    const domingoTrabajadoYmd = pickWorkedSundayYmd(draftSplit, sundaySets, ck, festivosSet);
+    const domingoTrabajadoYmd = pickWorkedSundayYmd(draftSplit, sundaySets, ck);
     const vent =
         requiereEleccionCompensacion && domingoTrabajadoYmd
             ? getVentanaCompensatorioTiempo(domingoTrabajadoYmd)

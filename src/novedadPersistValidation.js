@@ -4,6 +4,8 @@ const { normalizeNovedadTypeKey } = require('./rbac');
 
 const ALLOWED_AREAS = new Set(['Global', 'Capital Humano', 'Operaciones']);
 const ESTADOS = new Set(['Pendiente', 'Aprobado', 'Rechazado']);
+/** Tope de caracteres para `observaciones` (textarea libre). Spec: crear-novedad-de-suspension. */
+const MAX_OBSERVACIONES_LEN = 1000;
 
 function toYmd(value) {
     if (value == null || value === '') return null;
@@ -135,6 +137,13 @@ function validateMergedNovedadForAdmin(merged, opts) {
         return { ok: false, error: 'Unidad inválida: use dias u horas.' };
     }
 
+    if (merged.observaciones != null && merged.observaciones !== '') {
+        const obs = String(merged.observaciones);
+        if (obs.length > MAX_OBSERVACIONES_LEN) {
+            return { ok: false, error: `Observaciones: máximo ${MAX_OBSERVACIONES_LEN} caracteres.` };
+        }
+    }
+
     return { ok: true };
 }
 
@@ -144,5 +153,6 @@ module.exports = {
     toHms,
     nonNegNum,
     ALLOWED_AREAS,
-    ESTADOS
+    ESTADOS,
+    MAX_OBSERVACIONES_LEN
 };

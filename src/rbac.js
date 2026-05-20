@@ -116,6 +116,17 @@ const NOVELTY_RULES = {
         requiredMinSupports: 0,
         approvers: ['admin_ch'],
         viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina']
+    },
+    /**
+     * Suspensión de contrato de prestación de servicios (consultor).
+     * Periodo no facturable al cliente; aprueba GP del cliente asignado.
+     * Spec: docs/specs/crear-novedad-de-suspension.spec.md
+     */
+    suspension: {
+        displayName: 'Suspensión',
+        requiredMinSupports: 0,
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     }
 };
 
@@ -183,7 +194,10 @@ function normalizeNovedadTypeKey(value = '') {
         'compensatorio por votacion jurado': 'compensatorio_votacion_jurado',
         'compensatorio por votacion y jurado': 'compensatorio_votacion_jurado',
         'compensatorio por votación/jurado': 'compensatorio_votacion_jurado',
-        'compensatorio por votacion/jurado': 'compensatorio_votacion_jurado'
+        'compensatorio por votacion/jurado': 'compensatorio_votacion_jurado',
+        suspension: 'suspension',
+        'suspension contrato': 'suspension',
+        'suspension de contrato': 'suspension'
     };
     if (map[compact]) return map[compact];
     const snake = compact.replace(/[\s-]+/g, '_').replace(/_+/g, '_');

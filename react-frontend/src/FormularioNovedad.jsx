@@ -218,8 +218,12 @@ const EMPTY_DETALLE_FORM = {
     fechaVotacion: '',
     fechaDisfruteVotacion: '',
     horaDisfruteInicio: '',
-    horaDisfruteFin: ''
+    horaDisfruteFin: '',
+    observaciones: ''
 };
+
+/** Tope (UI y backend) para el textarea de observaciones libres. */
+const MAX_OBSERVACIONES_LEN = 1000;
 
 function isExcelAttachment(file) {
     const lowerName = String(file?.name || '').toLowerCase();
@@ -249,7 +253,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         fechaVotacion: '',
         fechaDisfruteVotacion: '',
         horaDisfruteInicio: '',
-        horaDisfruteFin: ''
+        horaDisfruteFin: '',
+        observaciones: ''
     });
 
     const [status, setStatus] = useState({ type: '', text: '' });
@@ -316,6 +321,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const esCompensatorioVotacion = formData.tipo === 'Compensatorio por votación/jurado';
     const modalidadCompVotacion = String(formData.modalidadVotacion || '').trim();
     const esCompVotacionMedioDia = esCompensatorioVotacion && modalidadCompVotacion === 'solo_voto';
+    const esSuspension = formData.tipo === 'Suspensión';
 
     /**
      * Restricción Compensatorio por votación/jurado:
@@ -365,7 +371,13 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays) && !(esPermisoRemunerado && esPermisoHoras);
     const autocalculaDiasCalendario = Boolean(rule.autoCalendarDays) && !(esPermisoRemunerado && esPermisoHoras);
     const autocalculaDiasDesdeRango = autocalculaDiasHabiles || autocalculaDiasCalendario;
-    const requiereMontoCop = Boolean(rule.requiresMonetaryAmount);
+    /**
+     * HU disponibilidad-monto-diligenciado-por-gp: el monto de la novedad de Disponibilidad
+     * lo diligencia el GP/super_admin/CAC al aprobar o rechazar; no debe pedirse al consultor
+     * en el formulario de radicación. Se conserva `requiereMontoCop` solo para tipos donde
+     * la regla pide monto al radicar (p. ej. Bonos).
+     */
+    const requiereMontoCop = Boolean(rule.requiresMonetaryAmount) && !rule.montoDiligenciadoPorAprobador;
     const esDisponibilidad = formData.tipo === 'Disponibilidad';
     const esSinAdjuntosPublicos = esDisponibilidad;
     const esIncapacidad = formData.tipo === 'Incapacidad';
@@ -374,8 +386,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const minFechaPermisoRemuneradoYmd = addCalendarDaysYmd(todayLocalYmd, 1);
     /** Rango de fechas del permiso (días o unidad aún no elegida); excluye modo horas. */
     const esPermisoRemuneradoBloqueDias = esPermisoRemunerado && formData.permisoUnidad !== 'horas';
-    /** Inicio: no antes de 1 mes calendario atrás; fin: no después de 1 año calendario desde hoy. */
-    const minFechaInicioYmd = addCalendarMonthsYmd(todayLocalYmd, -1);
+    /** Inicio: no antes de 2 meses calendario atrás; fin: no después de 1 año calendario desde hoy. */
+    const minFechaInicioYmd = addCalendarMonthsYmd(todayLocalYmd, -2);
     const maxFechaFinYmd = addCalendarYearsYmd(todayLocalYmd, 1);
     const maxFechaInicioYmd = esIncapacidad ? todayLocalYmd : maxFechaFinYmd;
     /** Límite inferior de “Fecha inicio” en el bloque genérico: permiso remunerado (salvo modo horas) = desde mañana. */
@@ -916,6 +928,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                 fechaDisfruteVotacion: '',
                 horaDisfruteInicio: '',
                 horaDisfruteFin: '',
+                observaciones: '',
                 montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ '
             });
             if (value === 'Disponibilidad') {
@@ -1342,6 +1355,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                     (requiereDias || autocalculaDiasDesdeRango) ? diasValuePayload : (formData.cantidadHoras || 0)
                 );
             }
+            payload.append('observaciones', String(formData.observaciones || '').trim());
             if (requiereMontoCop) {
                 const monto = parseMontoCOPInput(formData.montoBono);
                 payload.append('montoCop', String(monto != null ? monto : 0));
@@ -1392,7 +1406,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                             fechaVotacion: '',
                             fechaDisfruteVotacion: '',
                             horaDisfruteInicio: '',
-                            horaDisfruteFin: ''
+                            horaDisfruteFin: '',
+                            observaciones: ''
                         };
                     });
                     setSelectedFiles([]);
@@ -1422,7 +1437,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                         fechaVotacion: '',
                         fechaDisfruteVotacion: '',
                         horaDisfruteInicio: '',
-                        horaDisfruteFin: ''
+                        horaDisfruteFin: '',
+                        observaciones: ''
                     });
                     setColaboradorVerificado(false);
                     setCatalogLocks({ lider: false });
@@ -2107,8 +2123,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                             )}
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
-                                            <input {...nativeCalendarOnlyInputProps} required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioEfectivaYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
+                                            <label className={labelCls}>Fecha Fin {(autocalculaDiasDesdeRango || esSuspension) && reqStar}</label>
+                                            <input {...nativeCalendarOnlyInputProps} required={autocalculaDiasDesdeRango || esSuspension} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioEfectivaYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
                                             {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
                                             {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
                                             {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
@@ -2152,6 +2168,34 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                     </div>
                                 )}
                             </section>
+                            )}
+
+                            {/* ═══ Observaciones (común a todos los tipos, opcional) ═══ */}
+                            {detalleFormularioActivo && (
+                                <section>
+                                    <h2 className={theme.sectionTitle}>
+                                        <span className={theme.sectionBar} />
+                                        Observaciones <span className={theme.helperMutedPlain}>(opcional, máx. {MAX_OBSERVACIONES_LEN} caracteres)</span>
+                                    </h2>
+                                    <div className="flex flex-col gap-1">
+                                        <label className="sr-only" htmlFor="observaciones-novedad">
+                                            Observaciones (opcional, máx. {MAX_OBSERVACIONES_LEN} caracteres)
+                                        </label>
+                                        <textarea
+                                            id="observaciones-novedad"
+                                            name="observaciones"
+                                            value={formData.observaciones || ''}
+                                            onChange={handleChange}
+                                            maxLength={MAX_OBSERVACIONES_LEN}
+                                            rows={4}
+                                            placeholder="Añade aquí cualquier observación adicional sobre tu novedad"
+                                            className={inputCls}
+                                        />
+                                        <div className={`text-right text-xs ${theme.helperMutedPlain}`} aria-live="polite">
+                                            {(formData.observaciones || '').length}/{MAX_OBSERVACIONES_LEN}
+                                        </div>
+                                    </div>
+                                </section>
                             )}
 
                             {/* ═══ Sección: Soportes / Adjuntos (no aplica a Disponibilidad) ═══ */}

@@ -21,6 +21,7 @@ import {
     formatHeSegmentListBogota
 } from './heNovedadBogotaClient.js';
 import { formatHeDomingoCompGestionResumen } from './heDomingoCompDisplay.js';
+import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat.js';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
@@ -46,6 +47,13 @@ function esTipoCompensatorioVotacionJurado(tipo) {
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '');
     return t.includes('compensatorio') && t.includes('votacion') && t.includes('jurado');
+}
+
+/** Gestión / UI: ¿la novedad es Disponibilidad y aplica el flujo de monto diligenciado por el aprobador? */
+function esTipoDisponibilidadConMontoDiligenciado(item) {
+    if (!item) return false;
+    const rule = getNovedadRule(item.tipoNovedad);
+    return Boolean(rule?.montoDiligenciadoPorAprobador);
 }
 
 /** Si el dashboard tiene `fMes` seleccionado, Gestión usa rango de creado_en en el año actual (no equivale a getItemDate del dashboard). */
@@ -407,6 +415,13 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [gestionAdminErr, setGestionAdminErr] = useState(null);
     const [gestionFestivosSet, setGestionFestivosSet] = useState(() => new Set());
     const [alertaHeDetailItem, setAlertaHeDetailItem] = useState(null);
+    /**
+     * HU disponibilidad-monto-diligenciado-por-gp: input controlado para que el aprobador
+     * (GP/super_admin/CAC) ingrese el monto en COP de una novedad de Disponibilidad antes de
+     * Aceptar o Rechazar. Se inicializa al abrir el modal de Gestión y se limpia al cerrar.
+     */
+    const [gestionDispMontoInput, setGestionDispMontoInput] = useState('$ ');
+    const [gestionDispMontoError, setGestionDispMontoError] = useState('');
     /** Panel colapsable de filtros avanzados en Gestión (todos los tamaños de pantalla). */
     const [gestionFiltersPanelOpen, setGestionFiltersPanelOpen] = useState(false);
     const navigate = useNavigate();
@@ -425,6 +440,23 @@ export default function Dashboard({ token, auth, onLogout }) {
             .catch(() => {});
         return () => ac.abort();
     }, []);
+
+    /**
+     * HU disponibilidad-monto-diligenciado-por-gp: al abrir/cerrar el modal de Gestión, reinicia
+     * el input de monto. Si la Disponibilidad ya tiene un monto previo (caso histórico previo a
+     * esta HU), se precarga formateado para que el aprobador lo confirme o lo edite.
+     */
+    useEffect(() => {
+        setGestionDispMontoError('');
+        if (gestionDetailItem && esTipoDisponibilidadConMontoDiligenciado(gestionDetailItem)) {
+            const previo = Number(gestionDetailItem.montoCop);
+            setGestionDispMontoInput(
+                Number.isFinite(previo) && previo > 0 ? formatMontoCOPLocale(previo) : '$ '
+            );
+        } else {
+            setGestionDispMontoInput('$ ');
+        }
+    }, [gestionDetailItem]);
 
     const loadData = useCallback(async (opts = {}) => {
         const { signal } = opts;
@@ -671,15 +703,24 @@ export default function Dashboard({ token, auth, onLogout }) {
                 'Authorization': `Bearer ${token}`
             };
             if (csrfToken) headers['x-cinte-xsrf'] = csrfToken;
+            const bodyPayload = {
+                id,
+                nuevoEstado,
+                fromHoraExtraAlert
+            };
+            /**
+             * HU disponibilidad-monto-diligenciado-por-gp: el aprobador (GP/super_admin/CAC)
+             * envía el monto en COP que diligenció en el modal de Gestión, sin importar si
+             * la decisión es Aprobado o Rechazado. El backend valida monto > 0 cuando aplica.
+             */
+            if (options && options.montoCop != null) {
+                bodyPayload.montoCop = options.montoCop;
+            }
             const res = await fetch('/api/actualizar-estado', {
                 method: 'POST',
                 credentials: 'include',
                 headers,
-                body: JSON.stringify({
-                    id,
-                    nuevoEstado,
-                    fromHoraExtraAlert
-                })
+                body: JSON.stringify(bodyPayload)
             });
             console.log('[changeState] Respuesta status:', res.status);
             const data = await res.json();
@@ -764,6 +805,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             montoCop: monto,
             estado: it.estado || 'Pendiente',
             heDomingoObservacion: it.heDomingoObservacion || '',
+            observaciones: it.observaciones || '',
             soporteRuta: sopRuta
         };
     };
@@ -808,6 +850,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             montoCop,
             estado: String(draft.estado || 'Pendiente').trim(),
             heDomingoObservacion: String(draft.heDomingoObservacion || '').trim() || null,
+            observaciones: String(draft.observaciones || '').trim() || null,
             soporteRuta: String(draft.soporteRuta || '').trim() || null
         };
     };
@@ -1277,8 +1320,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                 heNoctFranja: '—'
             };
         }
-        const recSegs = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs);
-        const heSegs = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs);
+        const recSegs = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs, gestionFestivosSet);
+        const heSegs = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs, gestionFestivosSet);
         return {
             recargoDiurnaFranja: formatHeSegmentListBogota(recSegs.diurna),
             recargoNoctFranja: formatHeSegmentListBogota(recSegs.nocturna),
@@ -1291,7 +1334,8 @@ export default function Dashboard({ token, auth, onLogout }) {
         gestionDetailItem?.fechaInicio,
         gestionDetailItem?.fechaFin,
         gestionDetailItem?.horaInicio,
-        gestionDetailItem?.horaFin
+        gestionDetailItem?.horaFin,
+        gestionFestivosSet
     ]);
 
     const totalPages = Math.max(1, Number(gestionPagination.totalPages || 1));
@@ -3011,7 +3055,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         </>
                                     ) : null}
                                     <div><span className={dash.modalMuted}>Fecha de disfrute:</span> {gestionDetailItem.fechaInicio || '-'}</div>
-                                    <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
+                                    {gestionDetailItem.fechaInicio && gestionDetailItem.fechaInicio !== gestionDetailItem.fechaVotacion ? (
+                                        <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
+                                    ) : null}
                                     {String(gestionDetailItem.modalidad || '').trim() === 'solo_voto' &&
                                     (gestionDetailItem.horaInicio || gestionDetailItem.horaFin) ? (
                                         <div>
@@ -3025,14 +3071,18 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <div><span className={dash.modalMuted}>Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
                                     <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                                     <div><span className={dash.modalMuted}>Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
-                                    <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
+                                    {gestionDetailItem.fechaFin && gestionDetailItem.fechaFin !== gestionDetailItem.fechaInicio ? (
+                                        <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
+                                    ) : null}
                                     {gestionDetailItem.modalidad ? (
                                         <div><span className={dash.modalMuted}>Modalidad (votación/jurado):</span> {gestionDetailItem.modalidad}</div>
                                     ) : null}
                                     {gestionDetailItem.fechaVotacion ? (
                                         <>
                                             <div><span className={dash.modalMuted}>Fecha de votación / actuación:</span> {gestionDetailItem.fechaVotacion}</div>
-                                            <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaVotacion} festivosSet={gestionFestivosSet} />
+                                            {gestionDetailItem.fechaVotacion !== gestionDetailItem.fechaInicio && gestionDetailItem.fechaVotacion !== gestionDetailItem.fechaFin ? (
+                                                <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaVotacion} festivosSet={gestionFestivosSet} />
+                                            ) : null}
                                         </>
                                     ) : null}
                                 </>
@@ -3073,6 +3123,22 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         }
                                     >
                                         <span className="font-semibold">Compensación dominical:</span> {heDomingoCompResumen}
+                                    </div>
+                                ) : null;
+                            })()}
+
+                            {(() => {
+                                const observacionesTexto = String(gestionDetailItem.observaciones || '').trim();
+                                return observacionesTexto ? (
+                                    <div
+                                        className={
+                                            isLight
+                                                ? 'md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800'
+                                                : 'md:col-span-2 rounded-lg border border-sky-500/35 bg-slate-900/60 px-3 py-2 text-sm text-slate-100'
+                                        }
+                                    >
+                                        <span className="font-semibold">Observaciones:</span>{' '}
+                                        <span className="whitespace-pre-wrap break-words">{observacionesTexto}</span>
                                     </div>
                                 ) : null;
                             })()}
@@ -3273,14 +3339,12 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     </span>{' '}
                                                     {gestionDetailItem.fechaInicio || '-'}
                                                 </div>
-                                                <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                                                 <div>
                                                     <span className={isLight ? 'font-semibold text-emerald-900' : 'font-semibold text-emerald-300'}>
                                                         Fecha fin:
                                                     </span>{' '}
                                                     {gestionDetailItem.fechaFin || '-'}
                                                 </div>
-                                                <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
                                             </div>
                                         </div>
                                     </div>
@@ -3399,6 +3463,14 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <label className={`${dash.labelUpper} col-span-full`}>Compensación HE (observación)
                                     <textarea className={`mt-1 min-h-[72px] w-full ${fieldInput}`} value={gestionEditDraft.heDomingoObservacion} onChange={(e) => setGestionEditDraft((d) => ({ ...d, heDomingoObservacion: e.target.value }))} />
                                 </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Observaciones
+                                    <textarea
+                                        className={`mt-1 min-h-[72px] w-full ${fieldInput}`}
+                                        maxLength={1000}
+                                        value={gestionEditDraft.observaciones}
+                                        onChange={(e) => setGestionEditDraft((d) => ({ ...d, observaciones: e.target.value }))}
+                                    />
+                                </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Soporte(s) — ruta o JSON
                                     <textarea className={`mt-1 min-h-[56px] w-full font-mono text-xs ${fieldInput}`} value={gestionEditDraft.soporteRuta} onChange={(e) => setGestionEditDraft((d) => ({ ...d, soporteRuta: e.target.value }))} />
                                 </label>
@@ -3461,6 +3533,55 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </div>
                         ) : null}
 
+                        {!gestionEditMode
+                            && canApproveItem(gestionDetailItem)
+                            && esTipoDisponibilidadConMontoDiligenciado(gestionDetailItem) ? (
+                            <div
+                                className={
+                                    isLight
+                                        ? 'mt-4 flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4'
+                                        : 'mt-4 flex flex-col gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4'
+                                }
+                            >
+                                <label htmlFor="gestion-disp-monto" className={`${dash.modalMuted} text-sm font-semibold`}>
+                                    Valor de disponibilidad (COP) <span className={isLight ? 'text-rose-700' : 'text-rose-300'}>*</span>
+                                </label>
+                                <input
+                                    id="gestion-disp-monto"
+                                    type="text"
+                                    inputMode="decimal"
+                                    aria-required="true"
+                                    aria-invalid={Boolean(gestionDispMontoError)}
+                                    value={gestionDispMontoInput}
+                                    onChange={(e) => {
+                                        setGestionDispMontoError('');
+                                        setGestionDispMontoInput(e.target.value);
+                                    }}
+                                    onBlur={() => {
+                                        const n = parseMontoCOPInput(gestionDispMontoInput);
+                                        if (n == null || !Number.isFinite(n) || n <= 0) {
+                                            return;
+                                        }
+                                        setGestionDispMontoInput(formatMontoCOPLocale(n));
+                                    }}
+                                    placeholder="$ 1.500.000"
+                                    className={
+                                        isLight
+                                            ? 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500'
+                                            : 'rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400'
+                                    }
+                                />
+                                <small className={dash.modalMuted}>
+                                    El valor en pesos lo diligencia el GP antes de Aceptar o Rechazar. Miles con punto, decimales con coma (ej. $ 1.500.000).
+                                </small>
+                                {gestionDispMontoError ? (
+                                    <div role="alert" className={isLight ? 'text-xs font-semibold text-rose-700' : 'text-xs font-semibold text-rose-300'}>
+                                        {gestionDispMontoError}
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
+
                         <div className={dash.modalFooter}>
                             <button type="button" onClick={closeGestionDetailModal} className={`${outlineBtn} text-sm`}>Cerrar</button>
                             {gestionEditMode && isSuperAdminNovedades ? (
@@ -3477,32 +3598,66 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     {gestionAdminBusy ? 'Guardando…' : 'Guardar cambios'}
                                 </button>
                             ) : null}
-                            {!gestionEditMode && canApproveItem(gestionDetailItem) && (
-                                <>
-                                    <button
-                                        type="button"
-                                        onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Rechazado'); closeGestionDetailModal(); }}
-                                        className={
-                                            isLight
-                                                ? 'rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 transition-all hover:bg-rose-50'
-                                                : 'rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-400 transition-all hover:bg-rose-500/10'
+                            {!gestionEditMode && canApproveItem(gestionDetailItem) && (() => {
+                                const aplicaDisp = esTipoDisponibilidadConMontoDiligenciado(gestionDetailItem);
+                                const montoNumber = aplicaDisp ? parseMontoCOPInput(gestionDispMontoInput) : null;
+                                const montoValido = aplicaDisp
+                                    ? (montoNumber != null && Number.isFinite(montoNumber) && montoNumber > 0)
+                                    : true;
+                                const decisionDisabled = aplicaDisp && !montoValido;
+                                /**
+                                 * Reusable: en Disponibilidad, validamos input antes de despachar
+                                 * y, si está OK, enviamos `montoCop` junto al cambio de estado.
+                                 */
+                                const dispatchDecision = async (estadoFinal) => {
+                                    if (aplicaDisp) {
+                                        if (!Number.isFinite(montoNumber) || montoNumber <= 0) {
+                                            setGestionDispMontoError('Indica un valor en pesos mayor a cero.');
+                                            return;
                                         }
-                                    >
-                                        Rechazar
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Aprobado'); closeGestionDetailModal(); }}
-                                        className={
-                                            isLight
-                                                ? 'rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 transition-all hover:bg-emerald-50'
-                                                : 'rounded-lg border border-emerald-500/40 px-4 py-2 text-sm text-emerald-400 transition-all hover:bg-emerald-500/10'
-                                        }
-                                    >
-                                        Aceptar
-                                    </button>
-                                </>
-                            )}
+                                        await changeState(
+                                            gestionDetailItem.id || gestionDetailItem.creadoEn,
+                                            estadoFinal,
+                                            { montoCop: Number(montoNumber.toFixed(2)) }
+                                        );
+                                    } else {
+                                        await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, estadoFinal);
+                                    }
+                                    closeGestionDetailModal();
+                                };
+                                return (
+                                    <>
+                                        <button
+                                            type="button"
+                                            disabled={decisionDisabled}
+                                            aria-disabled={decisionDisabled}
+                                            title={decisionDisabled ? 'Diligencia un valor en pesos mayor a cero antes de rechazar.' : undefined}
+                                            onClick={() => { void dispatchDecision('Rechazado'); }}
+                                            className={
+                                                isLight
+                                                    ? 'rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 transition-all hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50'
+                                                    : 'rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-400 transition-all hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50'
+                                            }
+                                        >
+                                            Rechazar
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={decisionDisabled}
+                                            aria-disabled={decisionDisabled}
+                                            title={decisionDisabled ? 'Diligencia un valor en pesos mayor a cero antes de aprobar.' : undefined}
+                                            onClick={() => { void dispatchDecision('Aprobado'); }}
+                                            className={
+                                                isLight
+                                                    ? 'rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 transition-all hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50'
+                                                    : 'rounded-lg border border-emerald-500/40 px-4 py-2 text-sm text-emerald-400 transition-all hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50'
+                                            }
+                                        >
+                                            Aceptar
+                                        </button>
+                                    </>
+                                );
+                            })()}
                         </div>
 
                         {gestionDeleteOpen && (
@@ -3576,7 +3731,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <div><span className={dash.modalMuted}>Fecha inicio:</span> {alertaHeDetailItem.fechaInicio || '-'}</div>
                             <GestionCalendarioCivilNotas ymd={alertaHeDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                             <div><span className={dash.modalMuted}>Fecha fin:</span> {alertaHeDetailItem.fechaFin || '-'}</div>
-                            <GestionCalendarioCivilNotas ymd={alertaHeDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
+                            {alertaHeDetailItem.fechaFin && alertaHeDetailItem.fechaFin !== alertaHeDetailItem.fechaInicio ? (
+                                <GestionCalendarioCivilNotas ymd={alertaHeDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
+                            ) : null}
                             <div><span className={dash.modalMuted}>Franja cargada:</span> {(alertaHeDetailItem.horaInicio && alertaHeDetailItem.horaFin) ? `${alertaHeDetailItem.horaInicio} - ${alertaHeDetailItem.horaFin}` : '-'}</div>
                             <div><span className={dash.modalMuted}>Horas cargadas:</span> {alertaHeDetailItem.cantidadHoras || 0}h</div>
                             {Array.isArray(alertaHeDetailItem.dailyReasons) && alertaHeDetailItem.dailyReasons.length > 0 && (
@@ -3670,8 +3827,14 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </div>
 
                         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3">
-                            {selectedDayItems.items.map((it, idx) => (
-                                <div key={idx} className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${getTypeColor(it.tipoNovedad).replace('bg-', 'bg-').replace('/20', '/10')}`}>
+                            {selectedDayItems.items.map((it, idx) => {
+                                const observacionesTexto = String(it.observaciones || '').trim();
+                                const observacionesPreview = observacionesTexto.length > 120
+                                    ? `${observacionesTexto.slice(0, 117)}…`
+                                    : observacionesTexto;
+                                return (
+                                <div key={idx} className={`p-4 rounded-xl border flex flex-col gap-3 ${getTypeColor(it.tipoNovedad).replace('bg-', 'bg-').replace('/20', '/10')}`}>
+                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                                     <div className="flex items-center gap-4">
                                         <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg border ${getTypeColor(it.tipoNovedad).replace('bg-', 'border-').replace('/20', '/30')}`}>
                                             {it.nombre.charAt(0).toUpperCase()}
@@ -3736,8 +3899,22 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             <Eye size={16} /> Ver Soporte
                                         </button>
                                     )}
+                                    </div>
+                                    {observacionesTexto ? (
+                                        <p
+                                            title={observacionesTexto}
+                                            className={
+                                                isLight
+                                                    ? 'text-xs text-slate-600 break-words border-t border-slate-200/70 pt-2'
+                                                    : 'text-xs text-slate-300 break-words border-t border-slate-500/30 pt-2'
+                                            }
+                                        >
+                                            <span className="font-semibold">Observaciones:</span> {observacionesPreview}
+                                        </p>
+                                    ) : null}
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 </div>

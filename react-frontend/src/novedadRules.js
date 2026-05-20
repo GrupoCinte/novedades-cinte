@@ -104,6 +104,11 @@ export const NOVEDAD_RULES = {
   },
   /**
    * Disponibilidad: el backend guarda cantidad_horas = 0 y el valor en monto_cop.
+   * HU disponibilidad-monto-diligenciado-por-gp:
+   *   - El consultor radica SIN diligenciar el monto (campo oculto en el formulario).
+   *   - El monto lo diligencia el GP (o super_admin/CAC) en el modal de Gestión, justo antes de Aprobar o Rechazar.
+   *   - `requiresMonetaryAmount: true` se mantiene para que el panel de Gestión siga mostrando "Valor (COP)" como etiqueta.
+   *   - `montoDiligenciadoPorAprobador: true` señala que la captura del monto NO ocurre en la radicación.
    * El formulario puede mostrar días hábiles del rango solo como referencia (UI), no persistidos en cantidad_horas.
    */
   Disponibilidad: {
@@ -113,7 +118,8 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false,
-    requiresMonetaryAmount: true
+    requiresMonetaryAmount: true,
+    montoDiligenciadoPorAprobador: true
   },
   'Hora Extra': {
     requiredDocuments: [],
@@ -122,6 +128,21 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: true
+  },
+  /**
+   * Suspensión de contrato de prestación de servicios. Solo consultor (Entra) radica.
+   * Periodo no facturable al cliente; aprueba GP del cliente asignado.
+   * Spec: docs/specs/crear-novedad-de-suspension.spec.md
+   */
+  Suspensión: {
+    requiredDocuments: [],
+    formatLinks: [],
+    approvers: ['gp'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
+    requiresDayCount: false,
+    requiresTimeRange: false,
+    requiresObservaciones: true,
+    requiresFechaFin: true
   }
 };
 
@@ -185,7 +206,8 @@ const TIPO_ALIAS_SNAKE = {
   apoyo_standby: 'Disponibilidad',
   disponibilidad_standby: 'Disponibilidad',
   bonos: 'Bonos',
-  bono: 'Bonos'
+  bono: 'Bonos',
+  suspension: 'Suspensión'
 };
 
 /** Días hábiles entre fechas YYYY-MM-DD (lun–vie), alineado con Formulario y registerRoutes. */
@@ -280,6 +302,8 @@ export function resolveCanonicalNovedadTipo(tipoRaw) {
   ) {
     return 'Disponibilidad';
   }
+  /* Suspensión: backend persiste display "Suspensión" (con tilde); el folding la deja sin tilde. */
+  if (f === 'suspension') return 'Suspensión';
   return raw;
 }
 

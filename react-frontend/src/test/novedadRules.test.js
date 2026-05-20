@@ -22,7 +22,7 @@ import {
 // Roles actuales según src/rbac.js → ROLE_PRIORITY (cac reemplaza admin_ops/sst; comercial añadido)
 const ALL_ROLES = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial'];
 
-// Catálogo vigente en formulario: 13 tipos (vacaciones tiempo/dinero y Bonos solo histórico en NOVEDAD_RULES_LEGACY).
+// Catálogo vigente en formulario: 14 tipos (vacaciones tiempo/dinero y Bonos solo histórico en NOVEDAD_RULES_LEGACY).
 const ALL_NOVEDAD_TYPES = [
   'Incapacidad',
   'Calamidad domestica',
@@ -37,12 +37,13 @@ const ALL_NOVEDAD_TYPES = [
   'Compensatorio por votación/jurado',
   'Disponibilidad',
   'Hora Extra',
+  'Suspensión',
 ];
 
 // ─── Estructura del catálogo ──────────────────────────────────────────────────
 describe('NOVEDAD_RULES – estructura del catálogo', () => {
-  it('debe exportar exactamente los 13 tipos de novedad activos en el catálogo', () => {
-    expect(NOVEDAD_TYPES).toHaveLength(13);
+  it('debe exportar exactamente los 14 tipos de novedad activos en el catálogo', () => {
+    expect(NOVEDAD_TYPES).toHaveLength(14);
     ALL_NOVEDAD_TYPES.forEach((tipo) => {
       expect(NOVEDAD_TYPES).toContain(tipo);
     });
@@ -213,11 +214,54 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
     });
   });
 
+  // Suspensión (HU crear-novedad-de-suspension)
+  describe('Suspensión', () => {
+    const rule = NOVEDAD_RULES['Suspensión'];
+    it('no debe requerir documentos físicos', () => {
+      expect(rule.requiredDocuments).toHaveLength(0);
+    });
+    it('no usa rango de horas ni conteo de días (solo fechas + observaciones)', () => {
+      expect(rule.requiresTimeRange).toBe(false);
+      expect(rule.requiresDayCount).toBe(false);
+      expect(rule.autoBusinessDays).toBeFalsy();
+      expect(rule.autoCalendarDays).toBeFalsy();
+    });
+    it('exige fecha fin y muestra textarea de observaciones', () => {
+      expect(rule.requiresFechaFin).toBe(true);
+      expect(rule.requiresObservaciones).toBe(true);
+    });
+    it('aprueba solo gp (operativa, clientes asignados)', () => {
+      expect(rule.approvers).toEqual(['gp']);
+    });
+    it('viewers estándar operativo (incluye nomina y CH)', () => {
+      expect(rule.viewers).toEqual(
+        expect.arrayContaining(['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'])
+      );
+    });
+    it('alias snake "suspension" resuelve al canónico con tilde', () => {
+      const r = getNovedadRule('suspension');
+      expect(r.approvers).toEqual(['gp']);
+      expect(r.requiresFechaFin).toBe(true);
+    });
+  });
+
   it('tipos operación: solo gp aprueba (alineado con src/rbac.js)', () => {
     expect(NOVEDAD_RULES['Permiso compensatorio en tiempo'].approvers).toEqual(['gp']);
     expect(NOVEDAD_RULES.Disponibilidad.approvers).toEqual(['gp']);
     expect(NOVEDAD_RULES['Hora Extra'].approvers).toEqual(['gp']);
     expect(NOVEDAD_RULES_LEGACY.Bonos.approvers).toEqual(['gp']);
+  });
+
+  describe('HU disponibilidad-monto-diligenciado-por-gp', () => {
+    it('Disponibilidad mantiene requiresMonetaryAmount=true (etiqueta "Valor (COP)" en gestión)', () => {
+      expect(NOVEDAD_RULES.Disponibilidad.requiresMonetaryAmount).toBe(true);
+    });
+    it('Disponibilidad declara montoDiligenciadoPorAprobador=true (consultor no diligencia el monto)', () => {
+      expect(NOVEDAD_RULES.Disponibilidad.montoDiligenciadoPorAprobador).toBe(true);
+    });
+    it('Bonos NO debe tener montoDiligenciadoPorAprobador (sigue siendo diligenciado por el solicitante)', () => {
+      expect(NOVEDAD_RULES_LEGACY.Bonos.montoDiligenciadoPorAprobador).toBeFalsy();
+    });
   });
 
   describe('Compensatorio por votación/jurado', () => {

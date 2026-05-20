@@ -129,6 +129,7 @@ function buildExcelRowHoraExtraSlice(opts) {
         horasRecargoDomingoNocturnas: ck === 'horasRecargoDomingoNocturnas' && h > 0 ? h : '',
         compensacionDominical,
         observacionHeDomingo,
+        observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
         asignadoRoles: it.asignacionRolesEtiqueta || '—',
@@ -168,6 +169,7 @@ function buildExcelRowHoraExtraLegacy(opts) {
             Number(it.horasRecargoDomingoNocturnas || 0) > 0 ? Number(it.horasRecargoDomingoNocturnas) : '',
         compensacionDominical,
         observacionHeDomingo,
+        observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
         asignadoRoles: it.asignacionRolesEtiqueta || '—',
@@ -197,6 +199,7 @@ function buildExcelRowOtroTipo(opts) {
         horasRecargoDomingoNocturnas: '',
         compensacionDominical: '',
         observacionHeDomingo,
+        observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
         asignadoRoles: it.asignacionRolesEtiqueta || '—',
@@ -999,6 +1002,7 @@ function registerRoutes(deps) {
                 { header: 'Recargo dominical/festivos — nocturno', key: 'horasRecargoDomingoNocturnas', width: 24 },
                 { header: 'Compensación dominical', key: 'compensacionDominical', width: 32 },
                 { header: 'Observación HE domingo', key: 'observacionHeDomingo', width: 48 },
+                { header: 'Observaciones', key: 'observaciones', width: 48 },
                 { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
                 { header: 'Estado', key: 'estado', width: 14 },
                 { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 },
@@ -1382,6 +1386,14 @@ function registerRoutes(deps) {
                         'Debes aceptar la política de tratamiento y protección de datos personales para enviar la solicitud.'
                 });
             }
+            const observacionesRaw = body.observaciones != null ? String(body.observaciones) : '';
+            if (observacionesRaw.length > 1000) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Observaciones: máximo 1000 caracteres.'
+                });
+            }
+            const observacionesPersist = observacionesRaw.trim() === '' ? null : observacionesRaw;
             const rule = getNovedadRuleByType(tipoNovedad);
             const requiredMinSupports = Number(rule?.requiredMinSupports || 0);
             if (requiredMinSupports > 0 && files.length < requiredMinSupports) {
@@ -1812,7 +1824,8 @@ function registerRoutes(deps) {
                         error: 'Hora Extra: el lapso entre inicio y fin no puede superar 168 horas (7 días).'
                     });
                 }
-                const split = computeHoraExtraSplitBogota(startMs, endMs);
+                const festivosSetHe = await festivosService.getFestivosSet();
+                const split = computeHoraExtraSplitBogota(startMs, endMs, festivosSetHe);
                 if (split.total <= 0) {
                     return res.status(400).json({ ok: false, error: 'La fecha/hora fin debe ser mayor a la fecha/hora inicio.' });
                 }
@@ -1838,7 +1851,7 @@ function registerRoutes(deps) {
                     horaInicio,
                     horaFin
                 });
-                const depHeDom = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow, festivosSet: await festivosService.getFestivosSet() };
+                const depHeDom = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow, festivosSet: festivosSetHe };
                 const prevHeDom = computeHeDomingoCompensacionPreview(
                     rowsHeDom,
                     syntheticHeDom,
@@ -1892,14 +1905,22 @@ function registerRoutes(deps) {
             }
 
             let montoCop = null;
-            if (novedadTypeKey === 'bonos' || novedadTypeKey === 'apoyo') {
+            if (novedadTypeKey === 'bonos') {
                 const rawMonto = body.montoCop ?? body.montoBono ?? body.valorBonificacion;
                 const parsed = parseMontoCopFromBody(rawMonto);
                 if (!Number.isFinite(parsed) || parsed <= 0) {
-                    const tipoLabel = novedadTypeKey === 'bonos' ? 'Bonos' : 'Disponibilidad';
-                    return res.status(400).json({ ok: false, error: `${tipoLabel} requiere un valor en pesos mayor a cero.` });
+                    return res.status(400).json({ ok: false, error: 'Bonos requiere un valor en pesos mayor a cero.' });
                 }
                 montoCop = Number(parsed.toFixed(2));
+                cantidadHoras = 0;
+            } else if (novedadTypeKey === 'apoyo') {
+                /**
+                 * HU disponibilidad-monto-diligenciado-por-gp: el consultor radica SIN monto.
+                 * El valor en pesos lo diligencia el GP (o super_admin/CAC) en el momento de aprobar
+                 * o rechazar la novedad vía POST /api/actualizar-estado. Cualquier monto enviado
+                 * por el cliente al radicar se ignora intencionalmente (defensa en profundidad).
+                 */
+                montoCop = null;
                 cantidadHoras = 0;
             }
 
@@ -1959,14 +1980,14 @@ function registerRoutes(deps) {
                     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
                     cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion,
-                    modalidad, fecha_votacion, unidad,
+                    modalidad, fecha_votacion, unidad, observaciones,
                     estado
                 )
                 VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8::user_area,
                     $9::date, $10::time, $11::time, $12::date, $13::date,
                     $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-                    $24, $25::date, $26,
+                    $24, $25::date, $26, $27,
                     'Pendiente'::novedad_estado
                 )
                 RETURNING id`,
@@ -1996,7 +2017,8 @@ function registerRoutes(deps) {
                     heDomingoObservacionInsert || null,
                     insertModalidad,
                     insertFechaVotacion || null,
-                    insertUnidad || null
+                    insertUnidad || null,
+                    observacionesPersist
                 ]
             );
             } catch (insertError) {
@@ -2183,6 +2205,7 @@ function registerRoutes(deps) {
             const { id, nuevoEstado } = req.body || {};
             const fromHoraExtraAlert = Boolean(req.body?.fromHoraExtraAlert);
             const estado = normalizeEstado(nuevoEstado);
+            const rawMontoCop = req.body?.montoCop ?? req.body?.monto_cop ?? null;
             const actorSub = String(req.user?.sub || '').trim();
             const actorUserIdRaw = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
                 ? actorSub
@@ -2224,6 +2247,26 @@ function registerRoutes(deps) {
                 return res.status(403).json({ ok: false, error: 'Este rol no puede aprobar/rechazar este tipo de novedad' });
             }
 
+            /**
+             * HU disponibilidad-monto-diligenciado-por-gp: en Disponibilidad, el aprobador (GP/super_admin/CAC)
+             * DEBE diligenciar el monto en COP en el momento de Aprobar o Rechazar. Sin monto válido > 0,
+             * la transición se rechaza con HTTP 400 y la fila queda intacta.
+             */
+            const itemTypeKey = normalizeNovedadTypeKey(item.tipo_novedad);
+            let nuevoMontoCopParaUpdate = null;
+            const aplicaDiligenciamientoMonto =
+                itemTypeKey === 'apoyo' && (estado === 'Aprobado' || estado === 'Rechazado');
+            if (aplicaDiligenciamientoMonto) {
+                const parsedMonto = parseMontoCopFromBody(rawMontoCop);
+                if (!Number.isFinite(parsedMonto) || parsedMonto <= 0) {
+                    return res.status(400).json({
+                        ok: false,
+                        error: 'Disponibilidad requiere un valor en pesos mayor a cero.'
+                    });
+                }
+                nuevoMontoCopParaUpdate = Number(parsedMonto.toFixed(2));
+            }
+
             const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
             // Derivar actor exclusivamente del token/sesión validado en backend (MED-006).
             let actorEmail = String(req.user?.email || '').trim();
@@ -2258,12 +2301,22 @@ function registerRoutes(deps) {
                      rechazado_por_rol = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $2::user_role ELSE NULL END,
                      rechazado_por_user_id = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $3::uuid ELSE NULL END,
                      rechazado_por_email = CASE WHEN $1::novedad_estado = 'Rechazado' THEN NULLIF($4::text, '') ELSE NULL END,
+                     monto_cop = CASE WHEN $7::boolean THEN $8::numeric ELSE monto_cop END,
                      alerta_he_origen = CASE WHEN $6::boolean THEN TRUE ELSE alerta_he_origen END,
                      alerta_he_resuelta_estado = CASE WHEN $6::boolean THEN $1::text ELSE alerta_he_resuelta_estado END,
                      alerta_he_resuelta_en = CASE WHEN $6::boolean THEN NOW() ELSE alerta_he_resuelta_en END,
                      alerta_he_resuelta_por_email = CASE WHEN $6::boolean THEN NULLIF($4::text, '') ELSE alerta_he_resuelta_por_email END
                  WHERE id = $5::uuid`,
-                [estado, req.user.role, actorUserId, actorEmail, item.id, fromHoraExtraAlert]
+                [
+                    estado,
+                    req.user.role,
+                    actorUserId,
+                    actorEmail,
+                    item.id,
+                    fromHoraExtraAlert,
+                    aplicaDiligenciamientoMonto,
+                    nuevoMontoCopParaUpdate
+                ]
             );
 
             await pool.query(
@@ -2284,7 +2337,7 @@ function registerRoutes(deps) {
                     fechaInicio: item.fecha_inicio,
                     fechaFin: item.fecha_fin,
                     cantidadHoras: item.cantidad_horas,
-                    montoCop: item.monto_cop,
+                    montoCop: aplicaDiligenciamientoMonto ? nuevoMontoCopParaUpdate : item.monto_cop,
                     previousEstado: normalizeEstado(item.estado),
                     newEstado: estado,
                     changedByEmail: actorEmail
