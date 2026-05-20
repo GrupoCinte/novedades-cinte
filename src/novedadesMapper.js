@@ -39,6 +39,24 @@ function normalizeTipoRaw(value) {
         .trim();
 }
 
+/**
+ * Fecha DATE/TIMESTAMP de PostgreSQL → YYYY-MM-DD.
+ * node-pg suele mapear columna DATE a `Date` en medianoche UTC del día civil guardado;
+ * usar componentes UTC evita mostrar el día anterior al pasar por zona Bogotá.
+ */
+function pgDateToYmd(value) {
+    if (value == null || value === '') return '';
+    const s = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        const y = value.getUTCFullYear();
+        const m = String(value.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(value.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    }
+    return '';
+}
+
 function decodePossiblyMisencodedText(value) {
     const raw = String(value || '');
     if (!raw) return '';
@@ -88,11 +106,11 @@ function toClientNovedad(row) {
         gpUserId: row.gp_user_id ? String(row.gp_user_id) : null,
         tipoNovedad,
         area: row.area,
-        fecha: row.fecha ? row.fecha.toISOString().slice(0, 10) : '',
+        fecha: pgDateToYmd(row.fecha),
         horaInicio: row.hora_inicio ? String(row.hora_inicio).slice(0, 5) : '',
         horaFin: row.hora_fin ? String(row.hora_fin).slice(0, 5) : '',
-        fechaInicio: row.fecha_inicio ? row.fecha_inicio.toISOString().slice(0, 10) : '',
-        fechaFin: row.fecha_fin ? row.fecha_fin.toISOString().slice(0, 10) : '',
+        fechaInicio: pgDateToYmd(row.fecha_inicio),
+        fechaFin: pgDateToYmd(row.fecha_fin),
         cantidadHoras: Number(row.cantidad_horas || 0),
         horasDiurnas: Number(row.horas_diurnas || 0),
         horasNocturnas: Number(row.horas_nocturnas || 0),
@@ -120,7 +138,11 @@ function toClientNovedad(row) {
         modalidadVotacion: row.modalidad_votacion || null,
         fechaVotacion: row.fecha_votacion ? row.fecha_votacion.toISOString().slice(0, 10) : null,
         asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta
+        asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta,
+        modalidad: row.modalidad != null ? String(row.modalidad).trim() : '',
+        fechaVotacion: pgDateToYmd(row.fecha_votacion),
+        unidad: row.unidad != null ? String(row.unidad).trim() : ''
     };
 }
 
-module.exports = { toClientNovedad };
+module.exports = { toClientNovedad, decodePossiblyMisencodedText };

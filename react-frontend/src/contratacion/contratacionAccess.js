@@ -3,7 +3,7 @@ import ROLE_PRIORITY from '../constants/rolePriority.json';
 /**
  * Alineado con src/rbac.js POLICY: quién puede ver el módulo Contratación.
  */
-const ROLES_WITH_CONTRATACION_PANEL = new Set(['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp']);
+const ROLES_WITH_CONTRATACION_PANEL = new Set(['super_admin', 'admin_ch', 'team_ch']);
 
 function normalizePayload(authOrToken) {
     if (authOrToken && typeof authOrToken === 'object') {

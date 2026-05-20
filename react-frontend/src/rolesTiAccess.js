@@ -3,8 +3,10 @@
  */
 
 import { getPanelsFromToken } from './comercialAccess.js';
+import { resolveRoleFromTokenPayload } from './contratacion/contratacionAccess.js';
 
-const WRITE_ROLES = new Set(['super_admin', 'cac', 'admin_ch']);
+/** Escritura catálogo TI: mismo universo que cotizador (`comercial`); sin rol CH sin panel comercial. */
+const WRITE_ROLES = new Set(['super_admin']);
 
 function normalizePayload(authOrToken) {
     if (authOrToken && typeof authOrToken === 'object') {
@@ -18,10 +20,14 @@ function normalizePayload(authOrToken) {
     return null;
 }
 
-/** Quien puede abrir la pantalla (mismo universo que cotizador + admin hub). */
+/** Quien puede abrir la pantalla (alineado al cotizador: panel `comercial` en JWT). GP/CAC excluidos. */
 export function userHasRolesTiCatalogRead(authOrToken) {
+    const payload = normalizePayload(authOrToken);
+    const role = resolveRoleFromTokenPayload(payload);
+    if (role === 'gp') return false;
+    if (role === 'super_admin') return true;
     const panels = getPanelsFromToken(authOrToken);
-    return panels.some((p) => ['comercial', 'dashboard', 'gestion', 'admin'].includes(p));
+    return panels.includes('comercial');
 }
 
 export function userHasRolesTiCatalogWrite(authOrToken) {

@@ -75,6 +75,7 @@ function buildAppWithRole(role) {
         authLimiter: limiter,
         forgotLimiter: limiter,
         submitLimiter: limiter,
+        consultorFormPostLimiter: limiter,
         catalogLimiter: limiter,
         normalizeCedula: (v) => String(v || '').replace(/\D/g, ''),
         getColaboradorByCedula: async () => null,
@@ -141,7 +142,9 @@ function buildAppWithRole(role) {
         xlsx: { read: () => ({}), utils: { sheet_to_json: () => [] } },
         emailNotificationsPublisher: {},
         resolveApproverEmailsForNovedad: async () => ({ emails: [] }),
-        revokeAppSessionToken: () => {}
+        revokeAppSessionToken: () => {},
+        requireEntraConsultor: () => (_req, _res, next) => next(),
+        requireCatalogConsultorOrStaff: () => (_req, _res, next) => next()
     });
     return app;
 }

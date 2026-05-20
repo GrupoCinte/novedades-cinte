@@ -1,66 +1,77 @@
 const POLICY = {
     super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial', 'directorio'], viewAllAreas: true },
-    cac: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial', 'directorio'] },
-    admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] },
-    team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'comercial'] },
+    /**
+     * Paridad funcional con super_admin en novedades (`canRole*` + alcance) y directorio maestro.
+     * Incluye todos los subpaneles del módulo novedades (`dashboard`, `calendar`, `gestion`).
+     * Sin comercial/cotizador ni Capital Humano onboarding (`contratacion`).
+     */
+    cac: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'directorio'], viewAllAreas: true },
+    /** Alcance de novedades sin filtro por `area` (misma visión global de lista que super_admin en ese aspecto). */
+    /** Sin módulo comercial/cotizador (solo novedades amplias + contratación onboarding). */
+    admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'], viewAllAreas: true },
+    team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'], viewAllAreas: true },
     comercial: { panels: ['comercial'] },
-    gp: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'] },
-    nomina: { panels: ['dashboard', 'calendar', 'gestion'], viewAllAreas: true }
+    /** Solo gestión de novedades (`allowPanel('gestion')`); sin otros paneles JWT (comercial, contratación, directorio). */
+    gp: { panels: ['gestion'] },
+    nomina: { panels: ['dashboard', 'calendar', 'gestion'], viewAllAreas: true },
+    /** Radicación vía Microsoft Entra (sin paneles admin). */
+    consultor: { panels: [] }
 };
 
 const NOVELTY_RULES = {
     incapacidad: {
         displayName: 'Incapacidad',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'cac'],
+        /** Tras verificación nómina, solo admin_ch (+ super_admin en API) aprueba/rechaza. */
+        approvers: ['admin_ch'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     calamidad_domestica: {
         displayName: 'Calamidad domestica',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'cac'],
+        approvers: ['admin_ch'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     permiso_remunerado: {
         displayName: 'Permiso remunerado',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'cac'],
+        approvers: ['admin_ch'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     licencia_luto: {
         displayName: 'Licencia de luto',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'cac'],
+        approvers: ['admin_ch'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     licencia_paternidad: {
         displayName: 'Licencia de paternidad',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'cac'],
+        approvers: ['admin_ch'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina', 'gp']
     },
     licencia_maternidad: {
         displayName: 'Licencia de maternidad',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'cac'],
+        approvers: ['admin_ch'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina', 'gp']
     },
     licencia_remunerada: {
         displayName: 'Licencia remunerada',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'cac'],
+        approvers: ['admin_ch'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     licencia_no_remunerada: {
         displayName: 'Licencia no remunerada',
         requiredMinSupports: 0,
-        approvers: ['gp', 'cac'],
+        approvers: ['admin_ch'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     permiso_no_remunerado: {
         displayName: 'Permiso no remunerado',
         requiredMinSupports: 0,
-        approvers: ['gp', 'cac'],
+        approvers: ['admin_ch'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     vacaciones_tiempo: {
@@ -72,7 +83,7 @@ const NOVELTY_RULES = {
     vacaciones_dinero: {
         displayName: 'Vacaciones en dinero',
         requiredMinSupports: 1,
-        approvers: ['admin_ch', 'team_ch', 'cac'],
+        approvers: ['admin_ch'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     hora_extra: {
@@ -84,19 +95,19 @@ const NOVELTY_RULES = {
     apoyo: {
         displayName: 'Disponibilidad',
         requiredMinSupports: 0,
-        approvers: ['gp', 'cac'],
+        approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     bonos: {
         displayName: 'Bonos',
         requiredMinSupports: 0,
-        approvers: ['gp', 'cac'],
+        approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     permiso_compensatorio_tiempo: {
         displayName: 'Permiso compensatorio en tiempo',
         requiredMinSupports: 1,
-        approvers: ['gp', 'cac'],
+        approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
     // EXCEPCIÓN RBAC: este tipo rompe el patrón "compensatorio → GP".
@@ -107,6 +118,12 @@ const NOVELTY_RULES = {
         requiredMinSupports: 1,
         approvers: ['admin_ch', 'cac'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina']
+    compensatorio_votacion_jurado: {
+        displayName: 'Compensatorio por votación/jurado',
+        /** La ruta POST valida el conteo por modalidad (1 o 2 archivos). */
+        requiredMinSupports: 0,
+        approvers: ['admin_ch'],
+        viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina']
     }
 };
 
@@ -128,8 +145,9 @@ function resolveRoleFromGroups(groups = []) {
 
 function getAreaFromRole(role) {
     if (role === 'super_admin') return 'Global';
-    if (role === 'admin_ch' || role === 'team_ch' || role === 'cac') return 'Capital Humano';
-    if (role === 'gp') return 'Operaciones';
+    if (role === 'cac') return 'Global';
+    if (role === 'admin_ch' || role === 'team_ch') return 'Capital Humano';
+    if (role === 'gp' || role === 'consultor') return 'Operaciones';
     if (role === 'comercial') return 'Comercial';
     if (role === 'nomina') return 'Financiero';
     return '';
@@ -174,6 +192,10 @@ function normalizeNovedadTypeKey(value = '') {
         'compensatorio por votacion jurado': 'compensatorio_votacion',
         'compensatorio votacion': 'compensatorio_votacion',
         'compensatorio jurado': 'compensatorio_votacion'
+        'compensatorio por votacion jurado': 'compensatorio_votacion_jurado',
+        'compensatorio por votacion y jurado': 'compensatorio_votacion_jurado',
+        'compensatorio por votación/jurado': 'compensatorio_votacion_jurado',
+        'compensatorio por votacion/jurado': 'compensatorio_votacion_jurado'
     };
     if (map[compact]) return map[compact];
     const snake = compact.replace(/[\s-]+/g, '_').replace(/_+/g, '_');
@@ -215,14 +237,15 @@ function getNovedadRuleByType(typeName = '') {
 }
 
 function canRoleViewType(role = '', typeName = '') {
-    if (role === 'super_admin') return true;
+    /** Visualización total de tipos (sin cambiar aprobadores): staff CH gestión. */
+    if (role === 'super_admin' || role === 'cac' || role === 'admin_ch' || role === 'team_ch') return true;
     const rule = getNovedadRuleByType(typeName);
     if (!rule) return true;
     return Array.isArray(rule.viewers) && rule.viewers.includes(role);
 }
 
 function canRoleApproveType(role = '', typeName = '') {
-    if (role === 'super_admin') return true;
+    if (role === 'super_admin' || role === 'cac') return true;
     const rule = getNovedadRuleByType(typeName);
     if (!rule) return POLICY[role]?.panels?.includes('gestion') || false;
     return Array.isArray(rule.approvers) && rule.approvers.includes(role);

@@ -13,13 +13,16 @@ import {
   getDiasEfectivosNovedad,
   countBusinessDaysInclusive,
   countCalendarDaysInclusive,
+  getCantidadMedidaKind,
+  formatCantidadNovedad,
+  getCantidadDetalleEtiqueta,
 } from '../novedadRules.js';
 
 // ─── Constantes de dominio ────────────────────────────────────────────────────
 // Roles actuales según src/rbac.js → ROLE_PRIORITY (cac reemplaza admin_ops/sst; comercial añadido)
 const ALL_ROLES = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial'];
 
-// Catálogo vigente en formulario: 12 tipos (vacaciones tiempo/dinero y Bonos solo histórico en NOVEDAD_RULES_LEGACY).
+// Catálogo vigente en formulario: 13 tipos (vacaciones tiempo/dinero y Bonos solo histórico en NOVEDAD_RULES_LEGACY).
 const ALL_NOVEDAD_TYPES = [
   'Incapacidad',
   'Calamidad domestica',
@@ -31,14 +34,15 @@ const ALL_NOVEDAD_TYPES = [
   'Licencia no remunerada',
   'Permiso no remunerado',
   'Permiso compensatorio en tiempo',
+  'Compensatorio por votación/jurado',
   'Disponibilidad',
   'Hora Extra',
 ];
 
 // ─── Estructura del catálogo ──────────────────────────────────────────────────
 describe('NOVEDAD_RULES – estructura del catálogo', () => {
-  it('debe exportar exactamente los 12 tipos de novedad activos en el catálogo', () => {
-    expect(NOVEDAD_TYPES).toHaveLength(12);
+  it('debe exportar exactamente los 13 tipos de novedad activos en el catálogo', () => {
+    expect(NOVEDAD_TYPES).toHaveLength(13);
     ALL_NOVEDAD_TYPES.forEach((tipo) => {
       expect(NOVEDAD_TYPES).toContain(tipo);
     });
@@ -91,10 +95,8 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
     it('debe requerir solo el documento de Incapacidad', () => {
       expect(rule.requiredDocuments).toEqual(['Incapacidad']);
     });
-    it('cac, admin_ch y team_ch deben ser aprobadores (flujo de aprobación CAC)', () => {
-      expect(rule.approvers).toContain('cac');
-      expect(rule.approvers).toContain('admin_ch');
-      expect(rule.approvers).toContain('team_ch');
+    it('solo admin_ch aprueba tras flujo nómina (alineado con src/rbac.js)', () => {
+      expect(rule.approvers).toEqual(['admin_ch']);
     });
     it('debe calcular días de calendario automáticamente con rango de fechas (sin rango de horas)', () => {
       expect(rule.requiresDayCount).toBe(true);
@@ -125,9 +127,8 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
       expect(rule.requiresDayCount).toBe(true);
       expect(rule.autoBusinessDays).toBe(true);
     });
-    it('admin_ch y team_ch deben ser aprobadores', () => {
-      expect(rule.approvers).toContain('admin_ch');
-      expect(rule.approvers).toContain('team_ch');
+    it('solo admin_ch es aprobador (alineado con src/rbac.js)', () => {
+      expect(rule.approvers).toEqual(['admin_ch']);
     });
     it('debe tener link de formato de permiso', () => {
       expect(rule.formatLinks).toHaveLength(1);
@@ -156,10 +157,8 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
       expect(rule.requiredDocuments).toContain('Certificado nacido vivo');
       expect(rule.requiredDocuments).toContain('Registro civil bebe');
     });
-    it('cac, admin_ch y team_ch deben ser aprobadores', () => {
-      expect(rule.approvers).toContain('cac');
-      expect(rule.approvers).toContain('admin_ch');
-      expect(rule.approvers).toContain('team_ch');
+    it('solo admin_ch es aprobador (alineado con src/rbac.js)', () => {
+      expect(rule.approvers).toEqual(['admin_ch']);
     });
   });
 
@@ -209,9 +208,57 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
       expect(rule.requiresDayCount).toBe(true);
       expect(rule.autoBusinessDays).toBe(true);
     });
-    it('gp y cac deben ser aprobadores', () => {
-      expect(rule.approvers).toContain('gp');
-      expect(rule.approvers).toContain('cac');
+    it('solo admin_ch es aprobador (alineado con src/rbac.js)', () => {
+      expect(rule.approvers).toEqual(['admin_ch']);
+    });
+  });
+
+  it('tipos operación: solo gp aprueba (alineado con src/rbac.js)', () => {
+    expect(NOVEDAD_RULES['Permiso compensatorio en tiempo'].approvers).toEqual(['gp']);
+    expect(NOVEDAD_RULES.Disponibilidad.approvers).toEqual(['gp']);
+    expect(NOVEDAD_RULES['Hora Extra'].approvers).toEqual(['gp']);
+    expect(NOVEDAD_RULES_LEGACY.Bonos.approvers).toEqual(['gp']);
+  });
+
+  describe('Compensatorio por votación/jurado', () => {
+    const rule = NOVEDAD_RULES['Compensatorio por votación/jurado'];
+    it('no incluye gp en viewers (alineado con src/rbac.js)', () => {
+      expect(rule.viewers).not.toContain('gp');
+      expect(rule.viewers).toContain('nomina');
+    });
+    it('sin modalidad en contexto: medida días por defecto (p. ej. jurado legacy)', () => {
+      expect(getCantidadMedidaKind('Compensatorio por votación/jurado')).toBe('days');
+    });
+    it('modalidad solo_voto: cantidad_horas son horas de franja', () => {
+      expect(getCantidadMedidaKind('Compensatorio por votación/jurado', { modalidad: 'solo_voto' })).toBe('hours');
+      expect(formatCantidadNovedad('Compensatorio por votación/jurado', 4, { modalidad: 'solo_voto' })).toBe('4h');
+    });
+    it('modalidad solo_jurado: un día', () => {
+      expect(getCantidadMedidaKind('Compensatorio por votación/jurado', { modalidad: 'solo_jurado' })).toBe('days');
+      expect(formatCantidadNovedad('Compensatorio por votación/jurado', 1, { modalidad: 'solo_jurado' })).toBe('1 día');
+    });
+    it('inferencia medio día sin modalidad: misma fecha + horas', () => {
+      const ctx = {
+        fechaInicio: '2026-06-08',
+        fechaFin: '2026-06-08',
+        horaInicio: '08:00',
+        horaFin: '12:00'
+      };
+      expect(getCantidadMedidaKind('Compensatorio por votación/jurado', ctx)).toBe('hours');
+    });
+  });
+
+  describe('Permiso remunerado — unidad horas', () => {
+    const ctx = { unidad: 'horas' };
+    it('getCantidadMedidaKind usa contexto unidad=horas', () => {
+      expect(getCantidadMedidaKind('Permiso remunerado', ctx)).toBe('hours');
+    });
+    it('formatCantidadNovedad muestra horas con sufijo h', () => {
+      expect(formatCantidadNovedad('Permiso remunerado', 2.5, ctx)).toMatch(/2[,.]5/);
+      expect(formatCantidadNovedad('Permiso remunerado', 2.5, ctx)).toMatch(/h\b/i);
+    });
+    it('etiqueta de detalle distingue horas', () => {
+      expect(getCantidadDetalleEtiqueta('Permiso remunerado', ctx)).toMatch(/hora/i);
     });
   });
 });

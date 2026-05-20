@@ -106,6 +106,11 @@ CREATE TABLE IF NOT EXISTS novedades (
   tipo_hora_extra       TEXT NULL,
   monto_cop             NUMERIC(16,2) NULL,
 
+  -- Extensiones por tipo (compensatorio votación/jurado, permiso remunerado horas)
+  modalidad             TEXT NULL,
+  fecha_votacion        DATE NULL,
+  unidad                TEXT NULL,
+
   -- Soporte
   soporte_ruta          TEXT NULL,
 
@@ -123,6 +128,12 @@ CREATE TABLE IF NOT EXISTS novedades (
   rechazado_por_rol     user_role NULL,
   rechazado_por_email   TEXT NULL,
   rechazado_en          TIMESTAMPTZ NULL,
+
+  nomina_info_correcta             BOOLEAN NULL,
+  nomina_verificacion_observacion  TEXT NULL,
+  nomina_verificacion_en           TIMESTAMPTZ NULL,
+  nomina_verificacion_por_user_id  UUID NULL,
+  nomina_verificacion_por_email    TEXT NULL,
 
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -177,6 +188,43 @@ CREATE INDEX IF NOT EXISTS idx_clientes_lideres_cliente ON clientes_lideres(clie
 CREATE INDEX IF NOT EXISTS idx_clientes_lideres_activo ON clientes_lideres(activo);
 CREATE INDEX IF NOT EXISTS idx_colaboradores_activo ON colaboradores(activo);
 CREATE INDEX IF NOT EXISTS idx_colaboradores_gp_user ON colaboradores(gp_user_id) WHERE gp_user_id IS NOT NULL;
+
+-- ========= Mallas de turnos (una celda = día + franja; consultor desde colaboradores) =========
+CREATE TABLE IF NOT EXISTS malla_turnos_celda (
+    fecha   DATE NOT NULL,
+    franja  TEXT NOT NULL CHECK (franja IN ('06_14', '14_22', '22_06')),
+    cedula  TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (fecha, franja)
+);
+CREATE INDEX IF NOT EXISTS idx_malla_turnos_celda_fecha ON malla_turnos_celda(fecha);
+
+-- Mallas por cliente: varias personas por franja (máx. 10 en aplicación)
+CREATE TABLE IF NOT EXISTS malla_turno_asignacion (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cliente    TEXT NOT NULL,
+    fecha      DATE NOT NULL,
+    franja     TEXT NOT NULL CHECK (franja IN ('06_14', '14_22', '22_06')),
+    cedula     TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+    orden      SMALLINT NOT NULL DEFAULT 0,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_malla_turno_asignacion UNIQUE (cliente, fecha, franja, cedula)
+);
+CREATE INDEX IF NOT EXISTS idx_malla_turno_asignacion_lookup ON malla_turno_asignacion (cliente, fecha, franja);
+
+-- ========= Reubicaciones PIPELINE (administración; datos maestros via JOIN colaboradores) =========
+CREATE TABLE IF NOT EXISTS reubicaciones_pipeline (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+    fecha_fin           DATE NOT NULL,
+    cliente_destino     TEXT NULL,
+    causal              TEXT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_reubicaciones_pipeline_cedula UNIQUE (cedula)
+);
+CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_fecha_fin ON reubicaciones_pipeline(fecha_fin);
+
 CREATE INDEX IF NOT EXISTS idx_novedades_area_estado ON novedades(area, estado);
 CREATE INDEX IF NOT EXISTS idx_novedades_tipo ON novedades(tipo_novedad);
 CREATE INDEX IF NOT EXISTS idx_novedades_fecha_inicio ON novedades(fecha_inicio);
@@ -184,6 +232,23 @@ CREATE INDEX IF NOT EXISTS idx_novedades_creado_en ON novedades(creado_en DESC);
 CREATE INDEX IF NOT EXISTS idx_novedades_gp_user ON novedades(gp_user_id) WHERE gp_user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_novedades_aprobado_en ON novedades(aprobado_en DESC);
 CREATE INDEX IF NOT EXISTS idx_novedades_rechazado_en ON novedades(rechazado_en DESC);
+
+-- Anti-duplicados de radicación: una sola novedad Pendiente por (cédula, tipo normalizado, fecha_inicio,
+-- fecha_fin, hora_inicio, hora_fin). Excluye `Compensatorio por votación/jurado`, que conserva su llave
+-- propia por `fecha_votacion` (ver POST /api/enviar-novedad).
+CREATE UNIQUE INDEX IF NOT EXISTS uq_novedades_pendiente_dedup
+  ON novedades (
+    cedula,
+    lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\s+', ' ', 'g')),
+    fecha_inicio,
+    COALESCE(fecha_fin, fecha_inicio),
+    COALESCE(hora_inicio, TIME '00:00:00'),
+    COALESCE(hora_fin,    TIME '00:00:00')
+  )
+  WHERE estado = 'Pendiente'
+    AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\s+', ' ', 'g'))
+        <> 'compensatorio por votación/jurado';
+
 CREATE INDEX IF NOT EXISTS idx_hist_novedad_fecha ON novedad_status_history(novedad_id, changed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_reset_user_expires ON password_reset_tokens(user_id, expires_at DESC);

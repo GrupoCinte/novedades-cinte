@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "tunnel:quick": "cloudflared tunnel --protocol http2 --edge-ip-version 4 --no-autoupdate --url http://127.0.0.1:5175",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",

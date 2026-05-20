@@ -8,7 +8,8 @@ function registerCotizadorRoutes(deps) {
     const {
         app,
         verificarToken,
-        allowAnyPanel,
+        disallowRoles,
+        allowPanel,
         adminActionLimiter,
         pdfLimiter,
         catalogLimiter,
@@ -17,7 +18,8 @@ function registerCotizadorRoutes(deps) {
         getClientesNitMapFromLideres
     } = deps;
 
-    const guard = [verificarToken, allowAnyPanel(['dashboard', 'gestion', 'comercial', 'admin'])];
+    /** Solo rol comercial (panel JWT); evita acceso vía `gestion`/`admin` sin módulo comercial (p. ej. CAC). */
+    const guard = [verificarToken, disallowRoles(['gp']), allowPanel('comercial')];
 
     /**
      * Lista de clientes para el cotizador: nombres desde `clientes_lideres` + claves de `cargos_por_cliente`;

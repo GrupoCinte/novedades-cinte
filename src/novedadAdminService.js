@@ -31,6 +31,9 @@ const PATCH_CAMEL_TO_SNAKE = {
     soporteRuta: 'soporte_ruta',
     fechaVotacion: 'fecha_votacion',
     modalidadVotacion: 'modalidad_votacion'
+    modalidad: 'modalidad',
+    fechaVotacion: 'fecha_votacion',
+    unidad: 'unidad'
 };
 
 async function writeNovedadAudit(pool, { actorUserId, actorRole, action, entityId, metadata }) {
@@ -171,6 +174,14 @@ function mergeAdminPatch(existingRow, body, normalizeEstado, parseDateOrNull, pa
             merged[snake] = v == null || v === '' ? null : String(v);
             continue;
         }
+        if (snake === 'modalidad' || snake === 'unidad') {
+            merged[snake] = v == null || v === '' ? null : String(v).trim();
+            continue;
+        }
+        if (snake === 'fecha_votacion') {
+            merged[snake] = parseDateOrNull(v) || null;
+            continue;
+        }
         merged[snake] = v == null ? '' : String(v).trim();
     }
 
@@ -180,8 +191,12 @@ function mergeAdminPatch(existingRow, body, normalizeEstado, parseDateOrNull, pa
 /**
  * @returns {Promise<{ status: number, body: object }>}
  */
+function isElevatedNovedadAdmin(role) {
+    return role === 'super_admin' || role === 'cac';
+}
+
 async function adminDeleteNovedad({ pool, req, idParam }) {
-    if (req.user?.role !== 'super_admin') {
+    if (!isElevatedNovedadAdmin(req.user?.role)) {
         return { status: 403, body: { ok: false, error: 'Solo super administrador puede eliminar novedades.' } };
     }
     const motivo = String(req.body?.motivo ?? '').trim();
@@ -241,6 +256,11 @@ function appendSetForColumn(setParts, vals, col, val) {
         vals.push(val == null ? null : Number(val));
         return;
     }
+    if (col === 'modalidad' || col === 'unidad') {
+        setParts.push(`${col} = $${i}::text`);
+        vals.push(val == null || val === '' ? null : String(val).trim());
+        return;
+    }
     if (col === 'gp_user_id') {
         setParts.push(`${col} = $${i}::uuid`);
         vals.push(val);
@@ -264,7 +284,7 @@ function appendSetForColumn(setParts, vals, col, val) {
  * @returns {Promise<{ status: number, body: object }>}
  */
 async function adminPatchNovedad({ pool, req, idParam, normalizeEstado, parseDateOrNull, parseTimeOrNull }) {
-    if (req.user?.role !== 'super_admin') {
+    if (!isElevatedNovedadAdmin(req.user?.role)) {
         return { status: 403, body: { ok: false, error: 'Solo super administrador puede editar novedades.' } };
     }
 

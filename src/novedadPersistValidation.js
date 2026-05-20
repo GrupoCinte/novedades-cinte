@@ -166,6 +166,9 @@ function validateMergedNovedadForAdmin(merged, opts) {
                 return { ok: false, error: 'La fecha de disfrute debe estar dentro de los 30 días calendario siguientes a la votación.' };
             }
         }
+    const unidadNorm = merged.unidad != null && merged.unidad !== '' ? String(merged.unidad).trim().toLowerCase() : null;
+    if (unidadNorm && !['dias', 'horas'].includes(unidadNorm)) {
+        return { ok: false, error: 'Unidad inválida: use dias u horas.' };
     }
 
     return { ok: true };

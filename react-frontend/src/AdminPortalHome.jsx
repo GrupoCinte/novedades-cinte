@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Building2, Calculator, Users } from 'lucide-react';
+import { Briefcase, Building2, Calculator, Scale, Users } from 'lucide-react';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
 import UserAccountMenu from './UserAccountMenu.jsx';
 import { useUiTheme } from './UiThemeContext.jsx';
+import { ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
 
 function resolveWelcomeName(auth) {
     const u = auth?.user && typeof auth.user === 'object' ? auth.user : {};
@@ -96,6 +97,24 @@ function cardVisuals(key) {
                 cta: 'text-[#1a5f8a]'
             }
         },
+        conciliaciones: {
+            dark: {
+                shell: 'border border-[#65BCF7]/16 bg-gradient-to-br from-[#2F7BB8]/12 via-[#0b2844]/18 to-[#04141E]/28 shadow-[0_8px_36px_-10px_rgba(0,0,0,0.35)] hover:border-[#65BCF7]/32 hover:shadow-[0_14px_48px_-8px_rgba(47,123,184,0.26)]',
+                bar: 'bg-[#65BCF7]/85',
+                iconWrap: 'border border-[#65BCF7]/28 bg-[#2F7BB8]/16 text-[#a8dcff] backdrop-blur-md',
+                title: 'text-white drop-shadow-[0_1px_10px_rgba(0,0,0,0.55)] group-hover:text-[#a8dcff]',
+                desc: 'text-slate-100/88 drop-shadow-[0_1px_6px_rgba(0,0,0,0.45)]',
+                cta: 'text-[#a8dcff] drop-shadow-[0_1px_6px_rgba(0,0,0,0.4)]'
+            },
+            light: {
+                shell: 'border border-sky-200/40 bg-gradient-to-br from-white/28 via-sky-50/22 to-blue-50/24 shadow-[0_8px_36px_-12px_rgba(14,116,188,0.12)] hover:border-sky-300/55 hover:shadow-[0_14px_44px_-10px_rgba(14,116,188,0.18)]',
+                bar: 'bg-[#65BCF7]',
+                iconWrap: 'border border-sky-300/45 bg-sky-100/45 text-[#1e5a8a] backdrop-blur-md',
+                title: 'text-slate-900 group-hover:text-[#2F7BB8]',
+                desc: 'text-slate-700/92',
+                cta: 'text-[#2F7BB8]'
+            }
+        }
     };
     return map[key] || map.novedades;
 }
@@ -118,6 +137,13 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 description: 'Registro, seguimiento y reportes de incidencias.',
                 path: '/admin/novedades',
                 Icon: Briefcase
+            });
+            out.push({
+                key: 'conciliaciones',
+                title: 'Conciliaciones',
+                description: 'Tarifas por cliente y mes frente a novedades aprobadas (solo lectura).',
+                path: '/admin/conciliaciones/dashboard',
+                Icon: Scale
             });
         }
         if (userHasCotizadorAccess(auth)) {
@@ -143,14 +169,14 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 key: 'directorio',
                 title: 'Módulo de administración',
                 description: 'Configuración de catálogo, permisos y datos maestros del directorio.',
-                path: '/admin/directorio',
+                path: '/admin/directorio?v=dashboard',
                 Icon: Building2
             });
         }
         return out;
     }, [auth]);
 
-    /** Mismo color que el subtítulo «SISTEMA UNIFICADO DE GESTIÓN». */
+    /** Mismo color que el subtítulo del portal (título unificado bajo el logo). */
     const sectionModulesLabel = isLight ? 'text-[#004D87] drop-shadow-sm' : 'text-white drop-shadow-md';
 
     /** Misma idea que FormularioNovedad: cobertura total + `fixed` para efecto pantalla completa. */
@@ -194,7 +220,7 @@ export default function AdminPortalHome({ auth, onLogout }) {
                           Misma caja; el PNG claro suele llevar más “aire” en el lienzo → object-contain lo deja más chico.
                           En tema claro un scale compensa para igualar el tamaño visual al logo oscuro.
                         */}
-                        <div className="mx-auto flex h-[4.35rem] w-[min(100%,11.875rem)] max-w-full items-center justify-center overflow-visible px-1 py-1 sm:h-[4.65rem] sm:w-[min(100%,13.125rem)] sm:px-1.5 sm:py-1.5 md:h-[5rem] md:w-[min(100%,14.375rem)]">
+                        <div className="mx-auto flex h-[4.35rem] w-[min(100%,11.875rem)] max-w-full items-center justify-center overflow-visible px-1 py-1 sm:h-[4.65rem] sm:w-[min(100%,13.125rem)] sm:px-1.5 sm:py-1.5 md:h-[5.25rem] md:w-[min(100%,14.375rem)]">
                             <img
                                 src={isLight ? '/assets/logo-cinte-header-light.png' : '/assets/logo-cinte-header.png'}
                                 alt="CINTE"
@@ -208,7 +234,7 @@ export default function AdminPortalHome({ auth, onLogout }) {
                                 isLight ? 'text-[#004D87]' : 'text-white'
                             }`}
                         >
-                            SISTEMA UNIFICADO DE GESTIÓN
+                            {ADMIN_PORTAL_UNIFIED_TITLE}
                         </p>
                     </div>
                     <UserAccountMenu auth={auth} onLogout={onLogout} surface="banner" notificationCount={0} />
