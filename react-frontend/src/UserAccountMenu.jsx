@@ -38,7 +38,8 @@ export default function UserAccountMenu({
     onLogout,
     surface = 'banner',
     notificationCount = 0,
-    collapseToolbarOnMobile = false
+    collapseToolbarOnMobile = false,
+    assistantSlot = null
 }) {
     const navigate = useNavigate();
     const { theme, toggleTheme } = useUiTheme();
@@ -170,6 +171,11 @@ export default function UserAccountMenu({
 
     const toolbarTiles = (
         <>
+            {assistantSlot ? (
+                <div className="relative inline-flex">
+                    {assistantSlot}
+                </div>
+            ) : null}
             <div className="relative">
                 <button
                     type="button"

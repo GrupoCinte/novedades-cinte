@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
 import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2, Filter, ChevronDown, ChevronUp } from 'lucide-react';
-import ChatWidget from './ChatWidget';
 import {
     getNovedadRule,
     NOVEDAD_TYPES,
@@ -222,6 +221,25 @@ export default function Dashboard({ token, auth, onLogout }) {
             filtrosPanelMobile: L
                 ? 'grid max-h-[min(70vh,28rem)] grid-cols-1 gap-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 shadow-inner md:max-h-none md:grid-cols-2 md:overflow-visible xl:grid-cols-3'
                 : 'grid max-h-[min(70vh,28rem)] grid-cols-1 gap-3 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900/40 p-3 shadow-inner md:max-h-none md:grid-cols-2 md:overflow-visible xl:grid-cols-3',
+            filtrosDrawerBackdrop: L
+                ? 'fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200'
+                : 'fixed inset-0 z-40 bg-[#0f172a]/70 backdrop-blur-sm animate-in fade-in duration-200',
+            filtrosDrawerPanel: L
+                ? 'fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl animate-in slide-in-from-right duration-200'
+                : 'fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-sm flex-col border-l border-slate-700 bg-[#1e293b] shadow-2xl animate-in slide-in-from-right duration-200',
+            filtrosDrawerHeader: L
+                ? 'flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4'
+                : 'flex items-center justify-between gap-3 border-b border-slate-700/60 px-5 py-4',
+            filtrosDrawerBody: 'flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4',
+            filtrosDrawerFooter: L
+                ? 'flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-4'
+                : 'flex items-center justify-between gap-3 border-t border-slate-700/60 px-5 py-4',
+            filtrosDrawerLabel: L
+                ? 'text-xs font-semibold uppercase tracking-wider text-slate-600'
+                : 'text-xs font-semibold uppercase tracking-wider text-slate-300',
+            filtrosDrawerCta: L
+                ? 'rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#004D87]'
+                : 'rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#004D87]',
             filtrosChip: L
                 ? 'inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-lg border border-slate-300 bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700'
                 : 'inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-lg border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300',
@@ -1508,6 +1526,18 @@ export default function Dashboard({ token, auth, onLogout }) {
         if (activeTab !== 'Gestión') setGestionFiltersPanelOpen(false);
     }, [activeTab]);
 
+    /** Tecla Escape cierra el drawer de filtros avanzados (módulo Gestión). */
+    useEffect(() => {
+        if (!gestionFiltersPanelOpen) return undefined;
+        const onKey = (e) => {
+            if (e.key === 'Escape' || e.key === 'Esc') {
+                setGestionFiltersPanelOpen(false);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [gestionFiltersPanelOpen]);
+
     const superAdminGpSelect = isSuperAdminNovedades ? (
         <div className="flex flex-wrap items-center gap-2">
             <label htmlFor="dash-filtro-gp" className={`${dash.labelFilter} whitespace-nowrap`}>
@@ -2246,74 +2276,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             <span className="sm:hidden">Exportar</span>
                                         </button>
                                     </div>
-                                    <div
-                                        id="gestion-filtros-avanzados-panel"
-                                        role="region"
-                                        aria-labelledby="gestion-filtros-avanzados-toggle"
-                                        className={gestionFiltersPanelOpen ? dash.filtrosPanelMobile : 'hidden'}
-                                    >
-                                        <select onChange={(e) => setFTipo(e.target.value)} value={fTipo} className={`${fieldInput} w-full text-sm`}>
-                                            <option value="">Todos los tipos</option>
-                                            {Object.keys(typeDataMap).map((k) => (
-                                                <option key={k} value={k}>
-                                                    {k}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <select onChange={(e) => setFEstado(e.target.value)} value={fEstado} className={`${fieldInput} w-full text-sm`}>
-                                            <option value="">Todos los estados</option>
-                                            <option value="Pendiente">Pendientes</option>
-                                            <option value="Aprobado">Aprobados</option>
-                                            <option value="Rechazado">Rechazados</option>
-                                        </select>
-                                        <select onChange={(e) => setFCliente(e.target.value)} value={fCliente} className={`${fieldInput} w-full text-sm`}>
-                                            <option value="">Todos los clientes</option>
-                                            {gestionClienteOptions.map((c) => (
-                                                <option key={c} value={c}>
-                                                    {c}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        {superAdminGpSelect ? (
-                                            <div className="min-w-0 md:col-span-2 xl:col-span-3">{superAdminGpSelect}</div>
-                                        ) : null}
-                                        <div
-                                            className={`${dash.dateRangeWrap} flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center md:col-span-2 xl:col-span-3`}
-                                        >
-                                            <span className={`${dash.dateRangeLbl} shrink-0`}>Rango de fechas</span>
-                                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                                                <input
-                                                    {...nativeCalendarOnlyInputProps}
-                                                    type="date"
-                                                    value={fCreadoDesde}
-                                                    onChange={(e) => setFCreadoDesde(e.target.value)}
-                                                    className={`${fieldInput} min-w-0 flex-1 px-2 py-1 text-sm sm:min-w-[9rem]`}
-                                                />
-                                                <span className={`${dash.modalMuted} shrink-0 text-xs`}>a</span>
-                                                <input
-                                                    {...nativeCalendarOnlyInputProps}
-                                                    type="date"
-                                                    value={fCreadoHasta}
-                                                    onChange={(e) => setFCreadoHasta(e.target.value)}
-                                                    className={`${fieldInput} min-w-0 flex-1 px-2 py-1 text-sm sm:min-w-[9rem]`}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center md:col-span-2 xl:col-span-3">
-                                            <select
-                                                onChange={(e) => setPageSize(Number(e.target.value))}
-                                                value={pageSize}
-                                                className={`${fieldInput} w-full text-sm sm:w-auto sm:min-w-[11rem]`}
-                                            >
-                                                <option value={10}>10 por página</option>
-                                                <option value={20}>20 por página</option>
-                                                <option value={50}>50 por página</option>
-                                            </select>
-                                            <button type="button" onClick={clearGestionFilters} className={`${dash.borrarFiltros} w-full sm:ml-auto sm:w-auto`}>
-                                                Borrar filtros
-                                            </button>
-                                        </div>
-                                    </div>
+                                    {/* Filtros avanzados: ahora viven en un drawer lateral renderizado al final del tab Gestión. */}
                                 </div>
                             </div>
 
@@ -2453,6 +2416,164 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 )}
                             </div>
                         </div>
+                        {gestionFiltersPanelOpen && (
+                            <>
+                                <div
+                                    className={dash.filtrosDrawerBackdrop}
+                                    onClick={() => setGestionFiltersPanelOpen(false)}
+                                    aria-hidden="true"
+                                />
+                                <aside
+                                    role="dialog"
+                                    aria-modal="true"
+                                    aria-labelledby="gestion-filtros-drawer-title"
+                                    className={dash.filtrosDrawerPanel}
+                                >
+                                    <header className={dash.filtrosDrawerHeader}>
+                                        <h3 id="gestion-filtros-drawer-title" className={dash.titleLg}>
+                                            Filtros avanzados
+                                        </h3>
+                                        <button
+                                            type="button"
+                                            onClick={() => setGestionFiltersPanelOpen(false)}
+                                            aria-label="Cerrar filtros avanzados"
+                                            className={dash.modalClose}
+                                        >
+                                            <X size={18} />
+                                        </button>
+                                    </header>
+                                    <div className={dash.filtrosDrawerBody}>
+                                        <div className="flex flex-col gap-1.5">
+                                            <label htmlFor="gestion-drawer-tipo" className={dash.filtrosDrawerLabel}>
+                                                Tipo
+                                            </label>
+                                            <select
+                                                id="gestion-drawer-tipo"
+                                                value={fTipo}
+                                                onChange={(e) => setFTipo(e.target.value)}
+                                                className={`${fieldInput} w-full text-sm`}
+                                            >
+                                                <option value="">Todos los tipos</option>
+                                                {Object.keys(typeDataMap).map((k) => (
+                                                    <option key={k} value={k}>{k}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div className="flex flex-col gap-1.5">
+                                            <label htmlFor="gestion-drawer-estado" className={dash.filtrosDrawerLabel}>
+                                                Estado
+                                            </label>
+                                            <select
+                                                id="gestion-drawer-estado"
+                                                value={fEstado}
+                                                onChange={(e) => setFEstado(e.target.value)}
+                                                className={`${fieldInput} w-full text-sm`}
+                                            >
+                                                <option value="">Todos los estados</option>
+                                                <option value="Pendiente">Pendientes</option>
+                                                <option value="Aprobado">Aprobados</option>
+                                                <option value="Rechazado">Rechazados</option>
+                                            </select>
+                                        </div>
+                                        <div className="flex flex-col gap-1.5">
+                                            <label htmlFor="gestion-drawer-cliente" className={dash.filtrosDrawerLabel}>
+                                                Cliente
+                                            </label>
+                                            <select
+                                                id="gestion-drawer-cliente"
+                                                value={fCliente}
+                                                onChange={(e) => setFCliente(e.target.value)}
+                                                className={`${fieldInput} w-full text-sm`}
+                                            >
+                                                <option value="">Todos los clientes</option>
+                                                {gestionClienteOptions.map((c) => (
+                                                    <option key={c} value={c}>{c}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        {isSuperAdminNovedades ? (
+                                            <div className="flex flex-col gap-1.5">
+                                                <label htmlFor="gestion-drawer-gp" className={dash.filtrosDrawerLabel}>
+                                                    GP
+                                                </label>
+                                                <select
+                                                    id="gestion-drawer-gp"
+                                                    value={fGpUserId}
+                                                    onChange={(e) => setFGpUserId(e.target.value)}
+                                                    className={`${fieldInput} w-full text-sm`}
+                                                    title="Clientes asignados a este usuario GP en el catálogo directorio"
+                                                >
+                                                    <option value="">Todos los GP</option>
+                                                    <option value="__null__">Cliente sin GP en catálogo</option>
+                                                    {gpFilterOptions.map((g) => {
+                                                        const id = String(g.id || '');
+                                                        const label = labelGpDirectorioOption(g);
+                                                        return (
+                                                            <option key={id || label} value={id}>
+                                                                {label}{g.is_active === false ? ' (inactivo)' : ''}
+                                                            </option>
+                                                        );
+                                                    })}
+                                                </select>
+                                            </div>
+                                        ) : null}
+                                        <div className="flex flex-col gap-1.5">
+                                            <span className={dash.filtrosDrawerLabel}>Rango de fechas</span>
+                                            <div className="flex items-center gap-2">
+                                                <input
+                                                    {...nativeCalendarOnlyInputProps}
+                                                    type="date"
+                                                    value={fCreadoDesde}
+                                                    onChange={(e) => setFCreadoDesde(e.target.value)}
+                                                    className={`${fieldInput} min-w-0 flex-1 px-2 py-1.5 text-sm`}
+                                                    aria-label="Rango de fechas: desde"
+                                                />
+                                                <span className={`${dash.modalMuted} shrink-0 text-xs`}>a</span>
+                                                <input
+                                                    {...nativeCalendarOnlyInputProps}
+                                                    type="date"
+                                                    value={fCreadoHasta}
+                                                    onChange={(e) => setFCreadoHasta(e.target.value)}
+                                                    className={`${fieldInput} min-w-0 flex-1 px-2 py-1.5 text-sm`}
+                                                    aria-label="Rango de fechas: hasta"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="flex flex-col gap-1.5">
+                                            <label htmlFor="gestion-drawer-pagesize" className={dash.filtrosDrawerLabel}>
+                                                Mostrar por página
+                                            </label>
+                                            <select
+                                                id="gestion-drawer-pagesize"
+                                                value={pageSize}
+                                                onChange={(e) => setPageSize(Number(e.target.value))}
+                                                className={`${fieldInput} w-full text-sm`}
+                                            >
+                                                <option value={10}>10 por página</option>
+                                                <option value={20}>20 por página</option>
+                                                <option value={50}>50 por página</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <footer className={dash.filtrosDrawerFooter}>
+                                        <button
+                                            type="button"
+                                            onClick={clearGestionFilters}
+                                            className={dash.borrarFiltros}
+                                        >
+                                            Borrar filtros
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setGestionFiltersPanelOpen(false)}
+                                            className={dash.filtrosDrawerCta}
+                                        >
+                                            Aplicar filtros
+                                        </button>
+                                    </footer>
+                                </aside>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -2940,16 +3061,6 @@ export default function Dashboard({ token, auth, onLogout }) {
 
 
             </main>
-
-            {/* Chat widget — fuera del main para que sea fixed global */}
-            <ChatWidget
-                ctx={{
-                    pendientesCount,
-                    totalItems: items.length,
-                    dashItems: dashItems.length,
-                    role: currentRole,
-                }}
-            />
 
             {gestionDetailItem && (
                 <div className={dash.modalBackdrop} onClick={closeGestionDetailModal}>
@@ -3924,22 +4035,24 @@ export default function Dashboard({ token, auth, onLogout }) {
             {soporteModal && (
                 <div className={`${dash.modalBackdrop} tracking-wide`} onClick={() => setSoporteModal(null)}>
                     <div className={dash.modalCardWide} onClick={e => e.stopPropagation()}>
-                        <button type="button" onClick={() => setSoporteModal(null)} className={`absolute right-4 top-4 ${dash.modalClose}`}>
-                            <X size={20} strokeWidth={2.5} />
-                        </button>
-                        <div className="mb-4 mt-2 flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="mb-4 mt-2 flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <h2 className={`${dash.titleXl} min-w-0 flex flex-wrap items-center gap-2`}>
                                 <BadgeCheck className="shrink-0 text-blue-500" size={22} /> Vista del documento
                             </h2>
-                            {soporteModalCurrentSupport && (
-                                <button
-                                    type="button"
-                                    onClick={() => downloadSupport(soporteModalCurrentSupport)}
-                                    className="shrink-0 rounded-lg border border-blue-500/30 px-3 py-2 text-sm font-medium text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10"
-                                >
-                                    Descargar
+                            <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                                {soporteModalCurrentSupport && (
+                                    <button
+                                        type="button"
+                                        onClick={() => downloadSupport(soporteModalCurrentSupport)}
+                                        className="rounded-lg border border-blue-500/30 px-3 py-2 text-sm font-medium text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10"
+                                    >
+                                        Descargar
+                                    </button>
+                                )}
+                                <button type="button" onClick={() => setSoporteModal(null)} className={dash.modalClose}>
+                                    <X size={20} strokeWidth={2.5} />
                                 </button>
-                            )}
+                            </div>
                         </div>
                         {Array.isArray(soporteModal?.supports) && soporteModal.supports.length > 1 && (
                             <div className="mb-3 flex w-full min-w-0 flex-col gap-2">
