@@ -84,7 +84,7 @@ const NOVELTY_RULES = {
         displayName: 'Vacaciones en dinero',
         requiredMinSupports: 1,
         approvers: ['admin_ch'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina']
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     hora_extra: {
         displayName: 'Hora Extra',
@@ -225,7 +225,7 @@ function normalizeNovedadTypeKey(value = '') {
 }
 
 /** Ya no se ofrecen en el formulario público; siguen en NOVELTY_RULES para registros históricos y gestión. */
-const NOVEDAD_TIPOS_RETIRADOS_FORMULARIO_KEYS = new Set(['vacaciones_tiempo', 'vacaciones_dinero', 'bonos']);
+const NOVEDAD_TIPOS_RETIRADOS_FORMULARIO_KEYS = new Set(['vacaciones_tiempo', 'bonos']);
 
 function isNovedadTipoRetiradoDelFormulario(typeName = '') {
     return NOVEDAD_TIPOS_RETIRADOS_FORMULARIO_KEYS.has(normalizeNovedadTypeKey(typeName));

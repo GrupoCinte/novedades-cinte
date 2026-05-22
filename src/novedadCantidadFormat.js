@@ -110,16 +110,20 @@ const NOVEDAD_RULES = {
         formatLinks: [],
         approvers: ['gp', 'cac'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-        requiresDayCount: false,
-        requiresTimeRange: true
+        requiresDayCount: true,
+        requiresTimeRange: false,
+        autoBusinessDays: true,
+        permisoRemuneradoHoras: true
     },
     'Permiso compensatorio en tiempo': {
         requiredDocuments: ['Formato de permiso compensatorio'],
         formatLinks: [],
         approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-        requiresDayCount: false,
-        requiresTimeRange: false
+        requiresDayCount: true,
+        requiresTimeRange: false,
+        autoBusinessDays: true,
+        permisoRemuneradoHoras: true
     },
     'Compensatorio por votación/jurado': {
         requiredDocuments: [],
@@ -146,6 +150,15 @@ const NOVEDAD_RULES = {
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
         requiresDayCount: false,
         requiresTimeRange: true
+    },
+    'Vacaciones en dinero': {
+        requiredDocuments: ['Carta con firma manuscrita (solicitud formal en PDF)'],
+        formatLinks: [],
+        approvers: ['admin_ch', 'team_ch', 'cac'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
+        requiresDayCount: true,
+        requiresTimeRange: false,
+        autoBusinessDays: false
     }
 };
 
@@ -163,15 +176,6 @@ const NOVEDAD_RULES_LEGACY = {
         requiresDayCount: true,
         requiresTimeRange: false,
         autoBusinessDays: true
-    },
-    'Vacaciones en dinero': {
-        requiredDocuments: ['Carta con firma manuscrita (solicitud formal en PDF)'],
-        formatLinks: [],
-        approvers: ['admin_ch', 'team_ch', 'cac'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-        requiresDayCount: true,
-        requiresTimeRange: false,
-        autoBusinessDays: false
     },
     Bonos: {
         requiredDocuments: [],
@@ -292,10 +296,16 @@ function getNovedadRule(tipo) {
     };
 }
 
+const TIPOS_CON_TOGGLE_HORAS = [
+    'Permiso remunerado',
+    'Permiso no remunerado',
+    'Permiso compensatorio en tiempo'
+];
+
 function getCantidadMedidaKind(tipoNovedad, context = null) {
     const canon = resolveCanonicalNovedadTipo(tipoNovedad);
     const unidad = String(context?.unidad || context?.Unidad || '').trim().toLowerCase();
-    if (canon === 'Permiso remunerado' && unidad === 'horas') return 'hours';
+    if (TIPOS_CON_TOGGLE_HORAS.includes(canon) && unidad === 'horas') return 'hours';
     if (canon === 'Compensatorio por votación/jurado') {
         const mod = String(context?.modalidad || context?.modalidad_votacion || '').trim().toLowerCase();
         if (mod === 'solo_voto') return 'hours';

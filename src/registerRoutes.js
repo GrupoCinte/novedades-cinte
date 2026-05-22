@@ -1650,7 +1650,18 @@ function registerRoutes(deps) {
                 insertFechaVotacion = fv;
             }
 
-            if (novedadTypeKey === 'permiso_remunerado') {
+            /**
+             * Tipos que comparten la misma mecánica de `unidad` (Días hábiles vs Horas mismo día)
+             * con ventana "desde mañana hasta 1 año calendario". Permiso remunerado fue el primero;
+             * Permiso no remunerado y Permiso compensatorio en tiempo replican 1:1.
+             */
+            const TYPES_CON_UNIDAD = new Set([
+                'permiso_remunerado',
+                'permiso_no_remunerado',
+                'permiso_compensatorio_tiempo'
+            ]);
+            const permisoConToggleLabel = rule?.displayName || tipoNovedad;
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey)) {
                 const unidadRaw = String(body.unidad || body.permisoUnidad || 'dias').trim().toLowerCase();
                 const unidad = unidadRaw === 'horas' ? 'horas' : 'dias';
                 const pFi = parseDateOrNull(body.fechaInicio);
@@ -1694,7 +1705,10 @@ function registerRoutes(deps) {
                         });
                     }
                     if (!pFi || !pFf) {
-                        return res.status(400).json({ ok: false, error: 'Permiso remunerado en días requiere fecha inicio y fecha fin.' });
+                        return res.status(400).json({
+                            ok: false,
+                            error: `${permisoConToggleLabel} en días requiere fecha inicio y fecha fin.`
+                        });
                     }
                     if (pFf < pFi) {
                         return res.status(422).json({
@@ -1711,7 +1725,7 @@ function registerRoutes(deps) {
                 }
             }
 
-            if (novedadTypeKey === 'permiso_remunerado' && (insertUnidad === 'horas' || insertUnidad === 'dias')) {
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey) && (insertUnidad === 'horas' || insertUnidad === 'dias')) {
                 const minPermisoRem = ymdAddCalendarDaysUTC(todayUtc, 1);
                 const maxPermisoRem = (() => {
                     const d = parseDateAtUtcStart(todayUtc);
@@ -1727,7 +1741,7 @@ function registerRoutes(deps) {
                         return res.status(422).json({
                             ok: false,
                             error:
-                                'Permiso remunerado (horas): la fecha debe ser desde el día siguiente al de hoy y no posterior a un año calendario desde hoy.'
+                                `${permisoConToggleLabel} (horas): la fecha debe ser desde el día siguiente al de hoy y no posterior a un año calendario desde hoy.`
                         });
                     }
                 } else {
@@ -1735,7 +1749,7 @@ function registerRoutes(deps) {
                         return res.status(422).json({
                             ok: false,
                             error:
-                                'Permiso remunerado (días): las fechas deben ser desde el día siguiente al de hoy y no posteriores a un año calendario desde hoy.'
+                                `${permisoConToggleLabel} (días): las fechas deben ser desde el día siguiente al de hoy y no posteriores a un año calendario desde hoy.`
                         });
                     }
                 }
@@ -1769,17 +1783,17 @@ function registerRoutes(deps) {
                 }
             }
 
-            if (novedadTypeKey === 'permiso_remunerado' && insertUnidad === 'horas' && horaInicio && horaFin) {
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey) && insertUnidad === 'horas' && horaInicio && horaFin) {
                 const hv = diffDecimalHoursFromHhmmss(horaInicio, horaFin);
                 cantidadHoras = hv != null ? Number(hv.toFixed(2)) : 0;
             }
 
-            if (novedadTypeKey === 'permiso_remunerado' && insertUnidad === 'dias' && fechaInicio && fechaFin) {
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey) && insertUnidad === 'dias' && fechaInicio && fechaFin) {
                 cantidadHoras = countBusinessDaysInclusive(fechaInicio, fechaFin);
                 if (cantidadHoras <= 0) {
                     return res.status(422).json({
                         ok: false,
-                        error: 'El rango seleccionado no contiene días hábiles para el permiso remunerado.'
+                        error: `El rango seleccionado no contiene días hábiles para ${String(permisoConToggleLabel).toLowerCase()}.`
                     });
                 }
             }

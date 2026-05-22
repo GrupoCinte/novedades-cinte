@@ -29,12 +29,14 @@ describe('RBAC - prioridad de roles', () => {
 });
 
 describe('RBAC - tipos retirados del formulario público', () => {
-  it('marca vacaciones en tiempo/dinero y bonos como no admitidos en solicitud pública', () => {
+  it('marca vacaciones en tiempo y bonos como no admitidos en solicitud pública', () => {
     assert.equal(isNovedadTipoRetiradoDelFormulario('Vacaciones en tiempo'), true);
-    assert.equal(isNovedadTipoRetiradoDelFormulario('Vacaciones en dinero'), true);
     assert.equal(isNovedadTipoRetiradoDelFormulario('Bonos'), true);
     assert.equal(isNovedadTipoRetiradoDelFormulario('Incapacidad'), false);
     assert.equal(isNovedadTipoRetiradoDelFormulario('Disponibilidad'), false);
+  });
+  it('vacaciones en dinero vuelve a ser admitida en el formulario público', () => {
+    assert.equal(isNovedadTipoRetiradoDelFormulario('Vacaciones en dinero'), false);
   });
 });
 
@@ -51,8 +53,10 @@ describe('RBAC - permisos por tipo', () => {
     assert.deepEqual(POLICY.comercial?.panels, ['comercial']);
   });
 
-  it('gp solo tiene panel gestión de novedades (sin contratacion ni comercial)', () => {
-    assert.deepEqual(POLICY.gp?.panels, ['gestion']);
+  it('gp ve gestión de novedades y onboarding (lectura acotada a sus clientes), sin contratacion ni comercial', () => {
+    assert.deepEqual([...(POLICY.gp?.panels || [])].sort(), ['gestion', 'onboarding']);
+    assert.equal(POLICY.gp.panels.includes('contratacion'), false);
+    assert.equal(POLICY.gp.panels.includes('comercial'), false);
   });
 
   it('gp aprueba tipos asignados y no los que solo admin_ch/super_admin/cac', () => {
@@ -72,8 +76,8 @@ describe('RBAC - permisos por tipo', () => {
     assert.equal(canRoleViewType('cac', 'Bonos'), true);
   });
 
-  it('POLICY.cac: dashboard/calendar/gestión/admin/directorio (submódulos novedades); sin comercial ni contratación', () => {
-    assert.deepEqual([...POLICY.cac.panels].sort(), ['admin', 'calendar', 'dashboard', 'directorio', 'gestion']);
+  it('POLICY.cac: dashboard/calendar/gestión/admin/directorio + onboarding; sin comercial ni contratación', () => {
+    assert.deepEqual([...POLICY.cac.panels].sort(), ['admin', 'calendar', 'dashboard', 'directorio', 'gestion', 'onboarding']);
     assert.equal(POLICY.cac.viewAllAreas, true);
     assert.equal(POLICY.cac.panels.includes('comercial'), false);
     assert.equal(POLICY.cac.panels.includes('contratacion'), false);
@@ -89,6 +93,8 @@ describe('RBAC - permisos por tipo', () => {
     assert.equal(POLICY.team_ch.panels.includes('comercial'), false);
     assert.ok(POLICY.admin_ch.panels.includes('contratacion'));
     assert.ok(POLICY.team_ch.panels.includes('contratacion'));
+    assert.ok(POLICY.admin_ch.panels.includes('onboarding'));
+    assert.ok(POLICY.team_ch.panels.includes('onboarding'));
   });
 
   it('admin_ch aprueba tipos de CH catalogados (p. ej. incapacidad, vacaciones en dinero)', () => {

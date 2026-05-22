@@ -22,7 +22,7 @@ import {
 // Roles actuales según src/rbac.js → ROLE_PRIORITY (cac reemplaza admin_ops/sst; comercial añadido)
 const ALL_ROLES = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial'];
 
-// Catálogo vigente en formulario: 14 tipos (vacaciones tiempo/dinero y Bonos solo histórico en NOVEDAD_RULES_LEGACY).
+// Catálogo vigente en formulario: 15 tipos (Vacaciones en tiempo y Bonos siguen como histórico en NOVEDAD_RULES_LEGACY).
 const ALL_NOVEDAD_TYPES = [
   'Incapacidad',
   'Calamidad domestica',
@@ -38,12 +38,13 @@ const ALL_NOVEDAD_TYPES = [
   'Disponibilidad',
   'Hora Extra',
   'Suspensión',
+  'Vacaciones en dinero',
 ];
 
 // ─── Estructura del catálogo ──────────────────────────────────────────────────
 describe('NOVEDAD_RULES – estructura del catálogo', () => {
-  it('debe exportar exactamente los 14 tipos de novedad activos en el catálogo', () => {
-    expect(NOVEDAD_TYPES).toHaveLength(14);
+  it('debe exportar exactamente los 15 tipos de novedad activos en el catálogo', () => {
+    expect(NOVEDAD_TYPES).toHaveLength(15);
     ALL_NOVEDAD_TYPES.forEach((tipo) => {
       expect(NOVEDAD_TYPES).toContain(tipo);
     });
@@ -166,9 +167,11 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
   // Permiso no remunerado
   describe('Permiso no remunerado', () => {
     const rule = NOVEDAD_RULES['Permiso no remunerado'];
-    it('debe requerir rango de tiempo (no días)', () => {
-      expect(rule.requiresTimeRange).toBe(true);
-      expect(rule.requiresDayCount).toBe(false);
+    it('debe usar el modo dual Días/Horas (sin rango horario obligatorio)', () => {
+      expect(rule.requiresTimeRange).toBe(false);
+      expect(rule.requiresDayCount).toBe(true);
+      expect(rule.autoBusinessDays).toBe(true);
+      expect(rule.permisoRemuneradoHoras).toBe(true);
     });
     it('no debe requerir documentos físicos', () => {
       expect(rule.requiredDocuments).toHaveLength(0);
@@ -188,14 +191,26 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
     });
   });
 
-  // Vacaciones en dinero (solo histórico)
+  // Vacaciones en dinero (activa: el GP ahora la registra y la visualiza)
   describe('Vacaciones en dinero', () => {
-    const rule = NOVEDAD_RULES_LEGACY['Vacaciones en dinero'];
-    it('requiere carta y solicitud formal en PDF', () => {
+    const rule = NOVEDAD_RULES['Vacaciones en dinero'];
+    it('está en el catálogo activo, no en NOVEDAD_RULES_LEGACY', () => {
+      expect(rule).toBeDefined();
+      expect(NOVEDAD_RULES_LEGACY['Vacaciones en dinero']).toBeUndefined();
+    });
+    it('requiere carta con firma manuscrita (PDF)', () => {
       expect(rule.requiredDocuments).toEqual(['Carta con firma manuscrita (solicitud formal en PDF)']);
     });
-    it('debe requerir conteo de días', () => {
+    it('debe requerir conteo de días sin cálculo automático ni rango horario', () => {
       expect(rule.requiresDayCount).toBe(true);
+      expect(rule.requiresTimeRange).toBe(false);
+      expect(rule.autoBusinessDays).toBe(false);
+    });
+    it('solo admin_ch aprueba (CH); el visor incluye GP además de CH y nómina', () => {
+      expect(rule.approvers).toEqual(['admin_ch']);
+      expect(rule.viewers).toEqual(
+        expect.arrayContaining(['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'])
+      );
     });
   });
 
@@ -303,6 +318,24 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
     });
     it('etiqueta de detalle distingue horas', () => {
       expect(getCantidadDetalleEtiqueta('Permiso remunerado', ctx)).toMatch(/hora/i);
+    });
+  });
+
+  describe('Toggle Días/Horas — Permiso no remunerado y compensatorio en tiempo', () => {
+    const ctxHoras = { unidad: 'horas' };
+    it('Permiso no remunerado en horas: medida=hours y sufijo h', () => {
+      expect(getCantidadMedidaKind('Permiso no remunerado', ctxHoras)).toBe('hours');
+      expect(formatCantidadNovedad('Permiso no remunerado', 3, ctxHoras)).toBe('3h');
+    });
+    it('Permiso no remunerado sin unidad: medida por defecto en días', () => {
+      expect(getCantidadMedidaKind('Permiso no remunerado')).toBe('days');
+    });
+    it('Permiso compensatorio en tiempo en horas: medida=hours y sufijo h', () => {
+      expect(getCantidadMedidaKind('Permiso compensatorio en tiempo', ctxHoras)).toBe('hours');
+      expect(formatCantidadNovedad('Permiso compensatorio en tiempo', 1.5, ctxHoras)).toMatch(/1[,.]5h/);
+    });
+    it('Permiso compensatorio en tiempo sin unidad: medida en días', () => {
+      expect(getCantidadMedidaKind('Permiso compensatorio en tiempo')).toBe('days');
     });
   });
 });

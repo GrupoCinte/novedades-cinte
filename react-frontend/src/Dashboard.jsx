@@ -3200,7 +3200,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                             )}
                             {gestionDetailItem.unidad ? (
                                 <div>
-                                    <span className={dash.modalMuted}>Unidad (permiso remunerado):</span>{' '}
+                                    <span className={dash.modalMuted}>Unidad:</span>{' '}
                                     {gestionDetailItem.unidad === 'horas' ? 'Horas' : gestionDetailItem.unidad === 'dias' ? 'Días' : gestionDetailItem.unidad}
                                 </div>
                             ) : null}
@@ -3540,7 +3540,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <input {...nativeCalendarOnlyInputProps} className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaVotacion || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaVotacion: e.target.value }))} />
                                     <GestionCalendarioCivilNotas ymd={gestionEditDraft.fechaVotacion} festivosSet={gestionFestivosSet} />
                                 </label>
-                                <label className={`${dash.labelUpper} col-span-full`}>Unidad (permiso remunerado)
+                                <label className={`${dash.labelUpper} col-span-full`}>Unidad
                                     <select className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.unidad || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, unidad: e.target.value }))}>
                                         <option value="">(sin especificar)</option>
                                         <option value="dias">días</option>
