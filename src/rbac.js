@@ -11,8 +11,13 @@ const POLICY = {
     admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'], viewAllAreas: true },
     team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'], viewAllAreas: true },
     comercial: { panels: ['comercial'] },
-    /** Solo gestión de novedades (`allowPanel('gestion')`); sin otros paneles JWT (comercial, contratación, directorio). */
-    gp: { panels: ['gestion'] },
+    /**
+     * Solo gestión de novedades (`allowPanel('gestion')`); sin otros paneles JWT (comercial, contratación, directorio).
+     * `viewAllAreas: true` permite a un GP ver TODAS las novedades de sus clientes asignados (operaciones, capital humano,
+     * financiero) sin filtro por área del JWT; el alcance sigue acotado por `clientes_lideres.gp_user_id`. La aprobación se
+     * mantiene limitada por `approvers` en `NOVELTY_RULES` (no se gana capacidad de decidir por este flag).
+     */
+    gp: { panels: ['gestion'], viewAllAreas: true },
     nomina: { panels: ['dashboard', 'calendar', 'gestion'], viewAllAreas: true },
     /** Radicación vía Microsoft Entra (sin paneles admin). */
     consultor: { panels: [] }
@@ -115,7 +120,7 @@ const NOVELTY_RULES = {
         /** La ruta POST valida el conteo por modalidad (1 o 2 archivos). */
         requiredMinSupports: 0,
         approvers: ['admin_ch'],
-        viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina']
+        viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina', 'gp']
     },
     /**
      * Suspensión de contrato de prestación de servicios (consultor).
