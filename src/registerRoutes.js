@@ -1652,7 +1652,7 @@ function registerRoutes(deps) {
 
             /**
              * Tipos que comparten la misma mecánica de `unidad` (Días hábiles vs Horas mismo día)
-             * con ventana "desde mañana hasta 1 año calendario". Permiso remunerado fue el primero;
+             * con ventana "desde hoy hasta 1 año calendario". Permiso remunerado fue el primero;
              * Permiso no remunerado y Permiso compensatorio en tiempo replican 1:1.
              */
             const TYPES_CON_UNIDAD = new Set([
@@ -1726,7 +1726,7 @@ function registerRoutes(deps) {
             }
 
             if (TYPES_CON_UNIDAD.has(novedadTypeKey) && (insertUnidad === 'horas' || insertUnidad === 'dias')) {
-                const minPermisoRem = ymdAddCalendarDaysUTC(todayUtc, 1);
+                const minPermisoRem = todayUtc;
                 const maxPermisoRem = (() => {
                     const d = parseDateAtUtcStart(todayUtc);
                     if (!d) return null;
@@ -1741,7 +1741,7 @@ function registerRoutes(deps) {
                         return res.status(422).json({
                             ok: false,
                             error:
-                                `${permisoConToggleLabel} (horas): la fecha debe ser desde el día siguiente al de hoy y no posterior a un año calendario desde hoy.`
+                                `${permisoConToggleLabel} (horas): la fecha debe ser desde hoy y no posterior a un año calendario desde hoy.`
                         });
                     }
                 } else {
@@ -1749,7 +1749,7 @@ function registerRoutes(deps) {
                         return res.status(422).json({
                             ok: false,
                             error:
-                                `${permisoConToggleLabel} (días): las fechas deben ser desde el día siguiente al de hoy y no posteriores a un año calendario desde hoy.`
+                                `${permisoConToggleLabel} (días): las fechas deben ser desde hoy y no posteriores a un año calendario desde hoy.`
                         });
                     }
                 }

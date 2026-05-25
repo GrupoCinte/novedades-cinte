@@ -390,15 +390,15 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const esSinAdjuntosPublicos = esDisponibilidad;
     const esIncapacidad = formData.tipo === 'Incapacidad';
     const todayLocalYmd = localTodayYmd();
-    /** Permisos con toggle (días u horas): no hoy ni fechas pasadas; tope superior = mismo “un año calendario” que el resto de novedades. */
-    const minFechaPermisoRemuneradoYmd = addCalendarDaysYmd(todayLocalYmd, 1);
+    /** Permisos con toggle (días u horas): desde hoy (sin retroactivo); tope superior = mismo “un año calendario” que el resto de novedades. */
+    const minFechaPermisoRemuneradoYmd = todayLocalYmd;
     /** Rango de fechas del permiso (días o unidad aún no elegida); excluye modo horas. */
     const esPermisoConToggleBloqueDias = esPermisoConToggle && formData.permisoUnidad !== 'horas';
-    /** Inicio: no antes de 2 meses calendario atrás; fin: no después de 1 año calendario desde hoy. */
-    const minFechaInicioYmd = addCalendarMonthsYmd(todayLocalYmd, -2);
+    /** Inicio: no antes de 4 meses calendario atrás; fin: no después de 1 año calendario desde hoy. */
+    const minFechaInicioYmd = addCalendarMonthsYmd(todayLocalYmd, -4);
     const maxFechaFinYmd = addCalendarYearsYmd(todayLocalYmd, 1);
     const maxFechaInicioYmd = esIncapacidad ? todayLocalYmd : maxFechaFinYmd;
-    /** Límite inferior de “Fecha inicio” en el bloque genérico: permisos con toggle (salvo modo horas) = desde mañana. */
+    /** Límite inferior de “Fecha inicio” en el bloque genérico: permisos con toggle (salvo modo horas) = desde hoy. */
     const minFechaInicioEfectivaYmd =
         esPermisoConToggleBloqueDias
             ? minFechaPermisoRemuneradoYmd
@@ -1177,10 +1177,10 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             setStatus({
                 type: 'error',
                 text: esIncapacidad
-                    ? '❌ Fecha Incapacidad: desde hace un mes calendario como máximo hasta hoy.'
+                    ? '❌ Fecha Incapacidad: desde hace 4 meses calendario como máximo hasta hoy.'
                     : esPermisoConToggleBloqueDias
-                      ? `❌ ${formData.tipo}: la fecha de inicio debe ser desde mañana en adelante y no más allá de un año calendario desde hoy.`
-                      : '❌ Fecha Inicio fuera del rango permitido (desde hace un mes calendario hasta un año calendario desde hoy).'
+                      ? `❌ ${formData.tipo}: la fecha de inicio debe ser desde hoy en adelante y no más allá de un año calendario desde hoy.`
+                      : '❌ Fecha Inicio fuera del rango permitido (desde hace 4 meses calendario hasta un año calendario desde hoy).'
             });
             return;
         }
@@ -1194,14 +1194,14 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         if (fechaFinPermisoDiasAntesDeMin) {
             setStatus({
                 type: 'error',
-                text: `❌ ${formData.tipo}: la fecha de fin no puede ser hoy ni una fecha pasada; debe ser desde mañana en adelante.`
+                text: `❌ ${formData.tipo}: la fecha de fin no puede ser anterior a hoy; debe ser desde hoy en adelante.`
             });
             return;
         }
         if (fechaPermisoHorasFueraDeVentana) {
             setStatus({
                 type: 'error',
-                text: `❌ ${formData.tipo} (horas): la fecha del permiso debe ser desde mañana en adelante y dentro de un año calendario desde hoy.`
+                text: `❌ ${formData.tipo} (horas): la fecha del permiso debe ser desde hoy en adelante y dentro de un año calendario desde hoy.`
             });
             return;
         }
@@ -1211,7 +1211,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                 : bloqueoEnvioCompVotacion
                 ? '❌ Elige jurado o votación (medio día), fechas de votación y disfrute y, si es votación, rango horario (HH:mm, máx. 4 h).'
                 : bloqueoEnvioPermisoHoras
-                    ? '❌ En modo horas: fecha desde mañana (mismo tope de un año que otras novedades) y hora inicio/fin válidas (HH:mm); la hora fin debe ser posterior a la de inicio.'
+                    ? '❌ En modo horas: fecha desde hoy (mismo tope de un año que otras novedades) y hora inicio/fin válidas (HH:mm); la hora fin debe ser posterior a la de inicio.'
                     : isHoraExtra
                         ? '❌ Corrige fecha/horas de Hora Extra antes de enviar.'
                         : autocalculaDiasDesdeRango && !String(formData.fechaFin || '').trim()
@@ -2061,7 +2061,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                 className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
                                             />
                                             <small className={theme.helperMutedPlain}>
-                                                Desde mañana (no hoy ni fechas pasadas), hasta un año calendario desde hoy (misma regla que otras novedades).
+                                                Desde hoy (no fechas pasadas), hasta un año calendario desde hoy (misma regla que otras novedades).
                                             </small>
                                             {formData.fecha && festivosSet.has(formData.fecha) && (
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
@@ -2169,7 +2169,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                         </div>
                                         {esPermisoConToggleBloqueDias && (
                                             <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
-                                                Las fechas deben ser desde mañana (no hoy ni días pasados), hasta un año calendario desde hoy.
+                                                Las fechas deben ser desde hoy (no días pasados), hasta un año calendario desde hoy.
                                             </p>
                                         )}
                                     </div>
