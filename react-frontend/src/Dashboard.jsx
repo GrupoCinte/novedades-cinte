@@ -429,6 +429,10 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [gestionEditDraft, setGestionEditDraft] = useState(null);
     const [gestionDeleteOpen, setGestionDeleteOpen] = useState(false);
     const [gestionDeleteMotivo, setGestionDeleteMotivo] = useState('');
+    const [gestionRejectOpen, setGestionRejectOpen] = useState(false);
+    const [gestionRejectObservacion, setGestionRejectObservacion] = useState('');
+    const [gestionRejectPending, setGestionRejectPending] = useState(null);
+    const [gestionRejectErr, setGestionRejectErr] = useState(null);
     const [gestionAdminBusy, setGestionAdminBusy] = useState(false);
     const [gestionAdminErr, setGestionAdminErr] = useState(null);
     const [gestionFestivosSet, setGestionFestivosSet] = useState(() => new Set());
@@ -734,6 +738,9 @@ export default function Dashboard({ token, auth, onLogout }) {
             if (options && options.montoCop != null) {
                 bodyPayload.montoCop = options.montoCop;
             }
+            if (options && options.observacionesRechazo != null) {
+                bodyPayload.observacionesRechazo = options.observacionesRechazo;
+            }
             const res = await fetch('/api/actualizar-estado', {
                 method: 'POST',
                 credentials: 'include',
@@ -754,15 +761,45 @@ export default function Dashboard({ token, auth, onLogout }) {
                 await loadData();
                 await loadGestionData(currentPage, pageSize);
                 await loadHoraExtraAlerts();
+                return true;
             } else {
                 const errMsg = data?.error || `Error ${res.status}`;
                 console.error('[changeState] Error del servidor:', errMsg);
                 setStateError(errMsg);
+                return false;
             }
         } catch (err) {
             console.error('[changeState] Error de red/fetch:', err);
             setStateError('Error de conexión con el servidor. Verifica que el backend esté corriendo en :3005');
+            return false;
         }
+    };
+
+    const openGestionRejectModal = (pending) => {
+        setGestionRejectPending(pending);
+        setGestionRejectObservacion('');
+        setGestionRejectErr(null);
+        setGestionRejectOpen(true);
+    };
+
+    const submitGestionReject = async () => {
+        const texto = String(gestionRejectObservacion || '').trim();
+        if (!texto) {
+            setGestionRejectErr('Indica la observación de rechazo (causa e indicaciones para el consultor).');
+            return;
+        }
+        if (!gestionRejectPending?.id) return;
+        setGestionRejectErr(null);
+        const opts = { observacionesRechazo: texto };
+        if (gestionRejectPending.fromHoraExtraAlert) opts.fromHoraExtraAlert = true;
+        if (gestionRejectPending.montoCop != null) opts.montoCop = gestionRejectPending.montoCop;
+        const ok = await changeState(gestionRejectPending.id, 'Rechazado', opts);
+        if (!ok) return;
+        setGestionRejectOpen(false);
+        setGestionRejectPending(null);
+        setGestionRejectObservacion('');
+        if (gestionRejectPending.closeGestionDetail) closeGestionDetailModal();
+        if (gestionRejectPending.closeAlertaHe) setAlertaHeDetailItem(null);
     };
 
     const closeGestionDetailModal = () => {
@@ -771,6 +808,10 @@ export default function Dashboard({ token, auth, onLogout }) {
         setGestionEditDraft(null);
         setGestionDeleteOpen(false);
         setGestionDeleteMotivo('');
+        setGestionRejectOpen(false);
+        setGestionRejectObservacion('');
+        setGestionRejectPending(null);
+        setGestionRejectErr(null);
         setGestionAdminErr(null);
     };
 
@@ -2356,6 +2397,17 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                             Gestionada por alerta HE: {it.alertaHeResueltaEstado}
                                                                         </span>
                                                                     ) : null}
+                                                                    {it.estado === 'Rechazado' && String(it.observacionesRechazo || '').trim() ? (
+                                                                        <span
+                                                                            className={`${dash.tdMuted} block max-w-[200px] truncate text-[10px] !whitespace-normal`}
+                                                                            title={String(it.observacionesRechazo || '').trim()}
+                                                                        >
+                                                                            {(() => {
+                                                                                const t = String(it.observacionesRechazo || '').trim();
+                                                                                return t.length > 80 ? `${t.slice(0, 77)}…` : t;
+                                                                            })()}
+                                                                        </span>
+                                                                    ) : null}
                                                                 </div>
                                                             </td>
                                                             <td className={`${dash.tdCell} max-w-[240px] align-top text-xs !whitespace-normal`}>
@@ -3248,8 +3300,23 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 : 'md:col-span-2 rounded-lg border border-sky-500/35 bg-slate-900/60 px-3 py-2 text-sm text-slate-100'
                                         }
                                     >
-                                        <span className="font-semibold">Observaciones:</span>{' '}
+                                        <span className="font-semibold">Observaciones (consultor):</span>{' '}
                                         <span className="whitespace-pre-wrap break-words">{observacionesTexto}</span>
+                                    </div>
+                                ) : null;
+                            })()}
+                            {gestionDetailItem.estado === 'Rechazado' && (() => {
+                                const rechazoTexto = String(gestionDetailItem.observacionesRechazo || '').trim();
+                                return rechazoTexto ? (
+                                    <div
+                                        className={
+                                            isLight
+                                                ? 'md:col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950'
+                                                : 'md:col-span-2 rounded-lg border border-rose-500/35 bg-rose-950/25 px-3 py-2 text-sm text-rose-100'
+                                        }
+                                    >
+                                        <span className="font-semibold">Observación de rechazo:</span>{' '}
+                                        <span className="whitespace-pre-wrap break-words">{rechazoTexto}</span>
                                     </div>
                                 ) : null;
                             })()}
@@ -3743,7 +3810,15 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             disabled={decisionDisabled}
                                             aria-disabled={decisionDisabled}
                                             title={decisionDisabled ? 'Diligencia un valor en pesos mayor a cero antes de rechazar.' : undefined}
-                                            onClick={() => { void dispatchDecision('Rechazado'); }}
+                                            onClick={() => {
+                                                openGestionRejectModal({
+                                                    id: gestionDetailItem.id || gestionDetailItem.creadoEn,
+                                                    montoCop: aplicaDisp && montoNumber != null
+                                                        ? Number(montoNumber.toFixed(2))
+                                                        : undefined,
+                                                    closeGestionDetail: true
+                                                });
+                                            }}
                                             className={
                                                 isLight
                                                     ? 'rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 transition-all hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50'
@@ -3888,9 +3963,12 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <button type="button" onClick={() => setAlertaHeDetailItem(null)} className={`${outlineBtn} text-sm`}>Cerrar</button>
                             <button
                                 type="button"
-                                onClick={async () => {
-                                    await changeState(alertaHeDetailItem.id, 'Rechazado', { fromHoraExtraAlert: true });
-                                    setAlertaHeDetailItem(null);
+                                onClick={() => {
+                                    openGestionRejectModal({
+                                        id: alertaHeDetailItem.id,
+                                        fromHoraExtraAlert: true,
+                                        closeAlertaHe: true
+                                    });
                                 }}
                                 className={
                                     isLight
@@ -4131,6 +4209,64 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     </button>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {gestionRejectOpen && (
+                <div
+                    className={`${dash.modalBackdrop} z-[80]`}
+                    onClick={() => {
+                        setGestionRejectOpen(false);
+                        setGestionRejectPending(null);
+                        setGestionRejectObservacion('');
+                        setGestionRejectErr(null);
+                    }}
+                    role="presentation"
+                >
+                    <div
+                        className={isLight ? 'w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl' : 'w-full max-w-md rounded-xl border border-slate-600 bg-slate-900 p-5 shadow-xl'}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 className={dash.titleLg}>Rechazar novedad</h3>
+                        <p className={`${dash.modalMuted} mt-2 text-sm`}>
+                            Indique la causa del rechazo y qué debe corregir o completar el consultor al radicar de nuevo. Es obligatorio.
+                        </p>
+                        <textarea
+                            className={`mt-3 min-h-[120px] w-full ${fieldInput}`}
+                            placeholder="Observación de rechazo…"
+                            value={gestionRejectObservacion}
+                            onChange={(e) => setGestionRejectObservacion(e.target.value)}
+                            maxLength={1000}
+                        />
+                        {gestionRejectErr ? <p className="mt-2 text-sm text-rose-600">{gestionRejectErr}</p> : null}
+                        {stateError ? <p className="mt-2 text-sm text-rose-600">{stateError}</p> : null}
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setGestionRejectOpen(false);
+                                    setGestionRejectPending(null);
+                                    setGestionRejectObservacion('');
+                                    setGestionRejectErr(null);
+                                }}
+                                className={`${outlineBtn} text-sm`}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!String(gestionRejectObservacion || '').trim()}
+                                onClick={() => void submitGestionReject()}
+                                className={
+                                    isLight
+                                        ? 'rounded-lg border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-40'
+                                        : 'rounded-lg border border-rose-500 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-40'
+                                }
+                            >
+                                Confirmar rechazo
+                            </button>
                         </div>
                     </div>
                 </div>

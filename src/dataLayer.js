@@ -227,6 +227,19 @@ function createDataLayer(deps) {
         }
     }
 
+    /** Motivo de rechazo por el aprobador (Gestión). Distinto de `observaciones` del consultor al radicar. */
+    async function ensureNovedadesObservacionesRechazoColumn() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS observaciones_rechazo TEXT NULL');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para observaciones_rechazo en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /**
      * Detección de duplicado de novedad Pendiente con la llave de negocio acordada.
      * No incluye `compensatorio_votacion_jurado`: ese tipo conserva su regla propia (ver POST /api/enviar-novedad).
@@ -1601,6 +1614,7 @@ function createDataLayer(deps) {
                 nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
                 nov.he_domingo_observacion,
                 nov.observaciones,
+                nov.observaciones_rechazo,
                 COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
                 COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
              FROM novedades nov
@@ -2031,6 +2045,7 @@ function createDataLayer(deps) {
         ensureNovedadesHorasRecargoDomingoColumn,
         ensureNovedadesModalidadVotacionUnidadColumns,
         ensureNovedadesObservacionesColumn,
+        ensureNovedadesObservacionesRechazoColumn,
         ensureNovedadesDuplicadoPendienteIndex,
         findPendingNovedadDuplicate,
         migrateClientesLideresFromExcelIfNeeded,

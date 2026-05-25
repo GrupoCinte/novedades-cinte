@@ -275,7 +275,57 @@ test('POST /api/actualizar-estado: Disponibilidad RECHAZADA también requiere mo
   });
   const res = await request(app)
     .post('/api/actualizar-estado')
+    .send({
+      id: VALID_NOVEDAD_UUID,
+      nuevoEstado: 'Rechazado',
+      observacionesRechazo: 'Falta soporte de disponibilidad.'
+    });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+  assert.match(String(res.body.error || ''), /pesos/i);
+});
+
+test('POST /api/actualizar-estado: Rechazado sin observacionesRechazo → 400', async () => {
+  let updated = false;
+  const app = buildApp({
+    pool: buildPoolForActualizarEstado({
+      tipoNovedad: 'Incapacidad',
+      captureUpdate: () => { updated = true; }
+    })
+  });
+  const res = await request(app)
+    .post('/api/actualizar-estado')
     .send({ id: VALID_NOVEDAD_UUID, nuevoEstado: 'Rechazado' });
   assert.equal(res.status, 400);
   assert.equal(res.body.ok, false);
+  assert.match(String(res.body.error || ''), /observaci[oó]n de rechazo/i);
+  assert.equal(updated, false);
+});
+
+test('POST /api/actualizar-estado: Rechazado con observacionesRechazo → 200 y persiste', async () => {
+  let captured = null;
+  const motivo = 'Documento ilegible; adjunte incapacidad legible.';
+  const app = buildApp({
+    pool: buildPoolForActualizarEstado({
+      tipoNovedad: 'Incapacidad',
+      captureUpdate: (_text, params) => { captured = params; }
+    }),
+    emailNotificationsPublisher: {
+      publishFormStatusChanged: async (payload) => {
+        assert.equal(payload.rejectionFeedback, motivo);
+        return { accepted: true, skipped: false };
+      }
+    }
+  });
+  const res = await request(app)
+    .post('/api/actualizar-estado')
+    .send({
+      id: VALID_NOVEDAD_UUID,
+      nuevoEstado: 'Rechazado',
+      observacionesRechazo: motivo
+    });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.ok(captured);
+  assert.equal(captured[8], motivo, '$9 = observaciones de rechazo');
 });

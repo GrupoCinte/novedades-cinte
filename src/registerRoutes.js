@@ -23,6 +23,7 @@ const {
 const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
 const festivosService = require('./festivosService');
 const { decodePossiblyMisencodedText } = require('./novedadesMapper');
+const { validateObservacionesRechazo } = require('./novedadPersistValidation');
 
 // Inicializar festivos en background al arrancar el servidor
 festivosService.initFestivosCache();
@@ -519,11 +520,13 @@ function registerRoutes(deps) {
         montoCop,
         previousEstado,
         newEstado,
-        changedByEmail
+        changedByEmail,
+        rejectionFeedback
     }) {
         const userEmail = String(correoSolicitante || '').trim().toLowerCase();
         const adminBaseUrl = String(FRONTEND_URL || '').trim() || 'http://localhost:5175';
-        return {
+        const rejectionTrim = String(rejectionFeedback || '').trim();
+        const base = {
             eventType: 'form_status_changed',
             eventId: randomUUID(),
             occurredAt: new Date().toISOString(),
@@ -533,7 +536,8 @@ function registerRoutes(deps) {
                 email: userEmail
             },
             admin: {
-                actionUrl: `${adminBaseUrl}/admin`
+                actionUrl: `${adminBaseUrl}/admin`,
+                consultorNovedadesUrl: `${adminBaseUrl}/consultor/novedades`
             },
             formData: {
                 tipoNovedad: String(tipoNovedad || '').trim(),
@@ -556,6 +560,10 @@ function registerRoutes(deps) {
                 env: process.env.NODE_ENV || 'development'
             }
         };
+        if (String(newEstado || '').trim() === 'Rechazado' && rejectionTrim) {
+            base.rejectionFeedback = rejectionTrim;
+        }
+        return base;
     }
 
     async function streamToBuffer(stream) {
@@ -2281,6 +2289,17 @@ function registerRoutes(deps) {
                 nuevoMontoCopParaUpdate = Number(parsedMonto.toFixed(2));
             }
 
+            let observacionesRechazoParam = null;
+            if (estado === 'Rechazado') {
+                const rawObsRechazo =
+                    req.body?.observacionesRechazo ?? req.body?.observaciones_rechazo ?? '';
+                const obsCheck = validateObservacionesRechazo(rawObsRechazo);
+                if (!obsCheck.ok) {
+                    return res.status(400).json({ ok: false, error: obsCheck.error });
+                }
+                observacionesRechazoParam = obsCheck.value;
+            }
+
             const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
             // Derivar actor exclusivamente del token/sesión validado en backend (MED-006).
             let actorEmail = String(req.user?.email || '').trim();
@@ -2319,7 +2338,8 @@ function registerRoutes(deps) {
                      alerta_he_origen = CASE WHEN $6::boolean THEN TRUE ELSE alerta_he_origen END,
                      alerta_he_resuelta_estado = CASE WHEN $6::boolean THEN $1::text ELSE alerta_he_resuelta_estado END,
                      alerta_he_resuelta_en = CASE WHEN $6::boolean THEN NOW() ELSE alerta_he_resuelta_en END,
-                     alerta_he_resuelta_por_email = CASE WHEN $6::boolean THEN NULLIF($4::text, '') ELSE alerta_he_resuelta_por_email END
+                     alerta_he_resuelta_por_email = CASE WHEN $6::boolean THEN NULLIF($4::text, '') ELSE alerta_he_resuelta_por_email END,
+                     observaciones_rechazo = CASE WHEN $1::novedad_estado = 'Rechazado'::novedad_estado THEN NULLIF($9::text, '') ELSE observaciones_rechazo END
                  WHERE id = $5::uuid`,
                 [
                     estado,
@@ -2329,7 +2349,8 @@ function registerRoutes(deps) {
                     item.id,
                     fromHoraExtraAlert,
                     aplicaDiligenciamientoMonto,
-                    nuevoMontoCopParaUpdate
+                    nuevoMontoCopParaUpdate,
+                    observacionesRechazoParam
                 ]
             );
 
@@ -2354,7 +2375,8 @@ function registerRoutes(deps) {
                     montoCop: aplicaDiligenciamientoMonto ? nuevoMontoCopParaUpdate : item.monto_cop,
                     previousEstado: normalizeEstado(item.estado),
                     newEstado: estado,
-                    changedByEmail: actorEmail
+                    changedByEmail: actorEmail,
+                    rejectionFeedback: observacionesRechazoParam
                 });
                 try {
                     const publishResult = await emailNotificationsPublisher?.publishFormStatusChanged?.(statusPayload);

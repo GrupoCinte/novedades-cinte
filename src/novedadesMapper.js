@@ -139,7 +139,8 @@ function toClientNovedad(row) {
         modalidad: row.modalidad != null ? String(row.modalidad).trim() : '',
         fechaVotacion: pgDateToYmd(row.fecha_votacion),
         unidad: row.unidad != null ? String(row.unidad).trim() : '',
-        observaciones: decodePossiblyMisencodedText(String(row.observaciones || ''))
+        observaciones: decodePossiblyMisencodedText(String(row.observaciones || '')),
+        observacionesRechazo: decodePossiblyMisencodedText(String(row.observaciones_rechazo || ''))
     };
 }
 

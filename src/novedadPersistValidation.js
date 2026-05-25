@@ -147,8 +147,31 @@ function validateMergedNovedadForAdmin(merged, opts) {
     return { ok: true };
 }
 
+/**
+ * Observación obligatoria al rechazar una novedad en Gestión (1–MAX_OBSERVACIONES_LEN).
+ * @param {unknown} raw
+ * @returns {{ ok: true, value: string } | { ok: false, error: string }}
+ */
+function validateObservacionesRechazo(raw) {
+    const value = String(raw ?? '').trim();
+    if (!value) {
+        return {
+            ok: false,
+            error: 'Indica la observación de rechazo (causa e indicaciones para el consultor).'
+        };
+    }
+    if (value.length > MAX_OBSERVACIONES_LEN) {
+        return {
+            ok: false,
+            error: `La observación de rechazo no puede superar ${MAX_OBSERVACIONES_LEN} caracteres.`
+        };
+    }
+    return { ok: true, value };
+}
+
 module.exports = {
     validateMergedNovedadForAdmin,
+    validateObservacionesRechazo,
     toYmd,
     toHms,
     nonNegNum,

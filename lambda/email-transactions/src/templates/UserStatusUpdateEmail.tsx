@@ -6,6 +6,7 @@ import {
   Heading,
   Hr,
   Html,
+  Link,
   Preview,
   Section,
   Text
@@ -20,6 +21,10 @@ interface Props {
 
 export function UserStatusUpdateEmail({ payload }: Props) {
   const isApproved = payload.formData.estado === 'Aprobado';
+  const rejectionFeedback = String(payload.rejectionFeedback || '').trim();
+  const consultorUrl =
+    String(payload.admin?.consultorNovedadesUrl || '').trim() ||
+    String(payload.admin?.actionUrl || '').replace(/\/admin\/?$/, '/consultor/novedades');
   const logoUrl = resolveLogoUrl();
   return (
     <Html>
@@ -46,8 +51,22 @@ export function UserStatusUpdateEmail({ payload }: Props) {
             <Text className="mt-2 text-slate-700">
               {isApproved
                 ? 'Tu novedad fue aprobada por el equipo de gestion.'
-                : 'Tu novedad fue rechazada por el equipo de gestion. Si requieres aclaraciones, contacta al area administrativa.'}
+                : 'Tu novedad fue rechazada por el equipo de gestion.'}
             </Text>
+            {!isApproved && rejectionFeedback ? (
+              <Section className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-4">
+                <Text className="m-0 text-sm font-semibold text-rose-900">Observacion de rechazo</Text>
+                <Text className="mb-0 mt-2 whitespace-pre-wrap text-sm text-rose-950">{rejectionFeedback}</Text>
+              </Section>
+            ) : null}
+            {!isApproved ? (
+              <Text className="mt-4 text-slate-700">
+                Puedes radicar de nuevo en el portal de novedades:{' '}
+                <Link href={consultorUrl} className="text-sky-700 underline">
+                  {consultorUrl}
+                </Link>
+              </Text>
+            ) : null}
             <Section className="mt-6 rounded-lg bg-slate-50 p-4">
               <Text className="m-0 text-sm text-slate-600"><strong>ID:</strong> {payload.novedadId}</Text>
               <Text className="m-0 mt-2 text-sm text-slate-600"><strong>Tipo:</strong> {payload.formData.tipoNovedad}</Text>

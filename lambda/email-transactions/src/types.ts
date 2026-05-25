@@ -39,7 +39,10 @@ export interface FormStatusChangedNotificationEvent {
   };
   admin: {
     actionUrl: string;
+    consultorNovedadesUrl?: string;
   };
+  /** Motivo de rechazo (solo cuando newEstado es Rechazado). */
+  rejectionFeedback?: string;
   formData: {
     tipoNovedad: string;
     cliente: string;
