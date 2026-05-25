@@ -3,6 +3,9 @@ const crypto = require('crypto');
 function parseDateOrNull(value) {
     const raw = String(value || '').trim();
     if (!raw || raw.toUpperCase() === 'N/A') return null;
+    /** Solo calendario YYYY-MM-DD: sin pasar por Date (evita desfases por huso al persistir). */
+    const ymdOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (ymdOnly) return `${ymdOnly[1]}-${ymdOnly[2]}-${ymdOnly[3]}`;
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) return null;
     return d.toISOString().slice(0, 10);

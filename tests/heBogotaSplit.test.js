@@ -110,3 +110,67 @@ test('computeHoraExtraSplitBogota: cruce medianoche en día laboral sin domingo'
     assert.ok(s.nocturnas > 0);
     assert.ok(s.diurnas >= 0);
 });
+
+test('computeHoraExtraSplitBogota: festivo no-domingo con festivosSet manda HE a recargo diurno', () => {
+    /* Lunes 18/05/2026 — festivo Día de la Ascensión (no es domingo) */
+    const start = toUtcMsFromDateAndTime('2026-05-18', '08:00:00');
+    const end = toUtcMsFromDateAndTime('2026-05-18', '12:00:00');
+    const festivosSet = new Set(['2026-05-18']);
+    const s = computeHoraExtraSplitBogota(start, end, festivosSet);
+    assert.equal(s.horasRecargoDomingo, 4);
+    assert.equal(s.horasRecargoDomingoDiurnas, 4);
+    assert.equal(s.horasRecargoDomingoNocturnas, 0);
+    assert.equal(s.diurnas, 0);
+    assert.equal(s.nocturnas, 0);
+    assert.equal(s.total, 4);
+});
+
+test('computeHoraExtraSplitBogota: festivo no-domingo respeta tope RECARGO_DOMINGO_MAX_HORAS', () => {
+    /* Lunes 18/05/2026 festivo, jornada larga 06:00–22:00 (16h): primeras 7,33h al recargo, resto a HE */
+    const start = toUtcMsFromDateAndTime('2026-05-18', '06:00:00');
+    const end = toUtcMsFromDateAndTime('2026-05-18', '22:00:00');
+    const festivosSet = new Set(['2026-05-18']);
+    const s = computeHoraExtraSplitBogota(start, end, festivosSet);
+    assert.ok(Math.abs(s.horasRecargoDomingo - RECARGO_DOMINGO_MAX_HORAS) < 0.02, `recargo=${s.horasRecargoDomingo}`);
+    assert.ok(s.diurnas + s.nocturnas > 8);
+    assert.ok(Math.abs(s.total - 16) < 0.05, `total=${s.total}`);
+});
+
+test('computeHoraExtraSplitBogota: back-compat — sin festivosSet, festivo no-domingo va a horas planas', () => {
+    /* Mismo lunes festivo pero llamando sin set: comportamiento previo (no recargo) */
+    const start = toUtcMsFromDateAndTime('2026-05-18', '08:00:00');
+    const end = toUtcMsFromDateAndTime('2026-05-18', '12:00:00');
+    const s = computeHoraExtraSplitBogota(start, end);
+    assert.equal(s.horasRecargoDomingo, 0);
+    assert.equal(s.horasRecargoDomingoDiurnas, 0);
+    assert.equal(s.diurnas, 4);
+    assert.equal(s.nocturnas, 0);
+    assert.equal(s.total, 4);
+});
+
+test('computeHoraExtraSplitBogota: festivo no-domingo + domingo en el rango aplica tope a cada uno', () => {
+    /* Domingo 17/05/2026 12:00 → lunes festivo 18/05/2026 22:00; 34h totales */
+    const start = toUtcMsFromDateAndTime('2026-05-17', '12:00:00');
+    const end = toUtcMsFromDateAndTime('2026-05-18', '22:00:00');
+    const festivosSet = new Set(['2026-05-18']);
+    const s = computeHoraExtraSplitBogota(start, end, festivosSet);
+    assert.ok(Math.abs(s.horasRecargoDomingo - 14.66) < 0.05, `recargo=${s.horasRecargoDomingo}`);
+    assert.ok(Math.abs(s.total - 34) < 0.05, `total=${s.total}`);
+});
+
+test('collectRecargoDomingoDiurnaNocturnaSegmentsBogota: festivo no-domingo produce segmento de recargo', () => {
+    const start = toUtcMsFromDateAndTime('2026-05-18', '08:00:00');
+    const end = toUtcMsFromDateAndTime('2026-05-18', '12:00:00');
+    const festivosSet = new Set(['2026-05-18']);
+    const { diurna, nocturna } = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(start, end, festivosSet);
+    assert.equal(diurna.length, 1);
+    assert.equal(nocturna.length, 0);
+});
+
+test('collectRecargoDomingoDiurnaNocturnaSegmentsBogota: festivo no-domingo sin festivosSet no produce recargo', () => {
+    const start = toUtcMsFromDateAndTime('2026-05-18', '08:00:00');
+    const end = toUtcMsFromDateAndTime('2026-05-18', '12:00:00');
+    const { diurna, nocturna } = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(start, end);
+    assert.equal(diurna.length, 0);
+    assert.equal(nocturna.length, 0);
+});

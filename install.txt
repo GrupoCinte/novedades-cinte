@@ -1,0 +1,99 @@
+================================================================================
+NOVEDADES CINTE — Guía rápida de instalación y arranque local
+================================================================================
+Documentación ampliada: README.md en la raíz del repositorio.
+
+Requisitos
+----------
+- Node.js 20+
+- PostgreSQL 14+ (accesible según variables DB_* en .env)
+- Archivo .env en la raíz (copiar desde .env.example y completar valores reales)
+
+Instalación (primera vez)
+-------------------------
+1) Raíz del repo (backend):
+   npm install
+
+2) Frontend:
+   cd react-frontend
+   npm install
+
+3) Crear .env en la raíz a partir de .env.example (JWT_SECRET obligatorio, >=32
+   caracteres). No subir .env al repositorio.
+
+Arranque local (cada sesión)
+----------------------------
+Terminal A — backend (desde la raíz del repo):
+  npm run dev
+  API: http://localhost:3005  (o el puerto definido en PORT)
+
+Terminal B — frontend:
+  cd react-frontend
+  npm run dev
+  UI: http://localhost:5175  (o VITE_DEV_SERVER_PORT si lo cambiaste)
+
+En Windows PowerShell, si un script falla con "&&", usar en su lugar:
+  Set-Location <ruta>; npm run dev
+
+================================================================================
+Login muestra «Error interno» (backend) — qué revisar
+================================================================================
+
+Aclaración importante (cambios recientes en el repo)
+----------------------------------------------------
+Las mejoras del módulo «Mallas de turnos» en administración/directorio se
+implementaron principalmente en:
+  react-frontend/src/MallasTurnosPage.jsx
+Ese código no modifica POST /api/login ni la integración con Cognito en el
+backend. Si el login dejó de funcionar justo después de reiniciar servidores
+o de un cambio de red/.env, suele ser un tema de entorno o de conectividad
+hacia AWS Cognito, no de la UI de mallas.
+
+Dónde se genera el mensaje
+--------------------------
+POST /api/login (src/registerRoutes.js) captura errores y, si el fallo no viene
+clasificado como error HTTP 400–499 del flujo hacia Cognito, responde 500 con
+message: «Error interno» (mensaje genérico a propósito).
+
+Qué mirar primero
+-----------------
+1) Consola del backend al intentar iniciar sesión: busca la línea
+     Error login:
+   El stack o mensaje que sigue es la causa real (red, credenciales Cognito,
+   configuración faltante, etc.).
+
+2) Variables Cognito en .env (cuando COGNITO_ENABLED=true, que es el default):
+   COGNITO_REGION
+   COGNITO_USER_POOL_ID
+   COGNITO_APP_CLIENT_ID
+   COGNITO_APP_CLIENT_SECRET  (obligatorio si el App client en Cognito tiene
+                               client secret habilitado)
+
+3) Conectividad saliente HTTPS hacia:
+     https://cognito-idp.<COGNITO_REGION>.amazonaws.com/
+   Si hay firewall, VPN caída o sin Internet, el fetch falla y a menudo ves
+   «Error interno» en pantalla.
+
+4) Diagnóstico en local (sin exponer detalles en producción): en .env
+     EXPOSE_INTERNAL_ERRORS=true
+   reinicia el backend e intenta login de nuevo; la respuesta JSON puede
+   incluir el mensaje concreto. En producción/staging no dependas de esto.
+
+Modo desarrollo sin Cognito (opcional)
+--------------------------------------
+En .env:
+  COGNITO_ENABLED=false
+Reinicia el backend. El login espera usuario existente en la tabla users y
+contraseña fija de desarrollo 123456 (ver código en registerRoutes.js). Solo
+para entornos de desarrollo controlados.
+
+Otros avisos al arrancar el backend (no son el login)
+-----------------------------------------------------
+Mensajes como «Failed to fetch festivos from API» al iniciar hacen referencia
+a otro origen de datos (festivos); el servidor puede seguir levantando con
+normalidad. No sustituyen al diagnóstico de «Error login:» para el problema
+de autenticación.
+
+================================================================================
+Fin install.txt
+================================================================================

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
+import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
@@ -1957,6 +1958,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                                 } else if (meta.kind === 'date') {
                                                     control = (
                                                         <input
+                                                            {...nativeCalendarOnlyInputProps}
                                                             type="date"
                                                             className={`w-full ${field}`}
                                                             value={val}

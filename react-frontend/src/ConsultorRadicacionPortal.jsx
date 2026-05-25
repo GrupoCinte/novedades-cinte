@@ -48,12 +48,12 @@ const ENTRA_ERR_MSG = {
 function PortalShell({ children }) {
   return (
     <div
-      className="relative min-h-screen w-full flex flex-1 flex-col items-center justify-center overflow-hidden font-body text-slate-200"
+      className="relative flex min-h-[100dvh] min-h-screen w-full flex-1 flex-col items-center justify-center overflow-x-hidden overflow-y-auto font-body text-slate-200"
       style={PORTAL_BG_STYLE}
     >
       <div className="pointer-events-none absolute inset-0 bg-[#04141E]/30 backdrop-blur-[1px]" />
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/25 via-transparent to-[#004D87]/25" />
-      <div className="relative z-10 flex w-full max-w-lg flex-col items-stretch justify-center px-4 py-10 sm:px-6">
+      <div className="relative z-10 my-auto flex w-full max-w-lg flex-col items-stretch justify-center px-4 py-6 sm:px-6 sm:py-8 [@media(max-height:720px)]:py-3 [@media(max-height:720px)]:sm:py-4">
         {children}
       </div>
     </div>
@@ -135,8 +135,12 @@ export default function ConsultorRadicacionPortal() {
     <PortalShell>
       <GlassCard>
         <header
-          className={`mb-7 flex flex-col items-center border-b pb-7 sm:mb-8 sm:pb-8 ${au.isLight ? 'border-slate-200/90' : 'border-white/10'}`}
+          className={`mb-7 flex flex-col items-center border-b pb-7 sm:mb-8 sm:pb-8 [@media(max-height:720px)]:hidden ${au.isLight ? 'border-slate-200/90' : 'border-white/10'}`}
         >
+          {/*
+            En viewports anchos pero bajos (p. ej. laptop horizontal), el bloque del logo fuerza scroll:
+            se oculta por debajo de ~720px de alto (todo el encabezado con logo).
+          */}
           <img
             src={au.isLight ? '/assets/logo-cinte-header-light.png' : '/assets/logo-cinte-header.png'}
             alt="Grupo Cinte"
@@ -150,18 +154,18 @@ export default function ConsultorRadicacionPortal() {
           </div>
         ) : null}
 
-        <div className="mb-6 flex justify-center sm:mb-7" aria-hidden>
-          <MicrosoftLogoMark className="h-8 w-8 sm:h-9 sm:w-9" />
+        <div className="mb-5 flex justify-center sm:mb-6 [@media(max-height:720px)]:mb-3" aria-hidden>
+          <MicrosoftLogoMark className="h-8 w-8 sm:h-9 sm:w-9 [@media(max-height:720px)]:h-7 [@media(max-height:720px)]:w-7" />
         </div>
 
         <h1
-          className={`mx-auto mb-5 max-w-md font-heading text-xl font-extrabold leading-tight tracking-tight drop-shadow-sm sm:mb-6 sm:text-2xl md:text-[1.65rem] md:leading-snug ${au.isLight ? 'text-slate-900' : 'text-white'}`}
+          className={`mx-auto mb-4 max-w-md font-heading text-xl font-extrabold leading-tight tracking-tight drop-shadow-sm sm:mb-5 sm:text-2xl md:text-[1.65rem] md:leading-snug [@media(max-height:720px)]:mb-3 [@media(max-height:720px)]:text-lg [@media(max-height:720px)]:sm:text-xl ${au.isLight ? 'text-slate-900' : 'text-white'}`}
         >
           Inicia sesión con tu misma cuenta de Microsoft
         </h1>
 
         <p
-          className={`mx-auto mb-9 max-w-md font-body text-sm leading-relaxed sm:mb-10 sm:text-[0.95rem] md:text-base ${au.isLight ? 'text-slate-600' : 'text-white/88'}`}
+          className={`mx-auto mb-7 max-w-md font-body text-sm leading-relaxed sm:mb-9 sm:text-[0.95rem] md:text-base [@media(max-height:720px)]:mb-5 [@media(max-height:720px)]:text-[0.8125rem] [@media(max-height:720px)]:leading-snug ${au.isLight ? 'text-slate-600' : 'text-white/88'}`}
         >
           Usa tu{' '}
           <strong className={`font-semibold ${au.isLight ? 'text-slate-900' : 'text-white'}`}>mismo correo corporativo</strong>{' '}
@@ -171,13 +175,13 @@ export default function ConsultorRadicacionPortal() {
 
         <a
           href={startUrl}
-          className="mx-auto flex w-full max-w-sm items-center justify-center gap-3 rounded-xl bg-[#0078d4] px-5 py-3.5 text-center font-heading text-sm font-semibold text-white shadow-[0_8px_24px_rgba(0,120,212,0.35)] transition-colors hover:bg-[#106ebe] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#65BCF7] sm:py-4"
+          className="mx-auto flex w-full max-w-sm items-center justify-center gap-3 rounded-xl bg-[#0078d4] px-5 py-3 text-center font-heading text-sm font-semibold text-white shadow-[0_8px_24px_rgba(0,120,212,0.35)] transition-colors hover:bg-[#106ebe] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#65BCF7] sm:py-3.5 [@media(max-height:720px)]:py-2.5 [@media(max-height:720px)]:text-[0.8125rem]"
         >
           <MicrosoftLogoMark className="h-5 w-5" />
           Iniciar sesión con Microsoft
         </a>
 
-        <footer className={`mt-9 border-t pt-6 sm:mt-10 ${au.isLight ? 'border-slate-200/90' : 'border-white/10'}`}>
+        <footer className={`mt-7 border-t pt-5 sm:mt-9 sm:pt-6 [@media(max-height:720px)]:mt-5 [@media(max-height:720px)]:pt-4 ${au.isLight ? 'border-slate-200/90' : 'border-white/10'}`}>
           <div
             className={`mx-auto flex max-w-md items-start justify-center gap-2.5 font-body text-xs leading-relaxed sm:text-sm ${au.isLight ? 'text-slate-600' : 'text-white/80'}`}
           >

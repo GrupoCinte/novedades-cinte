@@ -112,7 +112,9 @@ function buildApp(role, pool) {
         resolveOrCreateGpUserIdForColaboradorCedula: async () => ({}),
         clearGpUserReferences: async () => {},
         linkGpCognitoSubByEmail: async () => null,
-        normalizeCedula: (v) => String(v || '').replace(/\D/g, '')
+        normalizeCedula: (v) => String(v || '').replace(/\D/g, ''),
+        listMallaTurnosCeldasRange: async () => [],
+        upsertMallaTurnosCeldas: async () => {}
     });
     return app;
 }

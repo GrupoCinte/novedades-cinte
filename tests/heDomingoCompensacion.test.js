@@ -103,4 +103,56 @@ describe('heDomingoCompensacion', () => {
         assert.equal(prev.compensatorioTiempoMinYmd, '2026-04-06');
         assert.equal(prev.compensatorioTiempoMaxYmd, '2026-04-20');
     });
+
+    it('festivo no-domingo NO dispara compensatorio aunque festivosSet esté en dep', () => {
+        /* Lunes 18/05/2026 — festivo Día de la Ascensión */
+        const dep = {
+            toUtcMsFromDateAndTime,
+            resolveFallbackDateKeyFromRow,
+            festivosSet: new Set(['2026-05-18'])
+        };
+        const draft = buildSyntheticHoraExtraRow({
+            nombre: 'Ana',
+            cedula: '1',
+            fechaInicio: '2026-05-18',
+            fechaFin: '2026-05-18',
+            horaInicio: '08:00:00',
+            horaFin: '10:00:00'
+        });
+        const prev = computeHeDomingoCompensacionPreview([], draft, dep, buildConsultantKeyDefault);
+        assert.equal(prev.maxTier, 0);
+        assert.equal(prev.requiereEleccionCompensacion, false);
+        assert.equal(prev.esTercerDomingoOMas, false);
+        assert.equal(prev.domingoTrabajadoYmd, null);
+        assert.equal(prev.compensatorioTiempoMinYmd, null);
+    });
+
+    it('festivo previo no incrementa tier de un domingo posterior', () => {
+        /* Festivo lunes 18/05/2026 + draft domingo 24/05/2026 → debe quedar como tier 1, no tier 2 */
+        const dep = {
+            toUtcMsFromDateAndTime,
+            resolveFallbackDateKeyFromRow,
+            festivosSet: new Set(['2026-05-18'])
+        };
+        const festivoPrevio = buildSyntheticHoraExtraRow({
+            nombre: 'Ana',
+            cedula: '1',
+            fechaInicio: '2026-05-18',
+            fechaFin: '2026-05-18',
+            horaInicio: '08:00:00',
+            horaFin: '10:00:00'
+        });
+        const draftDomingo = buildSyntheticHoraExtraRow({
+            nombre: 'Ana',
+            cedula: '1',
+            fechaInicio: '2026-05-24',
+            fechaFin: '2026-05-24',
+            horaInicio: '10:00:00',
+            horaFin: '12:00:00'
+        });
+        const prev = computeHeDomingoCompensacionPreview([festivoPrevio], draftDomingo, dep, buildConsultantKeyDefault);
+        assert.equal(prev.maxTier, 1);
+        assert.equal(prev.requiereEleccionCompensacion, true);
+        assert.equal(prev.domingoTrabajadoYmd, '2026-05-24');
+    });
 });

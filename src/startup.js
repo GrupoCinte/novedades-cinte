@@ -21,11 +21,17 @@ async function startServer(deps) {
         ensureNovedadesHeDomingoObservacionColumn,
         ensureNovedadesNominaVerificacionColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
+        ensureNovedadesModalidadVotacionUnidadColumns,
+        ensureNovedadesObservacionesColumn,
+        ensureNovedadesObservacionesRechazoColumn,
+        ensureNovedadesDuplicadoPendienteIndex,
         migrateExcelIfNeeded,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
         ensureReubicacionesPipelineTable,
+        ensureMallaTurnosCeldaTable,
+        ensureMallaTurnoAsignacionTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
@@ -52,11 +58,17 @@ async function startServer(deps) {
     await ensureNovedadesHeDomingoObservacionColumn();
     await ensureNovedadesNominaVerificacionColumns();
     await ensureNovedadesHorasRecargoDomingoColumn();
+    await ensureNovedadesModalidadVotacionUnidadColumns();
+    await ensureNovedadesObservacionesColumn();
+    await ensureNovedadesObservacionesRechazoColumn();
+    await ensureNovedadesDuplicadoPendienteIndex();
     await migrateExcelIfNeeded();
     await migrateClientesLideresFromExcelIfNeeded();
     await ensureColaboradoresTable();
     await ensureColaboradoresDirectoryColumns();
     await ensureReubicacionesPipelineTable();
+    await ensureMallaTurnosCeldaTable();
+    await ensureMallaTurnoAsignacionTable();
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
 
@@ -87,6 +99,18 @@ async function startServer(deps) {
         }
         logger.info({ assetsPath: path.join(process.cwd(), 'assets') }, 'Carpeta assets');
     });
+
+    /**
+     * Proxy de Vite (dev) reutiliza TCP hacia este puerto. El `keepAliveTimeout` por defecto de Node (~5s)
+     * puede cerrar el socket mientras el proxy aún lo usa → `ECONNRESET` en Vite y fallos intermitentes
+     * al cargar `/api/*`. Alinear con tiempos típicos de reverse proxy.
+     */
+    try {
+        server.keepAliveTimeout = Math.max(Number(server.keepAliveTimeout) || 0, 65_000);
+        server.headersTimeout = Math.max(Number(server.headersTimeout) || 0, 66_000);
+    } catch {
+        /* ignore */
+    }
 
     server.on('error', (err) => {
         if (err && err.code === 'EADDRINUSE') {

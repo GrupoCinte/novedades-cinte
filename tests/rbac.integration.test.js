@@ -9,8 +9,7 @@ const {
   getNovedadRuleByType,
   NOVELTY_RULES,
   getAreaFromRole,
-  isNovedadTipoRetiradoDelFormulario,
-  isNominaGateNovedadType
+  isNovedadTipoRetiradoDelFormulario
 } = require('../src/rbac');
 
 const EXPECTED_ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial', 'consultor'];
@@ -30,12 +29,14 @@ describe('RBAC - prioridad de roles', () => {
 });
 
 describe('RBAC - tipos retirados del formulario público', () => {
-  it('marca vacaciones en tiempo/dinero y bonos como no admitidos en solicitud pública', () => {
+  it('marca vacaciones en tiempo y bonos como no admitidos en solicitud pública', () => {
     assert.equal(isNovedadTipoRetiradoDelFormulario('Vacaciones en tiempo'), true);
-    assert.equal(isNovedadTipoRetiradoDelFormulario('Vacaciones en dinero'), true);
     assert.equal(isNovedadTipoRetiradoDelFormulario('Bonos'), true);
     assert.equal(isNovedadTipoRetiradoDelFormulario('Incapacidad'), false);
     assert.equal(isNovedadTipoRetiradoDelFormulario('Disponibilidad'), false);
+  });
+  it('vacaciones en dinero vuelve a ser admitida en el formulario público', () => {
+    assert.equal(isNovedadTipoRetiradoDelFormulario('Vacaciones en dinero'), false);
   });
 });
 
@@ -52,14 +53,22 @@ describe('RBAC - permisos por tipo', () => {
     assert.deepEqual(POLICY.comercial?.panels, ['comercial']);
   });
 
-  it('gp solo tiene panel gestión de novedades (sin contratacion ni comercial)', () => {
-    assert.deepEqual(POLICY.gp?.panels, ['gestion']);
+  it('gp ve gestión de novedades y onboarding (lectura acotada a sus clientes), sin contratacion ni comercial', () => {
+    assert.deepEqual([...(POLICY.gp?.panels || [])].sort(), ['gestion', 'onboarding']);
+    assert.equal(POLICY.gp.panels.includes('contratacion'), false);
+    assert.equal(POLICY.gp.panels.includes('comercial'), false);
   });
 
-  it('gp aprueba tipos asignados y no los que pasan solo por admin_ch tras verificación nómina', () => {
+  it('gp aprueba tipos asignados y no los que solo admin_ch/super_admin/cac', () => {
     assert.equal(canRoleApproveType('gp', 'Permiso no remunerado'), false);
     assert.equal(canRoleApproveType('gp', 'Permiso compensatorio en tiempo'), true);
     assert.equal(canRoleApproveType('gp', 'Incapacidad'), false);
+  });
+
+  it('gp y nómina ven Compensatorio por votación/jurado (gp ve todo de su cliente; aprobación sigue en admin_ch)', () => {
+    assert.equal(canRoleViewType('gp', 'Compensatorio por votación/jurado'), true);
+    assert.equal(canRoleViewType('nomina', 'Compensatorio por votación/jurado'), true);
+    assert.equal(canRoleApproveType('gp', 'Compensatorio por votación/jurado'), false);
   });
 
   it('cac puede ver/aprobar cualquier tipo (paridad super_admin en API)', () => {
@@ -68,8 +77,8 @@ describe('RBAC - permisos por tipo', () => {
     assert.equal(canRoleViewType('cac', 'Bonos'), true);
   });
 
-  it('POLICY.cac: dashboard/calendar/gestión/admin/directorio (submódulos novedades); sin comercial ni contratación', () => {
-    assert.deepEqual([...POLICY.cac.panels].sort(), ['admin', 'calendar', 'dashboard', 'directorio', 'gestion']);
+  it('POLICY.cac: dashboard/calendar/gestión/admin/directorio + onboarding; sin comercial ni contratación', () => {
+    assert.deepEqual([...POLICY.cac.panels].sort(), ['admin', 'calendar', 'dashboard', 'directorio', 'gestion', 'onboarding']);
     assert.equal(POLICY.cac.viewAllAreas, true);
     assert.equal(POLICY.cac.panels.includes('comercial'), false);
     assert.equal(POLICY.cac.panels.includes('contratacion'), false);
@@ -85,19 +94,15 @@ describe('RBAC - permisos por tipo', () => {
     assert.equal(POLICY.team_ch.panels.includes('comercial'), false);
     assert.ok(POLICY.admin_ch.panels.includes('contratacion'));
     assert.ok(POLICY.team_ch.panels.includes('contratacion'));
+    assert.ok(POLICY.admin_ch.panels.includes('onboarding'));
+    assert.ok(POLICY.team_ch.panels.includes('onboarding'));
   });
 
-  it('admin_ch aprueba tipos con flujo nómina (solo admin_ch + super_admin/cac)', () => {
+  it('admin_ch aprueba tipos de CH catalogados (p. ej. incapacidad, vacaciones en dinero)', () => {
     assert.equal(canRoleApproveType('admin_ch', 'Incapacidad'), true);
     assert.equal(canRoleApproveType('admin_ch', 'Vacaciones en dinero'), true);
     assert.equal(canRoleApproveType('team_ch', 'Incapacidad'), false);
     assert.equal(canRoleApproveType('cac', 'Licencia de luto'), true);
-  });
-
-  it('isNominaGateNovedadType reconoce los tipos del flujo nómina', () => {
-    assert.equal(isNominaGateNovedadType('Incapacidad'), true);
-    assert.equal(isNominaGateNovedadType('Vacaciones en dinero'), true);
-    assert.equal(isNominaGateNovedadType('Hora Extra'), false);
   });
 
   it('reglas de novedad existen para tipos críticos', () => {

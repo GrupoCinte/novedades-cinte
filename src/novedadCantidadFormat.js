@@ -50,8 +50,10 @@ const NOVEDAD_RULES = {
         ],
         approvers: ['admin_ch', 'team_ch', 'cac'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
-        requiresDayCount: false,
-        requiresTimeRange: false
+        requiresDayCount: true,
+        requiresTimeRange: false,
+        autoBusinessDays: true,
+        permisoRemuneradoHoras: true
     },
     'Licencia de luto': {
         requiredDocuments: ['Registro civil consultor', 'Soporte parentesco', 'Acta de defuncion'],
@@ -108,16 +110,29 @@ const NOVEDAD_RULES = {
         formatLinks: [],
         approvers: ['gp', 'cac'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-        requiresDayCount: false,
-        requiresTimeRange: true
+        requiresDayCount: true,
+        requiresTimeRange: false,
+        autoBusinessDays: true,
+        permisoRemuneradoHoras: true
     },
     'Permiso compensatorio en tiempo': {
         requiredDocuments: ['Formato de permiso compensatorio'],
         formatLinks: [],
         approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
+        requiresDayCount: true,
+        requiresTimeRange: false,
+        autoBusinessDays: true,
+        permisoRemuneradoHoras: true
+    },
+    'Compensatorio por votación/jurado': {
+        requiredDocuments: [],
+        formatLinks: [],
+        approvers: ['admin_ch'],
+        viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina'],
         requiresDayCount: false,
-        requiresTimeRange: false
+        requiresTimeRange: false,
+        autoCalendarDays: true
     },
     Disponibilidad: {
         requiredDocuments: [],
@@ -135,6 +150,15 @@ const NOVEDAD_RULES = {
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
         requiresDayCount: false,
         requiresTimeRange: true
+    },
+    'Vacaciones en dinero': {
+        requiredDocuments: ['Carta con firma manuscrita (solicitud formal en PDF)'],
+        formatLinks: [],
+        approvers: ['admin_ch', 'team_ch', 'cac'],
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
+        requiresDayCount: true,
+        requiresTimeRange: false,
+        autoBusinessDays: false
     }
 };
 
@@ -152,15 +176,6 @@ const NOVEDAD_RULES_LEGACY = {
         requiresDayCount: true,
         requiresTimeRange: false,
         autoBusinessDays: true
-    },
-    'Vacaciones en dinero': {
-        requiredDocuments: ['Carta con firma manuscrita (solicitud formal en PDF)'],
-        formatLinks: [],
-        approvers: ['admin_ch', 'team_ch', 'cac'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-        requiresDayCount: true,
-        requiresTimeRange: false,
-        autoBusinessDays: false
     },
     Bonos: {
         requiredDocuments: [],
@@ -189,6 +204,7 @@ const TIPO_ALIAS_SNAKE = {
     licencia_no_remunerada: 'Licencia no remunerada',
     permiso_no_remunerado: 'Permiso no remunerado',
     permiso_compensatorio_tiempo: 'Permiso compensatorio en tiempo',
+    compensatorio_votacion_jurado: 'Compensatorio por votación/jurado',
     incapacidad: 'Incapacidad',
     hora_extra: 'Hora Extra',
     apoyo: 'Disponibilidad',
@@ -242,6 +258,9 @@ function resolveCanonicalNovedadTipo(tipoRaw) {
     if (f === 'vacaciones') return 'Vacaciones en tiempo';
     if (f === 'vacaciones en tiempo') return 'Vacaciones en tiempo';
     if (f === 'vacaciones en dinero') return 'Vacaciones en dinero';
+    if (f === 'compensatorio por votacion jurado' || f === 'compensatorio por votacion/jurado') {
+        return 'Compensatorio por votación/jurado';
+    }
     if (f === 'permiso') return 'Permiso no remunerado';
     if (f === 'apoyo') return 'Disponibilidad';
     if (
@@ -277,7 +296,27 @@ function getNovedadRule(tipo) {
     };
 }
 
-function getCantidadMedidaKind(tipoNovedad) {
+const TIPOS_CON_TOGGLE_HORAS = [
+    'Permiso remunerado',
+    'Permiso no remunerado',
+    'Permiso compensatorio en tiempo'
+];
+
+function getCantidadMedidaKind(tipoNovedad, context = null) {
+    const canon = resolveCanonicalNovedadTipo(tipoNovedad);
+    const unidad = String(context?.unidad || context?.Unidad || '').trim().toLowerCase();
+    if (TIPOS_CON_TOGGLE_HORAS.includes(canon) && unidad === 'horas') return 'hours';
+    if (canon === 'Compensatorio por votación/jurado') {
+        const mod = String(context?.modalidad || context?.modalidad_votacion || '').trim().toLowerCase();
+        if (mod === 'solo_voto') return 'hours';
+        if (mod === 'solo_jurado') return 'days';
+        const fi = String(context?.fechaInicio || context?.fecha_inicio || '').trim();
+        const ff = String(context?.fechaFin || context?.fecha_fin || '').trim();
+        const hi = String(context?.horaInicio || context?.hora_inicio || '').trim();
+        const hf = String(context?.horaFin || context?.hora_fin || '').trim();
+        if (hi && hf && fi && ff && fi === ff) return 'hours';
+        return 'days';
+    }
     const rule = getNovedadRule(tipoNovedad);
     if (rule.requiresTimeRange) return 'hours';
     if (rule.requiresMonetaryAmount) return 'money';
@@ -285,8 +324,8 @@ function getCantidadMedidaKind(tipoNovedad) {
     return 'neutral';
 }
 
-function getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin) {
-    const kind = getCantidadMedidaKind(tipoNovedad);
+function getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin, context = null) {
+    const kind = getCantidadMedidaKind(tipoNovedad, context);
     if (kind !== 'days') return 0;
     const n = Number(cantidadRaw) || 0;
     if (n > 0) return n;
@@ -307,15 +346,16 @@ function formatDiasCount(n) {
 
 function formatCantidadNovedad(tipoNovedad, cantidadRaw, context = null) {
     const n = Number(cantidadRaw);
-    const kind = getCantidadMedidaKind(tipoNovedad);
+    const kind = getCantidadMedidaKind(tipoNovedad, context);
     const fechaInicio = context?.fechaInicio || context?.fecha_inicio || '';
     const fechaFin = context?.fechaFin || context?.fecha_fin || '';
     if (kind === 'hours') {
         if (!Number.isFinite(n) || n === 0) return '—';
-        return `${n}h`;
+        const rounded = Math.round(n * 100) / 100;
+        return `${rounded}h`;
     }
     if (kind === 'days') {
-        const dias = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin);
+        const dias = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, fechaInicio, fechaFin, context);
         return formatDiasCount(dias);
     }
     if (kind === 'money') {
@@ -330,8 +370,8 @@ function formatCantidadNovedad(tipoNovedad, cantidadRaw, context = null) {
     return String(n);
 }
 
-function getCantidadDetalleEtiqueta(tipoNovedad) {
-    const kind = getCantidadMedidaKind(tipoNovedad);
+function getCantidadDetalleEtiqueta(tipoNovedad, context = null) {
+    const kind = getCantidadMedidaKind(tipoNovedad, context);
     if (kind === 'hours') return 'Total horas';
     if (kind === 'days') return 'Días solicitados';
     if (kind === 'money') return 'Valor (COP)';

@@ -1,8 +1,7 @@
 const {
     normalizeNovedadTypeKey,
     isNovedadTipoRetiradoDelFormulario,
-    normalizeRoleOrNull,
-    isNominaGateNovedadType
+    normalizeRoleOrNull
 } = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
@@ -23,6 +22,8 @@ const {
 } = require('./heDomingoCompensacion');
 const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
 const festivosService = require('./festivosService');
+const { decodePossiblyMisencodedText } = require('./novedadesMapper');
+const { validateObservacionesRechazo } = require('./novedadPersistValidation');
 
 // Inicializar festivos en background al arrancar el servidor
 festivosService.initFestivosCache();
@@ -129,6 +130,7 @@ function buildExcelRowHoraExtraSlice(opts) {
         horasRecargoDomingoNocturnas: ck === 'horasRecargoDomingoNocturnas' && h > 0 ? h : '',
         compensacionDominical,
         observacionHeDomingo,
+        observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
         asignadoRoles: it.asignacionRolesEtiqueta || '—',
@@ -168,6 +170,7 @@ function buildExcelRowHoraExtraLegacy(opts) {
             Number(it.horasRecargoDomingoNocturnas || 0) > 0 ? Number(it.horasRecargoDomingoNocturnas) : '',
         compensacionDominical,
         observacionHeDomingo,
+        observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
         asignadoRoles: it.asignacionRolesEtiqueta || '—',
@@ -197,6 +200,7 @@ function buildExcelRowOtroTipo(opts) {
         horasRecargoDomingoNocturnas: '',
         compensacionDominical: '',
         observacionHeDomingo,
+        observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
         asignadoRoles: it.asignacionRolesEtiqueta || '—',
@@ -315,7 +319,8 @@ function registerRoutes(deps) {
         revokeAppSessionToken,
         requireEntraConsultor,
         requireCatalogConsultorOrStaff,
-        consultorFormPostLimiter
+        consultorFormPostLimiter,
+        findPendingNovedadDuplicate
     } = deps;
     const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     const exposeInternalErrors = String(process.env.EXPOSE_INTERNAL_ERRORS || '').toLowerCase() === 'true';
@@ -323,6 +328,21 @@ function registerRoutes(deps) {
     const secureCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
     const sameSite = isProduction ? 'strict' : 'lax';
     const exportMaxRows = Math.max(1, Number(process.env.EXPORT_MAX_ROWS || 5000));
+
+    /** Solo no-producción: ayuda a diagnosticar «en prod hay datos y en local no». */
+    async function attachDevDbProbe(payload) {
+        if (isDeployedEnv || !pool || !payload || typeof payload !== 'object') return;
+        try {
+            const r = await pool.query('SELECT COUNT(*)::int AS c FROM novedades');
+            payload.devDb = {
+                novedadesTotalEnTabla: Number(r.rows[0]?.c) || 0,
+                dbName: String(process.env.DB_NAME || 'novedades_cinte'),
+                dbHost: String(process.env.DB_HOST || 'localhost')
+            };
+        } catch {
+            payload.devDb = { novedadesTotalEnTabla: null, error: 'count_failed' };
+        }
+    }
 
     function requireColaboradorCatalogSelfOrStaff(req, res, next) {
         const ap = String(req.user?.authProvider || '');
@@ -393,6 +413,34 @@ function registerRoutes(deps) {
         const dateValue = new Date(`${value}T00:00:00Z`);
         if (Number.isNaN(dateValue.getTime())) return null;
         return dateValue;
+    }
+
+    function ymdAddCalendarDaysUTC(ymd, deltaDays) {
+        const d = parseDateAtUtcStart(ymd);
+        if (!d || !Number.isFinite(deltaDays)) return null;
+        d.setUTCDate(d.getUTCDate() + deltaDays);
+        return d.toISOString().slice(0, 10);
+    }
+
+    /** -1 si a<b, 0 si a===b, 1 si a>b (solo YYYY-MM-DD). */
+    function ymdCompareStrings(a, b) {
+        if (!a || !b) return null;
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return 0;
+    }
+
+    function diffDecimalHoursFromHhmmss(hiStr, hfStr) {
+        if (!hiStr || !hfStr) return null;
+        const parse = (s) => {
+            const m = String(s).match(/^(\d{2}):(\d{2}):(\d{2})$/);
+            if (!m) return null;
+            return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+        };
+        const a = parse(hiStr);
+        const b = parse(hfStr);
+        if (a == null || b == null || b <= a) return null;
+        return (b - a) / 3600;
     }
 
     function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
@@ -472,11 +520,13 @@ function registerRoutes(deps) {
         montoCop,
         previousEstado,
         newEstado,
-        changedByEmail
+        changedByEmail,
+        rejectionFeedback
     }) {
         const userEmail = String(correoSolicitante || '').trim().toLowerCase();
         const adminBaseUrl = String(FRONTEND_URL || '').trim() || 'http://localhost:5175';
-        return {
+        const rejectionTrim = String(rejectionFeedback || '').trim();
+        const base = {
             eventType: 'form_status_changed',
             eventId: randomUUID(),
             occurredAt: new Date().toISOString(),
@@ -486,7 +536,8 @@ function registerRoutes(deps) {
                 email: userEmail
             },
             admin: {
-                actionUrl: `${adminBaseUrl}/admin`
+                actionUrl: `${adminBaseUrl}/admin`,
+                consultorNovedadesUrl: `${adminBaseUrl}/consultor/novedades`
             },
             formData: {
                 tipoNovedad: String(tipoNovedad || '').trim(),
@@ -509,6 +560,10 @@ function registerRoutes(deps) {
                 env: process.env.NODE_ENV || 'development'
             }
         };
+        if (String(newEstado || '').trim() === 'Rechazado' && rejectionTrim) {
+            base.rejectionFeedback = rejectionTrim;
+        }
+        return base;
     }
 
     async function streamToBuffer(stream) {
@@ -543,7 +598,7 @@ function registerRoutes(deps) {
                 const appAuth = issueAppTokenFromCognito(baseUser, { ExpiresIn: 3600 }, effectiveRole, loginIdentity);
                 setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
                 setXsrfCookie(res);
-                return res.json({
+                const loginBody = {
                     ok: true,
                     expiresIn: appAuth.expiresInSec,
                     user: appAuth.user,
@@ -553,7 +608,9 @@ function registerRoutes(deps) {
                         name: baseUser.full_name,
                         'cognito:username': baseUser.username
                     }, appAuth.user.role, baseUser.role)
-                });
+                };
+                await attachDevDbProbe(loginBody);
+                return res.json(loginBody);
             }
 
             const authParams = {
@@ -604,12 +661,14 @@ function registerRoutes(deps) {
             const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
             setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
             setXsrfCookie(res);
-            return res.json({
+            const loginBody = {
                 ok: true,
                 expiresIn: appAuth.expiresInSec,
                 user: appAuth.user,
                 claims: buildSafeLoginClaimsForClient(claims, appAuth.user.role, baseUser.role)
-            });
+            };
+            await attachDevDbProbe(loginBody);
+            return res.json(loginBody);
         } catch (error) {
             console.error('Error login:', error);
             const status = Number(error?.status);
@@ -675,12 +734,14 @@ function registerRoutes(deps) {
             const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
             setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
             setXsrfCookie(res);
-            return res.json({
+            const loginBody = {
                 ok: true,
                 expiresIn: appAuth.expiresInSec,
                 user: appAuth.user,
                 claims: buildSafeLoginClaimsForClient(claims, appAuth.user.role, baseUser.role)
-            });
+            };
+            await attachDevDbProbe(loginBody);
+            return res.json(loginBody);
         } catch (error) {
             console.error('Error complete-new-password:', error);
             const status = Number(error?.status);
@@ -695,8 +756,10 @@ function registerRoutes(deps) {
         }
     });
 
-    app.get('/api/me', verificarToken, (req, res) => {
-        res.json({ ok: true, me: req.user });
+    app.get('/api/me', verificarToken, async (req, res) => {
+        const payload = { ok: true, me: req.user };
+        await attachDevDbProbe(payload);
+        res.json(payload);
     });
 
     app.post('/api/auth/forgot-password', forgotLimiter, async (req, res) => {
@@ -853,6 +916,8 @@ function registerRoutes(deps) {
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
             const gpUserId = String(req.query.gpUserId || '').trim();
+            const leadTimeBucketRaw = String(req.query.leadTimeBucket || '').trim();
+            const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
             const rows = await getScopedNovedades(req.scope, {
                 tipo,
                 estado,
@@ -860,7 +925,8 @@ function registerRoutes(deps) {
                 cliente,
                 createdFrom,
                 createdTo,
-                ...(gpUserId ? { gpUserId } : {})
+                ...(gpUserId ? { gpUserId } : {}),
+                ...(leadTimeBucket ? { leadTimeBucket } : {})
             });
             const page = Math.max(1, Number(req.query.page || 1));
             const limitRaw = Number(req.query.limit || 0);
@@ -898,6 +964,8 @@ function registerRoutes(deps) {
             const createdFrom = String(req.query.createdFrom || '').trim();
             const createdTo = String(req.query.createdTo || '').trim();
             const gpUserId = String(req.query.gpUserId || '').trim();
+            const leadTimeBucketRaw = String(req.query.leadTimeBucket || '').trim();
+            const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
             const rows = await getScopedNovedades(req.scope, {
                 tipo,
                 estado,
@@ -905,7 +973,8 @@ function registerRoutes(deps) {
                 cliente,
                 createdFrom,
                 createdTo,
-                ...(gpUserId ? { gpUserId } : {})
+                ...(gpUserId ? { gpUserId } : {}),
+                ...(leadTimeBucket ? { leadTimeBucket } : {})
             });
             if (rows.length > exportMaxRows) {
                 return res.status(413).json({
@@ -941,6 +1010,7 @@ function registerRoutes(deps) {
                 { header: 'Recargo dominical/festivos — nocturno', key: 'horasRecargoDomingoNocturnas', width: 24 },
                 { header: 'Compensación dominical', key: 'compensacionDominical', width: 32 },
                 { header: 'Observación HE domingo', key: 'observacionHeDomingo', width: 48 },
+                { header: 'Observaciones', key: 'observaciones', width: 48 },
                 { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
                 { header: 'Estado', key: 'estado', width: 14 },
                 { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 },
@@ -975,7 +1045,7 @@ function registerRoutes(deps) {
                 const it = items[i];
                 const row = rows[i];
                 const correoActor = it.estado === 'Rechazado' ? (it.rechazadoPorCorreo || '') : (it.aprobadoPorCorreo || '');
-                const esPorHoras = getCantidadMedidaKind(it.tipoNovedad) === 'hours';
+                const esPorHoras = getCantidadMedidaKind(it.tipoNovedad, it) === 'hours';
                 let observacionHeDomingo = '';
                 if (rowIsHoraExtraTipo(row)) {
                     observacionHeDomingo = computeHeDomingoObservacionForRow(row, sundaySetsExport, buildConsultantKeyHeDomingo, heDomingoDep);
@@ -1098,7 +1168,10 @@ function registerRoutes(deps) {
     app.get('/api/catalogos/clientes', verificarToken, requireCatalogConsultorOrStaff, catalogLimiter, async (req, res) => {
         try {
             const rawItems = await getClientesList();
-            const items = rawItems.slice(0, 500).map((v) => String(v || '').trim()).filter(Boolean);
+            const items = rawItems
+                .slice(0, 500)
+                .map((v) => decodePossiblyMisencodedText(String(v || '').trim()))
+                .filter(Boolean);
             return res.json({ ok: true, items });
         } catch (error) {
             console.error('Error catalogo clientes:', error);
@@ -1112,7 +1185,7 @@ function registerRoutes(deps) {
             if (!cliente) return res.status(400).json({ ok: false, error: 'Parametro cliente es obligatorio' });
             const items = (await getLideresByCliente(cliente))
                 .slice(0, 500)
-                .map((v) => String(v || '').trim())
+                .map((v) => decodePossiblyMisencodedText(String(v || '').trim()))
                 .filter(Boolean);
             return res.json({ ok: true, items, cliente });
         } catch (error) {
@@ -1158,13 +1231,13 @@ function registerRoutes(deps) {
             return res.json({
                 ok: true,
                 cedula: row.cedula,
-                nombre: row.nombre,
+                nombre: decodePossiblyMisencodedText(String(row.nombre || '').trim()),
                 // Precarga el correo Cinte en el formulario público. Riesgo de enumeración mitigado con
                 // catalogLimiter; el POST /api/enviar-novedad sigue resolviendo el correo desde BD (no confía solo en el cliente).
                 correo: correoOut,
                 lockCorreo,
-                cliente: clienteOut,
-                lider: liderOut,
+                cliente: decodePossiblyMisencodedText(String(clienteOut || '').trim()),
+                lider: decodePossiblyMisencodedText(String(liderOut || '').trim()),
                 lockCliente,
                 lockLider
             });
@@ -1238,6 +1311,61 @@ function registerRoutes(deps) {
         }
     );
 
+    /**
+     * Pre-chequeo de duplicado pendiente para el formulario (spec evitar-duplicados-radicacion-novedad).
+     * Permite a la UI deshabilitar el botón Enviar antes del POST. No hace falta el lock de cédula
+     * (ya lo cubre `requireEntraConsultor` + comparación con la sesión Entra).
+     *
+     * GET /api/novedades/duplicado-pendiente?tipo=...&fechaInicio=YYYY-MM-DD[&fechaFin=...&horaInicio=HH:MM&horaFin=HH:MM]
+     * → { ok: true, duplicado: boolean }
+     */
+    app.get(
+        '/api/novedades/duplicado-pendiente',
+        verificarToken,
+        consultorFormPostLimiter,
+        requireEntraConsultor,
+        async (req, res) => {
+            try {
+                const tipoNovedadRaw = String(req.query.tipo || req.query.tipoNovedad || '').trim();
+                if (!tipoNovedadRaw) {
+                    return res.status(400).json({ ok: false, error: 'tipo requerido' });
+                }
+                const ruleType = getNovedadRuleByType(tipoNovedadRaw);
+                const tipoKey = String(ruleType?.key || normalizeNovedadTypeKey(tipoNovedadRaw) || '');
+                if (!tipoKey) {
+                    return res.status(400).json({ ok: false, error: 'tipo no válido' });
+                }
+                if (tipoKey === 'compensatorio_votacion_jurado') {
+                    return res.json({ ok: true, duplicado: false, scope: 'fuera_de_alcance' });
+                }
+                const fechaInicio = parseDateOrNull(req.query.fechaInicio);
+                const fechaFin = parseDateOrNull(req.query.fechaFin);
+                const horaInicio = parseTimeOrNull(req.query.horaInicio);
+                const horaFin = parseTimeOrNull(req.query.horaFin);
+                if (!fechaInicio) {
+                    return res.json({ ok: true, duplicado: false });
+                }
+                const cedulaToken = normalizeCedula(req.user?.cedula || '');
+                if (!cedulaToken) {
+                    return res.status(403).json({ ok: false, error: 'Sesión sin cédula asociada.' });
+                }
+                const tipoNovedad = String(ruleType?.displayName || tipoNovedadRaw).trim();
+                const result = await findPendingNovedadDuplicate({
+                    cedula: cedulaToken,
+                    tipoNovedad,
+                    fechaInicio,
+                    fechaFin,
+                    horaInicio,
+                    horaFin
+                });
+                return res.json({ ok: true, duplicado: Boolean(result?.duplicado) });
+            } catch (error) {
+                console.error('duplicado-pendiente:', error);
+                return res.status(500).json({ ok: false, error: 'No se pudo verificar duplicado.' });
+            }
+        }
+    );
+
     app.post(
         '/api/enviar-novedad',
         verificarToken,
@@ -1249,7 +1377,7 @@ function registerRoutes(deps) {
             const body = req.body || {};
             const files = (Array.isArray(req.files) ? req.files : [])
                 .filter((f) => ['soporte', 'soportes'].includes(String(f.fieldname || '').toLowerCase()));
-            const tipoNovedad = String(body.tipoNovedad || body.tipo || '').trim();
+            let tipoNovedad = String(body.tipoNovedad || body.tipo || '').trim();
             if (isNovedadTipoRetiradoDelFormulario(tipoNovedad)) {
                 return res.status(400).json({
                     ok: false,
@@ -1266,6 +1394,14 @@ function registerRoutes(deps) {
                         'Debes aceptar la política de tratamiento y protección de datos personales para enviar la solicitud.'
                 });
             }
+            const observacionesRaw = body.observaciones != null ? String(body.observaciones) : '';
+            if (observacionesRaw.length > 1000) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Observaciones: máximo 1000 caracteres.'
+                });
+            }
+            const observacionesPersist = observacionesRaw.trim() === '' ? null : observacionesRaw;
             const rule = getNovedadRuleByType(tipoNovedad);
             const requiredMinSupports = Number(rule?.requiredMinSupports || 0);
             if (requiredMinSupports > 0 && files.length < requiredMinSupports) {
@@ -1377,13 +1513,255 @@ function registerRoutes(deps) {
                 return res.status(400).json({ ok: false, error: 'El lider no pertenece al cliente seleccionado.' });
             }
 
-            const fecha = parseDateOrNull(body.fecha);
-            const horaInicio = parseTimeOrNull(body.horaInicio);
-            const horaFin = parseTimeOrNull(body.horaFin);
-            const fechaInicio = parseDateOrNull(body.fechaInicio) || fecha;
-            const fechaFin = parseDateOrNull(body.fechaFin);
+            let fecha = parseDateOrNull(body.fecha);
+            let horaInicio = parseTimeOrNull(body.horaInicio);
+            let horaFin = parseTimeOrNull(body.horaFin);
+            let fechaInicio = parseDateOrNull(body.fechaInicio) || fecha;
+            let fechaFin = parseDateOrNull(body.fechaFin);
             const novedadTypeKey = String(rule?.key || normalizeNovedadTypeKey(tipoNovedad) || '');
             const todayUtc = new Date().toISOString().slice(0, 10);
+
+            let insertModalidad = null;
+            let insertFechaVotacion = null;
+            let insertUnidad = null;
+
+            if (novedadTypeKey === 'compensatorio_votacion_jurado') {
+                const tipoCanonInsert = String(rule?.displayName || tipoNovedad).trim();
+                tipoNovedad = tipoCanonInsert;
+                const rawMod = String(body.modalidad || body.modalidadVotacion || '')
+                    .trim()
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, '_')
+                    .replace(/\+/g, '_');
+                const combinaUnaSolaLegacy = new Set(['jurado_y_voto', 'juradoyvoto', 'jurado_voto']);
+                if (combinaUnaSolaLegacy.has(rawMod)) {
+                    return res.status(422).json({
+                        ok: false,
+                        error:
+                            'La modalidad «jurado y voto» en una sola solicitud ya no aplica. Si cumpliste ambas figuras, radica dos veces: una como jurado (1 día) y otra como votante (medio día con franja horaria).'
+                    });
+                }
+                const modAlias = {
+                    solo_voto: 'solo_voto',
+                    solovoto: 'solo_voto',
+                    voto: 'solo_voto',
+                    votante: 'solo_voto',
+                    solo_jurado: 'solo_jurado',
+                    solojurado: 'solo_jurado',
+                    jurado: 'solo_jurado'
+                };
+                const modalidadKey =
+                    modAlias[rawMod] || (['solo_voto', 'solo_jurado'].includes(rawMod) ? rawMod : '');
+                if (!modalidadKey || !['solo_jurado', 'solo_voto'].includes(modalidadKey)) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'Selecciona modalidad: jurado (1 día) o votación / medio día (con horas de disfrute).'
+                    });
+                }
+                const fv = parseDateOrNull(body.fechaVotacion || body.fecha_votacion);
+                const fd = parseDateOrNull(body.fechaDisfrute || body.fechaDisfruteVotacion || body.fechaInicio);
+                if (!fv) {
+                    return res.status(422).json({ ok: false, error: 'La fecha de votación es obligatoria.' });
+                }
+                if (!fd) {
+                    return res.status(422).json({ ok: false, error: 'La fecha de disfrute es obligatoria.' });
+                }
+                const fvYm = fv.slice(0, 7);
+                const mesEnCursoYm = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }).slice(0, 7);
+                if (fvYm !== mesEnCursoYm) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'La fecha de la jornada electoral debe pertenecer al mes calendario en curso (cualquier día de ese mes).'
+                    });
+                }
+                const maxVentana = ymdAddCalendarDaysUTC(fv, 30);
+                const hoyBogotaYmd = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+                if (!maxVentana || ymdCompareStrings(hoyBogotaYmd, maxVentana) > 0) {
+                    return res.status(422).json({
+                        ok: false,
+                        error:
+                            'Plazo vencido: el compensatorio debe solicitarse dentro de los 30 días calendario posteriores a la votación'
+                    });
+                }
+                if (ymdCompareStrings(fd, fv) < 0 || ymdCompareStrings(fd, maxVentana) > 0) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'La fecha de disfrute debe estar dentro de los 30 días calendario siguientes a la votación'
+                    });
+                }
+
+                if (modalidadKey === 'solo_jurado') {
+                    if (files.length < 1) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'Faltan soportes obligatorios: certificado de jurado de votación'
+                        });
+                    }
+                    fechaInicio = fd;
+                    fechaFin = fd;
+                    fecha = null;
+                    horaInicio = null;
+                    horaFin = null;
+                } else {
+                    const hiVote = parseTimeOrNull(body.horaDisfruteInicio || body.horaDisfruteVotoInicio);
+                    const hfVote = parseTimeOrNull(body.horaDisfruteFin || body.horaDisfruteVotoFin);
+                    if (!hiVote || !hfVote) {
+                        return res.status(422).json({
+                            ok: false,
+                            error:
+                                'En votación / medio día indica hora de inicio y fin del disfrute (HH:mm) sobre la misma fecha de disfrute; el rango no puede superar 4 horas.'
+                        });
+                    }
+                    const hvVote = diffDecimalHoursFromHhmmss(hiVote, hfVote);
+                    if (hvVote == null) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'La hora fin del disfrute debe ser posterior a la hora de inicio.'
+                        });
+                    }
+                    if (hvVote > 4) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'El rango horario del disfrute no puede superar 4 horas.'
+                        });
+                    }
+                    if (files.length < 1) {
+                        return res.status(422).json({ ok: false, error: 'Faltan soportes obligatorios: certificado electoral' });
+                    }
+                    fechaInicio = fd;
+                    fechaFin = fd;
+                    fecha = fd;
+                    horaInicio = hiVote;
+                    horaFin = hfVote;
+                }
+
+                const dupQ = await pool.query(
+                    `SELECT id FROM novedades
+                     WHERE cedula = $1
+                       AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                           = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                       AND fecha_votacion = $3::date
+                       AND coalesce(modalidad, '') = $4
+                       AND estado IN ('Pendiente'::novedad_estado, 'Aprobado'::novedad_estado)
+                     LIMIT 1`,
+                    [cedulaNorm, tipoCanonInsert, fv, modalidadKey]
+                );
+                if (dupQ.rows.length) {
+                    return res.status(409).json({
+                        ok: false,
+                        error: 'Ya existe una solicitud de esta misma modalidad para esta jornada electoral'
+                    });
+                }
+                insertModalidad = modalidadKey;
+                insertFechaVotacion = fv;
+            }
+
+            /**
+             * Tipos que comparten la misma mecánica de `unidad` (Días hábiles vs Horas mismo día)
+             * con ventana "desde hoy hasta 1 año calendario". Permiso remunerado fue el primero;
+             * Permiso no remunerado y Permiso compensatorio en tiempo replican 1:1.
+             */
+            const TYPES_CON_UNIDAD = new Set([
+                'permiso_remunerado',
+                'permiso_no_remunerado',
+                'permiso_compensatorio_tiempo'
+            ]);
+            const permisoConToggleLabel = rule?.displayName || tipoNovedad;
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey)) {
+                const unidadRaw = String(body.unidad || body.permisoUnidad || 'dias').trim().toLowerCase();
+                const unidad = unidadRaw === 'horas' ? 'horas' : 'dias';
+                const pFi = parseDateOrNull(body.fechaInicio);
+                const pFf = parseDateOrNull(body.fechaFin);
+                const pF = parseDateOrNull(body.fecha);
+                const pHi = parseTimeOrNull(body.horaInicio);
+                const pHf = parseTimeOrNull(body.horaFin);
+                const rangoDistinto = Boolean(pFi && pFf && pFf !== pFi);
+                if (unidad === 'horas') {
+                    if (rangoDistinto) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'Modo inválido: combinación de campos no permitida.'
+                        });
+                    }
+                    const day = pF || pFi || pFf;
+                    if (!day || !pHi || !pHf) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'En modo horas indica la fecha del permiso y hora de inicio y fin.'
+                        });
+                    }
+                    const horasVal = diffDecimalHoursFromHhmmss(pHi, pHf);
+                    if (horasVal == null) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'La hora de fin debe ser posterior a la hora de inicio'
+                        });
+                    }
+                    fechaInicio = day;
+                    fechaFin = day;
+                    fecha = day;
+                    horaInicio = pHi;
+                    horaFin = pHf;
+                    insertUnidad = 'horas';
+                } else {
+                    if (pHi && pHf) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'Modo inválido: combinación de campos no permitida.'
+                        });
+                    }
+                    if (!pFi || !pFf) {
+                        return res.status(400).json({
+                            ok: false,
+                            error: `${permisoConToggleLabel} en días requiere fecha inicio y fecha fin.`
+                        });
+                    }
+                    if (pFf < pFi) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'La fecha de fin debe ser posterior o igual a la fecha de inicio'
+                        });
+                    }
+                    fechaInicio = pFi;
+                    fechaFin = pFf;
+                    horaInicio = null;
+                    horaFin = null;
+                    fecha = null;
+                    insertUnidad = 'dias';
+                }
+            }
+
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey) && (insertUnidad === 'horas' || insertUnidad === 'dias')) {
+                const minPermisoRem = todayUtc;
+                const maxPermisoRem = (() => {
+                    const d = parseDateAtUtcStart(todayUtc);
+                    if (!d) return null;
+                    d.setUTCFullYear(d.getUTCFullYear() + 1);
+                    return d.toISOString().slice(0, 10);
+                })();
+                const antesDeMin = (ymd) => Boolean(ymd) && ymdCompareStrings(String(ymd), minPermisoRem) < 0;
+                const despuesDeMax = (ymd) =>
+                    Boolean(maxPermisoRem) && Boolean(ymd) && ymdCompareStrings(String(ymd), maxPermisoRem) > 0;
+                if (insertUnidad === 'horas') {
+                    if (antesDeMin(fechaInicio) || despuesDeMax(fechaInicio)) {
+                        return res.status(422).json({
+                            ok: false,
+                            error:
+                                `${permisoConToggleLabel} (horas): la fecha debe ser desde hoy y no posterior a un año calendario desde hoy.`
+                        });
+                    }
+                } else {
+                    if (antesDeMin(fechaInicio) || despuesDeMax(fechaInicio) || antesDeMin(fechaFin) || despuesDeMax(fechaFin)) {
+                        return res.status(422).json({
+                            ok: false,
+                            error:
+                                `${permisoConToggleLabel} (días): las fechas deben ser desde hoy y no posteriores a un año calendario desde hoy.`
+                        });
+                    }
+                }
+            }
 
             if (novedadTypeKey !== 'vacaciones_dinero' && !fechaInicio) {
                 return res.status(400).json({ ok: false, error: 'Fecha Inicio es obligatoria.' });
@@ -1403,6 +1781,30 @@ function registerRoutes(deps) {
             let horasRecargoDomingoNocturnas = 0;
             let tipoHoraExtra = String(body.tipoHoraExtra || '').trim() || null;
             let heDomingoObservacionInsert = null;
+
+            if (novedadTypeKey === 'compensatorio_votacion_jurado') {
+                if (insertModalidad === 'solo_jurado') {
+                    cantidadHoras = 1;
+                } else if (insertModalidad === 'solo_voto' && horaInicio && horaFin) {
+                    const hvComp = diffDecimalHoursFromHhmmss(horaInicio, horaFin);
+                    cantidadHoras = hvComp != null ? Number(hvComp.toFixed(2)) : 0;
+                }
+            }
+
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey) && insertUnidad === 'horas' && horaInicio && horaFin) {
+                const hv = diffDecimalHoursFromHhmmss(horaInicio, horaFin);
+                cantidadHoras = hv != null ? Number(hv.toFixed(2)) : 0;
+            }
+
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey) && insertUnidad === 'dias' && fechaInicio && fechaFin) {
+                cantidadHoras = countBusinessDaysInclusive(fechaInicio, fechaFin);
+                if (cantidadHoras <= 0) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: `El rango seleccionado no contiene días hábiles para ${String(permisoConToggleLabel).toLowerCase()}.`
+                    });
+                }
+            }
 
             if (novedadTypeKey === 'vacaciones_tiempo') {
                 if (!fechaFin) {
@@ -1444,7 +1846,8 @@ function registerRoutes(deps) {
                         error: 'Hora Extra: el lapso entre inicio y fin no puede superar 168 horas (7 días).'
                     });
                 }
-                const split = computeHoraExtraSplitBogota(startMs, endMs);
+                const festivosSetHe = await festivosService.getFestivosSet();
+                const split = computeHoraExtraSplitBogota(startMs, endMs, festivosSetHe);
                 if (split.total <= 0) {
                     return res.status(400).json({ ok: false, error: 'La fecha/hora fin debe ser mayor a la fecha/hora inicio.' });
                 }
@@ -1470,7 +1873,7 @@ function registerRoutes(deps) {
                     horaInicio,
                     horaFin
                 });
-                const depHeDom = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow, festivosSet: await festivosService.getFestivosSet() };
+                const depHeDom = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow, festivosSet: festivosSetHe };
                 const prevHeDom = computeHeDomingoCompensacionPreview(
                     rowsHeDom,
                     syntheticHeDom,
@@ -1524,14 +1927,22 @@ function registerRoutes(deps) {
             }
 
             let montoCop = null;
-            if (novedadTypeKey === 'bonos' || novedadTypeKey === 'apoyo') {
+            if (novedadTypeKey === 'bonos') {
                 const rawMonto = body.montoCop ?? body.montoBono ?? body.valorBonificacion;
                 const parsed = parseMontoCopFromBody(rawMonto);
                 if (!Number.isFinite(parsed) || parsed <= 0) {
-                    const tipoLabel = novedadTypeKey === 'bonos' ? 'Bonos' : 'Disponibilidad';
-                    return res.status(400).json({ ok: false, error: `${tipoLabel} requiere un valor en pesos mayor a cero.` });
+                    return res.status(400).json({ ok: false, error: 'Bonos requiere un valor en pesos mayor a cero.' });
                 }
                 montoCop = Number(parsed.toFixed(2));
+                cantidadHoras = 0;
+            } else if (novedadTypeKey === 'apoyo') {
+                /**
+                 * HU disponibilidad-monto-diligenciado-por-gp: el consultor radica SIN monto.
+                 * El valor en pesos lo diligencia el GP (o super_admin/CAC) en el momento de aprobar
+                 * o rechazar la novedad vía POST /api/actualizar-estado. Cualquier monto enviado
+                 * por el cliente al radicar se ignora intencionalmente (defensa en profundidad).
+                 */
+                montoCop = null;
                 cantidadHoras = 0;
             }
 
@@ -1544,16 +1955,62 @@ function registerRoutes(deps) {
                 insertFechaFin = null;
             }
 
-            const insertResult = await pool.query(
+            /**
+             * Anti-duplicados (spec evitar-duplicados-radicacion-novedad):
+             * Bloquear si la misma cédula ya tiene una novedad PENDIENTE con el mismo tipo y mismas
+             * fechas/horas. No aplica a `compensatorio_votacion_jurado` (tiene su propia regla previa).
+             * Defensa en profundidad: SELECT preventivo aquí + índice único parcial en BD + manejo del
+             * 23505 más abajo (carrera entre POST simultáneos).
+             */
+            if (
+                novedadTypeKey !== 'compensatorio_votacion_jurado' &&
+                insertFechaInicio
+            ) {
+                const dupPend = await pool.query(
+                    `SELECT id FROM novedades
+                     WHERE cedula = $1
+                       AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                           = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                       AND fecha_inicio = $3::date
+                       AND COALESCE(fecha_fin, fecha_inicio) = COALESCE($4::date, $3::date)
+                       AND COALESCE(hora_inicio, TIME '00:00:00') = COALESCE($5::time, TIME '00:00:00')
+                       AND COALESCE(hora_fin,    TIME '00:00:00') = COALESCE($6::time, TIME '00:00:00')
+                       AND estado = 'Pendiente'::novedad_estado
+                     LIMIT 1`,
+                    [
+                        cedulaNorm,
+                        tipoNovedad,
+                        insertFechaInicio,
+                        insertFechaFin,
+                        horaInicio,
+                        horaFin
+                    ]
+                );
+                if (dupPend.rows.length) {
+                    return res.status(409).json({
+                        ok: false,
+                        error:
+                            'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
+                    });
+                }
+            }
+
+            let insertResult;
+            try {
+                insertResult = await pool.query(
                 `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
-                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion, estado
+                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion,
+                    modalidad, fecha_votacion, unidad, observaciones,
+                    estado
                 )
                 VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8::user_area,
                     $9::date, $10::time, $11::time, $12::date, $13::date,
-                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'Pendiente'::novedad_estado
+                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                    $24, $25::date, $26, $27,
+                    'Pendiente'::novedad_estado
                 )
                 RETURNING id`,
                 [
@@ -1579,9 +2036,26 @@ function registerRoutes(deps) {
                     tipoHoraExtra,
                     archivoRuta,
                     montoCop,
-                    heDomingoObservacionInsert || null
+                    heDomingoObservacionInsert || null,
+                    insertModalidad,
+                    insertFechaVotacion || null,
+                    insertUnidad || null,
+                    observacionesPersist
                 ]
             );
+            } catch (insertError) {
+                if (
+                    String(insertError?.code || '') === '23505' &&
+                    String(insertError?.constraint || '') === 'uq_novedades_pendiente_dedup'
+                ) {
+                    return res.status(409).json({
+                        ok: false,
+                        error:
+                            'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
+                    });
+                }
+                throw insertError;
+            }
             const novedadId = insertResult?.rows?.[0]?.id || '';
             const emailPayload = buildFormSubmittedNotificationEvent({
                 novedadId,
@@ -1748,130 +2222,12 @@ function registerRoutes(deps) {
         }
     });
 
-    app.post(
-        '/api/novedades/:id/nomina-verificacion',
-        verificarToken,
-        allowPanel('gestion'),
-        applyScope,
-        async (req, res) => {
-            try {
-                const role = normalizeRoleOrNull(req.user?.role);
-                if (role !== 'nomina') {
-                    return res.status(403).json({ ok: false, error: 'Solo el rol nómina puede registrar esta verificación.' });
-                }
-                const idParam = String(req.params?.id || '').trim();
-                if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idParam)) {
-                    return res.status(400).json({ ok: false, error: 'Identificador de novedad inválido.' });
-                }
-                const body = req.body && typeof req.body === 'object' ? req.body : {};
-                const infoCorrecta = body.infoCorrecta === true || body.infoCorrecta === false ? body.infoCorrecta : null;
-                const observacion = String(body.observacion ?? '').trim();
-                if (infoCorrecta === null) {
-                    return res.status(400).json({ ok: false, error: 'Debe indicar si la información es correcta o incorrecta.' });
-                }
-                if (!observacion) {
-                    return res.status(400).json({ ok: false, error: 'La observación es obligatoria.' });
-                }
-                if (observacion.length > 2000) {
-                    return res.status(400).json({ ok: false, error: 'La observación supera el máximo permitido (2000 caracteres).' });
-                }
-
-                const q = await pool.query(
-                    `SELECT id, area, tipo_novedad, estado,
-                            nomina_info_correcta, nomina_verificacion_observacion
-                     FROM novedades
-                     WHERE id = $1::uuid
-                     LIMIT 1`,
-                    [idParam]
-                );
-                const row = q.rows[0];
-                if (!row) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
-                if (!req.scope.canViewAllAreas && (!row.area || !req.scope.areas.includes(row.area))) {
-                    return res.status(403).json({ ok: false, error: 'No autorizado sobre esta área' });
-                }
-                if (String(row.estado || '').trim() !== 'Pendiente') {
-                    return res.status(400).json({ ok: false, error: 'Solo se puede verificar en estado Pendiente.' });
-                }
-                if (!isNominaGateNovedadType(row.tipo_novedad)) {
-                    return res.status(400).json({ ok: false, error: 'Este tipo de novedad no requiere verificación de nómina.' });
-                }
-                if (row.nomina_info_correcta !== null && row.nomina_info_correcta !== undefined) {
-                    return res.status(409).json({ ok: false, error: 'La verificación de nómina ya fue registrada.' });
-                }
-
-                const actorSub = String(req.user?.sub || '').trim();
-                const actorUserIdRaw = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
-                    ? actorSub
-                    : null;
-                let actorUserId = null;
-                if (actorUserIdRaw || req.user?.email) {
-                    try {
-                        const uq = await pool.query(
-                            'SELECT id FROM users WHERE id = $1 OR email = $2 LIMIT 1',
-                            [actorUserIdRaw, req.user?.email || '']
-                        );
-                        actorUserId = uq.rows[0]?.id || null;
-                    } catch {
-                        actorUserId = null;
-                    }
-                }
-                const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
-                let actorEmail = String(req.user?.email || '').trim();
-                if (!emailOk(actorEmail) && String(req.user?.username || '').includes('@')) {
-                    actorEmail = String(req.user.username).trim();
-                }
-                if (!actorEmail) {
-                    const payload = decodeJwtPayload(req.authToken) || {};
-                    actorEmail =
-                        String(payload.email || '').trim()
-                        || (String(payload.preferred_username || '').includes('@')
-                            ? String(payload.preferred_username).trim()
-                            : '');
-                }
-
-                await pool.query(
-                    `UPDATE novedades
-                     SET nomina_info_correcta = $2::boolean,
-                         nomina_verificacion_observacion = $3::text,
-                         nomina_verificacion_en = NOW(),
-                         nomina_verificacion_por_user_id = $4::uuid,
-                         nomina_verificacion_por_email = NULLIF($5::text, '')
-                     WHERE id = $1::uuid`,
-                    [idParam, infoCorrecta, observacion, actorUserId, actorEmail]
-                );
-
-                const fresh = await pool.query(
-                    `SELECT
-                        nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.gp_user_id, nov.tipo_novedad, nov.area,
-                        nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas, nov.horas_recargo_domingo,
-                        nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas,
-                        nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
-                        nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
-                        nov.he_domingo_observacion,
-                        nov.nomina_info_correcta, nov.nomina_verificacion_observacion, nov.nomina_verificacion_en,
-                        nov.nomina_verificacion_por_user_id, nov.nomina_verificacion_por_email,
-                        COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
-                        COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
-                     FROM novedades nov
-                     LEFT JOIN users ua ON nov.aprobado_por_user_id = ua.id
-                     LEFT JOIN users ur ON nov.rechazado_por_user_id = ur.id
-                     WHERE nov.id = $1::uuid`,
-                    [idParam]
-                );
-                const mapped = toClientNovedad(fresh.rows[0]);
-                return res.json({ ok: true, item: mapped });
-            } catch (error) {
-                console.error('Error nomina-verificacion:', error);
-                return res.status(500).json({ ok: false, error: 'Error al registrar verificación' });
-            }
-        }
-    );
-
     app.post('/api/actualizar-estado', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
         try {
             const { id, nuevoEstado } = req.body || {};
             const fromHoraExtraAlert = Boolean(req.body?.fromHoraExtraAlert);
             const estado = normalizeEstado(nuevoEstado);
+            const rawMontoCop = req.body?.montoCop ?? req.body?.monto_cop ?? null;
             const actorSub = String(req.user?.sub || '').trim();
             const actorUserIdRaw = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
                 ? actorSub
@@ -1891,8 +2247,7 @@ function registerRoutes(deps) {
             }
 
             let q;
-            const selectNovedadEstadoRow = `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop,
-                     nomina_info_correcta, nomina_verificacion_observacion`;
+            const selectNovedadEstadoRow = `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop`;
             if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''))) {
                 q = await pool.query(`${selectNovedadEstadoRow}
                      FROM novedades
@@ -1913,18 +2268,36 @@ function registerRoutes(deps) {
             if (!canRoleApproveType(req.user.role, item.tipo_novedad)) {
                 return res.status(403).json({ ok: false, error: 'Este rol no puede aprobar/rechazar este tipo de novedad' });
             }
-            if (
-                isNominaGateNovedadType(item.tipo_novedad)
-                && (estado === 'Aprobado' || estado === 'Rechazado')
-            ) {
-                const obsNom = String(item.nomina_verificacion_observacion || '').trim();
-                const hasFlag = item.nomina_info_correcta === true || item.nomina_info_correcta === false;
-                if (!hasFlag || !obsNom) {
+
+            /**
+             * HU disponibilidad-monto-diligenciado-por-gp: en Disponibilidad, el aprobador (GP/super_admin/CAC)
+             * DEBE diligenciar el monto en COP en el momento de Aprobar o Rechazar. Sin monto válido > 0,
+             * la transición se rechaza con HTTP 400 y la fila queda intacta.
+             */
+            const itemTypeKey = normalizeNovedadTypeKey(item.tipo_novedad);
+            let nuevoMontoCopParaUpdate = null;
+            const aplicaDiligenciamientoMonto =
+                itemTypeKey === 'apoyo' && (estado === 'Aprobado' || estado === 'Rechazado');
+            if (aplicaDiligenciamientoMonto) {
+                const parsedMonto = parseMontoCopFromBody(rawMontoCop);
+                if (!Number.isFinite(parsedMonto) || parsedMonto <= 0) {
                     return res.status(400).json({
                         ok: false,
-                        error: 'Falta verificación de nómina (correcta/incorrecta y observación obligatorias) antes de aprobar o rechazar.'
+                        error: 'Disponibilidad requiere un valor en pesos mayor a cero.'
                     });
                 }
+                nuevoMontoCopParaUpdate = Number(parsedMonto.toFixed(2));
+            }
+
+            let observacionesRechazoParam = null;
+            if (estado === 'Rechazado') {
+                const rawObsRechazo =
+                    req.body?.observacionesRechazo ?? req.body?.observaciones_rechazo ?? '';
+                const obsCheck = validateObservacionesRechazo(rawObsRechazo);
+                if (!obsCheck.ok) {
+                    return res.status(400).json({ ok: false, error: obsCheck.error });
+                }
+                observacionesRechazoParam = obsCheck.value;
             }
 
             const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
@@ -1961,12 +2334,24 @@ function registerRoutes(deps) {
                      rechazado_por_rol = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $2::user_role ELSE NULL END,
                      rechazado_por_user_id = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $3::uuid ELSE NULL END,
                      rechazado_por_email = CASE WHEN $1::novedad_estado = 'Rechazado' THEN NULLIF($4::text, '') ELSE NULL END,
+                     monto_cop = CASE WHEN $7::boolean THEN $8::numeric ELSE monto_cop END,
                      alerta_he_origen = CASE WHEN $6::boolean THEN TRUE ELSE alerta_he_origen END,
                      alerta_he_resuelta_estado = CASE WHEN $6::boolean THEN $1::text ELSE alerta_he_resuelta_estado END,
                      alerta_he_resuelta_en = CASE WHEN $6::boolean THEN NOW() ELSE alerta_he_resuelta_en END,
-                     alerta_he_resuelta_por_email = CASE WHEN $6::boolean THEN NULLIF($4::text, '') ELSE alerta_he_resuelta_por_email END
+                     alerta_he_resuelta_por_email = CASE WHEN $6::boolean THEN NULLIF($4::text, '') ELSE alerta_he_resuelta_por_email END,
+                     observaciones_rechazo = CASE WHEN $1::novedad_estado = 'Rechazado'::novedad_estado THEN NULLIF($9::text, '') ELSE observaciones_rechazo END
                  WHERE id = $5::uuid`,
-                [estado, req.user.role, actorUserId, actorEmail, item.id, fromHoraExtraAlert]
+                [
+                    estado,
+                    req.user.role,
+                    actorUserId,
+                    actorEmail,
+                    item.id,
+                    fromHoraExtraAlert,
+                    aplicaDiligenciamientoMonto,
+                    nuevoMontoCopParaUpdate,
+                    observacionesRechazoParam
+                ]
             );
 
             await pool.query(
@@ -1987,10 +2372,11 @@ function registerRoutes(deps) {
                     fechaInicio: item.fecha_inicio,
                     fechaFin: item.fecha_fin,
                     cantidadHoras: item.cantidad_horas,
-                    montoCop: item.monto_cop,
+                    montoCop: aplicaDiligenciamientoMonto ? nuevoMontoCopParaUpdate : item.monto_cop,
                     previousEstado: normalizeEstado(item.estado),
                     newEstado: estado,
-                    changedByEmail: actorEmail
+                    changedByEmail: actorEmail,
+                    rejectionFeedback: observacionesRechazoParam
                 });
                 try {
                     const publishResult = await emailNotificationsPublisher?.publishFormStatusChanged?.(statusPayload);

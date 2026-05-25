@@ -71,6 +71,13 @@ describe('validateFormStatusChangedPayload', () => {
         bad.statusChange.newEstado = 'Pendiente';
         assert.equal(validateFormStatusChangedPayload(bad), false);
     });
+
+    it('acepta payload con rejectionFeedback opcional', () => {
+        const p = buildStatusPayload();
+        p.statusChange.newEstado = 'Rechazado';
+        p.rejectionFeedback = 'Adjunte soporte legible.';
+        assert.equal(validateFormStatusChangedPayload(p), true);
+    });
 });
 
 describe('createEmailNotificationsPublisher', () => {
