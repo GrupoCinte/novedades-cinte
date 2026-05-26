@@ -32,7 +32,7 @@ function shortCliente(label) {
 export default function ConciliacionesDashboardPage({ token }) {
     const navigate = useNavigate();
     const mt = useModuleTheme();
-    const { isLight, topBar, headingAccent, labelMuted, field, subPanel, mainCanvas, tableSurface, tableThead, tableRowBorder } = mt;
+    const { isLight, headingAccent, labelMuted, field, subPanel, mainCanvas, tableSurface, tableThead, tableRowBorder } = mt;
 
     const dash = useMemo(() => {
         const L = isLight;
@@ -85,23 +85,12 @@ export default function ConciliacionesDashboardPage({ token }) {
 
     return (
         <div className={`min-h-0 flex-1 space-y-5 p-4 sm:p-6 ${mainCanvas}`}>
-            <header className={`${topBar} px-4 py-4 sm:px-6`}>
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                    <div>
-                        <h1 className={`font-heading text-xl font-extrabold tracking-tight sm:text-2xl ${headingAccent}`}>
-                            Dashboard de conciliaciones
-                        </h1>
-                        <p className={`mt-1 max-w-2xl text-sm ${labelMuted}`}>
-                            Vista consolidada por cliente para el mes seleccionado (tarifas, deducciones por novedades aprobadas y
-                            facturación neta). Abre el resumen detallado por colaborador desde la tabla.
-                        </p>
-                    </div>
-                    <label className="flex w-full max-w-xs flex-col gap-1.5">
-                        <span className={`text-[10px] font-heading font-bold uppercase tracking-wider ${labelMuted}`}>Mes</span>
-                        <input type="month" className={field} value={monthValue} onChange={(e) => setMonthValue(e.target.value)} />
-                    </label>
-                </div>
-            </header>
+            <div className="flex justify-end">
+                <label className="flex w-full max-w-xs flex-col gap-1.5 sm:w-auto">
+                    <span className={`text-[10px] font-heading font-bold uppercase tracking-wider ${labelMuted}`}>Mes</span>
+                    <input type="month" className={field} value={monthValue} onChange={(e) => setMonthValue(e.target.value)} />
+                </label>
+            </div>
 
             {error ? (
                 <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">{error}</div>

@@ -220,7 +220,8 @@ function TypingDots() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-export default function ChatWidget({ ctx }) {
+export default function ChatWidget({ ctx, placement = 'floating', sidebarExpanded = true, isLight = false }) {
+    const isSidebar = placement === 'sidebar';
     const welcomeText = useMemo(() => buildWelcomeText(ctx), [ctx?.role, ctx?.pendientesCount]);
 
     const [open, setOpen] = useState(false);
@@ -306,43 +307,69 @@ export default function ChatWidget({ ctx }) {
 
     const formatTime = (date) => date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-    return (
-        <>
-            {/* ── Floating Button ─────────────────────────────────── */}
-            <button
-                onClick={() => setOpen((o) => !o)}
-                className="group fixed bottom-6 right-6 z-50"
-                title="Asistente CINTE"
-                type="button"
-            >
-                <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-blue-400/30 bg-gradient-to-br from-blue-600 to-indigo-700 shadow-[0_0_24px_rgba(59,130,246,0.45)] transition-all hover:scale-110 hover:shadow-[0_0_32px_rgba(59,130,246,0.6)] active:scale-95">
-                    {open ? (
-                        <ChevronDown size={22} className="text-white" />
-                    ) : (
-                        <Bot size={22} className="text-white" />
-                    )}
-                    {!open && (
-                        <span className="absolute inset-0 animate-ping rounded-2xl opacity-40 ring-2 ring-blue-500/50" />
-                    )}
-                    {unread > 0 && !open && (
-                        <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow-lg">
-                            {unread}
-                        </span>
-                    )}
+    const sidebarLeftPx = sidebarExpanded ? 268 : 76;
+    const triggerSize = isSidebar ? 'h-11 w-11' : 'h-14 w-14';
+    const triggerRounded = isSidebar ? 'rounded-xl' : 'rounded-2xl';
+
+    const sidebarBubbleClass = isLight
+        ? 'border-slate-200 bg-white text-slate-700 shadow-lg'
+        : 'border-blue-500/40 bg-[#0b1e30] text-slate-200 shadow-lg';
+
+    const chatTrigger = (
+        <button
+            onClick={() => setOpen((o) => !o)}
+            className={isSidebar ? 'group relative mx-auto block' : 'group fixed bottom-6 right-6 z-50'}
+            title="Asistente CINTE"
+            type="button"
+        >
+            {!open && isSidebar && sidebarExpanded ? (
+                <div className="pointer-events-none absolute bottom-full left-1/2 z-[220] mb-2 w-[min(13.5rem,calc(100vw-5rem))] -translate-x-1/2 space-y-1.5">
+                    <span
+                        className={`block rounded-lg border px-2.5 py-1.5 text-center text-xs font-semibold ${sidebarBubbleClass}`}
+                    >
+                        Asistente CINTE
+                    </span>
+                    <span
+                        className={`block rounded-lg border px-2.5 py-1.5 text-center text-[10px] leading-snug ${
+                            isLight ? 'border-sky-200 bg-sky-50 text-slate-600' : 'border-[#1a3a56] bg-[#04141E] text-slate-400'
+                        }`}
+                    >
+                        ¿Necesitas ayuda con novedades?
+                    </span>
                 </div>
+            ) : null}
+            <div
+                className={`relative mx-auto flex ${triggerSize} items-center justify-center ${triggerRounded} border border-blue-400/30 bg-gradient-to-br from-blue-600 to-indigo-700 shadow-[0_0_20px_rgba(59,130,246,0.4)] transition-all hover:scale-105 hover:shadow-[0_0_28px_rgba(59,130,246,0.55)] active:scale-95`}
+            >
+                {open ? <ChevronDown size={isSidebar ? 18 : 22} className="text-white" /> : <Bot size={isSidebar ? 18 : 22} className="text-white" />}
+                {!open && <span className={`absolute inset-0 animate-ping ${triggerRounded} opacity-40 ring-2 ring-blue-500/50`} />}
+                {unread > 0 && !open && (
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-black text-white shadow-lg">
+                        {unread}
+                    </span>
+                )}
+            </div>
+            {!open && !isSidebar ? (
                 <span className="pointer-events-none absolute right-16 top-1/2 z-10 -translate-y-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-[#1e293b] px-3 py-1.5 text-xs font-medium text-slate-200 opacity-0 shadow-xl transition-opacity group-hover:opacity-100">
                     Asistente CINTE
                 </span>
-            </button>
+            ) : null}
+        </button>
+    );
 
-            {/* ── Chat Window ─────────────────────────────────────── */}
+    const chatWindow = (
             <div
                 className={`
-                    fixed bottom-24 right-6 z-50 flex w-[370px] max-w-[calc(100vw-1.5rem)] flex-col rounded-2xl border border-slate-700/70 bg-[#0f172a] shadow-2xl
+                    fixed z-[200] flex w-[370px] max-w-[calc(100vw-1.5rem)] flex-col rounded-2xl border border-slate-700/70 bg-[#0f172a] shadow-2xl
                     transition-all duration-300 origin-bottom-right
                     ${open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-90 opacity-0'}
                 `}
-                style={{ maxHeight: 'min(600px, calc(100vh - 120px))' }}
+                style={{
+                    maxHeight: 'min(600px, calc(100vh - 120px))',
+                    ...(isSidebar
+                        ? { left: sidebarLeftPx, bottom: 24 }
+                        : { right: 24, bottom: 96 })
+                }}
             >
                 <div className="flex flex-shrink-0 items-center gap-3 rounded-t-2xl border-b border-slate-700/60 bg-gradient-to-r from-blue-700/20 to-indigo-700/10 px-4 py-3">
                     <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-blue-600 shadow-md">
@@ -459,6 +486,25 @@ export default function ChatWidget({ ctx }) {
                     </form>
                 </div>
             </div>
+    );
+
+    if (isSidebar) {
+        return (
+            <div
+                className={`relative mx-auto w-full max-w-[11rem] overflow-visible pb-1 ${
+                    sidebarExpanded ? 'pt-[4.5rem]' : 'pt-1'
+                }`}
+            >
+                {chatTrigger}
+                {chatWindow}
+            </div>
+        );
+    }
+
+    return (
+        <>
+            {chatTrigger}
+            {chatWindow}
         </>
     );
 }

@@ -27,7 +27,6 @@ export default function ConciliacionesPage({ token }) {
 
     const mt = useModuleTheme();
     const {
-        topBar,
         headingAccent,
         labelMuted,
         field,
@@ -139,16 +138,6 @@ export default function ConciliacionesPage({ token }) {
 
     return (
         <div className="min-h-0 flex-1 space-y-5 p-4 sm:p-6">
-            <header className={`${topBar} px-4 py-4 sm:px-6`}>
-                <div>
-                    <h1 className={`font-heading text-xl font-extrabold tracking-tight sm:text-2xl ${headingAccent}`}>Conciliaciones</h1>
-                    <p className={`mt-1 max-w-2xl text-sm ${labelMuted}`}>
-                        Tarifa de colaborador menos suma de novedades <strong className="text-inherit">aprobadas</strong> en el mes (fecha efectiva
-                        Bogotá: inicio, fecha o creación).
-                    </p>
-                </div>
-            </header>
-
             {error ? (
                 <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">{error}</div>
             ) : null}

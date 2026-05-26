@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
 import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2, Filter, ChevronDown, ChevronUp } from 'lucide-react';
-import ChatWidget from './ChatWidget';
 import {
     getNovedadRule,
     NOVEDAD_TYPES,
@@ -24,6 +23,8 @@ import {
 import { formatHeDomingoCompGestionResumen } from './heDomingoCompDisplay.js';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
+import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
 /** Primer y último día (YYYY-MM-DD) del mes 0–11 en `year`, para filtros de creación en Gestión. */
 function creadoEnRangeForMonthIndex(monthIndex, year) {
@@ -1509,7 +1510,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             {/* ───────── MOBILE SIDEBAR ───────── */}
             <button
                 onClick={() => setMobileMenuOpen(true)}
-                className={`md:hidden fixed top-16 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
+                className={`md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú"
             >
                 <Menu size={18} />
@@ -1521,7 +1522,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                 />
             )}
             <aside
-                className={`md:hidden fixed top-0 left-0 h-full w-72 z-50 shadow-2xl transform transition-transform duration-300 font-body ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col shadow-2xl transform font-body transition-transform duration-300 ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                     }`}
             >
                 <AdminModuleSidebarBrand
@@ -1545,7 +1546,15 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </button>
                     )}
                 />
-                <nav className="p-3 flex flex-col gap-2">
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
+                <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
                     <button
                         type="button"
                         onClick={() => {
@@ -1581,17 +1590,25 @@ export default function Dashboard({ token, auth, onLogout }) {
                         );
                     })}
                 </nav>
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`text-[10px] font-body font-black truncate ${email}`}>{currentEmail}</p>
-                    <p className="text-[10px] text-[#65BCF7] font-body font-semibold uppercase">{currentRoleLabel}</p>
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    chatCtx={{
+                        pendientesCount,
+                        totalItems: items.length,
+                        dashItems: dashItems.length,
+                        role: currentRole
+                    }}
+                />
             </aside>
 
             {/* ───────── SIDEBAR COLAPSABLE ───────── */}
             <aside
                 className={`
-                    flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 font-body
-                    transition-all duration-300 ease-in-out overflow-hidden
+                    relative z-10 hidden h-full flex-shrink-0 flex-col overflow-visible font-body shadow-2xl transition-all duration-300 ease-in-out md:flex
                     ${aside}
                     ${sidebarOpen ? 'w-64' : 'w-16'}
                 `}
@@ -1621,8 +1638,16 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
 
-                <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
+                <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
                     <button
                         type="button"
                         onClick={() => navigate('/admin')}
@@ -1676,36 +1701,23 @@ export default function Dashboard({ token, auth, onLogout }) {
                     })}
                 </nav>
 
-                <div className={`border-t ${borderSubtle} ${sidebarOpen ? 'p-4' : 'p-2'}`}>
-                    {sidebarOpen ? (
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center flex-shrink-0">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                                <div className="overflow-hidden">
-                                    <p className={`text-[10px] font-body font-black whitespace-nowrap leading-tight truncate ${email}`}>{currentEmail}</p>
-                                    <p className="text-[9px] text-[#65BCF7] font-body font-semibold whitespace-nowrap leading-tight">{currentRoleLabel}</p>
-                                </div>
-                            </div>
-                            <p className={`text-[9px] font-body font-bold uppercase tracking-widest text-center border-t pt-2 ${mt.isLight ? 'text-slate-400 border-slate-200' : 'text-slate-600 border-[#1a3a56]/50'}`}>
-                                Grupo CINTE · V2.0
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-2 py-1">
-                            <div className="flex justify-center" title={`${currentEmail} - ${currentRoleLabel}`}>
-                                <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    chatCtx={{
+                        pendientesCount,
+                        totalItems: items.length,
+                        dashItems: dashItems.length,
+                        role: currentRole
+                    }}
+                />
             </aside>
 
             {/* Main Content Area */}
-            <main className={`flex-1 overflow-y-auto p-4 pt-12 md:pt-6 md:p-6 relative scroll-smooth ${mainCanvas}`}>
+            <main className={`flex-1 overflow-y-auto p-4 pt-14 md:pt-6 md:p-6 relative scroll-smooth ${mainCanvas}`}>
 
                 {/* ---------- Dashboard general ---------- */}
                 {activeTab === 'DashboardGeneral' && canAccessPanel('dashboard') && (
@@ -2905,16 +2917,6 @@ export default function Dashboard({ token, auth, onLogout }) {
 
 
             </main>
-
-            {/* Chat widget — fuera del main para que sea fixed global */}
-            <ChatWidget
-                ctx={{
-                    pendientesCount,
-                    totalItems: items.length,
-                    dashItems: dashItems.length,
-                    role: currentRole,
-                }}
-            />
 
             {gestionDetailItem && (
                 <div className={dash.modalBackdrop} onClick={closeGestionDetailModal}>

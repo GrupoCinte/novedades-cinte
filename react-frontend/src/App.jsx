@@ -95,7 +95,8 @@ function App() {
     !isFormularioPublico &&
     !isConsultorShell &&
     !(isAdminRoute && !auth?.user) &&
-    !isAdminHubHome;
+    !isAdminHubHome &&
+    !isAdminModuleShell;
 
   const handleLogout = useCallback(async () => {
     // CRIT-002 + LOW-005: Logout diferenciado por proveedor de identidad.
@@ -280,7 +281,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {userHasNovedadesAdminAccess(auth) ? (
-                  <ConciliacionesModule auth={auth} />
+                  <ConciliacionesModule auth={auth} onLogout={handleLogout} />
                 ) : (
                   <Navigate to="/admin" replace />
                 )}
@@ -330,7 +331,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {userHasCotizadorAccess(auth) ? (
-                    <ComercialModule token={auth?.token || ''} auth={auth} />
+                    <ComercialModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                 ) : (
                     <Navigate to="/admin" replace />
                 )}
@@ -343,7 +344,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {auth?.user && userHasContratacionPanel(auth) ? (
-                  <ContratacionModule auth={auth} />
+                  <ContratacionModule auth={auth} onLogout={handleLogout} />
                 ) : (
                   <Navigate to="/admin" replace />
                 )}
@@ -356,7 +357,7 @@ function App() {
               <ProtectedRoute auth={auth}>
                 {(() => {
                   return userHasDirectorioPanel(auth) ? (
-                    <DirectorioClienteColaboradorModule token={auth?.token || ''} auth={auth} />
+                    <DirectorioClienteColaboradorModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                   ) : (
                     <Navigate to="/admin" replace />
                   );
