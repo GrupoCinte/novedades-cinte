@@ -1,19 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Trash2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, PanelRightClose, PanelRightOpen, Trash2, X } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
+import { buildGestionTableDash } from './gestionTableDashTheme.js';
 import { authHeaders, fetchMallasTurnos, putMallasTurnos } from './mallasTurnosApi.js';
 
-const FRANJAS = [
+export const FRANJAS_MALLAS = [
     { id: '06_14', label: '06:00–14:00' },
     { id: '14_22', label: '14:00–22:00' },
     { id: '22_06', label: '22:00–06:00' }
 ];
 
-const EMPTY_FRANJAS = () => ({
-    '06_14': [],
-    '14_22': [],
-    '22_06': []
-});
+export const FRANJAS_NOCTURNOS = [{ id: '22_06', label: '22:00–06:00' }];
+
+function franjasForVariant(variant) {
+    return variant === 'nocturnos' ? FRANJAS_NOCTURNOS : FRANJAS_MALLAS;
+}
+
+function emptyFranjasRecord(franjas) {
+    const o = {};
+    for (const { id } of franjas) o[id] = [];
+    return o;
+}
 
 const MESES = [
     'Enero',
@@ -85,12 +92,15 @@ function matchesColabSearch(row, needle) {
     return hay.includes(n);
 }
 
-function buildMeshMap(items) {
+function buildMeshMap(items, franjas) {
+    const ids = new Set(franjas.map((f) => f.id));
     const map = {};
     for (const it of items || []) {
-        const f = it.fecha;
-        if (!map[f]) map[f] = EMPTY_FRANJAS();
-        const arr = map[f][it.franja];
+        const franjaId = it.franja;
+        if (!ids.has(franjaId)) continue;
+        const ymd = it.fecha;
+        if (!map[ymd]) map[ymd] = emptyFranjasRecord(franjas);
+        const arr = map[ymd][franjaId];
         if (Array.isArray(arr)) {
             arr.push({
                 cedula: String(it.cedula),
@@ -101,17 +111,17 @@ function buildMeshMap(items) {
         }
     }
     for (const ymd of Object.keys(map)) {
-        for (const { id } of FRANJAS) {
+        for (const { id } of franjas) {
             map[ymd][id].sort((a, b) => a.orden - b.orden || a.cedula.localeCompare(b.cedula));
         }
     }
     return map;
 }
 
-function dayHasAssignments(meshByYmd, ymd) {
+function dayHasAssignments(meshByYmd, ymd, franjas) {
     const row = meshByYmd[ymd];
     if (!row) return false;
-    return FRANJAS.some((f) => (row[f.id] || []).length > 0);
+    return franjas.some((f) => (row[f.id] || []).length > 0);
 }
 
 /** Datos de visualización para una cédula en el modal (malla actual o catálogo). */
@@ -127,7 +137,7 @@ function personForModalCedula(meshRow, franjaId, cedula, colaboradores) {
     };
 }
 
-export default function MallasTurnosPage({ token }) {
+export default function MallasTurnosPage({ token, variant = 'mallas' }) {
     const mt = useModuleTheme();
     const {
         field,
@@ -142,6 +152,9 @@ export default function MallasTurnosPage({ token }) {
         mainCanvas
     } = mt;
 
+    const franjas = useMemo(() => franjasForVariant(variant), [variant]);
+    const isNocturnos = variant === 'nocturnos';
+
     const [clienteSeleccionado, setClienteSeleccionado] = useState('');
     const [clientesOptions, setClientesOptions] = useState([]);
     const [loadingClientes, setLoadingClientes] = useState(false);
@@ -149,7 +162,7 @@ export default function MallasTurnosPage({ token }) {
     const [currentMonth, setCurrentMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     const [meshByYmd, setMeshByYmd] = useState({});
     const [selected, setSelected] = useState(() => new Set());
-    const [draft, setDraft] = useState(() => EMPTY_FRANJAS());
+    const [draft, setDraft] = useState(() => emptyFranjasRecord(franjasForVariant('mallas')));
     const [searchColaborador, setSearchColaborador] = useState('');
     const [dayModalYmd, setDayModalYmd] = useState(null);
     /** Copia editable de cédulas por franja mientras el modal del día está abierto. */
@@ -159,6 +172,9 @@ export default function MallasTurnosPage({ token }) {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
     const [festivosSet, setFestivosSet] = useState(() => new Set());
+    const [asignacionOpen, setAsignacionOpen] = useState(false);
+    const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
+    const hasCliente = Boolean(String(clienteSeleccionado || '').trim());
 
     const monthLabel = useMemo(() => {
         return `${MESES[currentMonth.getMonth()]} ${currentMonth.getFullYear()}`;
@@ -238,13 +254,13 @@ export default function MallasTurnosPage({ token }) {
         setError('');
         try {
             const data = await fetchMallasTurnos(token, cli, desde, hasta);
-            setMeshByYmd(buildMeshMap(data.items));
+            setMeshByYmd(buildMeshMap(data.items, franjas));
         } catch (e) {
             setError(e.message || 'No se pudo cargar la malla');
         } finally {
             setLoadingMesh(false);
         }
-    }, [token, clienteSeleccionado, desde, hasta]);
+    }, [token, clienteSeleccionado, desde, hasta, franjas]);
 
     useEffect(() => {
         loadClientesCatalogo();
@@ -259,23 +275,23 @@ export default function MallasTurnosPage({ token }) {
     }, [loadMesh]);
 
     useEffect(() => {
-        setDraft(EMPTY_FRANJAS());
+        setDraft(emptyFranjasRecord(franjas));
         setSearchColaborador('');
         setSelected(new Set());
-    }, [clienteSeleccionado]);
+    }, [clienteSeleccionado, franjas]);
 
     useEffect(() => {
         if (!dayModalYmd) {
             setModalCedulasByFranja(null);
             return;
         }
-        const row = meshByYmd[dayModalYmd] || EMPTY_FRANJAS();
+        const row = meshByYmd[dayModalYmd] || emptyFranjasRecord(franjas);
         const next = {};
-        for (const { id } of FRANJAS) {
+        for (const { id } of franjas) {
             next[id] = (row[id] || []).map((p) => String(p.cedula));
         }
         setModalCedulasByFranja(next);
-    }, [dayModalYmd]);
+    }, [dayModalYmd, meshByYmd, franjas]);
 
     const calendarCells = useMemo(() => {
         const y = currentMonth.getFullYear();
@@ -324,7 +340,7 @@ export default function MallasTurnosPage({ token }) {
         }
         const patches = [];
         for (const ymd of selected) {
-            for (const { id } of FRANJAS) {
+            for (const { id } of franjas) {
                 patches.push({ fecha: ymd, franja: id, cedulas: [...(draft[id] || [])] });
             }
         }
@@ -347,8 +363,8 @@ export default function MallasTurnosPage({ token }) {
 
     const modalHasChanges = useMemo(() => {
         if (!dayModalYmd || !modalCedulasByFranja) return false;
-        const row = meshByYmd[dayModalYmd] || EMPTY_FRANJAS();
-        for (const { id } of FRANJAS) {
+        const row = meshByYmd[dayModalYmd] || emptyFranjasRecord(franjas);
+        for (const { id } of franjas) {
             const was = (row[id] || []).map((p) => String(p.cedula));
             const cur = modalCedulasByFranja[id] || [];
             if (was.length !== cur.length) return true;
@@ -357,7 +373,7 @@ export default function MallasTurnosPage({ token }) {
             }
         }
         return false;
-    }, [dayModalYmd, modalCedulasByFranja, meshByYmd]);
+    }, [dayModalYmd, modalCedulasByFranja, meshByYmd, franjas]);
 
     const onSaveModalDay = async () => {
         const ymd = dayModalYmd;
@@ -366,7 +382,7 @@ export default function MallasTurnosPage({ token }) {
             setDayModalYmd(null);
             return;
         }
-        const patches = FRANJAS.map(({ id }) => ({
+        const patches = franjas.map(({ id }) => ({
             fecha: ymd,
             franja: id,
             cedulas: [...(modalCedulasByFranja[id] || [])]
@@ -407,7 +423,7 @@ export default function MallasTurnosPage({ token }) {
         for (const ymd of Object.keys(meshByYmd)) {
             if (ymd < desde || ymd > hasta) continue;
             const row = meshByYmd[ymd];
-            for (const f of FRANJAS) {
+            for (const f of franjas) {
                 for (const c of row[f.id] || []) {
                     if (c?.cedula && !seen.has(c.cedula)) {
                         seen.add(c.cedula);
@@ -417,45 +433,24 @@ export default function MallasTurnosPage({ token }) {
             }
         }
         return list;
-    }, [meshByYmd, desde, hasta]);
+    }, [meshByYmd, desde, hasta, franjas]);
 
-    const modalRow = dayModalYmd ? meshByYmd[dayModalYmd] || EMPTY_FRANJAS() : EMPTY_FRANJAS();
+    const modalRow = dayModalYmd ? meshByYmd[dayModalYmd] || emptyFranjasRecord(franjas) : emptyFranjasRecord(franjas);
     const modalInSelected = dayModalYmd ? selected.has(dayModalYmd) : false;
+    const calendarRowCount = useMemo(() => Math.ceil(calendarCells.length / 7), [calendarCells]);
+    const cellMinClass = isNocturnos ? 'min-h-[6.5rem]' : 'min-h-[4.5rem]';
+    const panelDisabled = !hasCliente;
 
     return (
-        <div className="space-y-4 w-full max-w-[95rem]">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className={`text-base font-heading font-bold ${headingAccent}`}>Mallas de turnos</h2>
-                <div className="flex items-center gap-2">
-                    <button
-                        type="button"
-                        className={`p-2 rounded-lg ${outlineBtn}`}
-                        title="Mes anterior"
-                        onClick={() =>
-                            setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))
-                        }
-                    >
-                        <ChevronLeft size={18} />
-                    </button>
-                    <span className={`text-sm font-semibold min-w-[10rem] text-center ${headingAccent}`}>{monthLabel}</span>
-                    <button
-                        type="button"
-                        className={`p-2 rounded-lg ${outlineBtn}`}
-                        title="Mes siguiente"
-                        onClick={() =>
-                            setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))
-                        }
-                    >
-                        <ChevronRight size={18} />
-                    </button>
-                </div>
-            </div>
-
-            <div className={`flex flex-wrap items-end gap-3 ${tableSurface} rounded-xl border ${borderSubtle} p-4`}>
-                <div className="min-w-[220px] flex-1">
-                    <label className={`block text-xs mb-1 ${labelMuted}`}>Cliente</label>
+        <div className="flex min-h-0 flex-1 flex-col gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-sm">
+                    <label htmlFor="mallas-cliente-select" className={`shrink-0 text-xs font-semibold ${headingAccent}`}>
+                        Cliente
+                    </label>
                     <select
-                        className={`w-full ${field}`}
+                        id="mallas-cliente-select"
+                        className={`min-w-0 flex-1 text-sm ${field}`}
                         value={clienteSeleccionado}
                         onChange={(e) => setClienteSeleccionado(e.target.value)}
                         disabled={loadingClientes}
@@ -468,25 +463,79 @@ export default function MallasTurnosPage({ token }) {
                         ))}
                     </select>
                 </div>
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                    <button
+                        type="button"
+                        className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${outlineBtn} ${
+                            asignacionOpen ? 'border-[#2F7BB8]/50 bg-[#2F7BB8]/10' : ''
+                        }`}
+                        aria-expanded={asignacionOpen}
+                        aria-controls="mallas-asignacion-sidebar"
+                        onClick={() => setAsignacionOpen((o) => !o)}
+                    >
+                        {asignacionOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+                        <span className="hidden sm:inline">Asignación masiva</span>
+                        {selected.size > 0 ? (
+                            <span className="rounded-full bg-[#2F7BB8] px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                {selected.size}
+                            </span>
+                        ) : null}
+                    </button>
+                    <button
+                        type="button"
+                        className={`rounded-lg p-2 ${outlineBtn}`}
+                        title="Mes anterior"
+                        onClick={() =>
+                            setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))
+                        }
+                    >
+                        <ChevronLeft size={18} />
+                    </button>
+                    <span className={`min-w-[10rem] text-center text-sm font-semibold ${headingAccent}`}>
+                        {monthLabel}
+                    </span>
+                    <button
+                        type="button"
+                        className={`rounded-lg p-2 ${outlineBtn}`}
+                        title="Mes siguiente"
+                        onClick={() =>
+                            setCurrentMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))
+                        }
+                    >
+                        <ChevronRight size={18} />
+                    </button>
+                </div>
             </div>
 
             {error ? (
-                <div className="rounded-md border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">
+                <div className="shrink-0 rounded-md border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">
                     {error}
                 </div>
             ) : null}
 
-            {!clienteSeleccionado.trim() ? (
-                <p className={`text-sm ${labelMuted}`}>Selecciona un cliente para ver la malla y asignar colaboradores.</p>
-            ) : (
-                <div className="flex flex-col xl:flex-row gap-6">
-                    <div className={`flex-1 min-w-0 rounded-xl border ${borderSubtle} ${tableSurface} p-3`}>
-                        <div className="flex items-center justify-between mb-2">
+            <div className={`${dash.cardFlex} relative min-h-0 flex-1 overflow-hidden`}>
+                <div className="flex min-h-0 flex-1 overflow-hidden">
+                    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                        {!hasCliente ? (
+                            <div
+                                className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center ${scrim} backdrop-blur-[1px]`}
+                                aria-hidden
+                            >
+                                <p className={`max-w-xs rounded-lg border ${borderSubtle} ${mainCanvas} px-4 py-3 text-center text-sm shadow-lg ${labelMuted}`}>
+                                    Selecciona un cliente para ver la malla y asignar colaboradores.
+                                </p>
+                            </div>
+                        ) : null}
+                        <div className="flex shrink-0 items-center justify-between px-3 py-2">
                             <span className={`text-xs ${labelMuted}`}>
-                                {loadingMesh ? 'Cargando malla…' : `${clienteSeleccionado} · ${desde} → ${hasta}`}
+                                {loadingMesh
+                                    ? 'Cargando malla…'
+                                    : hasCliente
+                                      ? `${clienteSeleccionado} · ${desde} → ${hasta}`
+                                      : `${monthLabel} · vista previa`}
                             </span>
                         </div>
-                        <div className="grid grid-cols-7 gap-1 text-center text-[10px] uppercase tracking-wide mb-1">
+                        <div className="grid shrink-0 grid-cols-7 gap-1 px-3 pb-1 text-center text-[10px] uppercase tracking-wide">
                             {weekHeader.map((w, i) => (
                                 <div
                                     key={i}
@@ -496,23 +545,29 @@ export default function MallasTurnosPage({ token }) {
                                 </div>
                             ))}
                         </div>
-                        <div className="grid grid-cols-7 gap-1">
+                        <div
+                            className="grid min-h-0 flex-1 grid-cols-7 gap-1 px-3 pb-3"
+                            style={{ gridTemplateRows: `repeat(${calendarRowCount}, minmax(0, 1fr))` }}
+                        >
                             {calendarCells.map((cell, idx) => {
                                 if (!cell) {
-                                    return <div key={`e-${idx}`} className="min-h-[5.5rem]" />;
+                                    return <div key={`e-${idx}`} className={cellMinClass} />;
                                 }
                                 const ymd = ymdLocal(cell);
                                 const isSel = selected.has(ymd);
                                 const isToday = ymd === todayYmd;
                                 const dow = cell.getDay();
                                 const isFestivo = festivosSet.has(ymd);
-                                const row = meshByYmd[ymd] || EMPTY_FRANJAS();
+                                const row = meshByYmd[ymd] || emptyFranjasRecord(franjas);
+                                const hasData = dayHasAssignments(meshByYmd, ymd, franjas);
                                 return (
                                     <button
                                         key={ymd}
                                         type="button"
+                                        disabled={panelDisabled}
                                         onClick={() => {
-                                            if (dayHasAssignments(meshByYmd, ymd)) {
+                                            if (!hasCliente) return;
+                                            if (hasData) {
                                                 setDayModalYmd(ymd);
                                             } else {
                                                 setSelected((prev) => {
@@ -523,12 +578,12 @@ export default function MallasTurnosPage({ token }) {
                                                 });
                                             }
                                         }}
-                                        className={`min-h-[5.5rem] rounded-lg border text-left p-1 flex flex-col gap-0.5 transition-colors ${
+                                        className={`${cellMinClass} flex flex-col gap-0.5 rounded-lg border p-1 text-left transition-colors disabled:cursor-default disabled:opacity-90 ${
                                             isSel
-                                                ? 'border-[#2F7BB8] ring-1 ring-[#2F7BB8]/50 bg-[#2F7BB8]/15'
+                                                ? 'border-[#2F7BB8] bg-[#2F7BB8]/15 ring-1 ring-[#2F7BB8]/50'
                                                 : `border-transparent hover:border-[#2F7BB8]/35 ${tableSurface}`
                                         } ${isToday ? 'ring-1 ring-amber-400/50' : ''} ${
-                                            isFestivo ? 'ring-1 ring-violet-500/45 bg-violet-950/20' : ''
+                                            isFestivo ? 'bg-violet-950/20 ring-1 ring-violet-500/45' : ''
                                         }`}
                                     >
                                         <span
@@ -543,16 +598,16 @@ export default function MallasTurnosPage({ token }) {
                                                 </span>
                                             ) : null}
                                         </span>
-                                        <div className="flex flex-col gap-0.5 flex-1 min-h-0 overflow-hidden">
-                                            {FRANJAS.map((f) => {
+                                        <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
+                                            {franjas.map((f) => {
                                                 const people = row[f.id] || [];
                                                 if (people.length === 0) {
                                                     return (
                                                         <div
                                                             key={f.id}
-                                                            className={`text-[9px] px-0.5 py-0.5 rounded truncate ${labelMuted} opacity-60`}
+                                                            className={`truncate rounded px-0.5 py-0.5 text-[9px] ${labelMuted} opacity-60`}
                                                         >
-                                                            {f.label.slice(0, 5)} —
+                                                            {isNocturnos ? '—' : `${f.label.slice(0, 5)} —`}
                                                         </div>
                                                     );
                                                 }
@@ -566,7 +621,7 @@ export default function MallasTurnosPage({ token }) {
                                                 return (
                                                     <div
                                                         key={f.id}
-                                                        className="text-[9px] px-0.5 py-0.5 rounded truncate font-semibold"
+                                                        className="truncate rounded px-0.5 py-0.5 text-[9px] font-semibold"
                                                         style={{ backgroundColor: bg, color: fg }}
                                                         title={people.map((p) => p.nombre).join(', ')}
                                                     >
@@ -581,116 +636,152 @@ export default function MallasTurnosPage({ token }) {
                             })}
                         </div>
                     </div>
-
-                    <div className="w-full xl:w-[22rem] shrink-0 space-y-4">
-                        <div className={`rounded-xl border ${borderSubtle} ${tableSurface} p-4 space-y-3`}>
-                            <h3 className={`text-sm font-semibold ${headingAccent}`}>Asignación masiva</h3>
-                            <p className={`text-xs ${labelMuted}`}>
-                                Días en masivo: <strong className={headingAccent}>{selected.size}</strong>. Día vacío:
-                                clic alterna selección. Día con malla: abre el modal y puedes marcar para masivo.
-                            </p>
-                            <div className="space-y-1">
-                                <label className={`block text-xs font-semibold ${headingAccent}`}>
-                                    Buscar colaborador
-                                </label>
-                                <input
-                                    type="search"
-                                    placeholder="Nombre, código o cédula… (filtra los tres desplegables)"
-                                    className={`w-full text-sm ${field}`}
-                                    value={searchColaborador}
-                                    onChange={(e) => setSearchColaborador(e.target.value)}
-                                    disabled={loadingCo}
-                                />
-                            </div>
-                            {FRANJAS.map((f) => (
-                                <div key={f.id} className="space-y-2">
-                                    <label className={`block text-xs font-semibold ${headingAccent}`}>{f.label}</label>
-                                    <div className="flex flex-wrap gap-1 min-h-[1.5rem]">
-                                        {(draft[f.id] || []).map((ced) => {
-                                            const row = colaboradores.find((c) => c.cedula === ced);
-                                            return (
-                                                <span
-                                                    key={ced}
-                                                    className="inline-flex items-center gap-1 rounded-full bg-slate-700/80 px-2 py-0.5 text-[10px] text-slate-100"
-                                                >
-                                                    {row ? shortLabelColaborador(row) : ced}
-                                                    <button
-                                                        type="button"
-                                                        className="rounded hover:text-white text-slate-400"
-                                                        aria-label="Quitar"
-                                                        onClick={() => removeCedulaFromDraft(f.id, ced)}
-                                                    >
-                                                        <X size={12} />
-                                                    </button>
-                                                </span>
-                                            );
-                                        })}
-                                    </div>
-                                    {(draft[f.id] || []).length < 10 ? (
-                                        <select
-                                            className={`w-full text-sm ${field}`}
-                                            value=""
-                                            onChange={(e) => {
-                                                const v = e.target.value;
-                                                if (v) {
-                                                    addCedulaToDraft(f.id, v);
-                                                    e.target.value = '';
-                                                }
-                                            }}
-                                            disabled={loadingCo}
-                                        >
-                                            <option value="">+ Añadir colaborador…</option>
-                                            {filteredColaboradoresForFranja(f.id).map((c) => (
-                                                <option key={c.cedula} value={c.cedula}>
-                                                    {shortLabelColaborador(c)} — {c.nombre}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    ) : (
-                                        <p className={`text-[10px] ${labelMuted}`}>Máximo 10 personas por franja.</p>
-                                    )}
-                                </div>
-                            ))}
-                            <div className="flex flex-col gap-2 pt-1">
-                                <button
-                                    type="button"
-                                    disabled={saving || loadingCo || selected.size === 0}
-                                    className={`w-full py-2 rounded-lg text-sm font-semibold bg-[#2F7BB8] text-white hover:bg-[#25649a] disabled:opacity-50 ${compactBtn}`}
-                                    onClick={onApplyToSelected}
-                                >
-                                    {saving ? 'Guardando…' : 'Aplicar a días seleccionados'}
-                                </button>
-                                <button
-                                    type="button"
-                                    className={`w-full py-2 rounded-lg text-sm ${outlineBtn}`}
-                                    onClick={clearSelection}
-                                >
-                                    Limpiar días en masivo
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className={`rounded-xl border ${borderSubtle} p-3`}>
-                            <p className={`text-xs font-semibold mb-2 ${headingAccent}`}>Leyenda (mes visible)</p>
-                            <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
-                                {legendItems.map((c) => (
-                                    <span
-                                        key={c.cedula}
-                                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold"
-                                        style={{
-                                            backgroundColor: hslForCedula(c.cedula, isLight),
-                                            color: textColorForCedula(c.cedula, isLight)
-                                        }}
-                                    >
-                                        {c.codigo ? String(c.codigo).trim().slice(0, 8).toUpperCase() : shortLabelColaborador(c)}{' '}
-                                        <span className="font-normal opacity-90 truncate max-w-[8rem]">{c.nombre}</span>
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
                 </div>
-            )}
+
+                {asignacionOpen ? (
+                    <>
+                        <button
+                            type="button"
+                            className={`absolute inset-0 z-20 md:hidden ${scrim}`}
+                            aria-label="Cerrar panel de asignación"
+                            onClick={() => setAsignacionOpen(false)}
+                        />
+                        <aside
+                            id="mallas-asignacion-sidebar"
+                            className={`absolute inset-y-0 right-0 z-30 flex w-[min(100%,20rem)] flex-col overflow-hidden border-l shadow-2xl animate-in slide-in-from-right duration-200 md:w-80 xl:w-[22rem] ${borderSubtle} ${tableSurface}`}
+                        >
+                            <div className={`flex shrink-0 items-center justify-between gap-2 border-b px-4 py-3 ${borderSubtle}`}>
+                                <h3 className={`text-sm font-semibold ${headingAccent}`}>Asignación masiva</h3>
+                                <button
+                                    type="button"
+                                    className={`rounded-lg p-1.5 ${outlineBtn}`}
+                                    aria-label="Ocultar panel"
+                                    onClick={() => setAsignacionOpen(false)}
+                                >
+                                    <PanelRightClose size={18} />
+                                </button>
+                            </div>
+                            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+                                <p className={`text-xs ${labelMuted}`}>
+                                    Días en masivo: <strong className={headingAccent}>{selected.size}</strong>. Día
+                                    vacío: clic alterna selección. Día con malla: abre el modal y puedes marcar para
+                                    masivo.
+                                </p>
+                                <div className="space-y-1">
+                                    <label className={`block text-xs font-semibold ${headingAccent}`}>
+                                        Buscar colaborador
+                                    </label>
+                                    <input
+                                        type="search"
+                                        placeholder="Nombre, código o cédula…"
+                                        className={`w-full text-sm ${field}`}
+                                        value={searchColaborador}
+                                        onChange={(e) => setSearchColaborador(e.target.value)}
+                                        disabled={panelDisabled || loadingCo}
+                                    />
+                                </div>
+                                {franjas.map((f) => (
+                                    <div key={f.id} className="space-y-2">
+                                        <label className={`block text-xs font-semibold ${headingAccent}`}>
+                                            {f.label}
+                                        </label>
+                                        <div className="flex min-h-[1.5rem] flex-wrap gap-1">
+                                            {(draft[f.id] || []).map((ced) => {
+                                                const row = colaboradores.find((c) => c.cedula === ced);
+                                                return (
+                                                    <span
+                                                        key={ced}
+                                                        className="inline-flex items-center gap-1 rounded-full bg-slate-700/80 px-2 py-0.5 text-[10px] text-slate-100"
+                                                    >
+                                                        {row ? shortLabelColaborador(row) : ced}
+                                                        <button
+                                                            type="button"
+                                                            className="rounded text-slate-400 hover:text-white"
+                                                            aria-label="Quitar"
+                                                            disabled={panelDisabled}
+                                                            onClick={() => removeCedulaFromDraft(f.id, ced)}
+                                                        >
+                                                            <X size={12} />
+                                                        </button>
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+                                        {(draft[f.id] || []).length < 10 ? (
+                                            <select
+                                                className={`w-full text-sm ${field}`}
+                                                value=""
+                                                onChange={(e) => {
+                                                    const v = e.target.value;
+                                                    if (v) {
+                                                        addCedulaToDraft(f.id, v);
+                                                        e.target.value = '';
+                                                    }
+                                                }}
+                                                disabled={panelDisabled || loadingCo}
+                                            >
+                                                <option value="">+ Añadir colaborador…</option>
+                                                {filteredColaboradoresForFranja(f.id).map((c) => (
+                                                    <option key={c.cedula} value={c.cedula}>
+                                                        {shortLabelColaborador(c)} — {c.nombre}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        ) : (
+                                            <p className={`text-[10px] ${labelMuted}`}>Máximo 10 personas por franja.</p>
+                                        )}
+                                    </div>
+                                ))}
+                                <div className="flex flex-col gap-2">
+                                    <button
+                                        type="button"
+                                        disabled={panelDisabled || saving || loadingCo || selected.size === 0}
+                                        className={`w-full rounded-lg py-2 text-sm font-semibold bg-[#2F7BB8] text-white hover:bg-[#25649a] disabled:opacity-50 ${compactBtn}`}
+                                        onClick={onApplyToSelected}
+                                    >
+                                        {saving ? 'Guardando…' : 'Aplicar a días seleccionados'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`w-full rounded-lg py-2 text-sm ${outlineBtn}`}
+                                        disabled={panelDisabled || selected.size === 0}
+                                        onClick={clearSelection}
+                                    >
+                                        Limpiar días en masivo
+                                    </button>
+                                </div>
+
+                                {hasCliente && legendItems.length > 0 ? (
+                                    <div className={`rounded-xl border ${borderSubtle} p-3`}>
+                                        <p className={`mb-2 text-xs font-semibold ${headingAccent}`}>
+                                            Leyenda (mes visible)
+                                        </p>
+                                        <div className="flex flex-wrap gap-2">
+                                            {legendItems.map((c) => (
+                                                <span
+                                                    key={c.cedula}
+                                                    className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold"
+                                                    style={{
+                                                        backgroundColor: hslForCedula(c.cedula, isLight),
+                                                        color: textColorForCedula(c.cedula, isLight)
+                                                    }}
+                                                >
+                                                    {c.codigo
+                                                        ? String(c.codigo).trim().slice(0, 8).toUpperCase()
+                                                        : shortLabelColaborador(c)}{' '}
+                                                    <span className="max-w-[8rem] truncate font-normal opacity-90">
+                                                        {c.nombre}
+                                                    </span>
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                        </aside>
+                    </>
+                ) : null}
+            </div>
 
             {dayModalYmd ? (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -742,7 +833,7 @@ export default function MallasTurnosPage({ token }) {
                             {!modalCedulasByFranja ? (
                                 <p className={`text-sm ${labelMuted}`}>Cargando…</p>
                             ) : (
-                                FRANJAS.map((f) => {
+                                franjas.map((f) => {
                                     const cedulas = modalCedulasByFranja[f.id] || [];
                                     return (
                                         <div key={f.id} className={`rounded-lg border ${borderSubtle} p-3`}>

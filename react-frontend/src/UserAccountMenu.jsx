@@ -384,34 +384,33 @@ export default function UserAccountMenu({
         </div>
     ) : null;
 
-    const sidebarToolbar = (
-        <div ref={wrapRef} className="relative z-[60] shrink-0 font-body">
-            <button
-                ref={triggerRef}
-                type="button"
-                onClick={() => {
-                    setSheetOpen(false);
-                    setOpen((o) => {
-                        const next = !o;
-                        if (next) updateSidebarPanelPos();
-                        return next;
-                    });
-                }}
-                aria-expanded={open}
-                aria-haspopup="menu"
-                title="Menú de cuenta"
-                className={`${tileClass} font-heading text-sm font-bold tracking-tight ${
-                    isLight ? 'text-[#0c4a6e]' : 'text-[#c5e6ff]'
-                }`}
-            >
-                {ini}
-            </button>
-            {sidebarMenuPortal}
-        </div>
-    );
-
     if (isSidebar && sidebarCompact) {
-        return sidebarToolbar;
+        return (
+            <div ref={wrapRef} className="relative z-[60] flex flex-col items-center gap-1.5 font-body">
+                {assistantSlot ? <div className="relative inline-flex shrink-0">{assistantSlot}</div> : null}
+                <button
+                    ref={triggerRef}
+                    type="button"
+                    onClick={() => {
+                        setSheetOpen(false);
+                        setOpen((o) => {
+                            const next = !o;
+                            if (next) updateSidebarPanelPos();
+                            return next;
+                        });
+                    }}
+                    aria-expanded={open}
+                    aria-haspopup="menu"
+                    title="Menú de cuenta"
+                    className={`${tileClass} font-heading text-sm font-bold tracking-tight ${
+                        isLight ? 'text-[#0c4a6e]' : 'text-[#c5e6ff]'
+                    }`}
+                >
+                    {ini}
+                </button>
+                {sidebarMenuPortal}
+            </div>
+        );
     }
 
     if (isSidebar) {

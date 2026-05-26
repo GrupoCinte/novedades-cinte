@@ -2131,7 +2131,11 @@ function registerRoutes(deps) {
             }
 
             if (!s3Client) {
-                return res.status(400).json({ ok: false, error: 'S3 no está configurado en backend' });
+                return res.status(400).json({
+                    ok: false,
+                    error:
+                        'S3 no está configurado en backend. Revise .env: S3_ENABLED=true requiere S3_BUCKET_NAME y credenciales AWS (S3_AUTH_MODE=keys → AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).'
+                });
             }
 
             const command = new GetObjectCommand({
@@ -2165,7 +2169,11 @@ function registerRoutes(deps) {
                 workbookBuffer = await fs.promises.readFile(absolutePath);
             } else {
                 if (!s3Client) {
-                    return res.status(400).json({ ok: false, error: 'S3 no está configurado en backend' });
+                    return res.status(400).json({
+                        ok: false,
+                        error:
+                            'S3 no está configurado en backend. Revise .env: S3_ENABLED=true requiere S3_BUCKET_NAME y credenciales AWS (S3_AUTH_MODE=keys → AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).'
+                    });
                 }
                 const s3Out = await s3Client.send(new GetObjectCommand({
                     Bucket: S3_BUCKET_NAME,

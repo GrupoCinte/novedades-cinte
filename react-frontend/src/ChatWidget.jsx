@@ -4,6 +4,11 @@ import { NOVEDAD_TYPES } from './novedadRules';
 
 const TIPOS_LINEA = NOVEDAD_TYPES.map((t) => `• **${t}**`).join('\n');
 
+const WELCOME_BUBBLE_TEXT =
+    '¡Hola! Recuerda que estoy aquí para ayudarte a entender el sistema de gestión de novedades. ¿Te ayudo?';
+const WELCOME_BUBBLE_VISIBLE_MS = 5000;
+const WELCOME_BUBBLE_FADE_MS = 700;
+
 function buildWelcomeText(ctx) {
     const lines = [
         '¡Hola! Soy **CINTEBot**, tu asistente sobre **novedades** en este portal.',
@@ -221,7 +226,9 @@ function TypingDots() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ChatWidget({ ctx, placement = 'floating', sidebarExpanded = true, isLight = false }) {
+    const isInline = placement === 'inline';
     const isSidebar = placement === 'sidebar';
+    const isDocked = isInline || isSidebar;
     const welcomeText = useMemo(() => buildWelcomeText(ctx), [ctx?.role, ctx?.pendientesCount]);
 
     const [open, setOpen] = useState(false);
@@ -237,8 +244,25 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
     const [input, setInput] = useState('');
     const [activeCategory, setActiveCategory] = useState('todos');
     const [unread, setUnread] = useState(0);
+    const [bubbleVisible, setBubbleVisible] = useState(isInline);
+    const [bubbleFading, setBubbleFading] = useState(false);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
+    const wrapRef = useRef(null);
+
+    useEffect(() => {
+        if (!isInline || !bubbleVisible) return undefined;
+        setBubbleFading(false);
+        const fadeTimer = setTimeout(() => setBubbleFading(true), WELCOME_BUBBLE_VISIBLE_MS);
+        const removeTimer = setTimeout(
+            () => setBubbleVisible(false),
+            WELCOME_BUBBLE_VISIBLE_MS + WELCOME_BUBBLE_FADE_MS
+        );
+        return () => {
+            clearTimeout(fadeTimer);
+            clearTimeout(removeTimer);
+        };
+    }, [isInline, bubbleVisible]);
 
     useEffect(() => {
         setMessages((prev) => {
@@ -259,9 +283,32 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
     useEffect(() => {
         if (open) {
             setUnread(0);
+            setBubbleVisible(false);
+            setBubbleFading(false);
             setTimeout(() => inputRef.current?.focus(), 100);
         }
     }, [open]);
+
+    useEffect(() => {
+        if (!open || !isInline) return undefined;
+        const onDocMouseDown = (e) => {
+            if (!wrapRef.current?.contains(e.target)) setOpen(false);
+        };
+        const onKey = (e) => {
+            if (e.key === 'Escape' || e.key === 'Esc') setOpen(false);
+        };
+        document.addEventListener('mousedown', onDocMouseDown);
+        window.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onDocMouseDown);
+            window.removeEventListener('keydown', onKey);
+        };
+    }, [open, isInline]);
+
+    const dismissBubble = () => {
+        setBubbleFading(true);
+        setTimeout(() => setBubbleVisible(false), WELCOME_BUBBLE_FADE_MS);
+    };
 
     const sendBotReply = (text) => {
         setTyping(true);
@@ -308,48 +355,86 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
     const formatTime = (date) => date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
     const sidebarLeftPx = sidebarExpanded ? 268 : 76;
-    const triggerSize = isSidebar ? 'h-11 w-11' : 'h-14 w-14';
-    const triggerRounded = isSidebar ? 'rounded-xl' : 'rounded-2xl';
+    const triggerSize = isInline ? 'h-10 w-10 sm:h-11 sm:w-11' : isSidebar ? 'h-11 w-11' : 'h-14 w-14';
+    const triggerRounded = isDocked || isInline ? 'rounded-xl' : 'rounded-2xl';
+    const triggerIconSize = isInline ? 20 : isSidebar ? 18 : 22;
 
-    const sidebarBubbleClass = isLight
-        ? 'border-slate-200 bg-white text-slate-700 shadow-lg'
-        : 'border-blue-500/40 bg-[#0b1e30] text-slate-200 shadow-lg';
+    const welcomeBubblePanelClass = isLight
+        ? 'border-blue-300/50 bg-white text-slate-700 shadow-2xl'
+        : 'border-blue-400/30 bg-[#0f172a] text-slate-100 shadow-2xl';
+    const welcomeBubbleArrowClass = isLight
+        ? 'border-r border-b border-blue-300/50 bg-white'
+        : 'border-r border-b border-blue-400/30 bg-[#0f172a]';
+
+    const welcomeBubble =
+        isInline && bubbleVisible && !open ? (
+            <div
+                role="status"
+                aria-live="polite"
+                className={`pointer-events-auto absolute bottom-full z-[220] mb-2 hidden w-72 max-w-[min(18rem,calc(100vw-1.5rem))] rounded-2xl border px-3 py-2.5 text-[12px] leading-snug transition-opacity duration-700 ease-out sm:block ${
+                    sidebarExpanded ? 'left-0' : 'left-1/2 -translate-x-1/2'
+                } ${welcomeBubblePanelClass} ${bubbleFading ? 'opacity-0' : 'opacity-100'}`}
+            >
+                <button
+                    type="button"
+                    onClick={dismissBubble}
+                    aria-label="Cerrar mensaje de bienvenida"
+                    className={`absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-md transition-colors ${
+                        isLight
+                            ? 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                            : 'text-slate-400 hover:bg-slate-700/60 hover:text-slate-200'
+                    }`}
+                >
+                    <X size={12} />
+                </button>
+                <div className="flex items-start gap-2 pr-4">
+                    <span className="mt-0.5 inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 shadow">
+                        <Bot size={12} className="text-white" />
+                    </span>
+                    <p className="font-body">{WELCOME_BUBBLE_TEXT}</p>
+                </div>
+                <span
+                    aria-hidden="true"
+                    className={`absolute bottom-[-6px] h-3 w-3 rotate-45 ${
+                        sidebarExpanded ? 'left-5' : 'left-1/2 -translate-x-1/2'
+                    } ${welcomeBubbleArrowClass}`}
+                />
+            </div>
+        ) : null;
 
     const chatTrigger = (
         <button
             onClick={() => setOpen((o) => !o)}
-            className={isSidebar ? 'group relative mx-auto block' : 'group fixed bottom-6 right-6 z-50'}
+            className={
+                isInline
+                    ? 'group relative inline-flex shrink-0 items-center justify-center overflow-visible'
+                    : isSidebar
+                      ? 'group relative mx-auto block'
+                      : 'group fixed bottom-6 right-6 z-50'
+            }
             title="Asistente CINTE"
             type="button"
+            aria-expanded={open}
+            aria-haspopup="dialog"
         >
-            {!open && isSidebar && sidebarExpanded ? (
-                <div className="pointer-events-none absolute bottom-full left-1/2 z-[220] mb-2 w-[min(13.5rem,calc(100vw-5rem))] -translate-x-1/2 space-y-1.5">
-                    <span
-                        className={`block rounded-lg border px-2.5 py-1.5 text-center text-xs font-semibold ${sidebarBubbleClass}`}
-                    >
-                        Asistente CINTE
-                    </span>
-                    <span
-                        className={`block rounded-lg border px-2.5 py-1.5 text-center text-[10px] leading-snug ${
-                            isLight ? 'border-sky-200 bg-sky-50 text-slate-600' : 'border-[#1a3a56] bg-[#04141E] text-slate-400'
-                        }`}
-                    >
-                        ¿Necesitas ayuda con novedades?
-                    </span>
-                </div>
-            ) : null}
             <div
-                className={`relative mx-auto flex ${triggerSize} items-center justify-center ${triggerRounded} border border-blue-400/30 bg-gradient-to-br from-blue-600 to-indigo-700 shadow-[0_0_20px_rgba(59,130,246,0.4)] transition-all hover:scale-105 hover:shadow-[0_0_28px_rgba(59,130,246,0.55)] active:scale-95`}
+                className={`relative flex ${triggerSize} items-center justify-center ${triggerRounded} border border-blue-400/30 bg-gradient-to-br from-blue-600 to-indigo-700 shadow-[0_0_20px_rgba(59,130,246,0.4)] transition-all hover:scale-105 hover:shadow-[0_0_28px_rgba(59,130,246,0.55)] active:scale-95`}
             >
-                {open ? <ChevronDown size={isSidebar ? 18 : 22} className="text-white" /> : <Bot size={isSidebar ? 18 : 22} className="text-white" />}
-                {!open && <span className={`absolute inset-0 animate-ping ${triggerRounded} opacity-40 ring-2 ring-blue-500/50`} />}
+                {open ? (
+                    <ChevronDown size={triggerIconSize} className="text-white" />
+                ) : (
+                    <Bot size={triggerIconSize} className="text-white" />
+                )}
+                {!open && (
+                    <span className={`absolute inset-0 animate-ping ${triggerRounded} opacity-40 ring-2 ring-blue-500/50`} />
+                )}
                 {unread > 0 && !open && (
                     <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-black text-white shadow-lg">
                         {unread}
                     </span>
                 )}
             </div>
-            {!open && !isSidebar ? (
+            {!open && !isDocked ? (
                 <span className="pointer-events-none absolute right-16 top-1/2 z-10 -translate-y-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-[#1e293b] px-3 py-1.5 text-xs font-medium text-slate-200 opacity-0 shadow-xl transition-opacity group-hover:opacity-100">
                     Asistente CINTE
                 </span>
@@ -362,13 +447,11 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
                 className={`
                     fixed z-[200] flex w-[370px] max-w-[calc(100vw-1.5rem)] flex-col rounded-2xl border border-slate-700/70 bg-[#0f172a] shadow-2xl
                     transition-all duration-300 origin-bottom-right
-                    ${open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-90 opacity-0'}
+                    ${open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none invisible scale-90 opacity-0'}
                 `}
                 style={{
                     maxHeight: 'min(600px, calc(100vh - 120px))',
-                    ...(isSidebar
-                        ? { left: sidebarLeftPx, bottom: 24 }
-                        : { right: 24, bottom: 96 })
+                    ...(isDocked ? { left: sidebarLeftPx, bottom: 24 } : { right: 24, bottom: 96 })
                 }}
             >
                 <div className="flex flex-shrink-0 items-center gap-3 rounded-t-2xl border-b border-slate-700/60 bg-gradient-to-r from-blue-700/20 to-indigo-700/10 px-4 py-3">
@@ -488,13 +571,19 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
             </div>
     );
 
+    if (isInline) {
+        return (
+            <div ref={wrapRef} className="relative inline-flex">
+                {welcomeBubble}
+                {chatTrigger}
+                {chatWindow}
+            </div>
+        );
+    }
+
     if (isSidebar) {
         return (
-            <div
-                className={`relative mx-auto w-full max-w-[11rem] overflow-visible pb-1 ${
-                    sidebarExpanded ? 'pt-[4.5rem]' : 'pt-1'
-                }`}
-            >
+            <div className="relative mx-auto w-full max-w-[11rem] overflow-visible pb-1 pt-1">
                 {chatTrigger}
                 {chatWindow}
             </div>

@@ -880,6 +880,7 @@ startServer({
     COGNITO_USER_POOL_ID,
     COGNITO_APP_CLIENT_SECRET,
     s3Client,
+    S3_ENABLED,
     S3_BUCKET_NAME,
     S3_REGION,
     S3_AUTH_MODE
