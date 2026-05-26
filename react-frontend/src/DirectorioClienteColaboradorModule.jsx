@@ -5,6 +5,7 @@ import {
     ArrowRightLeft,
     ArrowUp,
     Building2,
+    CalendarDays,
     ChevronLeft,
     ChevronRight,
     Home,
@@ -17,10 +18,13 @@ import {
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
+import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
+import MallasTurnosPage from './MallasTurnosPage';
 import {
     initialStaffForm,
     mapRowToStaffForm,
@@ -93,7 +97,7 @@ function GpUserSelect({ value, onChange, options, className }) {
     );
 }
 
-export default function DirectorioClienteColaboradorModule({ token, auth }) {
+export default function DirectorioClienteColaboradorModule({ token, auth, onLogout }) {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const mt = useModuleTheme();
@@ -101,7 +105,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         shell,
         aside,
         asideHeaderBorder,
-        asideFooterBorder,
         scrim,
         menuFab,
         sidebarIconBtn,
@@ -109,7 +112,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         email,
         borderSubtle,
         mainCanvas,
-        topBar,
         headingAccent,
         labelMuted,
         field,
@@ -146,6 +148,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         }
         if (v === 'reubicaciones') {
             setMainView('reubicaciones');
+            const next = new URLSearchParams(searchParams);
+            next.delete('v');
+            setSearchParams(next, { replace: true });
+            return;
+        }
+        if (v === 'mallas-turnos') {
+            setMainView('mallasTurnos');
             const next = new URLSearchParams(searchParams);
             next.delete('v');
             setSearchParams(next, { replace: true });
@@ -947,7 +956,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     );
 
     const sidebarNav = () => (
-        <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
+        <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
             <NavBtn
                 active={false}
                 icon={Home}
@@ -996,6 +1005,15 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     setMobileMenuOpen(false);
                 }}
             />
+            <NavBtn
+                active={mainView === 'mallasTurnos'}
+                icon={CalendarDays}
+                label="Mallas de turnos"
+                onClick={() => {
+                    setMainView('mallasTurnos');
+                    setMobileMenuOpen(false);
+                }}
+            />
             {showTiCatalogSubmod ? (
                 <NavBtn
                     active={mainView === 'catalogoTi'}
@@ -1008,36 +1026,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 />
             ) : null}
         </nav>
-    );
-
-    const sidebarFooter = (compact) => (
-        <div className={`border-t ${borderSubtle} ${compact ? 'p-4' : 'p-2'}`}>
-            {compact ? (
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
-                            <Building2 size={13} className={headingAccent} />
-                        </div>
-                        <div className="min-w-0 overflow-hidden">
-                            <p className={`text-[10px] font-body font-black whitespace-nowrap leading-tight truncate ${email}`}>
-                                {currentEmail}
-                            </p>
-                            <p className={`text-[9px] font-body font-semibold whitespace-nowrap leading-tight ${headingAccent}`}>
-                                {currentRoleLabel}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            ) : (
-                <div className="flex flex-col items-center gap-2 py-1">
-                    <div className="flex justify-center" title={`${currentEmail} · ${currentRoleLabel}`}>
-                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
-                            <Building2 size={15} className={headingAccent} />
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
     );
 
     const clTotalPages = Math.max(1, Math.ceil((Number(clTotal) || 0) / clPageSize));
@@ -1055,7 +1043,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
-                className={`md:hidden fixed top-16 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
+                className={`md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú administración"
             >
                 <Menu size={18} />
@@ -1064,7 +1052,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 <div className={`md:hidden fixed inset-0 z-40 ${scrim}`} onClick={() => setMobileMenuOpen(false)} />
             ) : null}
             <aside
-                className={`md:hidden fixed top-0 left-0 h-full w-72 z-50 shadow-2xl transform transition-transform duration-300 flex flex-col font-body ${aside} ${
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${
                     mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}
             >
@@ -1091,15 +1079,21 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    accentClass={headingAccent}
+                />
                 {sidebarNav()}
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`text-[10px] font-body font-black truncate ${email}`}>{currentEmail}</p>
-                    <p className={`text-[10px] font-body font-semibold uppercase ${headingAccent}`}>{currentRoleLabel}</p>
-                </div>
+                <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
             </aside>
 
             <aside
-                className={`flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 transition-all duration-300 ease-in-out overflow-hidden font-body ${aside} ${
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden font-body shadow-2xl transition-all duration-300 ease-in-out md:flex ${aside} ${
                     sidebarOpen ? 'w-64' : 'w-16'
                 }`}
             >
@@ -1128,26 +1122,26 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    accentClass={headingAccent}
+                />
                 {sidebarNav()}
-                {sidebarFooter(sidebarOpen)}
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
             </aside>
 
             <div className="flex flex-col flex-1 min-h-0 min-w-0">
-                <header className={`flex items-center justify-between px-4 md:px-8 py-3 shrink-0 md:pl-6 ${topBar}`}>
-                    <div>
-                        <h1 className={`text-lg md:text-xl font-heading font-bold ${headingAccent}`}>Módulo de administración</h1>
-                        <p className={`text-xs mt-1 ${labelMuted}`}>
-                            {mainView === 'catalogoTi'
-                                ? 'Submódulo Catálogo roles TI: taxonomía financiera y perfiles del cliente interno en cotizador.'
-                                : mainView === 'reubicaciones'
-                                  ? 'Submódulo Reubicaciones: seguimiento PIPELINE (fecha fin, destino y causal; datos del consultor desde el directorio).'
-                                  : mainView === 'dashboardAdmin'
-                                    ? 'Dashboard: KPIs y gráficas solo de clientes, consultores y reubicaciones (sin catálogo roles TI).'
-                                    : 'Catálogo por cliente (líderes y GP) y colaboradores (roles autorizados).'}
-                        </p>
-                    </div>
-                </header>
-
                 {msg ? (
                     <div
                         className={`mx-4 md:mx-8 mt-3 px-3 py-2 rounded text-sm shrink-0 ${
@@ -1585,6 +1579,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     {mainView === 'reubicaciones' ? (
                         <div className="space-y-4 w-full max-w-[95rem]">
                             <ReubicacionesPipelinePage token={token} navIntent={reubicacionesNavIntent} />
+                        </div>
+                    ) : null}
+
+                    {mainView === 'mallasTurnos' ? (
+                        <div className="space-y-4 w-full max-w-[95rem]">
+                            <MallasTurnosPage token={token} />
                         </div>
                     ) : null}
                 </main>
