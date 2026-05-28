@@ -1,8 +1,16 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
-import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2, Filter, ChevronDown, ChevronUp } from 'lucide-react';
-import ChatWidget from './ChatWidget';
+import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2 } from 'lucide-react';
+import NovedadesFiltersToolbar from './novedades/NovedadesFiltersToolbar.jsx';
+import NovedadesFiltersDrawer from './novedades/NovedadesFiltersDrawer.jsx';
+import { buildGestionTableDash, withNovedadesTabShellAliases } from './gestionTableDashTheme.js';
+import {
+    applyClientSideFilters,
+    buildFiltrosResumen,
+    creadoEnRangeForMonthIndex,
+    filtersToGestionParams
+} from './novedades/novedadesFilters.js';
 import {
     getNovedadRule,
     NOVEDAD_TYPES,
@@ -21,23 +29,20 @@ import {
     formatHeSegmentListBogota
 } from './heNovedadBogotaClient.js';
 import { formatHeDomingoCompGestionResumen } from './heDomingoCompDisplay.js';
+import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat.js';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
+import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
-/** Primer y último día (YYYY-MM-DD) del mes 0–11 en `year`, para filtros de creación en Gestión. */
-function creadoEnRangeForMonthIndex(monthIndex, year) {
-    const mi = Number(monthIndex);
-    if (!Number.isFinite(mi) || mi < 0 || mi > 11) return { desde: '', hasta: '' };
-    const y = Number(year);
-    if (!Number.isFinite(y)) return { desde: '', hasta: '' };
-    const pad = (n) => String(n).padStart(2, '0');
-    const lastDay = new Date(y, mi + 1, 0).getDate();
-    return {
-        desde: `${y}-${pad(mi + 1)}-01`,
-        hasta: `${y}-${pad(mi + 1)}-${pad(lastDay)}`
-    };
-}
+const NOVEDADES_FILTER_TABS = new Set([
+    'DashboardGeneral',
+    'Calendario',
+    'Análisis Avanzado',
+    'Gestión',
+    'Alertas HE'
+]);
 
 /** Gestión / UI: tipo compensatorio por votación (jurado). */
 function esTipoCompensatorioVotacionJurado(tipo) {
@@ -48,10 +53,11 @@ function esTipoCompensatorioVotacionJurado(tipo) {
     return t.includes('compensatorio') && t.includes('votacion') && t.includes('jurado');
 }
 
-/** Si el dashboard tiene `fMes` seleccionado, Gestión usa rango de creado_en en el año actual (no equivale a getItemDate del dashboard). */
-function creadoEnRangeForDashboardMesFilter(fMesStr, year = new Date().getFullYear()) {
-    if (fMesStr === '' || fMesStr == null) return { desde: '', hasta: '' };
-    return creadoEnRangeForMonthIndex(Number(fMesStr), year);
+/** Gestión / UI: ¿la novedad es Disponibilidad y aplica el flujo de monto diligenciado por el aprobador? */
+function esTipoDisponibilidadConMontoDiligenciado(item) {
+    if (!item) return false;
+    const rule = getNovedadRule(item.tipoNovedad);
+    return Boolean(rule?.montoDiligenciadoPorAprobador);
 }
 
 /** Texto visible en selects de GP: solo nombre de directorio, sin correo. */
@@ -144,28 +150,13 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     const dash = useMemo(() => {
         const L = isLight;
-        const card = L
-            ? 'rounded-2xl border border-slate-200 bg-white shadow-md'
-            : 'rounded-2xl border border-slate-700/50 bg-[#1e293b] shadow-lg';
+        const g = withNovedadesTabShellAliases(buildGestionTableDash(L));
         return {
-            card,
-            cardFlex: `${card} flex flex-col h-full overflow-hidden`,
-            filterBar: L
-                ? 'flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-md'
-                : 'flex flex-col gap-3 rounded-2xl border border-slate-700/50 bg-[#1e293b] px-5 py-4 shadow-lg',
-            titleXl: L ? 'text-xl font-bold text-slate-900' : 'text-xl font-bold text-white',
-            titleLg: L ? 'text-lg font-bold text-slate-900' : 'text-lg font-bold text-white',
-            title2xl: L ? 'text-2xl font-bold text-slate-900' : 'text-2xl font-bold text-white',
+            ...g,
             title3xl: L ? 'text-3xl font-bold text-slate-900' : 'text-3xl font-bold text-white',
-            muted: L ? 'text-slate-600' : 'text-slate-400',
-            mutedSm: L ? 'text-sm text-slate-600' : 'text-sm text-slate-400',
-            labelUpper: L ? 'text-xs font-bold uppercase tracking-widest text-slate-500' : 'text-xs font-bold uppercase tracking-widest text-slate-400',
-            labelFilter: L ? 'text-xs font-semibold uppercase tracking-wider text-slate-600' : 'text-xs font-semibold uppercase tracking-wider text-slate-500',
-            divider: L ? 'h-px flex-1 min-w-[1rem] bg-slate-200' : 'h-px flex-1 min-w-[1rem] bg-slate-700/50',
             clearBtn: L
                 ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs text-slate-600 transition-all hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600'
                 : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400',
-            kpiSub: L ? 'text-sm font-medium text-slate-600' : 'text-sm font-medium text-slate-400',
             legendLine: L ? 'text-slate-600' : 'text-slate-300',
             legendDash: L ? 'text-slate-500' : 'text-slate-400',
             avatarRing: L ? 'border-2 border-white bg-slate-300 text-[10px] font-bold text-slate-700' : 'border-2 border-[#1e293b] bg-slate-600 text-[10px] font-bold text-slate-300',
@@ -185,38 +176,10 @@ export default function Dashboard({ token, auth, onLogout }) {
                 ? 'rounded-lg border border-slate-200 bg-slate-100 px-3 py-1 text-sm font-bold text-slate-700'
                 : 'rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-bold text-slate-300',
             nameEmpl: L ? 'font-medium text-slate-900' : 'font-medium text-slate-200',
-            gestionHead: L ? 'border-b border-slate-200 bg-white' : 'border-b border-slate-700/50 bg-[#1e293b]',
-            tableWrap: L ? 'flex w-full min-h-0 flex-1 flex-col bg-slate-50' : 'flex w-full min-h-0 flex-1 flex-col bg-[#0f172a]/50',
-            thead: L
-                ? 'sticky top-0 z-10 border-b border-slate-200 bg-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-600 shadow-sm'
-                : 'sticky top-0 z-10 border-b border-slate-700/50 bg-[#1e293b] text-xs font-semibold uppercase tracking-wider text-slate-400 shadow-sm',
-            tbody: L ? 'divide-y divide-slate-200 text-sm text-slate-800' : 'divide-y divide-slate-700/50 text-sm',
-            trHover: L ? 'transition-colors hover:bg-slate-100' : 'transition-colors hover:bg-slate-800/80',
-            tdDate: L ? 'p-4 pl-6 text-slate-500' : 'p-4 pl-6 text-slate-400',
-            tdName: L ? 'p-4 font-semibold text-slate-900' : 'p-4 font-semibold text-slate-200',
             tdCell: L ? 'p-4 text-slate-700' : 'p-4 text-slate-300',
-            tdMuted: L ? 'p-4 text-slate-500' : 'p-4 text-slate-400',
             tdSmall: L ? 'text-xs text-slate-500' : 'text-xs text-slate-500',
             tdEmphasis: L ? 'break-all font-medium text-slate-900' : 'break-all font-medium text-slate-100',
             tdLead: L ? 'block break-words leading-snug text-slate-800' : 'block break-words leading-snug text-slate-200',
-            footerBar: L
-                ? 'flex items-center justify-between border-t border-slate-200 bg-white px-4 py-3 text-xs text-slate-600'
-                : 'flex items-center justify-between border-t border-slate-700/50 bg-[#1e293b] px-4 py-3 text-xs text-slate-300',
-            actionBtn: L
-                ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm transition-all hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800'
-                : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300 shadow-sm transition-all hover:border-blue-500/50 hover:bg-blue-600/20 hover:text-blue-400',
-            borrarFiltros: L
-                ? 'rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition-all hover:bg-slate-100'
-                : 'rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-300 transition-all hover:bg-slate-700/60',
-            filtrosAvanzadosBtn: L
-                ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-600/35 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-900 shadow-sm transition-all hover:bg-cyan-100'
-                : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm font-semibold text-cyan-100 shadow-sm transition-all hover:bg-cyan-500/20',
-            filtrosPanelMobile: L
-                ? 'grid max-h-[min(70vh,28rem)] grid-cols-1 gap-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 shadow-inner md:max-h-none md:grid-cols-2 md:overflow-visible xl:grid-cols-3'
-                : 'grid max-h-[min(70vh,28rem)] grid-cols-1 gap-3 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900/40 p-3 shadow-inner md:max-h-none md:grid-cols-2 md:overflow-visible xl:grid-cols-3',
-            filtrosChip: L
-                ? 'inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-lg border border-slate-300 bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700'
-                : 'inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-lg border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300',
             emptyHe: L ? 'rounded-xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600' : 'rounded-xl border border-slate-700 bg-slate-900/40 p-6 text-sm text-slate-400',
             calShell: L
                 ? 'animate-in fade-in zoom-in-95 flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white pb-20 shadow-md duration-300'
@@ -248,8 +211,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                 : 'rounded-xl border border-slate-600 bg-[#0f172a] px-4 py-3 text-sm shadow-xl',
             riesgoNombre: L ? 'text-sm font-bold leading-tight text-slate-900' : 'text-sm font-bold leading-tight text-slate-200',
             modalBackdrop: L
-                ? 'fixed inset-0 z-50 flex animate-in items-center justify-center bg-slate-900/40 p-4 backdrop-blur fade-in duration-200'
-                : 'fixed inset-0 z-50 flex animate-in items-center justify-center bg-[#0f172a]/90 p-4 backdrop-blur fade-in duration-200',
+                ? 'fixed inset-0 z-[240] flex animate-in items-center justify-center bg-slate-900/40 p-4 backdrop-blur fade-in duration-200'
+                : 'fixed inset-0 z-[240] flex animate-in items-center justify-center bg-[#0f172a]/90 p-4 backdrop-blur fade-in duration-200',
             modalCard: L
                 ? 'relative flex w-full min-w-0 max-w-4xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
                 : 'relative flex w-full min-w-0 max-w-4xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
@@ -359,20 +322,15 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [calendarView, setCalendarView] = useState('monthly');
     const [currentDay, setCurrentDay] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
 
-    // Dashboard general — filtros
-    const [fMes, setFMes] = useState('');         // '' = todos, '0'-'11' = ene-dic
-    const [fClienteInicio, setFClienteInicio] = useState('');
     const [dashboardClientesList, setDashboardClientesList] = useState([]);
-    const [fTipoInicio, setFTipoInicio] = useState(''); // '' = todos los tipos
 
-    // Gestión table filters
+    // Filtros compartidos del módulo Novedades
     const [fTipo, setFTipo] = useState('');
     const [fEstado, setFEstado] = useState('');
     const [fNombre, setFNombre] = useState('');
     const [fCliente, setFCliente] = useState('');
     const [fCreadoDesde, setFCreadoDesde] = useState('');
     const [fCreadoHasta, setFCreadoHasta] = useState('');
-    const [fClienteCalendario, setFClienteCalendario] = useState('');
     /** Filtro por GP asociado (snapshot `novedades.gp_user_id`); solo efectivo para rol `super_admin` en API. */
     const [fGpUserId, setFGpUserId] = useState('');
     /** '' | '0'..'3' — franja de tiempo hasta decisión (KPI dashboard); ver `leadTimeBucket` en API. */
@@ -403,12 +361,23 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [gestionEditDraft, setGestionEditDraft] = useState(null);
     const [gestionDeleteOpen, setGestionDeleteOpen] = useState(false);
     const [gestionDeleteMotivo, setGestionDeleteMotivo] = useState('');
+    const [gestionRejectOpen, setGestionRejectOpen] = useState(false);
+    const [gestionRejectObservacion, setGestionRejectObservacion] = useState('');
+    const [gestionRejectPending, setGestionRejectPending] = useState(null);
+    const [gestionRejectErr, setGestionRejectErr] = useState(null);
     const [gestionAdminBusy, setGestionAdminBusy] = useState(false);
     const [gestionAdminErr, setGestionAdminErr] = useState(null);
     const [gestionFestivosSet, setGestionFestivosSet] = useState(() => new Set());
     const [alertaHeDetailItem, setAlertaHeDetailItem] = useState(null);
-    /** Panel colapsable de filtros avanzados en Gestión (todos los tamaños de pantalla). */
-    const [gestionFiltersPanelOpen, setGestionFiltersPanelOpen] = useState(false);
+    /**
+     * HU disponibilidad-monto-diligenciado-por-gp: input controlado para que el aprobador
+     * (GP/super_admin/CAC) ingrese el monto en COP de una novedad de Disponibilidad antes de
+     * Aceptar o Rechazar. Se inicializa al abrir el modal de Gestión y se limpia al cerrar.
+     */
+    const [gestionDispMontoInput, setGestionDispMontoInput] = useState('$ ');
+    const [gestionDispMontoError, setGestionDispMontoError] = useState('');
+    /** Drawer lateral de filtros avanzados (compartido entre pestañas del módulo). */
+    const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
     const navigate = useNavigate();
     /** Evita parpadeo “se cayó el panel”: en refetch con datos ya cargados no forzar `listLoading`. */
     const novedadesListCountRef = useRef(0);
@@ -425,6 +394,23 @@ export default function Dashboard({ token, auth, onLogout }) {
             .catch(() => {});
         return () => ac.abort();
     }, []);
+
+    /**
+     * HU disponibilidad-monto-diligenciado-por-gp: al abrir/cerrar el modal de Gestión, reinicia
+     * el input de monto. Si la Disponibilidad ya tiene un monto previo (caso histórico previo a
+     * esta HU), se precarga formateado para que el aprobador lo confirme o lo edite.
+     */
+    useEffect(() => {
+        setGestionDispMontoError('');
+        if (gestionDetailItem && esTipoDisponibilidadConMontoDiligenciado(gestionDetailItem)) {
+            const previo = Number(gestionDetailItem.montoCop);
+            setGestionDispMontoInput(
+                Number.isFinite(previo) && previo > 0 ? formatMontoCOPLocale(previo) : '$ '
+            );
+        } else {
+            setGestionDispMontoInput('$ ');
+        }
+    }, [gestionDetailItem]);
 
     const loadData = useCallback(async (opts = {}) => {
         const { signal } = opts;
@@ -457,18 +443,19 @@ export default function Dashboard({ token, auth, onLogout }) {
         const { signal } = opts;
         setGestionLoading(true);
         try {
-            const params = {
-                page: String(page),
-                limit: String(limit)
-            };
-            if (fTipo) params.tipo = fTipo;
-            if (fEstado) params.estado = fEstado;
-            if (fNombre) params.nombre = fNombre;
-            if (fCliente) params.cliente = fCliente;
-            if (fCreadoDesde) params.createdFrom = fCreadoDesde;
-            if (fCreadoHasta) params.createdTo = fCreadoHasta;
-            if (fGpUserId) params.gpUserId = fGpUserId;
-            if (fLeadTimeBucket && /^[0-3]$/.test(fLeadTimeBucket)) params.leadTimeBucket = fLeadTimeBucket;
+            const params = filtersToGestionParams(
+                {
+                    fTipo,
+                    fEstado,
+                    fNombre,
+                    fCliente,
+                    fCreadoDesde,
+                    fCreadoHasta,
+                    fGpUserId,
+                    fLeadTimeBucket
+                },
+                { page, limit }
+            );
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades?${query}`, {
                 credentials: 'include',
@@ -634,14 +621,6 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [isSuperAdminNovedades, fGpUserId, dashboardClientesList, calendarClientesList]);
 
     useEffect(() => {
-        if (!fClienteInicio) return;
-        const ok = dashboardClientesOptions.some(
-            (c) => String(c).trim().toLowerCase() === String(fClienteInicio).trim().toLowerCase()
-        );
-        if (!ok) setFClienteInicio('');
-    }, [dashboardClientesOptions, fClienteInicio]);
-
-    useEffect(() => {
         if (!fCliente) return;
         const ok = gestionClienteOptions.some(
             (c) => String(c).trim().toLowerCase() === String(fCliente).trim().toLowerCase()
@@ -671,15 +650,27 @@ export default function Dashboard({ token, auth, onLogout }) {
                 'Authorization': `Bearer ${token}`
             };
             if (csrfToken) headers['x-cinte-xsrf'] = csrfToken;
+            const bodyPayload = {
+                id,
+                nuevoEstado,
+                fromHoraExtraAlert
+            };
+            /**
+             * HU disponibilidad-monto-diligenciado-por-gp: el aprobador (GP/super_admin/CAC)
+             * envía el monto en COP que diligenció en el modal de Gestión, sin importar si
+             * la decisión es Aprobado o Rechazado. El backend valida monto > 0 cuando aplica.
+             */
+            if (options && options.montoCop != null) {
+                bodyPayload.montoCop = options.montoCop;
+            }
+            if (options && options.observacionesRechazo != null) {
+                bodyPayload.observacionesRechazo = options.observacionesRechazo;
+            }
             const res = await fetch('/api/actualizar-estado', {
                 method: 'POST',
                 credentials: 'include',
                 headers,
-                body: JSON.stringify({
-                    id,
-                    nuevoEstado,
-                    fromHoraExtraAlert
-                })
+                body: JSON.stringify(bodyPayload)
             });
             console.log('[changeState] Respuesta status:', res.status);
             const data = await res.json();
@@ -695,15 +686,45 @@ export default function Dashboard({ token, auth, onLogout }) {
                 await loadData();
                 await loadGestionData(currentPage, pageSize);
                 await loadHoraExtraAlerts();
+                return true;
             } else {
                 const errMsg = data?.error || `Error ${res.status}`;
                 console.error('[changeState] Error del servidor:', errMsg);
                 setStateError(errMsg);
+                return false;
             }
         } catch (err) {
             console.error('[changeState] Error de red/fetch:', err);
             setStateError('Error de conexión con el servidor. Verifica que el backend esté corriendo en :3005');
+            return false;
         }
+    };
+
+    const openGestionRejectModal = (pending) => {
+        setGestionRejectPending(pending);
+        setGestionRejectObservacion('');
+        setGestionRejectErr(null);
+        setGestionRejectOpen(true);
+    };
+
+    const submitGestionReject = async () => {
+        const texto = String(gestionRejectObservacion || '').trim();
+        if (!texto) {
+            setGestionRejectErr('Indica la observación de rechazo (causa e indicaciones para el consultor).');
+            return;
+        }
+        if (!gestionRejectPending?.id) return;
+        setGestionRejectErr(null);
+        const opts = { observacionesRechazo: texto };
+        if (gestionRejectPending.fromHoraExtraAlert) opts.fromHoraExtraAlert = true;
+        if (gestionRejectPending.montoCop != null) opts.montoCop = gestionRejectPending.montoCop;
+        const ok = await changeState(gestionRejectPending.id, 'Rechazado', opts);
+        if (!ok) return;
+        setGestionRejectOpen(false);
+        setGestionRejectPending(null);
+        setGestionRejectObservacion('');
+        if (gestionRejectPending.closeGestionDetail) closeGestionDetailModal();
+        if (gestionRejectPending.closeAlertaHe) setAlertaHeDetailItem(null);
     };
 
     const closeGestionDetailModal = () => {
@@ -712,6 +733,10 @@ export default function Dashboard({ token, auth, onLogout }) {
         setGestionEditDraft(null);
         setGestionDeleteOpen(false);
         setGestionDeleteMotivo('');
+        setGestionRejectOpen(false);
+        setGestionRejectObservacion('');
+        setGestionRejectPending(null);
+        setGestionRejectErr(null);
         setGestionAdminErr(null);
     };
 
@@ -764,6 +789,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             montoCop: monto,
             estado: it.estado || 'Pendiente',
             heDomingoObservacion: it.heDomingoObservacion || '',
+            observaciones: it.observaciones || '',
             soporteRuta: sopRuta
         };
     };
@@ -808,6 +834,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             montoCop,
             estado: String(draft.estado || 'Pendiente').trim(),
             heDomingoObservacion: String(draft.heDomingoObservacion || '').trim() || null,
+            observaciones: String(draft.observaciones || '').trim() || null,
             soporteRuta: String(draft.soporteRuta || '').trim() || null
         };
     };
@@ -1017,19 +1044,44 @@ export default function Dashboard({ token, auth, onLogout }) {
         return new Date(NaN);
     };
 
-    // Ítems visibles en Dashboard general (mes + tipo + cliente; el alcance por rol viene de `items` / API)
-    const dashItems = useMemo(() => items.filter((it) => {
-        const d = getItemDate(it);
-        if (isNaN(d.getTime())) return true;
-        if (fMes !== '' && d.getMonth() !== Number(fMes)) return false;
-        if (fTipoInicio !== '' && it.tipoNovedad !== fTipoInicio) return false;
-        if (fClienteInicio !== '') {
-            const a = String(it.cliente || '').trim().toLowerCase();
-            const b = String(fClienteInicio).trim().toLowerCase();
-            if (a !== b) return false;
+    // Ítems visibles en Dashboard general, Calendario y Análisis (filtros compartidos; GP vía API en `items`)
+    const moduleFilters = useMemo(() => ({
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket
+    }), [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket]);
+
+    const dashItems = useMemo(
+        () => applyClientSideFilters(items, moduleFilters),
+        [items, moduleFilters]
+    );
+
+    const tipoFilterOptions = useMemo(() => {
+        const set = new Set(NOVEDAD_TYPES);
+        for (const it of items) {
+            if (it?.tipoNovedad) set.add(it.tipoNovedad);
         }
-        return true;
-    }), [items, fMes, fTipoInicio, fClienteInicio]);
+        return [...set].sort((a, b) => a.localeCompare(b, 'es'));
+    }, [items]);
+
+    const novedadesFiltrosResumen = useMemo(
+        () => buildFiltrosResumen(moduleFilters),
+        [moduleFilters]
+    );
+
+    const handleNovedadesFilterChange = useCallback((patch) => {
+        if (Object.prototype.hasOwnProperty.call(patch, 'fTipo')) setFTipo(patch.fTipo);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fEstado')) setFEstado(patch.fEstado);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fCliente')) setFCliente(patch.fCliente);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fCreadoDesde')) setFCreadoDesde(patch.fCreadoDesde);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fCreadoHasta')) setFCreadoHasta(patch.fCreadoHasta);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fGpUserId')) setFGpUserId(patch.fGpUserId);
+    }, []);
 
     // ── Data Processing (based on dashItems) ─────────────────────────────────
     // 1. Top 5 Empleados
@@ -1051,47 +1103,6 @@ export default function Dashboard({ token, auth, onLogout }) {
     const typeData = Object.keys(typeDataMap).map(k => ({ name: k, value: typeDataMap[k] }));
     const typeDataSorted = useMemo(() => [...typeData].sort((a, b) => b.value - a.value), [typeData]);
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-
-    const gestionFiltrosResumen = useMemo(() => {
-        const parts = [];
-        let n = 0;
-        if (String(fTipo || '').trim()) {
-            n += 1;
-            parts.push(`Tipo: ${fTipo}`);
-        }
-        if (String(fEstado || '').trim()) {
-            n += 1;
-            parts.push(`Estado: ${fEstado}`);
-        }
-        const nom = String(fNombre || '').trim();
-        if (nom) {
-            n += 1;
-            parts.push(nom.length > 22 ? `${nom.slice(0, 20)}…` : nom);
-        }
-        if (String(fCliente || '').trim()) {
-            n += 1;
-            const c = fCliente;
-            parts.push(c.length > 26 ? `${c.slice(0, 24)}…` : c);
-        }
-        if (String(fCreadoDesde || '').trim() || String(fCreadoHasta || '').trim()) {
-            n += 1;
-            parts.push('Rango fechas');
-        }
-        if (String(fGpUserId || '').trim()) {
-            n += 1;
-            parts.push('GP');
-        }
-        if (String(fLeadTimeBucket || '').trim() && /^[0-3]$/.test(fLeadTimeBucket)) {
-            const leadLabels = ['≤24 h', '1–3 d', '3–7 d', '>7 d'];
-            n += 1;
-            parts.push(`Tiempo decisión: ${leadLabels[Number(fLeadTimeBucket)] || fLeadTimeBucket}`);
-        }
-        const head = parts.slice(0, 2).join(', ');
-        const more = parts.length > 2 ? '…' : '';
-        const chipLabel =
-            n === 0 ? 'Sin filtros activos' : `${n} filtro${n === 1 ? '' : 's'} activo${n === 1 ? '' : 's'}${head ? ` (${head}${more})` : ''}`;
-        return { chipLabel };
-    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket]);
 
     // 3. Monitor de Tendencia – agrupa dashItems por mes del año en curso
     const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -1123,39 +1134,22 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [dashItems]);
 
     /**
-     * Abre Gestión aplicando filtros; rango creado_en solo si se pasan creadoDesde/creadoHasta o si hay fMes en el dashboard.
-     * Nota: en Gestión el rango es sobre creado_en; el filtro Mes del dashboard usa getItemDate (puede diferir).
+     * Abre Gestión aplicando filtros compartidos del módulo.
      */
     const navigateGestionWithDashboardFilters = useCallback((partial = {}) => {
-        const nextTipo = Object.prototype.hasOwnProperty.call(partial, 'tipo') ? partial.tipo : fTipoInicio;
-        const nextCliente = Object.prototype.hasOwnProperty.call(partial, 'cliente') ? partial.cliente : fClienteInicio;
-        const nextNombre = Object.prototype.hasOwnProperty.call(partial, 'nombre') ? partial.nombre : '';
-        const nextEstado = Object.prototype.hasOwnProperty.call(partial, 'estado') ? partial.estado : '';
-        const nextLeadTimeBucket = Object.prototype.hasOwnProperty.call(partial, 'leadTimeBucket')
-            ? String(partial.leadTimeBucket ?? '').trim()
-            : '';
-
-        let desde = '';
-        let hasta = '';
-        if (Object.prototype.hasOwnProperty.call(partial, 'creadoDesde') && Object.prototype.hasOwnProperty.call(partial, 'creadoHasta')) {
-            desde = partial.creadoDesde;
-            hasta = partial.creadoHasta;
-        } else if (fMes !== '') {
-            const r = creadoEnRangeForDashboardMesFilter(fMes);
-            desde = r.desde;
-            hasta = r.hasta;
+        if (Object.prototype.hasOwnProperty.call(partial, 'tipo')) setFTipo(partial.tipo || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'cliente')) setFCliente(partial.cliente || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'nombre')) setFNombre(partial.nombre || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'estado')) setFEstado(partial.estado || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'leadTimeBucket')) {
+            const b = String(partial.leadTimeBucket ?? '').trim();
+            setFLeadTimeBucket(b && /^[0-3]$/.test(b) ? b : '');
         }
-
-        setFTipo(nextTipo || '');
-        setFCliente(nextCliente || '');
-        setFNombre(nextNombre || '');
-        setFEstado(nextEstado || '');
-        setFLeadTimeBucket(nextLeadTimeBucket && /^[0-3]$/.test(nextLeadTimeBucket) ? nextLeadTimeBucket : '');
-        setFCreadoDesde(desde);
-        setFCreadoHasta(hasta);
+        if (Object.prototype.hasOwnProperty.call(partial, 'creadoDesde')) setFCreadoDesde(partial.creadoDesde || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'creadoHasta')) setFCreadoHasta(partial.creadoHasta || '');
         setCurrentPage(1);
         setActiveTab('Gestión');
-    }, [fTipoInicio, fClienteInicio, fMes]);
+    }, []);
 
     const MS_DAY = 86400000;
     /**
@@ -1208,16 +1202,21 @@ export default function Dashboard({ token, auth, onLogout }) {
         [horaExtraAlerts]
     );
 
+    const filteredAlertItems = useMemo(
+        () => applyClientSideFilters(alertItems, { ...moduleFilters, fNombre: '' }),
+        [alertItems, moduleFilters]
+    );
+
     /** Solo alertas por exceso de topes; la política de domingo no se muestra aquí (sigue en Excel). */
     const alertDisplayCards = useMemo(() => {
         const cards = [];
-        for (const it of alertItems) {
+        for (const it of filteredAlertItems) {
             const hasExcess = (Array.isArray(it.dailyReasons) && it.dailyReasons.length > 0)
                 || (Array.isArray(it.monthlyReasons) && it.monthlyReasons.length > 0);
             if (hasExcess) cards.push({ key: `excess-${it.id}`, it });
         }
         return cards;
-    }, [alertItems]);
+    }, [filteredAlertItems]);
 
     const alertasHeCount = alertDisplayCards.length;
     const alertasHeBadgeText = alertasHeCount > 99 ? '99+' : String(alertasHeCount);
@@ -1277,8 +1276,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                 heNoctFranja: '—'
             };
         }
-        const recSegs = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs);
-        const heSegs = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs);
+        const recSegs = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs, gestionFestivosSet);
+        const heSegs = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs, gestionFestivosSet);
         return {
             recargoDiurnaFranja: formatHeSegmentListBogota(recSegs.diurna),
             recargoNoctFranja: formatHeSegmentListBogota(recSegs.nocturna),
@@ -1291,7 +1290,8 @@ export default function Dashboard({ token, auth, onLogout }) {
         gestionDetailItem?.fechaInicio,
         gestionDetailItem?.fechaFin,
         gestionDetailItem?.horaInicio,
-        gestionDetailItem?.horaFin
+        gestionDetailItem?.horaFin,
+        gestionFestivosSet
     ]);
 
     const totalPages = Math.max(1, Number(gestionPagination.totalPages || 1));
@@ -1307,7 +1307,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         }
     }, [currentPage, totalPages]);
 
-    const pendientesCount = items.filter(i => i.estado === 'Pendiente').length;
+    const pendientesCount = dashItems.filter(i => i.estado === 'Pendiente').length;
 
     // --- CALENDAR LOGIC ---
     const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
@@ -1347,10 +1347,10 @@ export default function Dashboard({ token, auth, onLogout }) {
         return dates;
     };
 
-    const calendarSourceItems = useMemo(() => {
-        if (!fClienteCalendario) return items;
-        return items.filter((it) => String(it.cliente || '').trim() === fClienteCalendario);
-    }, [items, fClienteCalendario]);
+    const calendarSourceItems = useMemo(
+        () => applyClientSideFilters(items, moduleFilters),
+        [items, moduleFilters]
+    );
 
     const itemsByDate = calendarSourceItems.reduce((acc, it) => {
         const startDate = it.fechaInicio || toIsoDate(it.creadoEn);
@@ -1390,15 +1390,16 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     const exportExcel = async () => {
         try {
-            const params = {};
-            if (fTipo) params.tipo = fTipo;
-            if (fEstado) params.estado = fEstado;
-            if (fNombre) params.nombre = fNombre;
-            if (fCliente) params.cliente = fCliente;
-            if (fCreadoDesde) params.createdFrom = fCreadoDesde;
-            if (fCreadoHasta) params.createdTo = fCreadoHasta;
-            if (fGpUserId) params.gpUserId = fGpUserId;
-            if (fLeadTimeBucket && /^[0-3]$/.test(fLeadTimeBucket)) params.leadTimeBucket = fLeadTimeBucket;
+            const params = filtersToGestionParams({
+                fTipo,
+                fEstado,
+                fNombre,
+                fCliente,
+                fCreadoDesde,
+                fCreadoHasta,
+                fGpUserId,
+                fLeadTimeBucket
+            });
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades/export-excel?${query}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -1425,7 +1426,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         }
     };
 
-    const clearGestionFilters = () => {
+    const clearNovedadesFilters = () => {
         setFTipo('');
         setFEstado('');
         setFNombre('');
@@ -1461,36 +1462,20 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [activeTab, navItems]);
 
     useEffect(() => {
-        if (activeTab !== 'Gestión') setGestionFiltersPanelOpen(false);
+        setFiltersPanelOpen(false);
     }, [activeTab]);
 
-    const superAdminGpSelect = isSuperAdminNovedades ? (
-        <div className="flex flex-wrap items-center gap-2">
-            <label htmlFor="dash-filtro-gp" className={`${dash.labelFilter} whitespace-nowrap`}>
-                Filtrar por GS
-            </label>
-            <select
-                id="dash-filtro-gp"
-                value={fGpUserId}
-                onChange={(e) => setFGpUserId(e.target.value)}
-                className={`${fieldInput} min-w-[10rem] max-w-[18rem] cursor-pointer py-1.5 text-sm`}
-                title="Clientes asignados a este usuario GP en el catálogo directorio"
-            >
-                <option value="">Todos los GP</option>
-                <option value="__null__">Cliente sin GP en catálogo</option>
-                {gpFilterOptions.map((g) => {
-                    const id = String(g.id || '');
-                    const label = labelGpDirectorioOption(g);
-                    return (
-                        <option key={id || label} value={id}>
-                            {label}
-                            {g.is_active === false ? ' (inactivo)' : ''}
-                        </option>
-                    );
-                })}
-            </select>
-        </div>
-    ) : null;
+    /** Tecla Escape cierra el drawer de filtros avanzados. */
+    useEffect(() => {
+        if (!filtersPanelOpen) return undefined;
+        const onKey = (e) => {
+            if (e.key === 'Escape' || e.key === 'Esc') {
+                setFiltersPanelOpen(false);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [filtersPanelOpen]);
 
     return (
         <div className={shell}>
@@ -1498,7 +1483,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             {/* ───────── MOBILE SIDEBAR ───────── */}
             <button
                 onClick={() => setMobileMenuOpen(true)}
-                className={`md:hidden fixed top-16 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
+                className={`md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú"
             >
                 <Menu size={18} />
@@ -1510,7 +1495,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                 />
             )}
             <aside
-                className={`md:hidden fixed top-0 left-0 h-full w-72 z-50 shadow-2xl transform transition-transform duration-300 font-body ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col shadow-2xl transform font-body transition-transform duration-300 ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                     }`}
             >
                 <AdminModuleSidebarBrand
@@ -1534,7 +1519,15 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </button>
                     )}
                 />
-                <nav className="p-3 flex flex-col gap-2">
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
+                <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
                     <button
                         type="button"
                         onClick={() => {
@@ -1570,17 +1563,25 @@ export default function Dashboard({ token, auth, onLogout }) {
                         );
                     })}
                 </nav>
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`text-[10px] font-body font-black truncate ${email}`}>{currentEmail}</p>
-                    <p className="text-[10px] text-[#65BCF7] font-body font-semibold uppercase">{currentRoleLabel}</p>
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    chatCtx={{
+                        pendientesCount,
+                        totalItems: items.length,
+                        dashItems: dashItems.length,
+                        role: currentRole
+                    }}
+                />
             </aside>
 
             {/* ───────── SIDEBAR COLAPSABLE ───────── */}
             <aside
                 className={`
-                    flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 font-body
-                    transition-all duration-300 ease-in-out overflow-hidden
+                    relative z-10 hidden h-full flex-shrink-0 flex-col overflow-visible font-body shadow-2xl transition-all duration-300 ease-in-out md:flex
                     ${aside}
                     ${sidebarOpen ? 'w-64' : 'w-16'}
                 `}
@@ -1610,8 +1611,16 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
 
-                <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
+                <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
                     <button
                         type="button"
                         onClick={() => navigate('/admin')}
@@ -1665,127 +1674,41 @@ export default function Dashboard({ token, auth, onLogout }) {
                     })}
                 </nav>
 
-                <div className={`border-t ${borderSubtle} ${sidebarOpen ? 'p-4' : 'p-2'}`}>
-                    {sidebarOpen ? (
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center flex-shrink-0">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                                <div className="overflow-hidden">
-                                    <p className={`text-[10px] font-body font-black whitespace-nowrap leading-tight truncate ${email}`}>{currentEmail}</p>
-                                    <p className="text-[9px] text-[#65BCF7] font-body font-semibold whitespace-nowrap leading-tight">{currentRoleLabel}</p>
-                                </div>
-                            </div>
-                            <p className={`text-[9px] font-body font-bold uppercase tracking-widest text-center border-t pt-2 ${mt.isLight ? 'text-slate-400 border-slate-200' : 'text-slate-600 border-[#1a3a56]/50'}`}>
-                                Grupo CINTE · V2.0
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-2 py-1">
-                            <div className="flex justify-center" title={`${currentEmail} - ${currentRoleLabel}`}>
-                                <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    chatCtx={{
+                        pendientesCount,
+                        totalItems: items.length,
+                        dashItems: dashItems.length,
+                        role: currentRole
+                    }}
+                />
             </aside>
 
             {/* Main Content Area */}
-            <main className={`flex-1 overflow-y-auto p-4 pt-12 md:pt-6 md:p-6 relative scroll-smooth ${mainCanvas}`}>
+            <main className={`flex-1 overflow-y-auto p-4 pt-14 md:pt-6 md:p-6 relative scroll-smooth ${mainCanvas}`}>
 
                 {/* ---------- Dashboard general ---------- */}
                 {activeTab === 'DashboardGeneral' && canAccessPanel('dashboard') && (
-                    <div className="flex flex-col gap-5 animate-in fade-in duration-300 min-h-[calc(100vh-9.5rem)]">
+                    <div className={dash.novedadesTabShell}>
 
-                        {/* ── Filtros: período, cliente, tipo ── */}
-                        <div className={dash.filterBar}>
-
-                            <div className="flex flex-wrap items-center gap-3">
-                                <div className="flex items-center gap-2">
-                                    <Calendar size={16} className="text-blue-400" />
-                                    <span className={dash.labelUpper}>Filtros</span>
-                                </div>
-                                <div className={dash.divider} />
-
-                                {/* Mes */}
-                                <div className="flex items-center gap-2">
-                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Mes</label>
-                                    <select
-                                        value={fMes}
-                                        onChange={(e) => { setFMes(e.target.value); }}
-                                        className={`${fieldInput} cursor-pointer py-1.5 text-sm`}
-                                    >
-                                        <option value="">Todos los meses</option>
-                                        {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((m, i) => (
-                                            <option key={i} value={String(i)}>{m}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Cliente (alcance según rol; API acotada) */}
-                                <div className="flex items-center gap-2">
-                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Cliente</label>
-                                    <select
-                                        value={fClienteInicio}
-                                        onChange={(e) => setFClienteInicio(e.target.value)}
-                                        className={`${fieldInput} min-w-[10rem] max-w-[22rem] cursor-pointer py-1.5 text-sm`}
-                                    >
-                                        <option value="">Todos los clientes</option>
-                                        {dashboardClientesOptions.map((c) => (
-                                            <option key={c} value={c}>{c}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Tipo</label>
-                                    <select
-                                        value={fTipoInicio}
-                                        onChange={(e) => setFTipoInicio(e.target.value)}
-                                        className={`${fieldInput} min-w-[12rem] max-w-[20rem] cursor-pointer py-1.5 text-sm`}
-                                    >
-                                        <option value="">Todos los tipos</option>
-                                        {NOVEDAD_TYPES.map((tipo) => {
-                                            const n = items.filter((i) => i.tipoNovedad === tipo).length;
-                                            return (
-                                                <option key={tipo} value={tipo} title={`${n} en el total cargado`}>
-                                                    {tipo}{n > 0 ? ` (${n})` : ''}
-                                                </option>
-                                            );
-                                        })}
-                                    </select>
-                                </div>
-
-                                {superAdminGpSelect ? (
-                                    <>
-                                        <div className={dash.divider} />
-                                        {superAdminGpSelect}
-                                    </>
-                                ) : null}
-
-                                {/* Botón limpiar */}
-                                {(fMes !== '' || fClienteInicio !== '' || fTipoInicio !== '' || fGpUserId !== '') && (
-                                    <button
-                                        type="button"
-                                        onClick={() => { setFMes(''); setFClienteInicio(''); setFTipoInicio(''); setFGpUserId(''); }}
-                                        className={dash.clearBtn}
-                                    >
-                                        <X size={12} /> Limpiar filtros
-                                    </button>
-                                )}
-
-                                {/* Badge de resultados */}
-                                <div className="ml-auto flex items-center gap-2">
-                                    <span className={`text-xs ${dash.muted}`}>Mostrando</span>
-                                    <span className="text-sm font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
-                                        {dashItems.length} de {items.length} registros
-                                    </span>
-                                </div>
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            dash={dash}
+                        >
+                            <div className="ml-auto flex items-center gap-2">
+                                <span className={`text-xs ${dash.muted}`}>Mostrando</span>
+                                <span className="text-sm font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
+                                    {dashItems.length} de {items.length} registros
+                                </span>
                             </div>
-                        </div>
+                        </NovedadesFiltersToolbar>
 
                         {(() => {
                             const d = auth?.devDb;
@@ -1903,7 +1826,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         </h3>
                                         <p className={`text-xs ${dash.muted} mt-1`}>
                                             {leadTimeStats.n > 0
-                                                ? `Tiempo entre la creación y la decisión (Aprobado o Rechazado). Base: ${leadTimeStats.n} novedades (${leadTimeStats.aprobadas} aprobadas + ${leadTimeStats.rechazadas} rechazadas).`
+                                                ? 'Tiempo entre la creación y la decisión (Aprobado o Rechazado).'
                                                 : 'No hay suficientes registros resueltos (Aprobado/Rechazado) para mostrar este indicador.'}
                                         </p>
                                     </div>
@@ -2136,7 +2059,7 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                 {/* ---------- GESTIÓN ---------- */}
                 {activeTab === 'Gestión' && canAccessPanel('gestion') && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-2 flex flex-col h-[calc(100vh-8.5rem)] md:h-[calc(100vh-7.5rem)]">
+                    <div className={dash.novedadesTabShellFull}>
                         {/* Banner de error de acción */}
                         {stateError && (
                             <div
@@ -2157,122 +2080,33 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </button>
                             </div>
                         )}
-                        <div className={dash.cardFlex}>
-                            <div className={`sticky top-0 z-20 p-4 ${dash.gestionHead}`}>
-                                <h2 className={`${dash.titleXl} mb-3 md:mb-4`}>Gestión Operativa de Novedades</h2>
-
-                                {/* Barra compacta + panel colapsable (todos los tamaños de pantalla) */}
-                                <div className="mb-2 flex flex-col gap-2 md:gap-3">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <span className={dash.filtrosChip} title={gestionFiltrosResumen.chipLabel}>
-                                            {gestionFiltrosResumen.chipLabel}
-                                        </span>
-                                        <button
-                                            type="button"
-                                            id="gestion-filtros-avanzados-toggle"
-                                            aria-expanded={gestionFiltersPanelOpen}
-                                            aria-controls="gestion-filtros-avanzados-panel"
-                                            onClick={() => setGestionFiltersPanelOpen((o) => !o)}
-                                            className={dash.filtrosAvanzadosBtn}
-                                        >
-                                            <Filter size={16} className="shrink-0 opacity-90" aria-hidden />
-                                            <span>Filtros avanzados</span>
-                                            {gestionFiltersPanelOpen ? (
-                                                <ChevronUp size={18} className="shrink-0 opacity-90" aria-hidden />
-                                            ) : (
-                                                <ChevronDown size={18} className="shrink-0 opacity-90" aria-hidden />
-                                            )}
-                                        </button>
-                                        <input
-                                            type="search"
-                                            enterKeyHint="search"
-                                            placeholder="Buscar por nombre..."
-                                            value={fNombre}
-                                            onChange={(e) => setFNombre(e.target.value)}
-                                            className={`${fieldInput} w-[min(100%,11rem)] max-w-[13rem] shrink-0 text-sm`}
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={exportExcel}
-                                            className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[#2F7BB8] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#004D87] sm:px-4 font-body"
-                                            aria-label="Exportar reporte Excel"
-                                        >
-                                            <Download size={16} aria-hidden />
-                                            <span className="hidden sm:inline">Exportar Reporte Excel</span>
-                                            <span className="sm:hidden">Exportar</span>
-                                        </button>
-                                    </div>
-                                    <div
-                                        id="gestion-filtros-avanzados-panel"
-                                        role="region"
-                                        aria-labelledby="gestion-filtros-avanzados-toggle"
-                                        className={gestionFiltersPanelOpen ? dash.filtrosPanelMobile : 'hidden'}
-                                    >
-                                        <select onChange={(e) => setFTipo(e.target.value)} value={fTipo} className={`${fieldInput} w-full text-sm`}>
-                                            <option value="">Todos los tipos</option>
-                                            {Object.keys(typeDataMap).map((k) => (
-                                                <option key={k} value={k}>
-                                                    {k}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        <select onChange={(e) => setFEstado(e.target.value)} value={fEstado} className={`${fieldInput} w-full text-sm`}>
-                                            <option value="">Todos los estados</option>
-                                            <option value="Pendiente">Pendientes</option>
-                                            <option value="Aprobado">Aprobados</option>
-                                            <option value="Rechazado">Rechazados</option>
-                                        </select>
-                                        <select onChange={(e) => setFCliente(e.target.value)} value={fCliente} className={`${fieldInput} w-full text-sm`}>
-                                            <option value="">Todos los clientes</option>
-                                            {gestionClienteOptions.map((c) => (
-                                                <option key={c} value={c}>
-                                                    {c}
-                                                </option>
-                                            ))}
-                                        </select>
-                                        {superAdminGpSelect ? (
-                                            <div className="min-w-0 md:col-span-2 xl:col-span-3">{superAdminGpSelect}</div>
-                                        ) : null}
-                                        <div
-                                            className={`${dash.dateRangeWrap} flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center md:col-span-2 xl:col-span-3`}
-                                        >
-                                            <span className={`${dash.dateRangeLbl} shrink-0`}>Rango de fechas</span>
-                                            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                                                <input
-                                                    {...nativeCalendarOnlyInputProps}
-                                                    type="date"
-                                                    value={fCreadoDesde}
-                                                    onChange={(e) => setFCreadoDesde(e.target.value)}
-                                                    className={`${fieldInput} min-w-0 flex-1 px-2 py-1 text-sm sm:min-w-[9rem]`}
-                                                />
-                                                <span className={`${dash.modalMuted} shrink-0 text-xs`}>a</span>
-                                                <input
-                                                    {...nativeCalendarOnlyInputProps}
-                                                    type="date"
-                                                    value={fCreadoHasta}
-                                                    onChange={(e) => setFCreadoHasta(e.target.value)}
-                                                    className={`${fieldInput} min-w-0 flex-1 px-2 py-1 text-sm sm:min-w-[9rem]`}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center md:col-span-2 xl:col-span-3">
-                                            <select
-                                                onChange={(e) => setPageSize(Number(e.target.value))}
-                                                value={pageSize}
-                                                className={`${fieldInput} w-full text-sm sm:w-auto sm:min-w-[11rem]`}
-                                            >
-                                                <option value={10}>10 por página</option>
-                                                <option value={20}>20 por página</option>
-                                                <option value={50}>50 por página</option>
-                                            </select>
-                                            <button type="button" onClick={clearGestionFilters} className={`${dash.borrarFiltros} w-full sm:ml-auto sm:w-auto`}>
-                                                Borrar filtros
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            toggleId="gestion-filtros-avanzados-toggle"
+                            dash={dash}
+                        >
+                            <input
+                                type="search"
+                                enterKeyHint="search"
+                                placeholder="Buscar por nombre..."
+                                value={fNombre}
+                                onChange={(e) => setFNombre(e.target.value)}
+                                className={`${fieldInput} w-[min(100%,11rem)] max-w-[13rem] shrink-0 text-sm`}
+                            />
+                            <button
+                                type="button"
+                                onClick={exportExcel}
+                                className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[#2F7BB8] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#004D87] sm:px-4 font-body"
+                                aria-label="Exportar reporte Excel"
+                            >
+                                <Download size={16} aria-hidden />
+                                <span className="hidden sm:inline">Exportar Reporte Excel</span>
+                                <span className="sm:hidden">Exportar</span>
+                            </button>
+                        </NovedadesFiltersToolbar>
+                        <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                             <div className={dash.tableWrap}>
                                 <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
                                     <table className="w-full text-left border-collapse whitespace-nowrap min-w-[900px] md:min-w-full">
@@ -2349,6 +2183,17 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                             Gestionada por alerta HE: {it.alertaHeResueltaEstado}
                                                                         </span>
                                                                     ) : null}
+                                                                    {it.estado === 'Rechazado' && String(it.observacionesRechazo || '').trim() ? (
+                                                                        <span
+                                                                            className={`${dash.tdMuted} block max-w-[200px] truncate text-[10px] !whitespace-normal`}
+                                                                            title={String(it.observacionesRechazo || '').trim()}
+                                                                        >
+                                                                            {(() => {
+                                                                                const t = String(it.observacionesRechazo || '').trim();
+                                                                                return t.length > 80 ? `${t.slice(0, 77)}…` : t;
+                                                                            })()}
+                                                                        </span>
+                                                                    ) : null}
                                                                 </div>
                                                             </td>
                                                             <td className={`${dash.tdCell} max-w-[240px] align-top text-xs !whitespace-normal`}>
@@ -2414,28 +2259,26 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                 {/* ---------- ALERTAS HE ---------- */}
                 {activeTab === 'Alertas HE' && canAccessPanel('gestion') && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-2 flex flex-col h-[calc(100vh-8.5rem)] md:h-[calc(100vh-7.5rem)]">
-                        <div className={dash.cardFlex}>
-                            <div className={`sticky top-0 z-20 p-4 ${dash.gestionHead}`}>
-                                <h2 className={dash.titleXl}>Alertas HE</h2>
-                                <p className={`mt-1 text-sm ${dash.muted}`}>
-                                    Tarjetas: {alertasHeCount}
-                                    {' · '}
-                                    Exceso de topes: {alertasHeExcesoCardCount}
-                                </p>
-                                {superAdminGpSelect ? (
-                                    <div className={`mt-3 flex flex-wrap items-center gap-2 border-t pt-3 ${isLight ? 'border-slate-200' : 'border-slate-700/50'}`}>
-                                        {superAdminGpSelect}
-                                    </div>
-                                ) : null}
-                            </div>
-                            <div className="flex-1 overflow-auto p-4">
-                                {alertDisplayCards.length === 0 ? (
-                                    <div className={dash.emptyHe}>
-                                        No hay alertas pendientes para el rango seleccionado.
-                                    </div>
-                                ) : (
-                                    <div className="grid grid-cols-1 gap-3">
+                    <div className={dash.novedadesTabShellFull}>
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            dash={dash}
+                        >
+                            <p className={`ml-auto text-sm ${dash.muted}`}>
+                                Tarjetas: {alertasHeCount}
+                                {' · '}
+                                Exceso de topes: {alertasHeExcesoCardCount}
+                            </p>
+                        </NovedadesFiltersToolbar>
+                        <div className="min-h-0 flex-1 overflow-auto">
+                            {alertDisplayCards.length === 0 ? (
+                                <div className={dash.emptyHe}>
+                                    No hay alertas pendientes para el rango seleccionado.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 gap-3">
                                         {alertDisplayCards.map(({ key, it }) => (
                                             <div
                                                 key={key}
@@ -2510,34 +2353,21 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         ))}
                                     </div>
                                 )}
-                            </div>
                         </div>
                     </div>
                 )}
 
                 {/* ---------- CALENDARIO INTERACTIVO ---------- */}
                 {activeTab === 'Calendario' && canAccessPanel('calendar') && (
-                    <div className={dash.calShell}>
-                        <div className={dash.calSticky}>
-                            <div>
-                                <h2 className={`${dash.titleXl} flex items-center gap-2`}>
-                                    <Calendar className="text-blue-500" size={22} /> Agenda Operativa
-                                </h2>
-                                <p className={`${dash.mutedSm} mt-1`}>Vista interactiva mensual de las novedades del talento</p>
-                            </div>
-                            <div className="flex flex-wrap items-center justify-end gap-3">
-                                <select
-                                    value={fClienteCalendario}
-                                    onChange={(e) => setFClienteCalendario(e.target.value)}
-                                    className={`${fieldInput} max-w-[220px] text-sm`}
-                                    aria-label="Filtrar por cliente"
-                                >
-                                    <option value="">Todos los clientes</option>
-                                    {calendarClientesList.map((c) => (
-                                        <option key={c} value={c}>{c}</option>
-                                    ))}
-                                </select>
-                                {superAdminGpSelect}
+                    <div className={`${dash.novedadesTabShell} pb-20`}>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <NovedadesFiltersToolbar
+                                chipLabel={novedadesFiltrosResumen.chipLabel}
+                                filtersPanelOpen={filtersPanelOpen}
+                                onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                                dash={dash}
+                            />
+                            <div className="flex flex-wrap items-center justify-end gap-3 shrink-0">
                                 <div className={dash.calSegOuter}>
                                     <button
                                         onClick={() => setCalendarView('monthly')}
@@ -2572,6 +2402,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                             </div>
                         </div>
 
+                        <div className={`${dash.card} flex min-h-[calc(100vh-14rem)] flex-1 flex-col overflow-hidden`}>
                         <div className="flex-1 overflow-auto p-6">
                             {calendarView === 'monthly' ? (
                                 <div className={dash.calGrid}>
@@ -2660,25 +2491,21 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-purple-500/20 border border-purple-500/50"></div> Licencia</div>
                             </div>
                         </div>
+                        </div>
                     </div>
                 )}
 
                 {/* ---------- ANÁLISIS AVANZADO ---------- */}
                 {activeTab === 'Análisis Avanzado' && canAccessPanel('dashboard') && (
-                    <div className="animate-in fade-in zoom-in-95 duration-300 pb-20 flex flex-col h-full gap-6">
-                        <div className={`${dash.card} p-6`}>
-                            <h2 className={`${dash.title2xl} mb-2 flex items-center gap-2`}>
-                                <TrendingUp className="text-purple-500" size={24} /> Inteligencia operativa (fase exploratoria)
-                            </h2>
-                            <p className={`text-sm ${dash.muted}`}>Modelos estadísticos descriptivos diseñados para futura integración con algoritmos de Machine Learning y predicción de anomalías.</p>
-                            {superAdminGpSelect ? (
-                                <div className={`mt-4 flex flex-wrap items-center gap-2 border-t pt-4 ${isLight ? 'border-slate-200' : 'border-slate-700/50'}`}>
-                                    {superAdminGpSelect}
-                                </div>
-                            ) : null}
-                        </div>
+                    <div className={`${dash.novedadesTabShell} pb-20`}>
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            dash={dash}
+                        />
 
-                        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
                             {/* Mapa de Frecuencia (Por Día de la Semana de creación) */}
                             <div className={`${dash.card} p-6`}>
                                 <h3 className={`${dash.titleXl} mb-1`}>Mapa de Frecuencia (Días de la Semana)</h3>
@@ -2690,7 +2517,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <BarChart data={(() => {
                                             const daysInfo = { 0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb' };
                                             const heatMap = { Dom: 0, Lun: 0, Mar: 0, Mié: 0, Jue: 0, Vie: 0, Sáb: 0 };
-                                            items.forEach(it => {
+                                            dashItems.forEach(it => {
                                                 if (!it?.creadoEn) return;
                                                 const d = new Date(it.creadoEn);
                                                 if (!isNaN(d.getTime())) {
@@ -2707,7 +2534,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 content={({ active, payload }) => {
                                                     if (!active || !payload?.length) return null;
                                                     const { name, count } = payload[0].payload;
-                                                    const total = items.length || 1;
+                                                    const total = dashItems.length || 1;
                                                     const pct = ((count / total) * 100).toFixed(1);
                                                     const isWeekend = name === 'Dom' || name === 'Sáb';
                                                     const label = count === 0 ? 'Sin actividad' : isWeekend ? 'Día no hábil — verificar horas extra' : count >= 5 ? 'Concentración alta — revisar patrón' : 'Actividad normal';
@@ -2725,7 +2552,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     const data = (() => {
                                                         const daysInfo = { 0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb' };
                                                         const heatMap = { Dom: 0, Lun: 0, Mar: 0, Mié: 0, Jue: 0, Vie: 0, Sáb: 0 };
-                                                        items.forEach(it => {
+                                                        dashItems.forEach(it => {
                                                             if (!it?.creadoEn) return;
                                                             const d = new Date(it.creadoEn);
                                                             if (!isNaN(d.getTime())) heatMap[daysInfo[d.getDay()]] += 1;
@@ -2757,7 +2584,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <div className="space-y-3 overflow-y-auto max-h-[240px] pr-1">
                                     {(() => {
                                         const riesgoMap = {};
-                                        items.forEach(it => {
+                                        dashItems.forEach(it => {
                                             if (!riesgoMap[it.nombre]) riesgoMap[it.nombre] = { puntos: 0, sumHoras: 0, sumDias: 0, novedades: 0 };
                                             const kind = getCantidadMedidaKind(it.tipoNovedad, it);
                                             const v = Number(it.cantidadHoras) || 0;
@@ -2845,11 +2672,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <ResponsiveContainer>
                                         <BarChart
                                             data={(() => {
-                                                const pend = items.filter(i => i.estado === 'Pendiente').length;
+                                                const pend = dashItems.filter(i => i.estado === 'Pendiente').length;
                                                 return [
-                                                    { name: 'Total Radicados', count: items.length, fill: '#3b82f6' },
+                                                    { name: 'Total Radicados', count: dashItems.length, fill: '#3b82f6' },
                                                     { name: 'Esperando Acción', count: pend, fill: '#f59e0b' },
-                                                    { name: 'Decisión Cerrada', count: items.length - pend, fill: '#10b981' },
+                                                    { name: 'Decisión Cerrada', count: dashItems.length - pend, fill: '#10b981' },
                                                 ];
                                             })()}
                                             layout="vertical"
@@ -2862,7 +2689,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 content={({ active, payload }) => {
                                                     if (!active || !payload?.length) return null;
                                                     const { name, count } = payload[0].payload;
-                                                    const total = items.length || 1;
+                                                    const total = dashItems.length || 1;
                                                     const pct = ((count / total) * 100).toFixed(1);
                                                     const tip = name === 'Total Radicados'
                                                         ? 'Todos los registros ingresados al sistema'
@@ -2894,18 +2721,28 @@ export default function Dashboard({ token, auth, onLogout }) {
                     </div>
                 )}
 
+                {NOVEDADES_FILTER_TABS.has(activeTab) && (
+                    <NovedadesFiltersDrawer
+                        open={filtersPanelOpen}
+                        onClose={() => setFiltersPanelOpen(false)}
+                        onClear={clearNovedadesFilters}
+                        filters={moduleFilters}
+                        onChange={handleNovedadesFilterChange}
+                        dash={dash}
+                        fieldInputClassName={fieldInput}
+                        showPageSize={activeTab === 'Gestión'}
+                        showMesShortcut={activeTab === 'DashboardGeneral' || activeTab === 'Análisis Avanzado'}
+                        pageSize={pageSize}
+                        onPageSizeChange={setPageSize}
+                        tipoOptions={tipoFilterOptions}
+                        clienteOptions={gestionClienteOptions}
+                        gpFilterOptions={gpFilterOptions}
+                        isSuperAdminNovedades={isSuperAdminNovedades}
+                        labelGpOption={labelGpDirectorioOption}
+                    />
+                )}
 
             </main>
-
-            {/* Chat widget — fuera del main para que sea fixed global */}
-            <ChatWidget
-                ctx={{
-                    pendientesCount,
-                    totalItems: items.length,
-                    dashItems: dashItems.length,
-                    role: currentRole,
-                }}
-            />
 
             {gestionDetailItem && (
                 <div className={dash.modalBackdrop} onClick={closeGestionDetailModal}>
@@ -3011,7 +2848,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         </>
                                     ) : null}
                                     <div><span className={dash.modalMuted}>Fecha de disfrute:</span> {gestionDetailItem.fechaInicio || '-'}</div>
-                                    <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
+                                    {gestionDetailItem.fechaInicio && gestionDetailItem.fechaInicio !== gestionDetailItem.fechaVotacion ? (
+                                        <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
+                                    ) : null}
                                     {String(gestionDetailItem.modalidad || '').trim() === 'solo_voto' &&
                                     (gestionDetailItem.horaInicio || gestionDetailItem.horaFin) ? (
                                         <div>
@@ -3025,21 +2864,25 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <div><span className={dash.modalMuted}>Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
                                     <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                                     <div><span className={dash.modalMuted}>Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
-                                    <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
+                                    {gestionDetailItem.fechaFin && gestionDetailItem.fechaFin !== gestionDetailItem.fechaInicio ? (
+                                        <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
+                                    ) : null}
                                     {gestionDetailItem.modalidad ? (
                                         <div><span className={dash.modalMuted}>Modalidad (votación/jurado):</span> {gestionDetailItem.modalidad}</div>
                                     ) : null}
                                     {gestionDetailItem.fechaVotacion ? (
                                         <>
                                             <div><span className={dash.modalMuted}>Fecha de votación / actuación:</span> {gestionDetailItem.fechaVotacion}</div>
-                                            <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaVotacion} festivosSet={gestionFestivosSet} />
+                                            {gestionDetailItem.fechaVotacion !== gestionDetailItem.fechaInicio && gestionDetailItem.fechaVotacion !== gestionDetailItem.fechaFin ? (
+                                                <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaVotacion} festivosSet={gestionFestivosSet} />
+                                            ) : null}
                                         </>
                                     ) : null}
                                 </>
                             )}
                             {gestionDetailItem.unidad ? (
                                 <div>
-                                    <span className={dash.modalMuted}>Unidad (permiso remunerado):</span>{' '}
+                                    <span className={dash.modalMuted}>Unidad:</span>{' '}
                                     {gestionDetailItem.unidad === 'horas' ? 'Horas' : gestionDetailItem.unidad === 'dias' ? 'Días' : gestionDetailItem.unidad}
                                 </div>
                             ) : null}
@@ -3073,6 +2916,37 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         }
                                     >
                                         <span className="font-semibold">Compensación dominical:</span> {heDomingoCompResumen}
+                                    </div>
+                                ) : null;
+                            })()}
+
+                            {(() => {
+                                const observacionesTexto = String(gestionDetailItem.observaciones || '').trim();
+                                return observacionesTexto ? (
+                                    <div
+                                        className={
+                                            isLight
+                                                ? 'md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800'
+                                                : 'md:col-span-2 rounded-lg border border-sky-500/35 bg-slate-900/60 px-3 py-2 text-sm text-slate-100'
+                                        }
+                                    >
+                                        <span className="font-semibold">Observaciones (consultor):</span>{' '}
+                                        <span className="whitespace-pre-wrap break-words">{observacionesTexto}</span>
+                                    </div>
+                                ) : null;
+                            })()}
+                            {gestionDetailItem.estado === 'Rechazado' && (() => {
+                                const rechazoTexto = String(gestionDetailItem.observacionesRechazo || '').trim();
+                                return rechazoTexto ? (
+                                    <div
+                                        className={
+                                            isLight
+                                                ? 'md:col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950'
+                                                : 'md:col-span-2 rounded-lg border border-rose-500/35 bg-rose-950/25 px-3 py-2 text-sm text-rose-100'
+                                        }
+                                    >
+                                        <span className="font-semibold">Observación de rechazo:</span>{' '}
+                                        <span className="whitespace-pre-wrap break-words">{rechazoTexto}</span>
                                     </div>
                                 ) : null;
                             })()}
@@ -3273,14 +3147,12 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     </span>{' '}
                                                     {gestionDetailItem.fechaInicio || '-'}
                                                 </div>
-                                                <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                                                 <div>
                                                     <span className={isLight ? 'font-semibold text-emerald-900' : 'font-semibold text-emerald-300'}>
                                                         Fecha fin:
                                                     </span>{' '}
                                                     {gestionDetailItem.fechaFin || '-'}
                                                 </div>
-                                                <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
                                             </div>
                                         </div>
                                     </div>
@@ -3365,7 +3237,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <input {...nativeCalendarOnlyInputProps} className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaVotacion || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaVotacion: e.target.value }))} />
                                     <GestionCalendarioCivilNotas ymd={gestionEditDraft.fechaVotacion} festivosSet={gestionFestivosSet} />
                                 </label>
-                                <label className={`${dash.labelUpper} col-span-full`}>Unidad (permiso remunerado)
+                                <label className={`${dash.labelUpper} col-span-full`}>Unidad
                                     <select className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.unidad || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, unidad: e.target.value }))}>
                                         <option value="">(sin especificar)</option>
                                         <option value="dias">días</option>
@@ -3398,6 +3270,14 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Compensación HE (observación)
                                     <textarea className={`mt-1 min-h-[72px] w-full ${fieldInput}`} value={gestionEditDraft.heDomingoObservacion} onChange={(e) => setGestionEditDraft((d) => ({ ...d, heDomingoObservacion: e.target.value }))} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Observaciones
+                                    <textarea
+                                        className={`mt-1 min-h-[72px] w-full ${fieldInput}`}
+                                        maxLength={1000}
+                                        value={gestionEditDraft.observaciones}
+                                        onChange={(e) => setGestionEditDraft((d) => ({ ...d, observaciones: e.target.value }))}
+                                    />
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Soporte(s) — ruta o JSON
                                     <textarea className={`mt-1 min-h-[56px] w-full font-mono text-xs ${fieldInput}`} value={gestionEditDraft.soporteRuta} onChange={(e) => setGestionEditDraft((d) => ({ ...d, soporteRuta: e.target.value }))} />
@@ -3461,6 +3341,55 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </div>
                         ) : null}
 
+                        {!gestionEditMode
+                            && canApproveItem(gestionDetailItem)
+                            && esTipoDisponibilidadConMontoDiligenciado(gestionDetailItem) ? (
+                            <div
+                                className={
+                                    isLight
+                                        ? 'mt-4 flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4'
+                                        : 'mt-4 flex flex-col gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4'
+                                }
+                            >
+                                <label htmlFor="gestion-disp-monto" className={`${dash.modalMuted} text-sm font-semibold`}>
+                                    Valor de disponibilidad (COP) <span className={isLight ? 'text-rose-700' : 'text-rose-300'}>*</span>
+                                </label>
+                                <input
+                                    id="gestion-disp-monto"
+                                    type="text"
+                                    inputMode="decimal"
+                                    aria-required="true"
+                                    aria-invalid={Boolean(gestionDispMontoError)}
+                                    value={gestionDispMontoInput}
+                                    onChange={(e) => {
+                                        setGestionDispMontoError('');
+                                        setGestionDispMontoInput(e.target.value);
+                                    }}
+                                    onBlur={() => {
+                                        const n = parseMontoCOPInput(gestionDispMontoInput);
+                                        if (n == null || !Number.isFinite(n) || n <= 0) {
+                                            return;
+                                        }
+                                        setGestionDispMontoInput(formatMontoCOPLocale(n));
+                                    }}
+                                    placeholder="$ 1.500.000"
+                                    className={
+                                        isLight
+                                            ? 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500'
+                                            : 'rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400'
+                                    }
+                                />
+                                <small className={dash.modalMuted}>
+                                    El valor en pesos lo diligencia el GP antes de Aceptar o Rechazar. Miles con punto, decimales con coma (ej. $ 1.500.000).
+                                </small>
+                                {gestionDispMontoError ? (
+                                    <div role="alert" className={isLight ? 'text-xs font-semibold text-rose-700' : 'text-xs font-semibold text-rose-300'}>
+                                        {gestionDispMontoError}
+                                    </div>
+                                ) : null}
+                            </div>
+                        ) : null}
+
                         <div className={dash.modalFooter}>
                             <button type="button" onClick={closeGestionDetailModal} className={`${outlineBtn} text-sm`}>Cerrar</button>
                             {gestionEditMode && isSuperAdminNovedades ? (
@@ -3477,32 +3406,74 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     {gestionAdminBusy ? 'Guardando…' : 'Guardar cambios'}
                                 </button>
                             ) : null}
-                            {!gestionEditMode && canApproveItem(gestionDetailItem) && (
-                                <>
-                                    <button
-                                        type="button"
-                                        onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Rechazado'); closeGestionDetailModal(); }}
-                                        className={
-                                            isLight
-                                                ? 'rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 transition-all hover:bg-rose-50'
-                                                : 'rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-400 transition-all hover:bg-rose-500/10'
+                            {!gestionEditMode && canApproveItem(gestionDetailItem) && (() => {
+                                const aplicaDisp = esTipoDisponibilidadConMontoDiligenciado(gestionDetailItem);
+                                const montoNumber = aplicaDisp ? parseMontoCOPInput(gestionDispMontoInput) : null;
+                                const montoValido = aplicaDisp
+                                    ? (montoNumber != null && Number.isFinite(montoNumber) && montoNumber > 0)
+                                    : true;
+                                const decisionDisabled = aplicaDisp && !montoValido;
+                                /**
+                                 * Reusable: en Disponibilidad, validamos input antes de despachar
+                                 * y, si está OK, enviamos `montoCop` junto al cambio de estado.
+                                 */
+                                const dispatchDecision = async (estadoFinal) => {
+                                    if (aplicaDisp) {
+                                        if (!Number.isFinite(montoNumber) || montoNumber <= 0) {
+                                            setGestionDispMontoError('Indica un valor en pesos mayor a cero.');
+                                            return;
                                         }
-                                    >
-                                        Rechazar
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Aprobado'); closeGestionDetailModal(); }}
-                                        className={
-                                            isLight
-                                                ? 'rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 transition-all hover:bg-emerald-50'
-                                                : 'rounded-lg border border-emerald-500/40 px-4 py-2 text-sm text-emerald-400 transition-all hover:bg-emerald-500/10'
-                                        }
-                                    >
-                                        Aceptar
-                                    </button>
-                                </>
-                            )}
+                                        await changeState(
+                                            gestionDetailItem.id || gestionDetailItem.creadoEn,
+                                            estadoFinal,
+                                            { montoCop: Number(montoNumber.toFixed(2)) }
+                                        );
+                                    } else {
+                                        await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, estadoFinal);
+                                    }
+                                    closeGestionDetailModal();
+                                };
+                                return (
+                                    <>
+                                        <button
+                                            type="button"
+                                            disabled={decisionDisabled}
+                                            aria-disabled={decisionDisabled}
+                                            title={decisionDisabled ? 'Diligencia un valor en pesos mayor a cero antes de rechazar.' : undefined}
+                                            onClick={() => {
+                                                openGestionRejectModal({
+                                                    id: gestionDetailItem.id || gestionDetailItem.creadoEn,
+                                                    montoCop: aplicaDisp && montoNumber != null
+                                                        ? Number(montoNumber.toFixed(2))
+                                                        : undefined,
+                                                    closeGestionDetail: true
+                                                });
+                                            }}
+                                            className={
+                                                isLight
+                                                    ? 'rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 transition-all hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50'
+                                                    : 'rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-400 transition-all hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50'
+                                            }
+                                        >
+                                            Rechazar
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={decisionDisabled}
+                                            aria-disabled={decisionDisabled}
+                                            title={decisionDisabled ? 'Diligencia un valor en pesos mayor a cero antes de aprobar.' : undefined}
+                                            onClick={() => { void dispatchDecision('Aprobado'); }}
+                                            className={
+                                                isLight
+                                                    ? 'rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 transition-all hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50'
+                                                    : 'rounded-lg border border-emerald-500/40 px-4 py-2 text-sm text-emerald-400 transition-all hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50'
+                                            }
+                                        >
+                                            Aceptar
+                                        </button>
+                                    </>
+                                );
+                            })()}
                         </div>
 
                         {gestionDeleteOpen && (
@@ -3576,7 +3547,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <div><span className={dash.modalMuted}>Fecha inicio:</span> {alertaHeDetailItem.fechaInicio || '-'}</div>
                             <GestionCalendarioCivilNotas ymd={alertaHeDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                             <div><span className={dash.modalMuted}>Fecha fin:</span> {alertaHeDetailItem.fechaFin || '-'}</div>
-                            <GestionCalendarioCivilNotas ymd={alertaHeDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
+                            {alertaHeDetailItem.fechaFin && alertaHeDetailItem.fechaFin !== alertaHeDetailItem.fechaInicio ? (
+                                <GestionCalendarioCivilNotas ymd={alertaHeDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
+                            ) : null}
                             <div><span className={dash.modalMuted}>Franja cargada:</span> {(alertaHeDetailItem.horaInicio && alertaHeDetailItem.horaFin) ? `${alertaHeDetailItem.horaInicio} - ${alertaHeDetailItem.horaFin}` : '-'}</div>
                             <div><span className={dash.modalMuted}>Horas cargadas:</span> {alertaHeDetailItem.cantidadHoras || 0}h</div>
                             {Array.isArray(alertaHeDetailItem.dailyReasons) && alertaHeDetailItem.dailyReasons.length > 0 && (
@@ -3620,9 +3593,12 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <button type="button" onClick={() => setAlertaHeDetailItem(null)} className={`${outlineBtn} text-sm`}>Cerrar</button>
                             <button
                                 type="button"
-                                onClick={async () => {
-                                    await changeState(alertaHeDetailItem.id, 'Rechazado', { fromHoraExtraAlert: true });
-                                    setAlertaHeDetailItem(null);
+                                onClick={() => {
+                                    openGestionRejectModal({
+                                        id: alertaHeDetailItem.id,
+                                        fromHoraExtraAlert: true,
+                                        closeAlertaHe: true
+                                    });
                                 }}
                                 className={
                                     isLight
@@ -3670,8 +3646,14 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </div>
 
                         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3">
-                            {selectedDayItems.items.map((it, idx) => (
-                                <div key={idx} className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${getTypeColor(it.tipoNovedad).replace('bg-', 'bg-').replace('/20', '/10')}`}>
+                            {selectedDayItems.items.map((it, idx) => {
+                                const observacionesTexto = String(it.observaciones || '').trim();
+                                const observacionesPreview = observacionesTexto.length > 120
+                                    ? `${observacionesTexto.slice(0, 117)}…`
+                                    : observacionesTexto;
+                                return (
+                                <div key={idx} className={`p-4 rounded-xl border flex flex-col gap-3 ${getTypeColor(it.tipoNovedad).replace('bg-', 'bg-').replace('/20', '/10')}`}>
+                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                                     <div className="flex items-center gap-4">
                                         <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg border ${getTypeColor(it.tipoNovedad).replace('bg-', 'border-').replace('/20', '/30')}`}>
                                             {it.nombre.charAt(0).toUpperCase()}
@@ -3736,8 +3718,22 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             <Eye size={16} /> Ver Soporte
                                         </button>
                                     )}
+                                    </div>
+                                    {observacionesTexto ? (
+                                        <p
+                                            title={observacionesTexto}
+                                            className={
+                                                isLight
+                                                    ? 'text-xs text-slate-600 break-words border-t border-slate-200/70 pt-2'
+                                                    : 'text-xs text-slate-300 break-words border-t border-slate-500/30 pt-2'
+                                            }
+                                        >
+                                            <span className="font-semibold">Observaciones:</span> {observacionesPreview}
+                                        </p>
+                                    ) : null}
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
@@ -3747,22 +3743,24 @@ export default function Dashboard({ token, auth, onLogout }) {
             {soporteModal && (
                 <div className={`${dash.modalBackdrop} tracking-wide`} onClick={() => setSoporteModal(null)}>
                     <div className={dash.modalCardWide} onClick={e => e.stopPropagation()}>
-                        <button type="button" onClick={() => setSoporteModal(null)} className={`absolute right-4 top-4 ${dash.modalClose}`}>
-                            <X size={20} strokeWidth={2.5} />
-                        </button>
-                        <div className="mb-4 mt-2 flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="mb-4 mt-2 flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <h2 className={`${dash.titleXl} min-w-0 flex flex-wrap items-center gap-2`}>
                                 <BadgeCheck className="shrink-0 text-blue-500" size={22} /> Vista del documento
                             </h2>
-                            {soporteModalCurrentSupport && (
-                                <button
-                                    type="button"
-                                    onClick={() => downloadSupport(soporteModalCurrentSupport)}
-                                    className="shrink-0 rounded-lg border border-blue-500/30 px-3 py-2 text-sm font-medium text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10"
-                                >
-                                    Descargar
+                            <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                                {soporteModalCurrentSupport && (
+                                    <button
+                                        type="button"
+                                        onClick={() => downloadSupport(soporteModalCurrentSupport)}
+                                        className="rounded-lg border border-blue-500/30 px-3 py-2 text-sm font-medium text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10"
+                                    >
+                                        Descargar
+                                    </button>
+                                )}
+                                <button type="button" onClick={() => setSoporteModal(null)} className={dash.modalClose}>
+                                    <X size={20} strokeWidth={2.5} />
                                 </button>
-                            )}
+                            </div>
                         </div>
                         {Array.isArray(soporteModal?.supports) && soporteModal.supports.length > 1 && (
                             <div className="mb-3 flex w-full min-w-0 flex-col gap-2">
@@ -3841,6 +3839,64 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     </button>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {gestionRejectOpen && (
+                <div
+                    className={`${dash.modalBackdrop} z-[250]`}
+                    onClick={() => {
+                        setGestionRejectOpen(false);
+                        setGestionRejectPending(null);
+                        setGestionRejectObservacion('');
+                        setGestionRejectErr(null);
+                    }}
+                    role="presentation"
+                >
+                    <div
+                        className={isLight ? 'w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl' : 'w-full max-w-md rounded-xl border border-slate-600 bg-slate-900 p-5 shadow-xl'}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 className={dash.titleLg}>Rechazar novedad</h3>
+                        <p className={`${dash.modalMuted} mt-2 text-sm`}>
+                            Indique la causa del rechazo y qué debe corregir o completar el consultor al radicar de nuevo. Es obligatorio.
+                        </p>
+                        <textarea
+                            className={`mt-3 min-h-[120px] w-full ${fieldInput}`}
+                            placeholder="Observación de rechazo…"
+                            value={gestionRejectObservacion}
+                            onChange={(e) => setGestionRejectObservacion(e.target.value)}
+                            maxLength={1000}
+                        />
+                        {gestionRejectErr ? <p className="mt-2 text-sm text-rose-600">{gestionRejectErr}</p> : null}
+                        {stateError ? <p className="mt-2 text-sm text-rose-600">{stateError}</p> : null}
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setGestionRejectOpen(false);
+                                    setGestionRejectPending(null);
+                                    setGestionRejectObservacion('');
+                                    setGestionRejectErr(null);
+                                }}
+                                className={`${outlineBtn} text-sm`}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!String(gestionRejectObservacion || '').trim()}
+                                onClick={() => void submitGestionReject()}
+                                className={
+                                    isLight
+                                        ? 'rounded-lg border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-40'
+                                        : 'rounded-lg border border-rose-500 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-40'
+                                }
+                            >
+                                Confirmar rechazo
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -3,8 +3,10 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Home, LayoutDashboard, Menu, Scale, X } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import AdminModuleSidebarBrand from '../AdminModuleSidebarBrand.jsx';
+import AdminModuleSidebarFooter from '../AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from '../AdminModuleSidebarUser.jsx';
 
-export default function ConciliacionesModule({ auth }) {
+export default function ConciliacionesModule({ auth, onLogout }) {
     const navigate = useNavigate();
     const location = useLocation();
     const mt = useModuleTheme();
@@ -12,7 +14,6 @@ export default function ConciliacionesModule({ auth }) {
         shell,
         aside,
         asideHeaderBorder,
-        asideFooterBorder,
         scrim,
         menuFab,
         sidebarIconBtn,
@@ -43,7 +44,7 @@ export default function ConciliacionesModule({ auth }) {
             <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
-                className={`md:hidden fixed top-16 left-4 z-40 flex h-10 w-10 items-center justify-center shadow-lg ${menuFab}`}
+                className={`md:hidden fixed top-4 left-4 z-40 flex h-10 w-10 items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú conciliaciones"
             >
                 <Menu size={18} />
@@ -52,7 +53,7 @@ export default function ConciliacionesModule({ auth }) {
                 <button type="button" className={`md:hidden fixed inset-0 z-40 ${scrim}`} aria-label="Cerrar menú" onClick={closeMobile} />
             ) : null}
             <aside
-                className={`md:hidden fixed top-0 left-0 z-50 h-full w-72 transform font-body shadow-2xl transition-transform duration-300 ${aside} ${
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${
                     mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}
             >
@@ -77,7 +78,15 @@ export default function ConciliacionesModule({ auth }) {
                         </button>
                     )}
                 />
-                <nav className="flex flex-col gap-2 p-3">
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
+                <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
                     <button
                         type="button"
                         onClick={() => {
@@ -112,14 +121,11 @@ export default function ConciliacionesModule({ auth }) {
                         <span>Resumen por cliente</span>
                     </button>
                 </nav>
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`truncate text-[10px] font-body font-black ${email}`}>{currentEmail}</p>
-                    <p className="text-[10px] font-body font-semibold uppercase text-[#65BCF7]">{currentRoleLabel}</p>
-                </div>
+                <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
             </aside>
 
             <aside
-                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-hidden font-body shadow-2xl transition-all duration-300 ease-in-out md:flex ${
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden font-body shadow-2xl transition-all duration-300 ease-in-out md:flex ${
                     sidebarOpen ? 'w-64' : 'w-16'
                 } ${aside}`}
             >
@@ -148,8 +154,16 @@ export default function ConciliacionesModule({ auth }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
 
-                <nav className="mt-1 flex flex-1 flex-col gap-1 p-2">
+                <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
                     <button
                         type="button"
                         onClick={() => navigate('/admin')}
@@ -185,27 +199,13 @@ export default function ConciliacionesModule({ auth }) {
                     </button>
                 </nav>
 
-                <div className={`border-t ${borderSubtle} ${sidebarOpen ? 'p-4' : 'p-2'}`}>
-                    {sidebarOpen ? (
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#65BCF7]/30 bg-[#2F7BB8]/20">
-                                    <LayoutDashboard size={13} className="text-[#65BCF7]" />
-                                </div>
-                                <div className="min-w-0 overflow-hidden">
-                                    <p className={`truncate text-[10px] font-body font-black leading-tight whitespace-nowrap ${email}`}>{currentEmail}</p>
-                                    <p className="truncate text-[9px] font-body font-semibold leading-tight whitespace-nowrap text-[#65BCF7]">{currentRoleLabel}</p>
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-2 py-1" title={`${currentEmail} · ${currentRoleLabel}`}>
-                            <div className="flex h-7 w-7 items-center justify-center rounded-lg border border-[#65BCF7]/30 bg-[#2F7BB8]/20">
-                                <LayoutDashboard size={13} className="text-[#65BCF7]" />
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
             </aside>
 
             <section className={`flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${mainCanvas}`}>

@@ -22,6 +22,8 @@ async function startServer(deps) {
         ensureNovedadesNominaVerificacionColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         ensureNovedadesModalidadVotacionUnidadColumns,
+        ensureNovedadesObservacionesColumn,
+        ensureNovedadesObservacionesRechazoColumn,
         ensureNovedadesDuplicadoPendienteIndex,
         migrateExcelIfNeeded,
         migrateClientesLideresFromExcelIfNeeded,
@@ -38,6 +40,7 @@ async function startServer(deps) {
         COGNITO_USER_POOL_ID,
         COGNITO_APP_CLIENT_SECRET,
         s3Client,
+        S3_ENABLED,
         S3_BUCKET_NAME,
         S3_REGION,
         S3_AUTH_MODE
@@ -57,6 +60,8 @@ async function startServer(deps) {
     await ensureNovedadesNominaVerificacionColumns();
     await ensureNovedadesHorasRecargoDomingoColumn();
     await ensureNovedadesModalidadVotacionUnidadColumns();
+    await ensureNovedadesObservacionesColumn();
+    await ensureNovedadesObservacionesRechazoColumn();
     await ensureNovedadesDuplicadoPendienteIndex();
     await migrateExcelIfNeeded();
     await migrateClientesLideresFromExcelIfNeeded();
@@ -90,6 +95,10 @@ async function startServer(deps) {
                     logger.warn('S3 usando access keys locales (modo temporal).');
                 }
             }
+        } else if (S3_ENABLED) {
+            logger.warn(
+                'S3_ENABLED=true pero falta S3_BUCKET_NAME (o está vacío): soportes en S3 no funcionarán hasta completar .env (ver .env.example).'
+            );
         } else {
             logger.warn('S3 inactivo: usando almacenamiento local en /assets/uploads.');
         }

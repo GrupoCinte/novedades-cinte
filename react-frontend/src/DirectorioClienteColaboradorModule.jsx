@@ -5,6 +5,7 @@ import {
     ArrowRightLeft,
     ArrowUp,
     Building2,
+    CalendarDays,
     ChevronLeft,
     ChevronRight,
     Home,
@@ -15,12 +16,24 @@ import {
     X
 } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
+import { buildGestionTableDash } from './gestionTableDashTheme.js';
+import ModuleFiltersToolbar from './shared/filters/ModuleFiltersToolbar.jsx';
+import ModuleFiltersDrawer from './shared/filters/ModuleFiltersDrawer.jsx';
+import {
+    buildClienteChipLabel,
+    buildConsultoresChipLabel,
+    CLIENTE_FILTER_DEFAULTS,
+    CONSULTORES_FILTER_DEFAULTS
+} from './admin/directorioFilters.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
+import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
+import MallasTurnosModule from './MallasTurnosModule';
 import {
     initialStaffForm,
     mapRowToStaffForm,
@@ -93,7 +106,7 @@ function GpUserSelect({ value, onChange, options, className }) {
     );
 }
 
-export default function DirectorioClienteColaboradorModule({ token, auth }) {
+export default function DirectorioClienteColaboradorModule({ token, auth, onLogout }) {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const mt = useModuleTheme();
@@ -101,7 +114,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         shell,
         aside,
         asideHeaderBorder,
-        asideFooterBorder,
         scrim,
         menuFab,
         sidebarIconBtn,
@@ -109,7 +121,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         email,
         borderSubtle,
         mainCanvas,
-        topBar,
         headingAccent,
         labelMuted,
         field,
@@ -131,8 +142,14 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
 
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
+    const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     /** Vista principal del sidebar */
     const [mainView, setMainView] = useState('cliente');
+
+    useEffect(() => {
+        setFiltersPanelOpen(false);
+    }, [mainView]);
 
     const showTiCatalogSubmod = userHasRolesTiCatalogRead(auth);
     useEffect(() => {
@@ -146,6 +163,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         }
         if (v === 'reubicaciones') {
             setMainView('reubicaciones');
+            const next = new URLSearchParams(searchParams);
+            next.delete('v');
+            setSearchParams(next, { replace: true });
+            return;
+        }
+        if (v === 'mallas-turnos') {
+            setMainView('mallasTurnos');
             const next = new URLSearchParams(searchParams);
             next.delete('v');
             setSearchParams(next, { replace: true });
@@ -947,7 +971,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     );
 
     const sidebarNav = () => (
-        <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
+        <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
             <NavBtn
                 active={false}
                 icon={Home}
@@ -996,6 +1020,15 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     setMobileMenuOpen(false);
                 }}
             />
+            <NavBtn
+                active={mainView === 'mallasTurnos'}
+                icon={CalendarDays}
+                label="Mallas de turnos"
+                onClick={() => {
+                    setMainView('mallasTurnos');
+                    setMobileMenuOpen(false);
+                }}
+            />
             {showTiCatalogSubmod ? (
                 <NavBtn
                     active={mainView === 'catalogoTi'}
@@ -1010,36 +1043,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         </nav>
     );
 
-    const sidebarFooter = (compact) => (
-        <div className={`border-t ${borderSubtle} ${compact ? 'p-4' : 'p-2'}`}>
-            {compact ? (
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
-                            <Building2 size={13} className={headingAccent} />
-                        </div>
-                        <div className="min-w-0 overflow-hidden">
-                            <p className={`text-[10px] font-body font-black whitespace-nowrap leading-tight truncate ${email}`}>
-                                {currentEmail}
-                            </p>
-                            <p className={`text-[9px] font-body font-semibold whitespace-nowrap leading-tight ${headingAccent}`}>
-                                {currentRoleLabel}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            ) : (
-                <div className="flex flex-col items-center gap-2 py-1">
-                    <div className="flex justify-center" title={`${currentEmail} · ${currentRoleLabel}`}>
-                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
-                            <Building2 size={15} className={headingAccent} />
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
-
     const clTotalPages = Math.max(1, Math.ceil((Number(clTotal) || 0) / clPageSize));
     const safeClPage = Math.min(Math.max(1, clPage), clTotalPages);
     const clRangeFrom = !clTotal ? 0 : (safeClPage - 1) * clPageSize + 1;
@@ -1050,12 +1053,36 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const coRangeFrom = !coTotal ? 0 : (safeCoPage - 1) * coPageSize + 1;
     const coRangeTo = Math.min(Number(coTotal) || 0, safeCoPage * coPageSize);
 
+    const clienteChipLabel = useMemo(
+        () => buildClienteChipLabel({ activo: clActivo, pageSize: clPageSize }),
+        [clActivo, clPageSize]
+    );
+    const consultoresChipLabel = useMemo(
+        () => buildConsultoresChipLabel({ activo: coActivo, tipoContrato: coTipoContrato, pageSize: coPageSize }),
+        [coActivo, coTipoContrato, coPageSize]
+    );
+
+    const clearClienteFilters = useCallback(() => {
+        setClActivo(CLIENTE_FILTER_DEFAULTS.activo);
+        setClPageSize(CLIENTE_FILTER_DEFAULTS.pageSize);
+        setClQ(CLIENTE_FILTER_DEFAULTS.q);
+        setClPage(1);
+    }, []);
+
+    const clearConsultoresFilters = useCallback(() => {
+        setCoActivo(CONSULTORES_FILTER_DEFAULTS.activo);
+        setCoTipoContrato(CONSULTORES_FILTER_DEFAULTS.tipoContrato);
+        setCoPageSize(CONSULTORES_FILTER_DEFAULTS.pageSize);
+        setCoQ(CONSULTORES_FILTER_DEFAULTS.q);
+        setCoPage(1);
+    }, []);
+
     return (
         <div className={shell}>
             <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
-                className={`md:hidden fixed top-16 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
+                className={`md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú administración"
             >
                 <Menu size={18} />
@@ -1064,7 +1091,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 <div className={`md:hidden fixed inset-0 z-40 ${scrim}`} onClick={() => setMobileMenuOpen(false)} />
             ) : null}
             <aside
-                className={`md:hidden fixed top-0 left-0 h-full w-72 z-50 shadow-2xl transform transition-transform duration-300 flex flex-col font-body ${aside} ${
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${
                     mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}
             >
@@ -1091,15 +1118,21 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    accentClass={headingAccent}
+                />
                 {sidebarNav()}
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`text-[10px] font-body font-black truncate ${email}`}>{currentEmail}</p>
-                    <p className={`text-[10px] font-body font-semibold uppercase ${headingAccent}`}>{currentRoleLabel}</p>
-                </div>
+                <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
             </aside>
 
             <aside
-                className={`flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 transition-all duration-300 ease-in-out overflow-hidden font-body ${aside} ${
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden font-body shadow-2xl transition-all duration-300 ease-in-out md:flex ${aside} ${
                     sidebarOpen ? 'w-64' : 'w-16'
                 }`}
             >
@@ -1128,26 +1161,26 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    accentClass={headingAccent}
+                />
                 {sidebarNav()}
-                {sidebarFooter(sidebarOpen)}
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
             </aside>
 
             <div className="flex flex-col flex-1 min-h-0 min-w-0">
-                <header className={`flex items-center justify-between px-4 md:px-8 py-3 shrink-0 md:pl-6 ${topBar}`}>
-                    <div>
-                        <h1 className={`text-lg md:text-xl font-heading font-bold ${headingAccent}`}>Módulo de administración</h1>
-                        <p className={`text-xs mt-1 ${labelMuted}`}>
-                            {mainView === 'catalogoTi'
-                                ? 'Submódulo Catálogo roles TI: taxonomía financiera y perfiles del cliente interno en cotizador.'
-                                : mainView === 'reubicaciones'
-                                  ? 'Submódulo Reubicaciones: seguimiento PIPELINE (fecha fin, destino y causal; datos del consultor desde el directorio).'
-                                  : mainView === 'dashboardAdmin'
-                                    ? 'Dashboard: KPIs y gráficas solo de clientes, consultores y reubicaciones (sin catálogo roles TI).'
-                                    : 'Catálogo por cliente (líderes y GP) y colaboradores (roles autorizados).'}
-                        </p>
-                    </div>
-                </header>
-
                 {msg ? (
                     <div
                         className={`mx-4 md:mx-8 mt-3 px-3 py-2 rounded text-sm shrink-0 ${
@@ -1158,7 +1191,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     </div>
                 ) : null}
 
-                <main className={`flex-1 overflow-y-auto p-4 md:p-8 ${mainCanvas}`}>
+                <main className={`flex-1 overflow-y-auto p-4 md:p-6 ${mainCanvas}`}>
                     {mainView === 'dashboardAdmin' ? (
                         <div className="space-y-4 w-full max-w-[95rem]">
                             <AdministracionDashboardPage token={token} onDrillDown={administracionDrillDown} />
@@ -1166,426 +1199,497 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     ) : null}
 
                     {mainView === 'cliente' && (
-                        <div className="space-y-4 w-full max-w-[95rem]">
-                            <div className="flex flex-wrap gap-2 items-center">
+                        <div className={dash.moduleTabShellFull}>
+                            <ModuleFiltersToolbar
+                                chipLabel={clienteChipLabel}
+                                filtersPanelOpen={filtersPanelOpen}
+                                onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                                toggleId="directorio-cliente-filtros-toggle"
+                                panelId="directorio-cliente-filtros-panel"
+                                dash={dash}
+                            >
+                                <input
+                                    type="search"
+                                    className={`${field} w-[min(100%,11rem)] max-w-[13rem] shrink-0 text-sm`}
+                                    value={clQ}
+                                    onChange={(e) => {
+                                        setClQ(e.target.value);
+                                        setClPage(1);
+                                    }}
+                                    placeholder="Buscar cliente o líder"
+                                />
                                 <button
                                     type="button"
                                     onClick={openClienteModalCreate}
-                                    className="px-4 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold hover:bg-[#25649a]"
+                                    className={`${dash.toolbarBtn} shrink-0 bg-[#2F7BB8] text-white hover:bg-[#25649a] border-[#2F7BB8]`}
                                 >
                                     Crear nuevo cliente
                                 </button>
-                            </div>
-                            <p className={`text-xs ${labelMuted}`}>
-                                Una fila por cliente del catálogo (líderes activos / total). Clic en la fila abre el
-                                detalle de líderes. «Editar» renombra el cliente, el NIT y el GP en bloque. «Borrar»
-                                desactiva todos los líderes (no borra filas en base de datos); con el filtro «Activos»
-                                (predeterminado) el cliente deja de mostrarse. Paginación 10 / 20 / 50.
-                            </p>
-                            <div className="flex flex-wrap gap-2 items-end">
-                                <div>
-                                    <label className={`block text-xs ${labelMuted} mb-1`}>Estado</label>
-                                    <select
-                                        className={field}
-                                        value={clActivo}
-                                        onChange={(e) => setClActivo(e.target.value)}
-                                    >
-                                        <option value="all">Todos</option>
-                                        <option value="true">Activos</option>
-                                        <option value="false">Inactivos</option>
-                                    </select>
-                                </div>
-                                <div className="flex-1 min-w-[160px]">
-                                    <label className={`block text-xs ${labelMuted} mb-1`}>Buscar</label>
-                                    <input
-                                        className={`w-full ${field}`}
-                                        value={clQ}
-                                        onChange={(e) => setClQ(e.target.value)}
-                                        placeholder="Texto en cliente o líder"
-                                    />
-                                </div>
-                                <div>
-                                    <label className={`block text-xs ${labelMuted} mb-1`}>Filas</label>
-                                    <select
-                                        className={field}
-                                        value={clPageSize}
-                                        onChange={(e) => setClPageSize(Number(e.target.value))}
-                                    >
-                                        <option value={10}>10 por página</option>
-                                        <option value={20}>20 por página</option>
-                                        <option value={50}>50 por página</option>
-                                    </select>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => loadCatalogo()}
-                                    className={toolbarBtn}
-                                >
-                                    Refrescar
-                                </button>
-                            </div>
-                            <p className={`text-xs ${labelMuted}`}>
-                                Total clientes: {clTotal}
-                                {clTotal > 0
-                                    ? ` · Mostrando ${clRangeFrom}–${clRangeTo} (página ${safeClPage} de ${clTotalPages})`
-                                    : ''}
-                            </p>
-                            <div className={tableSurface}>
-                                <table className="min-w-full text-sm">
-                                    <thead className={tableThead}>
-                                        <tr>
-                                            <th className="text-left p-2 w-10"></th>
-                                            <th className="text-left p-2">Cliente</th>
-                                            <th className="text-left p-2">NIT</th>
-                                            <th className="text-left p-2">Líderes (activos / total)</th>
-                                            <th className="text-left p-2">GP</th>
-                                            <th className="text-left p-2 whitespace-nowrap">Editar</th>
-                                            <th className="text-left p-2 whitespace-nowrap">Borrar</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {clLoading ? (
-                                            <tr>
-                                                <td colSpan={7} className={`p-4 text-center ${labelMuted}`}>
-                                                    Cargando…
-                                                </td>
-                                            </tr>
-                                        ) : clItems.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={7} className={`p-4 text-center ${labelMuted}`}>
-                                                    Sin datos
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            clItems.map((g) => {
-                                                const activeCount = Number(g.active_count) || 0;
-                                                const totalCount = Number(g.total_count) || 0;
-                                                const gpN = Number(g.gp_distinct_count) || 0;
-                                                let gpText = '—';
-                                                let gpConflict = false;
-                                                if (gpN > 1) {
-                                                    gpConflict = true;
-                                                    gpText = 'GP distintos por líder';
-                                                } else if (g.gp_user_id) {
-                                                    const id = String(g.gp_user_id);
-                                                    const backendName = String(g.gp_full_name || '').trim();
-                                                    gpText =
-                                                        backendName || gpLabelById.get(id) || 'GP no disponible';
-                                                }
-                                                return (
-                                                <tr
-                                                    key={g.cliente}
-                                                    className={`${tableRowBorder} cursor-pointer ${
-                                                        selectedCatalogCliente === g.cliente
-                                                            ? isLight
-                                                                ? 'bg-sky-100'
-                                                                : 'bg-[#0f2942]/80'
-                                                            : ''
-                                                    }`}
-                                                    onClick={() => {
-                                                        setSelectedCatalogCliente(g.cliente);
-                                                        openLeadersModalForCliente(g.cliente);
-                                                    }}
-                                                >
-                                                    <td className="p-2">
-                                                        <input
-                                                            type="radio"
-                                                            className="accent-[#65BCF7]"
-                                                            checked={selectedCatalogCliente === g.cliente}
-                                                            onChange={() => {
-                                                                setSelectedCatalogCliente(g.cliente);
-                                                                openLeadersModalForCliente(g.cliente);
-                                                            }}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                        />
-                                                    </td>
-                                                    <td className="p-2 font-medium">{g.cliente}</td>
-                                                    <td className="p-2 tabular-nums">
-                                                        {String(g.nit || '').trim() || '—'}
-                                                    </td>
-                                                    <td className="p-2">
-                                                        {activeCount} / {totalCount}
-                                                    </td>
-                                                    <td
-                                                        className={`p-2 ${gpConflict ? (isLight ? 'text-amber-700' : 'text-amber-300/90') : labelMuted}`}
-                                                    >
-                                                        {gpText}
-                                                    </td>
-                                                    <td className="p-2 whitespace-nowrap">
-                                                        <button
-                                                            type="button"
-                                                            className={softBtn}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                void openEditClienteModalForCliente(g.cliente);
-                                                            }}
-                                                        >
-                                                            Editar
-                                                        </button>
-                                                    </td>
-                                                    <td className="p-2 whitespace-nowrap">
-                                                        <button
-                                                            type="button"
-                                                            className="px-2 py-1 rounded-md border border-rose-500/40 text-xs font-semibold text-rose-300 hover:bg-rose-500/10"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setSelectedCatalogCliente(g.cliente);
-                                                                setConfirmDeactivateCatalog(true);
-                                                            }}
-                                                        >
-                                                            Borrar
-                                                        </button>
-                                                    </td>
+                            </ModuleFiltersToolbar>
+                            <div className={`${dash.cardFlex} min-h-0 flex-1`}>
+                                <div className={dash.tableWrap}>
+                                    <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
+                                        <table className="w-full min-w-[720px] border-collapse text-left">
+                                            <thead>
+                                                <tr className={dash.thead}>
+                                                    <th className="w-10 p-4 pl-6 font-semibold" />
+                                                    <th className="p-4 font-semibold">Cliente</th>
+                                                    <th className="p-4 font-semibold">NIT</th>
+                                                    <th className="p-4 font-semibold">Líderes (activos / total)</th>
+                                                    <th className="p-4 font-semibold">GP</th>
+                                                    <th className="p-4 font-semibold whitespace-nowrap">Editar</th>
+                                                    <th className="p-4 pr-6 font-semibold whitespace-nowrap">Borrar</th>
                                                 </tr>
-                                                );
-                                            })
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                            {!clLoading && clTotal > 0 ? (
-                                <div className={`flex flex-wrap items-center justify-between gap-2 ${barInset}`}>
-                                    <span>
-                                        Página {safeClPage} de {clTotalPages}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setClPage((p) => Math.max(1, p - 1))}
-                                            disabled={safeClPage <= 1}
-                                            className={compactBtn}
-                                        >
-                                            Anterior
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setClPage((p) => Math.min(clTotalPages, p + 1))}
-                                            disabled={safeClPage >= clTotalPages}
-                                            className={compactBtn}
-                                        >
-                                            Siguiente
-                                        </button>
+                                            </thead>
+                                            <tbody className={dash.tbody}>
+                                                {clLoading ? (
+                                                    <tr>
+                                                        <td colSpan={7} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                                            Cargando…
+                                                        </td>
+                                                    </tr>
+                                                ) : clItems.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={7} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                                            Sin datos
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    clItems.map((g) => {
+                                                        const activeCount = Number(g.active_count) || 0;
+                                                        const totalCount = Number(g.total_count) || 0;
+                                                        const gpN = Number(g.gp_distinct_count) || 0;
+                                                        let gpText = '—';
+                                                        let gpConflict = false;
+                                                        if (gpN > 1) {
+                                                            gpConflict = true;
+                                                            gpText = 'GP distintos por líder';
+                                                        } else if (g.gp_user_id) {
+                                                            const id = String(g.gp_user_id);
+                                                            const backendName = String(g.gp_full_name || '').trim();
+                                                            gpText =
+                                                                backendName || gpLabelById.get(id) || 'GP no disponible';
+                                                        }
+                                                        const selected = selectedCatalogCliente === g.cliente;
+                                                        return (
+                                                            <tr
+                                                                key={g.cliente}
+                                                                className={`${dash.trHover} cursor-pointer ${
+                                                                    selected
+                                                                        ? isLight
+                                                                            ? 'bg-sky-100'
+                                                                            : 'bg-[#0f2942]/80'
+                                                                        : ''
+                                                                }`}
+                                                                onClick={() => {
+                                                                    setSelectedCatalogCliente(g.cliente);
+                                                                    openLeadersModalForCliente(g.cliente);
+                                                                }}
+                                                            >
+                                                                <td className="p-4 pl-6">
+                                                                    <input
+                                                                        type="radio"
+                                                                        className="accent-[#65BCF7]"
+                                                                        checked={selected}
+                                                                        onChange={() => {
+                                                                            setSelectedCatalogCliente(g.cliente);
+                                                                            openLeadersModalForCliente(g.cliente);
+                                                                        }}
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                    />
+                                                                </td>
+                                                                <td className={dash.tdName}>{g.cliente}</td>
+                                                                <td className={`${dash.tdCell} tabular-nums`}>
+                                                                    {String(g.nit || '').trim() || '—'}
+                                                                </td>
+                                                                <td className={dash.tdCell}>
+                                                                    {activeCount} / {totalCount}
+                                                                </td>
+                                                                <td
+                                                                    className={`${dash.tdMuted} ${gpConflict ? (isLight ? 'text-amber-700' : 'text-amber-300/90') : ''}`}
+                                                                >
+                                                                    {gpText}
+                                                                </td>
+                                                                <td className="p-4 whitespace-nowrap">
+                                                                    <button
+                                                                        type="button"
+                                                                        className={dash.actionBtn}
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            void openEditClienteModalForCliente(g.cliente);
+                                                                        }}
+                                                                    >
+                                                                        Editar
+                                                                    </button>
+                                                                </td>
+                                                                <td className="p-4 pr-6 whitespace-nowrap">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="rounded-lg border border-rose-500/40 px-3 py-1 text-xs font-semibold text-rose-400 transition-all hover:bg-rose-500/10"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setSelectedCatalogCliente(g.cliente);
+                                                                            setConfirmDeactivateCatalog(true);
+                                                                        }}
+                                                                    >
+                                                                        Borrar
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        );
+                                                    })
+                                                )}
+                                            </tbody>
+                                        </table>
                                     </div>
+                                    {!clLoading && clTotal > 0 ? (
+                                        <div className={dash.footerBar}>
+                                            <span>
+                                                Mostrando {clRangeFrom}–{clRangeTo} de {clTotal} · Página {safeClPage} de{' '}
+                                                {clTotalPages}
+                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setClPage((p) => Math.max(1, p - 1))}
+                                                    disabled={safeClPage <= 1}
+                                                    className={dash.compactBtn}
+                                                >
+                                                    Anterior
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setClPage((p) => Math.min(clTotalPages, p + 1))}
+                                                    disabled={safeClPage >= clTotalPages}
+                                                    className={dash.compactBtn}
+                                                >
+                                                    Siguiente
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : null}
                                 </div>
-                            ) : null}
+                            </div>
                         </div>
                     )}
 
                     {mainView === 'consultores' && (
-                        <div className="space-y-4 w-full max-w-[95rem]">
-                            <div className="flex flex-wrap gap-2 items-center">
+                        <div className={dash.moduleTabShellFull}>
+                            <ModuleFiltersToolbar
+                                chipLabel={consultoresChipLabel}
+                                filtersPanelOpen={filtersPanelOpen}
+                                onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                                toggleId="directorio-consultores-filtros-toggle"
+                                panelId="directorio-consultores-filtros-panel"
+                                dash={dash}
+                            >
+                                <input
+                                    type="search"
+                                    className={`${field} w-[min(100%,11rem)] max-w-[13rem] shrink-0 text-sm`}
+                                    value={coQ}
+                                    onChange={(e) => {
+                                        setCoQ(e.target.value);
+                                        setCoPage(1);
+                                    }}
+                                    placeholder="Buscar consultor"
+                                />
                                 <button
                                     type="button"
                                     onClick={openStaffModalCreate}
-                                    className="px-4 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold hover:bg-[#25649a]"
+                                    className={`${dash.toolbarBtn} shrink-0 bg-[#2F7BB8] text-white hover:bg-[#25649a] border-[#2F7BB8]`}
                                 >
-                                    Crear
+                                    Crear colaborador
                                 </button>
+                            </ModuleFiltersToolbar>
+                            <div className={`${dash.cardFlex} min-h-0 flex-1`}>
+                                <div className={dash.tableWrap}>
+                                    <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
+                                        <table className="w-full min-w-[960px] border-collapse text-left">
+                                            <thead>
+                                                <tr className={dash.thead}>
+                                                    <th className="w-10 p-4 pl-6 font-semibold" />
+                                                    {(
+                                                        [
+                                                            ['cedula', 'Cédula'],
+                                                            ['codigo', 'Código'],
+                                                            ['nombre', 'Nombre'],
+                                                            ['correo', 'Correo'],
+                                                            ['cliente', 'Cliente'],
+                                                            ['lider', 'Líder'],
+                                                            ['activo', 'Activo']
+                                                        ]
+                                                    ).map(([col, label]) => (
+                                                        <th key={col} className="p-4 font-semibold">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleCoSortHeader(col)}
+                                                                className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 font-semibold text-inherit hover:text-[#65BCF7]"
+                                                            >
+                                                                {label}
+                                                                {coSort.key === col ? (
+                                                                    coSort.dir === 'asc' ? (
+                                                                        <ArrowUp size={14} className="text-[#65BCF7]" />
+                                                                    ) : (
+                                                                        <ArrowDown size={14} className="text-[#65BCF7]" />
+                                                                    )
+                                                                ) : null}
+                                                            </button>
+                                                        </th>
+                                                    ))}
+                                                    <th className="p-4 font-semibold whitespace-nowrap">Editar</th>
+                                                    <th className="p-4 pr-6 font-semibold">Acciones</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className={dash.tbody}>
+                                                {coLoading ? (
+                                                    <tr>
+                                                        <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                                            Cargando…
+                                                        </td>
+                                                    </tr>
+                                                ) : coItems.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                                            Sin datos
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    coItems.map((row) => (
+                                                        <tr
+                                                            key={row.cedula}
+                                                            className={`${dash.trHover} cursor-pointer ${
+                                                                selectedCoCedula === row.cedula
+                                                                    ? isLight
+                                                                        ? 'bg-sky-100'
+                                                                        : 'bg-[#0f2942]/80'
+                                                                    : ''
+                                                            }`}
+                                                            onClick={() =>
+                                                                setSelectedCoCedula((cur) =>
+                                                                    cur === row.cedula ? null : row.cedula
+                                                                )
+                                                            }
+                                                        >
+                                                            <td className="p-4 pl-6">
+                                                                <input
+                                                                    type="radio"
+                                                                    className="accent-[#65BCF7]"
+                                                                    checked={selectedCoCedula === row.cedula}
+                                                                    onChange={() => setSelectedCoCedula(row.cedula)}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                />
+                                                            </td>
+                                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
+                                                            <td className={dash.tdCell} title={row.codigo || ''}>
+                                                                {row.codigo || '—'}
+                                                            </td>
+                                                            <td className={dash.tdName}>{row.nombre}</td>
+                                                            <td className={dash.tdCell}>{row.correo_cinte || '—'}</td>
+                                                            <td className={dash.tdCell}>{row.cliente || '—'}</td>
+                                                            <td className={dash.tdCell}>{row.lider_catalogo || '—'}</td>
+                                                            <td className={dash.tdMuted}>{row.activo ? 'Sí' : 'No'}</td>
+                                                            <td className="p-4 whitespace-nowrap">
+                                                                <button
+                                                                    type="button"
+                                                                    className={dash.actionBtn}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        openStaffModalEditForRow(row);
+                                                                    }}
+                                                                >
+                                                                    Editar
+                                                                </button>
+                                                            </td>
+                                                            <td className="p-4 pr-6 whitespace-nowrap">
+                                                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="text-[#65BCF7] hover:underline"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            patchColaborador(row.cedula, {
+                                                                                activo: !row.activo
+                                                                            });
+                                                                        }}
+                                                                    >
+                                                                        {row.activo ? 'Desactivar' : 'Activar'}
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="text-red-400 hover:text-red-300 hover:underline"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            deleteColaboradorRow(row);
+                                                                        }}
+                                                                    >
+                                                                        Eliminar
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {!coLoading && coTotal > 0 ? (
+                                        <div className={dash.footerBar}>
+                                            <span>
+                                                Mostrando {coRangeFrom}–{coRangeTo} de {coTotal} · Página {safeCoPage} de{' '}
+                                                {coTotalPages}
+                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCoPage((p) => Math.max(1, p - 1))}
+                                                    disabled={safeCoPage <= 1}
+                                                    className={dash.compactBtn}
+                                                >
+                                                    Anterior
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCoPage((p) => Math.min(coTotalPages, p + 1))}
+                                                    disabled={safeCoPage >= coTotalPages}
+                                                    className={dash.compactBtn}
+                                                >
+                                                    Siguiente
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : null}
+                                </div>
                             </div>
-                            <div className="flex flex-wrap gap-2 items-end">
+                        </div>
+                    )}
+
+                    {mainView === 'catalogoTi' && showTiCatalogSubmod ? (
+                        <RolesTiCatalogPage token={token} auth={auth} embedInDirectorio />
+                    ) : null}
+
+                    {mainView === 'reubicaciones' ? (
+                        <ReubicacionesPipelinePage token={token} navIntent={reubicacionesNavIntent} />
+                    ) : null}
+
+                    {mainView === 'mallasTurnos' ? (
+                        <MallasTurnosModule token={token} />
+                    ) : null}
+
+                    {mainView === 'cliente' ? (
+                        <ModuleFiltersDrawer
+                            open={filtersPanelOpen}
+                            onClose={() => setFiltersPanelOpen(false)}
+                            onClear={clearClienteFilters}
+                            dash={dash}
+                            panelId="directorio-cliente-filtros-panel"
+                            titleId="directorio-cliente-filtros-drawer-title"
+                        >
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="directorio-cliente-estado" className={dash.filtrosDrawerLabel}>
+                                    Estado
+                                </label>
                                 <select
-                                    className={field}
-                                    value={coActivo}
-                                    onChange={(e) => setCoActivo(e.target.value)}
+                                    id="directorio-cliente-estado"
+                                    className={`${field} w-full text-sm`}
+                                    value={clActivo}
+                                    onChange={(e) => {
+                                        setClActivo(e.target.value);
+                                        setClPage(1);
+                                    }}
                                 >
                                     <option value="all">Todos</option>
                                     <option value="true">Activos</option>
                                     <option value="false">Inactivos</option>
                                 </select>
-                                <input
-                                    className={`flex-1 min-w-[160px] ${field}`}
-                                    value={coQ}
-                                    onChange={(e) => setCoQ(e.target.value)}
-                                    placeholder="Buscar"
-                                />
-                                <div>
-                                    <label className={`block text-xs ${labelMuted} mb-1`}>Filas</label>
-                                    <select
-                                        className={field}
-                                        value={coPageSize}
-                                        onChange={(e) => setCoPageSize(Number(e.target.value))}
-                                    >
-                                        <option value={10}>10 por página</option>
-                                        <option value={20}>20 por página</option>
-                                        <option value={50}>50 por página</option>
-                                    </select>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => loadColaboradores()}
-                                    className={toolbarBtn}
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="directorio-cliente-pagesize" className={dash.filtrosDrawerLabel}>
+                                    Mostrar por página
+                                </label>
+                                <select
+                                    id="directorio-cliente-pagesize"
+                                    className={`${field} w-full text-sm`}
+                                    value={clPageSize}
+                                    onChange={(e) => {
+                                        setClPageSize(Number(e.target.value));
+                                        setClPage(1);
+                                    }}
                                 >
-                                    Refrescar
-                                </button>
+                                    <option value={10}>10 por página</option>
+                                    <option value={20}>20 por página</option>
+                                    <option value={50}>50 por página</option>
+                                </select>
                             </div>
-                            <p className={`text-xs ${labelMuted}`}>
-                                Total: {coTotal}
-                                {coTotal > 0
-                                    ? ` · Mostrando ${coRangeFrom}–${coRangeTo} (página ${safeCoPage} de ${coTotalPages})`
-                                    : ''}
-                                . Clic en un encabezado para ordenar (el orden aplica a todo el resultado filtrado).
-                            </p>
-                            <div className={tableSurface}>
-                                <table className="min-w-full text-sm">
-                                    <thead className={tableThead}>
-                                        <tr>
-                                            <th className="text-left p-2 w-10"></th>
-                                            {(
-                                                [
-                                                    ['cedula', 'Cédula'],
-                                                    ['codigo', 'Código'],
-                                                    ['nombre', 'Nombre'],
-                                                    ['correo', 'Correo'],
-                                                    ['cliente', 'Cliente'],
-                                                    ['lider', 'Líder'],
-                                                    ['activo', 'Activo']
-                                                ]
-                                            ).map(([col, label]) => (
-                                                <th key={col} className="text-left p-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleCoSortHeader(col)}
-                                                        className="inline-flex items-center gap-1 hover:text-[#65BCF7] cursor-pointer font-medium text-inherit bg-transparent border-0 p-0"
-                                                    >
-                                                        {label}
-                                                        {coSort.key === col ? (
-                                                            coSort.dir === 'asc' ? (
-                                                                <ArrowUp size={14} className="text-[#65BCF7]" />
-                                                            ) : (
-                                                                <ArrowDown size={14} className="text-[#65BCF7]" />
-                                                            )
-                                                        ) : null}
-                                                    </button>
-                                                </th>
-                                            ))}
-                                            <th className="text-left p-2 whitespace-nowrap">Editar</th>
-                                            <th className="text-left p-2">Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {coLoading ? (
-                                            <tr>
-                                                <td colSpan={10} className="p-4 text-center">
-                                                    Cargando…
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            coItems.map((row) => (
-                                                <tr
-                                                    key={row.cedula}
-                                                    className={`${tableRowBorder} cursor-pointer ${
-                                                        selectedCoCedula === row.cedula
-                                                            ? isLight
-                                                                ? 'bg-sky-100'
-                                                                : 'bg-[#0f2942]/80'
-                                                            : ''
-                                                    }`}
-                                                    onClick={() =>
-                                                        setSelectedCoCedula((cur) =>
-                                                            cur === row.cedula ? null : row.cedula
-                                                        )
-                                                    }
-                                                >
-                                                    <td className="p-2">
-                                                        <input
-                                                            type="radio"
-                                                            className="accent-[#65BCF7]"
-                                                            checked={selectedCoCedula === row.cedula}
-                                                            onChange={() => setSelectedCoCedula(row.cedula)}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                        />
-                                                    </td>
-                                                    <td className="p-2 whitespace-nowrap">{row.cedula}</td>
-                                                    <td className="p-2 max-w-[8rem] truncate" title={row.codigo || ''}>
-                                                        {row.codigo || '—'}
-                                                    </td>
-                                                    <td className="p-2">{row.nombre}</td>
-                                                    <td className="p-2">{row.correo_cinte || '—'}</td>
-                                                    <td className="p-2">{row.cliente || '—'}</td>
-                                                    <td className="p-2">{row.lider_catalogo || '—'}</td>
-                                                    <td className="p-2">{row.activo ? 'Sí' : 'No'}</td>
-                                                    <td className="p-2 whitespace-nowrap">
-                                                        <button
-                                                            type="button"
-                                                            className={softBtn}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                openStaffModalEditForRow(row);
-                                                            }}
-                                                        >
-                                                            Editar
-                                                        </button>
-                                                    </td>
-                                                    <td className="p-2 whitespace-nowrap">
-                                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                                            <button
-                                                                type="button"
-                                                                className="text-[#65BCF7] hover:underline"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    patchColaborador(row.cedula, {
-                                                                        activo: !row.activo
-                                                                    });
-                                                                }}
-                                                            >
-                                                                {row.activo ? 'Desactivar' : 'Activar'}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                className="text-red-400 hover:text-red-300 hover:underline"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    deleteColaboradorRow(row);
-                                                                }}
-                                                            >
-                                                                Eliminar
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                            {!coLoading && coTotal > 0 ? (
-                                <div className={`flex flex-wrap items-center justify-between gap-2 ${barInset}`}>
-                                    <span>
-                                        Página {safeCoPage} de {coTotalPages}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setCoPage((p) => Math.max(1, p - 1))}
-                                            disabled={safeCoPage <= 1}
-                                            className={compactBtn}
-                                        >
-                                            Anterior
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setCoPage((p) => Math.min(coTotalPages, p + 1))}
-                                            disabled={safeCoPage >= coTotalPages}
-                                            className={compactBtn}
-                                        >
-                                            Siguiente
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : null}
-                        </div>
-                    )}
-
-                    {mainView === 'catalogoTi' && showTiCatalogSubmod ? (
-                        <div className="space-y-4 w-full max-w-[95rem]">
-                            <RolesTiCatalogPage token={token} auth={auth} embedInDirectorio />
-                        </div>
+                            <button type="button" onClick={() => loadCatalogo()} className={dash.toolbarBtn}>
+                                Refrescar
+                            </button>
+                        </ModuleFiltersDrawer>
                     ) : null}
 
-                    {mainView === 'reubicaciones' ? (
-                        <div className="space-y-4 w-full max-w-[95rem]">
-                            <ReubicacionesPipelinePage token={token} navIntent={reubicacionesNavIntent} />
-                        </div>
+                    {mainView === 'consultores' ? (
+                        <ModuleFiltersDrawer
+                            open={filtersPanelOpen}
+                            onClose={() => setFiltersPanelOpen(false)}
+                            onClear={clearConsultoresFilters}
+                            dash={dash}
+                            panelId="directorio-consultores-filtros-panel"
+                            titleId="directorio-consultores-filtros-drawer-title"
+                        >
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="directorio-consultores-activo" className={dash.filtrosDrawerLabel}>
+                                    Activo
+                                </label>
+                                <select
+                                    id="directorio-consultores-activo"
+                                    className={`${field} w-full text-sm`}
+                                    value={coActivo}
+                                    onChange={(e) => {
+                                        setCoActivo(e.target.value);
+                                        setCoPage(1);
+                                    }}
+                                >
+                                    <option value="all">Todos</option>
+                                    <option value="true">Activos</option>
+                                    <option value="false">Inactivos</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="directorio-consultores-tipo" className={dash.filtrosDrawerLabel}>
+                                    Tipo de contrato
+                                </label>
+                                <input
+                                    id="directorio-consultores-tipo"
+                                    className={`${field} w-full text-sm`}
+                                    value={coTipoContrato}
+                                    onChange={(e) => {
+                                        setCoTipoContrato(e.target.value);
+                                        setCoPage(1);
+                                    }}
+                                    placeholder="Ej. Indefinido, Obra labor…"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="directorio-consultores-pagesize" className={dash.filtrosDrawerLabel}>
+                                    Mostrar por página
+                                </label>
+                                <select
+                                    id="directorio-consultores-pagesize"
+                                    className={`${field} w-full text-sm`}
+                                    value={coPageSize}
+                                    onChange={(e) => {
+                                        setCoPageSize(Number(e.target.value));
+                                        setCoPage(1);
+                                    }}
+                                >
+                                    <option value={10}>10 por página</option>
+                                    <option value={20}>20 por página</option>
+                                    <option value={50}>50 por página</option>
+                                </select>
+                            </div>
+                            <button type="button" onClick={() => loadColaboradores()} className={dash.toolbarBtn}>
+                                Refrescar
+                            </button>
+                        </ModuleFiltersDrawer>
                     ) : null}
                 </main>
             </div>

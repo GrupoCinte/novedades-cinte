@@ -81,8 +81,11 @@ export const NOVEDAD_RULES = {
     formatLinks: [],
     approvers: ['admin_ch'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-    requiresDayCount: false,
-    requiresTimeRange: true
+    requiresDayCount: true,
+    requiresTimeRange: false,
+    autoBusinessDays: true,
+    /** Mismo modo dual del Permiso remunerado: toggle Días hábiles / Horas (mismo día). */
+    permisoRemuneradoHoras: true
   },
   'Permiso compensatorio en tiempo': {
     requiredDocuments: ['Formato de permiso compensatorio'],
@@ -91,7 +94,9 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
-    autoBusinessDays: true
+    autoBusinessDays: true,
+    /** Mismo modo dual del Permiso remunerado: toggle Días hábiles / Horas (mismo día). */
+    permisoRemuneradoHoras: true
   },
   'Compensatorio por votación/jurado': {
     requiredDocuments: ['Certificado de jurado o electoral (según la modalidad elegida)'],
@@ -104,6 +109,11 @@ export const NOVEDAD_RULES = {
   },
   /**
    * Disponibilidad: el backend guarda cantidad_horas = 0 y el valor en monto_cop.
+   * HU disponibilidad-monto-diligenciado-por-gp:
+   *   - El consultor radica SIN diligenciar el monto (campo oculto en el formulario).
+   *   - El monto lo diligencia el GP (o super_admin/CAC) en el modal de Gestión, justo antes de Aprobar o Rechazar.
+   *   - `requiresMonetaryAmount: true` se mantiene para que el panel de Gestión siga mostrando "Valor (COP)" como etiqueta.
+   *   - `montoDiligenciadoPorAprobador: true` señala que la captura del monto NO ocurre en la radicación.
    * El formulario puede mostrar días hábiles del rango solo como referencia (UI), no persistidos en cantidad_horas.
    */
   Disponibilidad: {
@@ -113,7 +123,8 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: false,
     requiresTimeRange: false,
-    requiresMonetaryAmount: true
+    requiresMonetaryAmount: true,
+    montoDiligenciadoPorAprobador: true
   },
   'Hora Extra': {
     requiredDocuments: [],
@@ -123,14 +134,34 @@ export const NOVEDAD_RULES = {
     requiresDayCount: false,
     requiresTimeRange: true
   },
-  'Compensatorio por votación/jurado': {
-    requiredDocuments: [],  // dinámico por modalidad — ver FormularioNovedad
+  /**
+   * Suspensión de contrato de prestación de servicios. Solo consultor (Entra) radica.
+   * Periodo no facturable al cliente; aprueba GP del cliente asignado.
+   * Spec: docs/specs/crear-novedad-de-suspension.spec.md
+   */
+  Suspensión: {
+    requiredDocuments: [],
     formatLinks: [],
-    approvers: ['admin_ch', 'cac'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-    requiresDayCount: false,   // cantidad_dias es fija por modalidad
+    approvers: ['gp'],
+    viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
+    requiresDayCount: false,
     requiresTimeRange: false,
-    requiresVotacionModalidad: true
+    requiresObservaciones: true,
+    requiresFechaFin: true
+  },
+  /**
+   * Vacaciones en dinero: compensación monetaria en días sin disfrute. El consultor
+   * adjunta carta con firma manuscrita (PDF) y solicita N días enteros. Aprueba CH.
+   * No hay rango de fechas: solo días solicitados; backend persiste fecha_fin = NULL.
+   */
+  'Vacaciones en dinero': {
+    requiredDocuments: ['Carta con firma manuscrita (solicitud formal en PDF)'],
+    formatLinks: [],
+    approvers: ['admin_ch'],
+    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
+    requiresDayCount: true,
+    requiresTimeRange: false,
+    autoBusinessDays: false
   }
 };
 
@@ -149,15 +180,6 @@ export const NOVEDAD_RULES_LEGACY = {
     requiresDayCount: true,
     requiresTimeRange: false,
     autoBusinessDays: true
-  },
-  'Vacaciones en dinero': {
-    requiredDocuments: ['Carta con firma manuscrita (solicitud formal en PDF)'],
-    formatLinks: [],
-    approvers: ['admin_ch'],
-    viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina'],
-    requiresDayCount: true,
-    requiresTimeRange: false,
-    autoBusinessDays: false
   },
   Bonos: {
     requiredDocuments: [],
@@ -195,7 +217,8 @@ const TIPO_ALIAS_SNAKE = {
   apoyo_standby: 'Disponibilidad',
   disponibilidad_standby: 'Disponibilidad',
   bonos: 'Bonos',
-  bono: 'Bonos'
+  bono: 'Bonos',
+  suspension: 'Suspensión'
 };
 
 /** Días hábiles entre fechas YYYY-MM-DD (lun–vie), alineado con Formulario y registerRoutes. */
@@ -290,6 +313,8 @@ export function resolveCanonicalNovedadTipo(tipoRaw) {
   ) {
     return 'Disponibilidad';
   }
+  /* Suspensión: backend persiste display "Suspensión" (con tilde); el folding la deja sin tilde. */
+  if (f === 'suspension') return 'Suspensión';
   return raw;
 }
 
@@ -347,11 +372,18 @@ export function getAsignacionGestionNovedad(tipoNovedad) {
   };
 }
 
-/** Alineado con FormularioNovedad: cantidad_horas almacena horas o días según el tipo. `context` incluye `unidad` para Permiso remunerado en horas. */
+/** Tipos que admiten toggle Días hábiles / Horas (mismo día) en el formulario. */
+export const TIPOS_CON_TOGGLE_HORAS = [
+  'Permiso remunerado',
+  'Permiso no remunerado',
+  'Permiso compensatorio en tiempo'
+];
+
+/** Alineado con FormularioNovedad: cantidad_horas almacena horas o días según el tipo. `context` incluye `unidad` para los permisos con toggle. */
 export function getCantidadMedidaKind(tipoNovedad, context = null) {
   const canon = resolveCanonicalNovedadTipo(tipoNovedad);
   const unidad = String(context?.unidad || '').trim().toLowerCase();
-  if (canon === 'Permiso remunerado' && unidad === 'horas') return 'hours';
+  if (TIPOS_CON_TOGGLE_HORAS.includes(canon) && unidad === 'horas') return 'hours';
   /** Votación/medio día: `cantidad_horas` = horas de franja; jurado: `cantidad_horas` = 1 (día). */
   if (canon === 'Compensatorio por votación/jurado') {
     const mod = String(context?.modalidad || '').trim().toLowerCase();

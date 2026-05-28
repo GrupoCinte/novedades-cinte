@@ -162,3 +162,170 @@ test('GET /api/novedades/duplicado-pendiente sin fechaInicio devuelve duplicado=
   assert.equal(res.body.duplicado, false);
   assert.equal(consulto, false);
 });
+
+// ─── HU disponibilidad-monto-diligenciado-por-gp ─────────────────────────────
+//
+// El aprobador (GP/super_admin/CAC) DEBE diligenciar el monto en COP al transicionar
+// una novedad de Disponibilidad a Aprobado/Rechazado. Sin monto > 0, el endpoint debe
+// rechazar la transición con HTTP 400 y NO modificar la BD.
+
+const VALID_NOVEDAD_UUID = '11111111-1111-4111-8111-111111111111';
+
+function buildPoolForActualizarEstado({ tipoNovedad, captureUpdate = null }) {
+  return {
+    query: async (sql, params) => {
+      const text = String(sql || '');
+      if (text.includes('FROM novedades') && text.includes('WHERE id = $1::uuid') && text.includes('LIMIT 1')) {
+        return {
+          rows: [{
+            id: VALID_NOVEDAD_UUID,
+            area: 'admin',
+            tipo_novedad: tipoNovedad,
+            estado: 'Pendiente',
+            nombre: 'Tester',
+            correo_solicitante: 'tester@example.com',
+            cliente: 'Cliente A',
+            lider: 'Lider A',
+            fecha_inicio: '2026-05-20',
+            fecha_fin: '2026-05-25',
+            cantidad_horas: 0,
+            monto_cop: null
+          }]
+        };
+      }
+      if (text.includes('FROM users')) {
+        return { rows: [{ id: 'user-uuid' }] };
+      }
+      if (text.startsWith('UPDATE novedades')) {
+        if (typeof captureUpdate === 'function') captureUpdate(text, params);
+        return { rows: [] };
+      }
+      return { rows: [] };
+    }
+  };
+}
+
+test('POST /api/actualizar-estado: Disponibilidad sin montoCop → 400', async () => {
+  let updated = false;
+  const app = buildApp({
+    pool: buildPoolForActualizarEstado({
+      tipoNovedad: 'Disponibilidad',
+      captureUpdate: () => { updated = true; }
+    })
+  });
+  const res = await request(app)
+    .post('/api/actualizar-estado')
+    .send({ id: VALID_NOVEDAD_UUID, nuevoEstado: 'Aprobado' });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+  assert.match(String(res.body.error || ''), /pesos/i);
+  assert.equal(updated, false, 'no debe ejecutar UPDATE cuando falta el monto');
+});
+
+test('POST /api/actualizar-estado: Disponibilidad con montoCop ≤ 0 → 400', async () => {
+  const app = buildApp({
+    pool: buildPoolForActualizarEstado({ tipoNovedad: 'Disponibilidad' })
+  });
+  const res = await request(app)
+    .post('/api/actualizar-estado')
+    .send({ id: VALID_NOVEDAD_UUID, nuevoEstado: 'Aprobado', montoCop: 0 });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+});
+
+test('POST /api/actualizar-estado: Disponibilidad con montoCop > 0 → 200 y persiste el monto', async () => {
+  let captured = null;
+  const app = buildApp({
+    pool: buildPoolForActualizarEstado({
+      tipoNovedad: 'Disponibilidad',
+      captureUpdate: (_text, params) => { captured = params; }
+    })
+  });
+  const res = await request(app)
+    .post('/api/actualizar-estado')
+    .send({ id: VALID_NOVEDAD_UUID, nuevoEstado: 'Aprobado', montoCop: 1500000 });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.ok(captured, 'el UPDATE debe ejecutarse');
+  // El UPDATE recibe en $7 (aplicaDiligenciamientoMonto) y $8 (nuevoMontoCopParaUpdate).
+  assert.equal(captured[6], true, '$7 = aplicaDiligenciamientoMonto debe ser true');
+  assert.equal(Number(captured[7]), 1500000, '$8 = monto en COP con dos decimales');
+});
+
+test('POST /api/actualizar-estado: tipo NO Disponibilidad sin montoCop → 200 (no exige monto)', async () => {
+  let captured = null;
+  const app = buildApp({
+    pool: buildPoolForActualizarEstado({
+      tipoNovedad: 'Incapacidad',
+      captureUpdate: (_text, params) => { captured = params; }
+    })
+  });
+  const res = await request(app)
+    .post('/api/actualizar-estado')
+    .send({ id: VALID_NOVEDAD_UUID, nuevoEstado: 'Aprobado' });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(captured[6], false, '$7 = aplicaDiligenciamientoMonto debe ser false para tipos no-Disponibilidad');
+  assert.equal(captured[7], null, '$8 = monto null cuando no aplica diligenciamiento');
+});
+
+test('POST /api/actualizar-estado: Disponibilidad RECHAZADA también requiere montoCop > 0', async () => {
+  const app = buildApp({
+    pool: buildPoolForActualizarEstado({ tipoNovedad: 'Disponibilidad' })
+  });
+  const res = await request(app)
+    .post('/api/actualizar-estado')
+    .send({
+      id: VALID_NOVEDAD_UUID,
+      nuevoEstado: 'Rechazado',
+      observacionesRechazo: 'Falta soporte de disponibilidad.'
+    });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+  assert.match(String(res.body.error || ''), /pesos/i);
+});
+
+test('POST /api/actualizar-estado: Rechazado sin observacionesRechazo → 400', async () => {
+  let updated = false;
+  const app = buildApp({
+    pool: buildPoolForActualizarEstado({
+      tipoNovedad: 'Incapacidad',
+      captureUpdate: () => { updated = true; }
+    })
+  });
+  const res = await request(app)
+    .post('/api/actualizar-estado')
+    .send({ id: VALID_NOVEDAD_UUID, nuevoEstado: 'Rechazado' });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+  assert.match(String(res.body.error || ''), /observaci[oó]n de rechazo/i);
+  assert.equal(updated, false);
+});
+
+test('POST /api/actualizar-estado: Rechazado con observacionesRechazo → 200 y persiste', async () => {
+  let captured = null;
+  const motivo = 'Documento ilegible; adjunte incapacidad legible.';
+  const app = buildApp({
+    pool: buildPoolForActualizarEstado({
+      tipoNovedad: 'Incapacidad',
+      captureUpdate: (_text, params) => { captured = params; }
+    }),
+    emailNotificationsPublisher: {
+      publishFormStatusChanged: async (payload) => {
+        assert.equal(payload.rejectionFeedback, motivo);
+        return { accepted: true, skipped: false };
+      }
+    }
+  });
+  const res = await request(app)
+    .post('/api/actualizar-estado')
+    .send({
+      id: VALID_NOVEDAD_UUID,
+      nuevoEstado: 'Rechazado',
+      observacionesRechazo: motivo
+    });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.ok(captured);
+  assert.equal(captured[8], motivo, '$9 = observaciones de rechazo');
+});

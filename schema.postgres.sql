@@ -114,6 +114,9 @@ CREATE TABLE IF NOT EXISTS novedades (
   -- Soporte
   soporte_ruta          TEXT NULL,
 
+  -- Observaciones libres del solicitante (usadas hoy por Suspensión; reutilizable por otros tipos).
+  observaciones         TEXT NULL,
+
   -- Estado y trazabilidad
   estado                novedad_estado NOT NULL DEFAULT 'Pendiente',
   creado_por_user_id    UUID NULL REFERENCES users(id),

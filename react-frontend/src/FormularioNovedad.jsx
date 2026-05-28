@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { NOVEDAD_TYPES, getNovedadRule, countBusinessDaysInclusive, countCalendarDaysInclusive } from './novedadRules';
+import {
+    NOVEDAD_TYPES,
+    getNovedadRule,
+    countBusinessDaysInclusive,
+    countCalendarDaysInclusive,
+    TIPOS_CON_TOGGLE_HORAS
+} from './novedadRules';
 import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat';
 import { toUtcMsFromDateAndTime } from './heNovedadBogotaClient.js';
 import { buildCsrfHeaders } from './cognitoAuth.js';
@@ -226,8 +232,12 @@ const EMPTY_DETALLE_FORM = {
     fechaVotacion: '',
     fechaDisfruteVotacion: '',
     horaDisfruteInicio: '',
-    horaDisfruteFin: ''
+    horaDisfruteFin: '',
+    observaciones: ''
 };
+
+/** Tope (UI y backend) para el textarea de observaciones libres. */
+const MAX_OBSERVACIONES_LEN = 1000;
 
 function isExcelAttachment(file) {
     const lowerName = String(file?.name || '').toLowerCase();
@@ -259,7 +269,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         fechaVotacion: '',
         fechaDisfruteVotacion: '',
         horaDisfruteInicio: '',
-        horaDisfruteFin: ''
+        horaDisfruteFin: '',
+        observaciones: ''
     });
 
     const [status, setStatus] = useState({ type: '', text: '' });
@@ -324,9 +335,14 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const isCompensatorioVotacion = formData.tipo === 'Compensatorio por votación/jurado';
     const esPermisoRemunerado = formData.tipo === 'Permiso remunerado';
     const esPermisoHoras = esPermisoRemunerado && formData.permisoUnidad === 'horas';
+    /** Tipos que comparten el modo dual del Permiso remunerado (días hábiles / horas mismo día). */
+    const esPermisoConToggle = TIPOS_CON_TOGGLE_HORAS.includes(formData.tipo);
+    const esVacacionesDinero = formData.tipo === 'Vacaciones en dinero';
+    const esPermisoHoras = esPermisoConToggle && formData.permisoUnidad === 'horas';
     const esCompensatorioVotacion = formData.tipo === 'Compensatorio por votación/jurado';
     const modalidadCompVotacion = String(formData.modalidadVotacion || '').trim();
     const esCompVotacionMedioDia = esCompensatorioVotacion && modalidadCompVotacion === 'solo_voto';
+    const esSuspension = formData.tipo === 'Suspensión';
 
     /**
      * Restricción Compensatorio por votación/jurado:
@@ -372,26 +388,32 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     const requiredDocsCount = requiredDocuments.length;
     const requiereAdjunto = requiredDocsCount > 0;
     const requierePlantillaExcel = Array.isArray(rule.formatLinks) && rule.formatLinks.length > 0;
-    const requiereDias = Boolean(rule.requiresDayCount) && !(esPermisoRemunerado && esPermisoHoras);
-    const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays) && !(esPermisoRemunerado && esPermisoHoras);
-    const autocalculaDiasCalendario = Boolean(rule.autoCalendarDays) && !(esPermisoRemunerado && esPermisoHoras);
+    const requiereDias = Boolean(rule.requiresDayCount) && !esPermisoHoras;
+    const autocalculaDiasHabiles = Boolean(rule.autoBusinessDays) && !esPermisoHoras;
+    const autocalculaDiasCalendario = Boolean(rule.autoCalendarDays) && !esPermisoHoras;
     const autocalculaDiasDesdeRango = autocalculaDiasHabiles || autocalculaDiasCalendario;
-    const requiereMontoCop = Boolean(rule.requiresMonetaryAmount);
+    /**
+     * HU disponibilidad-monto-diligenciado-por-gp: el monto de la novedad de Disponibilidad
+     * lo diligencia el GP/super_admin/CAC al aprobar o rechazar; no debe pedirse al consultor
+     * en el formulario de radicación. Se conserva `requiereMontoCop` solo para tipos donde
+     * la regla pide monto al radicar (p. ej. Bonos).
+     */
+    const requiereMontoCop = Boolean(rule.requiresMonetaryAmount) && !rule.montoDiligenciadoPorAprobador;
     const esDisponibilidad = formData.tipo === 'Disponibilidad';
     const esSinAdjuntosPublicos = esDisponibilidad;
     const esIncapacidad = formData.tipo === 'Incapacidad';
     const todayLocalYmd = localTodayYmd();
-    /** Permiso remunerado (días u horas): no hoy ni fechas pasadas; tope superior = mismo “un año calendario” que el resto de novedades. */
-    const minFechaPermisoRemuneradoYmd = addCalendarDaysYmd(todayLocalYmd, 1);
+    /** Permisos con toggle (días u horas): desde hoy (sin retroactivo); tope superior = mismo “un año calendario” que el resto de novedades. */
+    const minFechaPermisoRemuneradoYmd = todayLocalYmd;
     /** Rango de fechas del permiso (días o unidad aún no elegida); excluye modo horas. */
-    const esPermisoRemuneradoBloqueDias = esPermisoRemunerado && formData.permisoUnidad !== 'horas';
-    /** Inicio: no antes de 1 mes calendario atrás; fin: no después de 1 año calendario desde hoy. */
-    const minFechaInicioYmd = addCalendarMonthsYmd(todayLocalYmd, -1);
+    const esPermisoConToggleBloqueDias = esPermisoConToggle && formData.permisoUnidad !== 'horas';
+    /** Inicio: no antes de 4 meses calendario atrás; fin: no después de 1 año calendario desde hoy. */
+    const minFechaInicioYmd = addCalendarMonthsYmd(todayLocalYmd, -4);
     const maxFechaFinYmd = addCalendarYearsYmd(todayLocalYmd, 1);
     const maxFechaInicioYmd = esIncapacidad ? todayLocalYmd : maxFechaFinYmd;
-    /** Límite inferior de “Fecha inicio” en el bloque genérico: permiso remunerado (salvo modo horas) = desde mañana. */
+    /** Límite inferior de “Fecha inicio” en el bloque genérico: permisos con toggle (salvo modo horas) = desde hoy. */
     const minFechaInicioEfectivaYmd =
-        esPermisoRemuneradoBloqueDias
+        esPermisoConToggleBloqueDias
             ? minFechaPermisoRemuneradoYmd
             : minFechaInicioYmd;
     const requiereLapsoHora = Boolean(rule.requiresTimeRange);
@@ -684,9 +706,9 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         && formData.fechaFin
         && formData.fechaFin > maxFechaFinYmd
     );
-    /** Permiso remunerado en días: la fecha fin tampoco puede ser hoy ni anterior. */
+    /** Permisos con toggle en días: la fecha fin tampoco puede ser hoy ni anterior. */
     const fechaFinPermisoDiasAntesDeMin = Boolean(
-        esPermisoRemuneradoBloqueDias
+        esPermisoConToggleBloqueDias
         && formData.fechaFin
         && formData.fechaFin < minFechaPermisoRemuneradoYmd
     );
@@ -757,7 +779,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         ))
     );
 
-    const bloqueoEnvioPermisoSinUnidad = esPermisoRemunerado && !String(formData.permisoUnidad || '').trim();
+    const bloqueoEnvioPermisoSinUnidad = esPermisoConToggle && !String(formData.permisoUnidad || '').trim();
 
     const bloqueoEnvioPermisoHoras = esPermisoHoras && (
         !String(formData.fecha || '').trim()
@@ -889,7 +911,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             const formattedHoraInicio = formatTimeDigitsInput(value);
             const nuevaHoraInicio = parseMilitaryTimeToMinutes(formattedHoraInicio);
             const horaFinActual = parseMilitaryTimeToMinutes(formData.horaFin);
-            const esPermisoHorasCampo = formData.tipo === 'Permiso remunerado' && formData.permisoUnidad === 'horas';
+            const esPermisoHorasCampo = TIPOS_CON_TOGGLE_HORAS.includes(formData.tipo) && formData.permisoUnidad === 'horas';
             const mismoDiaRango = String(formData.fechaInicio || '') === String(formData.fechaFin || '');
             const mismoDia = esPermisoHorasCampo || mismoDiaRango;
             const resetHoraFin = mismoDia && horaFinActual !== null && nuevaHoraInicio !== null && horaFinActual <= nuevaHoraInicio;
@@ -963,12 +985,13 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                 fechaInicio: '',
                 fechaFin: '',
                 diasSolicitados: '',
-                permisoUnidad: value === 'Permiso remunerado' ? '' : 'dias',
+                permisoUnidad: TIPOS_CON_TOGGLE_HORAS.includes(value) ? '' : 'dias',
                 modalidadVotacion: '',
                 fechaVotacion: '',
                 fechaDisfruteVotacion: '',
                 horaDisfruteInicio: '',
                 horaDisfruteFin: '',
+                observaciones: '',
                 montoBono: nextRule.requiresMonetaryAmount ? '$ ' : '$ '
             });
             if (value === 'Disponibilidad') {
@@ -1218,10 +1241,10 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             setStatus({
                 type: 'error',
                 text: esIncapacidad
-                    ? '❌ Fecha Incapacidad: desde hace un mes calendario como máximo hasta hoy.'
-                    : esPermisoRemuneradoBloqueDias
-                      ? '❌ Permiso remunerado: la fecha de inicio debe ser desde mañana en adelante y no más allá de un año calendario desde hoy.'
-                      : '❌ Fecha Inicio fuera del rango permitido (desde hace un mes calendario hasta un año calendario desde hoy).'
+                    ? '❌ Fecha Incapacidad: desde hace 4 meses calendario como máximo hasta hoy.'
+                    : esPermisoConToggleBloqueDias
+                      ? `❌ ${formData.tipo}: la fecha de inicio debe ser desde hoy en adelante y no más allá de un año calendario desde hoy.`
+                      : '❌ Fecha Inicio fuera del rango permitido (desde hace 4 meses calendario hasta un año calendario desde hoy).'
             });
             return;
         }
@@ -1235,14 +1258,14 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         if (fechaFinPermisoDiasAntesDeMin) {
             setStatus({
                 type: 'error',
-                text: '❌ Permiso remunerado: la fecha de fin no puede ser hoy ni una fecha pasada; debe ser desde mañana en adelante.'
+                text: `❌ ${formData.tipo}: la fecha de fin no puede ser anterior a hoy; debe ser desde hoy en adelante.`
             });
             return;
         }
         if (fechaPermisoHorasFueraDeVentana) {
             setStatus({
                 type: 'error',
-                text: '❌ Permiso remunerado (horas): la fecha del permiso debe ser desde mañana en adelante y dentro de un año calendario desde hoy.'
+                text: `❌ ${formData.tipo} (horas): la fecha del permiso debe ser desde hoy en adelante y dentro de un año calendario desde hoy.`
             });
             return;
         }
@@ -1252,7 +1275,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                 : bloqueoEnvioCompVotacion
                 ? '❌ Elige jurado o votación (medio día), fechas de votación y disfrute y, si es votación, rango horario (HH:mm, máx. 4 h).'
                 : bloqueoEnvioPermisoHoras
-                    ? '❌ En modo horas: fecha desde mañana (mismo tope de un año que otras novedades) y hora inicio/fin válidas (HH:mm); la hora fin debe ser posterior a la de inicio.'
+                    ? '❌ En modo horas: fecha desde hoy (mismo tope de un año que otras novedades) y hora inicio/fin válidas (HH:mm); la hora fin debe ser posterior a la de inicio.'
                     : isHoraExtra
                         ? '❌ Corrige fecha/horas de Hora Extra antes de enviar.'
                         : autocalculaDiasDesdeRango && !String(formData.fechaFin || '').trim()
@@ -1363,7 +1386,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             payload.append('tipoNovedad', formData.tipo);
             payload.append('aceptaPoliticaDatos', aceptaPoliticaDatos ? 'true' : 'false');
 
-            if (esPermisoRemunerado) {
+            if (esPermisoConToggle) {
                 payload.append('unidad', formData.permisoUnidad);
             }
             if (esCompensatorioVotacion) {
@@ -1419,6 +1442,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                     (requiereDias || autocalculaDiasDesdeRango || isCompensatorioVotacion) ? diasValuePayload : (formData.cantidadHoras || 0)
                 );
             }
+            payload.append('observaciones', String(formData.observaciones || '').trim());
             if (requiereMontoCop) {
                 const monto = parseMontoCOPInput(formData.montoBono);
                 payload.append('montoCop', String(monto != null ? monto : 0));
@@ -1469,7 +1493,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                             fechaVotacion: '',
                             fechaDisfruteVotacion: '',
                             horaDisfruteInicio: '',
-                            horaDisfruteFin: ''
+                            horaDisfruteFin: '',
+                            observaciones: ''
                         };
                     });
                     setSelectedFiles([]);
@@ -1499,7 +1524,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                         fechaVotacion: '',
                         fechaDisfruteVotacion: '',
                         horaDisfruteInicio: '',
-                        horaDisfruteFin: ''
+                        horaDisfruteFin: '',
+                        observaciones: ''
                     });
                     setColaboradorVerificado(false);
                     setCatalogLocks({ lider: false });
@@ -1779,7 +1805,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                             {NOVEDAD_TYPES.map((tipo) => <option key={tipo} value={tipo}>{tipo}</option>)}
                                         </select>
                                     </div>
-                                    {esPermisoRemunerado && detalleFormularioActivo && (
+                                    {esPermisoConToggle && detalleFormularioActivo && (
                                         <div className={`md:col-span-2 ${theme.nestedPanel} space-y-3`}>
                                             <span className={`${labelCls} block`}>Unidad de medida {reqStar}</span>
                                             <div className="flex flex-wrap gap-6">
@@ -2160,7 +2186,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                 className={`${inputCls} ${!detalleFormularioActivo ? 'disabled:opacity-70' : ''}`}
                                             />
                                             <small className={theme.helperMutedPlain}>
-                                                Desde mañana (no hoy ni fechas pasadas), hasta un año calendario desde hoy (misma regla que otras novedades).
+                                                Desde hoy (no fechas pasadas), hasta un año calendario desde hoy (misma regla que otras novedades).
                                             </small>
                                             {formData.fecha && festivosSet.has(formData.fecha) && (
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
@@ -2217,7 +2243,32 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                     </div>
                                 )}
 
-                                {!usaBloqueHoras && !esCompensatorioVotacion && !esPermisoHoras && (
+                                {esVacacionesDinero && detalleFormularioActivo && (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="flex flex-col gap-1">
+                                            <label className={labelCls}>Fecha de referencia (opcional)</label>
+                                            <input
+                                                {...nativeCalendarOnlyInputProps}
+                                                name="fechaInicio"
+                                                value={formData.fechaInicio}
+                                                onChange={handleChange}
+                                                type="date"
+                                                min={minFechaInicioYmd}
+                                                max={maxFechaFinYmd}
+                                                className={inputCls}
+                                            />
+                                            <small className={theme.helperMutedPlain}>
+                                                Si no la indicas, se registra con la fecha de hoy.
+                                            </small>
+                                        </div>
+                                        <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
+                                            Vacaciones en dinero: indica solo los días solicitados (no se reporta rango de fechas).
+                                            Adjunta la carta con firma manuscrita en PDF en la sección de soportes.
+                                        </p>
+                                    </div>
+                                )}
+
+                                {!usaBloqueHoras && !esCompensatorioVotacion && !esPermisoHoras && !esVacacionesDinero && (
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="flex flex-col gap-1">
                                             <label className={labelCls}>Fecha Inicio {reqStar}</label>
@@ -2230,8 +2281,8 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                             )}
                                         </div>
                                         <div className="flex flex-col gap-1">
-                                            <label className={labelCls}>Fecha Fin {autocalculaDiasDesdeRango && reqStar}</label>
-                                            <input {...nativeCalendarOnlyInputProps} required={autocalculaDiasDesdeRango} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioEfectivaYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
+                                            <label className={labelCls}>Fecha Fin {(autocalculaDiasDesdeRango || esSuspension) && reqStar}</label>
+                                            <input {...nativeCalendarOnlyInputProps} required={autocalculaDiasDesdeRango || esSuspension} name="fechaFin" value={formData.fechaFin} onChange={handleChange} type="date" min={formData.fechaInicio || minFechaInicioEfectivaYmd} max={maxFechaFinYmd} disabled={!detalleFormularioActivo || !formData.fechaInicio} className={`${inputCls} ${(!detalleFormularioActivo || !formData.fechaInicio) ? 'opacity-50 cursor-not-allowed' : ''}`} />
                                             {!formData.fechaInicio && <small className="text-[#9fb3c8] text-xs font-body">Primero selecciona la Fecha Inicio.</small>}
                                             {fechaFinInvalida && <small className="text-[#ff6b6b] text-xs font-body">La Fecha Fin no puede ser menor que la Fecha Inicio.</small>}
                                             {formData.fechaFin && festivosSet.has(formData.fechaFin) && (
@@ -2241,9 +2292,9 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                 <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
                                             )}
                                         </div>
-                                        {esPermisoRemuneradoBloqueDias && (
+                                        {esPermisoConToggleBloqueDias && (
                                             <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
-                                                Las fechas deben ser desde mañana (no hoy ni días pasados), hasta un año calendario desde hoy.
+                                                Las fechas deben ser desde hoy (no días pasados), hasta un año calendario desde hoy.
                                             </p>
                                         )}
                                     </div>
@@ -2290,6 +2341,34 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                     </div>
                                 )}
                             </section>
+                            )}
+
+                            {/* ═══ Observaciones (común a todos los tipos, opcional) ═══ */}
+                            {detalleFormularioActivo && (
+                                <section>
+                                    <h2 className={theme.sectionTitle}>
+                                        <span className={theme.sectionBar} />
+                                        Observaciones <span className={theme.helperMutedPlain}>(opcional, máx. {MAX_OBSERVACIONES_LEN} caracteres)</span>
+                                    </h2>
+                                    <div className="flex flex-col gap-1">
+                                        <label className="sr-only" htmlFor="observaciones-novedad">
+                                            Observaciones (opcional, máx. {MAX_OBSERVACIONES_LEN} caracteres)
+                                        </label>
+                                        <textarea
+                                            id="observaciones-novedad"
+                                            name="observaciones"
+                                            value={formData.observaciones || ''}
+                                            onChange={handleChange}
+                                            maxLength={MAX_OBSERVACIONES_LEN}
+                                            rows={4}
+                                            placeholder="Añade aquí cualquier observación adicional sobre tu novedad"
+                                            className={inputCls}
+                                        />
+                                        <div className={`text-right text-xs ${theme.helperMutedPlain}`} aria-live="polite">
+                                            {(formData.observaciones || '').length}/{MAX_OBSERVACIONES_LEN}
+                                        </div>
+                                    </div>
+                                </section>
                             )}
 
                             {/* ═══ Sección: Soportes / Adjuntos (no aplica a Disponibilidad) ═══ */}

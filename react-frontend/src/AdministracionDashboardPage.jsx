@@ -204,13 +204,6 @@ export default function AdministracionDashboardPage({ token, onDrillDown }) {
 
     return (
         <div className="space-y-6 w-full max-w-[95rem] font-body">
-            <p className={`text-xs ${labelMuted}`}>
-                Resumen de <strong className={headingAccent}>clientes en catálogo (activos)</strong>, consultores en
-                directorio y reubicaciones en pipeline.{' '}
-                <span className="font-medium text-slate-500 dark:text-slate-400">
-                    Clic en KPIs, barras o sectores para abrir el módulo con el filtro aplicado.
-                </span>
-            </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                 <KpiCard

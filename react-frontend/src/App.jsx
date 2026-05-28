@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import UserAccountMenu from './UserAccountMenu.jsx';
+import ChatWidget from './ChatWidget';
 import Dashboard from './Dashboard';
 import ConsultorRadicacionPortal from './ConsultorRadicacionPortal.jsx';
 import ConsultorProtectedLayout from './ConsultorProtectedLayout.jsx';
@@ -86,6 +87,8 @@ function App() {
   const isFormularioPublico = location.pathname === '/';
   const isConsultorShell = location.pathname.startsWith('/consultor');
   const isAdminRoute = location.pathname.startsWith('/admin');
+  // El Asistente CINTE solo se ofrece dentro del módulo Novedades del portal admin.
+  const isNovedadesRoute = location.pathname.startsWith('/admin/novedades');
   const moduleCount = adminPortalModuleCount(auth);
   /** Hub con tarjetas: sin cabecera duplicada; logo/título van sobre el banner en AdminPortalHome. */
   const isAdminHubHome = Boolean(auth?.user && location.pathname === '/admin' && moduleCount > 0);
@@ -247,7 +250,17 @@ function App() {
         ) : null}
         <div className="flex shrink-0 items-center justify-end">
           {auth?.user ? (
-            <UserAccountMenu auth={auth} onLogout={handleLogout} surface="header" notificationCount={0} />
+            <UserAccountMenu
+              auth={auth}
+              onLogout={handleLogout}
+              surface="header"
+              notificationCount={0}
+              assistantSlot={
+                isNovedadesRoute
+                  ? <ChatWidget ctx={{ role: auth?.user?.role }} />
+                  : null
+              }
+            />
           ) : null}
         </div>
       </header>
@@ -300,7 +313,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {userHasNovedadesAdminAccess(auth) ? (
-                  <ConciliacionesModule auth={auth} />
+                  <ConciliacionesModule auth={auth} onLogout={handleLogout} />
                 ) : (
                   <Navigate to="/admin" replace />
                 )}
@@ -350,7 +363,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {userHasCotizadorAccess(auth) ? (
-                    <ComercialModule token={auth?.token || ''} auth={auth} />
+                    <ComercialModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                 ) : (
                     <Navigate to="/admin" replace />
                 )}
@@ -363,7 +376,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {auth?.user && userHasContratacionPanel(auth) ? (
-                  <ContratacionModule auth={auth} />
+                  <ContratacionModule auth={auth} onLogout={handleLogout} />
                 ) : (
                   <Navigate to="/admin" replace />
                 )}
@@ -376,7 +389,7 @@ function App() {
               <ProtectedRoute auth={auth}>
                 {(() => {
                   return userHasDirectorioPanel(auth) ? (
-                    <DirectorioClienteColaboradorModule token={auth?.token || ''} auth={auth} />
+                    <DirectorioClienteColaboradorModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                   ) : (
                     <Navigate to="/admin" replace />
                   );

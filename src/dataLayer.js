@@ -211,6 +211,36 @@ function createDataLayer(deps) {
     }
 
     /**
+     * Observaciones libres del solicitante. Se usa hoy en `suspension`; queda disponible
+     * (TEXT NULL) para otros tipos que la requieran a futuro. No se confunde con
+     * `nomina_verificacion_observacion` ni `he_domingo_observacion` (campos especializados).
+     */
+    async function ensureNovedadesObservacionesColumn() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS observaciones TEXT NULL');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para observaciones en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    /** Motivo de rechazo por el aprobador (Gestión). Distinto de `observaciones` del consultor al radicar. */
+    async function ensureNovedadesObservacionesRechazoColumn() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS observaciones_rechazo TEXT NULL');
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para observaciones_rechazo en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    /**
      * Detección de duplicado de novedad Pendiente con la llave de negocio acordada.
      * No incluye `compensatorio_votacion_jurado`: ese tipo conserva su regla propia (ver POST /api/enviar-novedad).
      * Devuelve `{ duplicado: boolean, id: string|null }`. Las horas pueden ser `null` (tipos por días).
@@ -1583,6 +1613,8 @@ function createDataLayer(deps) {
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
                 nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
                 nov.he_domingo_observacion,
+                nov.observaciones,
+                nov.observaciones_rechazo,
                 COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
                 COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
              FROM novedades nov
@@ -2012,6 +2044,8 @@ function createDataLayer(deps) {
         ensureNovedadesNominaVerificacionColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         ensureNovedadesModalidadVotacionUnidadColumns,
+        ensureNovedadesObservacionesColumn,
+        ensureNovedadesObservacionesRechazoColumn,
         ensureNovedadesDuplicadoPendienteIndex,
         findPendingNovedadDuplicate,
         migrateClientesLideresFromExcelIfNeeded,

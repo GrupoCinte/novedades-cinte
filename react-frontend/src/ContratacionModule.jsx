@@ -1,6 +1,16 @@
 import { useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
+import {
+    ChevronLeft,
+    ChevronRight,
+    Home,
+    Menu,
+    X,
+    Users,
+    History,
+    BarChart3
+} from 'lucide-react';
 import Layout from './contratacion/components/Layout';
 import ActiveCandidates from './contratacion/components/ActiveCandidates';
 import HistoryCandidates from './contratacion/components/HistoryCandidates';
@@ -11,7 +21,8 @@ import { getContratacionPermissions } from './contratacion/contratacionAccess';
 import { useModuleTheme } from './moduleTheme.js';
 import { Users, History, BarChart3, ChevronRight, ChevronLeft, Home } from 'lucide-react';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
-import UserAccountMenu from './UserAccountMenu.jsx';
+import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
 export { userHasContratacionPanel } from './contratacion/contratacionAccess';
 
@@ -21,16 +32,7 @@ function ContratacionDashboard({ auth, currentView, onNavigate, isLight }) {
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col font-body">
-            <Layout
-                currentView={currentView}
-                onNavigate={onNavigate}
-                isConnected={data.isConnected}
-                lastUpdate={data.lastUpdate}
-                activeCount={data.activeExecutions.length}
-                historyCount={data.historyExecutions.length}
-                hideTabNav
-                isLight={isLight}
-            >
+            <Layout isConnected={data.isConnected} lastUpdate={data.lastUpdate} isLight={isLight}>
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={currentView}
@@ -67,7 +69,8 @@ function ContratacionDashboard({ auth, currentView, onNavigate, isLight }) {
     );
 }
 
-export default function ContratacionModule({ auth }) {
+export default function ContratacionModule({ auth, onLogout }) {
+    const navigate = useNavigate();
     const mt = useModuleTheme();
     const { isLight, shell } = mt;
     const [navView, setNavView] = useState('active');
@@ -93,101 +96,160 @@ export default function ContratacionModule({ auth }) {
     ];
 
     return (
-        <div className={`flex flex-col flex-1 min-h-0 w-full overflow-hidden font-body ${isLight ? 'bg-slate-100 text-slate-800' : 'bg-[#04141E] text-slate-200'}`}>
-            {/* Fondo decorativo */}
-            <div className="absolute inset-0 z-0 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 15% 50%, rgba(20, 255, 236, 0.04), transparent 25%), radial-gradient(circle at 85% 30%, rgba(255, 179, 71, 0.04), transparent 25%)' }} />
+        <div className={shell}>
+            <button
+                type="button"
+                onClick={() => setMobileMenuOpen(true)}
+                className={`fixed left-4 top-4 z-40 flex h-10 w-10 items-center justify-center shadow-lg md:hidden ${menuFab}`}
+                aria-label="Abrir menú contratación"
+            >
+                <Menu size={18} />
+            </button>
+            {mobileMenuOpen ? (
+                <div className={`fixed inset-0 z-40 md:hidden ${scrim}`} onClick={() => setMobileMenuOpen(false)} />
+            ) : null}
 
-            {/* AI Widget: posición fixed, no consume espacio en el flujo */}
-            <ChatWidget ctx={{ role: currentRole }} forceOpen={aiOpen} setForceOpen={setAiOpen} />
+            <aside
+                className={`fixed left-0 top-0 z-50 flex h-full w-72 flex-col shadow-2xl transition-transform duration-300 font-body md:hidden ${aside} ${
+                    mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                }`}
+            >
+                <AdminModuleSidebarBrand
+                    variant="drawer"
+                    isLight={isLight}
+                    asideHeaderBorder={asideHeaderBorder}
+                    moduleContext={(
+                        <>
+                            <p className="text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">Módulo de Capital Humano</p>
+                            <p className="text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">Onboarding</p>
+                        </>
+                    )}
+                    endAction={(
+                        <button
+                            type="button"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
+                            aria-label="Cerrar menú"
+                        >
+                            <X size={16} />
+                        </button>
+                    )}
+                />
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
+                <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            navigate('/admin');
+                            setMobileMenuOpen(false);
+                        }}
+                        className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${navOutline}`}
+                    >
+                        <Home size={17} />
+                        <span>Inicio portal</span>
+                    </button>
+                    {sidebarNav.map(({ id, label, icon: Icon }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => {
+                                setNavView(id);
+                                setMobileMenuOpen(false);
+                            }}
+                            className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
+                                navView === id ? 'bg-[#2F7BB8] text-white' : mt.navInactive
+                            }`}
+                        >
+                            <Icon size={17} />
+                            <span>{label}</span>
+                        </button>
+                    ))}
+                </nav>
+                <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
+            </aside>
 
-            <section className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden z-10">
-                {/* ───────── HOVERABLE SIDEBAR ───────── */}
-                <aside
-                    onMouseEnter={() => setSidebarOpen(true)}
-                    onMouseLeave={() => setSidebarOpen(false)}
-                    className={`
-                        flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-20 font-body
-                        transition-all duration-300 ease-in-out
-                        ${isLight ? 'bg-white/70 backdrop-blur-xl border-r border-white/40' : 'bg-[#0a1520]/70 backdrop-blur-xl border-r border-white/10'}
-                        ${sidebarOpen ? 'w-64' : 'w-16'}
-                    `}
-                    style={{ overflow: 'visible' }}
-                >
-                    <AdminModuleSidebarBrand
-                        variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
-                        isLight={isLight}
-                        asideHeaderBorder={isLight ? 'border-b border-slate-200/50' : 'border-b border-white/5'}
-                        moduleContext={(
-                            <>
-                                <p className="whitespace-nowrap text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">
-                                    Capital Humano
-                                </p>
-                                <p className="whitespace-nowrap text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">
-                                    System Core
-                                </p>
-                            </>
-                        )}
-                        endAction={null}
-                    />
+            <aside
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden shadow-2xl transition-all duration-300 ease-in-out font-body md:flex ${aside} ${
+                    sidebarOpen ? 'w-64' : 'w-16'
+                }`}
+            >
+                <AdminModuleSidebarBrand
+                    variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
+                    isLight={isLight}
+                    asideHeaderBorder={asideHeaderBorder}
+                    moduleContext={(
+                        <>
+                            <p className="whitespace-nowrap text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">Módulo de Capital Humano</p>
+                            <p className="whitespace-nowrap text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">Onboarding</p>
+                        </>
+                    )}
+                    endAction={(
+                        <button
+                            type="button"
+                            onClick={() => setSidebarOpen((o) => !o)}
+                            title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
+                            className={`flex h-7 w-7 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
+                        >
+                            {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+                        </button>
+                    )}
+                />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
 
-                    <nav className="flex flex-col gap-2 p-2 flex-1 mt-2">
-                        {navItems.map(item => {
-                            const Icon = item.icon;
-                            const active = navView === item.id;
-                            return (
-                                <button
-                                    key={item.id}
-                                    onClick={() => setNavView(item.id)}
-                                    title={!sidebarOpen ? item.label : undefined}
-                                    className={`
-                                        flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left
-                                        ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'}
-                                        ${active
-                                            ? 'bg-gradient-to-r from-[#2F7BB8] to-[#65BCF7] shadow-[0_4px_15px_rgba(47,123,184,0.3)] text-white'
-                                            : isLight ? 'text-slate-600 hover:bg-slate-200/50' : 'text-slate-400 hover:bg-white/5 hover:text-white'
-                                        }
-                                    `}
-                                >
-                                    <Icon size={18} className={`flex-shrink-0 ${active ? 'text-white' : isLight ? 'text-slate-500' : 'text-slate-400'}`} />
-                                    {sidebarOpen && (
-                                        <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">
-                                            {item.label}
-                                        </span>
-                                    )}
-                                </button>
-                            );
-                        })}
+                <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
+                    <button
+                        type="button"
+                        onClick={() => navigate('/admin')}
+                        title={!sidebarOpen ? 'Inicio portal' : undefined}
+                        className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${navOutline} ${
+                            sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
+                        }`}
+                    >
+                        <Home size={18} className="flex-shrink-0" />
+                        {sidebarOpen ? <span className="truncate">Inicio portal</span> : null}
+                    </button>
+                    {sidebarNav.map(({ id, label, icon: Icon }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => setNavView(id)}
+                            title={!sidebarOpen ? label : undefined}
+                            className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
+                                sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
+                            } ${
+                                navView === id
+                                    ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.35)]'
+                                    : mt.navInactive
+                            }`}
+                        >
+                            <Icon size={18} className="flex-shrink-0" />
+                            {sidebarOpen ? <span className="truncate">{label}</span> : null}
+                        </button>
+                    ))}
+                </nav>
 
-                        <div className="mt-auto pt-4">
-                            <button
-                                onClick={() => window.location.href = '/admin'}
-                                title={!sidebarOpen ? 'Inicio Portal' : undefined}
-                                className={`
-                                    w-full flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left
-                                    ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'}
-                                    ${isLight ? 'text-slate-600 hover:bg-slate-200/50' : 'text-slate-400 hover:bg-white/5 hover:text-white'}
-                                `}
-                            >
-                                <Home size={18} className="flex-shrink-0" />
-                                {sidebarOpen && (
-                                    <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">
-                                        Inicio Portal
-                                    </span>
-                                )}
-                            </button>
-                        </div>
-                    </nav>
-
-                    <div className={`border-t flex justify-center p-3 ${isLight ? 'border-slate-200/50' : 'border-white/5'}`} style={{ overflow: 'visible' }}>
-                        <div className={sidebarOpen ? 'w-full flex justify-center' : 'scale-90 origin-bottom'} style={{ overflow: 'visible' }}>
-                            <UserAccountMenu 
-                                auth={auth} 
-                                onLogout={handleLogout} 
-                                surface="sidebar-footer" 
-                            />
-                        </div>
-                    </div>
-                </aside>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
+            </aside>
 
                 <div className="flex-1 flex flex-col min-w-0 min-h-0 relative z-10">
                     <ContratacionDashboard 

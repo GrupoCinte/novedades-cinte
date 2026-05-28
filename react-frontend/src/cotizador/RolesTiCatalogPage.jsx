@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Eye, Search, X } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
+import ModuleFiltersToolbar from '../shared/filters/ModuleFiltersToolbar.jsx';
+import ModuleFiltersDrawer from '../shared/filters/ModuleFiltersDrawer.jsx';
+import { buildCatalogoTiChipLabel, CATALOGO_TI_FILTER_DEFAULTS } from '../admin/directorioFilters.js';
 import { buildCsrfHeaders } from '../cognitoAuth.js';
 import { userHasRolesTiCatalogWrite } from '../rolesTiAccess.js';
 import { TI_CATALOGO_TAXONOMIA_FIN_COLUMNAS, catalogHeadersForRow, emptyCellsOfficial } from './tiCatalogOfficialColumns.js';
@@ -58,6 +61,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
     const [detailEditing, setDetailEditing] = useState(false);
     const [editCells, setEditCells] = useState({});
     const [editSaving, setEditSaving] = useState(false);
+    const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
     /** Columnas fijas en código (37 + extras si la fila trae claves no listadas). */
     const columnHeaders = TI_CATALOGO_TAXONOMIA_FIN_COLUMNAS;
@@ -248,46 +252,184 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
         setPage(1);
     };
 
+    const clearCatalogoFilters = () => {
+        setQ(CATALOGO_TI_FILTER_DEFAULTS.q);
+        setQDebounced(CATALOGO_TI_FILTER_DEFAULTS.q);
+        setLimit(CATALOGO_TI_FILTER_DEFAULTS.limit);
+        setPage(1);
+    };
+
+    const catalogoChipLabel = useMemo(() => buildCatalogoTiChipLabel({ limit }), [limit]);
+
     const colCount = PREVIEW_COL_COUNT + 1;
     const safePage = Math.min(page, totalPages);
 
-    /** En directorio: mismo ancho/alto útil que clientes/consultores (sin doble padding ni lienzo cotizador). */
-    const rootShell = embedInDirectorio ? 'w-full min-h-0 font-body' : cotizadorCanvas;
     const catalogCardClass = embedInDirectorio
-        ? `${dash.card} flex min-h-[calc(100dvh-11rem)] flex-col overflow-hidden`
+        ? `${dash.cardFlex} min-h-0 flex-1`
         : `${dash.cardFlex} min-h-[min(72vh,680px)]`;
 
-    return (
-        <div className={rootShell}>
-            <div className="mb-4 flex flex-wrap items-center gap-3">
-                {embedInDirectorio ? (
-                    canWrite ? (
-                        <button
-                            type="button"
-                            className={crearDirectorioBtn}
-                            onClick={onAddFila}
-                            disabled={!Number.isFinite(activeCatalogId)}
-                        >
-                            Agregar ROL
-                        </button>
-                    ) : (
-                        <p className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Solo lectura.</p>
-                    )
+    const searchField = (
+        <div className="relative min-w-[200px] max-w-[16rem] flex-1">
+            <Search
+                className={`pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 ${isLight ? 'text-slate-400' : 'text-slate-500'}`}
+                aria-hidden
+            />
+            <input
+                type="search"
+                className={`w-full pl-9 ${field} text-sm`}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Cualquier celda…"
+                aria-label="Buscar en cualquier celda"
+            />
+        </div>
+    );
+
+    const catalogTableBlock = (
+        <div className={`${dash.tableWrap} min-h-0 flex-1`}>
+            <div className="flex min-h-0 flex-1 overflow-x-auto overflow-y-auto">
+                {loadingFilas ? (
+                    <p className={`p-12 text-center font-medium ${dash.muted}`}>Cargando base de datos…</p>
                 ) : (
-                    <button
-                        type="button"
-                        className={ghostBtn}
-                        onClick={() => {
-                            navigate('/admin');
-                        }}
-                    >
-                        <span className="inline-flex items-center gap-2">
-                            <ArrowLeft size={16} />
-                            Volver al portal
-                        </span>
-                    </button>
+                    <table className="w-full border-collapse text-left whitespace-nowrap md:min-w-full">
+                        <thead>
+                            <tr className={dash.thead}>
+                                {tablePreviewHeaders.map((h, idx) => (
+                                    <th key={h} className={`p-4 font-semibold normal-case ${idx === 0 ? 'pl-6' : ''}`}>
+                                        {h}
+                                    </th>
+                                ))}
+                                <th className="p-4 pr-6 text-right font-semibold">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody className={dash.tbody}>
+                            {filas.length === 0 ? (
+                                <tr>
+                                    <td colSpan={colCount} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                        No se encontraron registros.
+                                    </td>
+                                </tr>
+                            ) : (
+                                filas.map((row) => (
+                                    <tr key={row.id} className={dash.trHover}>
+                                        {tablePreviewHeaders.map((h, idx) => {
+                                            const tdClass =
+                                                idx === 0 ? dash.tdDate : idx === 1 ? dash.tdName : dash.tdCell;
+                                            return (
+                                                <td key={h} className={tdClass} title={String(row.cells?.[h] ?? '')}>
+                                                    {cellPreview(row.cells, h)}
+                                                </td>
+                                            );
+                                        })}
+                                        <td className="p-4 pr-6">
+                                            <div className="flex justify-end">
+                                                <button type="button" className={dash.actionBtn} onClick={() => openDetail(row, false)}>
+                                                    <Eye size={14} /> Ver detalle
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
                 )}
             </div>
+            {!loadingFilas && columnHeaders.length > 0 ? (
+                <div className={dash.footerBar}>
+                    <span>
+                        Mostrando {filas.length} de {total} registros
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button type="button" className={dash.compactBtn} disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                            Anterior
+                        </button>
+                        <span>
+                            Página {safePage} de {totalPages}
+                        </span>
+                        <button
+                            type="button"
+                            className={dash.compactBtn}
+                            disabled={safePage >= totalPages}
+                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        >
+                            Siguiente
+                        </button>
+                    </div>
+                </div>
+            ) : null}
+        </div>
+    );
+
+    return (
+        <>
+            {embedInDirectorio ? (
+                <div className={dash.moduleTabShellFull}>
+                    {err ? <div className={pageErrorBanner}>{err}</div> : null}
+                    {msg ? (
+                        <div
+                            className={
+                                isLight
+                                    ? 'rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900'
+                                    : 'rounded-lg border border-emerald-800/50 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-100'
+                            }
+                        >
+                            {msg}
+                        </div>
+                    ) : null}
+                    <ModuleFiltersToolbar
+                        chipLabel={catalogoChipLabel}
+                        filtersPanelOpen={filtersPanelOpen}
+                        onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                        toggleId="catalogo-ti-filtros-toggle"
+                        panelId="catalogo-ti-filtros-panel"
+                        dash={dash}
+                    >
+                        {searchField}
+                        {canWrite ? (
+                            <button
+                                type="button"
+                                className={crearDirectorioBtn}
+                                onClick={onAddFila}
+                                disabled={!Number.isFinite(activeCatalogId)}
+                            >
+                                Agregar ROL
+                            </button>
+                        ) : (
+                            <p className={`text-xs ${dash.muted}`}>Solo lectura.</p>
+                        )}
+                    </ModuleFiltersToolbar>
+                    <div className={catalogCardClass}>{catalogTableBlock}</div>
+                    <ModuleFiltersDrawer
+                        open={filtersPanelOpen}
+                        onClose={() => setFiltersPanelOpen(false)}
+                        onClear={clearCatalogoFilters}
+                        dash={dash}
+                        panelId="catalogo-ti-filtros-panel"
+                        titleId="catalogo-ti-filtros-drawer-title"
+                    >
+                        <div className="flex flex-col gap-1.5">
+                            <label htmlFor="catalogo-ti-drawer-limit" className={dash.filtrosDrawerLabel}>
+                                Mostrar por página
+                            </label>
+                            <select
+                                id="catalogo-ti-drawer-limit"
+                                className={`${field} w-full text-sm`}
+                                value={String(limit)}
+                                onChange={(e) => {
+                                    setLimit(Number(e.target.value) || 20);
+                                    setPage(1);
+                                }}
+                            >
+                                <option value="10">10 por página</option>
+                                <option value="20">20 por página</option>
+                                <option value="50">50 por página</option>
+                            </select>
+                        </div>
+                    </ModuleFiltersDrawer>
+                </div>
+            ) : (
+        <div className={cotizadorCanvas}>
 
             {err ? <div className={pageErrorBanner}>{err}</div> : null}
             {msg ? (
@@ -343,13 +485,13 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
                                 <X size={14} /> Borrar filtros
                             </span>
                         </button>
-                        {canWrite && !embedInDirectorio ? (
+                        {canWrite ? (
                             <button type="button" className={dash.toolbarBtn} onClick={onAddFila} disabled={!Number.isFinite(activeCatalogId)}>
                                 Agregar ROL
                             </button>
-                        ) : !embedInDirectorio ? (
+                        ) : (
                             <p className={`self-center text-xs ${dash.muted}`}>Solo lectura.</p>
-                        ) : null}
+                        )}
                     </div>
                 </div>
 
@@ -427,6 +569,8 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
                     ) : null}
                 </div>
             </div>
+        </div>
+            )}
 
             {detailOpen && detailRow ? (
                 <div className={dash.modalBackdrop} role="dialog" aria-modal="true" onClick={closeDetail}>
@@ -541,6 +685,6 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
                     </div>
                 </div>
             ) : null}
-        </div>
+        </>
     );
 }
