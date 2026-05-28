@@ -115,6 +115,7 @@ const NOVELTY_RULES = {
         approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
+    },
     compensatorio_votacion_jurado: {
         displayName: 'Compensatorio por votación/jurado',
         /** La ruta POST valida el conteo por modalidad (1 o 2 archivos). */
