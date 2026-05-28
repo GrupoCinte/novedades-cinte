@@ -80,9 +80,9 @@ export default function ContratacionModule({ auth, onLogout }) {
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
     const sidebarNav = [
-        { id: 'active', label: 'Activos', icon: Users },
+        { id: 'active', label: 'Onboarding', icon: Users },
         { id: 'history', label: 'Historial', icon: History },
-        { id: 'metrics', label: 'Métricas', icon: BarChart3 }
+        { id: 'metrics', label: 'Dashboard General', icon: BarChart3 }
     ];
 
     return (

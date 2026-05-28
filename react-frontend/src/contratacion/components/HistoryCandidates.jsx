@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, CartesianGrid } from 'recharts';
-import { RECHARTS_TOOLTIP_CONTENT_STYLE, RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT } from '../constants/rechartsTheme.js';
+import { motion, AnimatePresence } from 'framer-motion';
 import CandidateModal from './CandidateModal';
+import FilterDrawer, { FilterDrawerTrigger, FilterSection } from './FilterDrawer';
 import { useModuleTheme } from '../../moduleTheme.js';
 import { calculateProcessTime, getTrazabilidadStageKey, normalizeStatus } from '../hooks/useMonitorData';
 
@@ -20,81 +19,6 @@ function detectChannel(execution) {
     if (doc.includes('docusign')) return 'DocuSign';
     if (doc.includes('portal')) return 'Portal';
     return 'Correo';
-}
-
-function getDepartment(execution) {
-    const role = String(execution.fullData?.puesto || '').toLowerCase();
-    if (/(legal|abog|jurid)/.test(role)) return 'Legal';
-    if (/(rrhh|talento|humano|people|recruit)/.test(role)) return 'RRHH';
-    if (/(finan|contab|tesor)/.test(role)) return 'Finanzas';
-    return 'Operaciones';
-}
-
-function buildMonthlyGrowth(executions) {
-    // monthKey (YYYYMM) -> { month, firmas }
-    const bucket = {};
-    executions.forEach((ex) => {
-        // Para histórico incluye eliminados (si existe), luego cerrados validados.
-        const ts = ex.fullData?.ts_eliminado || ex.fullData?.ts_validacion_completada || ex.timestamp;
-        const date = new Date(ts);
-        if (Number.isNaN(date.getTime())) return;
-        const monthKey = date.getFullYear() * 100 + (date.getMonth() + 1); // YYYYMM
-        const monthLabel = date.toLocaleDateString('es-CO', { month: 'short', year: '2-digit' });
-        if (!bucket[monthKey]) {
-            bucket[monthKey] = { monthKey, month: monthLabel, firmas: 0 };
-        }
-        bucket[monthKey].firmas += 1;
-    });
-    return Object.values(bucket).sort((a, b) => a.monthKey - b.monthKey).map(({ month, firmas }) => ({ month, firmas }));
-}   
-
-function normalizeKey(str) {
-    return String(str || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '');
-}
-
-function resolveDescriptivoCinte(execution) {
-    const full = execution.fullData || {};
-    const fallback = full?.puesto;
-
-    const keys = Object.keys(full);
-    for (const key of keys) {
-        const nk = normalizeKey(key);
-        if (nk.includes('descript') && nk.includes('cinte')) {
-            const raw = full[key];
-            const val = typeof raw === 'string' ? raw : raw != null ? String(raw) : '';
-            const clean = val.trim();
-            if (clean && clean.toLowerCase() !== 'null' && clean.toLowerCase() !== 'undefined') return clean;
-        }
-    }
-
-    const fb = typeof fallback === 'string' ? fallback : fallback != null ? String(fallback) : '';
-    return fb.trim() || 'Sin Descriptivo CINTE';
-}
-
-function buildDescriptivoCinteBars(executions, max = 8) {
-    const bucket = {};
-    executions.forEach((ex) => {
-        const label = resolveDescriptivoCinte(ex);
-        const key = String(label).trim();
-        if (!key) return;
-        bucket[key] = (bucket[key] || 0) + 1;
-    });
-
-    const sorted = Object.entries(bucket)
-        .map(([tipo, firmas]) => ({ tipo, firmas }))
-        .sort((a, b) => b.firmas - a.firmas);
-
-    const top = sorted.slice(0, max);
-    const rest = sorted.slice(max);
-    const others = rest.reduce((sum, r) => sum + r.firmas, 0);
-
-    if (others > 0) {
-        top.push({ tipo: 'Otros', firmas: others });
-    }
-    return top;
 }
 
 function isEliminadoRecord(ex) {
@@ -132,33 +56,41 @@ function SignedContractRow({ execution, onOpen }) {
         <button
             type="button"
             onClick={onOpen}
-            className={`grid w-full grid-cols-[2.2fr_1fr_1fr_1.5fr_auto] items-center gap-4 px-4 py-3 text-left transition ${isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-800/50'}`}
+            className={`grid w-full grid-cols-[2.2fr_1fr_1fr_1.5fr_40px] items-center gap-4 px-4 py-3 text-left transition ${isLight ? 'hover:bg-slate-50' : 'hover:bg-white/5'}`}
         >
             <div>
-                <p className="text-sm font-semibold text-[var(--text)]">{execution.workflowName || 'Candidato'}</p>
-                <p className="mt-1 text-xs text-[var(--muted)]">{role}</p>
+                <p className={`text-sm font-semibold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>{execution.workflowName || 'Candidato'}</p>
+                <p className={`mt-1 text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{role}</p>
             </div>
             <div>
                 <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${tipoBadgeTone}`}>
                     {tipoLabel}
                 </span>
             </div>
-            <p className="text-xs text-[var(--muted)]">{signedDate}</p>
-            <p className="text-xs text-[var(--muted)]">{duration || 'No calculado'}</p>
-            <span className="text-xl leading-none text-[var(--muted)]">⋮</span>
+            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{signedDate}</p>
+            <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{duration || 'No calculado'}</p>
+            <span className={`text-xl leading-none ${isLight ? 'text-slate-400' : 'text-slate-500'}`}>⋮</span>
         </button>
     );
 }
 
 export default function HistoryCandidates({ executions, metrics, loading }) {
-    const { isLight } = useModuleTheme();
-    const chartTick = isLight ? '#64748b' : 'rgba(159,179,200,0.95)';
-    const chartGrid = isLight ? '#e2e8f0' : 'rgba(109, 129, 155, 0.2)';
-    const chartTooltip = isLight ? RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT : RECHARTS_TOOLTIP_CONTENT_STYLE;
+    const { isLight, field: fieldCls } = useModuleTheme();
     const [selectedUser, setSelectedUser] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [channelFilter, setChannelFilter] = useState('all');
     const [pageSize, setPageSize] = useState(20);
+    const [drawerOpen, setDrawerOpen] = useState(false);
+
+    const activeFilterCount = [
+        searchTerm !== '',
+        channelFilter !== 'all',
+    ].filter(Boolean).length;
+
+    function clearAllFilters() {
+        setSearchTerm('');
+        setChannelFilter('all');
+    }
 
     const filtered = useMemo(() => {
         return executions
@@ -184,8 +116,6 @@ export default function HistoryCandidates({ executions, metrics, loading }) {
             });
     }, [executions, searchTerm, channelFilter]);
 
-    const monthlyGrowth = useMemo(() => buildMonthlyGrowth(filtered), [filtered]);
-    const descriptivoCinteBars = useMemo(() => buildDescriptivoCinteBars(filtered, 8), [filtered]);
     const visible = filtered.slice(0, pageSize);
 
     if (loading) {
@@ -200,115 +130,117 @@ export default function HistoryCandidates({ executions, metrics, loading }) {
         );
     }
 
+    const glassPanel = isLight ? 'overflow-hidden rounded-2xl border backdrop-blur-xl bg-white/80 border-white/40 shadow-xl' : 'glass-card';
+
     return (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5 font-body">
 
-            <div className="surface-panel p-5">
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_auto_auto]">
-                <input
-                    type="text"
-                    className="field-control w-full px-4 py-3 text-sm transition"
-                    placeholder="Buscar candidato o cargo..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                />
-                <select
-                    value={channelFilter}
-                    onChange={(e) => setChannelFilter(e.target.value)}
-                    className="field-control px-3 py-3 text-sm transition"
-                >
-                    <option value="all">Todos los canales</option>
-                    {CHANNELS.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                    ))}
-                </select>
-                <select
-                    value={pageSize}
-                    onChange={(e) => setPageSize(Number(e.target.value))}
-                    className="field-control min-w-[130px] px-3 py-3 text-sm transition"
-                >
-                    <option value={10}>10</option>
-                    <option value={20}>20</option>
-                    <option value={50}>50</option>
-                </select>
+            {/* ── Barra superior: búsqueda rápida + botón filtros ── */}
+            <div className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 ${
+                isLight ? 'bg-white/80 border border-slate-200/60 shadow-sm backdrop-blur-xl' : 'bg-white/[0.04] border border-white/5 backdrop-blur-xl'
+            }`}>
+                <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                    <input
+                        type="text"
+                        className={`${fieldCls || 'field-control'} w-full py-2 pl-10 pr-3 text-sm h-9`}
+                        placeholder="Buscar candidato o cargo..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
                 </div>
+                <span className={`shrink-0 text-[11px] font-semibold hidden sm:inline ${
+                    isLight ? 'text-slate-500' : 'text-slate-500'
+                }`}>
+                    {filtered.length} / {executions.length}
+                </span>
+                <FilterDrawerTrigger
+                    onClick={() => setDrawerOpen(true)}
+                    activeCount={activeFilterCount}
+                    isLight={isLight}
+                />
             </div>
 
-            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.35fr_1fr]">
-                <section className="space-y-4">
-                    {filtered.length === 0 ? (
-                        <div className="surface-panel border-dashed p-10 text-center">
-                            <p className="text-lg font-semibold text-[var(--text)]">Sin histórico en el filtro actual</p>
+            {/* ── FilterDrawer ── */}
+            <FilterDrawer
+                open={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                activeCount={activeFilterCount}
+                onClear={clearAllFilters}
+            >
+                <FilterSection title="Búsqueda" isLight={isLight}>
+                    <div className="relative">
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
                         </div>
-                    ) : (
-                        <div className="surface-panel overflow-hidden">
-                            <div className={`grid grid-cols-[2.2fr_1fr_1fr_1.5fr_auto] gap-4 border-b border-[var(--border)] bg-[var(--surface-soft)] px-4 py-3 text-[11px] font-bold uppercase tracking-wide ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
-                                <span>Empleado</span>
-                                <span>Tipo</span>
-                                <span>Incorporacion/cese</span>
-                                <span>Tareas completadas</span>
-                                <span />
-                            </div>
-                            <div className="max-h-[64vh] divide-y divide-[var(--border)] overflow-y-auto">
+                        <input
+                            type="text"
+                            className={`${fieldCls || 'field-control'} w-full py-2.5 pl-10 pr-3 text-sm`}
+                            placeholder="Candidato o cargo..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
+                </FilterSection>
+
+                <FilterSection title="Canal de firma" isLight={isLight}>
+                    <select
+                        value={channelFilter}
+                        onChange={(e) => setChannelFilter(e.target.value)}
+                        className={`${fieldCls || 'field-control'} w-full cursor-pointer px-3 py-2.5 text-sm`}
+                    >
+                        <option value="all">Todos los canales</option>
+                        {CHANNELS.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                        ))}
+                    </select>
+                </FilterSection>
+
+                <FilterSection title="Paginación" isLight={isLight}>
+                    <div className="space-y-1.5">
+                        <label className={`text-[11px] font-semibold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Filas por página</label>
+                        <select
+                            value={pageSize}
+                            onChange={(e) => setPageSize(Number(e.target.value))}
+                            className={`${fieldCls || 'field-control'} w-full cursor-pointer px-3 py-2.5 text-sm`}
+                        >
+                            <option value={10}>10 filas</option>
+                            <option value={20}>20 filas</option>
+                            <option value={50}>50 filas</option>
+                            <option value={100}>100 filas</option>
+                        </select>
+                    </div>
+                </FilterSection>
+            </FilterDrawer>
+
+            <section className="space-y-4">
+                {filtered.length === 0 ? (
+                    <div className={`${glassPanel} border-dashed p-10 text-center`}>
+                        <p className={`text-lg font-semibold ${isLight ? 'text-slate-800' : 'title-gradient'}`}>Sin histórico en el filtro actual</p>
+                    </div>
+                ) : (
+                    <div className={`${glassPanel} overflow-hidden`}>
+                        <div className={`grid grid-cols-[2.2fr_1fr_1fr_1.5fr_40px] gap-4 border-b px-4 py-3 text-[11px] font-bold uppercase tracking-wide ${isLight ? 'border-slate-200/50 bg-slate-50/50 text-slate-600' : 'border-white/5 bg-white/5 text-[rgba(159,179,200,0.95)]'}`}>
+                            <span>Empleado</span>
+                            <span>Tipo</span>
+                            <span>Incorporacion/cese</span>
+                            <span>Tareas completadas</span>
+                            <span />
+                        </div>
+                        <div className={`max-h-[64vh] divide-y overflow-y-auto ${isLight ? 'divide-slate-200' : 'divide-white/5'}`}>
                             {visible.map((ex) => (
                                 <SignedContractRow key={ex.executionId} execution={ex} onOpen={() => setSelectedUser(ex)} />
                             ))}
-                            </div>
                         </div>
-                    )}
-                </section>
-
-                <section className="space-y-4">
-                    <article className="surface-panel p-4">
-                        <h3 className="mb-3 text-sm font-semibold text-[var(--text)]">Total de ingresos reales mensual</h3>
-                        <div className="h-[220px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={monthlyGrowth}>
-                                    <defs>
-                                        <linearGradient id="growthFill" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="0%" stopColor="#4F8831" stopOpacity={0.7} />
-                                            <stop offset="100%" stopColor="#4F8831" stopOpacity={0.05} />
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
-                                    <XAxis dataKey="month" stroke={chartTick} />
-                                    <YAxis stroke={chartTick} />
-                                    <Tooltip
-                                        contentStyle={chartTooltip}
-                                    />
-                                    <Area type="monotone" dataKey="firmas" stroke="#4F8831" fill="url(#growthFill)" strokeWidth={2} />
-                                </AreaChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </article>
-
-                    <article className="surface-panel p-4">
-                        <h3 className="mb-3 text-sm font-semibold text-[var(--text)]">Conteo por tipo Descriptivo CINTE</h3>
-                        <div className="h-[220px]">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={descriptivoCinteBars} layout="vertical">
-                                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
-                                    <XAxis type="number" stroke={chartTick} />
-                                    <YAxis
-                                        type="category"
-                                        dataKey="tipo"
-                                        width={220}
-                                        stroke={chartTick}
-                                        interval={0}
-                                        ticks={descriptivoCinteBars.map((d) => d.tipo)}
-                                        tick={{ fontSize: 12, fill: chartTick }}
-                                        tickFormatter={(v) => String(v).length > 24 ? `${String(v).slice(0, 24)}…` : String(v)}
-                                    />
-                                    <Tooltip
-                                        contentStyle={chartTooltip}
-                                    />
-                                    <Bar dataKey="firmas" fill="#08bdc6" radius={[8, 8, 0, 0]} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        </div>
-                    </article>
-                </section>
-            </div>
+                    </div>
+                )}
+            </section>
 
             <CandidateModal selectedUser={selectedUser} onClose={() => setSelectedUser(null)} />
         </motion.div>
