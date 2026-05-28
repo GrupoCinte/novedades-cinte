@@ -1,9 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import {
+    PieChart, Pie, Tooltip, ResponsiveContainer, Cell,
+    AreaChart, Area, XAxis, YAxis, CartesianGrid,
+    BarChart, Bar,
+} from 'recharts';
 
 import { getTrazabilidadStageKey, TRAZABILIDAD_STAGE_ORDER } from '../hooks/useMonitorData';
-import { RECHARTS_TOOLTIP_PANEL_STYLE, RECHARTS_TOOLTIP_PANEL_STYLE_LIGHT } from '../constants/rechartsTheme.js';
+import {
+    RECHARTS_TOOLTIP_PANEL_STYLE,
+    RECHARTS_TOOLTIP_PANEL_STYLE_LIGHT,
+    RECHARTS_TOOLTIP_CONTENT_STYLE,
+    RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT,
+} from '../constants/rechartsTheme.js';
 import { useModuleTheme } from '../../moduleTheme.js';
 
 function buildStageCounts(executions = []) {
@@ -33,31 +42,69 @@ function buildStageCounts(executions = []) {
         .filter((row) => row.count > 0);
 }
 
-function buildHeatmap(metrics) {
-    const total = Math.max(metrics.total || 1, 1);
-    const delayFactor = metrics.avgWaitTime === 'N/A' ? 0.35 : 0.65;
-    return [
-        { actor: 'RRHH', inicio: 0.28, revision: 0.4, firma: 0.2 },
-        { actor: 'Legal', inicio: 0.15, revision: 0.75 * delayFactor, firma: 0.32 },
-        { actor: 'Candidato', inicio: 0.22, revision: 0.48, firma: Math.min(0.9, (metrics.active / total) + 0.2) },
-    ];
+function normalizeKey(str) {
+    return String(str || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
 }
 
-function heatColor(value, isLight) {
-    if (isLight) {
-        if (value >= 0.65) return 'border border-orange-300 bg-orange-50 text-orange-900';
-        if (value >= 0.45) return 'border border-amber-300 bg-amber-50 text-amber-900';
-        return 'border border-emerald-300 bg-emerald-50 text-emerald-900';
+function resolveDescriptivoCinte(execution) {
+    const full = execution.fullData || {};
+    const fallback = full?.puesto;
+    const keys = Object.keys(full);
+    for (const key of keys) {
+        const nk = normalizeKey(key);
+        if (nk.includes('descript') && nk.includes('cinte')) {
+            const raw = full[key];
+            const val = typeof raw === 'string' ? raw : raw != null ? String(raw) : '';
+            const clean = val.trim();
+            if (clean && clean.toLowerCase() !== 'null' && clean.toLowerCase() !== 'undefined') return clean;
+        }
     }
-    if (value >= 0.65) return 'bg-orange-500/30 border-orange-400/40 text-orange-200';
-    if (value >= 0.45) return 'bg-amber-500/25 border-amber-400/35 text-amber-200';
-    return 'bg-emerald-500/20 border-emerald-400/35 text-emerald-200';
+    const fb = typeof fallback === 'string' ? fallback : fallback != null ? String(fallback) : '';
+    return fb.trim() || 'Sin Descriptivo CINTE';
+}
+
+function buildMonthlyGrowth(executions) {
+    const bucket = {};
+    executions.forEach((ex) => {
+        const ts = ex.fullData?.ts_eliminado || ex.fullData?.ts_validacion_completada || ex.timestamp;
+        const date = new Date(ts);
+        if (Number.isNaN(date.getTime())) return;
+        const monthKey = date.getFullYear() * 100 + (date.getMonth() + 1);
+        const monthLabel = date.toLocaleDateString('es-CO', { month: 'short', year: '2-digit' });
+        if (!bucket[monthKey]) bucket[monthKey] = { monthKey, month: monthLabel, firmas: 0 };
+        bucket[monthKey].firmas += 1;
+    });
+    return Object.values(bucket)
+        .sort((a, b) => a.monthKey - b.monthKey)
+        .map(({ month, firmas }) => ({ month, firmas }));
+}
+
+function buildDescriptivoCinteBars(executions, max = 8) {
+    const bucket = {};
+    executions.forEach((ex) => {
+        const label = resolveDescriptivoCinte(ex);
+        const key = String(label).trim();
+        if (!key) return;
+        bucket[key] = (bucket[key] || 0) + 1;
+    });
+    const sorted = Object.entries(bucket)
+        .map(([tipo, firmas]) => ({ tipo, firmas }))
+        .sort((a, b) => b.firmas - a.firmas);
+    const top = sorted.slice(0, max);
+    const rest = sorted.slice(max);
+    const others = rest.reduce((sum, r) => sum + r.firmas, 0);
+    if (others > 0) top.push({ tipo: 'Otros', firmas: others });
+    return top;
 }
 
 export default function MetricsDashboard({ metrics, loading, executions = [] }) {
     const { isLight } = useModuleTheme();
     const stageCounts = useMemo(() => buildStageCounts(executions), [executions]);
-    const heatmap = useMemo(() => buildHeatmap(metrics), [metrics]);
+    const monthlyGrowth = useMemo(() => buildMonthlyGrowth(executions), [executions]);
+    const descriptivoCinteBars = useMemo(() => buildDescriptivoCinteBars(executions, 8), [executions]);
     const [selectedStageKey, setSelectedStageKey] = useState(stageCounts[0]?.stageKey || '');
 
     useEffect(() => {
@@ -125,14 +172,18 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
 
     const glassPanel = isLight ? 'overflow-hidden rounded-2xl border backdrop-blur-xl bg-white/80 border-white/40 shadow-xl' : 'glass-card';
 
+    const chartTick = isLight ? '#64748b' : 'rgba(159,179,200,0.95)';
+    const chartGrid = isLight ? '#e2e8f0' : 'rgba(109, 129, 155, 0.2)';
+    const chartTooltip = isLight ? RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT : RECHARTS_TOOLTIP_CONTENT_STYLE;
+
     return (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5 font-body">
-            <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
+            <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 <MetricTile isLight={isLight} glassPanel={glassPanel} title="Tiempo prom. pipeline" value={metrics.averageTime} subtitle="Pipeline automático" />
                 <MetricTile isLight={isLight} glassPanel={glassPanel} title="Espera de Firma" value={metrics.avgWaitTime} subtitle="Friccion del candidato" />
-                <MetricTile isLight={isLight} glassPanel={glassPanel} title="Ahorro Estimado" value={metrics.costSaved} subtitle={metrics.costSavedSubtext || 'Costo evitado'} />
             </section>
 
+            {/* ── Fila 2: Donut etapas + Ingresos mensuales ── */}
             <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.3fr_1fr]">
                 <article className={`${glassPanel} p-6`}>
                     <div className="mb-6 flex items-center justify-between">
@@ -198,26 +249,60 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
                     </div>
                 </article>
 
-                <article className={`${glassPanel} p-6 flex flex-col`}>
-                    <div className="mb-6 flex items-center justify-between">
-                        <h3 className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Heatmap de Fricción</h3>
-                        <span className="text-[10px] font-bold text-[#ff3366] bg-[#ff3366]/10 px-2 py-1 rounded-full border border-[#ff3366]/20">Cuellos de Botella</span>
+                <article className={`${glassPanel} p-6`}>
+                    <div className="mb-4 flex items-center justify-between">
+                        <h3 className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Ingresos Reales Mensual</h3>
+                        <span className="text-[10px] font-bold text-[#14ffec] bg-[#14ffec]/10 px-2 py-1 rounded-full border border-[#14ffec]/20">Métrica Global</span>
                     </div>
-                    <div className="space-y-2">
-                        {heatmap.map((row) => (
-                            <div key={row.actor} className="grid grid-cols-4 gap-2 text-xs">
-                                <div className={`px-3 py-2 font-semibold rounded-lg ${isLight ? 'bg-slate-50/50 text-slate-700 border border-slate-200/50' : 'bg-white/5 border border-white/5 text-[rgba(159,179,200,0.95)]'}`}>
-                                    {row.actor}
-                                </div>
-                                <HeatCell isLight={isLight} value={row.inicio} label="Inicio" />
-                                <HeatCell isLight={isLight} value={row.revision} label="Revision" />
-                                <HeatCell isLight={isLight} value={row.firma} label="Firma" />
-                            </div>
-                        ))}
+                    <div className="h-[280px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={monthlyGrowth}>
+                                <defs>
+                                    <linearGradient id="growthFillM" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#14ffec" stopOpacity={0.5} />
+                                        <stop offset="100%" stopColor="#14ffec" stopOpacity={0.0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
+                                <XAxis dataKey="month" stroke={chartTick} axisLine={false} tickLine={false} />
+                                <YAxis stroke={chartTick} axisLine={false} tickLine={false} />
+                                <Tooltip contentStyle={chartTooltip} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                                <Area type="monotone" dataKey="firmas" stroke="#14ffec" fill="url(#growthFillM)" strokeWidth={3} />
+                            </AreaChart>
+                        </ResponsiveContainer>
                     </div>
-                    <p className={`mt-4 text-xs ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
-                        Valores altos representan mayor friccion operativa y probabilidad de estancamiento.
-                    </p>
+                </article>
+            </section>
+
+            {/* ── Fila 3: Conteo por tipo descriptivo (ancho completo) ── */}
+            <section>
+                <article className={`${glassPanel} p-6`}>
+                    <div className="mb-4 flex items-center justify-between">
+                        <h3 className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Conteo por Tipo Descriptivo</h3>
+                        <span className="text-[10px] font-bold text-[#ffb347] bg-[#ffb347]/10 px-2 py-1 rounded-full border border-[#ffb347]/20">Descriptivo CINTE</span>
+                    </div>
+                    <div className="h-[280px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={descriptivoCinteBars} layout="vertical">
+                                <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} horizontal={false} />
+                                <XAxis type="number" stroke={chartTick} axisLine={false} tickLine={false} />
+                                <YAxis
+                                    type="category"
+                                    dataKey="tipo"
+                                    width={200}
+                                    stroke={chartTick}
+                                    interval={0}
+                                    axisLine={false}
+                                    tickLine={false}
+                                    ticks={descriptivoCinteBars.map((d) => d.tipo)}
+                                    tick={{ fontSize: 11, fill: chartTick }}
+                                    tickFormatter={(v) => String(v).length > 24 ? `${String(v).slice(0, 24)}…` : String(v)}
+                                />
+                                <Tooltip contentStyle={chartTooltip} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                                <Bar dataKey="firmas" fill="#ffb347" radius={[0, 4, 4, 0]} barSize={18} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
                 </article>
             </section>
         </motion.div>
@@ -234,11 +319,4 @@ function MetricTile({ isLight, glassPanel, title, value, subtitle }) {
     );
 }
 
-function HeatCell({ isLight, value, label }) {
-    return (
-        <div className={`rounded-lg px-3 py-2 ${heatColor(value, isLight)}`}>
-            <p className="text-[10px] uppercase tracking-wide">{label}</p>
-            <p className="text-sm font-semibold">{Math.round(value * 100)}%</p>
-        </div>
-    );
-}
+

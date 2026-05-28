@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import CandidateModal from './CandidateModal';
+import FilterDrawer, { FilterDrawerTrigger, FilterSection } from './FilterDrawer';
 import { normalizeStatus, getTrazabilidadStageKey, TRAZABILIDAD_STAGE_ORDER } from '../hooks/useMonitorData';
 import { TERMINAL_STATUSES_SET } from '../constants/trazabilidad.js';
 import { useModuleTheme } from '../../moduleTheme.js';
@@ -39,6 +40,57 @@ function buildSearchHaystack(ex) {
         }
     }
     return parts.join(' ').toLowerCase();
+}
+
+export function TaskProgressCompact({ completedStages, maxStages, isLight }) {
+    const steps = Array.from({ length: maxStages }, (_, i) => i + 1);
+    return (
+        <div className="flex items-center gap-1">
+            {steps.map((step) => {
+                const done = step <= completedStages;
+                const current = step === completedStages + 1;
+                return (
+                    <div key={step} className="flex items-center">
+                        <div
+                            className={`
+                                relative flex h-5 w-5 shrink-0 items-center justify-center
+                                rounded-full border text-[9px] font-bold transition-all duration-300
+                                ${done
+                                    ? isLight
+                                        ? 'border-blue-500 bg-blue-500 text-white shadow-[0_0_6px_rgba(59,130,246,0.5)]'
+                                        : 'border-blue-400 bg-blue-500/80 text-white shadow-[0_0_6px_rgba(59,130,246,0.4)]'
+                                    : current
+                                        ? isLight
+                                            ? 'border-blue-400 bg-blue-50 text-blue-600 animate-pulse'
+                                            : 'border-blue-400/60 bg-blue-500/10 text-blue-400 animate-pulse'
+                                        : isLight
+                                            ? 'border-slate-300 bg-white text-slate-400'
+                                            : 'border-slate-700 bg-transparent text-slate-600'
+                                }
+                            `}
+                        >
+                            {done ? (
+                                <svg className="h-2.5 w-2.5" viewBox="0 0 10 10" fill="currentColor">
+                                    <path d="M8.5 2.5L4 7 1.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                                </svg>
+                            ) : (
+                                step
+                            )}
+                        </div>
+                        {step < maxStages && (
+                            <div
+                                className={`h-px w-3 transition-all duration-300 ${
+                                    done
+                                        ? isLight ? 'bg-blue-400' : 'bg-blue-500/60'
+                                        : isLight ? 'bg-slate-200' : 'bg-slate-700/50'
+                                }`}
+                            />
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
 }
 
 function parseTs(value) {
@@ -257,8 +309,16 @@ export default function ActiveCandidates({
     const [fSoloActivos, setFSoloActivos] = useState(false);
     const [fFechaDesde, setFFechaDesde] = useState('');
     const [fFechaHasta, setFFechaHasta] = useState('');
+    const [drawerOpen, setDrawerOpen] = useState(false);
 
     const hasAdvancedFilters = fSoloActivos || fFechaDesde || fFechaHasta;
+    const activeFilterCount = [
+        searchTerm !== '',
+        statusFilter !== 'all',
+        fSoloActivos,
+        fFechaDesde !== '',
+        fFechaHasta !== ''
+    ].filter(Boolean).length;
 
     function clearAllFilters() {
         setSearchTerm('');
@@ -450,12 +510,50 @@ export default function ActiveCandidates({
                 </div>
             ) : null}
 
-            {/* ── Barra de Filtros Avanzados ── */}
-            <div className={filterShell}>
+            {/* ── Barra superior: búsqueda rápida + botón filtros ── */}
+            <div className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 ${
+                isLight ? 'bg-white/80 border border-slate-200/60 shadow-sm backdrop-blur-xl' : 'bg-white/[0.04] border border-white/5 backdrop-blur-xl'
+            }`}>
+                {/* Búsqueda inline */}
+                <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        </svg>
+                    </div>
+                    <input
+                        type="text"
+                        className={`${fieldCls} w-full py-2 pl-10 pr-3 text-sm h-9`}
+                        placeholder="Buscar por nombre, puesto o ID..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
 
-                {/* Fila 1: Búsqueda + Estado + Filas */}
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="relative min-w-[200px] flex-1">
+                {/* Badge resultados */}
+                <span className={`shrink-0 text-[11px] font-semibold hidden sm:inline ${
+                    isLight ? 'text-slate-500' : 'text-slate-500'
+                }`}>
+                    {filtered.length} / {executions.length}
+                </span>
+
+                {/* Botón abrir drawer */}
+                <FilterDrawerTrigger
+                    onClick={() => setDrawerOpen(true)}
+                    activeCount={activeFilterCount}
+                    isLight={isLight}
+                />
+            </div>
+
+            {/* ── FilterDrawer ── */}
+            <FilterDrawer
+                open={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                activeCount={activeFilterCount}
+                onClear={clearAllFilters}
+            >
+                <FilterSection title="Búsqueda" isLight={isLight}>
+                    <div className="relative">
                         <div className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
                             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -463,136 +561,90 @@ export default function ActiveCandidates({
                         </div>
                         <input
                             type="text"
-                            className={`${fieldCls} w-full py-1.5 pl-9 pr-3 text-sm`}
-                            placeholder="Buscar candidato, cargo, email…"
+                            className={`${fieldCls} w-full py-2.5 pl-10 pr-3 text-sm`}
+                            placeholder="Nombre, puesto o ID..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
+                </FilterSection>
 
-                    <div className="flex items-center gap-2">
-                        <label className={`whitespace-nowrap text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Estado</label>
-                        <select
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
-                            className={`${fieldCls} cursor-pointer px-2 py-1 text-xs`}
-                        >
-                            <option value="all">Todos los estados</option>
-                            <option value="cargando">Cargando</option>
-                            <option value="contactado">Contactado</option>
-                            <option value="whatsapp enviado">WhatsApp Enviado</option>
-                            <option value="documentos recibidos">Documentos Recibidos</option>
-                            <option value="sagrilaft enviado">Sagrilaft Enviado</option>
-                            <option value="finalizado">Finalizado</option>
-                        </select>
-                    </div>
+                <FilterSection title="Estado" isLight={isLight}>
+                    <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className={`${fieldCls} w-full cursor-pointer px-3 py-2.5 text-sm`}
+                    >
+                        <option value="all">Todos los estados</option>
+                        <option value="cargando">Cargando</option>
+                        <option value="contactado">Contactado</option>
+                        <option value="whatsapp enviado">WhatsApp Enviado</option>
+                        <option value="documentos recibidos">Documentos Recibidos</option>
+                        <option value="sagrilaft enviado">Sagrilaft Enviado</option>
+                        <option value="finalizado">Finalizado</option>
+                    </select>
+                </FilterSection>
 
-                    <div className="flex items-center gap-2">
-                        <label className={`whitespace-nowrap text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Filas</label>
-                        <select
-                            value={pageSize}
-                            onChange={(e) => setPageSize(Number(e.target.value))}
-                            className={`${fieldCls} cursor-pointer px-2 py-1 text-xs`}
-                        >
-                            <option value={10}>10</option>
-                            <option value={20}>20</option>
-                            <option value={50}>50</option>
-                        </select>
-                    </div>
-
-                    {/* Badge de resultados */}
-                    <div className="ml-auto flex items-center gap-2">
-                        <span className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Mostrando</span>
-                        <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-2.5 py-0.5 text-sm font-bold text-blue-400">
-                            {filtered.length} de {executions.length}
-                        </span>
-                    </div>
-                </div>
-
-                {/* Separador */}
-                <div className={sepLine} />
-
-                {/* Fila 2: Filtros avanzados */}
-                <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2">
-                        <svg className="h-4 w-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z" />
-                        </svg>
-                        <span className={`text-xs font-bold uppercase tracking-widest ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Filtros avanzados</span>
-                    </div>
-                    <div className={`h-px min-w-[1rem] flex-1 ${isLight ? 'bg-slate-200' : 'bg-slate-700/50'}`} />
-
-                    {/* Solo activos toggle */}
-                    <label className={`flex cursor-pointer items-center gap-1.5 rounded-lg border px-2 py-1 text-xs transition hover:border-sky-500/50 ${isLight ? 'border-slate-300 bg-slate-50 text-slate-800' : 'border-slate-600 bg-slate-800 text-slate-200'}`}>
+                <FilterSection title="Opciones" isLight={isLight}>
+                    <label className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm transition hover:border-[var(--color-cinte-turquesa)]/50 ${
+                        isLight ? 'border-slate-200 bg-slate-50 text-slate-800' : 'border-white/10 bg-white/[0.03] text-slate-200'
+                    }`}>
                         <input
                             type="checkbox"
                             checked={fSoloActivos}
                             onChange={(e) => setFSoloActivos(e.target.checked)}
-                            className="h-3.5 w-3.5 rounded accent-blue-500"
+                            className="h-4 w-4 rounded accent-[var(--color-cinte-primary)] cursor-pointer"
                         />
-                        <span className="whitespace-nowrap text-xs font-semibold">Solo activos</span>
+                        <div>
+                            <p className="font-semibold">Solo activos</p>
+                            <p className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Excluye finalizados y eliminados</p>
+                        </div>
                     </label>
+                </FilterSection>
 
-                    {/* Fecha de ingreso desde */}
-                    <div className="flex items-center gap-2">
-                        <label className={`whitespace-nowrap text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Ingreso desde</label>
-                        <input
-                            {...nativeCalendarOnlyInputProps}
-                            type="date"
-                            value={fFechaDesde}
-                            onChange={(e) => setFFechaDesde(e.target.value)}
-                            className={`${fieldCls} cursor-pointer px-2 py-1 text-xs`}
-                        />
+                <FilterSection title="Rango de fechas" isLight={isLight}>
+                    <div className="space-y-3">
+                        <div className="space-y-1.5">
+                            <label className={`text-[11px] font-semibold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Desde</label>
+                            <input
+                                {...nativeCalendarOnlyInputProps}
+                                type="date"
+                                value={fFechaDesde}
+                                onChange={(e) => setFFechaDesde(e.target.value)}
+                                className={`${fieldCls} w-full cursor-pointer px-3 py-2.5 text-sm`}
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className={`text-[11px] font-semibold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Hasta</label>
+                            <input
+                                {...nativeCalendarOnlyInputProps}
+                                type="date"
+                                value={fFechaHasta}
+                                onChange={(e) => setFFechaHasta(e.target.value)}
+                                className={`${fieldCls} w-full cursor-pointer px-3 py-2.5 text-sm`}
+                            />
+                        </div>
                     </div>
+                </FilterSection>
 
-                    {/* Fecha de término hasta */}
-                    <div className="flex items-center gap-2">
-                        <label className={`whitespace-nowrap text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Hasta</label>
-                        <input
-                            {...nativeCalendarOnlyInputProps}
-                            type="date"
-                            value={fFechaHasta}
-                            onChange={(e) => setFFechaHasta(e.target.value)}
-                            className={`${fieldCls} cursor-pointer px-2 py-1 text-xs`}
-                        />
-                    </div>
-
-                    {/* Botón limpiar */}
-                    {(searchTerm || statusFilter !== 'all' || hasAdvancedFilters) && (
-                        <button
-                            type="button"
-                            onClick={clearAllFilters}
-                            className={clearFiltros}
+                <FilterSection title="Paginación" isLight={isLight}>
+                    <div className="space-y-1.5">
+                        <label className={`text-[11px] font-semibold uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Filas por página</label>
+                        <select
+                            value={pageSize}
+                            onChange={(e) => setPageSize(Number(e.target.value))}
+                            className={`${fieldCls} w-full cursor-pointer px-3 py-2.5 text-sm`}
                         >
-                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                            Limpiar filtros
-                        </button>
-                    )}
-                </div>
-            </div>
+                            <option value={10}>10 filas</option>
+                            <option value={20}>20 filas</option>
+                            <option value={50}>50 filas</option>
+                            <option value={100}>100 filas</option>
+                        </select>
+                    </div>
+                </FilterSection>
+            </FilterDrawer>
 
-            <div className="surface-soft flex flex-wrap items-center justify-between gap-3 px-4 py-2 text-sm">
-                <p className={isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}>
-                    {filtered.length === 0 ? (
-                        <>Sin resultados en esta vista</>
-                    ) : (
-                        <>
-                            Filas <span className="font-semibold text-[var(--text)]">{pageStart + 1}</span>
-                            {' — '}
-                            <span className="font-semibold text-[var(--text)]">{pageEnd}</span>
-                            {' de '}
-                            <span className="font-semibold text-[var(--text)]">{filtered.length}</span>
-                            {' · Página '}
-                            <span className="font-semibold text-[var(--text)]">{currentPage}</span>
-                            {' / '}
-                            <span className="font-semibold text-[var(--text)]">{totalPages}</span>
-                        </>
-                    )}
-                </p>
-                <span className="data-chip">Total en Dynamo: {totalMonitorCount}</span>
-            </div>
+
 
             {filtered.length === 0 ? (
                 totalMonitorCount > 0 && executions.length === 0 ? (
@@ -610,7 +662,7 @@ export default function ActiveCandidates({
                 )
             ) : (
                 <div className={isLight ? 'overflow-hidden rounded-2xl border backdrop-blur-xl bg-white/80 border-white/40 shadow-xl' : 'glass-card w-full p-0'}>
-                    <div className={`grid grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] gap-3 border-b px-4 py-3 text-[11px] font-bold uppercase tracking-wide ${isLight ? 'border-slate-200/50 bg-slate-50/50 text-slate-600' : 'border-white/5 bg-white/5 text-[rgba(159,179,200,0.95)]'}`}>
+                    <div className={`grid grid-cols-[1.8fr_0.95fr_0.95fr_1fr_120px] gap-3 border-b px-4 py-3 text-[11px] font-bold uppercase tracking-wide ${isLight ? 'border-slate-200/50 bg-slate-50/50 text-slate-600' : 'border-white/5 bg-white/5 text-[rgba(159,179,200,0.95)]'}`}>
                         <button
                             type="button"
                             className="flex items-center gap-2 text-left"
@@ -624,7 +676,7 @@ export default function ActiveCandidates({
                             className="flex items-center gap-2 text-left"
                             onClick={() => toggleSort('type')}
                         >
-                            Tipo
+                            Estado
                             {sortBy === 'type' && <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-[rgba(159,179,200,0.95)]'}`}>{sortDir === 'desc' ? '▼' : '▲'}</span>}
                         </button>
                         <button
@@ -632,7 +684,7 @@ export default function ActiveCandidates({
                             className="flex items-center gap-2 text-left"
                             onClick={() => toggleSort('start')}
                         >
-                            Inicio de proceso
+                            Inicio
                             {sortBy === 'start' && <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-[rgba(159,179,200,0.95)]'}`}>{sortDir === 'desc' ? '▼' : '▲'}</span>}
                         </button>
                         <button
@@ -640,10 +692,10 @@ export default function ActiveCandidates({
                             className="flex items-center gap-2 text-left"
                             onClick={() => toggleSort('tasks')}
                         >
-                            Tareas completadas
+                            Progreso
                             {sortBy === 'tasks' && <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-[rgba(159,179,200,0.95)]'}`}>{sortDir === 'desc' ? '▼' : '▲'}</span>}
                         </button>
-                        <span className="text-right">Acción</span>
+                        <span className="text-right">Acciones</span>
                     </div>
                     <div className="max-h-[64vh] divide-y divide-[var(--border)] overflow-y-auto">
                         {visible.map((ex) => {
@@ -653,36 +705,28 @@ export default function ActiveCandidates({
                             return (
                                 <div
                                     key={ex.executionId}
-                                    className={`grid w-full grid-cols-[2.2fr_1.1fr_1fr_1.7fr_auto] items-center gap-4 px-4 py-3 transition-colors ${isLight ? 'hover:bg-white/60' : 'hover:bg-white/5'}`}
+                                    onClick={() => setSelectedUser(ex)}
+                                    className={`grid w-full cursor-pointer grid-cols-[1.8fr_0.95fr_0.95fr_1fr_120px] items-center gap-3 px-4 py-3 transition-colors ${isLight ? 'hover:bg-white/60' : 'hover:bg-white/5'}`}
                                 >
-                                    <button
-                                        type="button"
-                                        onClick={() => setSelectedUser(ex)}
-                                        className="col-span-4 grid min-w-0 grid-cols-[2.2fr_1.1fr_1fr_1.7fr] items-center gap-4 text-left"
-                                    >
-                                        <div className="min-w-0">
-                                            <p className={`truncate text-sm font-semibold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>{ex.workflowName || 'Name Last Name'}</p>
-                                            <p className={`truncate text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{ex.fullData?.puesto || 'Puesto de trabajo'}</p>
+                                    <div className="min-w-0">
+                                        <p className={`truncate text-sm font-semibold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>{ex.workflowName || 'Name Last Name'}</p>
+                                        <p className={`truncate text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{ex.fullData?.puesto || 'Puesto de trabajo'}</p>
+                                    </div>
+                                    <div className="min-w-0 flex items-center">
+                                        <span className={`inline-flex max-w-full truncate rounded-full border px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide ${statusTone(ex.realStatus, ex.statusId, isLight)}`}>
+                                            {ex.realStatus || 'Onboarding'}
+                                        </span>
+                                    </div>
+                                    <div className={`text-xs font-medium ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                                        {startDate ? new Date(startDate).toLocaleDateString('es-CO') : 'DD/MM/YYYY'}
+                                    </div>
+                                    <div className="min-w-0">
+                                        <LiveDurations execution={ex} isLight={isLight} />
+                                        <div className="mt-2">
+                                            <TaskProgressCompact completedStages={completedStages} maxStages={maxStages} isLight={isLight} />
                                         </div>
-                                        <div className="min-w-0">
-                                            <span className={`inline-flex max-w-full truncate rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-wide ${statusTone(ex.realStatus, ex.statusId, isLight)}`}>
-                                                {ex.realStatus || 'Onboarding'}
-                                            </span>
-                                        </div>
-                                        <div className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                                            {startDate ? new Date(startDate).toLocaleDateString('es-CO') : 'DD/MM/YYYY'}
-                                        </div>
-                                        <div className="min-w-0">
-                                            <LiveDurations execution={ex} isLight={isLight} />
-                                            <div className="mt-1 flex items-center gap-3">
-                                                <div className={`h-1.5 w-full max-w-[130px] overflow-hidden rounded-full ${isLight ? 'bg-slate-200' : 'bg-slate-700'}`}>
-                                                    <div className={`h-full rounded-full ${isLight ? 'bg-blue-500' : 'bg-blue-400'}`} style={{ width: `${(completedStages / maxStages) * 100}%` }} />
-                                                </div>
-                                                <span className={`shrink-0 text-xs font-semibold ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{completedStages} / {maxStages}</span>
-                                            </div>
-                                        </div>
-                                    </button>
-                                    <div className="flex shrink-0 items-center justify-end gap-2">
+                                    </div>
+                                    <div className="flex shrink-0 items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                                         <button
                                             type="button"
                                             title="Abrir WhatsApp Web / app"
@@ -706,30 +750,49 @@ export default function ActiveCandidates({
                             );
                         })}
                     </div>
-                    {filtered.length > pageSize ? (
-                        <div className={`flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 ${isLight ? 'border-slate-200/50 bg-slate-50/50' : 'border-white/5 bg-transparent'}`}>
-                            <button
-                                type="button"
-                                onClick={goPrevPage}
-                                disabled={currentPage <= 1}
-                                className={isLight ? ghostNav : 'neon-button w-auto px-4 py-1 text-[10px]'}
-                            >
-                                Anterior
-                            </button>
-                            <p className={`text-xs ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
-                                Página <span className="font-semibold text-[var(--text)]">{currentPage}</span> de{' '}
-                                <span className="font-semibold text-[var(--text)]">{totalPages}</span>
-                            </p>
-                            <button
-                                type="button"
-                                onClick={goNextPage}
-                                disabled={currentPage >= totalPages}
-                                className={isLight ? ghostNav : 'neon-button w-auto px-4 py-1 text-[10px]'}
-                            >
-                                Siguiente
-                            </button>
-                        </div>
-                    ) : null}
+                    {/* ── Pie de tabla: info + paginación ── */}
+                    <div className={`flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 ${isLight ? 'border-slate-200/50 bg-slate-50/50' : 'border-white/5 bg-transparent'}`}>
+                        {/* Info de filas y página */}
+                        <p className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                            {filtered.length === 0 ? (
+                                <>Sin resultados</>
+                            ) : (
+                                <>
+                                    Filas{' '}
+                                    <span className="font-semibold text-[var(--text)]">{pageStart + 1}</span>
+                                    {' — '}
+                                    <span className="font-semibold text-[var(--text)]">{pageEnd}</span>
+                                    {' de '}
+                                    <span className="font-semibold text-[var(--text)]">{filtered.length}</span>
+                                </>
+                            )}
+                        </p>
+
+                        {/* Botones de paginación (solo si hay más de una página) */}
+                        {filtered.length > pageSize && (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={goPrevPage}
+                                    disabled={currentPage <= 1}
+                                    className={isLight ? ghostNav : 'neon-button w-auto px-4 py-1 text-[10px]'}
+                                >
+                                    Anterior
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={goNextPage}
+                                    disabled={currentPage >= totalPages}
+                                    className={isLight ? ghostNav : 'neon-button w-auto px-4 py-1 text-[10px]'}
+                                >
+                                    Siguiente
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Total Dynamo */}
+                        <span className="data-chip text-xs">Total en Dynamo: {totalMonitorCount}</span>
+                    </div>
                     </div>
             )}
 

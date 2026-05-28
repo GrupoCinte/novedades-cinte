@@ -87,9 +87,9 @@ export default function ContratacionModule({ auth }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
     const navItems = [
-        { id: 'active', label: 'Activos', icon: Users },
+        { id: 'active', label: 'Onboarding', icon: Users },
         { id: 'history', label: 'Historial', icon: History },
-        { id: 'metrics', label: 'Métricas', icon: BarChart3 }
+        { id: 'metrics', label: 'Dashboard General', icon: BarChart3 }
     ];
 
     return (
@@ -157,6 +157,25 @@ export default function ContratacionModule({ auth }) {
                                 </button>
                             );
                         })}
+
+                        <div className="mt-auto pt-4">
+                            <button
+                                onClick={() => window.location.href = '/admin'}
+                                title={!sidebarOpen ? 'Inicio Portal' : undefined}
+                                className={`
+                                    w-full flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left
+                                    ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'}
+                                    ${isLight ? 'text-slate-600 hover:bg-slate-200/50' : 'text-slate-400 hover:bg-white/5 hover:text-white'}
+                                `}
+                            >
+                                <Home size={18} className="flex-shrink-0" />
+                                {sidebarOpen && (
+                                    <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">
+                                        Inicio Portal
+                                    </span>
+                                )}
+                            </button>
+                        </div>
                     </nav>
 
                     <div className={`border-t flex justify-center p-3 ${isLight ? 'border-slate-200/50' : 'border-white/5'}`} style={{ overflow: 'visible' }}>

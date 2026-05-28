@@ -32,31 +32,10 @@ export default function Layout({
                 <header className={`relative z-40 flex-shrink-0 px-4 py-3 backdrop-blur-md border-b ${headerBg}`}>
                     <div className="flex flex-wrap items-center justify-between gap-4">
                         <div className="flex items-center gap-4">
-                            <div>
-                                <h2 className={`text-xl font-bold tracking-tight sm:text-2xl ${isLight ? 'text-slate-800' : 'title-gradient'}`}>
-                                    {currentView === 'active' && 'Seguimiento de Candidatos'}
-                                    {currentView === 'history' && 'Archivo Histórico'}
-                                    {currentView === 'metrics' && 'Inteligencia de Datos'}
-                                </h2>
-                            </div>
+                            {/* Títulos eliminados a petición del usuario */}
                         </div>
 
                         <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-2">
-                                <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
-                                    isConnected 
-                                        ? (isLight ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20')
-                                        : (isLight ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20')
-                                }`}>
-                                    <span className={`h-1 w-1 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`} />
-                                    {isConnected ? 'Sincronizado' : 'Sin Conexión'}
-                                </span>
-                                {lastUpdate && (
-                                    <span className={`text-[9px] font-bold uppercase tracking-tighter ${labelMuted}`}>
-                                        Sync: {formatTimestamp(lastUpdate)}
-                                    </span>
-                                )}
-                            </div>
 
                         {!hideTabNav && (
                             <div className="flex items-center gap-1 rounded-xl bg-black/5 p-1 dark:bg-white/5 border border-white/5">
