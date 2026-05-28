@@ -123,6 +123,7 @@ const NOVELTY_RULES = {
         requiredMinSupports: 1,
         approvers: ['admin_ch', 'cac'],
         viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina']
+    },
     compensatorio_votacion_jurado: {
         displayName: 'Compensatorio por votación/jurado',
         /** La ruta POST valida el conteo por modalidad (1 o 2 archivos). */
@@ -207,7 +208,7 @@ function normalizeNovedadTypeKey(value = '') {
         'compensatorio por votacion/jurado': 'compensatorio_votacion',
         'compensatorio por votacion jurado': 'compensatorio_votacion',
         'compensatorio votacion': 'compensatorio_votacion',
-        'compensatorio jurado': 'compensatorio_votacion'
+        'compensatorio jurado': 'compensatorio_votacion',
         'compensatorio por votacion jurado': 'compensatorio_votacion_jurado',
         'compensatorio por votacion y jurado': 'compensatorio_votacion_jurado',
         'compensatorio por votación/jurado': 'compensatorio_votacion_jurado',

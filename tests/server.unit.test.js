@@ -12,6 +12,9 @@ function expect(received, message = '') {
     toBe(expected) {
       assert.strictEqual(received, expected, message);
     },
+    toEqual(expected) {
+      assert.deepStrictEqual(received, expected, message);
+    },
     toBeNull() {
       assert.strictEqual(received, null, message);
     },
