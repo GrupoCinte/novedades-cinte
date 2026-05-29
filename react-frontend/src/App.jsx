@@ -18,6 +18,7 @@ import DirectorioClienteColaboradorModule from './DirectorioClienteColaboradorMo
 import ConciliacionesModule from './conciliaciones/ConciliacionesModule.jsx';
 import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboardPage.jsx';
 import ConciliacionesPage from './conciliaciones/ConciliacionesPage.jsx';
+import ConciliacionesFacturacionPage from './conciliaciones/ConciliacionesFacturacionPage.jsx';
 import AdminPortalHome from './AdminPortalHome';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
@@ -324,6 +325,7 @@ function App() {
               element={<ConciliacionesDashboardPage token={auth?.token || ''} />}
             />
             <Route path="resumen" element={<ConciliacionesPage token={auth?.token || ''} />} />
+            <Route path="facturacion" element={<ConciliacionesFacturacionPage token={auth?.token || ''} />} />
           </Route>
           <Route
             path="/admin"

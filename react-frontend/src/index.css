@@ -215,6 +215,19 @@ body {
   box-shadow: 0 0 0 3px rgba(47, 123, 184, 0.14);
 }
 
+/** Icono del calendario nativo (input month/date) legible en fondos oscuros del portal. */
+html:not(.cinte-ui-light) input[type="month"].cinte-month-picker,
+html:not(.cinte-ui-light) input[type="date"].cinte-month-picker {
+  color-scheme: dark;
+}
+
+html:not(.cinte-ui-light) input[type="month"].cinte-month-picker::-webkit-calendar-picker-indicator,
+html:not(.cinte-ui-light) input[type="date"].cinte-month-picker::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.15);
+  opacity: 0.95;
+  cursor: pointer;
+}
+
 .data-chip {
   display: inline-flex;
   align-items: center;
