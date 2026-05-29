@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useModuleTheme } from '../moduleTheme.js';
+import { buildGestionTableDash } from '../gestionTableDashTheme.js';
+import { CONCILIACIONES_PAGE_MAIN, conciliacionesErrorBannerClass } from './conciliacionesLayout.js';
+import ConciliacionesGestionShell from './components/ConciliacionesGestionShell.jsx';
 import ClienteMesSelectors from './components/ClienteMesSelectors.jsx';
 import ConciliacionesMetricCards from './components/ConciliacionesMetricCards.jsx';
 import ConciliacionesTabla from './components/ConciliacionesTabla.jsx';
@@ -26,17 +29,9 @@ export default function ConciliacionesPage({ token }) {
     const clienteQuery = useMemo(() => String(searchParams.get('cliente') || '').trim(), [searchParams]);
 
     const mt = useModuleTheme();
-    const {
-        headingAccent,
-        labelMuted,
-        field,
-        cardPanel,
-        subPanel,
-        tableSurface,
-        tableThead,
-        tableRowBorder,
-        navOutline
-    } = mt;
+    const { isLight, headingAccent, labelMuted, field } = mt;
+
+    const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
 
     const [clientes, setClientes] = useState([]);
     const [cliente, setCliente] = useState('');
@@ -136,43 +131,64 @@ export default function ConciliacionesPage({ token }) {
 
     const modalLabel = modalRow ? `${modalRow.nombre} · ${modalRow.cedula}` : '';
 
+    const tableLoading = loadingList || (loadingResumen && Boolean(cliente));
+
     return (
-        <div className="min-h-0 flex-1 space-y-5 p-4 sm:p-6">
+        <div className={`${CONCILIACIONES_PAGE_MAIN} pb-2`}>
             {error ? (
-                <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">{error}</div>
+                <div className={conciliacionesErrorBannerClass(isLight)}>{error}</div>
             ) : null}
 
-            <ClienteMesSelectors
-                clientes={clientes}
-                clienteValue={cliente}
-                onClienteChange={setCliente}
-                monthValue={monthValue}
-                onMonthChange={setMonthValue}
-                field={field}
-                labelMuted={labelMuted}
-                cardPanel={cardPanel}
-            />
-
-            {loadingList ? (
-                <p className={`text-sm ${labelMuted}`}>Cargando catálogo de clientes…</p>
-            ) : null}
-
-            {loadingResumen && cliente ? (
-                <p className={`text-sm ${labelMuted}`}>Cargando datos del mes…</p>
-            ) : null}
-
-            {totales ? <ConciliacionesMetricCards totales={totales} cardPanel={cardPanel} subPanel={subPanel} headingAccent={headingAccent} labelMuted={labelMuted} /> : null}
-
-            <ConciliacionesTabla
-                rows={rows}
-                onVerDetalle={openDetalle}
-                tableSurface={tableSurface}
-                tableThead={tableThead}
-                tableRowBorder={tableRowBorder}
-                headingAccent={headingAccent}
-                labelMuted={labelMuted}
-                navOutline={navOutline}
-            />
+            <div className="animate-in fade-in slide-in-from-right-8 flex h-[calc(100vh-8.5rem)] flex-col duration-300 md:h-[calc(100vh-7.5rem)]">
+                <ConciliacionesGestionShell
+                    isLight={isLight}
+                    className="h-full"
+                    title="Resumen por cliente"
+                    subtitle="Tarifa de colaborador menos novedades aprobadas en el mes (fecha efectiva Bogotá: inicio, fecha o creación)."
+                    toolbar={(
+                        <ClienteMesSelectors
+                            variant="gestion"
+                            clientes={clientes}
+                            clienteValue={cliente}
+                            onClienteChange={setCliente}
+                            monthValue={monthValue}
+                            onMonthChange={setMonthValue}
+                            field={field}
+                            labelMuted={labelMuted}
+                        />
+                    )}
+                    headerExtra={
+                        totales ? (
+                            <div className={`mt-3 border-t pt-3 ${isLight ? 'border-slate-200' : 'border-slate-700/50'}`}>
+                                <ConciliacionesMetricCards
+                                    totales={totales}
+                                    cardClass=""
+                                    headingAccent={headingAccent}
+                                    labelMuted={labelMuted}
+                                    compact
+                                />
+                            </div>
+                        ) : null
+                    }
+                    footer={
+                        rows.length > 0 ? (
+                            <div className={dash.footerBar}>
+                                <span>Mostrando {rows.length} de {rows.length} registros</span>
+                            </div>
+                        ) : null
+                    }
+                >
+                    <ConciliacionesTabla
+                        embedded
+                        rows={rows}
+                        onVerDetalle={openDetalle}
+                        headingAccent={headingAccent}
+                        labelMuted={labelMuted}
+                        loading={tableLoading}
+                        loadingMessage={loadingList ? 'Cargando catálogo de clientes…' : 'Cargando datos del mes…'}
+                    />
+                </ConciliacionesGestionShell>
+            </div>
 
             <ConciliacionesDetalleModal
                 open={modalOpen}
@@ -180,13 +196,8 @@ export default function ConciliacionesPage({ token }) {
                 loading={modalLoading}
                 items={modalItems}
                 colaboradorLabel={modalLabel}
-                cardPanel={cardPanel}
-                tableSurface={tableSurface}
-                tableThead={tableThead}
-                tableRowBorder={tableRowBorder}
-                headingAccent={headingAccent}
-                labelMuted={labelMuted}
-                navOutline={navOutline}
+                colaboradorData={modalRow}
+                isLight={isLight}
             />
         </div>
     );

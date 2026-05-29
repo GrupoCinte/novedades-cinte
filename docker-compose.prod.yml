@@ -23,6 +23,10 @@ services:
       dockerfile: Dockerfile.backend
     restart: unless-stopped
     env_file: .env
+    environment:
+      # En Docker, "localhost" dentro del contenedor NO es el servicio postgres.
+      # Forzamos el host correcto por nombre de servicio.
+      DB_HOST: postgres
     depends_on:
       postgres:
         condition: service_healthy
