@@ -60,7 +60,8 @@ seed_colaboradores*.sql
 !**/README.md
 
 # Operaciones locales (no versionar; sync y utilidades se ejecutan desde entorno de desarrollo / repo ops)
-scripts/
+scripts/*
+!scripts/pipelineExcelParse.js
 tooling/
 
 # Scripts y migraciones locales
