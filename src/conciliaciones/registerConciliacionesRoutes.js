@@ -13,7 +13,34 @@ function parseYearMonth(q) {
     return { year, month };
 }
 
+/** Falla al arrancar el servidor si falta cableado desde createDataLayer (evita HTTP 500 opacos). */
+function assertConciliacionesRouteDeps(deps) {
+    const required = [
+        'app',
+        'verificarToken',
+        'allowAnyPanel',
+        'applyScope',
+        'listConciliacionesClientesForScope',
+        'getConciliacionResumenPorClienteMesForScope',
+        'getConciliacionResumenTodosClientesMesForScope',
+        'listConciliacionNovedadesDetalleForScope',
+        'getConciliacionesDashboardResumenForScope',
+        'upsertConciliacionFacturacionForScope',
+        'upsertConciliacionFacturacionMasivaForScope',
+        'listConciliacionesFacturacionForScope'
+    ];
+    for (const key of required) {
+        if (deps == null || deps[key] == null) {
+            throw new Error(`registerConciliacionesRoutes: falta dependencia "${key}"`);
+        }
+        if (key !== 'app' && typeof deps[key] !== 'function') {
+            throw new Error(`registerConciliacionesRoutes: "${key}" debe ser función (recibido ${typeof deps[key]})`);
+        }
+    }
+}
+
 function registerConciliacionesRoutes(deps) {
+    assertConciliacionesRouteDeps(deps);
     const {
         app,
         verificarToken,
@@ -21,8 +48,12 @@ function registerConciliacionesRoutes(deps) {
         applyScope,
         listConciliacionesClientesForScope,
         getConciliacionResumenPorClienteMesForScope,
+        getConciliacionResumenTodosClientesMesForScope,
         listConciliacionNovedadesDetalleForScope,
-        getConciliacionesDashboardResumenForScope
+        getConciliacionesDashboardResumenForScope,
+        upsertConciliacionFacturacionForScope,
+        upsertConciliacionFacturacionMasivaForScope,
+        listConciliacionesFacturacionForScope
     } = deps;
 
     const guardChain = [verificarToken, allowAnyPanel(NOVEDADES_ADMIN_PANELS), applyScope];
@@ -60,9 +91,21 @@ function registerConciliacionesRoutes(deps) {
     app.get('/api/conciliaciones/por-cliente', ...guardChain, async (req, res) => {
         const cliente = String(req.query.cliente || '').trim();
         const ym = parseYearMonth(req.query);
-        if (!cliente) return res.status(400).json({ ok: false, error: 'Parámetro cliente requerido' });
         if (!ym) return res.status(400).json({ ok: false, error: 'year y month válidos requeridos (1-12)' });
         try {
+            if (!cliente) {
+                const out = await getConciliacionResumenTodosClientesMesForScope(req.scope, ym.year, ym.month);
+                if (!out.ok) return res.status(out.status || 400).json({ ok: false, error: out.error || 'Error' });
+                return res.json({
+                    ok: true,
+                    allClients: true,
+                    year: ym.year,
+                    month: ym.month,
+                    rows: out.rows,
+                    totales: out.totales,
+                    clientesCount: out.clientesCount
+                });
+            }
             const out = await getConciliacionResumenPorClienteMesForScope(req.scope, cliente, ym.year, ym.month);
             if (!out.ok) return res.status(out.status || 400).json({ ok: false, error: out.error || 'Error' });
             return res.json({
@@ -95,6 +138,58 @@ function registerConciliacionesRoutes(deps) {
             return res.status(500).json({ ok: false, error: 'Error al listar detalle' });
         }
     });
+
+    app.post('/api/conciliaciones/facturacion', ...guardChain, async (req, res) => {
+        const { upsertFacturacionSchema } = require('./schemas/facturacion');
+        const parseResult = upsertFacturacionSchema.safeParse(req.body);
+        if (!parseResult.success) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Datos de entrada inválidos',
+                errors: parseResult.error.errors.map(e => ({ field: e.path.join('.'), message: e.message }))
+            });
+        }
+        try {
+            const out = await upsertConciliacionFacturacionForScope(req.scope, parseResult.data);
+            return res.json({ ok: true, data: out });
+        } catch (e) {
+            console.error('[conciliaciones/facturacion POST]', e);
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al guardar facturación' });
+        }
+    });
+
+    app.post('/api/conciliaciones/facturacion/masiva', ...guardChain, async (req, res) => {
+        const { upsertFacturacionMasivaSchema } = require('./schemas/facturacion');
+        const parseResult = upsertFacturacionMasivaSchema.safeParse(req.body);
+        if (!parseResult.success) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Datos de entrada inválidos',
+                errors: parseResult.error.errors.map(e => ({ field: e.path.join('.'), message: e.message }))
+            });
+        }
+        try {
+            const out = await upsertConciliacionFacturacionMasivaForScope(req.scope, parseResult.data);
+            return res.json({ ok: true, data: out });
+        } catch (e) {
+            console.error('[conciliaciones/facturacion/masiva POST]', e);
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al procesar acción masiva' });
+        }
+    });
+
+    app.get('/api/conciliaciones/facturacion', ...guardChain, async (req, res) => {
+        const ym = parseYearMonth(req.query);
+        if (!ym) return res.status(400).json({ ok: false, error: 'year y month válidos requeridos (1-12)' });
+        try {
+            const items = await listConciliacionesFacturacionForScope(req.scope, ym.year, ym.month);
+            return res.json({ ok: true, items });
+        } catch (e) {
+            console.error('[conciliaciones/facturacion GET]', e);
+            return res.status(500).json({ ok: false, error: 'Error al listar facturación' });
+        }
+    });
 }
 
-module.exports = { registerConciliacionesRoutes, NOVEDADES_ADMIN_PANELS };
+module.exports = { registerConciliacionesRoutes, assertConciliacionesRouteDeps, NOVEDADES_ADMIN_PANELS };

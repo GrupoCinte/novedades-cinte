@@ -152,12 +152,38 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
     }
 
     const qCol = await pool.query(
-        `SELECT cedula, nombre, cliente, tarifa_cliente, moneda, profesion
-         FROM colaboradores
-         WHERE activo IS NOT FALSE
-           AND lower(btrim(COALESCE(cliente, ''))) = lower(btrim($1::text))
-         ORDER BY nombre ASC`,
-        [clienteCanon]
+        `SELECT 
+            c.cedula, 
+            c.nombre, 
+            c.cliente, 
+            c.profesion, 
+            c.fecha_ingreso, 
+            c.tipo_contrato, 
+            c.comercial, 
+            c.sueldo_nomina, 
+            c.tarifa_cliente, 
+            c.moneda, 
+            c.codigo, 
+            c.honorarios,
+            c.cliente_proyecto,
+            c.modalidad_contrato AS tipo_servicio,
+            (SELECT COALESCE(MAX(nit), '') FROM clientes_lideres cl WHERE cl.activo = TRUE AND lower(btrim(cl.cliente)) = lower(btrim(c.cliente))) AS nit,
+            f.id AS facturacion_id,
+            f.proyecto,
+            f.observaciones,
+            f.fecha_cierre,
+            f.horas_facturadas,
+            f.estado,
+            f.factura_fv,
+            f.fecha_radicacion,
+            f.motivo_devolucion,
+            CASE WHEN f.id IS NOT NULL THEN TRUE ELSE FALSE END AS cerrado
+         FROM colaboradores c
+         LEFT JOIN conciliaciones_facturacion f ON f.cedula = c.cedula AND f.anio = $2::integer AND f.mes = $3::integer
+         WHERE c.activo IS NOT FALSE
+           AND lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
+         ORDER BY c.nombre ASC`,
+        [clienteCanon, Number(year), Number(month)]
     );
 
     let tarifaSum = 0;
@@ -174,6 +200,10 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
         tarifaSum += tarifa;
         deduccionSum += sumMonto;
         facturaSum += factura;
+        
+        const fIngreso = c.fecha_ingreso ? (c.fecha_ingreso instanceof Date ? c.fecha_ingreso.toISOString().slice(0, 10) : String(c.fecha_ingreso).slice(0, 10)) : '';
+        const fCierre = c.fecha_cierre ? (c.fecha_cierre instanceof Date ? c.fecha_cierre.toISOString().slice(0, 10) : String(c.fecha_cierre).slice(0, 10)) : '';
+
         rows.push({
             cedula: String(c.cedula || '').trim(),
             nombre: String(c.nombre || '').trim(),
@@ -183,7 +213,26 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
             perfil: c.profesion != null ? String(c.profesion).trim() : '',
             novedadesCount: cnt,
             novedadesSumCop: sumMonto,
-            facturaCop: factura
+            facturaCop: factura,
+            fechaIngreso: fIngreso,
+            tipoContrato: c.tipo_contrato != null ? String(c.tipo_contrato) : '',
+            comercial: c.comercial != null ? String(c.comercial) : '',
+            sueldoNomina: c.sueldo_nomina != null ? Number(c.sueldo_nomina) : 0,
+            codigo: c.codigo != null ? String(c.codigo) : '',
+            honorarios: c.honorarios != null ? String(c.honorarios) : '',
+            clienteProyecto: c.cliente_proyecto != null ? String(c.cliente_proyecto) : '',
+            tipoServicio: c.tipo_servicio != null ? String(c.tipo_servicio) : '',
+            nit: c.nit != null ? String(c.nit) : '',
+            facturacionId: c.facturacion_id || null,
+            proyecto: c.proyecto != null ? String(c.proyecto) : (c.cliente_proyecto != null ? String(c.cliente_proyecto) : ''),
+            observaciones: c.observaciones != null ? String(c.observaciones) : '',
+            fechaCierre: fCierre,
+            horasFacturadas: c.horas_facturadas != null ? Number(c.horas_facturadas) : 0,
+            estado: c.estado != null ? String(c.estado) : 'PENDIENTE',
+            facturaFv: c.factura_fv != null ? String(c.factura_fv) : '',
+            fechaRadicacion: c.fecha_radicacion ? (c.fecha_radicacion instanceof Date ? c.fecha_radicacion.toISOString().slice(0, 10) : String(c.fecha_radicacion).slice(0, 10)) : '',
+            motivoDevolucion: c.motivo_devolucion != null ? String(c.motivo_devolucion) : '',
+            cerrado: Boolean(c.cerrado)
         });
     }
 
@@ -196,6 +245,59 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
             colaboradores: rows.length,
             conNovedad: rows.filter((r) => r.novedadesCount > 0).length
         }
+    };
+}
+
+/**
+ * Resumen de facturación del mes para todos los clientes del alcance (vista «Todos / seleccionar»).
+ * @returns {Promise<{ rows: object[], totales: object, clientesCount: number }>}
+ */
+async function getConciliacionResumenTodosClientesMes(deps, scope, year, month) {
+    const clientes = await listConciliacionesClientes(deps, scope);
+    if (!clientes.length) {
+        return {
+            rows: [],
+            totales: { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 },
+            clientesCount: 0
+        };
+    }
+
+    const allRows = [];
+    let tarifaSum = 0;
+    let deduccionSum = 0;
+    let facturaSum = 0;
+    let conNovedad = 0;
+
+    for (const clienteCanon of clientes) {
+        const payload = await getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, year, month);
+        for (const row of payload.rows || []) {
+            allRows.push({
+                ...row,
+                cliente: String(row.cliente || clienteCanon).trim()
+            });
+        }
+        tarifaSum += Number(payload.totales?.tarifaSum) || 0;
+        deduccionSum += Number(payload.totales?.deduccionSum) || 0;
+        facturaSum += Number(payload.totales?.facturaSum) || 0;
+        conNovedad += Number(payload.totales?.conNovedad) || 0;
+    }
+
+    allRows.sort((a, b) => {
+        const byName = String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es', { sensitivity: 'base' });
+        if (byName !== 0) return byName;
+        return String(a.cliente || '').localeCompare(String(b.cliente || ''), 'es', { sensitivity: 'base' });
+    });
+
+    return {
+        rows: allRows,
+        totales: {
+            tarifaSum,
+            deduccionSum,
+            facturaSum,
+            colaboradores: allRows.length,
+            conNovedad
+        },
+        clientesCount: clientes.length
     };
 }
 
@@ -217,8 +319,10 @@ async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedul
     const dateExpr = effectiveNovedadDateSql('nov');
     const q = await pool.query(
         `SELECT nov.id, nov.nombre, nov.cedula, nov.tipo_novedad, nov.monto_cop, nov.estado,
-                nov.fecha, nov.fecha_inicio, nov.fecha_fin, nov.creado_en
+                nov.fecha, nov.fecha_inicio, nov.fecha_fin, nov.creado_en,
+                COALESCE(ua.full_name, nov.aprobado_por_email, 'Aprobador CINTE') AS aprobador
          FROM novedades nov
+         LEFT JOIN users ua ON nov.aprobado_por_user_id = ua.id
          WHERE nov.estado = 'Aprobado'::novedad_estado
            AND lower(btrim(COALESCE(nov.cliente, ''))) = lower(btrim($1::text))
            AND ${dateExpr} >= $2::date
@@ -240,7 +344,8 @@ async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedul
         fecha: row.fecha ? row.fecha.toISOString().slice(0, 10) : null,
         fechaInicio: row.fecha_inicio ? row.fecha_inicio.toISOString().slice(0, 10) : null,
         fechaFin: row.fecha_fin ? row.fecha_fin.toISOString().slice(0, 10) : null,
-        creadoEn: row.creado_en ? row.creado_en.toISOString() : null
+        creadoEn: row.creado_en ? row.creado_en.toISOString() : null,
+        aprobador: String(row.aprobador || 'Aprobador CINTE').trim()
     }));
 }
 
@@ -271,6 +376,182 @@ async function getConciliacionesDashboardResumen(deps, scope, year, month) {
     return { rows, globalTotales, clientesCount: clientes.length };
 }
 
+async function upsertConciliacionFacturacion(deps, scope, payload) {
+    const { pool, normalizeCedula } = deps;
+    const { cedula, anio, mes, proyecto, observaciones, horasFacturadas, estado, facturaFv, fechaRadicacion, motivoDevolucion } = payload;
+    const ced = normalizeCedula(cedula);
+    if (!ced) {
+        const error = new Error('Cédula inválida');
+        error.status = 400;
+        throw error;
+    }
+
+    const y = Number(anio);
+    const m = Number(mes);
+    if (!Number.isFinite(y) || y < 2000 || y > 2100) {
+        const error = new Error('Año inválido');
+        error.status = 400;
+        throw error;
+    }
+    if (!Number.isFinite(m) || m < 1 || m > 12) {
+        const error = new Error('Mes inválido');
+        error.status = 400;
+        throw error;
+    }
+
+    const prj = proyecto !== undefined ? (proyecto === null ? null : String(proyecto).trim()) : null;
+    const obs = observaciones !== undefined ? (observaciones === null ? null : String(observaciones).trim()) : null;
+    const hrs = horasFacturadas !== undefined ? Number(horasFacturadas) || 0 : 0;
+    const est = estado !== undefined ? String(estado).trim() : 'PENDIENTE';
+    const fv = facturaFv !== undefined ? (facturaFv === null ? null : String(facturaFv).trim()) : null;
+    const fRad = fechaRadicacion !== undefined ? (fechaRadicacion === null ? null : String(fechaRadicacion).trim()) : null;
+    const mot = motivoDevolucion !== undefined ? (motivoDevolucion === null ? null : String(motivoDevolucion).trim()) : null;
+
+    const colQ = await pool.query('SELECT cliente FROM colaboradores WHERE cedula = $1 LIMIT 1', [ced]);
+    if (!colQ.rows[0]) {
+        const error = new Error('Colaborador no encontrado');
+        error.status = 404;
+        throw error;
+    }
+    const colCliente = colQ.rows[0].cliente;
+    const chk = await assertClienteConciliacionPermitido(deps, scope, colCliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    const q = await pool.query(
+        `INSERT INTO conciliaciones_facturacion (cedula, anio, mes, proyecto, observaciones, horas_facturadas, estado, factura_fv, fecha_radicacion, motivo_devolucion, fecha_cierre, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::date, $10, CURRENT_DATE, NOW())
+         ON CONFLICT (cedula, anio, mes)
+         DO UPDATE SET 
+            proyecto = EXCLUDED.proyecto, 
+            observaciones = EXCLUDED.observaciones, 
+            horas_facturadas = EXCLUDED.horas_facturadas,
+            estado = EXCLUDED.estado,
+            factura_fv = EXCLUDED.factura_fv,
+            fecha_radicacion = EXCLUDED.fecha_radicacion,
+            motivo_devolucion = EXCLUDED.motivo_devolucion,
+            fecha_cierre = CURRENT_DATE,
+            updated_at = NOW()
+         RETURNING id, cedula, anio, mes, proyecto, observaciones, horas_facturadas, estado, factura_fv, fecha_radicacion, motivo_devolucion, fecha_cierre, created_at, updated_at`,
+        [ced, y, m, prj, obs, hrs, est, fv, fRad, mot]
+    );
+
+    return q.rows[0];
+}
+
+async function listConciliacionesFacturacion(deps, scope, year, month) {
+    const { pool } = deps;
+    const y = Number(year);
+    const m = Number(month);
+    if (!Number.isFinite(y) || !Number.isFinite(m)) return [];
+
+    const allowedClients = await listConciliacionesClientes(deps, scope);
+    if (!allowedClients.length) return [];
+
+    const q = await pool.query(
+        `SELECT f.id, f.cedula, c.nombre, c.cliente, f.anio, f.mes, f.proyecto, f.observaciones, f.fecha_cierre, f.horas_facturadas, f.estado, f.factura_fv, f.fecha_radicacion, f.motivo_devolucion
+         FROM conciliaciones_facturacion f
+         JOIN colaboradores c ON f.cedula = c.cedula
+         WHERE f.anio = $1::integer AND f.mes = $2::integer
+           AND lower(btrim(COALESCE(c.cliente, ''))) = ANY($3::text[])
+         ORDER BY c.nombre ASC`,
+        [y, m, allowedClients.map(cl => String(cl).toLowerCase())]
+    );
+
+    return q.rows.map(row => ({
+        id: row.id,
+        cedula: String(row.cedula || '').trim(),
+        nombre: String(row.nombre || '').trim(),
+        cliente: String(row.cliente || '').trim(),
+        anio: row.anio,
+        mes: row.mes,
+        proyecto: row.proyecto || '',
+        observaciones: row.observaciones || '',
+        fechaCierre: row.fecha_cierre ? row.fecha_cierre.toISOString().slice(0, 10) : '',
+        horasFacturadas: Number(row.horas_facturadas || 0),
+        estado: row.estado || 'PENDIENTE',
+        facturaFv: row.factura_fv || '',
+        fechaRadicacion: row.fecha_radicacion ? row.fecha_radicacion.toISOString().slice(0, 10) : '',
+        motivoDevolucion: row.motivo_devolucion || ''
+    }));
+}
+
+async function upsertConciliacionFacturacionMasiva(deps, scope, payload) {
+    const { pool } = deps;
+    const { cliente, anio, mes, estado, facturaFv, fechaRadicacion, motivoDevolucion, cedulas: cedulasPayload } = payload;
+    
+    const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    const y = Number(anio);
+    const m = Number(mes);
+    if (!Number.isFinite(y) || y < 2000 || y > 2100) {
+        const error = new Error('Año inválido');
+        error.status = 400;
+        throw error;
+    }
+    if (!Number.isFinite(m) || m < 1 || m > 12) {
+        const error = new Error('Mes inválido');
+        error.status = 400;
+        throw error;
+    }
+
+    const est = estado !== undefined ? String(estado).trim() : 'PENDIENTE';
+    const fv = facturaFv !== undefined ? (facturaFv === null ? null : String(facturaFv).trim()) : null;
+    const fRad = fechaRadicacion !== undefined ? (fechaRadicacion === null ? null : String(fechaRadicacion).trim()) : null;
+    const mot = motivoDevolucion !== undefined ? (motivoDevolucion === null ? null : String(motivoDevolucion).trim()) : null;
+
+    // Obtener todas las cédulas de este cliente
+    const colQ = await pool.query(
+        `SELECT cedula FROM colaboradores WHERE activo IS NOT FALSE AND lower(btrim(COALESCE(cliente, ''))) = lower(btrim($1::text))`,
+        [chk.canon]
+    );
+
+    const allCedulas = colQ.rows.map((r) => String(r.cedula || '').trim()).filter(Boolean);
+    let cedulas = allCedulas;
+    if (Array.isArray(cedulasPayload) && cedulasPayload.length > 0) {
+        const allowed = new Set(allCedulas);
+        cedulas = cedulasPayload.map((c) => String(c || '').trim()).filter((c) => allowed.has(c));
+    }
+    if (cedulas.length === 0) return { updated: 0 };
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        
+        for (const ced of cedulas) {
+            await client.query(
+                `INSERT INTO conciliaciones_facturacion (cedula, anio, mes, estado, factura_fv, fecha_radicacion, motivo_devolucion, fecha_cierre, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6::date, $7, CURRENT_DATE, NOW())
+                 ON CONFLICT (cedula, anio, mes)
+                 DO UPDATE SET 
+                    estado = EXCLUDED.estado,
+                    factura_fv = EXCLUDED.factura_fv,
+                    fecha_radicacion = EXCLUDED.fecha_radicacion,
+                    motivo_devolucion = EXCLUDED.motivo_devolucion,
+                    fecha_cierre = CURRENT_DATE,
+                    updated_at = NOW()`,
+                [ced, y, m, est, fv, fRad, mot]
+            );
+        }
+        
+        await client.query('COMMIT');
+        return { updated: cedulas.length };
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 module.exports = {
     effectiveNovedadDateSql,
     monthRangeDates,
@@ -278,6 +559,10 @@ module.exports = {
     listConciliacionesClientes,
     assertClienteConciliacionPermitido,
     getConciliacionResumenPorClienteMes,
+    getConciliacionResumenTodosClientesMes,
     listConciliacionNovedadesDetalle,
-    getConciliacionesDashboardResumen
+    getConciliacionesDashboardResumen,
+    upsertConciliacionFacturacion,
+    upsertConciliacionFacturacionMasiva,
+    listConciliacionesFacturacion
 };

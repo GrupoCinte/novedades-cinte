@@ -352,15 +352,19 @@ function createDataLayer(deps) {
             await ensureClientesLideresTable();
             await ensureClientesLideresNitColumn();
             await pool.query('ALTER TABLE clientes_lideres ADD COLUMN IF NOT EXISTS gp_user_id UUID NULL');
-            try {
-                await pool.query(`
+            // Evita ruido en logs de Postgres: no queremos errores por duplicado en cada arranque.
+            // `ALTER TABLE ... ADD CONSTRAINT` no soporta IF NOT EXISTS en PG, así que usamos DO+EXCEPTION.
+            await pool.query(`
+                DO $$
+                BEGIN
                     ALTER TABLE clientes_lideres
                     ADD CONSTRAINT fk_clientes_lideres_gp_user
-                    FOREIGN KEY (gp_user_id) REFERENCES users(id) ON DELETE SET NULL
-                `);
-            } catch (e) {
-                if (!['42710', '42P16', '42501'].includes(String(e?.code))) throw e;
-            }
+                    FOREIGN KEY (gp_user_id) REFERENCES users(id) ON DELETE SET NULL;
+                EXCEPTION
+                    WHEN duplicate_object THEN NULL;
+                END
+                $$;
+            `);
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Catalogos] Permisos insuficientes para gp_user_id en clientes_lideres.');
@@ -551,25 +555,28 @@ function createDataLayer(deps) {
             await pool.query('ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS lider_catalogo TEXT NULL');
             await pool.query('ALTER TABLE colaboradores ADD COLUMN IF NOT EXISTS gp_user_id UUID NULL');
             await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS gp_user_id UUID NULL');
-            try {
-                await pool.query(`
+            await pool.query(`
+                DO $$
+                BEGIN
                     ALTER TABLE colaboradores
                     ADD CONSTRAINT fk_colaboradores_gp_user
-                    FOREIGN KEY (gp_user_id) REFERENCES users(id) ON DELETE SET NULL
-                `);
-            } catch (e) {
-                // 42710 duplicate_object, 42501 sin privilegio para CONSTRAINT (no es superusuario de BD)
-                if (!['42710', '42P16', '42501'].includes(String(e?.code))) throw e;
-            }
-            try {
-                await pool.query(`
+                    FOREIGN KEY (gp_user_id) REFERENCES users(id) ON DELETE SET NULL;
+                EXCEPTION
+                    WHEN duplicate_object THEN NULL;
+                END
+                $$;
+            `);
+            await pool.query(`
+                DO $$
+                BEGIN
                     ALTER TABLE novedades
                     ADD CONSTRAINT fk_novedades_gp_user_snapshot
-                    FOREIGN KEY (gp_user_id) REFERENCES users(id) ON DELETE SET NULL
-                `);
-            } catch (e) {
-                if (!['42710', '42P16', '42501'].includes(String(e?.code))) throw e;
-            }
+                    FOREIGN KEY (gp_user_id) REFERENCES users(id) ON DELETE SET NULL;
+                EXCEPTION
+                    WHEN duplicate_object THEN NULL;
+                END
+                $$;
+            `);
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Colaboradores] Permisos insuficientes para columnas de directorio extendido / gp.');
@@ -639,6 +646,43 @@ function createDataLayer(deps) {
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Mallas] Permisos insuficientes para crear malla_turnos_celda.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesFacturacionTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_facturacion (
+                    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    anio                INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+                    mes                 INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+                    proyecto            TEXT NULL,
+                    observaciones       TEXT NULL,
+                    fecha_cierre        DATE NOT NULL DEFAULT CURRENT_DATE,
+                    horas_facturadas    NUMERIC(8,2) NOT NULL DEFAULT 0,
+                    estado              VARCHAR(50) NOT NULL DEFAULT 'PENDIENTE',
+                    factura_fv          VARCHAR(100) NULL,
+                    fecha_radicacion    DATE NULL,
+                    motivo_devolucion   TEXT NULL,
+                    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_conciliaciones_facturacion_colab_mes UNIQUE (cedula, anio, mes)
+                )
+            `);
+            await pool.query('CREATE INDEX IF NOT EXISTS idx_conciliaciones_facturacion_mes_anio ON conciliaciones_facturacion(anio, mes)');
+            
+            // Migraciones dinámicas para las nuevas columnas
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS estado VARCHAR(50) NOT NULL DEFAULT 'PENDIENTE'`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS factura_fv VARCHAR(100) NULL`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS fecha_radicacion DATE NULL`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS motivo_devolucion TEXT NULL`);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para crear/alterar conciliaciones_facturacion.');
                 return;
             }
             throw error;
@@ -777,7 +821,6 @@ function createDataLayer(deps) {
             dbClient.release();
         }
     }
-
     const COLAB_SELECT_FIELDS = `cedula, nombre, activo, correo_cinte, cliente, lider_catalogo, gp_user_id, created_at, updated_at, ${COLABORADORES_EXTENDED_KEYS.join(', ')}`;
 
     async function ensureCinteLeonardoPair() {
@@ -2006,6 +2049,16 @@ function createDataLayer(deps) {
         return { ok: true, clienteCanon: chk.canon, ...payload };
     }
 
+    async function getConciliacionResumenTodosClientesMesForScope(scope, year, month) {
+        const payload = await conciliacionesQueries.getConciliacionResumenTodosClientesMes(
+            conciliacionesDeps,
+            scope,
+            year,
+            month
+        );
+        return { ok: true, allClients: true, ...payload };
+    }
+
     async function listConciliacionNovedadesDetalleForScope(scope, clienteRaw, cedulaRaw, year, month) {
         const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
         if (!chk.ok) return chk;
@@ -2028,6 +2081,18 @@ function createDataLayer(deps) {
             month
         );
         return { ok: true, ...payload };
+    }
+
+    async function upsertConciliacionFacturacionForScope(scope, payload) {
+        return conciliacionesQueries.upsertConciliacionFacturacion(conciliacionesDeps, scope, payload);
+    }
+
+    async function upsertConciliacionFacturacionMasivaForScope(scope, payload) {
+        return conciliacionesQueries.upsertConciliacionFacturacionMasiva(conciliacionesDeps, scope, payload);
+    }
+
+    async function listConciliacionesFacturacionForScope(scope, year, month) {
+        return conciliacionesQueries.listConciliacionesFacturacion(conciliacionesDeps, scope, year, month);
     }
 
     return {
@@ -2057,6 +2122,7 @@ function createDataLayer(deps) {
         ensureMallaTurnoAsignacionTable,
         listMallaTurnosCeldasRange,
         upsertMallaTurnosCeldas,
+        ensureConciliacionesFacturacionTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         getColaboradorByCedula,
@@ -2085,8 +2151,12 @@ function createDataLayer(deps) {
         listHoraExtraByCedulaForDomingoPolicy,
         listConciliacionesClientesForScope,
         getConciliacionResumenPorClienteMesForScope,
+        getConciliacionResumenTodosClientesMesForScope,
         listConciliacionNovedadesDetalleForScope,
-        getConciliacionesDashboardResumenForScope
+        getConciliacionesDashboardResumenForScope,
+        upsertConciliacionFacturacionForScope,
+        upsertConciliacionFacturacionMasivaForScope,
+        listConciliacionesFacturacionForScope
     };
 }
 

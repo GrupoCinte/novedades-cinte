@@ -638,6 +638,7 @@ const {
     ensureMallaTurnoAsignacionTable,
     listMallaTurnosCeldasRange,
     upsertMallaTurnosCeldas,
+    ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     getColaboradorByCedula,
@@ -666,8 +667,12 @@ const {
     listHoraExtraByCedulaForDomingoPolicy,
     listConciliacionesClientesForScope,
     getConciliacionResumenPorClienteMesForScope,
+    getConciliacionResumenTodosClientesMesForScope,
     listConciliacionNovedadesDetalleForScope,
-    getConciliacionesDashboardResumenForScope
+    getConciliacionesDashboardResumenForScope,
+    upsertConciliacionFacturacionForScope,
+    upsertConciliacionFacturacionMasivaForScope,
+    listConciliacionesFacturacionForScope
 } = createDataLayer({
     pool,
     fs,
@@ -805,8 +810,12 @@ registerConciliacionesRoutes({
     applyScope,
     listConciliacionesClientesForScope,
     getConciliacionResumenPorClienteMesForScope,
+    getConciliacionResumenTodosClientesMesForScope,
     listConciliacionNovedadesDetalleForScope,
-    getConciliacionesDashboardResumenForScope
+    getConciliacionesDashboardResumenForScope,
+    upsertConciliacionFacturacionForScope,
+    upsertConciliacionFacturacionMasivaForScope,
+    listConciliacionesFacturacionForScope
 });
 
 registerCotizadorRoutes({
@@ -872,6 +881,7 @@ startServer({
     ensureReubicacionesPipelineTable,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
+    ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     PORT,
