@@ -17,12 +17,18 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            react-frontend/package-lock.json
 
       - name: Install backend deps
         run: npm ci
 
       - name: Backend tests
         run: npm run test
+
+      - name: Install frontend deps
+        run: npm ci --prefix react-frontend
 
       - name: Frontend tests
         run: npm run test:frontend
