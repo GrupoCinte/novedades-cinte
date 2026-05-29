@@ -115,13 +115,21 @@ function createResolveApproverEmailsFromCognito({ cognitoClient, userPoolId, get
             return emptyInsight('no_approvers');
         }
 
+        /**
+         * Política de notificación: cuando la aprobación formal está en `admin_ch`,
+         * también se notifica al staff `team_ch` (práctica usual en operación).
+         * Esto NO cambia la capacidad de aprobar (`canRoleApproveType`).
+         */
+        const groupsToNotify = new Set(approvers);
+        if (groupsToNotify.has('admin_ch')) groupsToNotify.add('team_ch');
+
         const nameMap = await loadGroupNameMap();
         const seen = new Set();
         const emails = [];
         /** @type {object[]} */
         const insights = [];
 
-        for (const groupName of approvers) {
+        for (const groupName of groupsToNotify) {
             const gn = String(groupName || '').trim();
             if (!gn) continue;
             const actualGn = nameMap.get(normalizeGroupKey(gn)) || gn;

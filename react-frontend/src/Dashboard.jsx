@@ -253,6 +253,7 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [items, setItems] = useState([]);
     /** Listado completo para Dashboard / Calendario / Análisis (no mezclar con carga paginada de Gestión). */
     const [listLoading, setListLoading] = useState(true);
+    const [listFetchError, setListFetchError] = useState(null);
     /** Solo tabla Gestión: evita que un refetch de Gestión ponga en “cargando” el dashboard general. */
     const [gestionLoading, setGestionLoading] = useState(true);
     const [soporteModal, setSoporteModal] = useState(null);
@@ -415,6 +416,7 @@ export default function Dashboard({ token, auth, onLogout }) {
     const loadData = useCallback(async (opts = {}) => {
         const { signal } = opts;
         if (novedadesListCountRef.current === 0) setListLoading(true);
+        setListFetchError(null);
         try {
             const qp = new URLSearchParams();
             if (fGpUserId) qp.set('gpUserId', fGpUserId);
@@ -425,15 +427,20 @@ export default function Dashboard({ token, auth, onLogout }) {
                 signal
             });
             if (signal?.aborted) return;
-            if (!res.ok) throw new Error('No autorizado');
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
             if (signal?.aborted) return;
-            const nextItems = data.items || [];
+            if (!res.ok) {
+                throw new Error(data?.error || `No se pudieron cargar las novedades (${res.status})`);
+            }
+            const nextItems = Array.isArray(data.items) ? data.items : [];
             novedadesListCountRef.current = nextItems.length;
             setItems(nextItems);
         } catch (err) {
             if (signal?.aborted || err?.name === 'AbortError') return;
             console.error(err);
+            setListFetchError(err?.message || 'No se pudieron cargar las novedades');
+            setItems([]);
+            novedadesListCountRef.current = 0;
         } finally {
             if (!signal?.aborted) setListLoading(false);
         }
@@ -1709,6 +1716,39 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </span>
                             </div>
                         </NovedadesFiltersToolbar>
+
+                        {listFetchError ? (
+                            <div
+                                className={`rounded-xl border px-4 py-3 text-sm ${
+                                    isLight
+                                        ? 'border-rose-300 bg-rose-50 text-rose-900'
+                                        : 'border-rose-500/40 bg-rose-950/30 text-rose-100'
+                                }`}
+                                role="alert"
+                            >
+                                <span className="font-semibold">No se cargaron las novedades:</span> {listFetchError}
+                            </div>
+                        ) : null}
+
+                        {!listLoading && !listFetchError && items.length > 0 && dashItems.length === 0 ? (
+                            <div
+                                className={`rounded-xl border px-4 py-3 text-sm ${
+                                    isLight
+                                        ? 'border-sky-300 bg-sky-50 text-sky-950'
+                                        : 'border-sky-500/40 bg-sky-950/30 text-sky-100'
+                                }`}
+                                role="status"
+                            >
+                                Los filtros activos ocultan todos los registros ({items.length} en total).{' '}
+                                <button
+                                    type="button"
+                                    onClick={clearNovedadesFilters}
+                                    className="font-semibold underline underline-offset-2 hover:opacity-90"
+                                >
+                                    Limpiar filtros
+                                </button>
+                            </div>
+                        ) : null}
 
                         {(() => {
                             const d = auth?.devDb;

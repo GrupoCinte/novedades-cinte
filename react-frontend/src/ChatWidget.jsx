@@ -225,7 +225,14 @@ function TypingDots() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-export default function ChatWidget({ ctx, placement = 'floating', sidebarExpanded = true, isLight = false }) {
+export default function ChatWidget({
+    ctx,
+    placement = 'floating',
+    sidebarExpanded = true,
+    isLight = false,
+    forceOpen,
+    setForceOpen
+}) {
     const isInline = placement === 'inline';
     const isSidebar = placement === 'sidebar';
     const isDocked = isInline || isSidebar;
@@ -272,6 +279,12 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
             return [{ ...first, text: welcomeText }, ...prev.slice(1)];
         });
     }, [welcomeText]);
+
+    useEffect(() => {
+        if (typeof forceOpen === 'boolean') {
+            setOpen(forceOpen);
+        }
+    }, [forceOpen]);
 
     const visibleIntents =
         activeCategory === 'todos' ? INTENTS : INTENTS.filter((i) => i.category === activeCategory);
