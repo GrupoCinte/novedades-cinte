@@ -20,7 +20,9 @@ react-frontend/coverage/
 react-frontend/playwright-report/
 react-frontend/test-results/
 react-frontend/.vite/
-react-frontend/src/test/
+react-frontend/src/test/*
+!react-frontend/src/test/novedadRules.test.js
+!react-frontend/src/test/setup.js
 react-frontend/e2e/
 docs/
 !docs/
