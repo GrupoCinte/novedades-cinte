@@ -22,6 +22,16 @@ export function buildGestionTableDash(isLight) {
         borrarFiltros: L
             ? 'rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition-all hover:bg-slate-100'
             : 'rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-300 transition-all hover:bg-slate-700/60',
+        /** Panel móvil Gestión (Dashboard): botón «Filtros avanzados», panel y chip de resumen. */
+        filtrosAvanzadosBtn: L
+            ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-600/35 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-900 shadow-sm transition-all hover:bg-cyan-100'
+            : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm font-semibold text-cyan-100 shadow-sm transition-all hover:bg-cyan-500/20',
+        filtrosPanelMobile: L
+            ? 'grid max-h-[min(70vh,28rem)] grid-cols-1 gap-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 shadow-inner md:max-h-none md:grid-cols-2 md:overflow-visible xl:grid-cols-3'
+            : 'grid max-h-[min(70vh,28rem)] grid-cols-1 gap-3 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900/40 p-3 shadow-inner md:max-h-none md:grid-cols-2 md:overflow-visible xl:grid-cols-3',
+        filtrosChip: L
+            ? 'inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-lg border border-slate-300 bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700'
+            : 'inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-lg border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300',
         gestionHead: L ? 'border-b border-slate-200 bg-white' : 'border-b border-slate-700/50 bg-[#1e293b]',
         tableWrap: L ? 'flex w-full min-h-0 flex-1 flex-col bg-slate-50' : 'flex w-full min-h-0 flex-1 flex-col bg-[#0f172a]/50',
         thead: L
@@ -65,6 +75,39 @@ export function buildGestionTableDash(isLight) {
         modalFooter: L ? 'mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4' : 'mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-700/50 pt-4',
         btnPrimaryCinte: L
             ? 'inline-flex items-center justify-center rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#004D87] disabled:opacity-50'
-            : 'inline-flex items-center justify-center rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#65BCF7]/90 disabled:opacity-50'
+            : 'inline-flex items-center justify-center rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#65BCF7]/90 disabled:opacity-50',
+        titleLg: L ? 'text-lg font-bold text-slate-900' : 'text-lg font-bold text-white',
+        kpiSub: L ? 'text-sm font-medium uppercase tracking-wide text-slate-600' : 'text-sm font-medium uppercase tracking-wide text-slate-400',
+        moduleTabShell: 'flex flex-col gap-5 animate-in fade-in duration-300 min-h-[calc(100vh-9.5rem)]',
+        moduleTabShellFull:
+            'flex flex-col gap-4 animate-in fade-in slide-in-from-right-8 duration-300 min-h-0 -mb-4 md:-mb-6 h-[calc(100dvh-3.5rem)] md:h-[calc(100dvh-3rem)]',
+        filtrosDrawerBackdrop: L
+            ? 'fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200'
+            : 'fixed inset-0 z-40 bg-[#0f172a]/70 backdrop-blur-sm animate-in fade-in duration-200',
+        filtrosDrawerPanel: L
+            ? 'fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl animate-in slide-in-from-right duration-200'
+            : 'fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-sm flex-col border-l border-slate-700 bg-[#1e293b] shadow-2xl animate-in slide-in-from-right duration-200',
+        filtrosDrawerHeader: L
+            ? 'flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4'
+            : 'flex items-center justify-between gap-3 border-b border-slate-700/60 px-5 py-4',
+        filtrosDrawerBody: 'flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4',
+        filtrosDrawerFooter: L
+            ? 'flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-4'
+            : 'flex items-center justify-between gap-3 border-t border-slate-700/60 px-5 py-4',
+        filtrosDrawerLabel: L
+            ? 'text-xs font-semibold uppercase tracking-wider text-slate-600'
+            : 'text-xs font-semibold uppercase tracking-wider text-slate-300',
+        filtrosDrawerCta: L
+            ? 'rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#004D87]'
+            : 'rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#004D87]'
+    };
+}
+
+/** Alias históricos usados en Novedades (Dashboard.jsx). */
+export function withNovedadesTabShellAliases(dash) {
+    return {
+        ...dash,
+        novedadesTabShell: dash.moduleTabShell,
+        novedadesTabShellFull: dash.moduleTabShellFull
     };
 }

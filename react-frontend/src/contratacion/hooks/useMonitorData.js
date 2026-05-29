@@ -19,6 +19,8 @@ function authHeaders(token) {
 
 /** Sesión HttpOnly: el backend acepta cookie `cinteSession` además de Bearer. */
 const AXIOS_CRED = { withCredentials: true };
+/** Evita pantalla "Cargando datos..." infinita si el backend cuelga o el proxy no responde. */
+const AXIOS_TIMEOUT_MS = 45000;
 
 /** Umbral único: alerta si el proceso activo lleva más de esto desde el inicio (ts_documentos_recibidos). */
 const SLA_ALERT_MS = 8 * 60 * 60 * 1000;
@@ -118,6 +120,7 @@ export default function useMonitorData(auth) {
         try {
             const response = await axios.get(`${API_PREFIX}/monitor`, {
                 ...AXIOS_CRED,
+                timeout: AXIOS_TIMEOUT_MS,
                 headers: authHeaders(tokenRef.current)
             });
             const data = response.data;
@@ -142,6 +145,7 @@ export default function useMonitorData(auth) {
         try {
             const response = await axios.get(`${API_PREFIX}/monitor-config`, {
                 ...AXIOS_CRED,
+                timeout: AXIOS_TIMEOUT_MS,
                 headers: authHeaders(tokenRef.current)
             });
             const d = response?.data;
@@ -181,6 +185,7 @@ export default function useMonitorData(auth) {
             try {
                 const r = await axios.get(`${API_PREFIX}/ws-token`, {
                     ...AXIOS_CRED,
+                    timeout: AXIOS_TIMEOUT_MS,
                     headers: authHeaders(tokenRef.current)
                 });
                 ticket = r.data?.ticket ? String(r.data.ticket) : '';

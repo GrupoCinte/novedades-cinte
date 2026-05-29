@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Code2, Home, Menu, X, Calculator } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Home, Menu, X, Calculator } from 'lucide-react';
 import CotizadorPage from './cotizador/CotizadorPage';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
+import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
-export default function ComercialModule({ token, auth }) {
+export default function ComercialModule({ token, auth, onLogout }) {
     const navigate = useNavigate();
     const location = useLocation();
     const mt = useModuleTheme();
-    const { shell, aside, asideHeaderBorder, asideFooterBorder, scrim, menuFab, sidebarIconBtn, navOutline, email, borderSubtle, mainCanvas, isLight } = mt;
+    const { shell, aside, asideHeaderBorder, scrim, menuFab, sidebarIconBtn, navOutline, email, borderSubtle, mainCanvas, isLight } = mt;
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const path = location.pathname || '';
@@ -25,11 +27,16 @@ export default function ComercialModule({ token, auth }) {
                 : navOutline
         }`;
 
+    const userAccent = {
+        accentClass: 'text-[#088DC6]',
+        accentBgClass: 'bg-[#088DC6]/20 border-[#088DC6]/30'
+    };
+
     return (
         <div className={shell}>
             <button
                 onClick={() => setMobileMenuOpen(true)}
-                className={`md:hidden fixed top-16 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
+                className={`md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú comercial"
             >
                 <Menu size={18} />
@@ -37,7 +44,9 @@ export default function ComercialModule({ token, auth }) {
             {mobileMenuOpen && (
                 <div className={`md:hidden fixed inset-0 z-40 ${scrim}`} onClick={() => setMobileMenuOpen(false)} />
             )}
-            <aside className={`md:hidden fixed top-0 left-0 h-full w-72 z-50 shadow-2xl transform transition-transform duration-300 font-body ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+            <aside
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col font-body shadow-2xl transform transition-transform duration-300 ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}
+            >
                 <AdminModuleSidebarBrand
                     variant="drawer"
                     isLight={isLight}
@@ -54,7 +63,16 @@ export default function ComercialModule({ token, auth }) {
                         </button>
                     )}
                 />
-                <nav className="p-3 flex flex-col gap-2">
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    {...userAccent}
+                />
+                <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
                     <button
                         type="button"
                         onClick={() => {
@@ -78,13 +96,12 @@ export default function ComercialModule({ token, auth }) {
                         <span>Cotizador</span>
                     </button>
                 </nav>
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`text-[10px] font-body font-black truncate ${email}`}>{currentEmail}</p>
-                    <p className="text-[10px] text-[#088DC6] font-body font-semibold uppercase">{currentRoleLabel}</p>
-                </div>
+                <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
             </aside>
 
-            <aside className={`flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 transition-all duration-300 ease-in-out overflow-hidden font-body ${aside} ${sidebarOpen ? 'w-64' : 'w-16'}`}>
+            <aside
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden font-body shadow-2xl transition-all duration-300 ease-in-out md:flex ${aside} ${sidebarOpen ? 'w-64' : 'w-16'}`}
+            >
                 <AdminModuleSidebarBrand
                     variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
                     isLight={isLight}
@@ -106,8 +123,17 @@ export default function ComercialModule({ token, auth }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    {...userAccent}
+                />
 
-                <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
+                <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
                     <button
                         type="button"
                         onClick={() => navigate('/admin')}
@@ -128,29 +154,13 @@ export default function ComercialModule({ token, auth }) {
                     </button>
                 </nav>
 
-                <div className={`border-t ${borderSubtle} ${sidebarOpen ? 'p-4' : 'p-2'}`}>
-                    {sidebarOpen ? (
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg bg-[#088DC6]/20 border border-[#088DC6]/30 flex items-center justify-center flex-shrink-0">
-                                    <Code2 size={13} className="text-[#088DC6]" />
-                                </div>
-                                <div className="overflow-hidden">
-                                    <p className={`text-[10px] font-body font-black whitespace-nowrap leading-tight truncate ${email}`}>{currentEmail}</p>
-                                    <p className="text-[9px] text-[#088DC6] font-body font-semibold whitespace-nowrap leading-tight">{currentRoleLabel}</p>
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-2 py-1">
-                            <div className="flex justify-center" title={`${currentEmail} · ${currentRoleLabel}`}>
-                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#088DC6]/30 bg-[#088DC6]/20">
-                                    <Code2 size={13} className="text-[#088DC6]" />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
             </aside>
 
             <section className={`flex-1 min-w-0 min-h-0 h-full overflow-y-auto ${mainCanvas}`}>

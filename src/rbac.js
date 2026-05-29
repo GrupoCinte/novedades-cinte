@@ -11,8 +11,13 @@ const POLICY = {
     admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'], viewAllAreas: true },
     team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'], viewAllAreas: true },
     comercial: { panels: ['comercial'] },
-    /** Solo gestión de novedades (`allowPanel('gestion')`); sin otros paneles JWT (comercial, contratación, directorio). */
-    gp: { panels: ['gestion'] },
+    /**
+     * Solo gestión de novedades (`allowPanel('gestion')`); sin otros paneles JWT (comercial, contratación, directorio).
+     * `viewAllAreas: true` permite a un GP ver TODAS las novedades de sus clientes asignados (operaciones, capital humano,
+     * financiero) sin filtro por área del JWT; el alcance sigue acotado por `clientes_lideres.gp_user_id`. La aprobación se
+     * mantiene limitada por `approvers` en `NOVELTY_RULES` (no se gana capacidad de decidir por este flag).
+     */
+    gp: { panels: ['gestion'], viewAllAreas: true },
     nomina: { panels: ['dashboard', 'calendar', 'gestion'], viewAllAreas: true },
     /** Radicación vía Microsoft Entra (sin paneles admin). */
     consultor: { panels: [] }
@@ -84,7 +89,7 @@ const NOVELTY_RULES = {
         displayName: 'Vacaciones en dinero',
         requiredMinSupports: 1,
         approvers: ['admin_ch'],
-        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina']
+        viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina']
     },
     hora_extra: {
         displayName: 'Hora Extra',
@@ -107,6 +112,24 @@ const NOVELTY_RULES = {
     permiso_compensatorio_tiempo: {
         displayName: 'Permiso compensatorio en tiempo',
         requiredMinSupports: 1,
+        approvers: ['gp'],
+        viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
+    },
+    compensatorio_votacion_jurado: {
+        displayName: 'Compensatorio por votación/jurado',
+        /** La ruta POST valida el conteo por modalidad (1 o 2 archivos). */
+        requiredMinSupports: 0,
+        approvers: ['admin_ch'],
+        viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina', 'gp']
+    },
+    /**
+     * Suspensión de contrato de prestación de servicios (consultor).
+     * Periodo no facturable al cliente; aprueba GP del cliente asignado.
+     * Spec: docs/specs/crear-novedad-de-suspension.spec.md
+     */
+    suspension: {
+        displayName: 'Suspensión',
+        requiredMinSupports: 0,
         approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     }
@@ -172,7 +195,14 @@ function normalizeNovedadTypeKey(value = '') {
         'apoyo standy': 'apoyo',
         bono: 'bonos',
         bonos: 'bonos',
-        'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo'
+        'permiso compensatorio en tiempo': 'permiso_compensatorio_tiempo',
+        'compensatorio por votacion jurado': 'compensatorio_votacion_jurado',
+        'compensatorio por votacion y jurado': 'compensatorio_votacion_jurado',
+        'compensatorio por votación/jurado': 'compensatorio_votacion_jurado',
+        'compensatorio por votacion/jurado': 'compensatorio_votacion_jurado',
+        suspension: 'suspension',
+        'suspension contrato': 'suspension',
+        'suspension de contrato': 'suspension'
     };
     if (map[compact]) return map[compact];
     const snake = compact.replace(/[\s-]+/g, '_').replace(/_+/g, '_');
@@ -199,30 +229,8 @@ function normalizeNovedadTypeKey(value = '') {
     return '';
 }
 
-/**
- * Tipos que exigen verificación de nómina (correcta/incorrecta + observación) antes de aprobar/rechazar.
- * Mantener alineado con react-frontend/src/novedadRules.js → isNominaGateTipoDisplay.
- */
-const NOMINA_GATE_NOVELTY_KEYS = new Set([
-    'incapacidad',
-    'calamidad_domestica',
-    'permiso_remunerado',
-    'licencia_luto',
-    'licencia_paternidad',
-    'licencia_maternidad',
-    'licencia_remunerada',
-    'licencia_no_remunerada',
-    'permiso_no_remunerado',
-    'vacaciones_dinero'
-]);
-
-function isNominaGateNovedadType(typeName = '') {
-    const key = normalizeNovedadTypeKey(typeName);
-    return Boolean(key && NOMINA_GATE_NOVELTY_KEYS.has(key));
-}
-
 /** Ya no se ofrecen en el formulario público; siguen en NOVELTY_RULES para registros históricos y gestión. */
-const NOVEDAD_TIPOS_RETIRADOS_FORMULARIO_KEYS = new Set(['vacaciones_tiempo', 'vacaciones_dinero', 'bonos']);
+const NOVEDAD_TIPOS_RETIRADOS_FORMULARIO_KEYS = new Set(['vacaciones_tiempo', 'bonos']);
 
 function isNovedadTipoRetiradoDelFormulario(typeName = '') {
     return NOVEDAD_TIPOS_RETIRADOS_FORMULARIO_KEYS.has(normalizeNovedadTypeKey(typeName));
@@ -266,7 +274,6 @@ module.exports = {
     resolveRoleFromGroups,
     getAreaFromRole,
     normalizeNovedadTypeKey,
-    isNominaGateNovedadType,
     isNovedadTipoRetiradoDelFormulario,
     getNovedadRuleByType,
     canRoleViewType,

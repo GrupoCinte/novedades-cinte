@@ -57,6 +57,24 @@ function isDomingoOFestivoBogotaYmd(ymd, festivosSet) {
 }
 
 /**
+ * Predicado para split de Hora Extra: día con recargo dominical/festivo
+ * (domingo Bogotá O festivo en `festivosSet`). Se usa para clasificar horas
+ * en `horasRecargoDomingoDiurnas/Nocturnas` con tope `RECARGO_DOMINGO_MAX_MS`.
+ *
+ * Distinto de la regla de compensación dominical (tier 1/2/3), que cuenta
+ * solo domingos reales mediante `isSundayBogotaYmd`.
+ *
+ * @param {string} ymd YYYY-MM-DD (fecha Bogotá)
+ * @param {Set<string>} [festivosSet]
+ * @returns {boolean}
+ */
+function isDiaRecargoDominicalBogotaYmd(ymd, festivosSet) {
+    if (isSundayBogotaYmd(ymd)) return true;
+    if (festivosSet && festivosSet.has(ymd)) return true;
+    return false;
+}
+
+/**
  * Prorratea horas entre medianoches America/Bogota (días de 24h fijas).
  * @param {number|null} startMs
  * @param {number|null} endMs
@@ -93,21 +111,21 @@ function buildHeDomingoPolicyText(monthKey, tier, sundayDistinctCount, sundayDat
         : '—';
     if (tier === 1) {
         return (
-            `Hora Extra en domingo o festivo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingo/festivo distinto reportado con HE; `
+            `Hora Extra en domingo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingo distinto reportado con HE; `
             + 'aplica coeficiente 0,80; puede optar por compensatorio en tiempo o compensatorio en dinero. '
             + `Días con reporte: ${fechas}.`
         );
     }
     if (tier === 2) {
         return (
-            `Hora Extra en domingo o festivo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingos/festivos distintos reportados con HE; `
+            `Hora Extra en domingo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingos distintos reportados con HE; `
             + 'aplica coeficiente 0,80 y compensación de 1 día de descanso en la misma semana. '
             + `Días con reporte: ${fechas}.`
         );
     }
     if (tier === 3) {
         return (
-            `Hora Extra en domingo o festivo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingos/festivos distintos reportados con HE; `
+            `Hora Extra en domingo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingos distintos reportados con HE; `
             + 'aplica coeficiente 1,80. '
             + `Días con reporte: ${fechas}.`
         );
@@ -184,17 +202,17 @@ function resolveHourSplitBogotaForRow(row, dep) {
  * @param {object[]} rows todas las HE en scope (cualquier estado) para contar domingos reportados
  * @param {Function} buildConsultantKey
  * @param {{ toUtcMsFromDateAndTime: Function, resolveFallbackDateKeyFromRow: Function, festivosSet?: Set<string> }} dep
+ *   `dep.festivosSet` se ignora: la regla de compensación dominical (tier 1/2/3) cuenta solo domingos reales.
  * @returns {Map<string, Set<string>>}
  */
 function buildSundayReportedSetsFromHeRows(rows, buildConsultantKey, dep) {
     const sundaySets = new Map();
-    const festivosSet = dep.festivosSet;
     for (const row of rows) {
         const ck = buildConsultantKey(row);
         const bog = resolveHourSplitBogotaForRow(row, dep);
         for (const [dayKey, h] of bog) {
             if (!Number.isFinite(h) || h <= 0) continue;
-            if (!isDomingoOFestivoBogotaYmd(dayKey, festivosSet)) continue;
+            if (!isSundayBogotaYmd(dayKey)) continue;
             const monthKey = dayKey.slice(0, 7);
             const bucket = `${ck}@@@${monthKey}`;
             if (!sundaySets.has(bucket)) sundaySets.set(bucket, new Set());
@@ -206,15 +224,16 @@ function buildSundayReportedSetsFromHeRows(rows, buildConsultantKey, dep) {
 
 /**
  * Texto para Excel / UI cuando aplica política domingo (tier ≥ 1).
+ * Solo dispara para domingos reales (los festivos no-domingo no aplican política tier).
+ * `dep.festivosSet` se ignora a partir de la separación recargo vs compensación.
  */
 function computeHeDomingoObservacionForRow(row, sundaySets, buildConsultantKey, dep) {
     const ck = buildConsultantKey(row);
     const bog = resolveHourSplitBogotaForRow(row, dep);
-    const festivosSet = dep.festivosSet;
     const monthChunks = new Map();
     for (const [dayKey, h] of bog) {
         if (!Number.isFinite(h) || h <= 0) continue;
-        if (!isDomingoOFestivoBogotaYmd(dayKey, festivosSet)) continue;
+        if (!isSundayBogotaYmd(dayKey)) continue;
         const monthKey = dayKey.slice(0, 7);
         const st = sundayStatsForConsultantMonth(sundaySets, ck, monthKey);
         if (st.tier < 1) continue;
@@ -232,6 +251,7 @@ module.exports = {
     bogotaMidnightUtcMsFromYmd,
     isSundayBogotaYmd,
     isDomingoOFestivoBogotaYmd,
+    isDiaRecargoDominicalBogotaYmd,
     splitHoursByBogotaDay,
     buildHeDomingoPolicyText,
     sundayTierFromCount,

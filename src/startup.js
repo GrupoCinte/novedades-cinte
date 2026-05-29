@@ -21,11 +21,17 @@ async function startServer(deps) {
         ensureNovedadesHeDomingoObservacionColumn,
         ensureNovedadesNominaVerificacionColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
+        ensureNovedadesModalidadVotacionUnidadColumns,
+        ensureNovedadesObservacionesColumn,
+        ensureNovedadesObservacionesRechazoColumn,
+        ensureNovedadesDuplicadoPendienteIndex,
         migrateExcelIfNeeded,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
         ensureReubicacionesPipelineTable,
+        ensureMallaTurnosCeldaTable,
+        ensureMallaTurnoAsignacionTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
@@ -34,6 +40,7 @@ async function startServer(deps) {
         COGNITO_USER_POOL_ID,
         COGNITO_APP_CLIENT_SECRET,
         s3Client,
+        S3_ENABLED,
         S3_BUCKET_NAME,
         S3_REGION,
         S3_AUTH_MODE
@@ -52,11 +59,17 @@ async function startServer(deps) {
     await ensureNovedadesHeDomingoObservacionColumn();
     await ensureNovedadesNominaVerificacionColumns();
     await ensureNovedadesHorasRecargoDomingoColumn();
+    await ensureNovedadesModalidadVotacionUnidadColumns();
+    await ensureNovedadesObservacionesColumn();
+    await ensureNovedadesObservacionesRechazoColumn();
+    await ensureNovedadesDuplicadoPendienteIndex();
     await migrateExcelIfNeeded();
     await migrateClientesLideresFromExcelIfNeeded();
     await ensureColaboradoresTable();
     await ensureColaboradoresDirectoryColumns();
     await ensureReubicacionesPipelineTable();
+    await ensureMallaTurnosCeldaTable();
+    await ensureMallaTurnoAsignacionTable();
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
 
@@ -82,11 +95,27 @@ async function startServer(deps) {
                     logger.warn('S3 usando access keys locales (modo temporal).');
                 }
             }
+        } else if (S3_ENABLED) {
+            logger.warn(
+                'S3_ENABLED=true pero falta S3_BUCKET_NAME (o está vacío): soportes en S3 no funcionarán hasta completar .env (ver .env.example).'
+            );
         } else {
             logger.warn('S3 inactivo: usando almacenamiento local en /assets/uploads.');
         }
         logger.info({ assetsPath: path.join(process.cwd(), 'assets') }, 'Carpeta assets');
     });
+
+    /**
+     * Proxy de Vite (dev) reutiliza TCP hacia este puerto. El `keepAliveTimeout` por defecto de Node (~5s)
+     * puede cerrar el socket mientras el proxy aún lo usa → `ECONNRESET` en Vite y fallos intermitentes
+     * al cargar `/api/*`. Alinear con tiempos típicos de reverse proxy.
+     */
+    try {
+        server.keepAliveTimeout = Math.max(Number(server.keepAliveTimeout) || 0, 65_000);
+        server.headersTimeout = Math.max(Number(server.headersTimeout) || 0, 66_000);
+    } catch {
+        /* ignore */
+    }
 
     server.on('error', (err) => {
         if (err && err.code === 'EADDRINUSE') {

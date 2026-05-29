@@ -53,6 +53,22 @@ function isSundayBogotaYmd(ymd) {
     return new Date(middayBogotaAsUtc).getUTCDay() === 0;
 }
 
+/**
+ * Día con recargo dominical/festivo (domingo Bogotá O festivo en `festivosSet`).
+ * Usado por `computeHoraExtraSplitBogota` y los `collect*` para incluir festivos
+ * no-domingo en `horasRecargoDomingo*` con tope `RECARGO_DOMINGO_MAX_MS`.
+ *
+ * Ojo: la regla de compensación dominical (tier 1/2/3) usa solo `isSundayBogotaYmd`.
+ *
+ * @param {string} ymd
+ * @param {Set<string>} [festivosSet]
+ */
+export function isDiaRecargoDominicalBogotaYmd(ymd, festivosSet) {
+    if (isSundayBogotaYmd(ymd)) return true;
+    if (festivosSet && festivosSet.has(ymd)) return true;
+    return false;
+}
+
 export const RECARGO_DOMINGO_MAX_HORAS = 7.33;
 
 const HORA_DIURNA_INICIO_MIN = 6 * 60;
@@ -147,7 +163,7 @@ export function toUtcMsFromDateAndTime(dateRaw, timeRaw) {
     return day0 + offset;
 }
 
-export function computeHoraExtraSplitBogota(startMs, endMs) {
+export function computeHoraExtraSplitBogota(startMs, endMs, festivosSet) {
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
         return {
             total: 0,
@@ -175,7 +191,7 @@ export function computeHoraExtraSplitBogota(startMs, endMs) {
             continue;
         }
 
-        if (isSundayBogotaYmd(dayKey)) {
+        if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) {
             const rlen = Math.min(e - s, RECARGO_DOMINGO_MAX_MS);
             const after = s + rlen;
             accumulateDiurnaNocturnaInDayWindow(s, after, dayStart, recargoOut);
@@ -203,7 +219,7 @@ export function computeHoraExtraSplitBogota(startMs, endMs) {
     };
 }
 
-export function collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs) {
+export function collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs, festivosSet) {
     const diurna = [];
     const nocturna = [];
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
@@ -224,7 +240,7 @@ export function collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs) {
             continue;
         }
 
-        if (isSundayBogotaYmd(dayKey)) {
+        if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) {
             const rlen = Math.min(e - s, RECARGO_DOMINGO_MAX_MS);
             const after = s + rlen;
             if (e > after) pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, after, e, dayStart);
@@ -237,8 +253,8 @@ export function collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs) {
     return { diurna, nocturna };
 }
 
-/** Segmentos del recargo dominical (primeros L ms del domingo, L ≤ 7,33 h), por franja Bogotá. */
-export function collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs) {
+/** Segmentos del recargo dominical/festivo (primeros L ms del día, L ≤ 7,33 h), por franja Bogotá. */
+export function collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs, festivosSet) {
     const diurna = [];
     const nocturna = [];
     if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
@@ -259,7 +275,7 @@ export function collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs
             continue;
         }
 
-        if (isSundayBogotaYmd(dayKey)) {
+        if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) {
             const rlen = Math.min(e - s, RECARGO_DOMINGO_MAX_MS);
             const after = s + rlen;
             pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, s, after, dayStart);

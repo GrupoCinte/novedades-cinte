@@ -4,7 +4,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import {
     ChevronLeft,
     ChevronRight,
-    Code2,
     Home,
     Menu,
     X,
@@ -20,6 +19,8 @@ import useMonitorData from './contratacion/hooks/useMonitorData';
 import { getContratacionPermissions } from './contratacion/contratacionAccess';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
+import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
 export { userHasContratacionPanel } from './contratacion/contratacionAccess';
 
@@ -29,16 +30,7 @@ function ContratacionDashboard({ auth, currentView, onNavigate, isLight }) {
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col font-body">
-            <Layout
-                currentView={currentView}
-                onNavigate={onNavigate}
-                isConnected={data.isConnected}
-                lastUpdate={data.lastUpdate}
-                activeCount={data.activeExecutions.length}
-                historyCount={data.historyExecutions.length}
-                hideTabNav
-                isLight={isLight}
-            >
+            <Layout isConnected={data.isConnected} lastUpdate={data.lastUpdate} isLight={isLight}>
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={currentView}
@@ -75,7 +67,7 @@ function ContratacionDashboard({ auth, currentView, onNavigate, isLight }) {
     );
 }
 
-export default function ContratacionModule({ auth }) {
+export default function ContratacionModule({ auth, onLogout }) {
     const navigate = useNavigate();
     const mt = useModuleTheme();
     const { isLight, shell, aside, asideHeaderBorder, asideFooterBorder, scrim, menuFab, sidebarIconBtn, navOutline, email, borderSubtle } = mt;
@@ -98,7 +90,7 @@ export default function ContratacionModule({ auth }) {
             <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
-                className={`fixed left-4 top-16 z-40 flex h-10 w-10 items-center justify-center shadow-lg md:hidden ${menuFab}`}
+                className={`fixed left-4 top-4 z-40 flex h-10 w-10 items-center justify-center shadow-lg md:hidden ${menuFab}`}
                 aria-label="Abrir menú contratación"
             >
                 <Menu size={18} />
@@ -108,7 +100,7 @@ export default function ContratacionModule({ auth }) {
             ) : null}
 
             <aside
-                className={`fixed left-0 top-0 z-50 h-full w-72 shadow-2xl transition-transform duration-300 font-body md:hidden ${aside} ${
+                className={`fixed left-0 top-0 z-50 flex h-full w-72 flex-col shadow-2xl transition-transform duration-300 font-body md:hidden ${aside} ${
                     mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}
             >
@@ -133,7 +125,15 @@ export default function ContratacionModule({ auth }) {
                         </button>
                     )}
                 />
-                <nav className="flex flex-col gap-2 p-3">
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
+                <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
                     <button
                         type="button"
                         onClick={() => {
@@ -162,14 +162,11 @@ export default function ContratacionModule({ auth }) {
                         </button>
                     ))}
                 </nav>
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`truncate text-[10px] font-body font-black ${email}`}>{currentEmail}</p>
-                    <p className="text-[10px] font-body font-semibold uppercase text-[#65BCF7]">{currentRoleLabel}</p>
-                </div>
+                <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
             </aside>
 
             <aside
-                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-hidden shadow-2xl transition-all duration-300 ease-in-out font-body md:flex ${aside} ${
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden shadow-2xl transition-all duration-300 ease-in-out font-body md:flex ${aside} ${
                     sidebarOpen ? 'w-64' : 'w-16'
                 }`}
             >
@@ -194,8 +191,16 @@ export default function ContratacionModule({ auth }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
 
-                <nav className="mt-1 flex flex-1 flex-col gap-1 p-2">
+                <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
                     <button
                         type="button"
                         onClick={() => navigate('/admin')}
@@ -227,29 +232,13 @@ export default function ContratacionModule({ auth }) {
                     ))}
                 </nav>
 
-                <div className={`border-t ${borderSubtle} ${sidebarOpen ? 'p-4' : 'p-2'}`}>
-                    {sidebarOpen ? (
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                                <div className="min-w-0 overflow-hidden">
-                                    <p className={`truncate text-[10px] font-body font-black leading-tight ${email}`}>{currentEmail}</p>
-                                    <p className="truncate text-[9px] font-body font-semibold leading-tight text-[#65BCF7]">{currentRoleLabel}</p>
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-2 py-1">
-                            <div className="flex justify-center" title={`${currentEmail} · ${currentRoleLabel}`}>
-                                <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
             </aside>
 
             <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

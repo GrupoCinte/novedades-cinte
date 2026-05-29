@@ -15,11 +15,8 @@ export function pathIsAdminModuleShell(pathname) {
  * Marca CINTE + título del portal en el panel lateral. En rail colapsado solo logo compacto + acción.
  * @param {'rail-expanded' | 'rail-collapsed' | 'drawer'} variant
  */
-export default function AdminModuleSidebarBrand({ variant, isLight, asideHeaderBorder, moduleContext, endAction }) {
+export default function AdminModuleSidebarBrand({ variant, isLight, asideHeaderBorder, endAction }) {
     const logoSrc = isLight ? '/assets/logo-cinte-header-light.png' : '/assets/logo-cinte-header.png';
-    const titleClass = isLight
-        ? 'mt-1 font-heading font-extrabold uppercase tracking-wide text-[9px] sm:text-[10px] leading-tight text-[#004D87]'
-        : 'mt-1 font-heading font-extrabold uppercase tracking-wide text-[9px] sm:text-[10px] leading-tight text-white';
 
     if (variant === 'rail-collapsed') {
         return (
@@ -52,8 +49,6 @@ export default function AdminModuleSidebarBrand({ variant, isLight, asideHeaderB
                         }`}
                     />
                 </div>
-                <p className={titleClass}>{ADMIN_PORTAL_UNIFIED_TITLE}</p>
-                {moduleContext ? <div className="mt-1.5 min-w-0 space-y-0.5">{moduleContext}</div> : null}
             </div>
             <div className="relative z-10 flex shrink-0 pt-0.5">{endAction}</div>
         </div>

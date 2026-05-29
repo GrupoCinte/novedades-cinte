@@ -58,6 +58,8 @@ Pueden aprobar o rechazar: **GP**, **Admin CH**, **Equipo CH** y **CAC** (y supe
 - **Solo GP** aprueba o rechaza según la política vigente para ese tipo.  
 - Personal de CH (**Admin / Equipo**) **sí los ve** en listados, pero **no** son quienes aprueban esos tipos.
 
+**Excepción:** **Compensatorio por votación/jurado** no entra en el bloque “solo GP”: es un tipo de **Capital Humano** (aprobación principal **Admin CH** en catálogo; **CAC** y **super administrador** pueden aprobar cualquier tipo según la sección D). El **Permiso compensatorio en tiempo** (programado en planta) **sí** sigue siendo solicitud operativa atendida por **GP**.
+
 ### D. Super administrador y CAC
 
 Pueden **aprobar o rechazar cualquier tipo** según las validaciones del sistema (incluida la verificación de nómina cuando el tipo la exige).

@@ -5,6 +5,7 @@ import CandidateModal from './CandidateModal';
 import { normalizeStatus, getTrazabilidadStageKey, TRAZABILIDAD_STAGE_ORDER } from '../hooks/useMonitorData';
 import { TERMINAL_STATUSES_SET } from '../constants/trazabilidad.js';
 import { useModuleTheme } from '../../moduleTheme.js';
+import { nativeCalendarOnlyInputProps } from '../../nativeCalendarOnlyInputProps.js';
 
 /** Texto para búsqueda sin serializar todo fullData (mejor rendimiento y menos superficie). */
 function buildSearchHaystack(ex) {
@@ -536,6 +537,7 @@ export default function ActiveCandidates({
                     <div className="flex items-center gap-2">
                         <label className={`whitespace-nowrap text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Ingreso desde</label>
                         <input
+                            {...nativeCalendarOnlyInputProps}
                             type="date"
                             value={fFechaDesde}
                             onChange={(e) => setFFechaDesde(e.target.value)}
@@ -547,6 +549,7 @@ export default function ActiveCandidates({
                     <div className="flex items-center gap-2">
                         <label className={`whitespace-nowrap text-xs font-semibold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-500'}`}>Hasta</label>
                         <input
+                            {...nativeCalendarOnlyInputProps}
                             type="date"
                             value={fFechaHasta}
                             onChange={(e) => setFFechaHasta(e.target.value)}

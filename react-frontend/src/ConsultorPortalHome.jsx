@@ -117,8 +117,8 @@ const MODULE_CARDS = [
   },
   {
     key: 'vacaciones',
-    title: 'Gestión de Vacaciones',
-    description: 'Consulta y gestión de ausencias y vacaciones.',
+    title: 'Ausencias y vacaciones',
+    description: 'Consulta tu resumen y solicita ausencias o vacaciones desde un solo lugar.',
     path: '/consultor/vacaciones',
     CardIcon: Palmtree
   },

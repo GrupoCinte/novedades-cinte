@@ -46,3 +46,14 @@ test('toClientNovedad parsea múltiples soportes JSON', () => {
   assert.deepEqual(out.soportes, ['k1', 'k2']);
   assert.equal(out.soporteKey, 'k1');
 });
+
+test('toClientNovedad expone observacionesRechazo', () => {
+  const out = toClientNovedad({
+    id: '4',
+    tipo_novedad: 'Incapacidad',
+    observaciones_rechazo: 'Falta soporte',
+    estado: 'Rechazado',
+    creado_en: new Date('2026-01-01T00:00:00.000Z'),
+  });
+  assert.equal(out.observacionesRechazo, 'Falta soporte');
+});

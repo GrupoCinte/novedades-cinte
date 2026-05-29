@@ -1,8 +1,16 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
 import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2 } from 'lucide-react';
-import ChatWidget from './ChatWidget';
+import NovedadesFiltersToolbar from './novedades/NovedadesFiltersToolbar.jsx';
+import NovedadesFiltersDrawer from './novedades/NovedadesFiltersDrawer.jsx';
+import { buildGestionTableDash, withNovedadesTabShellAliases } from './gestionTableDashTheme.js';
+import {
+    applyClientSideFilters,
+    buildFiltrosResumen,
+    creadoEnRangeForMonthIndex,
+    filtersToGestionParams
+} from './novedades/novedadesFilters.js';
 import {
     getNovedadRule,
     NOVEDAD_TYPES,
@@ -12,8 +20,7 @@ import {
     getCantidadDetalleEtiqueta,
     getDiasEfectivosNovedad,
     getAsignacionGestionNovedad,
-    resolveCanonicalNovedadTipo,
-    isNominaGateTipoDisplay
+    resolveCanonicalNovedadTipo
 } from './novedadRules';
 import {
     toUtcMsFromDateAndTime,
@@ -22,27 +29,35 @@ import {
     formatHeSegmentListBogota
 } from './heNovedadBogotaClient.js';
 import { formatHeDomingoCompGestionResumen } from './heDomingoCompDisplay.js';
+import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat.js';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
+import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
+import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
-/** Primer y último día (YYYY-MM-DD) del mes 0–11 en `year`, para filtros de creación en Gestión. */
-function creadoEnRangeForMonthIndex(monthIndex, year) {
-    const mi = Number(monthIndex);
-    if (!Number.isFinite(mi) || mi < 0 || mi > 11) return { desde: '', hasta: '' };
-    const y = Number(year);
-    if (!Number.isFinite(y)) return { desde: '', hasta: '' };
-    const pad = (n) => String(n).padStart(2, '0');
-    const lastDay = new Date(y, mi + 1, 0).getDate();
-    return {
-        desde: `${y}-${pad(mi + 1)}-01`,
-        hasta: `${y}-${pad(mi + 1)}-${pad(lastDay)}`
-    };
+const NOVEDADES_FILTER_TABS = new Set([
+    'DashboardGeneral',
+    'Calendario',
+    'Análisis Avanzado',
+    'Gestión',
+    'Alertas HE'
+]);
+
+/** Gestión / UI: tipo compensatorio por votación (jurado). */
+function esTipoCompensatorioVotacionJurado(tipo) {
+    const t = String(tipo || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+    return t.includes('compensatorio') && t.includes('votacion') && t.includes('jurado');
 }
 
-/** Si el dashboard tiene `fMes` seleccionado, Gestión usa rango de creado_en en el año actual (no equivale a getItemDate del dashboard). */
-function creadoEnRangeForDashboardMesFilter(fMesStr, year = new Date().getFullYear()) {
-    if (fMesStr === '' || fMesStr == null) return { desde: '', hasta: '' };
-    return creadoEnRangeForMonthIndex(Number(fMesStr), year);
+/** Gestión / UI: ¿la novedad es Disponibilidad y aplica el flujo de monto diligenciado por el aprobador? */
+function esTipoDisponibilidadConMontoDiligenciado(item) {
+    if (!item) return false;
+    const rule = getNovedadRule(item.tipoNovedad);
+    return Boolean(rule?.montoDiligenciadoPorAprobador);
 }
 
 /** Texto visible en selects de GP: solo nombre de directorio, sin correo. */
@@ -87,6 +102,31 @@ function normalizeHoraHePayload(timeRaw) {
     return t.slice(0, 8);
 }
 
+/** `YYYY-MM-DD` + mediodía UTC — mismo criterio que FormularioNovedad para domingo civil. */
+function ymdIsDomingoCivilUtc(ymd) {
+    const s = String(ymd || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    return new Date(`${s}T12:00:00Z`).getUTCDay() === 0;
+}
+
+/** Nota informativa en gestión: festivo o domingo (no altera la fecha guardada). */
+function GestionCalendarioCivilNotas({ ymd, festivosSet }) {
+    const s = String(ymd || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+    const fest = festivosSet instanceof Set && festivosSet.has(s);
+    const dom = !fest && ymdIsDomingoCivilUtc(s);
+    if (!fest && !dom) return null;
+    return (
+        <div
+            className="mt-1 rounded-md border border-amber-400/50 bg-amber-500/15 px-2 py-1.5 text-[11px] font-semibold leading-snug text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100"
+            role="status"
+        >
+            {fest ? <div>Nota: festivo nacional en esta fecha.</div> : null}
+            {dom ? <div>Nota: esta fecha cae en domingo.</div> : null}
+        </div>
+    );
+}
+
 export default function Dashboard({ token, auth, onLogout }) {
     const mt = useModuleTheme();
     const {
@@ -110,28 +150,13 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     const dash = useMemo(() => {
         const L = isLight;
-        const card = L
-            ? 'rounded-2xl border border-slate-200 bg-white shadow-md'
-            : 'rounded-2xl border border-slate-700/50 bg-[#1e293b] shadow-lg';
+        const g = withNovedadesTabShellAliases(buildGestionTableDash(L));
         return {
-            card,
-            cardFlex: `${card} flex flex-col h-full overflow-hidden`,
-            filterBar: L
-                ? 'flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-md'
-                : 'flex flex-col gap-3 rounded-2xl border border-slate-700/50 bg-[#1e293b] px-5 py-4 shadow-lg',
-            titleXl: L ? 'text-xl font-bold text-slate-900' : 'text-xl font-bold text-white',
-            titleLg: L ? 'text-lg font-bold text-slate-900' : 'text-lg font-bold text-white',
-            title2xl: L ? 'text-2xl font-bold text-slate-900' : 'text-2xl font-bold text-white',
+            ...g,
             title3xl: L ? 'text-3xl font-bold text-slate-900' : 'text-3xl font-bold text-white',
-            muted: L ? 'text-slate-600' : 'text-slate-400',
-            mutedSm: L ? 'text-sm text-slate-600' : 'text-sm text-slate-400',
-            labelUpper: L ? 'text-xs font-bold uppercase tracking-widest text-slate-500' : 'text-xs font-bold uppercase tracking-widest text-slate-400',
-            labelFilter: L ? 'text-xs font-semibold uppercase tracking-wider text-slate-600' : 'text-xs font-semibold uppercase tracking-wider text-slate-500',
-            divider: L ? 'h-px flex-1 min-w-[1rem] bg-slate-200' : 'h-px flex-1 min-w-[1rem] bg-slate-700/50',
             clearBtn: L
                 ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs text-slate-600 transition-all hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600'
                 : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400',
-            kpiSub: L ? 'text-sm font-medium text-slate-600' : 'text-sm font-medium text-slate-400',
             legendLine: L ? 'text-slate-600' : 'text-slate-300',
             legendDash: L ? 'text-slate-500' : 'text-slate-400',
             avatarRing: L ? 'border-2 border-white bg-slate-300 text-[10px] font-bold text-slate-700' : 'border-2 border-[#1e293b] bg-slate-600 text-[10px] font-bold text-slate-300',
@@ -151,29 +176,10 @@ export default function Dashboard({ token, auth, onLogout }) {
                 ? 'rounded-lg border border-slate-200 bg-slate-100 px-3 py-1 text-sm font-bold text-slate-700'
                 : 'rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-bold text-slate-300',
             nameEmpl: L ? 'font-medium text-slate-900' : 'font-medium text-slate-200',
-            gestionHead: L ? 'border-b border-slate-200 bg-white' : 'border-b border-slate-700/50 bg-[#1e293b]',
-            tableWrap: L ? 'flex w-full min-h-0 flex-1 flex-col bg-slate-50' : 'flex w-full min-h-0 flex-1 flex-col bg-[#0f172a]/50',
-            thead: L
-                ? 'sticky top-0 z-10 border-b border-slate-200 bg-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-600 shadow-sm'
-                : 'sticky top-0 z-10 border-b border-slate-700/50 bg-[#1e293b] text-xs font-semibold uppercase tracking-wider text-slate-400 shadow-sm',
-            tbody: L ? 'divide-y divide-slate-200 text-sm text-slate-800' : 'divide-y divide-slate-700/50 text-sm',
-            trHover: L ? 'transition-colors hover:bg-slate-100' : 'transition-colors hover:bg-slate-800/80',
-            tdDate: L ? 'p-4 pl-6 text-slate-500' : 'p-4 pl-6 text-slate-400',
-            tdName: L ? 'p-4 font-semibold text-slate-900' : 'p-4 font-semibold text-slate-200',
             tdCell: L ? 'p-4 text-slate-700' : 'p-4 text-slate-300',
-            tdMuted: L ? 'p-4 text-slate-500' : 'p-4 text-slate-400',
             tdSmall: L ? 'text-xs text-slate-500' : 'text-xs text-slate-500',
             tdEmphasis: L ? 'break-all font-medium text-slate-900' : 'break-all font-medium text-slate-100',
             tdLead: L ? 'block break-words leading-snug text-slate-800' : 'block break-words leading-snug text-slate-200',
-            footerBar: L
-                ? 'flex items-center justify-between border-t border-slate-200 bg-white px-4 py-3 text-xs text-slate-600'
-                : 'flex items-center justify-between border-t border-slate-700/50 bg-[#1e293b] px-4 py-3 text-xs text-slate-300',
-            actionBtn: L
-                ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm transition-all hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800'
-                : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300 shadow-sm transition-all hover:border-blue-500/50 hover:bg-blue-600/20 hover:text-blue-400',
-            borrarFiltros: L
-                ? 'rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition-all hover:bg-slate-100'
-                : 'rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-300 transition-all hover:bg-slate-700/60',
             emptyHe: L ? 'rounded-xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600' : 'rounded-xl border border-slate-700 bg-slate-900/40 p-6 text-sm text-slate-400',
             calShell: L
                 ? 'animate-in fade-in zoom-in-95 flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white pb-20 shadow-md duration-300'
@@ -205,20 +211,20 @@ export default function Dashboard({ token, auth, onLogout }) {
                 : 'rounded-xl border border-slate-600 bg-[#0f172a] px-4 py-3 text-sm shadow-xl',
             riesgoNombre: L ? 'text-sm font-bold leading-tight text-slate-900' : 'text-sm font-bold leading-tight text-slate-200',
             modalBackdrop: L
-                ? 'fixed inset-0 z-50 flex animate-in items-center justify-center bg-slate-900/40 p-4 backdrop-blur fade-in duration-200'
-                : 'fixed inset-0 z-50 flex animate-in items-center justify-center bg-[#0f172a]/90 p-4 backdrop-blur fade-in duration-200',
+                ? 'fixed inset-0 z-[240] flex animate-in items-center justify-center bg-slate-900/40 p-4 backdrop-blur fade-in duration-200'
+                : 'fixed inset-0 z-[240] flex animate-in items-center justify-center bg-[#0f172a]/90 p-4 backdrop-blur fade-in duration-200',
             modalCard: L
-                ? 'relative flex w-full max-w-4xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
-                : 'relative flex w-full max-w-4xl flex-col rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
+                ? 'relative flex w-full min-w-0 max-w-4xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
+                : 'relative flex w-full min-w-0 max-w-4xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
             modalCardMd: L
-                ? 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
-                : 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
+                ? 'relative flex w-full min-w-0 max-w-3xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
+                : 'relative flex w-full min-w-0 max-w-3xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
             modalCardWide: L
-                ? 'relative flex w-full max-w-5xl flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]'
-                : 'relative flex w-full max-w-5xl flex-col items-center justify-center rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]',
+                ? 'relative flex w-full min-w-0 max-w-5xl flex-col items-center justify-center overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]'
+                : 'relative flex w-full min-w-0 max-w-5xl flex-col items-center justify-center overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]',
             modalCardDay: L
-                ? 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[85vh]'
-                : 'relative flex w-full max-w-3xl flex-col rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[85vh]',
+                ? 'relative flex w-full min-w-0 max-w-3xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[85vh]'
+                : 'relative flex w-full min-w-0 max-w-3xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[85vh]',
             modalHeadBorder: L ? 'mb-4 flex items-start justify-between border-b border-slate-200 pb-4' : 'mb-4 flex items-start justify-between border-b border-slate-700/50 pb-4',
             modalClose: L
                 ? 'flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition-all hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600'
@@ -245,7 +251,10 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [isLight]);
 
     const [items, setItems] = useState([]);
-    const [loading, setLoading] = useState(true);
+    /** Listado completo para Dashboard / Calendario / Análisis (no mezclar con carga paginada de Gestión). */
+    const [listLoading, setListLoading] = useState(true);
+    /** Solo tabla Gestión: evita que un refetch de Gestión ponga en “cargando” el dashboard general. */
+    const [gestionLoading, setGestionLoading] = useState(true);
     const [soporteModal, setSoporteModal] = useState(null);
     const [activeTab, setActiveTab] = useState('DashboardGeneral');
     const [stateError, setStateError] = useState(null);
@@ -302,12 +311,6 @@ export default function Dashboard({ token, auth, onLogout }) {
     const canApproveItem = (item) => {
         if (!item || item.estado !== 'Pendiente') return false;
         if (currentRole === 'nomina') return false;
-        if (isNominaGateTipoDisplay(item.tipoNovedad)) {
-            const obs = String(item.nominaVerificacionObservacion || '').trim();
-            const hasCheck = item.nominaInfoCorrecta === true || item.nominaInfoCorrecta === false;
-            if (!hasCheck || !obs) return false;
-            return currentRole === 'super_admin' || currentRole === 'cac' || currentRole === 'admin_ch';
-        }
         if (currentRole === 'super_admin' || currentRole === 'cac') return true;
         const rule = getNovedadRule(item.tipoNovedad);
         return Array.isArray(rule.approvers) && rule.approvers.includes(currentRole);
@@ -319,22 +322,19 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [calendarView, setCalendarView] = useState('monthly');
     const [currentDay, setCurrentDay] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
 
-    // Dashboard general — filtros
-    const [fMes, setFMes] = useState('');         // '' = todos, '0'-'11' = ene-dic
-    const [fClienteInicio, setFClienteInicio] = useState('');
     const [dashboardClientesList, setDashboardClientesList] = useState([]);
-    const [fTipoInicio, setFTipoInicio] = useState(''); // '' = todos los tipos
 
-    // Gestión table filters
+    // Filtros compartidos del módulo Novedades
     const [fTipo, setFTipo] = useState('');
     const [fEstado, setFEstado] = useState('');
     const [fNombre, setFNombre] = useState('');
     const [fCliente, setFCliente] = useState('');
     const [fCreadoDesde, setFCreadoDesde] = useState('');
     const [fCreadoHasta, setFCreadoHasta] = useState('');
-    const [fClienteCalendario, setFClienteCalendario] = useState('');
     /** Filtro por GP asociado (snapshot `novedades.gp_user_id`); solo efectivo para rol `super_admin` en API. */
     const [fGpUserId, setFGpUserId] = useState('');
+    /** '' | '0'..'3' — franja de tiempo hasta decisión (KPI dashboard); ver `leadTimeBucket` en API. */
+    const [fLeadTimeBucket, setFLeadTimeBucket] = useState('');
     const [gpFilterOptions, setGpFilterOptions] = useState([]);
     const isSuperAdminNovedades = currentRole === 'super_admin' || currentRole === 'cac';
     /** Temporal: ocultar el botón «Editar» en el modal de gestión (API PATCH sigue disponible). */
@@ -357,59 +357,115 @@ export default function Dashboard({ token, auth, onLogout }) {
         totalPages: 1
     });
     const [gestionDetailItem, setGestionDetailItem] = useState(null);
-    const [nominaVerifyBusy, setNominaVerifyBusy] = useState(false);
-    const [nominaVerifyErr, setNominaVerifyErr] = useState(null);
-    /** '' | 'ok' | 'bad' — antes de enviar verificación nómina */
-    const [nominaRadio, setNominaRadio] = useState('');
-    const [nominaObs, setNominaObs] = useState('');
     const [gestionEditMode, setGestionEditMode] = useState(false);
     const [gestionEditDraft, setGestionEditDraft] = useState(null);
     const [gestionDeleteOpen, setGestionDeleteOpen] = useState(false);
     const [gestionDeleteMotivo, setGestionDeleteMotivo] = useState('');
+    const [gestionRejectOpen, setGestionRejectOpen] = useState(false);
+    const [gestionRejectObservacion, setGestionRejectObservacion] = useState('');
+    const [gestionRejectPending, setGestionRejectPending] = useState(null);
+    const [gestionRejectErr, setGestionRejectErr] = useState(null);
     const [gestionAdminBusy, setGestionAdminBusy] = useState(false);
     const [gestionAdminErr, setGestionAdminErr] = useState(null);
+    const [gestionFestivosSet, setGestionFestivosSet] = useState(() => new Set());
     const [alertaHeDetailItem, setAlertaHeDetailItem] = useState(null);
+    /**
+     * HU disponibilidad-monto-diligenciado-por-gp: input controlado para que el aprobador
+     * (GP/super_admin/CAC) ingrese el monto en COP de una novedad de Disponibilidad antes de
+     * Aceptar o Rechazar. Se inicializa al abrir el modal de Gestión y se limpia al cerrar.
+     */
+    const [gestionDispMontoInput, setGestionDispMontoInput] = useState('$ ');
+    const [gestionDispMontoError, setGestionDispMontoError] = useState('');
+    /** Drawer lateral de filtros avanzados (compartido entre pestañas del módulo). */
+    const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
     const navigate = useNavigate();
+    /** Evita parpadeo “se cayó el panel”: en refetch con datos ya cargados no forzar `listLoading`. */
+    const novedadesListCountRef = useRef(0);
 
-    const loadData = async () => {
-        setLoading(true);
+    useEffect(() => {
+        const ac = new AbortController();
+        fetch('/api/festivos', { credentials: 'include', signal: ac.signal })
+            .then((r) => r.json())
+            .then((data) => {
+                if (data?.ok && Array.isArray(data.festivos)) {
+                    setGestionFestivosSet(new Set(data.festivos));
+                }
+            })
+            .catch(() => {});
+        return () => ac.abort();
+    }, []);
+
+    /**
+     * HU disponibilidad-monto-diligenciado-por-gp: al abrir/cerrar el modal de Gestión, reinicia
+     * el input de monto. Si la Disponibilidad ya tiene un monto previo (caso histórico previo a
+     * esta HU), se precarga formateado para que el aprobador lo confirme o lo edite.
+     */
+    useEffect(() => {
+        setGestionDispMontoError('');
+        if (gestionDetailItem && esTipoDisponibilidadConMontoDiligenciado(gestionDetailItem)) {
+            const previo = Number(gestionDetailItem.montoCop);
+            setGestionDispMontoInput(
+                Number.isFinite(previo) && previo > 0 ? formatMontoCOPLocale(previo) : '$ '
+            );
+        } else {
+            setGestionDispMontoInput('$ ');
+        }
+    }, [gestionDetailItem]);
+
+    const loadData = useCallback(async (opts = {}) => {
+        const { signal } = opts;
+        if (novedadesListCountRef.current === 0) setListLoading(true);
         try {
             const qp = new URLSearchParams();
             if (fGpUserId) qp.set('gpUserId', fGpUserId);
             const qs = qp.toString();
             const res = await fetch(qs ? `/api/novedades?${qs}` : '/api/novedades', {
-                headers: { 'Authorization': `Bearer ${token}` }
+                credentials: 'include',
+                headers: { Authorization: `Bearer ${token}` },
+                signal
             });
+            if (signal?.aborted) return;
             if (!res.ok) throw new Error('No autorizado');
             const data = await res.json();
-            setItems(data.items || []);
+            if (signal?.aborted) return;
+            const nextItems = data.items || [];
+            novedadesListCountRef.current = nextItems.length;
+            setItems(nextItems);
         } catch (err) {
+            if (signal?.aborted || err?.name === 'AbortError') return;
             console.error(err);
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) setListLoading(false);
         }
-    };
+    }, [fGpUserId, token]);
 
-    const loadGestionData = async (page = currentPage, limit = pageSize) => {
-        setLoading(true);
+    const loadGestionData = useCallback(async (page = currentPage, limit = pageSize, opts = {}) => {
+        const { signal } = opts;
+        setGestionLoading(true);
         try {
-            const params = {
-                page: String(page),
-                limit: String(limit)
-            };
-            if (fTipo) params.tipo = fTipo;
-            if (fEstado) params.estado = fEstado;
-            if (fNombre) params.nombre = fNombre;
-            if (fCliente) params.cliente = fCliente;
-            if (fCreadoDesde) params.createdFrom = fCreadoDesde;
-            if (fCreadoHasta) params.createdTo = fCreadoHasta;
-            if (fGpUserId) params.gpUserId = fGpUserId;
+            const params = filtersToGestionParams(
+                {
+                    fTipo,
+                    fEstado,
+                    fNombre,
+                    fCliente,
+                    fCreadoDesde,
+                    fCreadoHasta,
+                    fGpUserId,
+                    fLeadTimeBucket
+                },
+                { page, limit }
+            );
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades?${query}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
+                credentials: 'include',
+                headers: { Authorization: `Bearer ${token}` },
+                signal
             });
+            if (signal?.aborted) return;
             if (!res.ok) throw new Error('No autorizado');
             const data = await res.json();
+            if (signal?.aborted) return;
             setGestionItems(data.items || []);
             setGestionPagination({
                 page: Number(data?.pagination?.page || page || 1),
@@ -418,13 +474,34 @@ export default function Dashboard({ token, auth, onLogout }) {
                 totalPages: Number(data?.pagination?.totalPages || 1)
             });
         } catch (err) {
+            if (signal?.aborted || err?.name === 'AbortError') return;
             console.error(err);
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) setGestionLoading(false);
         }
-    };
+    }, [
+        currentPage,
+        pageSize,
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket,
+        token
+    ]);
 
-    const loadHoraExtraAlerts = async () => {
+    const loadHoraExtraAlerts = useCallback(async (opts = {}) => {
+        const { signal } = opts;
+        const emptyPayload = {
+            generatedAt: '',
+            summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, sundayAlertsCount: 0, totalAlerts: 0 },
+            dailyAlerts: [],
+            monthlyAlerts: [],
+            items: []
+        };
         try {
             const params = {};
             if (fCreadoDesde) params.createdFrom = fCreadoDesde;
@@ -433,32 +510,30 @@ export default function Dashboard({ token, auth, onLogout }) {
             const query = new URLSearchParams(params).toString();
             const url = query ? `/api/novedades/hora-extra-alertas?${query}` : '/api/novedades/hora-extra-alertas';
             const alertRes = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${token}` }
+                credentials: 'include',
+                headers: { Authorization: `Bearer ${token}` },
+                signal
             });
+            if (signal?.aborted) return;
             if (!alertRes.ok) throw new Error('No se pudieron cargar alertas HE');
             const alertJson = await alertRes.json();
-            setHoraExtraAlerts(alertJson?.data || {
-                generatedAt: '',
-                summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, sundayAlertsCount: 0, totalAlerts: 0 },
-                dailyAlerts: [],
-                monthlyAlerts: [],
-                items: []
-            });
+            if (signal?.aborted) return;
+            setHoraExtraAlerts(alertJson?.data || emptyPayload);
         } catch (err) {
+            if (signal?.aborted || err?.name === 'AbortError') return;
             console.error(err);
-            setHoraExtraAlerts({
-                generatedAt: '',
-                summary: { dailyAlertsCount: 0, monthlyAlertsCount: 0, sundayAlertsCount: 0, totalAlerts: 0 },
-                dailyAlerts: [],
-                monthlyAlerts: [],
-                items: []
-            });
+            setHoraExtraAlerts(emptyPayload);
         }
-    };
+    }, [fCreadoDesde, fCreadoHasta, fGpUserId, token]);
 
+    /** Una sola cancelación al desmontar / StrictMode: menos carreras y menos abortos en paralelo. */
     useEffect(() => {
-        loadData();
-    }, [fGpUserId]);
+        const ac = new AbortController();
+        const { signal } = ac;
+        void loadData({ signal });
+        void loadGestionData(currentPage, pageSize, { signal });
+        return () => ac.abort();
+    }, [loadData, loadGestionData, currentPage, pageSize]);
 
     useEffect(() => {
         if (!isSuperAdminNovedades) {
@@ -468,7 +543,10 @@ export default function Dashboard({ token, auth, onLogout }) {
         let cancelled = false;
         (async () => {
             try {
-                const res = await fetch('/api/directorio/gp', { headers: { Authorization: `Bearer ${token}` } });
+                const res = await fetch('/api/directorio/gp', {
+                    credentials: 'include',
+                    headers: { Authorization: `Bearer ${token}` }
+                });
                 const json = await res.json().catch(() => ({}));
                 if (!cancelled && res.ok && Array.isArray(json.items)) setGpFilterOptions(json.items);
             } catch (err) {
@@ -487,7 +565,9 @@ export default function Dashboard({ token, auth, onLogout }) {
     useEffect(() => {
         const loadCalClientes = async () => {
             try {
-                const res = await fetch('/api/catalogos/clientes', { credentials: 'include' });
+                const headers = {};
+                if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
+                const res = await fetch('/api/catalogos/clientes', { credentials: 'include', headers });
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) setCalendarClientesList(json.items);
             } catch (err) {
@@ -495,7 +575,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             }
         };
         loadCalClientes();
-    }, []);
+    }, [token]);
 
     useEffect(() => {
         const loadDashboardClientes = async () => {
@@ -509,7 +589,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                 const qs = qp.toString();
                 const res = await fetch(
                     qs ? `/api/novedades/clientes-filtro?${qs}` : '/api/novedades/clientes-filtro',
-                    { headers: { Authorization: `Bearer ${token}` } }
+                    { credentials: 'include', headers: { Authorization: `Bearer ${token}` } }
                 );
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) {
@@ -541,14 +621,6 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [isSuperAdminNovedades, fGpUserId, dashboardClientesList, calendarClientesList]);
 
     useEffect(() => {
-        if (!fClienteInicio) return;
-        const ok = dashboardClientesOptions.some(
-            (c) => String(c).trim().toLowerCase() === String(fClienteInicio).trim().toLowerCase()
-        );
-        if (!ok) setFClienteInicio('');
-    }, [dashboardClientesOptions, fClienteInicio]);
-
-    useEffect(() => {
         if (!fCliente) return;
         const ok = gestionClienteOptions.some(
             (c) => String(c).trim().toLowerCase() === String(fCliente).trim().toLowerCase()
@@ -557,18 +629,10 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [gestionClienteOptions, fCliente]);
 
     useEffect(() => {
-        loadGestionData(currentPage, pageSize);
-    }, [currentPage, pageSize, fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId]);
-
-    useEffect(() => {
-        if (!gestionDetailItem?.id) return;
-        setNominaRadio('');
-        setNominaObs('');
-        setNominaVerifyErr(null);
-    }, [gestionDetailItem?.id]);
-    useEffect(() => {
-        loadHoraExtraAlerts();
-    }, [fCreadoDesde, fCreadoHasta, fGpUserId]);
+        const ac = new AbortController();
+        loadHoraExtraAlerts({ signal: ac.signal });
+        return () => ac.abort();
+    }, [loadHoraExtraAlerts]);
 
     const changeState = async (id, nuevoEstado, options = {}) => {
         setStateError(null);
@@ -586,15 +650,27 @@ export default function Dashboard({ token, auth, onLogout }) {
                 'Authorization': `Bearer ${token}`
             };
             if (csrfToken) headers['x-cinte-xsrf'] = csrfToken;
+            const bodyPayload = {
+                id,
+                nuevoEstado,
+                fromHoraExtraAlert
+            };
+            /**
+             * HU disponibilidad-monto-diligenciado-por-gp: el aprobador (GP/super_admin/CAC)
+             * envía el monto en COP que diligenció en el modal de Gestión, sin importar si
+             * la decisión es Aprobado o Rechazado. El backend valida monto > 0 cuando aplica.
+             */
+            if (options && options.montoCop != null) {
+                bodyPayload.montoCop = options.montoCop;
+            }
+            if (options && options.observacionesRechazo != null) {
+                bodyPayload.observacionesRechazo = options.observacionesRechazo;
+            }
             const res = await fetch('/api/actualizar-estado', {
                 method: 'POST',
                 credentials: 'include',
                 headers,
-                body: JSON.stringify({
-                    id,
-                    nuevoEstado,
-                    fromHoraExtraAlert
-                })
+                body: JSON.stringify(bodyPayload)
             });
             console.log('[changeState] Respuesta status:', res.status);
             const data = await res.json();
@@ -610,15 +686,45 @@ export default function Dashboard({ token, auth, onLogout }) {
                 await loadData();
                 await loadGestionData(currentPage, pageSize);
                 await loadHoraExtraAlerts();
+                return true;
             } else {
                 const errMsg = data?.error || `Error ${res.status}`;
                 console.error('[changeState] Error del servidor:', errMsg);
                 setStateError(errMsg);
+                return false;
             }
         } catch (err) {
             console.error('[changeState] Error de red/fetch:', err);
             setStateError('Error de conexión con el servidor. Verifica que el backend esté corriendo en :3005');
+            return false;
         }
+    };
+
+    const openGestionRejectModal = (pending) => {
+        setGestionRejectPending(pending);
+        setGestionRejectObservacion('');
+        setGestionRejectErr(null);
+        setGestionRejectOpen(true);
+    };
+
+    const submitGestionReject = async () => {
+        const texto = String(gestionRejectObservacion || '').trim();
+        if (!texto) {
+            setGestionRejectErr('Indica la observación de rechazo (causa e indicaciones para el consultor).');
+            return;
+        }
+        if (!gestionRejectPending?.id) return;
+        setGestionRejectErr(null);
+        const opts = { observacionesRechazo: texto };
+        if (gestionRejectPending.fromHoraExtraAlert) opts.fromHoraExtraAlert = true;
+        if (gestionRejectPending.montoCop != null) opts.montoCop = gestionRejectPending.montoCop;
+        const ok = await changeState(gestionRejectPending.id, 'Rechazado', opts);
+        if (!ok) return;
+        setGestionRejectOpen(false);
+        setGestionRejectPending(null);
+        setGestionRejectObservacion('');
+        if (gestionRejectPending.closeGestionDetail) closeGestionDetailModal();
+        if (gestionRejectPending.closeAlertaHe) setAlertaHeDetailItem(null);
     };
 
     const closeGestionDetailModal = () => {
@@ -627,11 +733,11 @@ export default function Dashboard({ token, auth, onLogout }) {
         setGestionEditDraft(null);
         setGestionDeleteOpen(false);
         setGestionDeleteMotivo('');
+        setGestionRejectOpen(false);
+        setGestionRejectObservacion('');
+        setGestionRejectPending(null);
+        setGestionRejectErr(null);
         setGestionAdminErr(null);
-        setNominaVerifyBusy(false);
-        setNominaVerifyErr(null);
-        setNominaRadio('');
-        setNominaObs('');
     };
 
     const gestionAdminHeaders = () => {
@@ -647,44 +753,6 @@ export default function Dashboard({ token, auth, onLogout }) {
         };
         if (csrfToken) headers['x-cinte-xsrf'] = csrfToken;
         return headers;
-    };
-
-    const submitNominaVerification = async () => {
-        if (!gestionDetailItem?.id) return;
-        if (nominaRadio !== 'ok' && nominaRadio !== 'bad') {
-            setNominaVerifyErr('Indica si la información es correcta o incorrecta.');
-            return;
-        }
-        const obs = String(nominaObs || '').trim();
-        if (!obs) {
-            setNominaVerifyErr('La observación es obligatoria.');
-            return;
-        }
-        setNominaVerifyBusy(true);
-        setNominaVerifyErr(null);
-        try {
-            const res = await fetch(`/api/novedades/${gestionDetailItem.id}/nomina-verificacion`, {
-                method: 'POST',
-                credentials: 'include',
-                headers: gestionAdminHeaders(),
-                body: JSON.stringify({
-                    infoCorrecta: nominaRadio === 'ok',
-                    observacion: obs
-                })
-            });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) {
-                setNominaVerifyErr(data?.error || `Error ${res.status}`);
-                return;
-            }
-            if (data?.item) setGestionDetailItem(data.item);
-            await loadGestionData(currentPage, pageSize);
-            await loadData();
-        } catch {
-            setNominaVerifyErr('Error de conexión al registrar la verificación.');
-        } finally {
-            setNominaVerifyBusy(false);
-        }
     };
 
     const buildGestionEditDraft = (it) => {
@@ -708,6 +776,9 @@ export default function Dashboard({ token, auth, onLogout }) {
             horaFin: normalizeHoraHePayload(it.horaFin).slice(0, 5) || '',
             fechaInicio: it.fechaInicio || '',
             fechaFin: it.fechaFin || '',
+            modalidad: it.modalidad || '',
+            fechaVotacion: it.fechaVotacion || '',
+            unidad: it.unidad || '',
             cantidadHoras: String(it.cantidadHoras ?? 0),
             horasDiurnas: String(it.horasDiurnas ?? 0),
             horasNocturnas: String(it.horasNocturnas ?? 0),
@@ -718,6 +789,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             montoCop: monto,
             estado: it.estado || 'Pendiente',
             heDomingoObservacion: it.heDomingoObservacion || '',
+            observaciones: it.observaciones || '',
             soporteRuta: sopRuta
         };
     };
@@ -733,6 +805,8 @@ export default function Dashboard({ token, auth, onLogout }) {
             const mn = Number(montoRaw);
             montoCop = Number.isFinite(mn) ? Number(mn.toFixed(2)) : null;
         }
+        const unidadRaw = String(draft.unidad || '').trim().toLowerCase();
+        const unidadPatch = unidadRaw === 'dias' || unidadRaw === 'horas' ? unidadRaw : null;
         return {
             nombre: String(draft.nombre || '').trim(),
             cedula: String(draft.cedula || '').replace(/\D/g, ''),
@@ -747,6 +821,9 @@ export default function Dashboard({ token, auth, onLogout }) {
             horaFin: draft.horaFin ? normalizeHoraHePayload(draft.horaFin) : null,
             fechaInicio: String(draft.fechaInicio || '').trim() || null,
             fechaFin: String(draft.fechaFin || '').trim() || null,
+            modalidad: String(draft.modalidad || '').trim() || null,
+            fechaVotacion: String(draft.fechaVotacion || '').trim() || null,
+            unidad: unidadPatch,
             cantidadHoras: num(draft.cantidadHoras),
             horasDiurnas: num(draft.horasDiurnas),
             horasNocturnas: num(draft.horasNocturnas),
@@ -757,6 +834,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             montoCop,
             estado: String(draft.estado || 'Pendiente').trim(),
             heDomingoObservacion: String(draft.heDomingoObservacion || '').trim() || null,
+            observaciones: String(draft.observaciones || '').trim() || null,
             soporteRuta: String(draft.soporteRuta || '').trim() || null
         };
     };
@@ -954,25 +1032,56 @@ export default function Dashboard({ token, auth, onLogout }) {
         : null;
 
     // ── Dashboard filter helper ──────────────────────────────────────────────
-    // Helper: get the reference date for an item (fechaInicio preferred, else creadoEn)
+    /**
+     * Fecha de referencia para conteos del Dashboard general (KPI Total, Monitor de Tendencia, Mapa de Frecuencia).
+     * Regla de negocio: el conteo es por **fecha de creación** (`creadoEn`), no por la fecha del evento (`fechaInicio`).
+     * Así se alinea con el filtro `creadoDesde/creadoHasta` que aplica Gestión cuando se navega desde una barra.
+     * Si el item no trae `creadoEn` (caso muy raro) se cae a `fechaInicio` como fallback.
+     */
     const getItemDate = (it) => {
-        if (it.fechaInicio) return new Date(it.fechaInicio + 'T00:00:00');
-        return new Date(it.creadoEn);
+        if (it?.creadoEn) return new Date(it.creadoEn);
+        if (it?.fechaInicio) return new Date(it.fechaInicio + 'T00:00:00');
+        return new Date(NaN);
     };
 
-    // Ítems visibles en Dashboard general (mes + tipo + cliente; el alcance por rol viene de `items` / API)
-    const dashItems = useMemo(() => items.filter((it) => {
-        const d = getItemDate(it);
-        if (isNaN(d.getTime())) return true;
-        if (fMes !== '' && d.getMonth() !== Number(fMes)) return false;
-        if (fTipoInicio !== '' && it.tipoNovedad !== fTipoInicio) return false;
-        if (fClienteInicio !== '') {
-            const a = String(it.cliente || '').trim().toLowerCase();
-            const b = String(fClienteInicio).trim().toLowerCase();
-            if (a !== b) return false;
+    // Ítems visibles en Dashboard general, Calendario y Análisis (filtros compartidos; GP vía API en `items`)
+    const moduleFilters = useMemo(() => ({
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket
+    }), [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket]);
+
+    const dashItems = useMemo(
+        () => applyClientSideFilters(items, moduleFilters),
+        [items, moduleFilters]
+    );
+
+    const tipoFilterOptions = useMemo(() => {
+        const set = new Set(NOVEDAD_TYPES);
+        for (const it of items) {
+            if (it?.tipoNovedad) set.add(it.tipoNovedad);
         }
-        return true;
-    }), [items, fMes, fTipoInicio, fClienteInicio]);
+        return [...set].sort((a, b) => a.localeCompare(b, 'es'));
+    }, [items]);
+
+    const novedadesFiltrosResumen = useMemo(
+        () => buildFiltrosResumen(moduleFilters),
+        [moduleFilters]
+    );
+
+    const handleNovedadesFilterChange = useCallback((patch) => {
+        if (Object.prototype.hasOwnProperty.call(patch, 'fTipo')) setFTipo(patch.fTipo);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fEstado')) setFEstado(patch.fEstado);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fCliente')) setFCliente(patch.fCliente);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fCreadoDesde')) setFCreadoDesde(patch.fCreadoDesde);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fCreadoHasta')) setFCreadoHasta(patch.fCreadoHasta);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fGpUserId')) setFGpUserId(patch.fGpUserId);
+    }, []);
 
     // ── Data Processing (based on dashItems) ─────────────────────────────────
     // 1. Top 5 Empleados
@@ -1025,47 +1134,48 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [dashItems]);
 
     /**
-     * Abre Gestión aplicando filtros; rango creado_en solo si se pasan creadoDesde/creadoHasta o si hay fMes en el dashboard.
-     * Nota: en Gestión el rango es sobre creado_en; el filtro Mes del dashboard usa getItemDate (puede diferir).
+     * Abre Gestión aplicando filtros compartidos del módulo.
      */
     const navigateGestionWithDashboardFilters = useCallback((partial = {}) => {
-        const nextTipo = Object.prototype.hasOwnProperty.call(partial, 'tipo') ? partial.tipo : fTipoInicio;
-        const nextCliente = Object.prototype.hasOwnProperty.call(partial, 'cliente') ? partial.cliente : fClienteInicio;
-        const nextNombre = Object.prototype.hasOwnProperty.call(partial, 'nombre') ? partial.nombre : '';
-        const nextEstado = Object.prototype.hasOwnProperty.call(partial, 'estado') ? partial.estado : '';
-
-        let desde = '';
-        let hasta = '';
-        if (Object.prototype.hasOwnProperty.call(partial, 'creadoDesde') && Object.prototype.hasOwnProperty.call(partial, 'creadoHasta')) {
-            desde = partial.creadoDesde;
-            hasta = partial.creadoHasta;
-        } else if (fMes !== '') {
-            const r = creadoEnRangeForDashboardMesFilter(fMes);
-            desde = r.desde;
-            hasta = r.hasta;
+        if (Object.prototype.hasOwnProperty.call(partial, 'tipo')) setFTipo(partial.tipo || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'cliente')) setFCliente(partial.cliente || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'nombre')) setFNombre(partial.nombre || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'estado')) setFEstado(partial.estado || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'leadTimeBucket')) {
+            const b = String(partial.leadTimeBucket ?? '').trim();
+            setFLeadTimeBucket(b && /^[0-3]$/.test(b) ? b : '');
         }
-
-        setFTipo(nextTipo || '');
-        setFCliente(nextCliente || '');
-        setFNombre(nextNombre || '');
-        setFEstado(nextEstado || '');
-        setFCreadoDesde(desde);
-        setFCreadoHasta(hasta);
+        if (Object.prototype.hasOwnProperty.call(partial, 'creadoDesde')) setFCreadoDesde(partial.creadoDesde || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'creadoHasta')) setFCreadoHasta(partial.creadoHasta || '');
         setCurrentPage(1);
         setActiveTab('Gestión');
-    }, [fTipoInicio, fClienteInicio, fMes]);
+    }, []);
 
     const MS_DAY = 86400000;
+    /**
+     * Tiempo medio hasta la decisión: cruce entre `creadoEn` y la fecha en que la
+     * novedad fue **resuelta** (Aprobado → `aprobadoEn`; Rechazado → `rechazadoEn`).
+     * Se descartan: novedades pendientes y registros sin marca temporal de decisión.
+     * Anteriormente solo se contaban Aprobadas, lo que sub-representaba el indicador.
+     */
     const leadTimeStats = useMemo(() => {
         const deltas = [];
+        let aprobadas = 0;
+        let rechazadas = 0;
         for (const it of dashItems) {
-            if (String(it.estado || '') !== 'Aprobado') continue;
+            const estado = String(it.estado || '');
+            let decisionIso = '';
+            if (estado === 'Aprobado') decisionIso = it.aprobadoEn || '';
+            else if (estado === 'Rechazado') decisionIso = it.rechazadoEn || '';
+            else continue;
+            if (!it.creadoEn || !decisionIso) continue;
             const c0 = new Date(it.creadoEn);
-            const c1 = new Date(it.aprobadoEn);
+            const c1 = new Date(decisionIso);
             if (Number.isNaN(c0.getTime()) || Number.isNaN(c1.getTime())) continue;
             const ms = c1 - c0;
             if (ms <= 0) continue;
             deltas.push(ms);
+            if (estado === 'Aprobado') aprobadas += 1; else rechazadas += 1;
         }
         const n = deltas.length;
         const buckets = [
@@ -1082,7 +1192,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             else buckets[3].n += 1;
         }
         const avgMs = n > 0 ? deltas.reduce((a, b) => a + b, 0) / n : null;
-        return { n, avgMs, buckets };
+        return { n, avgMs, buckets, aprobadas, rechazadas };
     }, [dashItems]);
 
     // ── Gestión table filters ─────────────────────────────────────────────────
@@ -1092,16 +1202,21 @@ export default function Dashboard({ token, auth, onLogout }) {
         [horaExtraAlerts]
     );
 
+    const filteredAlertItems = useMemo(
+        () => applyClientSideFilters(alertItems, { ...moduleFilters, fNombre: '' }),
+        [alertItems, moduleFilters]
+    );
+
     /** Solo alertas por exceso de topes; la política de domingo no se muestra aquí (sigue en Excel). */
     const alertDisplayCards = useMemo(() => {
         const cards = [];
-        for (const it of alertItems) {
+        for (const it of filteredAlertItems) {
             const hasExcess = (Array.isArray(it.dailyReasons) && it.dailyReasons.length > 0)
                 || (Array.isArray(it.monthlyReasons) && it.monthlyReasons.length > 0);
             if (hasExcess) cards.push({ key: `excess-${it.id}`, it });
         }
         return cards;
-    }, [alertItems]);
+    }, [filteredAlertItems]);
 
     const alertasHeCount = alertDisplayCards.length;
     const alertasHeBadgeText = alertasHeCount > 99 ? '99+' : String(alertasHeCount);
@@ -1153,7 +1268,6 @@ export default function Dashboard({ token, auth, onLogout }) {
         const hf = normalizeHoraHePayload(it.horaFin);
         const startMs = toUtcMsFromDateAndTime(it.fechaInicio, hi);
         const endMs = toUtcMsFromDateAndTime(it.fechaFin, hf);
-        const dash = { diurna: [], nocturna: [] };
         if (startMs == null || endMs == null || endMs <= startMs) {
             return {
                 recargoDiurnaFranja: '—',
@@ -1162,8 +1276,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                 heNoctFranja: '—'
             };
         }
-        const recSegs = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs);
-        const heSegs = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs);
+        const recSegs = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs, gestionFestivosSet);
+        const heSegs = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs, gestionFestivosSet);
         return {
             recargoDiurnaFranja: formatHeSegmentListBogota(recSegs.diurna),
             recargoNoctFranja: formatHeSegmentListBogota(recSegs.nocturna),
@@ -1176,7 +1290,8 @@ export default function Dashboard({ token, auth, onLogout }) {
         gestionDetailItem?.fechaInicio,
         gestionDetailItem?.fechaFin,
         gestionDetailItem?.horaInicio,
-        gestionDetailItem?.horaFin
+        gestionDetailItem?.horaFin,
+        gestionFestivosSet
     ]);
 
     const totalPages = Math.max(1, Number(gestionPagination.totalPages || 1));
@@ -1185,14 +1300,14 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, pageSize]);
+    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket, pageSize]);
     useEffect(() => {
         if (currentPage > totalPages) {
             setCurrentPage(totalPages);
         }
     }, [currentPage, totalPages]);
 
-    const pendientesCount = items.filter(i => i.estado === 'Pendiente').length;
+    const pendientesCount = dashItems.filter(i => i.estado === 'Pendiente').length;
 
     // --- CALENDAR LOGIC ---
     const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
@@ -1232,10 +1347,10 @@ export default function Dashboard({ token, auth, onLogout }) {
         return dates;
     };
 
-    const calendarSourceItems = useMemo(() => {
-        if (!fClienteCalendario) return items;
-        return items.filter((it) => String(it.cliente || '').trim() === fClienteCalendario);
-    }, [items, fClienteCalendario]);
+    const calendarSourceItems = useMemo(
+        () => applyClientSideFilters(items, moduleFilters),
+        [items, moduleFilters]
+    );
 
     const itemsByDate = calendarSourceItems.reduce((acc, it) => {
         const startDate = it.fechaInicio || toIsoDate(it.creadoEn);
@@ -1266,6 +1381,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         if (t.includes('incapacidad')) return L ? 'border-rose-300 bg-rose-100 text-rose-900' : 'text-rose-400 bg-rose-500/20 border-rose-500/50';
         if (t.includes('vacacion')) return L ? 'border-amber-300 bg-amber-100 text-amber-900' : 'text-amber-400 bg-amber-500/20 border-amber-500/50';
         if (t.includes('permiso')) return L ? 'border-blue-300 bg-blue-100 text-blue-900' : 'text-blue-400 bg-blue-500/20 border-blue-500/50';
+        if (t.includes('votacion') || t.includes('votación') || t.includes('jurado')) return L ? 'border-cyan-300 bg-cyan-100 text-cyan-900' : 'text-cyan-400 bg-cyan-500/20 border-cyan-500/50';
         if (t.includes('extra')) return L ? 'border-emerald-300 bg-emerald-100 text-emerald-900' : 'text-emerald-400 bg-emerald-500/20 border-emerald-500/50';
         if (t.includes('licencia')) return L ? 'border-purple-300 bg-purple-100 text-purple-900' : 'text-purple-400 bg-purple-500/20 border-purple-500/50';
         return L ? 'border-slate-300 bg-slate-100 text-slate-700' : 'text-slate-400 bg-slate-400/20 border-slate-400/50';
@@ -1274,14 +1390,16 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     const exportExcel = async () => {
         try {
-            const params = {};
-            if (fTipo) params.tipo = fTipo;
-            if (fEstado) params.estado = fEstado;
-            if (fNombre) params.nombre = fNombre;
-            if (fCliente) params.cliente = fCliente;
-            if (fCreadoDesde) params.createdFrom = fCreadoDesde;
-            if (fCreadoHasta) params.createdTo = fCreadoHasta;
-            if (fGpUserId) params.gpUserId = fGpUserId;
+            const params = filtersToGestionParams({
+                fTipo,
+                fEstado,
+                fNombre,
+                fCliente,
+                fCreadoDesde,
+                fCreadoHasta,
+                fGpUserId,
+                fLeadTimeBucket
+            });
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades/export-excel?${query}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -1308,7 +1426,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         }
     };
 
-    const clearGestionFilters = () => {
+    const clearNovedadesFilters = () => {
         setFTipo('');
         setFEstado('');
         setFNombre('');
@@ -1316,6 +1434,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         setFCreadoDesde('');
         setFCreadoHasta('');
         setFGpUserId('');
+        setFLeadTimeBucket('');
         setCurrentPage(1);
     };
 
@@ -1330,40 +1449,33 @@ export default function Dashboard({ token, auth, onLogout }) {
         { id: 'Alertas HE', icon: Bell, label: 'Alertas HE' },
     ].filter((item) => canAccessPanel(tabPanelMap[item.id]));
 
+    /**
+     * Si `navItems` queda vacío un instante (p. ej. rol aún no resuelto tras hidratar sesión),
+     * no forzar cambio de pestaña: en dev con StrictMode eso mandaba al usuario fuera de «Dashboard general».
+     */
     useEffect(() => {
         const allowedTabs = navItems.map((n) => n.id);
+        if (allowedTabs.length === 0) return;
         if (!allowedTabs.includes(activeTab)) {
             setActiveTab(allowedTabs[0] || 'Calendario');
         }
     }, [activeTab, navItems]);
 
-    const superAdminGpSelect = isSuperAdminNovedades ? (
-        <div className="flex flex-wrap items-center gap-2">
-            <label htmlFor="dash-filtro-gp" className={`${dash.labelFilter} whitespace-nowrap`}>
-                Filtrar por GS
-            </label>
-            <select
-                id="dash-filtro-gp"
-                value={fGpUserId}
-                onChange={(e) => setFGpUserId(e.target.value)}
-                className={`${fieldInput} min-w-[10rem] max-w-[18rem] cursor-pointer py-1.5 text-sm`}
-                title="Clientes asignados a este usuario GP en el catálogo directorio"
-            >
-                <option value="">Todos los GP</option>
-                <option value="__null__">Cliente sin GP en catálogo</option>
-                {gpFilterOptions.map((g) => {
-                    const id = String(g.id || '');
-                    const label = labelGpDirectorioOption(g);
-                    return (
-                        <option key={id || label} value={id}>
-                            {label}
-                            {g.is_active === false ? ' (inactivo)' : ''}
-                        </option>
-                    );
-                })}
-            </select>
-        </div>
-    ) : null;
+    useEffect(() => {
+        setFiltersPanelOpen(false);
+    }, [activeTab]);
+
+    /** Tecla Escape cierra el drawer de filtros avanzados. */
+    useEffect(() => {
+        if (!filtersPanelOpen) return undefined;
+        const onKey = (e) => {
+            if (e.key === 'Escape' || e.key === 'Esc') {
+                setFiltersPanelOpen(false);
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [filtersPanelOpen]);
 
     return (
         <div className={shell}>
@@ -1371,7 +1483,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             {/* ───────── MOBILE SIDEBAR ───────── */}
             <button
                 onClick={() => setMobileMenuOpen(true)}
-                className={`md:hidden fixed top-16 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
+                className={`md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú"
             >
                 <Menu size={18} />
@@ -1383,7 +1495,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                 />
             )}
             <aside
-                className={`md:hidden fixed top-0 left-0 h-full w-72 z-50 shadow-2xl transform transition-transform duration-300 font-body ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col shadow-2xl transform font-body transition-transform duration-300 ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                     }`}
             >
                 <AdminModuleSidebarBrand
@@ -1407,7 +1519,15 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </button>
                     )}
                 />
-                <nav className="p-3 flex flex-col gap-2">
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
+                <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
                     <button
                         type="button"
                         onClick={() => {
@@ -1443,17 +1563,25 @@ export default function Dashboard({ token, auth, onLogout }) {
                         );
                     })}
                 </nav>
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`text-[10px] font-body font-black truncate ${email}`}>{currentEmail}</p>
-                    <p className="text-[10px] text-[#65BCF7] font-body font-semibold uppercase">{currentRoleLabel}</p>
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    chatCtx={{
+                        pendientesCount,
+                        totalItems: items.length,
+                        dashItems: dashItems.length,
+                        role: currentRole
+                    }}
+                />
             </aside>
 
             {/* ───────── SIDEBAR COLAPSABLE ───────── */}
             <aside
                 className={`
-                    flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 font-body
-                    transition-all duration-300 ease-in-out overflow-hidden
+                    relative z-10 hidden h-full flex-shrink-0 flex-col overflow-visible font-body shadow-2xl transition-all duration-300 ease-in-out md:flex
                     ${aside}
                     ${sidebarOpen ? 'w-64' : 'w-16'}
                 `}
@@ -1483,8 +1611,16 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
 
-                <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
+                <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
                     <button
                         type="button"
                         onClick={() => navigate('/admin')}
@@ -1538,127 +1674,91 @@ export default function Dashboard({ token, auth, onLogout }) {
                     })}
                 </nav>
 
-                <div className={`border-t ${borderSubtle} ${sidebarOpen ? 'p-4' : 'p-2'}`}>
-                    {sidebarOpen ? (
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center flex-shrink-0">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                                <div className="overflow-hidden">
-                                    <p className={`text-[10px] font-body font-black whitespace-nowrap leading-tight truncate ${email}`}>{currentEmail}</p>
-                                    <p className="text-[9px] text-[#65BCF7] font-body font-semibold whitespace-nowrap leading-tight">{currentRoleLabel}</p>
-                                </div>
-                            </div>
-                            <p className={`text-[9px] font-body font-bold uppercase tracking-widest text-center border-t pt-2 ${mt.isLight ? 'text-slate-400 border-slate-200' : 'text-slate-600 border-[#1a3a56]/50'}`}>
-                                Grupo CINTE · V2.0
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-2 py-1">
-                            <div className="flex justify-center" title={`${currentEmail} - ${currentRoleLabel}`}>
-                                <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    chatCtx={{
+                        pendientesCount,
+                        totalItems: items.length,
+                        dashItems: dashItems.length,
+                        role: currentRole
+                    }}
+                />
             </aside>
 
             {/* Main Content Area */}
-            <main className={`flex-1 overflow-y-auto p-4 pt-12 md:pt-6 md:p-6 relative scroll-smooth ${mainCanvas}`}>
+            <main className={`flex-1 overflow-y-auto p-4 pt-14 md:pt-6 md:p-6 relative scroll-smooth ${mainCanvas}`}>
 
                 {/* ---------- Dashboard general ---------- */}
                 {activeTab === 'DashboardGeneral' && canAccessPanel('dashboard') && (
-                    <div className="flex flex-col gap-5 animate-in fade-in duration-300 min-h-[calc(100vh-9.5rem)]">
+                    <div className={dash.novedadesTabShell}>
 
-                        {/* ── Filtros: período, cliente, tipo ── */}
-                        <div className={dash.filterBar}>
-
-                            <div className="flex flex-wrap items-center gap-3">
-                                <div className="flex items-center gap-2">
-                                    <Calendar size={16} className="text-blue-400" />
-                                    <span className={dash.labelUpper}>Filtros</span>
-                                </div>
-                                <div className={dash.divider} />
-
-                                {/* Mes */}
-                                <div className="flex items-center gap-2">
-                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Mes</label>
-                                    <select
-                                        value={fMes}
-                                        onChange={(e) => { setFMes(e.target.value); }}
-                                        className={`${fieldInput} cursor-pointer py-1.5 text-sm`}
-                                    >
-                                        <option value="">Todos los meses</option>
-                                        {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((m, i) => (
-                                            <option key={i} value={String(i)}>{m}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Cliente (alcance según rol; API acotada) */}
-                                <div className="flex items-center gap-2">
-                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Cliente</label>
-                                    <select
-                                        value={fClienteInicio}
-                                        onChange={(e) => setFClienteInicio(e.target.value)}
-                                        className={`${fieldInput} min-w-[10rem] max-w-[22rem] cursor-pointer py-1.5 text-sm`}
-                                    >
-                                        <option value="">Todos los clientes</option>
-                                        {dashboardClientesOptions.map((c) => (
-                                            <option key={c} value={c}>{c}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Tipo</label>
-                                    <select
-                                        value={fTipoInicio}
-                                        onChange={(e) => setFTipoInicio(e.target.value)}
-                                        className={`${fieldInput} min-w-[12rem] max-w-[20rem] cursor-pointer py-1.5 text-sm`}
-                                    >
-                                        <option value="">Todos los tipos</option>
-                                        {NOVEDAD_TYPES.map((tipo) => {
-                                            const n = items.filter((i) => i.tipoNovedad === tipo).length;
-                                            return (
-                                                <option key={tipo} value={tipo} title={`${n} en el total cargado`}>
-                                                    {tipo}{n > 0 ? ` (${n})` : ''}
-                                                </option>
-                                            );
-                                        })}
-                                    </select>
-                                </div>
-
-                                {superAdminGpSelect ? (
-                                    <>
-                                        <div className={dash.divider} />
-                                        {superAdminGpSelect}
-                                    </>
-                                ) : null}
-
-                                {/* Botón limpiar */}
-                                {(fMes !== '' || fClienteInicio !== '' || fTipoInicio !== '' || fGpUserId !== '') && (
-                                    <button
-                                        type="button"
-                                        onClick={() => { setFMes(''); setFClienteInicio(''); setFTipoInicio(''); setFGpUserId(''); }}
-                                        className={dash.clearBtn}
-                                    >
-                                        <X size={12} /> Limpiar filtros
-                                    </button>
-                                )}
-
-                                {/* Badge de resultados */}
-                                <div className="ml-auto flex items-center gap-2">
-                                    <span className={`text-xs ${dash.muted}`}>Mostrando</span>
-                                    <span className="text-sm font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
-                                        {dashItems.length} de {items.length} registros
-                                    </span>
-                                </div>
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            dash={dash}
+                        >
+                            <div className="ml-auto flex items-center gap-2">
+                                <span className={`text-xs ${dash.muted}`}>Mostrando</span>
+                                <span className="text-sm font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
+                                    {dashItems.length} de {items.length} registros
+                                </span>
                             </div>
-                        </div>
+                        </NovedadesFiltersToolbar>
+
+                        {(() => {
+                            const d = auth?.devDb;
+                            if (!d || typeof d.novedadesTotalEnTabla !== 'number') return null;
+                            const emptyDb = d.novedadesTotalEnTabla === 0;
+                            const gpSinAlcance =
+                                d.novedadesTotalEnTabla > 0 &&
+                                currentRole === 'gp' &&
+                                !listLoading &&
+                                items.length === 0;
+                            if (!emptyDb && !gpSinAlcance) return null;
+                            return (
+                                <div
+                                    className={`rounded-xl border px-4 py-3 text-sm ${
+                                        isLight
+                                            ? 'border-amber-300 bg-amber-50 text-amber-950'
+                                            : 'border-amber-500/40 bg-amber-950/30 text-amber-100'
+                                    }`}
+                                    role="status"
+                                >
+                                    {emptyDb ? (
+                                        <>
+                                            <span className="font-semibold">Entorno de desarrollo:</span> la tabla{' '}
+                                            <code className="rounded bg-black/10 px-1">novedades</code> tiene{' '}
+                                            <strong>0 filas</strong> en{' '}
+                                            <code className="rounded bg-black/10 px-1">{d.dbName || 'novedades_cinte'}</code>
+                                            {d.dbHost ? (
+                                                <>
+                                                    {' '}
+                                                    @ <code className="rounded bg-black/10 px-1">{d.dbHost}</code>
+                                                </>
+                                            ) : null}
+                                            . En producción el mismo código lee el PostgreSQL del servidor, donde sí hay
+                                            datos. Para ver novedades en local hace falta importar un respaldo o poblar la
+                                            base local.
+                                        </>
+                                    ) : null}
+                                    {gpSinAlcance ? (
+                                        <>
+                                            <span className="font-semibold">Alcance GP:</span> en esta base hay{' '}
+                                            {d.novedadesTotalEnTabla} registro(s) en{' '}
+                                            <code className="rounded bg-black/10 px-1">novedades</code>, pero con rol GP
+                                            solo ves clientes asignados en el directorio. Si no tienes clientes
+                                            asignados, el listado puede quedar en 0 aunque existan otras novedades en el
+                                            sistema.
+                                        </>
+                                    ) : null}
+                                </div>
+                            );
+                        })()}
 
                         {/* KPIs Row */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1669,7 +1769,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <p className={dash.kpiSub}>Total novedades</p>
                                         <h3 className={`${dash.title3xl} mt-1`}>{dashItems.length}</h3>
                                         {dashItems.length !== items.length && <p className="text-[10px] text-blue-400 mt-0.5">de {items.length} totales</p>}
-                                        <p className={`text-[10px] ${dash.muted} mt-1`}>Por mes (año en curso). Clic en una barra: abre Gestión con rango de creación de ese mes.</p>
+                                        <p className={`text-[10px] ${dash.muted} mt-1`}>Por mes de creación (año en curso). Clic en una barra: abre Gestión con rango de creación de ese mes.</p>
                                     </div>
                                     <div className="bg-blue-500/10 p-2.5 rounded-lg border border-blue-500/20">
                                         <Activity size={20} className="text-blue-500" />
@@ -1677,24 +1777,38 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </div>
                                 <div className="h-16 mt-3 -mx-1 opacity-90 group-hover:opacity-100 transition-opacity cursor-pointer">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={kpiBarMonthData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                                        <BarChart
+                                            data={kpiBarMonthData}
+                                            margin={{ top: 4, right: 4, left: 0, bottom: 0 }}
+                                        >
                                             <XAxis dataKey="mes" tick={{ fontSize: 8 }} interval={0} stroke="#64748b" axisLine={false} tickLine={false} />
                                             <Tooltip contentStyle={dash.chartTooltip} formatter={(v) => [v, 'Novedades']} />
+                                            {/**
+                                              * Recharts 3.x: el `onClick` en `<Bar>` o en `<BarChart>` dispara
+                                              * con el dataset COMPLETO de la serie (todas las barras), no con la
+                                              * barra clickeada. La forma confiable de filtrar por barra individual
+                                              * es poner el `onClick` en cada `<Cell>` y mantener el dataset chico.
+                                              */}
                                             <Bar
                                                 dataKey="count"
-                                                fill="#3b82f6"
                                                 radius={[2, 2, 0, 0]}
                                                 maxBarSize={18}
                                                 cursor="pointer"
-                                                onClick={(_entry, index) => {
-                                                    const row = kpiBarMonthData[index];
-                                                    if (row && typeof row.monthIndex === 'number') {
-                                                        const y = new Date().getFullYear();
-                                                        const r = creadoEnRangeForMonthIndex(row.monthIndex, y);
-                                                        navigateGestionWithDashboardFilters({ creadoDesde: r.desde, creadoHasta: r.hasta });
-                                                    }
-                                                }}
-                                            />
+                                                isAnimationActive={false}
+                                            >
+                                                {kpiBarMonthData.map((row) => (
+                                                    <Cell
+                                                        key={`kpi-mes-${row.monthIndex}`}
+                                                        fill="#3b82f6"
+                                                        cursor="pointer"
+                                                        onClick={() => {
+                                                            const y = new Date().getFullYear();
+                                                            const r = creadoEnRangeForMonthIndex(row.monthIndex, y);
+                                                            navigateGestionWithDashboardFilters({ creadoDesde: r.desde, creadoHasta: r.hasta });
+                                                        }}
+                                                    />
+                                                ))}
+                                            </Bar>
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -1706,14 +1820,14 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </div>
                                 <div className="flex justify-between items-start relative">
                                     <div className="min-w-0 pr-2">
-                                        <p className={dash.kpiSub}>Tiempo medio hasta aprobación</p>
+                                        <p className={dash.kpiSub}>Tiempo medio hasta decisión</p>
                                         <h3 className="mt-1 text-2xl sm:text-3xl font-bold text-sky-500 tabular-nums">
                                             {leadTimeStats.n > 0 ? formatDurationMs(leadTimeStats.avgMs) : '—'}
                                         </h3>
                                         <p className={`text-xs ${dash.muted} mt-1`}>
                                             {leadTimeStats.n > 0
-                                                ? 'Indicador calculado a partir del tiempo entre el registro de la novedad y su aprobación.'
-                                                : 'No hay suficientes registros aprobados para mostrar este indicador.'}
+                                                ? 'Tiempo entre la creación y la decisión (Aprobado o Rechazado).'
+                                                : 'No hay suficientes registros resueltos (Aprobado/Rechazado) para mostrar este indicador.'}
                                         </p>
                                     </div>
                                     <div className="bg-sky-500/10 p-2.5 rounded-lg border border-sky-500/20 flex-shrink-0">
@@ -1740,20 +1854,38 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     axisLine={false}
                                                     tickLine={false}
                                                 />
-                                                <Tooltip contentStyle={dash.chartTooltip} formatter={(v) => [v, 'Novedades']} />
+                                <Tooltip contentStyle={dash.chartTooltip} formatter={(v) => [v, 'Novedades']} />
+                                                {/**
+                                                  * Recharts 3.x: ver nota en KPI "Total novedades". Cell-level
+                                                  * onClick es la única forma confiable de filtrar por barra.
+                                                  */}
                                                 <Bar
                                                     dataKey="n"
-                                                    fill="#0ea5e9"
                                                     radius={[0, 4, 4, 0]}
                                                     barSize={14}
                                                     cursor="pointer"
-                                                    onClick={() => navigateGestionWithDashboardFilters({ estado: 'Aprobado' })}
-                                                />
+                                                    isAnimationActive={false}
+                                                >
+                                                    {leadTimeStats.buckets.map((b, bucketIndex) => (
+                                                        <Cell
+                                                            key={`leadtime-bucket-${b.name}`}
+                                                            fill="#0ea5e9"
+                                                            cursor="pointer"
+                                                            onClick={(e) => {
+                                                                e?.stopPropagation?.();
+                                                                navigateGestionWithDashboardFilters({
+                                                                    estado: '',
+                                                                    leadTimeBucket: String(bucketIndex)
+                                                                });
+                                                            }}
+                                                        />
+                                                    ))}
+                                                </Bar>
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </div>
                                 ) : (
-                                    <p className={`text-xs ${dash.muted} mt-3`}>Solo cuenta novedades en estado Aprobado con fechas válidas.</p>
+                                    <p className={`text-xs ${dash.muted} mt-3`}>Solo cuenta novedades resueltas (Aprobado/Rechazado) con fechas válidas.</p>
                                 )}
                             </div>
 
@@ -1836,7 +1968,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <p className={`text-xs ${dash.muted} -mt-4 mb-4`}>Clic en una barra para filtrar por tipo en Gestión.</p>
                                 <div className="h-72 w-full cursor-pointer">
                                     <ResponsiveContainer>
-                                        <BarChart data={typeDataSorted} layout="vertical" margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
+                                        <BarChart
+                                            data={typeDataSorted}
+                                            layout="vertical"
+                                            margin={{ top: 4, right: 8, bottom: 4, left: 8 }}
+                                        >
                                             <CartesianGrid strokeDasharray="3 3" stroke={dash.chGrid} opacity={0.3} horizontal={false} />
                                             <XAxis type="number" stroke="#64748b" fontSize={11} tickLine={false} axisLine={false} allowDecimals={false} />
                                             <YAxis
@@ -1854,18 +1990,27 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 contentStyle={dash.chartTooltipSm}
                                                 formatter={(value, name, props) => [value, props?.payload?.name || name]}
                                             />
+                                            {/**
+                                              * Recharts 3.x: ver nota en KPI "Total novedades". El `onClick` por
+                                              * barra individual debe vivir en cada `<Cell>` para que sólo se
+                                              * filtre el tipo específico que el usuario clickeó.
+                                              */}
                                             <Bar
                                                 dataKey="value"
                                                 radius={[0, 6, 6, 0]}
                                                 cursor="pointer"
-                                                onClick={(_entry, index) => {
-                                                    const row = typeDataSorted[index];
-                                                    const tipoNom = String(row?.name || '').trim();
-                                                    if (tipoNom) navigateGestionWithDashboardFilters({ tipo: tipoNom });
-                                                }}
+                                                isAnimationActive={false}
                                             >
                                                 {typeDataSorted.map((entry, index) => (
-                                                    <Cell key={`bar-tipologia-${entry.name}-${index}`} fill={COLORS[index % COLORS.length]} />
+                                                    <Cell
+                                                        key={`bar-tipologia-${entry.name}-${index}`}
+                                                        fill={COLORS[index % COLORS.length]}
+                                                        cursor="pointer"
+                                                        onClick={() => {
+                                                            const tipoNom = String(entry?.name || '').trim();
+                                                            if (tipoNom) navigateGestionWithDashboardFilters({ tipo: tipoNom });
+                                                        }}
+                                                    />
                                                 ))}
                                             </Bar>
                                         </BarChart>
@@ -1914,7 +2059,7 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                 {/* ---------- GESTIÓN ---------- */}
                 {activeTab === 'Gestión' && canAccessPanel('gestion') && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-2 flex flex-col h-[calc(100vh-8.5rem)] md:h-[calc(100vh-7.5rem)]">
+                    <div className={dash.novedadesTabShellFull}>
                         {/* Banner de error de acción */}
                         {stateError && (
                             <div
@@ -1935,55 +2080,33 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </button>
                             </div>
                         )}
-                        <div className={dash.cardFlex}>
-                            <div className={`sticky top-0 z-20 p-4 ${dash.gestionHead}`}>
-                                <h2 className={`${dash.titleXl} mb-4`}>Gestión Operativa de Novedades</h2>
-                                <div className="flex flex-wrap gap-3 items-center">
-                                    <select onChange={e => setFTipo(e.target.value)} value={fTipo} className={`${fieldInput} text-sm`}>
-                                        <option value="">Todos los tipos</option>
-                                        {Object.keys(typeDataMap).map(k => <option key={k} value={k}>{k}</option>)}
-                                    </select>
-                                    <select onChange={e => setFEstado(e.target.value)} value={fEstado} className={`${fieldInput} text-sm`}>
-                                        <option value="">Todos los estados</option>
-                                        <option value="Pendiente">Pendientes</option>
-                                        <option value="Aprobado">Aprobados</option>
-                                        <option value="Rechazado">Rechazados</option>
-                                    </select>
-                                    <input type="text" placeholder="Buscar por nombre..." value={fNombre} onChange={(e) => setFNombre(e.target.value)} className={`${fieldInput} min-w-[180px] text-sm`} />
-                                    <select onChange={(e) => setFCliente(e.target.value)} value={fCliente} className={`${fieldInput} min-w-[220px] text-sm`}>
-                                        <option value="">Todos los clientes</option>
-                                        {gestionClienteOptions.map((c) => (
-                                            <option key={c} value={c}>{c}</option>
-                                        ))}
-                                    </select>
-                                    {superAdminGpSelect}
-                                    <div className={dash.dateRangeWrap}>
-                                        <span className={dash.dateRangeLbl}>Rango de fechas</span>
-                                        <input type="date" value={fCreadoDesde} onChange={(e) => setFCreadoDesde(e.target.value)} className={`${fieldInput} px-2 py-1 text-sm`} />
-                                        <span className={`${dash.modalMuted} text-xs`}>a</span>
-                                        <input type="date" value={fCreadoHasta} onChange={(e) => setFCreadoHasta(e.target.value)} className={`${fieldInput} px-2 py-1 text-sm`} />
-                                    </div>
-                                    <select onChange={e => setPageSize(Number(e.target.value))} value={pageSize} className={`${fieldInput} text-sm`}>
-                                        <option value={10}>10 por página</option>
-                                        <option value={20}>20 por página</option>
-                                        <option value={50}>50 por página</option>
-                                    </select>
-                                    <button
-                                        type="button"
-                                        onClick={clearGestionFilters}
-                                        className={dash.borrarFiltros}
-                                    >
-                                        Borrar filtros
-                                    </button>
-
-                                    <div className="flex-1"></div>
-
-                                    <button onClick={exportExcel} className="bg-[#2F7BB8] hover:bg-[#004D87] text-white px-4 py-2 rounded-lg text-sm transition-all flex items-center gap-2 shadow-sm font-body font-medium">
-                                        <Download size={16} /> Exportar Reporte Excel
-                                    </button>
-                                </div>
-                            </div>
-
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            toggleId="gestion-filtros-avanzados-toggle"
+                            dash={dash}
+                        >
+                            <input
+                                type="search"
+                                enterKeyHint="search"
+                                placeholder="Buscar por nombre..."
+                                value={fNombre}
+                                onChange={(e) => setFNombre(e.target.value)}
+                                className={`${fieldInput} w-[min(100%,11rem)] max-w-[13rem] shrink-0 text-sm`}
+                            />
+                            <button
+                                type="button"
+                                onClick={exportExcel}
+                                className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[#2F7BB8] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#004D87] sm:px-4 font-body"
+                                aria-label="Exportar reporte Excel"
+                            >
+                                <Download size={16} aria-hidden />
+                                <span className="hidden sm:inline">Exportar Reporte Excel</span>
+                                <span className="sm:hidden">Exportar</span>
+                            </button>
+                        </NovedadesFiltersToolbar>
+                        <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                             <div className={dash.tableWrap}>
                                 <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
                                     <table className="w-full text-left border-collapse whitespace-nowrap min-w-[900px] md:min-w-full">
@@ -2002,7 +2125,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             </tr>
                                         </thead>
                                         <tbody className={dash.tbody}>
-                                            {loading ? (
+                                            {gestionLoading ? (
                                                 <tr><td colSpan="10" className={`p-12 text-center font-medium ${dash.muted}`}>Cargando base de datos...</td></tr>
                                             ) : sortedItems.length === 0 ? (
                                                 <tr><td colSpan="10" className={`p-12 text-center font-medium ${dash.muted}`}>No se encontraron registros.</td></tr>
@@ -2060,6 +2183,17 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                             Gestionada por alerta HE: {it.alertaHeResueltaEstado}
                                                                         </span>
                                                                     ) : null}
+                                                                    {it.estado === 'Rechazado' && String(it.observacionesRechazo || '').trim() ? (
+                                                                        <span
+                                                                            className={`${dash.tdMuted} block max-w-[200px] truncate text-[10px] !whitespace-normal`}
+                                                                            title={String(it.observacionesRechazo || '').trim()}
+                                                                        >
+                                                                            {(() => {
+                                                                                const t = String(it.observacionesRechazo || '').trim();
+                                                                                return t.length > 80 ? `${t.slice(0, 77)}…` : t;
+                                                                            })()}
+                                                                        </span>
+                                                                    ) : null}
                                                                 </div>
                                                             </td>
                                                             <td className={`${dash.tdCell} max-w-[240px] align-top text-xs !whitespace-normal`}>
@@ -2096,7 +2230,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         </tbody>
                                     </table>
                                 </div>
-                                {!loading && sortedItems.length > 0 && (
+                                {!gestionLoading && sortedItems.length > 0 && (
                                     <div className={dash.footerBar}>
                                         <span>Mostrando {pagedItems.length} de {gestionPagination.total || 0} registros</span>
                                         <div className="flex items-center gap-2">
@@ -2125,28 +2259,26 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                 {/* ---------- ALERTAS HE ---------- */}
                 {activeTab === 'Alertas HE' && canAccessPanel('gestion') && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-2 flex flex-col h-[calc(100vh-8.5rem)] md:h-[calc(100vh-7.5rem)]">
-                        <div className={dash.cardFlex}>
-                            <div className={`sticky top-0 z-20 p-4 ${dash.gestionHead}`}>
-                                <h2 className={dash.titleXl}>Alertas HE</h2>
-                                <p className={`mt-1 text-sm ${dash.muted}`}>
-                                    Tarjetas: {alertasHeCount}
-                                    {' · '}
-                                    Exceso de topes: {alertasHeExcesoCardCount}
-                                </p>
-                                {superAdminGpSelect ? (
-                                    <div className={`mt-3 flex flex-wrap items-center gap-2 border-t pt-3 ${isLight ? 'border-slate-200' : 'border-slate-700/50'}`}>
-                                        {superAdminGpSelect}
-                                    </div>
-                                ) : null}
-                            </div>
-                            <div className="flex-1 overflow-auto p-4">
-                                {alertDisplayCards.length === 0 ? (
-                                    <div className={dash.emptyHe}>
-                                        No hay alertas pendientes para el rango seleccionado.
-                                    </div>
-                                ) : (
-                                    <div className="grid grid-cols-1 gap-3">
+                    <div className={dash.novedadesTabShellFull}>
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            dash={dash}
+                        >
+                            <p className={`ml-auto text-sm ${dash.muted}`}>
+                                Tarjetas: {alertasHeCount}
+                                {' · '}
+                                Exceso de topes: {alertasHeExcesoCardCount}
+                            </p>
+                        </NovedadesFiltersToolbar>
+                        <div className="min-h-0 flex-1 overflow-auto">
+                            {alertDisplayCards.length === 0 ? (
+                                <div className={dash.emptyHe}>
+                                    No hay alertas pendientes para el rango seleccionado.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 gap-3">
                                         {alertDisplayCards.map(({ key, it }) => (
                                             <div
                                                 key={key}
@@ -2221,34 +2353,21 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         ))}
                                     </div>
                                 )}
-                            </div>
                         </div>
                     </div>
                 )}
 
                 {/* ---------- CALENDARIO INTERACTIVO ---------- */}
                 {activeTab === 'Calendario' && canAccessPanel('calendar') && (
-                    <div className={dash.calShell}>
-                        <div className={dash.calSticky}>
-                            <div>
-                                <h2 className={`${dash.titleXl} flex items-center gap-2`}>
-                                    <Calendar className="text-blue-500" size={22} /> Agenda Operativa
-                                </h2>
-                                <p className={`${dash.mutedSm} mt-1`}>Vista interactiva mensual de las novedades del talento</p>
-                            </div>
-                            <div className="flex flex-wrap items-center justify-end gap-3">
-                                <select
-                                    value={fClienteCalendario}
-                                    onChange={(e) => setFClienteCalendario(e.target.value)}
-                                    className={`${fieldInput} max-w-[220px] text-sm`}
-                                    aria-label="Filtrar por cliente"
-                                >
-                                    <option value="">Todos los clientes</option>
-                                    {calendarClientesList.map((c) => (
-                                        <option key={c} value={c}>{c}</option>
-                                    ))}
-                                </select>
-                                {superAdminGpSelect}
+                    <div className={`${dash.novedadesTabShell} pb-20`}>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <NovedadesFiltersToolbar
+                                chipLabel={novedadesFiltrosResumen.chipLabel}
+                                filtersPanelOpen={filtersPanelOpen}
+                                onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                                dash={dash}
+                            />
+                            <div className="flex flex-wrap items-center justify-end gap-3 shrink-0">
                                 <div className={dash.calSegOuter}>
                                     <button
                                         onClick={() => setCalendarView('monthly')}
@@ -2283,6 +2402,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                             </div>
                         </div>
 
+                        <div className={`${dash.card} flex min-h-[calc(100vh-14rem)] flex-1 flex-col overflow-hidden`}>
                         <div className="flex-1 overflow-auto p-6">
                             {calendarView === 'monthly' ? (
                                 <div className={dash.calGrid}>
@@ -2371,38 +2491,35 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-purple-500/20 border border-purple-500/50"></div> Licencia</div>
                             </div>
                         </div>
+                        </div>
                     </div>
                 )}
 
                 {/* ---------- ANÁLISIS AVANZADO ---------- */}
                 {activeTab === 'Análisis Avanzado' && canAccessPanel('dashboard') && (
-                    <div className="animate-in fade-in zoom-in-95 duration-300 pb-20 flex flex-col h-full gap-6">
-                        <div className={`${dash.card} p-6`}>
-                            <h2 className={`${dash.title2xl} mb-2 flex items-center gap-2`}>
-                                <TrendingUp className="text-purple-500" size={24} /> Inteligencia operativa (fase exploratoria)
-                            </h2>
-                            <p className={`text-sm ${dash.muted}`}>Modelos estadísticos descriptivos diseñados para futura integración con algoritmos de Machine Learning y predicción de anomalías.</p>
-                            {superAdminGpSelect ? (
-                                <div className={`mt-4 flex flex-wrap items-center gap-2 border-t pt-4 ${isLight ? 'border-slate-200' : 'border-slate-700/50'}`}>
-                                    {superAdminGpSelect}
-                                </div>
-                            ) : null}
-                        </div>
+                    <div className={`${dash.novedadesTabShell} pb-20`}>
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            dash={dash}
+                        />
 
-                        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                            {/* Mapa de Frecuencia (Por Día de la Semana) */}
+                        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                            {/* Mapa de Frecuencia (Por Día de la Semana de creación) */}
                             <div className={`${dash.card} p-6`}>
                                 <h3 className={`${dash.titleXl} mb-1`}>Mapa de Frecuencia (Días de la Semana)</h3>
                                 <p className={`mb-5 text-xs ${dash.muted}`}>
-                                    Distribución de novedades según el día de inicio. Barras más oscuras indican mayor concentración — útil para detectar patrones de ausentismo recurrente.
+                                    Distribución de novedades según el día de la semana en que se **registraron**. Barras más oscuras indican mayor concentración — útil para detectar patrones recurrentes de radicación.
                                 </p>
                                 <div className="h-64 w-full">
                                     <ResponsiveContainer>
                                         <BarChart data={(() => {
                                             const daysInfo = { 0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb' };
                                             const heatMap = { Dom: 0, Lun: 0, Mar: 0, Mié: 0, Jue: 0, Vie: 0, Sáb: 0 };
-                                            items.forEach(it => {
-                                                const d = it.fechaInicio ? new Date(it.fechaInicio) : new Date(it.creadoEn);
+                                            dashItems.forEach(it => {
+                                                if (!it?.creadoEn) return;
+                                                const d = new Date(it.creadoEn);
                                                 if (!isNaN(d.getTime())) {
                                                     heatMap[daysInfo[d.getDay()]] += 1;
                                                 }
@@ -2417,7 +2534,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 content={({ active, payload }) => {
                                                     if (!active || !payload?.length) return null;
                                                     const { name, count } = payload[0].payload;
-                                                    const total = items.length || 1;
+                                                    const total = dashItems.length || 1;
                                                     const pct = ((count / total) * 100).toFixed(1);
                                                     const isWeekend = name === 'Dom' || name === 'Sáb';
                                                     const label = count === 0 ? 'Sin actividad' : isWeekend ? 'Día no hábil — verificar horas extra' : count >= 5 ? 'Concentración alta — revisar patrón' : 'Actividad normal';
@@ -2435,8 +2552,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     const data = (() => {
                                                         const daysInfo = { 0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb' };
                                                         const heatMap = { Dom: 0, Lun: 0, Mar: 0, Mié: 0, Jue: 0, Vie: 0, Sáb: 0 };
-                                                        items.forEach(it => {
-                                                            const d = it.fechaInicio ? new Date(it.fechaInicio) : new Date(it.creadoEn);
+                                                        dashItems.forEach(it => {
+                                                            if (!it?.creadoEn) return;
+                                                            const d = new Date(it.creadoEn);
                                                             if (!isNaN(d.getTime())) heatMap[daysInfo[d.getDay()]] += 1;
                                                         });
                                                         return Object.keys(heatMap).map(k => ({ name: k, count: heatMap[k] }));
@@ -2466,13 +2584,20 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <div className="space-y-3 overflow-y-auto max-h-[240px] pr-1">
                                     {(() => {
                                         const riesgoMap = {};
-                                        items.forEach(it => {
+                                        dashItems.forEach(it => {
                                             if (!riesgoMap[it.nombre]) riesgoMap[it.nombre] = { puntos: 0, sumHoras: 0, sumDias: 0, novedades: 0 };
-                                            const kind = getCantidadMedidaKind(it.tipoNovedad);
+                                            const kind = getCantidadMedidaKind(it.tipoNovedad, it);
                                             const v = Number(it.cantidadHoras) || 0;
                                             if (kind === 'hours') riesgoMap[it.nombre].sumHoras += v;
                                             else if (kind === 'days') {
-                                                riesgoMap[it.nombre].sumDias += getDiasEfectivosNovedad(it.tipoNovedad, it.cantidadHoras, it.fechaInicio, it.fechaFin);
+                                                riesgoMap[it.nombre].sumDias += getDiasEfectivosNovedad(
+                                                    it.tipoNovedad,
+                                                    it.cantidadHoras,
+                                                    it.fechaInicio,
+                                                    it.fechaFin,
+                                                    new Set(),
+                                                    it
+                                                );
                                             }
                                             riesgoMap[it.nombre].novedades += 1;
                                             const tipoNorm = String(it.tipoNovedad || '').toLowerCase();
@@ -2547,11 +2672,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <ResponsiveContainer>
                                         <BarChart
                                             data={(() => {
-                                                const pend = items.filter(i => i.estado === 'Pendiente').length;
+                                                const pend = dashItems.filter(i => i.estado === 'Pendiente').length;
                                                 return [
-                                                    { name: 'Total Radicados', count: items.length, fill: '#3b82f6' },
+                                                    { name: 'Total Radicados', count: dashItems.length, fill: '#3b82f6' },
                                                     { name: 'Esperando Acción', count: pend, fill: '#f59e0b' },
-                                                    { name: 'Decisión Cerrada', count: items.length - pend, fill: '#10b981' },
+                                                    { name: 'Decisión Cerrada', count: dashItems.length - pend, fill: '#10b981' },
                                                 ];
                                             })()}
                                             layout="vertical"
@@ -2564,7 +2689,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 content={({ active, payload }) => {
                                                     if (!active || !payload?.length) return null;
                                                     const { name, count } = payload[0].payload;
-                                                    const total = items.length || 1;
+                                                    const total = dashItems.length || 1;
                                                     const pct = ((count / total) * 100).toFixed(1);
                                                     const tip = name === 'Total Radicados'
                                                         ? 'Todos los registros ingresados al sistema'
@@ -2596,18 +2721,28 @@ export default function Dashboard({ token, auth, onLogout }) {
                     </div>
                 )}
 
+                {NOVEDADES_FILTER_TABS.has(activeTab) && (
+                    <NovedadesFiltersDrawer
+                        open={filtersPanelOpen}
+                        onClose={() => setFiltersPanelOpen(false)}
+                        onClear={clearNovedadesFilters}
+                        filters={moduleFilters}
+                        onChange={handleNovedadesFilterChange}
+                        dash={dash}
+                        fieldInputClassName={fieldInput}
+                        showPageSize={activeTab === 'Gestión'}
+                        showMesShortcut={activeTab === 'DashboardGeneral' || activeTab === 'Análisis Avanzado'}
+                        pageSize={pageSize}
+                        onPageSizeChange={setPageSize}
+                        tipoOptions={tipoFilterOptions}
+                        clienteOptions={gestionClienteOptions}
+                        gpFilterOptions={gpFilterOptions}
+                        isSuperAdminNovedades={isSuperAdminNovedades}
+                        labelGpOption={labelGpDirectorioOption}
+                    />
+                )}
 
             </main>
-
-            {/* Chat widget — fuera del main para que sea fixed global */}
-            <ChatWidget
-                ctx={{
-                    pendientesCount,
-                    totalItems: items.length,
-                    dashItems: dashItems.length,
-                    role: currentRole,
-                }}
-            />
 
             {gestionDetailItem && (
                 <div className={dash.modalBackdrop} onClick={closeGestionDetailModal}>
@@ -2695,128 +2830,67 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <div><span className={dash.modalMuted}>Líder:</span> {gestionDetailItem.lider || '-'}</div>
                             <div><span className={dash.modalMuted}>Estado:</span> {gestionDetailItem.estado}</div>
                             <div><span className={dash.modalMuted}>Asignado a (roles):</span> {asignacionEtiquetaForItem(gestionDetailItem)}</div>
-                            {isNominaGateTipoDisplay(gestionDetailItem.tipoNovedad) ? (
-                                <div
-                                    className={
-                                        isLight
-                                            ? 'md:col-span-2 rounded-xl border border-sky-200 bg-sky-50/95 p-4 text-sm text-slate-900'
-                                            : 'md:col-span-2 rounded-xl border border-sky-500/35 bg-sky-950/35 p-4 text-sm text-slate-100'
-                                    }
-                                >
-                                    <p
-                                        className={
-                                            isLight
-                                                ? 'mb-2 font-heading text-sm font-bold text-[#004D87]'
-                                                : 'mb-2 font-heading text-sm font-bold text-sky-200'
-                                        }
-                                    >
-                                        Verificación nómina
-                                    </p>
-                                    {gestionDetailItem.nominaInfoCorrecta === true
-                                    || gestionDetailItem.nominaInfoCorrecta === false ? (
-                                        <>
-                                            <p>
-                                                <span className={dash.modalMuted}>Información:</span>{' '}
-                                                {gestionDetailItem.nominaInfoCorrecta ? 'Correcta' : 'Incorrecta'}
-                                            </p>
-                                            <p className={`mt-2 whitespace-pre-wrap ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                                                <span className={dash.modalMuted}>Observación:</span>{' '}
-                                                {gestionDetailItem.nominaVerificacionObservacion || '—'}
-                                            </p>
-                                            {gestionDetailItem.nominaVerificacionEn ? (
-                                                <p className={`mt-2 text-xs ${dash.modalMuted}`}>
-                                                    Registrado:{' '}
-                                                    {new Date(gestionDetailItem.nominaVerificacionEn).toLocaleString('es-CO')}
-                                                    {gestionDetailItem.nominaVerificacionPorEmail
-                                                        ? ` · ${gestionDetailItem.nominaVerificacionPorEmail}`
-                                                        : ''}
-                                                </p>
-                                            ) : null}
-                                        </>
-                                    ) : currentRole === 'nomina' && gestionDetailItem.estado === 'Pendiente' ? (
-                                        <>
-                                            {nominaVerifyErr ? (
-                                                <p
-                                                    className={
-                                                        isLight
-                                                            ? 'mb-2 rounded border border-rose-200 bg-rose-50 px-2 py-1.5 text-sm text-rose-900'
-                                                            : 'mb-2 rounded border border-rose-500/40 bg-rose-950/40 px-2 py-1.5 text-sm text-rose-100'
-                                                    }
-                                                >
-                                                    {nominaVerifyErr}
-                                                </p>
-                                            ) : null}
-                                            <fieldset className="space-y-2">
-                                                <legend className="sr-only">Estado de la información</legend>
-                                                <label
-                                                    className={`flex cursor-pointer items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}
-                                                >
-                                                    <input
-                                                        type="radio"
-                                                        name="nomina-info-correcta"
-                                                        checked={nominaRadio === 'ok'}
-                                                        onChange={() => setNominaRadio('ok')}
-                                                    />
-                                                    Información correcta
-                                                </label>
-                                                <label
-                                                    className={`flex cursor-pointer items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}
-                                                >
-                                                    <input
-                                                        type="radio"
-                                                        name="nomina-info-correcta"
-                                                        checked={nominaRadio === 'bad'}
-                                                        onChange={() => setNominaRadio('bad')}
-                                                    />
-                                                    Información incorrecta
-                                                </label>
-                                            </fieldset>
-                                            <label className={`mt-3 block ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                                                <span className={dash.modalMuted}>Observación (obligatoria)</span>
-                                                <textarea
-                                                    value={nominaObs}
-                                                    onChange={(e) => setNominaObs(e.target.value)}
-                                                    rows={4}
-                                                    maxLength={2000}
-                                                    className={
-                                                        isLight
-                                                            ? 'mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900'
-                                                            : 'mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100'
-                                                    }
-                                                    placeholder="Describe el detalle de la verificación…"
-                                                />
-                                            </label>
-                                            <button
-                                                type="button"
-                                                disabled={nominaVerifyBusy}
-                                                onClick={() => void submitNominaVerification()}
-                                                className={
-                                                    isLight
-                                                        ? 'mt-3 inline-flex rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#25649a] disabled:opacity-50'
-                                                        : 'mt-3 inline-flex rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:opacity-50'
-                                                }
-                                            >
-                                                {nominaVerifyBusy ? 'Guardando…' : 'Registrar verificación'}
-                                            </button>
-                                        </>
-                                    ) : gestionDetailItem.estado === 'Pendiente' ? (
-                                        <p className={`text-sm ${dash.modalMuted}`}>
-                                            Pendiente de verificación por nómina. Luego podrá aprobar o rechazar el rol Admin
-                                            Capital Humano (o Super Admin).
-                                        </p>
-                                    ) : null}
-                                </div>
-                            ) : null}
                             {gestionDetailItem.estado === 'Aprobado' && (
                                 <div><span className={dash.modalMuted}>Aprobado por (correo):</span> {correoAprobadoMostrar(gestionDetailItem)}</div>
                             )}
                             {gestionDetailItem.estado === 'Rechazado' && (
                                 <div><span className={dash.modalMuted}>Rechazado por (correo):</span> {correoRechazadoMostrar(gestionDetailItem)}</div>
                             )}
-                            <div><span className={dash.modalMuted}>Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
-                            <div><span className={dash.modalMuted}>Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
+                            {esTipoCompensatorioVotacionJurado(gestionDetailItem.tipoNovedad) ? (
+                                <>
+                                    {gestionDetailItem.modalidad ? (
+                                        <div><span className={dash.modalMuted}>Modalidad (votación/jurado):</span> {gestionDetailItem.modalidad}</div>
+                                    ) : null}
+                                    {gestionDetailItem.fechaVotacion ? (
+                                        <>
+                                            <div><span className={dash.modalMuted}>Fecha de votación:</span> {gestionDetailItem.fechaVotacion}</div>
+                                            <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaVotacion} festivosSet={gestionFestivosSet} />
+                                        </>
+                                    ) : null}
+                                    <div><span className={dash.modalMuted}>Fecha de disfrute:</span> {gestionDetailItem.fechaInicio || '-'}</div>
+                                    {gestionDetailItem.fechaInicio && gestionDetailItem.fechaInicio !== gestionDetailItem.fechaVotacion ? (
+                                        <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
+                                    ) : null}
+                                    {String(gestionDetailItem.modalidad || '').trim() === 'solo_voto' &&
+                                    (gestionDetailItem.horaInicio || gestionDetailItem.horaFin) ? (
+                                        <div>
+                                            <span className={dash.modalMuted}>Franja horaria de disfrute:</span>{' '}
+                                            {gestionDetailItem.horaInicio || '—'} – {gestionDetailItem.horaFin || '—'}
+                                        </div>
+                                    ) : null}
+                                </>
+                            ) : (
+                                <>
+                                    <div><span className={dash.modalMuted}>Fecha inicio:</span> {gestionDetailItem.fechaInicio || '-'}</div>
+                                    <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
+                                    <div><span className={dash.modalMuted}>Fecha fin:</span> {gestionDetailItem.fechaFin || '-'}</div>
+                                    {gestionDetailItem.fechaFin && gestionDetailItem.fechaFin !== gestionDetailItem.fechaInicio ? (
+                                        <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
+                                    ) : null}
+                                    {gestionDetailItem.modalidad ? (
+                                        <div><span className={dash.modalMuted}>Modalidad (votación/jurado):</span> {gestionDetailItem.modalidad}</div>
+                                    ) : null}
+                                    {gestionDetailItem.fechaVotacion ? (
+                                        <>
+                                            <div><span className={dash.modalMuted}>Fecha de votación / actuación:</span> {gestionDetailItem.fechaVotacion}</div>
+                                            {gestionDetailItem.fechaVotacion !== gestionDetailItem.fechaInicio && gestionDetailItem.fechaVotacion !== gestionDetailItem.fechaFin ? (
+                                                <GestionCalendarioCivilNotas ymd={gestionDetailItem.fechaVotacion} festivosSet={gestionFestivosSet} />
+                                            ) : null}
+                                        </>
+                                    ) : null}
+                                </>
+                            )}
+                            {gestionDetailItem.unidad ? (
+                                <div>
+                                    <span className={dash.modalMuted}>Unidad:</span>{' '}
+                                    {gestionDetailItem.unidad === 'horas' ? 'Horas' : gestionDetailItem.unidad === 'dias' ? 'Días' : gestionDetailItem.unidad}
+                                </div>
+                            ) : null}
                             {resolveCanonicalNovedadTipo(gestionDetailItem.tipoNovedad) !== 'Hora Extra' && (
-                                <div><span className={dash.modalMuted}>{getCantidadDetalleEtiqueta(gestionDetailItem.tipoNovedad)}:</span> {formatCantidadNovedad(gestionDetailItem.tipoNovedad, gestionDetailItem.cantidadHoras, gestionDetailItem)}</div>
+                                <div>
+                                    <span className={dash.modalMuted}>{getCantidadDetalleEtiqueta(gestionDetailItem.tipoNovedad, gestionDetailItem)}:</span>{' '}
+                                    {formatCantidadNovedad(gestionDetailItem.tipoNovedad, gestionDetailItem.cantidadHoras, gestionDetailItem)}
+                                </div>
                             )}
                             {gestionDetailItem.alertaHeResueltaEstado ? (
                                 <div
@@ -2842,6 +2916,37 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         }
                                     >
                                         <span className="font-semibold">Compensación dominical:</span> {heDomingoCompResumen}
+                                    </div>
+                                ) : null;
+                            })()}
+
+                            {(() => {
+                                const observacionesTexto = String(gestionDetailItem.observaciones || '').trim();
+                                return observacionesTexto ? (
+                                    <div
+                                        className={
+                                            isLight
+                                                ? 'md:col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800'
+                                                : 'md:col-span-2 rounded-lg border border-sky-500/35 bg-slate-900/60 px-3 py-2 text-sm text-slate-100'
+                                        }
+                                    >
+                                        <span className="font-semibold">Observaciones (consultor):</span>{' '}
+                                        <span className="whitespace-pre-wrap break-words">{observacionesTexto}</span>
+                                    </div>
+                                ) : null;
+                            })()}
+                            {gestionDetailItem.estado === 'Rechazado' && (() => {
+                                const rechazoTexto = String(gestionDetailItem.observacionesRechazo || '').trim();
+                                return rechazoTexto ? (
+                                    <div
+                                        className={
+                                            isLight
+                                                ? 'md:col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950'
+                                                : 'md:col-span-2 rounded-lg border border-rose-500/35 bg-rose-950/25 px-3 py-2 text-sm text-rose-100'
+                                        }
+                                    >
+                                        <span className="font-semibold">Observación de rechazo:</span>{' '}
+                                        <span className="whitespace-pre-wrap break-words">{rechazoTexto}</span>
                                     </div>
                                 ) : null;
                             })()}
@@ -3106,7 +3211,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     </select>
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Fecha (HE)
-                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fecha} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fecha: e.target.value }))} />
+                                    <input {...nativeCalendarOnlyInputProps} className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fecha} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fecha: e.target.value }))} />
+                                    <GestionCalendarioCivilNotas ymd={gestionEditDraft.fecha} festivosSet={gestionFestivosSet} />
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Hora inicio / fin (HE)
                                     <div className="mt-1 flex gap-2">
@@ -3114,11 +3220,29 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <input className={`flex-1 ${fieldInput}`} type="time" value={gestionEditDraft.horaFin} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horaFin: e.target.value }))} />
                                     </div>
                                 </label>
-                                <label className={`${dash.labelUpper} col-span-full`}>Fecha inicio
-                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaInicio} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaInicio: e.target.value }))} />
+                                <label className={`${dash.labelUpper} col-span-full`}>
+                                    {esTipoCompensatorioVotacionJurado(gestionEditDraft.tipoNovedad) ? 'Fecha de disfrute (inicio)' : 'Fecha inicio'}
+                                    <input {...nativeCalendarOnlyInputProps} className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaInicio} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaInicio: e.target.value }))} />
+                                    <GestionCalendarioCivilNotas ymd={gestionEditDraft.fechaInicio} festivosSet={gestionFestivosSet} />
                                 </label>
-                                <label className={`${dash.labelUpper} col-span-full`}>Fecha fin
-                                    <input className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaFin} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaFin: e.target.value }))} />
+                                <label className={`${dash.labelUpper} col-span-full`}>
+                                    {esTipoCompensatorioVotacionJurado(gestionEditDraft.tipoNovedad) ? 'Fecha de disfrute (fin)' : 'Fecha fin'}
+                                    <input {...nativeCalendarOnlyInputProps} className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaFin} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaFin: e.target.value }))} />
+                                    <GestionCalendarioCivilNotas ymd={gestionEditDraft.fechaFin} festivosSet={gestionFestivosSet} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Modalidad (votación/jurado)
+                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.modalidad || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, modalidad: e.target.value }))} placeholder="solo_jurado | solo_voto" />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Fecha votación / actuación
+                                    <input {...nativeCalendarOnlyInputProps} className={`mt-1 w-full ${fieldInput}`} type="date" value={gestionEditDraft.fechaVotacion || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, fechaVotacion: e.target.value }))} />
+                                    <GestionCalendarioCivilNotas ymd={gestionEditDraft.fechaVotacion} festivosSet={gestionFestivosSet} />
+                                </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Unidad
+                                    <select className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.unidad || ''} onChange={(e) => setGestionEditDraft((d) => ({ ...d, unidad: e.target.value }))}>
+                                        <option value="">(sin especificar)</option>
+                                        <option value="dias">días</option>
+                                        <option value="horas">horas</option>
+                                    </select>
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Cantidad / horas total
                                     <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.cantidadHoras} onChange={(e) => setGestionEditDraft((d) => ({ ...d, cantidadHoras: e.target.value }))} />
@@ -3147,6 +3271,14 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <label className={`${dash.labelUpper} col-span-full`}>Compensación HE (observación)
                                     <textarea className={`mt-1 min-h-[72px] w-full ${fieldInput}`} value={gestionEditDraft.heDomingoObservacion} onChange={(e) => setGestionEditDraft((d) => ({ ...d, heDomingoObservacion: e.target.value }))} />
                                 </label>
+                                <label className={`${dash.labelUpper} col-span-full`}>Observaciones
+                                    <textarea
+                                        className={`mt-1 min-h-[72px] w-full ${fieldInput}`}
+                                        maxLength={1000}
+                                        value={gestionEditDraft.observaciones}
+                                        onChange={(e) => setGestionEditDraft((d) => ({ ...d, observaciones: e.target.value }))}
+                                    />
+                                </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Soporte(s) — ruta o JSON
                                     <textarea className={`mt-1 min-h-[56px] w-full font-mono text-xs ${fieldInput}`} value={gestionEditDraft.soporteRuta} onChange={(e) => setGestionEditDraft((d) => ({ ...d, soporteRuta: e.target.value }))} />
                                 </label>
@@ -3155,21 +3287,21 @@ export default function Dashboard({ token, auth, onLogout }) {
                         )}
 
                         {!gestionEditMode ? (
-                        <div className={isLight ? 'mt-5 border-t border-slate-200 pt-4' : 'mt-5 border-t border-slate-700/50 pt-4'}>
+                        <div className={isLight ? 'mt-5 min-w-0 border-t border-slate-200 pt-4' : 'mt-5 min-w-0 border-t border-slate-700/50 pt-4'}>
                             <h3 className={isLight ? 'mb-3 text-sm font-bold uppercase tracking-wider text-slate-600' : 'mb-3 text-sm font-bold uppercase tracking-wider text-slate-400'}>
                                 Soportes
                             </h3>
                             {buildSupportList(gestionDetailItem).length === 0 ? (
                                 <p className={isLight ? 'text-sm text-slate-600' : 'text-sm text-slate-500'}>Sin soportes adjuntos.</p>
                             ) : (
-                                <div className="flex flex-wrap gap-2">
+                                <div className="flex min-w-0 flex-col gap-2">
                                     {buildSupportList(gestionDetailItem).map((support) => (
                                         <div
                                             key={support.id}
                                             className={
                                                 isLight
-                                                    ? 'inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 shadow-sm transition-all hover:border-sky-300 hover:bg-sky-50/80'
-                                                    : 'inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs transition-all hover:border-blue-500/50'
+                                                    ? 'flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-800 shadow-sm transition-all hover:border-sky-300 hover:bg-sky-50/80'
+                                                    : 'flex w-full min-w-0 max-w-full flex-wrap items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs transition-all hover:border-blue-500/50'
                                             }
                                         >
                                             <button
@@ -3177,23 +3309,27 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 onClick={() => openSupport(gestionDetailItem, support)}
                                                 className={
                                                     isLight
-                                                        ? 'inline-flex items-center gap-2 rounded-lg border-none bg-transparent px-0 py-0 text-slate-800 hover:text-sky-800'
-                                                        : 'inline-flex items-center gap-2 rounded-lg border-none bg-transparent px-0 py-0 hover:text-blue-300'
+                                                        ? 'flex min-w-0 flex-1 items-start gap-2 rounded-lg border-none bg-transparent px-0 py-0 text-left text-slate-800 hover:text-sky-800 sm:items-center'
+                                                        : 'flex min-w-0 flex-1 items-start gap-2 rounded-lg border-none bg-transparent px-0 py-0 text-left hover:text-blue-300 sm:items-center'
                                                 }
                                             >
-                                                {support.type === 'pdf' && <FileText size={14} />}
-                                                {support.type === 'image' && <FileImage size={14} />}
-                                                {support.type === 'excel' && <FileSpreadsheet size={14} />}
-                                                {support.type === 'other' && <Eye size={14} />}
-                                                <span className="whitespace-nowrap">Visualizar: {support.name}</span>
+                                                <span className="mt-0.5 shrink-0 sm:mt-0">
+                                                    {support.type === 'pdf' && <FileText size={14} />}
+                                                    {support.type === 'image' && <FileImage size={14} />}
+                                                    {support.type === 'excel' && <FileSpreadsheet size={14} />}
+                                                    {support.type === 'other' && <Eye size={14} />}
+                                                </span>
+                                                <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
+                                                    Visualizar: {support.name}
+                                                </span>
                                             </button>
                                             <button
                                                 type="button"
                                                 onClick={() => downloadSupport(support)}
                                                 className={
                                                     isLight
-                                                        ? 'rounded-lg border border-sky-300 bg-white px-2 py-1 text-sky-800 transition-all hover:border-sky-500 hover:bg-sky-100'
-                                                        : 'rounded-lg border border-blue-500/30 px-2 py-1 text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10'
+                                                        ? 'shrink-0 rounded-lg border border-sky-300 bg-white px-2 py-1 text-sky-800 transition-all hover:border-sky-500 hover:bg-sky-100'
+                                                        : 'shrink-0 rounded-lg border border-blue-500/30 px-2 py-1 text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10'
                                                 }
                                             >
                                                 Descargar
@@ -3203,6 +3339,55 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </div>
                             )}
                         </div>
+                        ) : null}
+
+                        {!gestionEditMode
+                            && canApproveItem(gestionDetailItem)
+                            && esTipoDisponibilidadConMontoDiligenciado(gestionDetailItem) ? (
+                            <div
+                                className={
+                                    isLight
+                                        ? 'mt-4 flex flex-col gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4'
+                                        : 'mt-4 flex flex-col gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4'
+                                }
+                            >
+                                <label htmlFor="gestion-disp-monto" className={`${dash.modalMuted} text-sm font-semibold`}>
+                                    Valor de disponibilidad (COP) <span className={isLight ? 'text-rose-700' : 'text-rose-300'}>*</span>
+                                </label>
+                                <input
+                                    id="gestion-disp-monto"
+                                    type="text"
+                                    inputMode="decimal"
+                                    aria-required="true"
+                                    aria-invalid={Boolean(gestionDispMontoError)}
+                                    value={gestionDispMontoInput}
+                                    onChange={(e) => {
+                                        setGestionDispMontoError('');
+                                        setGestionDispMontoInput(e.target.value);
+                                    }}
+                                    onBlur={() => {
+                                        const n = parseMontoCOPInput(gestionDispMontoInput);
+                                        if (n == null || !Number.isFinite(n) || n <= 0) {
+                                            return;
+                                        }
+                                        setGestionDispMontoInput(formatMontoCOPLocale(n));
+                                    }}
+                                    placeholder="$ 1.500.000"
+                                    className={
+                                        isLight
+                                            ? 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500'
+                                            : 'rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400'
+                                    }
+                                />
+                                <small className={dash.modalMuted}>
+                                    El valor en pesos lo diligencia el GP antes de Aceptar o Rechazar. Miles con punto, decimales con coma (ej. $ 1.500.000).
+                                </small>
+                                {gestionDispMontoError ? (
+                                    <div role="alert" className={isLight ? 'text-xs font-semibold text-rose-700' : 'text-xs font-semibold text-rose-300'}>
+                                        {gestionDispMontoError}
+                                    </div>
+                                ) : null}
+                            </div>
                         ) : null}
 
                         <div className={dash.modalFooter}>
@@ -3221,32 +3406,74 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     {gestionAdminBusy ? 'Guardando…' : 'Guardar cambios'}
                                 </button>
                             ) : null}
-                            {!gestionEditMode && canApproveItem(gestionDetailItem) && (
-                                <>
-                                    <button
-                                        type="button"
-                                        onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Rechazado'); closeGestionDetailModal(); }}
-                                        className={
-                                            isLight
-                                                ? 'rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 transition-all hover:bg-rose-50'
-                                                : 'rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-400 transition-all hover:bg-rose-500/10'
+                            {!gestionEditMode && canApproveItem(gestionDetailItem) && (() => {
+                                const aplicaDisp = esTipoDisponibilidadConMontoDiligenciado(gestionDetailItem);
+                                const montoNumber = aplicaDisp ? parseMontoCOPInput(gestionDispMontoInput) : null;
+                                const montoValido = aplicaDisp
+                                    ? (montoNumber != null && Number.isFinite(montoNumber) && montoNumber > 0)
+                                    : true;
+                                const decisionDisabled = aplicaDisp && !montoValido;
+                                /**
+                                 * Reusable: en Disponibilidad, validamos input antes de despachar
+                                 * y, si está OK, enviamos `montoCop` junto al cambio de estado.
+                                 */
+                                const dispatchDecision = async (estadoFinal) => {
+                                    if (aplicaDisp) {
+                                        if (!Number.isFinite(montoNumber) || montoNumber <= 0) {
+                                            setGestionDispMontoError('Indica un valor en pesos mayor a cero.');
+                                            return;
                                         }
-                                    >
-                                        Rechazar
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={async () => { await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, 'Aprobado'); closeGestionDetailModal(); }}
-                                        className={
-                                            isLight
-                                                ? 'rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 transition-all hover:bg-emerald-50'
-                                                : 'rounded-lg border border-emerald-500/40 px-4 py-2 text-sm text-emerald-400 transition-all hover:bg-emerald-500/10'
-                                        }
-                                    >
-                                        Aceptar
-                                    </button>
-                                </>
-                            )}
+                                        await changeState(
+                                            gestionDetailItem.id || gestionDetailItem.creadoEn,
+                                            estadoFinal,
+                                            { montoCop: Number(montoNumber.toFixed(2)) }
+                                        );
+                                    } else {
+                                        await changeState(gestionDetailItem.id || gestionDetailItem.creadoEn, estadoFinal);
+                                    }
+                                    closeGestionDetailModal();
+                                };
+                                return (
+                                    <>
+                                        <button
+                                            type="button"
+                                            disabled={decisionDisabled}
+                                            aria-disabled={decisionDisabled}
+                                            title={decisionDisabled ? 'Diligencia un valor en pesos mayor a cero antes de rechazar.' : undefined}
+                                            onClick={() => {
+                                                openGestionRejectModal({
+                                                    id: gestionDetailItem.id || gestionDetailItem.creadoEn,
+                                                    montoCop: aplicaDisp && montoNumber != null
+                                                        ? Number(montoNumber.toFixed(2))
+                                                        : undefined,
+                                                    closeGestionDetail: true
+                                                });
+                                            }}
+                                            className={
+                                                isLight
+                                                    ? 'rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-semibold text-rose-800 transition-all hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50'
+                                                    : 'rounded-lg border border-rose-500/40 px-4 py-2 text-sm text-rose-400 transition-all hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50'
+                                            }
+                                        >
+                                            Rechazar
+                                        </button>
+                                        <button
+                                            type="button"
+                                            disabled={decisionDisabled}
+                                            aria-disabled={decisionDisabled}
+                                            title={decisionDisabled ? 'Diligencia un valor en pesos mayor a cero antes de aprobar.' : undefined}
+                                            onClick={() => { void dispatchDecision('Aprobado'); }}
+                                            className={
+                                                isLight
+                                                    ? 'rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 transition-all hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50'
+                                                    : 'rounded-lg border border-emerald-500/40 px-4 py-2 text-sm text-emerald-400 transition-all hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50'
+                                            }
+                                        >
+                                            Aceptar
+                                        </button>
+                                    </>
+                                );
+                            })()}
                         </div>
 
                         {gestionDeleteOpen && (
@@ -3318,7 +3545,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <div><span className={dash.modalMuted}>Cliente:</span> {alertaHeDetailItem.cliente || '-'}</div>
                             <div><span className={dash.modalMuted}>Líder:</span> {alertaHeDetailItem.lider || '-'}</div>
                             <div><span className={dash.modalMuted}>Fecha inicio:</span> {alertaHeDetailItem.fechaInicio || '-'}</div>
+                            <GestionCalendarioCivilNotas ymd={alertaHeDetailItem.fechaInicio} festivosSet={gestionFestivosSet} />
                             <div><span className={dash.modalMuted}>Fecha fin:</span> {alertaHeDetailItem.fechaFin || '-'}</div>
+                            {alertaHeDetailItem.fechaFin && alertaHeDetailItem.fechaFin !== alertaHeDetailItem.fechaInicio ? (
+                                <GestionCalendarioCivilNotas ymd={alertaHeDetailItem.fechaFin} festivosSet={gestionFestivosSet} />
+                            ) : null}
                             <div><span className={dash.modalMuted}>Franja cargada:</span> {(alertaHeDetailItem.horaInicio && alertaHeDetailItem.horaFin) ? `${alertaHeDetailItem.horaInicio} - ${alertaHeDetailItem.horaFin}` : '-'}</div>
                             <div><span className={dash.modalMuted}>Horas cargadas:</span> {alertaHeDetailItem.cantidadHoras || 0}h</div>
                             {Array.isArray(alertaHeDetailItem.dailyReasons) && alertaHeDetailItem.dailyReasons.length > 0 && (
@@ -3362,9 +3593,12 @@ export default function Dashboard({ token, auth, onLogout }) {
                             <button type="button" onClick={() => setAlertaHeDetailItem(null)} className={`${outlineBtn} text-sm`}>Cerrar</button>
                             <button
                                 type="button"
-                                onClick={async () => {
-                                    await changeState(alertaHeDetailItem.id, 'Rechazado', { fromHoraExtraAlert: true });
-                                    setAlertaHeDetailItem(null);
+                                onClick={() => {
+                                    openGestionRejectModal({
+                                        id: alertaHeDetailItem.id,
+                                        fromHoraExtraAlert: true,
+                                        closeAlertaHe: true
+                                    });
                                 }}
                                 className={
                                     isLight
@@ -3412,8 +3646,14 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </div>
 
                         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3">
-                            {selectedDayItems.items.map((it, idx) => (
-                                <div key={idx} className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${getTypeColor(it.tipoNovedad).replace('bg-', 'bg-').replace('/20', '/10')}`}>
+                            {selectedDayItems.items.map((it, idx) => {
+                                const observacionesTexto = String(it.observaciones || '').trim();
+                                const observacionesPreview = observacionesTexto.length > 120
+                                    ? `${observacionesTexto.slice(0, 117)}…`
+                                    : observacionesTexto;
+                                return (
+                                <div key={idx} className={`p-4 rounded-xl border flex flex-col gap-3 ${getTypeColor(it.tipoNovedad).replace('bg-', 'bg-').replace('/20', '/10')}`}>
+                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                                     <div className="flex items-center gap-4">
                                         <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg border ${getTypeColor(it.tipoNovedad).replace('bg-', 'border-').replace('/20', '/30')}`}>
                                             {it.nombre.charAt(0).toUpperCase()}
@@ -3439,7 +3679,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 return (
                                                     <span className={isLight ? 'text-xs font-bold text-blue-800' : 'text-xs font-bold text-blue-400'}>
                                                         {qtyTxt}
-                                                        {getCantidadMedidaKind(it.tipoNovedad) === 'hours' && it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : ''}
+                                                        {getCantidadMedidaKind(it.tipoNovedad, it) === 'hours' && it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : ''}
                                                     </span>
                                                 );
                                             })()}
@@ -3478,8 +3718,22 @@ export default function Dashboard({ token, auth, onLogout }) {
                                             <Eye size={16} /> Ver Soporte
                                         </button>
                                     )}
+                                    </div>
+                                    {observacionesTexto ? (
+                                        <p
+                                            title={observacionesTexto}
+                                            className={
+                                                isLight
+                                                    ? 'text-xs text-slate-600 break-words border-t border-slate-200/70 pt-2'
+                                                    : 'text-xs text-slate-300 break-words border-t border-slate-500/30 pt-2'
+                                            }
+                                        >
+                                            <span className="font-semibold">Observaciones:</span> {observacionesPreview}
+                                        </p>
+                                    ) : null}
                                 </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
@@ -3489,33 +3743,35 @@ export default function Dashboard({ token, auth, onLogout }) {
             {soporteModal && (
                 <div className={`${dash.modalBackdrop} tracking-wide`} onClick={() => setSoporteModal(null)}>
                     <div className={dash.modalCardWide} onClick={e => e.stopPropagation()}>
-                        <button type="button" onClick={() => setSoporteModal(null)} className={`absolute right-4 top-4 ${dash.modalClose}`}>
-                            <X size={20} strokeWidth={2.5} />
-                        </button>
-                        <div className="mb-4 mt-2 flex w-full items-center justify-between">
-                            <h2 className={`${dash.titleXl} flex items-center gap-2`}>
-                                <BadgeCheck className="text-blue-500" size={22} /> Vista del documento
+                        <div className="mb-4 mt-2 flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <h2 className={`${dash.titleXl} min-w-0 flex flex-wrap items-center gap-2`}>
+                                <BadgeCheck className="shrink-0 text-blue-500" size={22} /> Vista del documento
                             </h2>
-                            {soporteModalCurrentSupport && (
-                                <button
-                                    type="button"
-                                    onClick={() => downloadSupport(soporteModalCurrentSupport)}
-                                    className="px-3 py-2 rounded-lg border border-blue-500/30 text-blue-300 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all text-sm font-medium"
-                                >
-                                    Descargar
+                            <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                                {soporteModalCurrentSupport && (
+                                    <button
+                                        type="button"
+                                        onClick={() => downloadSupport(soporteModalCurrentSupport)}
+                                        className="rounded-lg border border-blue-500/30 px-3 py-2 text-sm font-medium text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10"
+                                    >
+                                        Descargar
+                                    </button>
+                                )}
+                                <button type="button" onClick={() => setSoporteModal(null)} className={dash.modalClose}>
+                                    <X size={20} strokeWidth={2.5} />
                                 </button>
-                            )}
+                            </div>
                         </div>
                         {Array.isArray(soporteModal?.supports) && soporteModal.supports.length > 1 && (
-                            <div className="w-full mb-3 flex flex-wrap gap-2">
+                            <div className="mb-3 flex w-full min-w-0 flex-col gap-2">
                                 {soporteModal.supports.map((support) => (
-                                    <div key={support.id} className="inline-flex items-center gap-2">
+                                    <div key={support.id} className="flex w-full min-w-0 max-w-full flex-wrap items-center gap-2">
                                         <button
                                             type="button"
                                             onClick={() => openSupportFromModal(support)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs border transition-all ${soporteModal.currentKey === support.key
-                                                ? 'border-blue-500/60 text-blue-300 bg-blue-500/10'
-                                                : 'border-slate-700 text-slate-300 hover:border-blue-500/40 hover:text-blue-300'
+                                            className={`min-w-0 flex-1 break-words px-3 py-1.5 text-left text-xs [overflow-wrap:anywhere] transition-all ${soporteModal.currentKey === support.key
+                                                ? 'rounded-lg border border-blue-500/60 bg-blue-500/10 text-blue-300'
+                                                : 'rounded-lg border border-slate-700 text-slate-300 hover:border-blue-500/40 hover:text-blue-300'
                                                 }`}
                                         >
                                             {support.name}
@@ -3523,7 +3779,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <button
                                             type="button"
                                             onClick={() => downloadSupport(support)}
-                                            className="px-2 py-1 rounded-lg border border-blue-500/30 text-blue-300 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all text-xs"
+                                            className="shrink-0 rounded-lg border border-blue-500/30 px-2 py-1 text-xs text-blue-300 transition-all hover:border-blue-500/50 hover:bg-blue-500/10"
                                         >
                                             Descargar
                                         </button>
@@ -3583,6 +3839,64 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     </button>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {gestionRejectOpen && (
+                <div
+                    className={`${dash.modalBackdrop} z-[250]`}
+                    onClick={() => {
+                        setGestionRejectOpen(false);
+                        setGestionRejectPending(null);
+                        setGestionRejectObservacion('');
+                        setGestionRejectErr(null);
+                    }}
+                    role="presentation"
+                >
+                    <div
+                        className={isLight ? 'w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl' : 'w-full max-w-md rounded-xl border border-slate-600 bg-slate-900 p-5 shadow-xl'}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 className={dash.titleLg}>Rechazar novedad</h3>
+                        <p className={`${dash.modalMuted} mt-2 text-sm`}>
+                            Indique la causa del rechazo y qué debe corregir o completar el consultor al radicar de nuevo. Es obligatorio.
+                        </p>
+                        <textarea
+                            className={`mt-3 min-h-[120px] w-full ${fieldInput}`}
+                            placeholder="Observación de rechazo…"
+                            value={gestionRejectObservacion}
+                            onChange={(e) => setGestionRejectObservacion(e.target.value)}
+                            maxLength={1000}
+                        />
+                        {gestionRejectErr ? <p className="mt-2 text-sm text-rose-600">{gestionRejectErr}</p> : null}
+                        {stateError ? <p className="mt-2 text-sm text-rose-600">{stateError}</p> : null}
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setGestionRejectOpen(false);
+                                    setGestionRejectPending(null);
+                                    setGestionRejectObservacion('');
+                                    setGestionRejectErr(null);
+                                }}
+                                className={`${outlineBtn} text-sm`}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!String(gestionRejectObservacion || '').trim()}
+                                onClick={() => void submitGestionReject()}
+                                className={
+                                    isLight
+                                        ? 'rounded-lg border border-rose-600 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-40'
+                                        : 'rounded-lg border border-rose-500 bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-40'
+                                }
+                            >
+                                Confirmar rechazo
+                            </button>
                         </div>
                     </div>
                 </div>

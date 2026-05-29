@@ -125,3 +125,62 @@ test('agregación: tres domingos distintos → tier 3', () => {
     assert.equal(st.count, 3);
     assert.equal(st.tier, 3);
 });
+
+test('agregación: HE en festivo no-domingo NO entra al set de domingos aunque festivosSet esté en dep', () => {
+    /* Lunes 18/05/2026 — festivo Día de la Ascensión */
+    const dep = {
+        toUtcMsFromDateAndTime,
+        resolveFallbackDateKeyFromRow,
+        festivosSet: new Set(['2026-05-18'])
+    };
+    const buildConsultantKey = (row) => `${row.cedula}|||${row.nombre}`;
+    const rows = [
+        {
+            cedula: '1',
+            nombre: 'A',
+            fecha_inicio: new Date('2026-05-18T13:00:00.000Z'),
+            fecha_fin: new Date('2026-05-18T15:00:00.000Z'),
+            hora_inicio: '08:00:00',
+            hora_fin: '10:00:00',
+            cantidad_horas: 2
+        }
+    ];
+    const sets = buildSundayReportedSetsFromHeRows(rows, buildConsultantKey, dep);
+    const st = sundayStatsForConsultantMonth(sets, buildConsultantKey(rows[0]), '2026-05');
+    assert.equal(st.count, 0);
+    assert.equal(st.tier, 0);
+});
+
+test('agregación: domingo + festivo no-domingo solo cuenta 1 (el domingo)', () => {
+    const dep = {
+        toUtcMsFromDateAndTime,
+        resolveFallbackDateKeyFromRow,
+        festivosSet: new Set(['2026-05-18'])
+    };
+    const buildConsultantKey = (row) => `${row.cedula}|||${row.nombre}`;
+    const rows = [
+        {
+            cedula: '1',
+            nombre: 'A',
+            fecha_inicio: new Date('2026-05-17T15:00:00.000Z'),
+            fecha_fin: new Date('2026-05-17T17:00:00.000Z'),
+            hora_inicio: '10:00:00',
+            hora_fin: '12:00:00',
+            cantidad_horas: 2
+        },
+        {
+            cedula: '1',
+            nombre: 'A',
+            fecha_inicio: new Date('2026-05-18T13:00:00.000Z'),
+            fecha_fin: new Date('2026-05-18T15:00:00.000Z'),
+            hora_inicio: '08:00:00',
+            hora_fin: '10:00:00',
+            cantidad_horas: 2
+        }
+    ];
+    const sets = buildSundayReportedSetsFromHeRows(rows, buildConsultantKey, dep);
+    const st = sundayStatsForConsultantMonth(sets, buildConsultantKey(rows[0]), '2026-05');
+    assert.equal(st.count, 1);
+    assert.equal(st.tier, 1);
+    assert.deepEqual(st.dates, ['2026-05-17']);
+});
