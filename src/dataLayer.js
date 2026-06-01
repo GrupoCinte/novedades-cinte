@@ -1889,6 +1889,34 @@ function createDataLayer(deps) {
     }
 
     /**
+     * Correos GP asignados al cliente en catálogo (`clientes_lideres.gp_user_id`).
+     * Misma regla de alcance que el listado de novedades para rol `gp`.
+     * @param {string} clienteRaw
+     * @returns {Promise<string[]>}
+     */
+    async function listGpEmailsForCliente(clienteRaw) {
+        const raw = normalizeCatalogValue(clienteRaw);
+        if (!raw) return [];
+        const clientesCanonico = await getClientesList();
+        const { map } = buildFoldToCanonicoMap(clientesCanonico);
+        const canonical = matchExcelClienteABd(raw, map);
+        const clienteParaQuery = canonical || raw;
+        const q = await pool.query(
+            `SELECT DISTINCT lower(btrim(u.email)) AS email
+             FROM clientes_lideres cl
+             INNER JOIN users u ON u.id = cl.gp_user_id AND u.role = 'gp'::user_role
+             WHERE cl.activo IS NOT FALSE
+               AND lower(btrim(cl.cliente)) = lower(btrim($1::text))
+               AND COALESCE(u.is_active, TRUE) IS NOT FALSE
+               AND NULLIF(btrim(u.email), '') IS NOT NULL`,
+            [clienteParaQuery]
+        );
+        return (q.rows || [])
+            .map((r) => String(r.email || '').trim().toLowerCase())
+            .filter((e) => e.includes('@'));
+    }
+
+    /**
      * Resuelve el users.id interno del GP para scoping.
      * Prioriza email de sesión (Cognito), con fallback al gpUserId recibido en scope.
      * @param {{ gpEmail?: string|null, gpUserId?: string|null }} scope
@@ -2559,6 +2587,7 @@ function createDataLayer(deps) {
         getColaboradorByEmail,
         getClientesList,
         getLideresByCliente,
+        listGpEmailsForCliente,
         listClientesLideresPaged,
         listClientesLideresByClienteSummaryPaged,
         getClientesNitMapFromLideres,

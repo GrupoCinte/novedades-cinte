@@ -119,7 +119,9 @@ const NOVELTY_RULES = {
         displayName: 'Compensatorio por votación/jurado',
         /** La ruta POST valida el conteo por modalidad (1 o 2 archivos). */
         requiredMinSupports: 0,
-        approvers: ['admin_ch'],
+        approvers: ['gp', 'admin_ch'],
+        /** Correo GP: solo usuarios asignados al cliente en `clientes_lideres` (no todo el grupo Cognito). */
+        gpNotifyByCliente: true,
         viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina', 'gp']
     },
     /**

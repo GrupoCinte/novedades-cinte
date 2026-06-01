@@ -2178,7 +2178,9 @@ function registerRoutes(deps) {
                 });
                 try {
                     if (typeof resolveApproverEmailsForNovedad === 'function') {
-                        const { emails, reason, insights } = await resolveApproverEmailsForNovedad(tipoNovedad);
+                        const { emails, reason, insights } = await resolveApproverEmailsForNovedad(tipoNovedad, {
+                            cliente
+                        });
                         emailPayload.admin.notifyTo = emails;
                         if (emails.length === 0) {
                             console.warn(

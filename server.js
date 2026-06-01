@@ -554,11 +554,6 @@ const cognitoIdpClient = new CognitoIdentityProviderClient({
         }
     } : {})
 });
-const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
-    cognitoClient: cognitoIdpClient,
-    userPoolId: COGNITO_USER_POOL_ID,
-    getNovedadRuleByType
-});
 const emailNotificationsPublisher = createEmailNotificationsPublisher({
     lambdaClient,
     functionName: EMAIL_LAMBDA_FUNCTION_NAME,
@@ -653,6 +648,7 @@ const {
     getColaboradorByEmail,
     getClientesList,
     getLideresByCliente,
+    listGpEmailsForCliente,
     listClientesLideresPaged,
     listClientesLideresByClienteSummaryPaged,
     getClientesNitMapFromLideres,
@@ -698,6 +694,13 @@ const {
     normalizeCedula,
     canRoleViewType,
     getAreaFromRole
+});
+
+const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
+    cognitoClient: cognitoIdpClient,
+    userPoolId: COGNITO_USER_POOL_ID,
+    getNovedadRuleByType,
+    resolveGpEmailsForCliente: listGpEmailsForCliente
 });
 
 const { registerRoutes } = require('./src/registerRoutes');

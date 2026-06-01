@@ -101,8 +101,8 @@ export const NOVEDAD_RULES = {
   'Compensatorio por votación/jurado': {
     requiredDocuments: ['Certificado de jurado o electoral (según la modalidad elegida)'],
     formatLinks: [],
-    approvers: ['admin_ch'],
-    viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina'],
+    approvers: ['gp', 'admin_ch'],
+    viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina', 'gp'],
     requiresDayCount: false,
     requiresTimeRange: false,
     autoCalendarDays: true

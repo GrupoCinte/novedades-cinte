@@ -245,4 +245,41 @@ describe('createResolveApproverEmailsFromCognito', () => {
         assert.equal(out.emails.includes('ok@example.com'), true);
         assert.equal(errors.length >= 1, true);
     });
+
+    it('gpNotifyByCliente usa resolver BD y no ListUsersInGroup para gp', async () => {
+        let gpListCalled = false;
+        const cognitoClient = {
+            send(cmd) {
+                if (cmdName(cmd) === 'ListGroupsCommand') {
+                    return mockListGroupsCmd();
+                }
+                if (cmd.input?.GroupName === 'gp') {
+                    gpListCalled = true;
+                }
+                if (cmd.input?.GroupName === 'admin_ch') {
+                    return Promise.resolve({
+                        Users: [{ Attributes: [attr('email', 'ch@example.com')] }]
+                    });
+                }
+                return Promise.resolve({ Users: [] });
+            }
+        };
+        const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
+            cognitoClient,
+            userPoolId: 'pool',
+            getNovedadRuleByType,
+            resolveGpEmailsForCliente: async (cliente) => {
+                assert.equal(cliente, 'Cliente ACME');
+                return ['gp.cliente@example.com'];
+            },
+            logger: { error() {}, warn() {} }
+        });
+        const out = await resolveApproverEmailsForNovedad('Compensatorio por votación/jurado', {
+            cliente: 'Cliente ACME'
+        });
+        assert.equal(gpListCalled, false);
+        assert.deepEqual(out.emails.sort(), ['ch@example.com', 'gp.cliente@example.com'].sort());
+        assert.equal(out.reason, 'ok');
+        assert.ok(out.insights.some((i) => i.source === 'catalogo_cliente' && i.emailsFromGroup === 1));
+    });
 });
