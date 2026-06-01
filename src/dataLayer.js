@@ -645,6 +645,43 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureConciliacionesFacturacionTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_facturacion (
+                    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    anio                INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+                    mes                 INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+                    proyecto            TEXT NULL,
+                    observaciones       TEXT NULL,
+                    fecha_cierre        DATE NOT NULL DEFAULT CURRENT_DATE,
+                    horas_facturadas    NUMERIC(8,2) NOT NULL DEFAULT 0,
+                    estado              VARCHAR(50) NOT NULL DEFAULT 'PENDIENTE',
+                    factura_fv          VARCHAR(100) NULL,
+                    fecha_radicacion    DATE NULL,
+                    motivo_devolucion   TEXT NULL,
+                    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_conciliaciones_facturacion_colab_mes UNIQUE (cedula, anio, mes)
+                )
+            `);
+            await pool.query('CREATE INDEX IF NOT EXISTS idx_conciliaciones_facturacion_mes_anio ON conciliaciones_facturacion(anio, mes)');
+
+            // Migraciones dinámicas para las nuevas columnas
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS estado VARCHAR(50) NOT NULL DEFAULT 'PENDIENTE'`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS factura_fv VARCHAR(100) NULL`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS fecha_radicacion DATE NULL`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS motivo_devolucion TEXT NULL`);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para crear/alterar conciliaciones_facturacion.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** Varias personas por franja/día, acotadas por cliente del directorio. */
     async function ensureMallaTurnoAsignacionTable() {
         try {
@@ -2006,6 +2043,16 @@ function createDataLayer(deps) {
         return { ok: true, clienteCanon: chk.canon, ...payload };
     }
 
+    async function getConciliacionResumenTodosClientesMesForScope(scope, year, month) {
+        const payload = await conciliacionesQueries.getConciliacionResumenTodosClientesMes(
+            conciliacionesDeps,
+            scope,
+            year,
+            month
+        );
+        return { ok: true, allClients: true, ...payload };
+    }
+
     async function listConciliacionNovedadesDetalleForScope(scope, clienteRaw, cedulaRaw, year, month) {
         const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
         if (!chk.ok) return chk;
@@ -2028,6 +2075,18 @@ function createDataLayer(deps) {
             month
         );
         return { ok: true, ...payload };
+    }
+
+    async function upsertConciliacionFacturacionForScope(scope, payload) {
+        return conciliacionesQueries.upsertConciliacionFacturacion(conciliacionesDeps, scope, payload);
+    }
+
+    async function upsertConciliacionFacturacionMasivaForScope(scope, payload) {
+        return conciliacionesQueries.upsertConciliacionFacturacionMasiva(conciliacionesDeps, scope, payload);
+    }
+
+    async function listConciliacionesFacturacionForScope(scope, year, month) {
+        return conciliacionesQueries.listConciliacionesFacturacion(conciliacionesDeps, scope, year, month);
     }
 
     return {
@@ -2057,6 +2116,7 @@ function createDataLayer(deps) {
         ensureMallaTurnoAsignacionTable,
         listMallaTurnosCeldasRange,
         upsertMallaTurnosCeldas,
+        ensureConciliacionesFacturacionTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         getColaboradorByCedula,
@@ -2085,8 +2145,12 @@ function createDataLayer(deps) {
         listHoraExtraByCedulaForDomingoPolicy,
         listConciliacionesClientesForScope,
         getConciliacionResumenPorClienteMesForScope,
+        getConciliacionResumenTodosClientesMesForScope,
         listConciliacionNovedadesDetalleForScope,
-        getConciliacionesDashboardResumenForScope
+        getConciliacionesDashboardResumenForScope,
+        upsertConciliacionFacturacionForScope,
+        upsertConciliacionFacturacionMasivaForScope,
+        listConciliacionesFacturacionForScope
     };
 }
 

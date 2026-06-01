@@ -1,0 +1,699 @@
+/**
+ * Servicio único de promoción a `colaboradores`.
+ *
+ * Es la única puerta de escritura automática (Dynamo Stream, webhook n8n, ETL Excel, manual).
+ * Flujo:
+ *   1) INSERT raw en `onboarding_staging` (idempotente por UNIQUE source/external/event/seq).
+ *   2) Si NO pasa validación → status='requiere_revision', NO toca colaboradores.
+ *   3) Si pasa validación y es estado terminal → UPSERT idempotente en `colaboradores`.
+ *   4) Si pasa pero status intermedio → status='recibido', NO toca colaboradores.
+ *
+ * Reglas de upsert (no machaca lo editado por CH):
+ *   - `COALESCE(EXCLUDED.X, colaboradores.X)` → solo escribe si llega valor nuevo.
+ *   - `COALESCE(colaboradores.X, EXCLUDED.X)` para campos que solo deben fijarse la primera vez
+ *     (salario, fecha_ingreso).
+ *
+ * No depende de DynamoDB: recibe un payload normalizado. El mapper `mapDynamoItemForPromotion`
+ * convierte un item Dynamo crudo a payload normalizado.
+ */
+
+const { z } = require('zod');
+
+/** Estados terminales de n8n que disparan el upsert real a `colaboradores`. */
+const TERMINAL_STATUSES = new Set([
+    'contratado',
+    'finalizado',
+    'completado',
+    'contrato recibido',
+    'contrato_recibido',
+    'contract_received',
+    'hired'
+]);
+
+/** Estados que se interpretan como rechazo: solo staging, NO se desactiva colaborador. */
+const REJECTED_STATUSES = new Set([
+    'rechazado',
+    'eliminado',
+    'rejected',
+    'eliminated'
+]);
+
+function normalizeStatus(status) {
+    return String(status || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim();
+}
+
+function isTerminalStatus(status) {
+    const s = normalizeStatus(status);
+    if (!s) return false;
+    if (TERMINAL_STATUSES.has(s)) return true;
+    if (s.includes('contrato') && (s.includes('recib') || s.includes('firmad'))) return true;
+    if (s === 'finalizado' || s === 'completado') return true;
+    return false;
+}
+
+function isRejectedStatus(status) {
+    const s = normalizeStatus(status);
+    if (!s) return false;
+    if (REJECTED_STATUSES.has(s)) return true;
+    if (s.includes('rechaz')) return true;
+    if (s.includes('eliminad')) return true;
+    return false;
+}
+
+/** Solo dígitos. */
+function normalizeCedula(value) {
+    if (value == null) return '';
+    const s = String(value);
+    const digits = s.replace(/\D+/g, '');
+    return digits;
+}
+
+function normalizeEmail(value) {
+    if (value == null) return null;
+    const s = String(value).trim().toLowerCase();
+    return s || null;
+}
+
+function trimOrNull(value, maxLen = 1000) {
+    if (value == null) return null;
+    const s = String(value).trim();
+    if (!s) return null;
+    return s.length > maxLen ? s.slice(0, maxLen) : s;
+}
+
+function parseDateOrNull(value) {
+    if (value == null) return null;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString().slice(0, 10);
+    }
+    const s = String(value).trim();
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString().slice(0, 10);
+}
+
+function parseNumberOrNull(value) {
+    if (value == null || value === '') return null;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    const s = String(value).replace(/[^0-9,.\-]/g, '').replace(',', '.');
+    if (!s) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+}
+
+/** Valores centinela que n8n escribe en Dynamo antes de tener el dato real. */
+const SENTINEL_VALUES = new Set([
+    'cargando',
+    'pendiente',
+    'pendiente_valor',
+    'pendientevalor',
+    'no_requerido',
+    'no requerido',
+    'norequerido',
+    'n/a',
+    'na',
+    'null',
+    'undefined',
+    'nada',
+    'sin dato',
+    'sindato',
+    ''
+]);
+
+const MESES_ES = {
+    ene: 1, enero: 1,
+    feb: 2, febrero: 2,
+    mar: 3, marzo: 3,
+    abr: 4, abril: 4,
+    may: 5, mayo: 5,
+    jun: 6, junio: 6,
+    jul: 7, julio: 7,
+    ago: 8, agosto: 8,
+    sep: 9, sept: 9, septiembre: 9, set: 9, setiembre: 9,
+    oct: 10, octubre: 10,
+    nov: 11, noviembre: 11,
+    dic: 12, diciembre: 12
+};
+
+function stripAccentsLower(s) {
+    return String(s)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+}
+
+/**
+ * Parser tolerante para `fecha_inicio` tal como la guarda n8n en DynamoDB.
+ *
+ * Acepta:
+ * - ISO `YYYY-MM-DD` (con o sin tiempo) → respeta `slice(0, 10)`.
+ * - Formato es-ES abreviado del agente IA: `"may 22, 2026"`, `"dic 31, 2026"`,
+ *   incluyendo variantes con mes completo y mayúsculas/acentos.
+ * - Date instance válido.
+ *
+ * Devuelve `null` (en vez de basura) cuando:
+ * - Está vacío / undefined.
+ * - Es uno de los centinelas que n8n usa antes de tener el valor (`CARGANDO`,
+ *   `PENDIENTE`, `PENDIENTE_VALOR`, ...). Evita que esos strings caigan a
+ *   `new Date(...)` y produzcan fechas erróneas o `Invalid Date`.
+ */
+function parseFechaInicioSmart(value) {
+    if (value == null) return null;
+    if (value instanceof Date) {
+        return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
+    }
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const norm = stripAccentsLower(raw);
+    if (SENTINEL_VALUES.has(norm)) return null;
+
+    if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+        return raw.slice(0, 10);
+    }
+
+    const mEs = norm.match(/^([a-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})$/);
+    if (mEs) {
+        const mesKey = mEs[1];
+        const dia = Number(mEs[2]);
+        const anio = Number(mEs[3]);
+        const mes = MESES_ES[mesKey];
+        if (mes && dia >= 1 && dia <= 31 && anio >= 1900 && anio <= 2999) {
+            const iso = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+            return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+        }
+    }
+
+    const fallback = parseDateOrNull(raw);
+    if (fallback && /^\d{4}-\d{2}-\d{2}$/.test(fallback)) return fallback;
+    return null;
+}
+
+/**
+ * Parser para salarios en formato n8n / Colombia: `"CO$ 14.200.000"`,
+ * `"$2.300.000"`, `"14200000"`. Trata los `.` como separador de miles.
+ * Devuelve `null` para centinelas (`PENDIENTE`, etc.) o cadenas sin dígitos.
+ */
+function parseSalarioCop(value) {
+    if (value == null) return null;
+    if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : null;
+    const raw = String(value).trim();
+    if (!raw) return null;
+    const norm = stripAccentsLower(raw);
+    if (SENTINEL_VALUES.has(norm)) return null;
+    const digits = raw.replace(/[^0-9]/g, '');
+    if (!digits) return null;
+    const n = Number(digits);
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Convierte un item DynamoDB (post-unmarshall) en payload normalizado para promoción.
+ * No infiere campos que CH debe completar manualmente (tarifa, EPS/AFP/etc).
+ *
+ * @param {object} rawItem Item crudo de Dynamo (objeto JS).
+ * @returns {object} payload normalizado (campos opcionales pueden ser null/undefined).
+ */
+function mapDynamoItemForPromotion(rawItem) {
+    if (!rawItem || typeof rawItem !== 'object') return { __raw: rawItem };
+    const r = rawItem;
+
+    // Nombre completo a partir de combinaciones disponibles
+    let nombreFull = trimOrNull(r['nombre y apellido']) ||
+        trimOrNull(r.nombre_y_apellido) ||
+        trimOrNull(r.nombreCompleto) ||
+        null;
+    let primerApellido = null;
+    let segundoApellido = null;
+    let nombres = null;
+
+    if (!nombreFull) {
+        const partsNombre = trimOrNull(r.nombre);
+        const partsApellido = trimOrNull(r.apellido);
+        if (partsNombre && partsApellido) {
+            nombreFull = `${partsNombre} ${partsApellido}`.trim();
+            nombres = partsNombre;
+            const apTokens = String(partsApellido).trim().split(/\s+/);
+            primerApellido = apTokens[0] || null;
+            segundoApellido = apTokens.length > 1 ? apTokens.slice(1).join(' ') : null;
+        } else if (partsNombre) {
+            nombreFull = partsNombre;
+            nombres = partsNombre;
+        } else if (partsApellido) {
+            nombreFull = partsApellido;
+            primerApellido = partsApellido;
+        }
+    }
+
+    // Cuando `nombreFull` viene como una sola cadena, intentamos separar nombres / apellidos.
+    if (nombreFull && !nombres && !primerApellido) {
+        const tokens = String(nombreFull).trim().split(/\s+/);
+        if (tokens.length >= 3) {
+            // Heurística simple: últimos 2 = apellidos, resto = nombres
+            segundoApellido = tokens[tokens.length - 1];
+            primerApellido = tokens[tokens.length - 2];
+            nombres = tokens.slice(0, tokens.length - 2).join(' ');
+        } else if (tokens.length === 2) {
+            nombres = tokens[0];
+            primerApellido = tokens[1];
+        } else if (tokens.length === 1) {
+            nombres = tokens[0];
+        }
+    }
+
+    const cedula = normalizeCedula(r.cedula ?? r['cédula'] ?? r.cedula_identidad ?? r.documento ?? r.documento_identidad);
+    const correoCinte = normalizeEmail(r.correo_cinte) || normalizeEmail(r.email);
+    const celular = trimOrNull(r.celular) || trimOrNull(r.celular_personal) || trimOrNull(r.telefono) || trimOrNull(r.whatsapp) || null;
+    const whatsappNumber = trimOrNull(r.whatsapp_number) || trimOrNull(r.whatsappNumber) || null;
+    const status = trimOrNull(r.status) || trimOrNull(r.statuses) || null;
+
+    // `fecha_inicio` es el nombre real con que n8n persiste en DynamoDB la fecha
+    // pactada de ingreso del consultor (extraída del correo de selección por el
+    // "Agente Extractor Ficha", formato es-ES como "may 22, 2026"). Lo aceptamos
+    // primero; los otros nombres (`fecha_ingreso`, `fechaIngreso`) se conservan
+    // por compat con payloads del webhook /intake o ETLs externos. Ya NO usamos
+    // `ts_validacion_completada` como fallback: es el timestamp de cierre
+    // administrativo, no la fecha real de inicio.
+    const fechaIngreso =
+        parseFechaInicioSmart(r.fecha_inicio) ||
+        parseFechaInicioSmart(r.fecha_ingreso) ||
+        parseFechaInicioSmart(r.fechaIngreso) ||
+        null;
+    // `salario_numeros` viene de n8n como "CO$ 14.200.000". Lo parseamos con
+    // separador de miles "." antes de caer a los nombres genéricos.
+    const sueldoNomina =
+        parseSalarioCop(r.salario_numeros) ??
+        parseNumberOrNull(r.sueldo_nomina ?? r.salario ?? r.salary);
+    const tipoContrato = trimOrNull(r.tipo_contrato);
+
+    return {
+        cedula,
+        nombre: nombreFull,
+        nombres,
+        primer_apellido: primerApellido,
+        segundo_apellido: segundoApellido,
+        correo_cinte: correoCinte,
+        celular_personal: celular,
+        direccion_domicilio: trimOrNull(r.direccion) || trimOrNull(r.direccion_domicilio) || null,
+        puesto: trimOrNull(r.puesto) || trimOrNull(r.cargo) || trimOrNull(r.Descriptivo_Cinte) || null,
+        empleador: trimOrNull(r.empresa) || trimOrNull(r.empleador) || null,
+        sueldo_nomina: sueldoNomina,
+        cliente: trimOrNull(r.cliente) || trimOrNull(r.cliente_proyecto) || null,
+        fecha_ingreso: fechaIngreso,
+        // tipo_contrato hoy NO es columna de `colaboradores`; lo dejamos en el
+        // payload para que quede en `onboarding_staging.payload` (auditoría /
+        // futura migración) sin afectar el INSERT actual.
+        tipo_contrato: tipoContrato,
+        status,
+        whatsapp_number: whatsappNumber,
+        dynamo_external_id: whatsappNumber || trimOrNull(r.id) || trimOrNull(r.execution_id) || null,
+        __raw: r
+    };
+}
+
+/**
+ * Zod schemas. Distinguimos validaciones por escenario:
+ *  - intake / dynamo / etl con `forcePromote=false`: requeridos relajados (puede ser solo `cedula`).
+ *  - Promoción real (terminal o forcePromote): requeridos estrictos.
+ */
+const promotionPayloadSchema = z
+    .object({
+        cedula: z.string().regex(/^\d+$/).min(5).max(20).optional().nullable(),
+        nombre: z.string().min(2).max(400).optional().nullable(),
+        nombres: z.string().max(400).optional().nullable(),
+        primer_apellido: z.string().max(200).optional().nullable(),
+        segundo_apellido: z.string().max(200).optional().nullable(),
+        correo_cinte: z.string().email().max(320).optional().nullable(),
+        celular_personal: z.string().max(60).optional().nullable(),
+        direccion_domicilio: z.string().max(500).optional().nullable(),
+        puesto: z.string().max(400).optional().nullable(),
+        empleador: z.string().max(200).optional().nullable(),
+        sueldo_nomina: z.number().optional().nullable(),
+        cliente: z.string().max(500).optional().nullable(),
+        fecha_ingreso: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        status: z.string().max(200).optional().nullable(),
+        whatsapp_number: z.string().max(60).optional().nullable(),
+        dynamo_external_id: z.string().max(120).optional().nullable(),
+        tipo_personal: z.enum(['consultor', 'staff', 'sena', 'alianza']).optional()
+    })
+    .passthrough();
+
+/**
+ * Crea el servicio de promoción.
+ * @param {{ pool: import('pg').Pool, logger?: any }} deps
+ */
+function createOnboardingPromotionService({ pool, logger } = {}) {
+    if (!pool || typeof pool.query !== 'function') {
+        throw new Error('createOnboardingPromotionService requiere `pool` válido.');
+    }
+    const log = logger && typeof logger.info === 'function' ? logger : null;
+
+    function warn(msg, extra) {
+        if (log) log.warn(extra || {}, msg);
+        else console.warn('[Onboarding promote]', msg, extra || '');
+    }
+
+    /**
+     * Inserta una entrada en `onboarding_staging` o reutiliza la existente si coincide la UNIQUE.
+     * @returns {Promise<{ stagingId: string, isNew: boolean }>}
+     */
+    async function upsertStaging(client, { source, externalId, eventType, sequenceNumber, shardId, rawPayload }) {
+        const insertQ = await client.query(
+            `INSERT INTO onboarding_staging
+                (source, external_id, event_type, sequence_number, shard_id, payload, status)
+             VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'recibido')
+             ON CONFLICT (source, external_id, event_type, sequence_number)
+             DO UPDATE SET payload = EXCLUDED.payload
+             RETURNING id::text AS id`,
+            [
+                source,
+                externalId || null,
+                eventType || 'INSERT',
+                sequenceNumber || null,
+                shardId || null,
+                JSON.stringify(rawPayload || {})
+            ]
+        );
+        return { stagingId: insertQ.rows[0].id, isNew: true };
+    }
+
+    async function markStaging(client, stagingId, { status, error, cedula }) {
+        await client.query(
+            `UPDATE onboarding_staging
+             SET status = $1,
+                 error = $2,
+                 cedula_resultante = COALESCE($3, cedula_resultante),
+                 processed_at = NOW()
+             WHERE id = $4::uuid`,
+            [status, error || null, cedula || null, stagingId]
+        );
+    }
+
+    /**
+     * Hace upsert idempotente en `colaboradores` con los campos disponibles.
+     * Usa COALESCE para no machacar valores ya editados por CH.
+     */
+    async function upsertColaborador(client, payload, { source, tipoPersonal }) {
+        const completedAtSql = payload.status && isTerminalStatus(payload.status) ? 'NOW()' : 'NULL';
+        const tp = tipoPersonal || payload.tipo_personal || 'consultor';
+
+        const q = await client.query(
+            `INSERT INTO colaboradores (
+                cedula, nombre, primer_apellido, segundo_apellido, nombres,
+                correo_cinte, celular_personal, direccion_domicilio,
+                puesto, empleador, sueldo_nomina,
+                cliente,
+                whatsapp_number, dynamo_external_id,
+                onboarding_status, onboarding_completed_at,
+                tipo_personal, activo, fecha_ingreso, created_at, updated_at
+            ) VALUES (
+                $1, $2, $3, $4, $5,
+                $6, $7, $8,
+                $9, $10, $11,
+                $12,
+                $13, $14,
+                $15, ${completedAtSql},
+                $16, TRUE, COALESCE($17::date, CURRENT_DATE), NOW(), NOW()
+            )
+            ON CONFLICT (cedula) DO UPDATE SET
+                nombre = COALESCE(NULLIF(EXCLUDED.nombre, ''), colaboradores.nombre),
+                primer_apellido = COALESCE(EXCLUDED.primer_apellido, colaboradores.primer_apellido),
+                segundo_apellido = COALESCE(EXCLUDED.segundo_apellido, colaboradores.segundo_apellido),
+                nombres = COALESCE(EXCLUDED.nombres, colaboradores.nombres),
+                correo_cinte = COALESCE(EXCLUDED.correo_cinte, colaboradores.correo_cinte),
+                celular_personal = COALESCE(EXCLUDED.celular_personal, colaboradores.celular_personal),
+                direccion_domicilio = COALESCE(EXCLUDED.direccion_domicilio, colaboradores.direccion_domicilio),
+                puesto = COALESCE(EXCLUDED.puesto, colaboradores.puesto),
+                empleador = COALESCE(EXCLUDED.empleador, colaboradores.empleador),
+                /* salario y fecha_ingreso: solo se fijan la primera vez */
+                sueldo_nomina = COALESCE(colaboradores.sueldo_nomina, EXCLUDED.sueldo_nomina),
+                fecha_ingreso = COALESCE(colaboradores.fecha_ingreso, EXCLUDED.fecha_ingreso),
+                cliente = COALESCE(EXCLUDED.cliente, colaboradores.cliente),
+                whatsapp_number = COALESCE(EXCLUDED.whatsapp_number, colaboradores.whatsapp_number),
+                dynamo_external_id = COALESCE(EXCLUDED.dynamo_external_id, colaboradores.dynamo_external_id),
+                onboarding_status = COALESCE(EXCLUDED.onboarding_status, colaboradores.onboarding_status),
+                onboarding_completed_at = COALESCE(colaboradores.onboarding_completed_at, EXCLUDED.onboarding_completed_at),
+                tipo_personal = COALESCE(EXCLUDED.tipo_personal, colaboradores.tipo_personal),
+                /* activo se mantiene si el colaborador ya existe; no se reactiva automáticamente */
+                activo = colaboradores.activo,
+                updated_at = NOW()
+            RETURNING cedula`,
+            [
+                payload.cedula,
+                payload.nombre,
+                payload.primer_apellido,
+                payload.segundo_apellido,
+                payload.nombres,
+                payload.correo_cinte,
+                payload.celular_personal,
+                payload.direccion_domicilio,
+                payload.puesto,
+                payload.empleador,
+                payload.sueldo_nomina,
+                payload.cliente,
+                payload.whatsapp_number,
+                payload.dynamo_external_id,
+                payload.status,
+                tp,
+                payload.fecha_ingreso
+            ]
+        );
+        return q.rows[0] && q.rows[0].cedula ? String(q.rows[0].cedula) : null;
+    }
+
+    /**
+     * Punto único de promoción.
+     *
+     * @param {object} rawPayload Item ya mapeado (use `mapDynamoItemForPromotion` antes si viene de Dynamo).
+     * @param {'dynamo_stream'|'n8n_webhook'|'excel_etl'|'manual'} source Origen.
+     * @param {object} [meta] Metadata adicional.
+     * @param {string} [meta.eventType] 'INSERT' | 'MODIFY' | 'REMOVE' | 'BATCH_IMPORT'.
+     * @param {string} [meta.sequenceNumber] (solo Dynamo Stream).
+     * @param {string} [meta.shardId] (solo Dynamo Stream).
+     * @param {boolean} [meta.forcePromote] Forzar upsert aunque status no sea terminal.
+     * @param {string} [meta.tipoPersonal] 'consultor' | 'staff' | 'sena' | 'alianza' (default 'consultor').
+     * @returns {Promise<{ ok: boolean, status: string, stagingId: string, cedula?: string, error?: string }>}
+     */
+    async function promoteToColaborador(rawPayload, source, meta = {}) {
+        const validSources = new Set(['dynamo_stream', 'n8n_webhook', 'excel_etl', 'manual']);
+        if (!validSources.has(source)) {
+            throw new Error(`source inválido: ${source}`);
+        }
+        const eventType = meta.eventType || 'INSERT';
+
+        // Si es REMOVE: no promovemos, solo loggeamos. Las bajas las decide CH.
+        if (eventType === 'REMOVE') {
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                const { stagingId } = await upsertStaging(client, {
+                    source,
+                    externalId: rawPayload && (rawPayload.whatsapp_number || rawPayload.dynamo_external_id || rawPayload.cedula),
+                    eventType,
+                    sequenceNumber: meta.sequenceNumber,
+                    shardId: meta.shardId,
+                    rawPayload
+                });
+                await markStaging(client, stagingId, { status: 'rechazado', error: 'REMOVE event' });
+                await client.query('COMMIT');
+                return { ok: true, status: 'rechazado', stagingId };
+            } catch (e) {
+                try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+                throw e;
+            } finally {
+                client.release();
+            }
+        }
+
+        // Validación Zod (relajada): saca defaults útiles
+        let validated;
+        try {
+            validated = promotionPayloadSchema.parse(rawPayload || {});
+        } catch (e) {
+            // Aún si Zod falla, queremos guardar el raw en staging para inspección
+            warn('Zod parse failed; se guarda raw en staging', { error: String(e && e.message) });
+            validated = { ...(rawPayload || {}) };
+        }
+
+        const externalId =
+            validated.whatsapp_number ||
+            validated.dynamo_external_id ||
+            validated.cedula ||
+            (rawPayload && (rawPayload.whatsapp_number || rawPayload.id || rawPayload.email)) ||
+            null;
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            const { stagingId } = await upsertStaging(client, {
+                source,
+                externalId,
+                eventType,
+                sequenceNumber: meta.sequenceNumber,
+                shardId: meta.shardId,
+                rawPayload: { ...rawPayload, __validated: validated }
+            });
+
+            const status = validated.status;
+
+            // Rechazo: solo marca staging, no toca colaboradores
+            if (isRejectedStatus(status)) {
+                await markStaging(client, stagingId, { status: 'rechazado', error: `Status rechazado en n8n: ${status}` });
+                await client.query('COMMIT');
+                return { ok: true, status: 'rechazado', stagingId };
+            }
+
+            // Determinar si corresponde upsert
+            const shouldUpsert = Boolean(meta.forcePromote) || isTerminalStatus(status);
+            if (!shouldUpsert) {
+                await markStaging(client, stagingId, { status: 'recibido' });
+                await client.query('COMMIT');
+                return { ok: true, status: 'recibido', stagingId };
+            }
+
+            // Requeridos para upsert terminal
+            const missing = [];
+            if (!validated.cedula) missing.push('cedula');
+            if (!validated.nombre) missing.push('nombre');
+            // correo_cinte es necesario para login Entra; lo exigimos en flujo automático.
+            // Para `manual` lo dejamos opcional (CH puede dar de alta sin correo y completarlo después).
+            if (source !== 'manual' && source !== 'excel_etl' && !validated.correo_cinte) {
+                missing.push('correo_cinte');
+            }
+
+            if (missing.length) {
+                const err = `Faltan requeridos: ${missing.join(', ')}`;
+                await markStaging(client, stagingId, { status: 'requiere_revision', error: err });
+                await client.query('COMMIT');
+                return { ok: false, status: 'requiere_revision', stagingId, error: err };
+            }
+
+            const cedulaInsertada = await upsertColaborador(client, validated, {
+                source,
+                tipoPersonal: meta.tipoPersonal
+            });
+
+            await markStaging(client, stagingId, { status: 'aplicado', cedula: cedulaInsertada });
+            await client.query('COMMIT');
+            return { ok: true, status: 'aplicado', stagingId, cedula: cedulaInsertada };
+        } catch (e) {
+            try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+            warn('promoteToColaborador failed', { error: String(e && e.message), source });
+            throw e;
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Helper para casos donde el ETL del Excel ya tiene un payload completo (no necesita
+     * pasar por validación estricta de Zod). Hace upsert directo en `colaboradores`
+     * usando las columnas extendidas adicionales si vienen.
+     *
+     * @param {object} extendedPayload Payload con cualquier campo extendido (`tarifa_cliente`, `eps`, etc).
+     * @param {{ tipoPersonal?: string, activo?: boolean, source?: string }} [opts]
+     */
+    async function upsertColaboradorExtended(extendedPayload, opts = {}) {
+        const source = opts.source || 'excel_etl';
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            const { stagingId } = await upsertStaging(client, {
+                source,
+                externalId: extendedPayload.cedula,
+                eventType: 'BATCH_IMPORT',
+                rawPayload: extendedPayload
+            });
+
+            // Para ETL: insertamos cédula y luego dejamos que un UPDATE separado actualice las
+            // columnas extendidas (evitamos generar un INSERT enorme con 80 columnas).
+            const cedulaNorm = normalizeCedula(extendedPayload.cedula);
+            if (!cedulaNorm) {
+                await markStaging(client, stagingId, { status: 'requiere_revision', error: 'cedula vacía o no numérica' });
+                await client.query('COMMIT');
+                return { ok: false, status: 'requiere_revision', stagingId, error: 'cedula vacía o no numérica' };
+            }
+
+            const nombreVal = trimOrNull(extendedPayload.nombre) || 'SIN NOMBRE';
+            const activo = opts.activo !== undefined ? Boolean(opts.activo) : true;
+            const tp = opts.tipoPersonal || extendedPayload.tipo_personal || 'consultor';
+
+            await client.query(
+                `INSERT INTO colaboradores (cedula, nombre, activo, tipo_personal, created_at, updated_at)
+                 VALUES ($1, $2, $3, $4, NOW(), NOW())
+                 ON CONFLICT (cedula) DO UPDATE SET
+                    nombre = COALESCE(NULLIF(EXCLUDED.nombre, ''), colaboradores.nombre),
+                    /* activo SE puede actualizar desde ETL (es la fuente histórica) */
+                    activo = EXCLUDED.activo,
+                    tipo_personal = COALESCE(EXCLUDED.tipo_personal, colaboradores.tipo_personal),
+                    updated_at = NOW()`,
+                [cedulaNorm, nombreVal, activo, tp]
+            );
+
+            // Update granular de columnas presentes en el payload extendido
+            const updatable = buildExtendedUpdate(extendedPayload, cedulaNorm);
+            if (updatable.cols.length) {
+                await client.query(
+                    `UPDATE colaboradores SET ${updatable.cols.join(', ')}, updated_at = NOW()
+                     WHERE cedula = $1`,
+                    [cedulaNorm, ...updatable.values]
+                );
+            }
+
+            await markStaging(client, stagingId, { status: 'aplicado', cedula: cedulaNorm });
+            await client.query('COMMIT');
+            return { ok: true, status: 'aplicado', stagingId, cedula: cedulaNorm };
+        } catch (e) {
+            try { await client.query('ROLLBACK'); } catch { /* ignore */ }
+            throw e;
+        } finally {
+            client.release();
+        }
+    }
+
+    return {
+        promoteToColaborador,
+        upsertColaboradorExtended,
+        mapDynamoItemForPromotion,
+        isTerminalStatus,
+        isRejectedStatus,
+        normalizeCedula
+    };
+}
+
+/**
+ * Construye un UPDATE granular dinámico para columnas extendidas presentes en el payload.
+ * Se ejecuta SOLO con campos no-null. Salta `cedula` (PK) y `created_at`.
+ *
+ * @returns {{ cols: string[], values: any[] }} `cols` ya incluye el `$N` correspondiente.
+ */
+function buildExtendedUpdate(payload, cedula) {
+    const skip = new Set(['cedula', 'nombre', 'activo', 'tipo_personal', 'created_at', '__raw']);
+    const cols = [];
+    const values = [];
+    let idx = 2; // $1 = cedula en WHERE
+    for (const [key, val] of Object.entries(payload || {})) {
+        if (skip.has(key)) continue;
+        if (val === undefined) continue;
+        // Aceptamos null para limpiar el campo
+        cols.push(`${key} = $${idx}`);
+        values.push(val);
+        idx += 1;
+    }
+    return { cols, values };
+}
+
+module.exports = {
+    createOnboardingPromotionService,
+    mapDynamoItemForPromotion,
+    isTerminalStatus,
+    isRejectedStatus,
+    TERMINAL_STATUSES,
+    REJECTED_STATUSES
+};

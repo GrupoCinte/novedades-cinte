@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Briefcase, Building2, Calculator, Scale, Users } from 'lucide-react';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
+import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
 import UserAccountMenu from './UserAccountMenu.jsx';
 import { useUiTheme } from './UiThemeContext.jsx';
@@ -61,22 +62,22 @@ function cardVisuals(key) {
                 cta: 'text-[#088DC6]'
             }
         },
-        contratacion: {
+        capitalHumano: {
             dark: {
-                shell: 'border border-[#2F7BB8]/18 bg-gradient-to-br from-[#004D87]/10 via-[#062440]/20 to-[#041a30]/30 shadow-[0_8px_36px_-10px_rgba(0,0,0,0.35)] hover:border-[#65BCF7]/30 hover:shadow-[0_14px_48px_-8px_rgba(0,77,135,0.24)]',
-                bar: 'bg-[#004D87]/90',
-                iconWrap: 'border border-[#2F7BB8]/25 bg-[#004D87]/14 text-[#b3d4f5] backdrop-blur-md',
-                title: 'text-white drop-shadow-[0_1px_10px_rgba(0,0,0,0.55)] group-hover:text-[#b3d4f5]',
+                shell: 'border border-[#2F7BB8]/22 bg-gradient-to-br from-[#1a5f8a]/14 via-[#0a2538]/22 to-[#04141E]/30 shadow-[0_8px_36px_-10px_rgba(0,0,0,0.35)] hover:border-[#65BCF7]/36 hover:shadow-[0_14px_48px_-8px_rgba(47,123,184,0.30)]',
+                bar: 'bg-[#2F7BB8]/90',
+                iconWrap: 'border border-[#2F7BB8]/28 bg-[#1a5f8a]/16 text-[#bfe3ff] backdrop-blur-md',
+                title: 'text-white drop-shadow-[0_1px_10px_rgba(0,0,0,0.55)] group-hover:text-[#bfe3ff]',
                 desc: 'text-slate-100/88 drop-shadow-[0_1px_6px_rgba(0,0,0,0.45)]',
-                cta: 'text-[#b3daf5] drop-shadow-[0_1px_6px_rgba(0,0,0,0.4)]'
+                cta: 'text-[#bfe3ff] drop-shadow-[0_1px_6px_rgba(0,0,0,0.4)]'
             },
             light: {
-                shell: 'border border-blue-200/45 bg-gradient-to-br from-white/26 via-blue-50/18 to-slate-50/24 shadow-[0_8px_36px_-12px_rgba(0,77,135,0.1)] hover:border-blue-300/65 hover:shadow-[0_14px_44px_-10px_rgba(0,77,135,0.16)]',
-                bar: 'bg-[#004D87]',
-                iconWrap: 'border border-blue-300/48 bg-blue-100/38 text-[#003366] backdrop-blur-md',
-                title: 'text-slate-900 group-hover:text-[#004D87]',
+                shell: 'border border-sky-200/42 bg-gradient-to-br from-white/28 via-sky-50/22 to-indigo-50/22 shadow-[0_8px_36px_-12px_rgba(14,116,188,0.12)] hover:border-sky-300/55 hover:shadow-[0_14px_44px_-10px_rgba(14,116,188,0.18)]',
+                bar: 'bg-[#1a5f8a]',
+                iconWrap: 'border border-sky-300/45 bg-sky-100/40 text-[#1e5a8a] backdrop-blur-md',
+                title: 'text-slate-900 group-hover:text-[#1a5f8a]',
                 desc: 'text-slate-700/92',
-                cta: 'text-[#004D87]'
+                cta: 'text-[#1a5f8a]'
             }
         },
         directorio: {
@@ -114,7 +115,7 @@ function cardVisuals(key) {
                 desc: 'text-slate-700/92',
                 cta: 'text-[#2F7BB8]'
             }
-        }
+        },
     };
     return map[key] || map.novedades;
 }
@@ -155,12 +156,12 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 Icon: Calculator
             });
         }
-        if (userHasContratacionPanel(auth)) {
+        if (userHasContratacionPanel(auth) || userHasOnboardingPanel(auth)) {
             out.push({
-                key: 'contratacion',
-                title: 'Capital Humano Onboarding',
-                description: 'Trámites, beneficios, capacitación y desarrollo.',
-                path: '/admin/contratacion',
+                key: 'capitalHumano',
+                title: 'Capital Humano',
+                description: 'Monitor n8n, personal, bajas, SENA, staff, licencias, calculadora y reportes.',
+                path: '/admin/capital-humano',
                 Icon: Users
             });
         }

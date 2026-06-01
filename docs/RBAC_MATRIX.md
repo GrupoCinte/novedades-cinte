@@ -18,16 +18,16 @@
 
 ## 2. Tabla maestra: qué puede hacer cada rol
 
-| Rol (nombre en sistema) | Rol en negocio (referencia) | Entrada al portal admin `/admin` | Módulo **Novedades** (tablero, calendario, gestión, alertas) | Módulo **Comercial** (cotizador) | Módulo **Contratación** (onboarding Capital Humano) | Módulo **Directorio** (catálogo cliente–líder, colaboradores, reubicaciones, datos maestros) |
-|-------------------------|-----------------------------|-----------------------------------|---------------------------------------------------------------|-------------------------------------|------------------------------------------------------|-----------------------------------------------------------------------------------------------|
-| **Super administrador** | Control total técnico | Sí | Todo el ciclo: ver **todas** las áreas y tipos; aprobar o rechazar cualquier tipo; editar o borrar solicitudes con políticas de auditoría | Sí | Sí | Sí |
-| **CAC** | Control operativo amplio (ej. mesa de control) | Sí | Igual que super administrador en **visibilidad y decisión** sobre novedades (incluye todos los tipos y todas las áreas). **No** usa cotización ni onboarding CH desde este portal | **No** | **No** | **Sí** (misma capacidad operativa que super admin en directorio) |
-| **Admin Capital Humano** | Responsable CH | Sí | Ve **todas** las áreas y **todos** los tipos de solicitud. Aprueba según reglas por tipo (ver sección 4). Accede a tablero, calendario y gestión | **No** | Sí | **No** |
-| **Equipo Capital Humano** | Operativo CH | Sí | Misma **visibilidad** amplia que Admin CH (todas las áreas y tipos). Las **aprobaciones** dependen del tipo (ver sección 4) | **No** | Sí | **No** |
-| **Comercial** | Fuerza comercial | Solo si la ruta lo permite | Normalmente **no** entra al shell clásico de novedades | **Sí** (es su módulo principal) | No | No |
-| **GP** (Gestión de proyectos) | Coordinación operativa | Sí | Solo **Gestión de novedades** (sin tablero ni calendario como menú principal). Ve solicitudes de sus **clientes asignados**. Aprueba tipos operativos (Hora extra, disponibilidad, etc.) | No | No | No |
-| **Nómina** | Área financiera / nómina | Sí | Tablero, calendario y gestión. Ve **todas las áreas**. **No** aprueba solicitudes: solo **verifica** información en tipos que lo requieren antes de que CH apruebe | No | No | No |
-| **Consultor** (Microsoft) | Externo | Redirige a **`/consultor`**, no al admin staff | Radicación y seguimiento en portal consultor | No | No | No |
+| Rol (nombre en sistema) | Rol en negocio (referencia) | Entrada al portal admin `/admin` | Módulo **Novedades** (tablero, calendario, gestión, alertas) | Módulo **Comercial** (cotizador) | Módulo **Contratación** (monitor n8n) | Módulo **Onboarding** (maestro de personal: activos, bajas, SENA, staff, licencias, calculadora, extranjeros, pólizas, capacitaciones) | Módulo **Directorio** (catálogo cliente–líder, colaboradores, reubicaciones, datos maestros) |
+|-------------------------|-----------------------------|-----------------------------------|---------------------------------------------------------------|-------------------------------------|------------------------------------------------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------|
+| **Super administrador** | Control total técnico | Sí | Todo el ciclo: ver **todas** las áreas y tipos; aprobar o rechazar cualquier tipo; editar o borrar solicitudes con políticas de auditoría | Sí | Sí | Sí (lectura + escritura + bajas) | Sí |
+| **CAC** | Control operativo amplio (ej. mesa de control) | Sí | Igual que super administrador en **visibilidad y decisión** sobre novedades (incluye todos los tipos y todas las áreas). **No** usa cotización ni onboarding CH desde este portal | **No** | **No** | Sí (paridad super_admin en HR) | **Sí** (misma capacidad operativa que super admin en directorio) |
+| **Admin Capital Humano** | Responsable CH | Sí | Ve **todas** las áreas y **todos** los tipos de solicitud. Aprueba según reglas por tipo (ver sección 4). Accede a tablero, calendario y gestión | **No** | Sí | Sí (lectura + escritura + bajas) | **No** |
+| **Equipo Capital Humano** | Operativo CH | Sí | Misma **visibilidad** amplia que Admin CH (todas las áreas y tipos). Las **aprobaciones** dependen del tipo (ver sección 4) | **No** | Sí | Sí (lectura + edición ficha; **NO** tramita bajas) | **No** |
+| **Comercial** | Fuerza comercial | Solo si la ruta lo permite | Normalmente **no** entra al shell clásico de novedades | **Sí** (es su módulo principal) | No | No | No |
+| **GP** (Gestión de proyectos) | Coordinación operativa | Sí | Solo **Gestión de novedades** (sin tablero ni calendario como menú principal). Ve solicitudes de sus **clientes asignados**. Aprueba tipos operativos (Hora extra, disponibilidad, etc.) | No | No | Sí (**solo lectura** de sus clientes asignados) | No |
+| **Nómina** | Área financiera / nómina | Sí | Tablero, calendario y gestión. Ve **todas las áreas**. **No** aprueba solicitudes: solo **verifica** información en tipos que lo requieren antes de que CH apruebe | No | No | Sí (lectura: calculadora y bajas, reporte de rotación) | No |
+| **Consultor** (Microsoft) | Externo | Redirige a **`/consultor`**, no al admin staff | Radicación y seguimiento en portal consultor | No | No | No | No |
 
 ---
 
@@ -73,7 +73,8 @@ Al entrar a **`/admin`** con sesión válida, según el rol aparecen tarjetas co
 - **Gestión de Novedades** — quien tenga permiso de novedades.
 - **Conciliaciones** — misma condición de acceso que Gestión de Novedades; en la versión actual es **solo lectura** (resumen por cliente y mes con novedades **aprobadas**).
 - **Módulo Comercial** — cotizador; **no** aplica a **CAC**, **GP**, **Nómina**, ni a **Admin CH** ni **Equipo CH** (solo quienes tienen rol pensado para comercial o super administrador).
-- **Capital Humano Onboarding** — contratación; **sí** aplica a **Admin CH** y **Equipo CH**; **no** aplica a **CAC**.
+- **Capital Humano Onboarding (monitor n8n)** — contratación en tiempo real desde DynamoDB; **sí** aplica a **Admin CH** y **Equipo CH**; **no** aplica a **CAC**.
+- **Onboarding (maestro de personal)** — módulo madre con personal activo, bajas, SENA, staff, licencias, calculadora, extranjeros, pólizas y capacitaciones. Aplica a **Super administrador**, **CAC**, **Admin CH**, **Equipo CH**; **GP** y **Nómina** ven el módulo en modo lectura con su alcance.
 - **Módulo de administración** (Directorio) — **Super administrador** y **CAC**; **Admin CH** y **Equipo CH** **no** tienen esta tarjeta.
 
 ---

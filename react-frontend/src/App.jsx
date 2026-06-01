@@ -13,13 +13,15 @@ import ForgotPassword from './ForgotPassword';
 import ResetPassword from './ResetPassword';
 import ChangePassword from './ChangePassword';
 import ComercialModule from './ComercialModule';
-import ContratacionModule from './ContratacionModule';
+import CapitalHumanoModule from './CapitalHumanoModule';
 import DirectorioClienteColaboradorModule from './DirectorioClienteColaboradorModule';
 import ConciliacionesModule from './conciliaciones/ConciliacionesModule.jsx';
 import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboardPage.jsx';
 import ConciliacionesPage from './conciliaciones/ConciliacionesPage.jsx';
+import ConciliacionesFacturacionPage from './conciliaciones/ConciliacionesFacturacionPage.jsx';
 import AdminPortalHome from './AdminPortalHome';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
+import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
 import { cognitoSignOut } from './cognitoAuth';
@@ -59,7 +61,7 @@ function adminPortalModuleCount(auth) {
     n += 1;
   }
   if (userHasCotizadorAccess(auth)) n += 1;
-  if (userHasContratacionPanel(auth)) n += 1;
+  if (userHasContratacionPanel(auth) || userHasOnboardingPanel(auth)) n += 1;
   if (userHasDirectorioPanel(auth)) n += 1;
   return n;
 }
@@ -324,6 +326,7 @@ function App() {
               element={<ConciliacionesDashboardPage token={auth?.token || ''} />}
             />
             <Route path="resumen" element={<ConciliacionesPage token={auth?.token || ''} />} />
+            <Route path="facturacion" element={<ConciliacionesFacturacionPage token={auth?.token || ''} />} />
           </Route>
           <Route
             path="/admin"
@@ -370,17 +373,20 @@ function App() {
           />
           <Route path="/admin/catalogo-ti-roles" element={<Navigate to="/admin/directorio?v=catalogo-ti" replace />} />
           <Route
-            path="/admin/contratacion"
+            path="/admin/capital-humano"
             element={(
               <ProtectedRoute auth={auth}>
-                {auth?.user && userHasContratacionPanel(auth) ? (
-                  <ContratacionModule auth={auth} onLogout={handleLogout} />
+                {auth?.user && (userHasContratacionPanel(auth) || userHasOnboardingPanel(auth)) ? (
+                  <CapitalHumanoModule auth={auth} onLogout={handleLogout} />
                 ) : (
                   <Navigate to="/admin" replace />
                 )}
               </ProtectedRoute>
             )}
           />
+          {/* Rutas legadas: redirigen al hub Capital Humano preseleccionando la vista. */}
+          <Route path="/admin/contratacion" element={<Navigate to="/admin/capital-humano?v=monitor-active" replace />} />
+          <Route path="/admin/onboarding" element={<Navigate to="/admin/capital-humano?v=personal" replace />} />
           <Route
             path="/admin/directorio"
             element={(

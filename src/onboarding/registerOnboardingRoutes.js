@@ -1,0 +1,1610 @@
+/**
+ * Rutas REST del módulo Onboarding.
+ *
+ * - POST /api/onboarding/intake (auth API key) — entrada manual/reintentos/ETL externo.
+ * - GET  /api/onboarding/personal — lista del maestro `colaboradores` con filtros.
+ * - GET  /api/onboarding/bajas    — colaboradores con baja efectiva o motivo registrado.
+ * - GET  /api/onboarding/sena     — subvista `tipo_personal='sena'`.
+ * - GET  /api/onboarding/staff    — subvista `tipo_personal='staff'`.
+ * - GET  /api/onboarding/licencias[/:cedula] — licencias maternidad/paternidad/lactancia.
+ * - GET  /api/onboarding/calculadora/:cedula | PUT /api/onboarding/calculadora/:cedula
+ * - GET  /api/onboarding/documentos-extranjeros[/:cedula] | PUT ./:cedula
+ * - GET  /api/onboarding/polizas
+ * - GET  /api/onboarding/capacitaciones
+ * - GET  /api/onboarding/catalogos/motivo-baja | /ciudades | /eps | /afp | /arl | /ccf
+ * - GET  /api/onboarding/reportes/rotacion
+ * - GET  /api/onboarding/staging — auditoría del buzón (solo super_admin).
+ * - PATCH /api/onboarding/personal/:cedula/baja — marca baja con motivo legal del catálogo.
+ *
+ * RBAC: el panel `onboarding` se controla por `src/rbac.js`. GP queda acotado a sus clientes
+ * (`gp_user_id`) en todas las lecturas; admin_ch/team_ch ven todo; nómina solo lectura.
+ */
+
+const { z } = require('zod');
+const crypto = require('node:crypto');
+const {
+    createOnboardingPromotionService,
+    mapDynamoItemForPromotion
+} = require('./onboardingPromotionService');
+const { normalizeRoleOrNull } = require('../rbac');
+const { buildColaboradorExtendedZodShape } = require('../colaboradores/colaboradoresExtendedZod');
+
+/**
+ * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
+ */
+async function writeAudit(pool, row) {
+    try {
+        await pool.query(
+            `INSERT INTO audit_log (actor_user_id, actor_role, action, entity_type, entity_id, metadata)
+             VALUES ($1::uuid, $2::user_role, $3, $4, $5::uuid, $6::jsonb)`,
+            [
+                row.actorUserId || null,
+                row.actorRole || null,
+                row.action,
+                row.entityType,
+                row.entityId || null,
+                JSON.stringify(row.metadata || {})
+            ]
+        );
+    } catch (e) {
+        console.warn('[Onboarding] audit_log omitido:', e.message);
+    }
+}
+
+function parseUuidActor(sub) {
+    const s = String(sub || '').trim();
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) return s;
+    return null;
+}
+
+/** Filtra GP a sus clientes. Devuelve los clientes asignados (cadenas trim). */
+async function listAssignedClientesForGp(pool, gpUserId) {
+    if (!gpUserId) return [];
+    const q = await pool.query(
+        `SELECT DISTINCT TRIM(cliente) AS cliente
+         FROM clientes_lideres
+         WHERE gp_user_id = $1::uuid AND activo = TRUE`,
+        [gpUserId]
+    );
+    return (q.rows || []).map((r) => String(r.cliente || '').trim()).filter(Boolean);
+}
+
+/**
+ * Construye un filtro SQL para acotar listados al scope del usuario.
+ * Para `gp` exige `gp_user_id = $userId` O `cliente IN (...assigned)`.
+ *
+ * @returns {{ where: string, params: any[] }}
+ */
+async function buildScopeFilter(pool, user) {
+    const role = normalizeRoleOrNull(user && user.role);
+    const sub = String((user && user.sub) || '').trim();
+    const isUuidSub = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sub);
+    if (role === 'gp' && isUuidSub) {
+        const clientes = await listAssignedClientesForGp(pool, sub);
+        if (clientes.length === 0) {
+            // GP sin clientes → no ve nada
+            return { where: 'FALSE', params: [] };
+        }
+        // gp_user_id snapshot o cliente vinculado
+        return {
+            where: '(c.gp_user_id = $G_USER OR LOWER(TRIM(c.cliente)) = ANY($G_CLIENTES))',
+            params: [sub, clientes.map((s) => s.toLowerCase())],
+            placeholders: ['$G_USER', '$G_CLIENTES']
+        };
+    }
+    return { where: 'TRUE', params: [], placeholders: [] };
+}
+
+function applyScopePlaceholders(whereTemplate, paramIdxStart, scopeFilter) {
+    if (!scopeFilter.placeholders || scopeFilter.placeholders.length === 0) {
+        return { sql: whereTemplate, idx: paramIdxStart };
+    }
+    let sql = whereTemplate;
+    let nextIdx = paramIdxStart;
+    for (const placeholder of scopeFilter.placeholders) {
+        sql = sql.replace(placeholder, `$${nextIdx}`);
+        nextIdx += 1;
+    }
+    return { sql, idx: nextIdx };
+}
+
+/**
+ * @typedef OnboardingRoutesDeps
+ * @property {import('express').Express} app
+ * @property {import('pg').Pool} pool
+ * @property {Function} verificarToken
+ * @property {Function} allowPanel
+ * @property {Function} allowRoles
+ * @property {Function} disallowRoles
+ * @property {Function} adminActionLimiter
+ * @property {Function} catalogLimiter
+ * @property {Function} normalizeCedula
+ */
+
+/** @param {OnboardingRoutesDeps} deps */
+function registerOnboardingRoutes(deps) {
+    const {
+        app,
+        pool,
+        verificarToken,
+        allowPanel,
+        allowRoles,
+        adminActionLimiter,
+        catalogLimiter,
+        normalizeCedula,
+        updateColaboradorByCedula
+    } = deps;
+
+    if (!app || !pool || !verificarToken || !allowPanel) {
+        throw new Error('registerOnboardingRoutes: dependencias incompletas.');
+    }
+
+    const promotion = createOnboardingPromotionService({ pool });
+
+    /** Lecturas (panel onboarding). */
+    const readGuard = [verificarToken, allowPanel('onboarding')];
+    /** Escrituras (panel onboarding + roles administrativos). Excluye `gp` y `nomina`. */
+    const writeGuard = [
+        verificarToken,
+        allowPanel('onboarding'),
+        adminActionLimiter,
+        allowRoles(['super_admin', 'admin_ch', 'cac'])
+    ];
+    /** Edición de ficha de colaborador: incluye team_ch (no puede tramitar baja). */
+    const writeFichaGuard = [
+        verificarToken,
+        allowPanel('onboarding'),
+        adminActionLimiter,
+        allowRoles(['super_admin', 'admin_ch', 'team_ch', 'cac'])
+    ];
+    /** Sólo super_admin para staging (datos crudos sensibles). */
+    const adminOnlyGuard = [verificarToken, allowPanel('onboarding'), allowRoles(['super_admin'])];
+    /** Catálogos (todo el panel onboarding). */
+    const catGuard = [verificarToken, allowPanel('onboarding'), catalogLimiter];
+
+    const colabExtendedShape = buildColaboradorExtendedZodShape();
+    const colabPatchSchema = z.object({
+        nombre: z.string().min(2).max(400).optional(),
+        correo_cinte: z.string().email().max(320).optional().nullable(),
+        cliente: z.string().max(500).optional().nullable(),
+        lider_catalogo: z.string().max(500).optional().nullable(),
+        gp_user_id: z.string().uuid().optional().nullable(),
+        activo: z.boolean().optional(),
+        ...colabExtendedShape
+    });
+    /** Alta de colaborador: cédula y nombre obligatorios; resto opcional (mismo shape extendido). */
+    const colabCreateSchema = colabPatchSchema.extend({
+        cedula: z.string().regex(/^\d{4,20}$/, 'cédula debe tener entre 4 y 20 dígitos'),
+        nombre: z.string().min(2).max(400)
+    });
+
+    /* =========================================================================
+     * Intake (n8n webhook / reintentos / ETL externo).
+     * Auth por API key + HMAC opcional. No usa JWT (es un endpoint server-to-server).
+     * ========================================================================= */
+    function checkIntakeAuth(req, res) {
+        const expectedKey = (process.env.ONBOARDING_INGEST_KEY || '').trim();
+        if (!expectedKey) {
+            res.status(503).json({ ok: false, error: 'Onboarding intake no configurado (falta ONBOARDING_INGEST_KEY).' });
+            return false;
+        }
+        const headerKey = String(req.get('x-onboarding-key') || '').trim();
+        if (!headerKey || headerKey !== expectedKey) {
+            res.status(401).json({ ok: false, error: 'API key inválida.' });
+            return false;
+        }
+        // HMAC opcional
+        const hmacSecret = (process.env.ONBOARDING_INGEST_HMAC_SECRET || '').trim();
+        if (hmacSecret) {
+            const sigHeader = String(req.get('x-onboarding-signature') || '').trim();
+            if (!sigHeader.startsWith('sha256=')) {
+                res.status(401).json({ ok: false, error: 'Firma HMAC ausente o malformada.' });
+                return false;
+            }
+            const expectedHex = crypto
+                .createHmac('sha256', hmacSecret)
+                .update(JSON.stringify(req.body || {}))
+                .digest('hex');
+            const provided = sigHeader.slice('sha256='.length);
+            const okSig = expectedHex.length === provided.length &&
+                crypto.timingSafeEqual(Buffer.from(expectedHex, 'hex'), Buffer.from(provided, 'hex'));
+            if (!okSig) {
+                res.status(401).json({ ok: false, error: 'Firma HMAC inválida.' });
+                return false;
+            }
+        }
+        return true;
+    }
+
+    const intakeSchema = z.object({
+        source: z.enum(['dynamo_stream', 'n8n_webhook', 'excel_etl', 'manual']).optional(),
+        force_promote: z.boolean().optional(),
+        tipo_personal: z.enum(['consultor', 'staff', 'sena', 'alianza']).optional(),
+        /** Si `from_dynamo_raw=true`, el `payload` se trata como item Dynamo crudo y se mapea automáticamente. */
+        from_dynamo_raw: z.boolean().optional(),
+        payload: z.record(z.any())
+    });
+
+    app.post('/api/onboarding/intake', async (req, res) => {
+        if (!checkIntakeAuth(req, res)) return;
+        let body;
+        try {
+            body = intakeSchema.parse(req.body || {});
+        } catch (e) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: e.errors || e.message });
+        }
+        try {
+            const source = body.source || 'n8n_webhook';
+            const payload = body.from_dynamo_raw ? mapDynamoItemForPromotion(body.payload) : body.payload;
+            const result = await promotion.promoteToColaborador(payload, source, {
+                eventType: 'INSERT',
+                forcePromote: Boolean(body.force_promote),
+                tipoPersonal: body.tipo_personal
+            });
+            return res.status(result.ok ? 200 : 422).json(result);
+        } catch (e) {
+            console.error('[Onboarding intake]', e.message);
+            return res.status(500).json({ ok: false, error: 'Error interno', message: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Listados de personal (consultores activos, staff, sena, bajas, etc).
+     * ========================================================================= */
+    const personalQuerySchema = z.object({
+        tipo_personal: z.enum(['consultor', 'staff', 'sena', 'alianza']).optional(),
+        activo: z.enum(['true', 'false', 'all']).optional(),
+        pais: z.string().max(80).optional(),
+        cliente: z.string().max(500).optional(),
+        empleador: z.string().max(200).optional(),
+        puesto: z.string().max(200).optional(),
+        modalidad_trabajo: z.string().max(120).optional(),
+        motivo_baja: z.string().max(200).optional(),
+        fecha_ingreso_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        fecha_ingreso_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        fecha_baja_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        fecha_baja_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        gp_user_id: z.string().uuid().optional(),
+        q: z.string().max(200).optional(),
+        limit: z.coerce.number().int().min(1).max(2000).optional(),
+        offset: z.coerce.number().int().min(0).optional()
+    });
+
+    /**
+     * Construye listado paginado de `colaboradores` con filtros aplicados al scope del usuario.
+     */
+    async function listColaboradoresOnboarding(req, res, fixedFilters = {}) {
+        const parsed = personalQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        const filters = { ...parsed.data, ...fixedFilters };
+        const limit = Math.min(filters.limit || 100, 2000);
+        const offset = filters.offset || 0;
+
+        const scope = await buildScopeFilter(pool, req.user);
+        const where = [];
+        const params = [];
+        let p = 1;
+
+        if (filters.tipo_personal) {
+            params.push(filters.tipo_personal);
+            where.push(`c.tipo_personal = $${p++}`);
+        }
+        if (filters.activo === 'true') {
+            where.push(`c.activo = TRUE`);
+        } else if (filters.activo === 'false') {
+            where.push(`c.activo = FALSE`);
+        }
+        if (filters.pais) {
+            params.push(String(filters.pais).trim());
+            where.push(`LOWER(TRIM(c.pais)) = LOWER($${p++})`);
+        }
+        if (filters.cliente) {
+            params.push(String(filters.cliente).trim());
+            where.push(`LOWER(TRIM(c.cliente)) = LOWER($${p++})`);
+        }
+        if (filters.empleador) {
+            params.push(String(filters.empleador).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.empleador, ''))) = LOWER($${p++})`);
+        }
+        if (filters.puesto) {
+            params.push(`%${String(filters.puesto).toLowerCase()}%`);
+            where.push(`LOWER(COALESCE(c.puesto, '')) LIKE $${p++}`);
+        }
+        if (filters.modalidad_trabajo) {
+            params.push(String(filters.modalidad_trabajo).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.modalidad_trabajo, ''))) = LOWER($${p++})`);
+        }
+        if (filters.motivo_baja) {
+            params.push(String(filters.motivo_baja).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.motivo_baja, ''))) = LOWER($${p++})`);
+        }
+        if (filters.fecha_ingreso_desde) {
+            params.push(filters.fecha_ingreso_desde);
+            where.push(`c.fecha_ingreso >= $${p++}::date`);
+        }
+        if (filters.fecha_ingreso_hasta) {
+            params.push(filters.fecha_ingreso_hasta);
+            where.push(`c.fecha_ingreso <= $${p++}::date`);
+        }
+        // Flags privadas para particionar Personal Activo / Próximos a ingresar.
+        // - `_fecha_ingreso_futura`: solo colaboradores con fecha_ingreso > hoy.
+        // - `_fecha_ingreso_no_futura`: con fecha_ingreso <= hoy o sin fecha registrada.
+        if (filters._fecha_ingreso_futura) {
+            where.push(`c.fecha_ingreso IS NOT NULL AND c.fecha_ingreso > CURRENT_DATE`);
+        }
+        if (filters._fecha_ingreso_no_futura) {
+            where.push(`(c.fecha_ingreso IS NULL OR c.fecha_ingreso <= CURRENT_DATE)`);
+        }
+        if (filters.fecha_baja_desde) {
+            params.push(filters.fecha_baja_desde);
+            where.push(`c.fecha_baja_efectiva >= $${p++}::date`);
+        }
+        if (filters.fecha_baja_hasta) {
+            params.push(filters.fecha_baja_hasta);
+            where.push(`c.fecha_baja_efectiva <= $${p++}::date`);
+        }
+        if (filters.gp_user_id) {
+            params.push(filters.gp_user_id);
+            where.push(`c.gp_user_id = $${p++}::uuid`);
+        }
+        if (filters.q) {
+            params.push(`%${String(filters.q).toLowerCase()}%`);
+            where.push(`(LOWER(c.cedula) LIKE $${p} OR LOWER(c.nombre) LIKE $${p} OR LOWER(COALESCE(c.correo_cinte, '')) LIKE $${p})`);
+            p += 1;
+        }
+        if (filters._motivo_baja_present) {
+            where.push(`c.motivo_baja IS NOT NULL`);
+        }
+
+        // Scope GP
+        const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
+        if (scopeApplied.sql && scopeApplied.sql !== 'TRUE') {
+            where.push(scopeApplied.sql);
+            params.push(...scope.params);
+            p = scopeApplied.idx;
+        }
+        if (scopeApplied.sql === 'FALSE') {
+            return res.json({ ok: true, items: [], total: 0, limit, offset });
+        }
+
+        const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+        const countQ = await pool.query(
+            `SELECT COUNT(*)::int AS total FROM colaboradores c ${whereSql}`,
+            params
+        );
+        const total = countQ.rows[0] ? Number(countQ.rows[0].total) : 0;
+
+        // En el listado de "Próximos a ingresar" mostramos primero la fecha más
+        // cercana al día actual; en el resto mantenemos el orden histórico.
+        const orderBy = filters._fecha_ingreso_futura
+            ? 'c.fecha_ingreso ASC NULLS LAST, c.cedula'
+            : 'c.activo DESC, c.fecha_ingreso DESC NULLS LAST, c.cedula';
+
+        params.push(limit, offset);
+        const listQ = await pool.query(
+            `SELECT
+                c.cedula, c.nombre, c.activo, c.tipo_personal, c.correo_cinte, c.cliente,
+                c.lider_catalogo, c.gp_user_id,
+                c.pais, c.empleador, c.puesto, c.cliente_proyecto,
+                c.fecha_ingreso, c.fecha_termino, c.fecha_baja_efectiva,
+                c.motivo_baja, c.termino, c.tiempo_permanencia_meses,
+                c.whatsapp_number, c.onboarding_status, c.onboarding_completed_at,
+                c.created_at, c.updated_at
+             FROM colaboradores c
+             ${whereSql}
+             ORDER BY ${orderBy}
+             LIMIT $${p++} OFFSET $${p++}`,
+            params
+        );
+        return res.json({ ok: true, items: listQ.rows, total, limit, offset });
+    }
+
+    // Personal/SENA/Staff: excluyen automáticamente los que aún no han ingresado
+    // (fecha_ingreso futura). Esos se ven en /api/onboarding/proximos.
+    app.get('/api/onboarding/personal', ...readGuard, (req, res) =>
+        listColaboradoresOnboarding(req, res, { _fecha_ingreso_no_futura: true })
+    );
+    app.get('/api/onboarding/bajas', ...readGuard, (req, res) =>
+        listColaboradoresOnboarding(req, res, { activo: 'all', _motivo_baja_present: true })
+    );
+    app.get('/api/onboarding/sena', ...readGuard, (req, res) =>
+        listColaboradoresOnboarding(req, res, { tipo_personal: 'sena', _fecha_ingreso_no_futura: true })
+    );
+    app.get('/api/onboarding/staff', ...readGuard, (req, res) =>
+        listColaboradoresOnboarding(req, res, { tipo_personal: 'staff', _fecha_ingreso_no_futura: true })
+    );
+    // Próximos a ingresar: cualquier tipo_personal con fecha_ingreso > hoy.
+    app.get('/api/onboarding/proximos', ...readGuard, (req, res) =>
+        listColaboradoresOnboarding(req, res, { activo: 'true', _fecha_ingreso_futura: true })
+    );
+
+    /* =========================================================================
+     * Ficha completa de colaborador (modal de edición manual).
+     * GET   /api/onboarding/personal/:cedula → lectura (con scope GP).
+     * PATCH /api/onboarding/personal/:cedula → edición manual (writeFichaGuard).
+     * ========================================================================= */
+    app.get('/api/onboarding/personal/:cedula', ...readGuard, async (req, res) => {
+        const cedula = String(req.params.cedula || '').replace(/\D+/g, '');
+        if (!cedula) {
+            return res.status(400).json({ ok: false, error: 'cedula inválida' });
+        }
+        try {
+            // Aplica el scope GP igual que los listados: el WHERE base es por cédula y
+            // se concatena el filtro del scope si existe (FALSE bloquea, TRUE pasa).
+            const scope = await buildScopeFilter(pool, req.user);
+            const where = ['c.cedula = $1'];
+            const params = [cedula];
+            let p = 2;
+            const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
+            if (scopeApplied.sql && scopeApplied.sql !== 'TRUE') {
+                where.push(scopeApplied.sql);
+                params.push(...scope.params);
+                p = scopeApplied.idx;
+            }
+            if (scopeApplied.sql === 'FALSE') {
+                return res.status(403).json({ ok: false, error: 'fuera de scope' });
+            }
+            const q = await pool.query(
+                `SELECT c.* FROM colaboradores c WHERE ${where.join(' AND ')} LIMIT 1`,
+                params
+            );
+            if (q.rows.length === 0) {
+                // Para GP cuyo scope excluye la cédula, también caemos aquí porque el
+                // WHERE compuesto no devuelve fila. Distinguimos: si existe en la tabla
+                // sin scope, es 403; si no existe, 404.
+                const existsQ = await pool.query(
+                    `SELECT 1 FROM colaboradores WHERE cedula = $1 LIMIT 1`,
+                    [cedula]
+                );
+                if (existsQ.rows.length > 0) {
+                    return res.status(403).json({ ok: false, error: 'fuera de scope' });
+                }
+                return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
+            }
+            return res.json({ ok: true, item: q.rows[0] });
+        } catch (e) {
+            console.error('[Onboarding personal GET]', e.message);
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    app.patch('/api/onboarding/personal/:cedula', ...writeFichaGuard, async (req, res) => {
+        const cedula = String(req.params.cedula || '').replace(/\D+/g, '');
+        if (!cedula) {
+            return res.status(400).json({ ok: false, error: 'cedula inválida' });
+        }
+        if (typeof updateColaboradorByCedula !== 'function') {
+            return res.status(503).json({
+                ok: false,
+                error: 'updateColaboradorByCedula no disponible en este entorno.'
+            });
+        }
+        const parsed = colabPatchSchema.safeParse(req.body || {});
+        if (!parsed.success) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Payload inválido',
+                detail: parsed.error.errors
+            });
+        }
+        try {
+            const updated = await updateColaboradorByCedula(cedula, parsed.data);
+            if (!updated) {
+                return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
+            }
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user && req.user.sub),
+                actorRole: req.user && req.user.role,
+                action: 'colaboradores.patch_onboarding',
+                entityType: 'colaboradores',
+                entityId: null,
+                metadata: { cedula, patch: parsed.data }
+            });
+            return res.json({ ok: true, item: updated });
+        } catch (e) {
+            console.error('[Onboarding personal PATCH]', e.message);
+            const status = Number.isInteger(e?.status) ? e.status : 500;
+            return res.status(status).json({ ok: false, error: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Alta manual de colaborador (modal "Agregar" del onboarding).
+     * POST /api/onboarding/personal → crea fila base + aplica resto de campos.
+     * ========================================================================= */
+    app.post('/api/onboarding/personal', ...writeFichaGuard, async (req, res) => {
+        if (typeof updateColaboradorByCedula !== 'function') {
+            return res.status(503).json({
+                ok: false,
+                error: 'updateColaboradorByCedula no disponible en este entorno.'
+            });
+        }
+        const parsed = colabCreateSchema.safeParse(req.body || {});
+        if (!parsed.success) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Payload inválido',
+                detail: parsed.error.errors
+            });
+        }
+        const cedula = String(parsed.data.cedula).replace(/\D+/g, '');
+        if (!cedula) {
+            return res.status(400).json({ ok: false, error: 'cedula inválida' });
+        }
+        try {
+            const existsQ = await pool.query(
+                `SELECT 1 FROM colaboradores WHERE cedula = $1 LIMIT 1`,
+                [cedula]
+            );
+            if (existsQ.rows.length > 0) {
+                return res.status(409).json({ ok: false, error: 'Ya existe un colaborador con esa cédula.' });
+            }
+            const tipoPersonal = parsed.data.tipo_personal || 'consultor';
+            await pool.query(
+                `INSERT INTO colaboradores (cedula, nombre, activo, tipo_personal, created_at, updated_at)
+                 VALUES ($1, $2, TRUE, $3, NOW(), NOW())`,
+                [cedula, String(parsed.data.nombre).trim(), tipoPersonal]
+            );
+            // Resto de campos (cliente, líder, extendidos) vía el mismo helper del PATCH.
+            const { cedula: _omit, ...rest } = parsed.data;
+            const updated = await updateColaboradorByCedula(cedula, rest);
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user && req.user.sub),
+                actorRole: req.user && req.user.role,
+                action: 'colaboradores.create_onboarding',
+                entityType: 'colaboradores',
+                entityId: null,
+                metadata: { cedula }
+            });
+            return res.status(201).json({ ok: true, item: updated });
+        } catch (e) {
+            console.error('[Onboarding personal POST]', e.message);
+            const status = String(e?.code) === '23505' ? 409 : (Number.isInteger(e?.status) ? e.status : 500);
+            return res.status(status).json({ ok: false, error: e.message || 'No se pudo crear el colaborador.' });
+        }
+    });
+
+    /* =========================================================================
+     * Marcar baja con motivo legal del catálogo.
+     * Sólo super_admin / admin_ch / cac. team_ch no puede tramitar bajas.
+     * ========================================================================= */
+    const bajaSchema = z.object({
+        motivo_baja: z.string().min(2).max(200),
+        termino: z.string().max(500).optional().nullable(),
+        fecha_termino: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        observaciones: z.string().max(2000).optional().nullable()
+    });
+
+    app.patch('/api/onboarding/personal/:cedula/baja', ...writeGuard, async (req, res) => {
+        const cedula = String(req.params.cedula || '').replace(/\D+/g, '');
+        if (!cedula) {
+            return res.status(400).json({ ok: false, error: 'cedula inválida' });
+        }
+        const parsed = bajaSchema.safeParse(req.body || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
+        }
+        try {
+            // Verifica que el motivo esté en el catálogo activo
+            const catQ = await pool.query(
+                `SELECT 1 FROM cat_motivo_baja WHERE motivo = $1 AND activo = TRUE LIMIT 1`,
+                [parsed.data.motivo_baja]
+            );
+            if (catQ.rows.length === 0) {
+                return res.status(400).json({ ok: false, error: 'motivo_baja no está en el catálogo activo.' });
+            }
+
+            const fechaTermino = parsed.data.fecha_termino || null;
+            const q = await pool.query(
+                `UPDATE colaboradores SET
+                    activo = FALSE,
+                    motivo_baja = $1,
+                    termino = COALESCE($2, termino),
+                    fecha_termino = COALESCE($3::date, fecha_termino, CURRENT_DATE),
+                    fecha_baja_efectiva = COALESCE($3::date, CURRENT_DATE),
+                    tiempo_permanencia_meses = CASE
+                        WHEN fecha_ingreso IS NOT NULL
+                        THEN ROUND(EXTRACT(EPOCH FROM (COALESCE($3::date, CURRENT_DATE) - fecha_ingreso)) / (60*60*24*30.4375), 2)
+                        ELSE tiempo_permanencia_meses
+                    END,
+                    updated_at = NOW()
+                 WHERE cedula = $4
+                 RETURNING cedula, activo, motivo_baja, fecha_termino, fecha_baja_efectiva, tiempo_permanencia_meses`,
+                [parsed.data.motivo_baja, parsed.data.termino || null, fechaTermino, cedula]
+            );
+            if (q.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
+            }
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user && req.user.sub),
+                actorRole: req.user && req.user.role,
+                action: 'colaborador.baja',
+                entityType: 'colaborador',
+                entityId: null,
+                metadata: { cedula, ...parsed.data }
+            });
+            return res.json({ ok: true, item: q.rows[0] });
+        } catch (e) {
+            console.error('[Onboarding baja]', e.message);
+            return res.status(500).json({ ok: false, error: 'Error al marcar baja', message: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Calculadora salarial (1:1 por cédula).
+     * ========================================================================= */
+    app.get('/api/onboarding/calculadora/:cedula', ...readGuard, async (req, res) => {
+        const cedula = String(req.params.cedula || '').replace(/\D+/g, '');
+        if (!cedula) return res.status(400).json({ ok: false, error: 'cedula inválida' });
+        try {
+            const q = await pool.query(
+                `SELECT cs.*, c.nombre, c.cliente, c.tipo_personal
+                 FROM colaborador_calculo_salarial cs
+                 INNER JOIN colaboradores c ON c.cedula = cs.cedula
+                 WHERE cs.cedula = $1`,
+                [cedula]
+            );
+            return res.json({ ok: true, item: q.rows[0] || null });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    const calculadoraSchema = z.object({
+        costo_empresa: z.number().nullable().optional(),
+        tarifa_cliente: z.number().nullable().optional(),
+        pct_ajuste_salario: z.number().min(-1).max(5).optional(),
+        pct_ajuste_tarifa: z.number().min(-1).max(5).optional(),
+        moneda: z.string().max(3).optional(),
+        periodicidad_pago: z.string().max(60).optional(),
+        vigente_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        vigente_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable()
+    });
+
+    app.put('/api/onboarding/calculadora/:cedula', ...writeGuard, async (req, res) => {
+        const cedula = String(req.params.cedula || '').replace(/\D+/g, '');
+        if (!cedula) return res.status(400).json({ ok: false, error: 'cedula inválida' });
+        const parsed = calculadoraSchema.safeParse(req.body || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
+        }
+        try {
+            // Verifica que la cedula exista
+            const exists = await pool.query(`SELECT 1 FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            if (exists.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
+            }
+            const userId = parseUuidActor(req.user && req.user.sub);
+            const q = await pool.query(
+                `INSERT INTO colaborador_calculo_salarial
+                    (cedula, costo_empresa, tarifa_cliente, pct_ajuste_salario, pct_ajuste_tarifa,
+                     moneda, periodicidad_pago, vigente_desde, vigente_hasta, updated_by_user_id)
+                 VALUES ($1, $2, $3, COALESCE($4, 0), COALESCE($5, 0),
+                         COALESCE($6, 'COP'), $7, $8::date, $9::date, $10::uuid)
+                 ON CONFLICT (cedula) DO UPDATE SET
+                    costo_empresa = COALESCE(EXCLUDED.costo_empresa, colaborador_calculo_salarial.costo_empresa),
+                    tarifa_cliente = COALESCE(EXCLUDED.tarifa_cliente, colaborador_calculo_salarial.tarifa_cliente),
+                    pct_ajuste_salario = EXCLUDED.pct_ajuste_salario,
+                    pct_ajuste_tarifa = EXCLUDED.pct_ajuste_tarifa,
+                    moneda = COALESCE(EXCLUDED.moneda, colaborador_calculo_salarial.moneda),
+                    periodicidad_pago = COALESCE(EXCLUDED.periodicidad_pago, colaborador_calculo_salarial.periodicidad_pago),
+                    vigente_desde = COALESCE(EXCLUDED.vigente_desde, colaborador_calculo_salarial.vigente_desde),
+                    vigente_hasta = EXCLUDED.vigente_hasta,
+                    updated_by_user_id = EXCLUDED.updated_by_user_id
+                 RETURNING *`,
+                [
+                    cedula,
+                    parsed.data.costo_empresa ?? null,
+                    parsed.data.tarifa_cliente ?? null,
+                    parsed.data.pct_ajuste_salario ?? 0,
+                    parsed.data.pct_ajuste_tarifa ?? 0,
+                    parsed.data.moneda || null,
+                    parsed.data.periodicidad_pago || null,
+                    parsed.data.vigente_desde || null,
+                    parsed.data.vigente_hasta || null,
+                    userId
+                ]
+            );
+
+            // También actualizamos tarifa_cliente y costo_empresa en `colaboradores` para que
+            // Conciliaciones y otros módulos consuman valores frescos.
+            await pool.query(
+                `UPDATE colaboradores SET
+                    costo_empresa = COALESCE($1, costo_empresa),
+                    tarifa_cliente = COALESCE($2, tarifa_cliente),
+                    utilidad = COALESCE($3, utilidad),
+                    rt_aprox = COALESCE($4, rt_aprox),
+                    updated_at = NOW()
+                 WHERE cedula = $5`,
+                [
+                    q.rows[0].costo_empresa,
+                    q.rows[0].tarifa_cliente,
+                    q.rows[0].utilidad,
+                    q.rows[0].rt_aprox,
+                    cedula
+                ]
+            );
+
+            await writeAudit(pool, {
+                actorUserId: userId,
+                actorRole: req.user && req.user.role,
+                action: 'calculadora.upsert',
+                entityType: 'colaborador',
+                entityId: null,
+                metadata: { cedula, ...parsed.data }
+            });
+            return res.json({ ok: true, item: q.rows[0] });
+        } catch (e) {
+            console.error('[Onboarding calculadora]', e.message);
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Licencias de maternidad / paternidad / lactancia.
+     * ========================================================================= */
+    const licenciasQuerySchema = z.object({
+        q: z.string().max(200).optional(),
+        cliente: z.string().max(500).optional(),
+        tipo_licencia: z.enum(['maternidad', 'paternidad', 'lactancia']).optional(),
+        estado: z.enum(['abierta', 'cerrada']).optional(),
+        eps: z.string().max(200).optional(),
+        inicio_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        inicio_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        limit: z.coerce.number().int().min(1).max(2000).optional(),
+        offset: z.coerce.number().int().min(0).optional()
+    });
+
+    app.get('/api/onboarding/licencias', ...readGuard, async (req, res) => {
+        const parsed = licenciasQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        const filters = parsed.data;
+        const limit = Math.min(filters.limit || 100, 2000);
+        const offset = filters.offset || 0;
+        try {
+            const where = [];
+            const params = [];
+            let p = 1;
+            if (filters.q) {
+                params.push(`%${String(filters.q).toLowerCase()}%`);
+                where.push(`(LOWER(l.cedula) LIKE $${p} OR LOWER(COALESCE(c.nombre, '')) LIKE $${p})`);
+                p += 1;
+            }
+            if (filters.cliente) {
+                params.push(String(filters.cliente).trim());
+                where.push(`LOWER(TRIM(COALESCE(c.cliente, l.cliente))) = LOWER($${p++})`);
+            }
+            if (filters.tipo_licencia) {
+                params.push(filters.tipo_licencia);
+                where.push(`l.tipo_licencia = $${p++}`);
+            }
+            if (filters.estado) {
+                params.push(filters.estado);
+                where.push(`l.estado = $${p++}`);
+            }
+            if (filters.eps) {
+                params.push(String(filters.eps).trim());
+                where.push(`LOWER(TRIM(COALESCE(l.eps, ''))) = LOWER($${p++})`);
+            }
+            if (filters.inicio_desde) {
+                params.push(filters.inicio_desde);
+                where.push(`l.inicio_licencia >= $${p++}::date`);
+            }
+            if (filters.inicio_hasta) {
+                params.push(filters.inicio_hasta);
+                where.push(`l.inicio_licencia <= $${p++}::date`);
+            }
+            const scope = await buildScopeFilter(pool, req.user);
+            const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
+            if (scopeApplied.sql && scopeApplied.sql !== 'TRUE') {
+                where.push(scopeApplied.sql);
+                params.push(...scope.params);
+                p = scopeApplied.idx;
+            }
+            if (scopeApplied.sql === 'FALSE') {
+                return res.json({ ok: true, items: [], total: 0, limit, offset });
+            }
+            const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+            const countQ = await pool.query(
+                `SELECT COUNT(*)::int AS total
+                 FROM colaborador_licencias_maternidad l
+                 LEFT JOIN colaboradores c ON c.cedula = l.cedula
+                 ${whereSql}`,
+                params
+            );
+            const total = countQ.rows[0] ? Number(countQ.rows[0].total) : 0;
+            params.push(limit, offset);
+            const listQ = await pool.query(
+                `SELECT l.*, c.nombre, c.cliente, c.tipo_personal
+                 FROM colaborador_licencias_maternidad l
+                 LEFT JOIN colaboradores c ON c.cedula = l.cedula
+                 ${whereSql}
+                 ORDER BY l.inicio_licencia DESC NULLS LAST, l.created_at DESC
+                 LIMIT $${p++} OFFSET $${p++}`,
+                params
+            );
+            return res.json({ ok: true, items: listQ.rows, total, limit, offset });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    const licenciaSchema = z.object({
+        cedula: z.string().regex(/^\d+$/).min(5).max(20),
+        cliente: z.string().max(500).optional().nullable(),
+        tipo_licencia: z.enum(['maternidad', 'paternidad', 'lactancia']).optional(),
+        meses_gestacion: z.number().optional().nullable(),
+        parto_fecha_aproximada: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        inicio_licencia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        fin_licencia: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        eps: z.string().max(200).optional().nullable(),
+        observaciones: z.string().max(2000).optional().nullable(),
+        estado: z.enum(['abierta', 'cerrada']).optional()
+    });
+
+    app.post('/api/onboarding/licencias', ...writeGuard, async (req, res) => {
+        const parsed = licenciaSchema.safeParse(req.body || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
+        }
+        try {
+            const d = parsed.data;
+            const q = await pool.query(
+                `INSERT INTO colaborador_licencias_maternidad
+                    (cedula, cliente, tipo_licencia, meses_gestacion,
+                     parto_fecha_aproximada, inicio_licencia, fin_licencia,
+                     eps, observaciones, estado)
+                 VALUES ($1, $2, COALESCE($3, 'maternidad'), $4,
+                         $5::date, $6::date, $7::date,
+                         $8, $9, COALESCE($10, 'abierta'))
+                 RETURNING *`,
+                [
+                    d.cedula, d.cliente || null, d.tipo_licencia || null, d.meses_gestacion ?? null,
+                    d.parto_fecha_aproximada || null, d.inicio_licencia || null, d.fin_licencia || null,
+                    d.eps || null, d.observaciones || null, d.estado || null
+                ]
+            );
+            return res.json({ ok: true, item: q.rows[0] });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Documentos extranjeros (SIRE / RUTEC / PPT).
+     * ========================================================================= */
+    const extranjerosQuerySchema = z.object({
+        q: z.string().max(200).optional(),
+        cliente: z.string().max(500).optional(),
+        lugar_nacimiento: z.string().max(200).optional(),
+        tipo_identificacion: z.string().max(120).optional(),
+        estado_documento: z.string().max(80).optional(),
+        registro_sire: z.enum(['true', 'false']).optional(),
+        registro_rutec: z.enum(['true', 'false']).optional(),
+        vence_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        vence_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        limit: z.coerce.number().int().min(1).max(2000).optional(),
+        offset: z.coerce.number().int().min(0).optional()
+    });
+
+    app.get('/api/onboarding/documentos-extranjeros', ...readGuard, async (req, res) => {
+        const parsed = extranjerosQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        const filters = parsed.data;
+        const limit = Math.min(filters.limit || 100, 2000);
+        const offset = filters.offset || 0;
+        try {
+            const where = [];
+            const params = [];
+            let p = 1;
+            if (filters.q) {
+                params.push(`%${String(filters.q).toLowerCase()}%`);
+                where.push(`(LOWER(d.cedula) LIKE $${p} OR LOWER(COALESCE(c.nombre, '')) LIKE $${p})`);
+                p += 1;
+            }
+            if (filters.cliente) {
+                params.push(String(filters.cliente).trim());
+                where.push(`LOWER(TRIM(COALESCE(c.cliente, ''))) = LOWER($${p++})`);
+            }
+            if (filters.lugar_nacimiento) {
+                params.push(`%${String(filters.lugar_nacimiento).toLowerCase()}%`);
+                where.push(`LOWER(COALESCE(d.lugar_nacimiento, '')) LIKE $${p++}`);
+            }
+            if (filters.tipo_identificacion) {
+                params.push(String(filters.tipo_identificacion).trim());
+                where.push(`LOWER(TRIM(COALESCE(d.tipo_identificacion, ''))) = LOWER($${p++})`);
+            }
+            if (filters.estado_documento) {
+                params.push(String(filters.estado_documento).trim());
+                where.push(`LOWER(TRIM(COALESCE(d.estado_documento, ''))) = LOWER($${p++})`);
+            }
+            if (filters.registro_sire) {
+                params.push(filters.registro_sire === 'true');
+                where.push(`d.registro_sire = $${p++}::boolean`);
+            }
+            if (filters.registro_rutec) {
+                params.push(filters.registro_rutec === 'true');
+                where.push(`d.registro_rutec = $${p++}::boolean`);
+            }
+            if (filters.vence_desde) {
+                params.push(filters.vence_desde);
+                where.push(`d.fecha_vencimiento >= $${p++}::date`);
+            }
+            if (filters.vence_hasta) {
+                params.push(filters.vence_hasta);
+                where.push(`d.fecha_vencimiento <= $${p++}::date`);
+            }
+            const scope = await buildScopeFilter(pool, req.user);
+            const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
+            if (scopeApplied.sql && scopeApplied.sql !== 'TRUE') {
+                where.push(scopeApplied.sql);
+                params.push(...scope.params);
+                p = scopeApplied.idx;
+            }
+            if (scopeApplied.sql === 'FALSE') {
+                return res.json({ ok: true, items: [], total: 0, limit, offset });
+            }
+            const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+            const countQ = await pool.query(
+                `SELECT COUNT(*)::int AS total
+                 FROM colaborador_documentos_extranjeros d
+                 INNER JOIN colaboradores c ON c.cedula = d.cedula
+                 ${whereSql}`,
+                params
+            );
+            const total = countQ.rows[0] ? Number(countQ.rows[0].total) : 0;
+            params.push(limit, offset);
+            const listQ = await pool.query(
+                `SELECT d.*, c.nombre, c.cliente, c.tipo_personal, c.activo
+                 FROM colaborador_documentos_extranjeros d
+                 INNER JOIN colaboradores c ON c.cedula = d.cedula
+                 ${whereSql}
+                 ORDER BY d.fecha_vencimiento ASC NULLS LAST
+                 LIMIT $${p++} OFFSET $${p++}`,
+                params
+            );
+            return res.json({ ok: true, items: listQ.rows, total, limit, offset });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    const docExtranjeroSchema = z.object({
+        cedula: z.string().regex(/^\d+$/).min(5).max(20),
+        lugar_nacimiento: z.string().max(200).optional().nullable(),
+        tipo_identificacion: z.string().max(120).optional().nullable(),
+        numero_identidad: z.string().max(60).optional().nullable(),
+        motivo: z.string().max(200).optional().nullable(),
+        fecha_vencimiento: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        registro_sire: z.boolean().optional().nullable(),
+        registro_rutec: z.boolean().optional().nullable(),
+        vigencia_renovar: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        no_contrato: z.string().max(60).optional().nullable(),
+        estado_documento: z.string().max(80).optional().nullable(),
+        observaciones: z.string().max(2000).optional().nullable()
+    });
+
+    app.put('/api/onboarding/documentos-extranjeros/:cedula', ...writeGuard, async (req, res) => {
+        const cedula = String(req.params.cedula || '').replace(/\D+/g, '');
+        if (!cedula) return res.status(400).json({ ok: false, error: 'cedula inválida' });
+        const parsed = docExtranjeroSchema.safeParse({ ...req.body, cedula });
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
+        }
+        try {
+            const d = parsed.data;
+            const q = await pool.query(
+                `INSERT INTO colaborador_documentos_extranjeros
+                    (cedula, lugar_nacimiento, tipo_identificacion, numero_identidad,
+                     motivo, fecha_vencimiento, registro_sire, registro_rutec,
+                     vigencia_renovar, no_contrato, estado_documento, observaciones, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, $9::date, $10, $11, $12, NOW())
+                 ON CONFLICT (cedula) DO UPDATE SET
+                    lugar_nacimiento = COALESCE(EXCLUDED.lugar_nacimiento, colaborador_documentos_extranjeros.lugar_nacimiento),
+                    tipo_identificacion = COALESCE(EXCLUDED.tipo_identificacion, colaborador_documentos_extranjeros.tipo_identificacion),
+                    numero_identidad = COALESCE(EXCLUDED.numero_identidad, colaborador_documentos_extranjeros.numero_identidad),
+                    motivo = COALESCE(EXCLUDED.motivo, colaborador_documentos_extranjeros.motivo),
+                    fecha_vencimiento = COALESCE(EXCLUDED.fecha_vencimiento, colaborador_documentos_extranjeros.fecha_vencimiento),
+                    registro_sire = COALESCE(EXCLUDED.registro_sire, colaborador_documentos_extranjeros.registro_sire),
+                    registro_rutec = COALESCE(EXCLUDED.registro_rutec, colaborador_documentos_extranjeros.registro_rutec),
+                    vigencia_renovar = COALESCE(EXCLUDED.vigencia_renovar, colaborador_documentos_extranjeros.vigencia_renovar),
+                    no_contrato = COALESCE(EXCLUDED.no_contrato, colaborador_documentos_extranjeros.no_contrato),
+                    estado_documento = COALESCE(EXCLUDED.estado_documento, colaborador_documentos_extranjeros.estado_documento),
+                    observaciones = COALESCE(EXCLUDED.observaciones, colaborador_documentos_extranjeros.observaciones),
+                    updated_at = NOW()
+                 RETURNING *`,
+                [
+                    cedula, d.lugar_nacimiento || null, d.tipo_identificacion || null, d.numero_identidad || null,
+                    d.motivo || null, d.fecha_vencimiento || null, d.registro_sire ?? null, d.registro_rutec ?? null,
+                    d.vigencia_renovar || null, d.no_contrato || null, d.estado_documento || null, d.observaciones || null
+                ]
+            );
+            return res.json({ ok: true, item: q.rows[0] });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Pólizas internacionales.
+     * ========================================================================= */
+    const polizasQuerySchema = z.object({
+        q: z.string().max(200).optional(),
+        cliente_proyecto: z.string().max(500).optional(),
+        estado: z.string().max(60).optional(),
+        destino: z.string().max(500).optional(),
+        salida_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        salida_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        limit: z.coerce.number().int().min(1).max(2000).optional(),
+        offset: z.coerce.number().int().min(0).optional()
+    });
+
+    app.get('/api/onboarding/polizas', ...readGuard, async (req, res) => {
+        const parsed = polizasQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        const filters = parsed.data;
+        const limit = Math.min(filters.limit || 100, 2000);
+        const offset = filters.offset || 0;
+        try {
+            const where = [];
+            const params = [];
+            let p = 1;
+            if (filters.q) {
+                params.push(`%${String(filters.q).toLowerCase()}%`);
+                where.push(`(LOWER(p.cedula) LIKE $${p} OR LOWER(COALESCE(c.nombre, '')) LIKE $${p})`);
+                p += 1;
+            }
+            if (filters.cliente_proyecto) {
+                params.push(`%${String(filters.cliente_proyecto).toLowerCase()}%`);
+                where.push(`LOWER(COALESCE(p.cliente_proyecto, '')) LIKE $${p++}`);
+            }
+            if (filters.estado) {
+                params.push(String(filters.estado).trim());
+                where.push(`LOWER(TRIM(COALESCE(p.estado, ''))) = LOWER($${p++})`);
+            }
+            if (filters.destino) {
+                params.push(`%${String(filters.destino).toLowerCase()}%`);
+                where.push(`LOWER(COALESCE(p.ciudad_pais_viaje, '')) LIKE $${p++}`);
+            }
+            if (filters.salida_desde) {
+                params.push(filters.salida_desde);
+                where.push(`p.fecha_salida >= $${p++}::date`);
+            }
+            if (filters.salida_hasta) {
+                params.push(filters.salida_hasta);
+                where.push(`p.fecha_salida <= $${p++}::date`);
+            }
+            const scope = await buildScopeFilter(pool, req.user);
+            const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
+            if (scopeApplied.sql && scopeApplied.sql !== 'TRUE') {
+                where.push(scopeApplied.sql);
+                params.push(...scope.params);
+                p = scopeApplied.idx;
+            }
+            if (scopeApplied.sql === 'FALSE') {
+                return res.json({ ok: true, items: [], total: 0, limit, offset });
+            }
+            const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+            const countQ = await pool.query(
+                `SELECT COUNT(*)::int AS total
+                 FROM colaborador_polizas_internacionales p
+                 LEFT JOIN colaboradores c ON c.cedula = p.cedula
+                 ${whereSql}`,
+                params
+            );
+            const total = countQ.rows[0] ? Number(countQ.rows[0].total) : 0;
+            params.push(limit, offset);
+            const listQ = await pool.query(
+                `SELECT p.*, c.nombre, c.tipo_personal, c.cliente
+                 FROM colaborador_polizas_internacionales p
+                 LEFT JOIN colaboradores c ON c.cedula = p.cedula
+                 ${whereSql}
+                 ORDER BY p.fecha_salida DESC NULLS LAST
+                 LIMIT $${p++} OFFSET $${p++}`,
+                params
+            );
+            return res.json({ ok: true, items: listQ.rows, total, limit, offset });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    const polizaSchema = z.object({
+        cedula: z.string().regex(/^\d+$/).min(5).max(20),
+        cliente_proyecto: z.string().max(500).optional().nullable(),
+        fecha_salida: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        fecha_retorno: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        ciudad_pais_viaje: z.string().max(500).optional().nullable(),
+        contacto_emergencia: z.string().max(200).optional().nullable(),
+        telefono: z.string().max(60).optional().nullable(),
+        numero_poliza: z.string().max(120).optional().nullable(),
+        estado: z.string().max(60).optional(),
+        observaciones: z.string().max(2000).optional().nullable()
+    });
+
+    app.post('/api/onboarding/polizas', ...writeGuard, async (req, res) => {
+        const parsed = polizaSchema.safeParse(req.body || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
+        }
+        try {
+            const d = parsed.data;
+            const q = await pool.query(
+                `INSERT INTO colaborador_polizas_internacionales
+                    (cedula, cliente_proyecto, fecha_salida, fecha_retorno, ciudad_pais_viaje,
+                     contacto_emergencia, telefono, numero_poliza, estado, observaciones)
+                 VALUES ($1, $2, $3::date, $4::date, $5, $6, $7, $8, COALESCE($9, 'Activa'), $10)
+                 RETURNING *`,
+                [
+                    d.cedula, d.cliente_proyecto || null, d.fecha_salida || null, d.fecha_retorno || null,
+                    d.ciudad_pais_viaje || null, d.contacto_emergencia || null, d.telefono || null,
+                    d.numero_poliza || null, d.estado || null, d.observaciones || null
+                ]
+            );
+            return res.json({ ok: true, item: q.rows[0] });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Capacitaciones.
+     * ========================================================================= */
+    const capacitacionesQuerySchema = z.object({
+        q: z.string().max(200).optional(),
+        cliente_proyecto: z.string().max(500).optional(),
+        centro: z.string().max(200).optional(),
+        area_que_financia: z.string().max(60).optional(),
+        fecha_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        fecha_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        limit: z.coerce.number().int().min(1).max(2000).optional(),
+        offset: z.coerce.number().int().min(0).optional()
+    });
+
+    app.get('/api/onboarding/capacitaciones', ...readGuard, async (req, res) => {
+        const parsed = capacitacionesQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        const filters = parsed.data;
+        const limit = Math.min(filters.limit || 100, 2000);
+        const offset = filters.offset || 0;
+        try {
+            const where = [];
+            const params = [];
+            let p = 1;
+            if (filters.q) {
+                params.push(`%${String(filters.q).toLowerCase()}%`);
+                where.push(`(LOWER(cap.cedula) LIKE $${p} OR LOWER(COALESCE(c.nombre, '')) LIKE $${p} OR LOWER(COALESCE(cap.curso, '')) LIKE $${p})`);
+                p += 1;
+            }
+            if (filters.cliente_proyecto) {
+                params.push(`%${String(filters.cliente_proyecto).toLowerCase()}%`);
+                where.push(`LOWER(COALESCE(cap.cliente_proyecto, '')) LIKE $${p++}`);
+            }
+            if (filters.centro) {
+                params.push(`%${String(filters.centro).toLowerCase()}%`);
+                where.push(`LOWER(COALESCE(cap.centro, '')) LIKE $${p++}`);
+            }
+            if (filters.area_que_financia) {
+                params.push(String(filters.area_que_financia).trim());
+                where.push(`LOWER(TRIM(COALESCE(cap.area_que_financia, ''))) = LOWER($${p++})`);
+            }
+            if (filters.fecha_desde) {
+                params.push(filters.fecha_desde);
+                where.push(`cap.fecha >= $${p++}::date`);
+            }
+            if (filters.fecha_hasta) {
+                params.push(filters.fecha_hasta);
+                where.push(`cap.fecha <= $${p++}::date`);
+            }
+            const scope = await buildScopeFilter(pool, req.user);
+            const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
+            if (scopeApplied.sql && scopeApplied.sql !== 'TRUE') {
+                where.push(scopeApplied.sql);
+                params.push(...scope.params);
+                p = scopeApplied.idx;
+            }
+            if (scopeApplied.sql === 'FALSE') {
+                return res.json({ ok: true, items: [], total: 0, limit, offset });
+            }
+            const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+            const countQ = await pool.query(
+                `SELECT COUNT(*)::int AS total
+                 FROM colaborador_capacitaciones cap
+                 LEFT JOIN colaboradores c ON c.cedula = cap.cedula
+                 ${whereSql}`,
+                params
+            );
+            const total = countQ.rows[0] ? Number(countQ.rows[0].total) : 0;
+            params.push(limit, offset);
+            const listQ = await pool.query(
+                `SELECT cap.*, c.nombre, c.tipo_personal, c.cliente
+                 FROM colaborador_capacitaciones cap
+                 LEFT JOIN colaboradores c ON c.cedula = cap.cedula
+                 ${whereSql}
+                 ORDER BY cap.fecha DESC NULLS LAST, cap.created_at DESC
+                 LIMIT $${p++} OFFSET $${p++}`,
+                params
+            );
+            return res.json({ ok: true, items: listQ.rows, total, limit, offset });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    const capacitacionSchema = z.object({
+        cedula: z.string().regex(/^\d+$/).min(5).max(20),
+        cliente_proyecto: z.string().max(500).optional().nullable(),
+        curso: z.string().min(2).max(500),
+        centro: z.string().max(200).optional().nullable(),
+        fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+        costo: z.number().optional().nullable(),
+        moneda: z.string().max(3).optional(),
+        area_que_financia: z.string().max(60).optional().nullable(),
+        observaciones: z.string().max(2000).optional().nullable()
+    });
+
+    app.post('/api/onboarding/capacitaciones', ...writeGuard, async (req, res) => {
+        const parsed = capacitacionSchema.safeParse(req.body || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
+        }
+        try {
+            const d = parsed.data;
+            const q = await pool.query(
+                `INSERT INTO colaborador_capacitaciones
+                    (cedula, cliente_proyecto, curso, centro, fecha, costo, moneda, area_que_financia, observaciones)
+                 VALUES ($1, $2, $3, $4, $5::date, $6, COALESCE($7, 'COP'), $8, $9)
+                 RETURNING *`,
+                [
+                    d.cedula, d.cliente_proyecto || null, d.curso, d.centro || null,
+                    d.fecha || null, d.costo ?? null, d.moneda || null, d.area_que_financia || null,
+                    d.observaciones || null
+                ]
+            );
+            return res.json({ ok: true, item: q.rows[0] });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Catálogos (lectura).
+     * ========================================================================= */
+    function catalogoEndpoint(table) {
+        return async (_req, res) => {
+            try {
+                const q = await pool.query(
+                    `SELECT * FROM ${table} WHERE activo = TRUE ORDER BY ${table === 'cat_motivo_baja' ? 'orden, motivo' : (table === 'cat_ciudades' ? 'ciudad' : 'nombre')}`
+                );
+                return res.json({ ok: true, items: q.rows });
+            } catch (e) {
+                return res.status(500).json({ ok: false, error: e.message });
+            }
+        };
+    }
+
+    app.get('/api/onboarding/catalogos/motivo-baja', ...catGuard, catalogoEndpoint('cat_motivo_baja'));
+    app.get('/api/onboarding/catalogos/ciudades', ...catGuard, catalogoEndpoint('cat_ciudades'));
+    app.get('/api/onboarding/catalogos/eps', ...catGuard, catalogoEndpoint('cat_eps'));
+    app.get('/api/onboarding/catalogos/afp', ...catGuard, catalogoEndpoint('cat_afp'));
+    app.get('/api/onboarding/catalogos/arl', ...catGuard, catalogoEndpoint('cat_arl'));
+    app.get('/api/onboarding/catalogos/ccf', ...catGuard, catalogoEndpoint('cat_ccf'));
+    app.get('/api/onboarding/catalogos/cesantias', ...catGuard, catalogoEndpoint('cat_cesantias'));
+
+    /* =========================================================================
+     * Reporte de rotación (reemplazo de hoja Excel "Rotación").
+     * Agrupa bajas por motivo y rango opcional, devuelve total + breakdown.
+     * ========================================================================= */
+    const rotacionQuerySchema = z.object({
+        desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        cliente: z.string().max(500).optional(),
+        tipo_personal: z.enum(['consultor', 'staff', 'sena', 'alianza']).optional()
+    });
+
+    app.get('/api/onboarding/reportes/rotacion', ...readGuard, async (req, res) => {
+        const parsed = rotacionQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        const { desde, hasta, cliente, tipo_personal } = parsed.data;
+        const where = [`c.motivo_baja IS NOT NULL`];
+        const params = [];
+        let p = 1;
+        if (desde) { params.push(desde); where.push(`c.fecha_baja_efectiva >= $${p++}::date`); }
+        if (hasta) { params.push(hasta); where.push(`c.fecha_baja_efectiva <= $${p++}::date`); }
+        if (cliente) { params.push(cliente); where.push(`LOWER(TRIM(c.cliente)) = LOWER($${p++})`); }
+        if (tipo_personal) { params.push(tipo_personal); where.push(`c.tipo_personal = $${p++}`); }
+        const scope = await buildScopeFilter(pool, req.user);
+        const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
+        if (scopeApplied.sql && scopeApplied.sql !== 'TRUE') {
+            where.push(scopeApplied.sql);
+            params.push(...scope.params);
+            p = scopeApplied.idx;
+        }
+        if (scopeApplied.sql === 'FALSE') {
+            return res.json({ ok: true, total: 0, items: [], by_month: [] });
+        }
+        const whereSql = `WHERE ${where.join(' AND ')}`;
+        try {
+            // Normaliza motivo_baja (case/acentos/espacios + sinónimos y errores comunes)
+            // mapeando al catálogo de motivos; lo no clasificable cae en 'Otros'.
+            const byMotivoQ = await pool.query(
+                `SELECT motivo, COUNT(*)::int AS cuenta
+                 FROM (
+                    SELECT CASE
+                        WHEN m LIKE '%renunc%' OR m LIKE '%renin%' OR m LIKE '%voluntar%' THEN 'Renuncia Voluntaria'
+                        WHEN m LIKE '%mutuo%' THEN 'Mutuo Acuerdo'
+                        WHEN m LIKE '%prueba%' THEN 'Periodo de Prueba'
+                        WHEN m LIKE '%notif%' THEN 'Notificación Termino de Servicio'
+                        WHEN m LIKE '%obra%' OR m LIKE '%labor%' THEN 'Termino de la Obra o Labor'
+                        WHEN m LIKE '%contrato%' THEN 'Termino de Contrato'
+                        WHEN m LIKE '%servicio%' THEN 'Termino de Servicio'
+                        WHEN m LIKE '%absor%' OR m LIKE '%aborcion%' OR m LIKE '%absocion%'
+                             OR (m LIKE 'ab%' AND m LIKE '%cion') THEN 'Absorción'
+                        ELSE 'Otros'
+                    END AS motivo
+                    FROM (
+                        SELECT lower(regexp_replace(
+                            translate(TRIM(c.motivo_baja), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun'),
+                            '\\s+', ' ', 'g')) AS m
+                        FROM colaboradores c ${whereSql}
+                    ) z
+                 ) g
+                 GROUP BY motivo
+                 ORDER BY cuenta DESC`,
+                params
+            );
+            const byMonthQ = await pool.query(
+                `SELECT to_char(c.fecha_baja_efectiva, 'YYYY-MM') AS mes, COUNT(*)::int AS cuenta
+                 FROM colaboradores c ${whereSql}
+                 GROUP BY mes
+                 ORDER BY mes DESC`,
+                params
+            );
+            const totalQ = await pool.query(
+                `SELECT COUNT(*)::int AS total FROM colaboradores c ${whereSql}`,
+                params
+            );
+            return res.json({
+                ok: true,
+                total: totalQ.rows[0] ? Number(totalQ.rows[0].total) : 0,
+                items: byMotivoQ.rows,
+                by_month: byMonthQ.rows
+            });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Panel de gráficas onboarding: agregados de cabecera para el dashboard.
+     *  - headcount_by_tipo: activos agrupados por tipo_personal
+     *  - activos_vs_bajas: conteo activos vs bajas
+     *  - ingresos_by_month: ingresos por mes (rango opcional desde/hasta o últimos 12 meses)
+     * Respeta el scope GP igual que el reporte de rotación.
+     * ========================================================================= */
+    const graficasQuerySchema = z.object({
+        desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        cliente: z.string().max(500).optional(),
+        tipo_personal: z.enum(['consultor', 'staff', 'sena', 'alianza']).optional()
+    });
+
+    app.get('/api/onboarding/reportes/graficas', ...readGuard, async (req, res) => {
+        const parsed = graficasQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        const { desde, hasta, cliente, tipo_personal } = parsed.data;
+        const scope = await buildScopeFilter(pool, req.user);
+
+        /** Construye WHERE + params aislados por consulta, anexando cliente/tipo + scope GP. */
+        const buildWhere = (baseConds, { withTipo = true } = {}) => {
+            const where = [...baseConds];
+            const params = [];
+            let p = 1;
+            if (cliente) { params.push(cliente); where.push(`LOWER(TRIM(c.cliente)) = LOWER($${p++})`); }
+            if (withTipo && tipo_personal) { params.push(tipo_personal); where.push(`c.tipo_personal = $${p++}`); }
+            const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
+            if (scopeApplied.sql === 'FALSE') {
+                return { whereSql: '', params, scopeFalse: true };
+            }
+            if (scopeApplied.sql && scopeApplied.sql !== 'TRUE') {
+                where.push(scopeApplied.sql);
+                params.push(...scope.params);
+            }
+            return { whereSql: where.length ? `WHERE ${where.join(' AND ')}` : '', params, scopeFalse: false };
+        };
+
+        try {
+            const headcount = buildWhere([`c.activo = TRUE`]);
+            const avb = buildWhere([], { withTipo: false });
+            // Para ingresos aplicamos el rango sobre fecha_ingreso (o últimos 12 meses por defecto).
+            const ingresoBase = buildWhere([`c.fecha_ingreso IS NOT NULL`]);
+            const irpBase = buildWhere([]);
+            if (headcount.scopeFalse || avb.scopeFalse || ingresoBase.scopeFalse || irpBase.scopeFalse) {
+                return res.json({
+                    ok: true,
+                    headcount_by_tipo: [],
+                    activos_vs_bajas: { activos: 0, bajas: 0 },
+                    ingresos_by_month: [],
+                    irp: {
+                        bajas_periodo: 0,
+                        headcount_inicio: 0,
+                        headcount_fin: 0,
+                        promedio: 0,
+                        irp: null,
+                        desde: desde || null,
+                        hasta: hasta || null
+                    }
+                });
+            }
+
+            const headcountQ = await pool.query(
+                `SELECT COALESCE(c.tipo_personal, 'consultor') AS tipo, COUNT(*)::int AS cuenta
+                 FROM colaboradores c ${headcount.whereSql}
+                 GROUP BY c.tipo_personal
+                 ORDER BY cuenta DESC`,
+                headcount.params
+            );
+
+            const avbQ = await pool.query(
+                `SELECT
+                    COUNT(*) FILTER (WHERE c.activo = TRUE)::int AS activos,
+                    COUNT(*) FILTER (WHERE c.activo = FALSE)::int AS bajas
+                 FROM colaboradores c ${avb.whereSql}`,
+                avb.params
+            );
+
+            // ingresos por mes: rango explícito si viene desde/hasta; si no, últimos 12 meses.
+            const ingParams = [...ingresoBase.params];
+            let ingWhere = ingresoBase.whereSql;
+            if (desde || hasta) {
+                const extra = [];
+                if (desde) { ingParams.push(desde); extra.push(`c.fecha_ingreso >= $${ingParams.length}::date`); }
+                if (hasta) { ingParams.push(hasta); extra.push(`c.fecha_ingreso <= $${ingParams.length}::date`); }
+                ingWhere = ingWhere
+                    ? `${ingWhere} AND ${extra.join(' AND ')}`
+                    : `WHERE ${extra.join(' AND ')}`;
+            } else {
+                ingWhere = ingWhere
+                    ? `${ingWhere} AND c.fecha_ingreso >= (CURRENT_DATE - INTERVAL '12 months')`
+                    : `WHERE c.fecha_ingreso >= (CURRENT_DATE - INTERVAL '12 months')`;
+            }
+            const ingresosQ = await pool.query(
+                `SELECT to_char(c.fecha_ingreso, 'YYYY-MM') AS mes, COUNT(*)::int AS cuenta
+                 FROM colaboradores c ${ingWhere}
+                 GROUP BY mes
+                 ORDER BY mes ASC`,
+                ingParams
+            );
+
+            // IRP = bajas del periodo / promedio de empleados (inicio,fin) x 100.
+            // Periodo: desde/hasta si vienen; si no, últimos 12 meses hasta hoy.
+            const irpParams = [...irpBase.params];
+            let inicioExpr;
+            let finExpr;
+            if (desde) { irpParams.push(desde); inicioExpr = `$${irpParams.length}::date`; }
+            else { inicioExpr = `(CURRENT_DATE - INTERVAL '12 months')::date`; }
+            if (hasta) { irpParams.push(hasta); finExpr = `$${irpParams.length}::date`; }
+            else { finExpr = `CURRENT_DATE`; }
+            const irpQ = await pool.query(
+                `SELECT
+                    COUNT(*) FILTER (
+                        WHERE c.fecha_baja_efectiva BETWEEN ${inicioExpr} AND ${finExpr}
+                    )::int AS bajas_periodo,
+                    COUNT(*) FILTER (
+                        WHERE c.fecha_ingreso <= ${inicioExpr}
+                          AND (c.fecha_baja_efectiva IS NULL OR c.fecha_baja_efectiva > ${inicioExpr})
+                    )::int AS headcount_inicio,
+                    COUNT(*) FILTER (
+                        WHERE c.fecha_ingreso <= ${finExpr}
+                          AND (c.fecha_baja_efectiva IS NULL OR c.fecha_baja_efectiva > ${finExpr})
+                    )::int AS headcount_fin
+                 FROM colaboradores c ${irpBase.whereSql}`,
+                irpParams
+            );
+            const irpRow = irpQ.rows[0] || {};
+            const bajasPeriodo = Number(irpRow.bajas_periodo) || 0;
+            const headInicio = Number(irpRow.headcount_inicio) || 0;
+            const headFin = Number(irpRow.headcount_fin) || 0;
+            const promedio = (headInicio + headFin) / 2.0;
+            const irpValor = promedio > 0 ? Number(((bajasPeriodo / promedio) * 100).toFixed(2)) : null;
+
+            return res.json({
+                ok: true,
+                headcount_by_tipo: headcountQ.rows,
+                activos_vs_bajas: avbQ.rows[0]
+                    ? { activos: Number(avbQ.rows[0].activos), bajas: Number(avbQ.rows[0].bajas) }
+                    : { activos: 0, bajas: 0 },
+                ingresos_by_month: ingresosQ.rows,
+                irp: {
+                    bajas_periodo: bajasPeriodo,
+                    headcount_inicio: headInicio,
+                    headcount_fin: headFin,
+                    promedio: Number(promedio.toFixed(2)),
+                    irp: irpValor,
+                    desde: desde || null,
+                    hasta: hasta || null
+                }
+            });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Auditoría del buzón onboarding_staging. Solo super_admin.
+     * ========================================================================= */
+    const stagingQuerySchema = z.object({
+        status: z.enum(['recibido', 'aplicado', 'rechazado', 'requiere_revision']).optional(),
+        source: z.enum(['dynamo_stream', 'n8n_webhook', 'excel_etl', 'manual']).optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional()
+    });
+
+    app.get('/api/onboarding/staging', ...adminOnlyGuard, async (req, res) => {
+        const parsed = stagingQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        const { status, source, limit = 100, offset = 0 } = parsed.data;
+        const where = [];
+        const params = [];
+        let p = 1;
+        if (status) { params.push(status); where.push(`status = $${p++}`); }
+        if (source) { params.push(source); where.push(`source = $${p++}`); }
+        const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+        params.push(limit, offset);
+        try {
+            const q = await pool.query(
+                `SELECT id, source, external_id, event_type, status,
+                        cedula_resultante, error, sequence_number, shard_id,
+                        created_at, processed_at, payload
+                 FROM onboarding_staging
+                 ${whereSql}
+                 ORDER BY created_at DESC
+                 LIMIT $${p++} OFFSET $${p++}`,
+                params
+            );
+            return res.json({ ok: true, items: q.rows });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    /* =========================================================================
+     * Health del módulo.
+     * ========================================================================= */
+    app.get('/api/onboarding/health', ...readGuard, async (_req, res) => {
+        const intakeReady = Boolean((process.env.ONBOARDING_INGEST_KEY || '').trim());
+        const autopromote = String(process.env.ONBOARDING_AUTOPROMOTE || '').toLowerCase() === 'true';
+        const streamPoller = String(process.env.CONTRATACION_STREAM_POLLER_ENABLED || '').toLowerCase() === 'true';
+        return res.json({
+            ok: true,
+            intake_endpoint: intakeReady ? 'configured' : 'missing-key',
+            autopromote_flag: autopromote,
+            stream_poller: streamPoller,
+            ready: intakeReady && (autopromote ? streamPoller : true)
+        });
+    });
+
+    // Marca de uso de normalizeCedula para evitar lint de no-unused
+    if (typeof normalizeCedula === 'function') {
+        // silencio: API queda para futuro endpoint que lo requiera
+    }
+}
+
+module.exports = { registerOnboardingRoutes };

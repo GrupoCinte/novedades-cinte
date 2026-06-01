@@ -91,6 +91,7 @@ const { createTiRolesStore } = require('./src/cotizador/tiRolesStore');
 const { registerCotizadorRoutes } = require('./src/cotizador/registerCotizadorRoutes');
 const { registerTiRolesRoutes } = require('./src/cotizador/registerTiRolesRoutes');
 const { registerContratacionRoutes } = require('./src/contratacion/registerContratacionRoutes');
+const { registerOnboardingRoutes } = require('./src/onboarding/registerOnboardingRoutes');
 const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
 const { registerConciliacionesRoutes } = require('./src/conciliaciones/registerConciliacionesRoutes');
 const { createEmailNotificationsPublisher } = require('./src/notifications/emailNotificationsPublisher');
@@ -638,6 +639,7 @@ const {
     ensureMallaTurnoAsignacionTable,
     listMallaTurnosCeldasRange,
     upsertMallaTurnosCeldas,
+    ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     getColaboradorByCedula,
@@ -666,8 +668,12 @@ const {
     listHoraExtraByCedulaForDomingoPolicy,
     listConciliacionesClientesForScope,
     getConciliacionResumenPorClienteMesForScope,
+    getConciliacionResumenTodosClientesMesForScope,
     listConciliacionNovedadesDetalleForScope,
-    getConciliacionesDashboardResumenForScope
+    getConciliacionesDashboardResumenForScope,
+    upsertConciliacionFacturacionForScope,
+    upsertConciliacionFacturacionMasivaForScope,
+    listConciliacionesFacturacionForScope
 } = createDataLayer({
     pool,
     fs,
@@ -805,8 +811,12 @@ registerConciliacionesRoutes({
     applyScope,
     listConciliacionesClientesForScope,
     getConciliacionResumenPorClienteMesForScope,
+    getConciliacionResumenTodosClientesMesForScope,
     listConciliacionNovedadesDetalleForScope,
-    getConciliacionesDashboardResumenForScope
+    getConciliacionesDashboardResumenForScope,
+    upsertConciliacionFacturacionForScope,
+    upsertConciliacionFacturacionMasivaForScope,
+    listConciliacionesFacturacionForScope
 });
 
 registerCotizadorRoutes({
@@ -846,6 +856,19 @@ registerContratacionRoutes({
     wsTicketTtlSec: CONTRATACION_WS_TICKET_TTL_SEC
 });
 
+registerOnboardingRoutes({
+    app,
+    pool,
+    verificarToken,
+    allowPanel,
+    allowRoles,
+    disallowRoles,
+    adminActionLimiter,
+    catalogLimiter,
+    normalizeCedula,
+    updateColaboradorByCedula
+});
+
 startServer({
     app,
     pool,
@@ -872,6 +895,7 @@ startServer({
     ensureReubicacionesPipelineTable,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
+    ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     PORT,

@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Home, LayoutDashboard, Menu, Scale, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Home, LayoutDashboard, Menu, Scale, X, Receipt } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import AdminModuleSidebarBrand from '../AdminModuleSidebarBrand.jsx';
 import AdminModuleSidebarFooter from '../AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from '../AdminModuleSidebarUser.jsx';
+import { CONCILIACIONES_SIDEBAR_BRAND } from './conciliacionesLayout.js';
 
 export default function ConciliacionesModule({ auth, onLogout }) {
     const navigate = useNavigate();
@@ -18,6 +19,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
         menuFab,
         sidebarIconBtn,
         navOutline,
+        navInactive,
         email,
         borderSubtle,
         mainCanvas,
@@ -28,14 +30,18 @@ export default function ConciliacionesModule({ auth, onLogout }) {
     const path = location.pathname || '';
     const onDashboard = path.includes('/admin/conciliaciones/dashboard');
     const onResumen = path.includes('/admin/conciliaciones/resumen');
+    const onFacturacion = path.includes('/admin/conciliaciones/facturacion');
 
     const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
     const navItemClass = (active) =>
         `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
-            active ? 'bg-[#2F7BB8] shadow-[0_4px_12px_rgba(47,123,184,0.3)] text-white' : navOutline
+            active ? 'bg-[#2F7BB8] shadow-[0_4px_12px_rgba(47,123,184,0.3)] text-white' : navInactive
         }`;
+
+    const navIconClass = (active) =>
+        `flex-shrink-0 ${active ? 'text-white' : isLight ? 'text-slate-600' : 'text-slate-500'}`;
 
     const closeMobile = () => setMobileMenuOpen(false);
 
@@ -63,8 +69,12 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                     asideHeaderBorder={asideHeaderBorder}
                     moduleContext={(
                         <>
-                            <p className="text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">Conciliaciones</p>
-                            <p className="text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">Facturación vs novedades</p>
+                            <p className="text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">
+                                {CONCILIACIONES_SIDEBAR_BRAND.line1}
+                            </p>
+                            <p className="text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">
+                                {CONCILIACIONES_SIDEBAR_BRAND.line2}
+                            </p>
                         </>
                     )}
                     endAction={(
@@ -106,7 +116,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         }}
                         className={navItemClass(onDashboard)}
                     >
-                        <LayoutDashboard size={17} />
+                        <LayoutDashboard size={17} className={navIconClass(onDashboard)} />
                         <span>Dashboard</span>
                     </button>
                     <button
@@ -117,8 +127,19 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         }}
                         className={navItemClass(onResumen)}
                     >
-                        <Scale size={17} />
+                        <Scale size={17} className={navIconClass(onResumen)} />
                         <span>Resumen por cliente</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            navigate('/admin/conciliaciones/facturacion');
+                            closeMobile();
+                        }}
+                        className={navItemClass(onFacturacion)}
+                    >
+                        <Receipt size={17} className={navIconClass(onFacturacion)} />
+                        <span>Facturación</span>
                     </button>
                 </nav>
                 <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
@@ -136,10 +157,10 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                     moduleContext={(
                         <>
                             <p className="whitespace-nowrap text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">
-                                Conciliaciones
+                                {CONCILIACIONES_SIDEBAR_BRAND.line1}
                             </p>
                             <p className="whitespace-nowrap text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">
-                                Facturación vs novedades
+                                {CONCILIACIONES_SIDEBAR_BRAND.line2}
                             </p>
                         </>
                     )}
@@ -172,7 +193,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                             sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
                         }`}
                     >
-                        <Home size={18} className="flex-shrink-0 text-slate-500" />
+                        <Home size={18} className={`flex-shrink-0 ${isLight ? 'text-slate-600' : 'text-slate-500'}`} />
                         {sidebarOpen ? <span className="truncate whitespace-nowrap">Inicio portal</span> : null}
                     </button>
                     <button
@@ -181,9 +202,9 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         title={!sidebarOpen ? 'Dashboard' : undefined}
                         className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
                             sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
-                        } ${onDashboard ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navOutline}`}
+                        } ${onDashboard ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
                     >
-                        <LayoutDashboard size={18} className={`flex-shrink-0 ${onDashboard ? 'text-white' : 'text-slate-500'}`} />
+                        <LayoutDashboard size={18} className={navIconClass(onDashboard)} />
                         {sidebarOpen ? <span className="truncate whitespace-nowrap">Dashboard</span> : null}
                     </button>
                     <button
@@ -192,10 +213,21 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         title={!sidebarOpen ? 'Resumen' : undefined}
                         className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
                             sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
-                        } ${onResumen ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navOutline}`}
+                        } ${onResumen ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
                     >
-                        <Scale size={18} className={`flex-shrink-0 ${onResumen ? 'text-white' : 'text-slate-500'}`} />
+                        <Scale size={18} className={navIconClass(onResumen)} />
                         {sidebarOpen ? <span className="truncate whitespace-nowrap">Resumen por cliente</span> : null}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/admin/conciliaciones/facturacion')}
+                        title={!sidebarOpen ? 'Facturación' : undefined}
+                        className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
+                            sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
+                        } ${onFacturacion ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
+                    >
+                        <Receipt size={18} className={navIconClass(onFacturacion)} />
+                        {sidebarOpen ? <span className="truncate whitespace-nowrap">Facturación</span> : null}
                     </button>
                 </nav>
 
@@ -208,7 +240,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                 />
             </aside>
 
-            <section className={`flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${mainCanvas}`}>
+            <section className={`flex min-h-0 min-w-0 flex-1 flex-col ${mainCanvas}`}>
                 <Outlet />
             </section>
         </div>

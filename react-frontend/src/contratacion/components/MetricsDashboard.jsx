@@ -1,9 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { PieChart, Pie, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import {
+    Tooltip, ResponsiveContainer, Cell,
+    AreaChart, Area, XAxis, YAxis, CartesianGrid,
+    BarChart, Bar,
+} from 'recharts';
 
 import { getTrazabilidadStageKey, TRAZABILIDAD_STAGE_ORDER } from '../hooks/useMonitorData';
-import { RECHARTS_TOOLTIP_PANEL_STYLE, RECHARTS_TOOLTIP_PANEL_STYLE_LIGHT } from '../constants/rechartsTheme.js';
+import {
+    STAGE_CHART_COLORS,
+    STAGE_LABELS,
+    statusToneByStage
+} from '../contratacionStatusBadges.js';
+import {
+    RECHARTS_TOOLTIP_PANEL_STYLE,
+    RECHARTS_TOOLTIP_PANEL_STYLE_LIGHT,
+    RECHARTS_TOOLTIP_CONTENT_STYLE,
+    RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT,
+} from '../constants/rechartsTheme.js';
 import { useModuleTheme } from '../../moduleTheme.js';
 
 function buildStageCounts(executions = []) {
@@ -16,48 +30,50 @@ function buildStageCounts(executions = []) {
     });
 
     // Mantener orden de pipeline y omitir las etapas con conteo 0.
-    const labels = {
-        contactado: 'Contactado',
-        'whatsapp enviado': 'WhatsApp enviado',
-        'documentos recibidos': 'Documentos recibidos',
-        'sagrilaft enviado': 'Sagrilaft enviado',
-        finalizado: 'Finalizado',
-    };
-
     return TRAZABILIDAD_STAGE_ORDER.filter((k) => k !== 'cargando')
         .map((stageKey) => ({
             stageKey,
-            label: labels[stageKey] || stageKey,
+            label: STAGE_LABELS[stageKey] || stageKey,
             count: counts[stageKey] || 0,
         }))
         .filter((row) => row.count > 0);
 }
 
-function buildHeatmap(metrics) {
-    const total = Math.max(metrics.total || 1, 1);
-    const delayFactor = metrics.avgWaitTime === 'N/A' ? 0.35 : 0.65;
-    return [
-        { actor: 'RRHH', inicio: 0.28, revision: 0.4, firma: 0.2 },
-        { actor: 'Legal', inicio: 0.15, revision: 0.75 * delayFactor, firma: 0.32 },
-        { actor: 'Candidato', inicio: 0.22, revision: 0.48, firma: Math.min(0.9, (metrics.active / total) + 0.2) },
-    ];
+function buildMonthlyGrowth(executions) {
+    const bucket = {};
+    executions.forEach((ex) => {
+        const ts = ex.fullData?.ts_eliminado || ex.fullData?.ts_validacion_completada || ex.timestamp;
+        const date = new Date(ts);
+        if (Number.isNaN(date.getTime())) return;
+        const monthKey = date.getFullYear() * 100 + (date.getMonth() + 1);
+        const monthLabel = date.toLocaleDateString('es-CO', { month: 'short', year: '2-digit' });
+        if (!bucket[monthKey]) bucket[monthKey] = { monthKey, month: monthLabel, firmas: 0 };
+        bucket[monthKey].firmas += 1;
+    });
+    return Object.values(bucket)
+        .sort((a, b) => a.monthKey - b.monthKey)
+        .map(({ month, firmas }) => ({ month, firmas }));
 }
 
-function heatColor(value, isLight) {
-    if (isLight) {
-        if (value >= 0.65) return 'border border-orange-300 bg-orange-50 text-orange-900';
-        if (value >= 0.45) return 'border border-amber-300 bg-amber-50 text-amber-900';
-        return 'border border-emerald-300 bg-emerald-50 text-emerald-900';
-    }
-    if (value >= 0.65) return 'bg-orange-500/30 border-orange-400/40 text-orange-200';
-    if (value >= 0.45) return 'bg-amber-500/25 border-amber-400/35 text-amber-200';
-    return 'bg-emerald-500/20 border-emerald-400/35 text-emerald-200';
-}
-
-export default function MetricsDashboard({ metrics, loading, executions = [] }) {
+export default function MetricsDashboard({ metrics, loading, executions = [], ingresosByMonth = null }) {
     const { isLight } = useModuleTheme();
     const stageCounts = useMemo(() => buildStageCounts(executions), [executions]);
-    const heatmap = useMemo(() => buildHeatmap(metrics), [metrics]);
+    // Ingresos reales: si llega `ingresosByMonth` (Postgres, fecha_ingreso) se usa eso;
+    // si no, se cae al cálculo histórico desde Dynamo (modo contratación standalone).
+    const monthlyGrowth = useMemo(() => {
+        if (Array.isArray(ingresosByMonth)) {
+            return ingresosByMonth.map((row) => {
+                const mes = String(row.mes || '');
+                const [y, m] = mes.split('-');
+                const d = y && m ? new Date(Number(y), Number(m) - 1, 1) : null;
+                const label = d
+                    ? d.toLocaleDateString('es-CO', { month: 'short', year: '2-digit' })
+                    : mes;
+                return { month: label, firmas: Number(row.cuenta) || 0 };
+            });
+        }
+        return buildMonthlyGrowth(executions);
+    }, [ingresosByMonth, executions]);
     const [selectedStageKey, setSelectedStageKey] = useState(stageCounts[0]?.stageKey || '');
 
     useEffect(() => {
@@ -69,13 +85,7 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
         if (!exists) setSelectedStageKey(stageCounts[0].stageKey);
     }, [stageCounts, selectedStageKey]);
 
-    const stageColors = {
-        contactado: '#08bdc6',
-        'whatsapp enviado': '#1fc76a',
-        'documentos recibidos': '#6d819b',
-        'sagrilaft enviado': '#494294',
-        finalizado: '#4F8831',
-    };
+    const stageColors = STAGE_CHART_COLORS;
 
     const stageDescriptions = {
         contactado: 'Candidatos que ya iniciaron contacto en el flujo.',
@@ -123,114 +133,146 @@ export default function MetricsDashboard({ metrics, loading, executions = [] }) 
         );
     }
 
+    const glassPanel = isLight ? 'overflow-hidden rounded-2xl border backdrop-blur-xl bg-white/80 border-white/40 shadow-xl' : 'glass-card';
+
+    const chartTick = isLight ? '#64748b' : 'rgba(159,179,200,0.95)';
+    const chartGrid = isLight ? '#e2e8f0' : 'rgba(109, 129, 155, 0.2)';
+    const chartTooltip = isLight ? RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT : RECHARTS_TOOLTIP_CONTENT_STYLE;
+
     return (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5 font-body">
-            <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <MetricTile isLight={isLight} title="Tiempo prom. pipeline" value={metrics.averageTime} subtitle="Pipeline automático" />
-                <MetricTile isLight={isLight} title="Espera de Firma" value={metrics.avgWaitTime} subtitle="Friccion del candidato" />
-                <MetricTile isLight={isLight} title="Ahorro Estimado" value={metrics.costSaved} subtitle={metrics.costSavedSubtext || 'Costo evitado'} />
+            <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <MetricTile isLight={isLight} glassPanel={glassPanel} title="Tiempo prom. pipeline" value={metrics.averageTime} subtitle="Pipeline automático" />
+                <MetricTile isLight={isLight} glassPanel={glassPanel} title="Espera de Firma" value={metrics.avgWaitTime} subtitle="Friccion del candidato" />
             </section>
 
-            <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.3fr_1fr]">
-                <article className="surface-panel p-4">
-                    <h3 className="mb-3 text-sm font-semibold text-[var(--text)] font-subtitle">Conteo por Etapa (sin cargando)</h3>
-                    <div className="h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Tooltip content={(props) => <StageTooltip {...props} />} />
-                                <Pie
-                                    data={stageCounts}
-                                    dataKey="count"
-                                    nameKey="label"
-                                    innerRadius={65}
-                                    outerRadius={95}
-                                    paddingAngle={4}
-                                    onClick={(data) => {
-                                        const stageKey =
-                                            data?.stageKey ||
-                                            data?.payload?.stageKey ||
-                                            data?.name ||
-                                            data?.payload?.label;
-                                        if (stageKey) setSelectedStageKey(stageKey);
-                                    }}
-                                >
-                                    {stageCounts.map((entry) => (
-                                        <Cell
-                                            key={entry.stageKey}
-                                            fill={stageColors[entry.stageKey] || '#08bdc6'}
-                                            cursor="pointer"
-                                        />
-                                    ))}
-                                </Pie>
-                            </PieChart>
-                        </ResponsiveContainer>
+            {/* ── Fila 2: Donut etapas + Ingresos mensuales ── */}
+            <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.3fr_1fr]">
+                <article className={`${glassPanel} p-6`}>
+                    <div className="mb-6 flex items-center justify-between">
+                        <h3 className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Conteo por Etapa</h3>
+                        <span className="text-[10px] font-bold text-[#ffb347] bg-[#ffb347]/10 px-2 py-1 rounded-full border border-[#ffb347]/20">Pipeline Activo</span>
                     </div>
+                    <div className="mb-4 flex flex-wrap gap-2">
+                        {stageCounts.map((entry) => {
+                            const active = entry.stageKey === selectedStageKey;
+                            return (
+                                <button
+                                    key={entry.stageKey}
+                                    type="button"
+                                    onClick={() => setSelectedStageKey(entry.stageKey)}
+                                    className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold uppercase tracking-wide transition-opacity ${statusToneByStage(entry.stageKey, isLight)} ${active ? 'ring-2 ring-offset-1 ring-sky-400/60' : 'opacity-75 hover:opacity-100'}`}
+                                >
+                                    <span
+                                        className="inline-block h-2 w-2 shrink-0 rounded-full"
+                                        style={{ backgroundColor: stageColors[entry.stageKey] || '#08bdc6' }}
+                                    />
+                                    {entry.label}
+                                    <span className="font-mono normal-case tracking-normal opacity-80">({entry.count})</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <div className="flex flex-col gap-4 lg:flex-row">
+                        <div className="h-[300px] min-w-0 flex-1">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={stageCounts} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
+                                    <XAxis
+                                        dataKey="label"
+                                        stroke={chartTick}
+                                        axisLine={false}
+                                        tickLine={false}
+                                        interval={0}
+                                        tick={{ fontSize: 10, fill: chartTick }}
+                                        tickFormatter={(v) => String(v).length > 14 ? `${String(v).slice(0, 14)}…` : String(v)}
+                                    />
+                                    <YAxis allowDecimals={false} stroke={chartTick} axisLine={false} tickLine={false} />
+                                    <Tooltip content={(props) => <StageTooltip {...props} />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                                    <Bar
+                                        dataKey="count"
+                                        radius={[6, 6, 0, 0]}
+                                        onClick={(data) => {
+                                            const stageKey = data?.stageKey || data?.payload?.stageKey;
+                                            if (stageKey) setSelectedStageKey(stageKey);
+                                        }}
+                                    >
+                                        {stageCounts.map((entry) => (
+                                            <Cell
+                                                key={entry.stageKey}
+                                                fill={stageColors[entry.stageKey] || '#08bdc6'}
+                                                cursor="pointer"
+                                            />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
+                        </div>
 
-                    <div
-                        className="mt-4 rounded-xl border p-4"
-                        style={
-                            isLight
-                                ? {
-                                    borderColor: `${stageColors[selected?.stageKey] || '#08bdc6'}99`,
-                                    background: 'rgba(47, 123, 184, 0.08)',
-                                }
-                                : {
-                                    borderColor: `${stageColors[selected?.stageKey] || '#08bdc6'}55`,
-                                    background: 'rgba(15,36,55,0.2)',
-                                }
-                        }
-                    >
-                        <p className={`text-[11px] uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
-                            Etapa seleccionada
-                        </p>
-                        <p className="mt-1 text-lg font-semibold" style={{ color: stageColors[selected?.stageKey] || '#08bdc6' }}>
-                            {selected?.label || '—'}
-                        </p>
-                        <p className={`mt-1 text-sm ${isLight ? 'text-slate-800' : 'text-[rgba(231,238,247,0.95)]'}`}>{selected?.count ?? 0} activos</p>
-                        <p className={`mt-2 text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
-                            {stageDescriptions[selected?.stageKey] || ''}
-                        </p>
+                        <div
+                            className="shrink-0 self-start rounded-xl border p-4 lg:w-64"
+                            style={
+                                isLight
+                                    ? {
+                                        borderColor: `${stageColors[selected?.stageKey] || '#08bdc6'}99`,
+                                        background: 'rgba(47, 123, 184, 0.08)',
+                                    }
+                                    : {
+                                        borderColor: `${stageColors[selected?.stageKey] || '#08bdc6'}55`,
+                                        background: 'rgba(15,36,55,0.2)',
+                                    }
+                            }
+                        >
+                            <p className={`text-[11px] uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
+                                Etapa seleccionada
+                            </p>
+                            <p className="mt-1 text-lg font-semibold" style={{ color: stageColors[selected?.stageKey] || '#08bdc6' }}>
+                                {selected?.label || '—'}
+                            </p>
+                            <p className={`mt-1 text-sm ${isLight ? 'text-slate-800' : 'text-[rgba(231,238,247,0.95)]'}`}>{selected?.count ?? 0} activos</p>
+                            <p className={`mt-2 text-xs leading-relaxed ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
+                                {stageDescriptions[selected?.stageKey] || ''}
+                            </p>
+                        </div>
                     </div>
                 </article>
 
-                <article className="surface-panel p-4">
-                    <h3 className="mb-3 text-sm font-semibold text-[var(--text)] font-subtitle">Heatmap de Friccion</h3>
-                    <div className="space-y-2">
-                        {heatmap.map((row) => (
-                            <div key={row.actor} className="grid grid-cols-4 gap-2 text-xs">
-                                <div className={`surface-soft px-3 py-2 font-semibold ${isLight ? 'text-slate-700' : 'text-[rgba(159,179,200,0.95)]'}`}>
-                                    {row.actor}
-                                </div>
-                                <HeatCell isLight={isLight} value={row.inicio} label="Inicio" />
-                                <HeatCell isLight={isLight} value={row.revision} label="Revision" />
-                                <HeatCell isLight={isLight} value={row.firma} label="Firma" />
-                            </div>
-                        ))}
+                <article className={`${glassPanel} p-6`}>
+                    <div className="mb-4 flex items-center justify-between">
+                        <h3 className={`text-sm font-bold uppercase tracking-widest ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Ingresos Reales Mensual</h3>
+                        <span className="text-[10px] font-bold text-[#14ffec] bg-[#14ffec]/10 px-2 py-1 rounded-full border border-[#14ffec]/20">Métrica Global</span>
                     </div>
-                    <p className={`mt-4 text-xs ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>
-                        Valores altos representan mayor friccion operativa y probabilidad de estancamiento.
-                    </p>
+                    <div className="h-[280px]">
+                        <ResponsiveContainer width="100%" height="100%">
+                            <AreaChart data={monthlyGrowth}>
+                                <defs>
+                                    <linearGradient id="growthFillM" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#14ffec" stopOpacity={0.5} />
+                                        <stop offset="100%" stopColor="#14ffec" stopOpacity={0.0} />
+                                    </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
+                                <XAxis dataKey="month" stroke={chartTick} axisLine={false} tickLine={false} />
+                                <YAxis stroke={chartTick} axisLine={false} tickLine={false} />
+                                <Tooltip contentStyle={chartTooltip} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
+                                <Area type="monotone" dataKey="firmas" stroke="#14ffec" fill="url(#growthFillM)" strokeWidth={3} />
+                            </AreaChart>
+                        </ResponsiveContainer>
+                    </div>
                 </article>
             </section>
         </motion.div>
     );
 }
 
-function MetricTile({ isLight, title, value, subtitle }) {
+function MetricTile({ isLight, glassPanel, title, value, subtitle }) {
     return (
-        <div className="surface-panel p-4">
+        <div className={`${glassPanel} p-4`}>
             <p className={`text-[11px] uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>{title}</p>
-            <p className="kpi-value mt-1 text-2xl">{value || 'N/A'}</p>
+            <p className={`mt-1 text-2xl ${isLight ? 'kpi-value' : 'title-gradient font-bold tracking-tight'}`}>{value || 'N/A'}</p>
             <p className={`mt-1 text-xs ${isLight ? 'text-slate-600' : 'text-[rgba(159,179,200,0.95)]'}`}>{subtitle}</p>
         </div>
     );
 }
 
-function HeatCell({ isLight, value, label }) {
-    return (
-        <div className={`rounded-lg px-3 py-2 ${heatColor(value, isLight)}`}>
-            <p className="text-[10px] uppercase tracking-wide">{label}</p>
-            <p className="text-sm font-semibold">{Math.round(value * 100)}%</p>
-        </div>
-    );
-}
+

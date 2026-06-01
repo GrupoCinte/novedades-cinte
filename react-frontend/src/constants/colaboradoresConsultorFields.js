@@ -205,6 +205,50 @@ export const CO_CONSULTOR_SECTIONS = [
     }
 ];
 
+/**
+ * Agrupación opcional de las secciones de CO_CONSULTOR_SECTIONS en pestañas para los
+ * consumidores que quieran un layout con tabs (p. ej. el modal de ficha en Onboarding).
+ * Si un componente ignora este export, el formulario sigue mostrándose en columna.
+ *
+ *  - id: identificador único, usado por los componentes para sincronizar la tab activa.
+ *  - title: nombre completo de la pestaña (usado como tooltip / accessibility label).
+ *  - shortTitle: etiqueta corta a renderizar dentro del botón de la TabBar para que las
+ *    4 pestañas quepan sin scroll horizontal.
+ *  - masterFields: si true, en esa tab se incluye el bloque maestro
+ *    (cedula, nombre, correo_cinte, cliente, lider_catalogo).
+ *  - sectionTitles: listado de `title` de CO_CONSULTOR_SECTIONS que componen la tab.
+ */
+export const CO_TABS = [
+    {
+        id: 'general',
+        title: 'Información General',
+        shortTitle: 'General',
+        masterFields: true,
+        sectionTitles: ['Identificación y nombre', 'Ubicación y contacto', 'Familia']
+    },
+    {
+        id: 'financiera',
+        title: 'Información Financiera y administrativa',
+        shortTitle: 'Financiera y admin.',
+        masterFields: false,
+        sectionTitles: ['Contrato y fechas', 'Costos y remuneración', 'Seguridad social']
+    },
+    {
+        id: 'candidato',
+        title: 'Información del candidato',
+        shortTitle: 'Candidato',
+        masterFields: false,
+        sectionTitles: ['Puesto', 'Gestión y seguimiento']
+    },
+    {
+        id: 'complementaria',
+        title: 'Información Complementaria del servicio',
+        shortTitle: 'Complementaria',
+        masterFields: false,
+        sectionTitles: ['Proyecto, anexos y normas']
+    }
+];
+
 const metaByKey = new Map(CO_EXTENDED_META.map((m) => [m.key, m]));
 
 export function emptyExtendedForm() {

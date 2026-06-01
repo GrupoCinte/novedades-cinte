@@ -155,7 +155,7 @@ class StreamPoller {
 
                 if (response.Records && response.Records.length > 0) {
                     for (const record of response.Records) {
-                        this.processRecord(record);
+                        this.processRecord(record, shardId);
                     }
                 }
 
@@ -261,7 +261,7 @@ class StreamPoller {
         }, delayMs);
     }
 
-    processRecord(record) {
+    processRecord(record, shardId) {
         if (!record.dynamodb) return;
 
         const newImage = record.dynamodb.NewImage ? unmarshall(record.dynamodb.NewImage) : null;
@@ -274,7 +274,16 @@ class StreamPoller {
 
             const event = {
                 type: record.eventName,
-                data: formattedData
+                data: formattedData,
+                /**
+                 * `rawItem` y metadata del stream se exponen para consumidores que necesitan
+                 * persistir en Postgres (Onboarding promotion service). El broadcast WS
+                 * que va a la UI solo lee `type` y `data` (redacted), así que esta info
+                 * extra no afecta el contrato existente.
+                 */
+                rawItem: data,
+                sequenceNumber: record.dynamodb.SequenceNumber || null,
+                shardId: shardId || null
             };
 
             this.callback(event);

@@ -280,4 +280,30 @@ CREATE TRIGGER trg_clientes_lideres_updated_at
 BEFORE UPDATE ON clientes_lideres
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ========= Conciliaciones Facturacion =========
+CREATE TABLE IF NOT EXISTS conciliaciones_facturacion (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+    anio                INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+    mes                 INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+    proyecto            TEXT NULL,
+    observaciones       TEXT NULL,
+    fecha_cierre        DATE NOT NULL DEFAULT CURRENT_DATE,
+    horas_facturadas    NUMERIC(8,2) NOT NULL DEFAULT 0,
+    estado              VARCHAR(50) NOT NULL DEFAULT 'PENDIENTE',
+    factura_fv          VARCHAR(100) NULL,
+    fecha_radicacion    DATE NULL,
+    motivo_devolucion   TEXT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_conciliaciones_facturacion_colab_mes UNIQUE (cedula, anio, mes)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conciliaciones_facturacion_mes_anio ON conciliaciones_facturacion(anio, mes);
+
+DROP TRIGGER IF EXISTS trg_conciliaciones_facturacion_updated_at ON conciliaciones_facturacion;
+CREATE TRIGGER trg_conciliaciones_facturacion_updated_at
+BEFORE UPDATE ON conciliaciones_facturacion
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 COMMIT;

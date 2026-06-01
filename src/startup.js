@@ -4,6 +4,7 @@ const {
     initContratacionRealtime,
     shutdownContratacionRealtime
 } = require('./contratacion/initContratacionRealtime');
+const { ensureOnboardingSchema } = require('./onboarding/onboardingSchema');
 
 async function startServer(deps) {
     const {
@@ -32,6 +33,7 @@ async function startServer(deps) {
         ensureReubicacionesPipelineTable,
         ensureMallaTurnosCeldaTable,
         ensureMallaTurnoAsignacionTable,
+        ensureConciliacionesFacturacionTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
@@ -70,8 +72,20 @@ async function startServer(deps) {
     await ensureReubicacionesPipelineTable();
     await ensureMallaTurnosCeldaTable();
     await ensureMallaTurnoAsignacionTable();
+    await ensureConciliacionesFacturacionTable();
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
+    /**
+     * Onboarding: extensión de `colaboradores` (tipo_personal, baja, SENA, ALIANZA, puente Dynamo)
+     * + tablas satélite (calculadora, licencias, extranjeros, pólizas, capacitaciones, headhunting)
+     * + catálogos (motivo_baja, ciudades, EPS/AFP/ARL/CCF) + buzón staging + log ETL.
+     * Idempotente: si la BD no es owner se loguea WARN y se sigue.
+     */
+    try {
+        await ensureOnboardingSchema({ pool, logger });
+    } catch (e) {
+        logger.error({ error: e && e.message ? e.message : e }, 'Onboarding schema: error de DDL (continúa arranque)');
+    }
 
     const server = app.listen(PORT, () => {
         logger.info({ port: PORT }, `Servidor listo en http://localhost:${PORT}`);
@@ -148,7 +162,7 @@ async function startServer(deps) {
     process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
     try {
-        initContratacionRealtime(server);
+        initContratacionRealtime(server, { pool });
     } catch (e) {
         logger.error({ error: e.message }, 'Contratación (realtime): no se pudo inicializar');
     }

@@ -1,15 +1,15 @@
 const POLICY = {
-    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial', 'directorio'], viewAllAreas: true },
+    super_admin: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'onboarding', 'comercial', 'directorio'], viewAllAreas: true },
     /**
      * Paridad funcional con super_admin en novedades (`canRole*` + alcance) y directorio maestro.
      * Incluye todos los subpaneles del módulo novedades (`dashboard`, `calendar`, `gestion`).
      * Sin comercial/cotizador ni Capital Humano onboarding (`contratacion`).
      */
-    cac: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'directorio'], viewAllAreas: true },
+    cac: { panels: ['dashboard', 'calendar', 'gestion', 'admin', 'onboarding', 'directorio'], viewAllAreas: true },
     /** Alcance de novedades sin filtro por `area` (misma visión global de lista que super_admin en ese aspecto). */
     /** Sin módulo comercial/cotizador (solo novedades amplias + contratación onboarding). */
-    admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'], viewAllAreas: true },
-    team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion'], viewAllAreas: true },
+    admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'onboarding'], viewAllAreas: true },
+    team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'onboarding'], viewAllAreas: true },
     comercial: { panels: ['comercial'] },
     /**
      * Solo gestión de novedades (`allowPanel('gestion')`); sin otros paneles JWT (comercial, contratación, directorio).
@@ -17,8 +17,8 @@ const POLICY = {
      * financiero) sin filtro por área del JWT; el alcance sigue acotado por `clientes_lideres.gp_user_id`. La aprobación se
      * mantiene limitada por `approvers` en `NOVELTY_RULES` (no se gana capacidad de decidir por este flag).
      */
-    gp: { panels: ['gestion'], viewAllAreas: true },
-    nomina: { panels: ['dashboard', 'calendar', 'gestion'], viewAllAreas: true },
+    gp: { panels: ['gestion', 'onboarding'], viewAllAreas: true },
+    nomina: { panels: ['dashboard', 'calendar', 'gestion', 'onboarding'], viewAllAreas: true },
     /** Radicación vía Microsoft Entra (sin paneles admin). */
     consultor: { panels: [] }
 };

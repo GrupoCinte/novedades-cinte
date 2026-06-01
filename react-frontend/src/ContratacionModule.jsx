@@ -8,12 +8,10 @@ import {
     Menu,
     X,
     Users,
-    History,
     BarChart3
 } from 'lucide-react';
 import Layout from './contratacion/components/Layout';
 import ActiveCandidates from './contratacion/components/ActiveCandidates';
-import HistoryCandidates from './contratacion/components/HistoryCandidates';
 import MetricsDashboard from './contratacion/components/MetricsDashboard';
 import useMonitorData from './contratacion/hooks/useMonitorData';
 import { getContratacionPermissions } from './contratacion/contratacionAccess';
@@ -24,13 +22,13 @@ import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
 export { userHasContratacionPanel } from './contratacion/contratacionAccess';
 
-function ContratacionDashboard({ auth, currentView, onNavigate, isLight }) {
+export function ContratacionDashboard({ auth, currentView, onNavigate, isLight, metricsExtra = null, ingresosByMonth = null }) {
     const { canEliminarCandidato } = useMemo(() => getContratacionPermissions(auth), [auth]);
     const data = useMonitorData(auth);
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col font-body">
-            <Layout isConnected={data.isConnected} lastUpdate={data.lastUpdate} isLight={isLight}>
+            <Layout isLight={isLight}>
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={currentView}
@@ -54,11 +52,11 @@ function ContratacionDashboard({ auth, currentView, onNavigate, isLight }) {
                                 dynamoConfigured={data.dynamoConfigured}
                             />
                         )}
-                        {currentView === 'history' && (
-                            <HistoryCandidates executions={data.historyExecutions} metrics={data.metrics} loading={data.loading} />
-                        )}
                         {currentView === 'metrics' && (
-                            <MetricsDashboard metrics={data.metrics} loading={data.loading} executions={data.activeExecutions} />
+                            <div className="flex flex-col gap-6">
+                                <MetricsDashboard metrics={data.metrics} loading={data.loading} executions={data.activeExecutions} ingresosByMonth={ingresosByMonth} />
+                                {metricsExtra}
+                            </div>
                         )}
                     </motion.div>
                 </AnimatePresence>
@@ -80,9 +78,8 @@ export default function ContratacionModule({ auth, onLogout }) {
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
     const sidebarNav = [
-        { id: 'active', label: 'Activos', icon: Users },
-        { id: 'history', label: 'Historial', icon: History },
-        { id: 'metrics', label: 'Métricas', icon: BarChart3 }
+        { id: 'active', label: 'En ingreso', icon: Users },
+        { id: 'metrics', label: 'Dashboard General', icon: BarChart3 }
     ];
 
     return (

@@ -209,6 +209,7 @@ const TIPO_ALIAS_SNAKE = {
   licencia_no_remunerada: 'Licencia no remunerada',
   permiso_no_remunerado: 'Permiso no remunerado',
   permiso_compensatorio_tiempo: 'Permiso compensatorio en tiempo',
+  compensatorio_votacion: 'Compensatorio por votación/jurado',
   compensatorio_votacion_jurado: 'Compensatorio por votación/jurado',
   incapacidad: 'Incapacidad',
   hora_extra: 'Hora Extra',
