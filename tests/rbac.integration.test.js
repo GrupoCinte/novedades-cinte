@@ -65,11 +65,14 @@ describe('RBAC - permisos por tipo', () => {
     assert.equal(canRoleApproveType('gp', 'Incapacidad'), false);
   });
 
-  it('gp aprueba Compensatorio por votación/jurado; admin_ch sigue pudiendo', () => {
+  it('gp aprueba Compensatorio por votación/jurado; admin_ch y super_admin también', () => {
     assert.equal(canRoleViewType('gp', 'Compensatorio por votación/jurado'), true);
     assert.equal(canRoleViewType('nomina', 'Compensatorio por votación/jurado'), true);
     assert.equal(canRoleApproveType('gp', 'Compensatorio por votación/jurado'), true);
     assert.equal(canRoleApproveType('admin_ch', 'Compensatorio por votación/jurado'), true);
+    assert.equal(canRoleApproveType('super_admin', 'Compensatorio por votación/jurado'), true);
+    const rule = getNovedadRuleByType('Compensatorio por votación/jurado');
+    assert.ok(rule.approvers.includes('super_admin'));
   });
 
   it('cac puede ver/aprobar cualquier tipo (paridad super_admin en API)', () => {
