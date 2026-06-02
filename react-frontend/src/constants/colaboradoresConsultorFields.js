@@ -84,7 +84,58 @@ const RAW_FIELDS = [
     ['fecha_tentativa_grado', 'Fecha tentativa de grado', 'date'],
     ['iso_9001_contextualizacion', 'Contextualización ISO 9001', 'textarea'],
     ['sgsti_descripcion', 'Sistema gestión seguridad de la información', 'textarea'],
-    ['iso_14001_ambiental', 'ISO 14001 ambiental', 'textarea']
+    ['iso_14001_ambiental', 'ISO 14001 ambiental', 'textarea'],
+    // --- Campos Agente Extractor Ficha (I–VIII), paridad Dynamo/modal ---
+    ['tipo_servicio', 'Tipo de servicio', 'text'],
+    ['tipo_ingreso', 'Tipo de ingreso', 'text'],
+    ['duracion_servicio', 'Duración del servicio', 'text'],
+    ['analista_at', 'Analista AT', 'text'],
+    ['tarifa_promedio_mes', 'Tarifa promedio / mes', 'money'],
+    ['venta_total', 'Venta total', 'money'],
+    ['costos_personal', 'Costos personal', 'money'],
+    ['otros_costos', 'Otros costos', 'money'],
+    ['facturar_servicio_a', 'Facturar servicio a', 'text'],
+    ['consideraciones_financieras', 'Consideraciones financieras', 'textarea'],
+    ['clasificacion_candidato', 'Clasificación candidato', 'text'],
+    ['segundo_idioma', 'Segundo idioma', 'text'],
+    ['telefono_fijo', 'Teléfono fijo', 'text'],
+    ['emergencia_1_nombre', 'Emergencia 1 — nombre', 'text'],
+    ['emergencia_1_parentesco', 'Emergencia 1 — parentesco', 'text'],
+    ['emergencia_1_telefono', 'Emergencia 1 — teléfono', 'text'],
+    ['emergencia_1_email', 'Emergencia 1 — e-mail', 'text'],
+    ['emergencia_2_nombre', 'Emergencia 2 — nombre', 'text'],
+    ['emergencia_2_parentesco', 'Emergencia 2 — parentesco', 'text'],
+    ['emergencia_2_telefono', 'Emergencia 2 — teléfono', 'text'],
+    ['emergencia_2_email', 'Emergencia 2 — e-mail', 'text'],
+    ['perfil_cargo', 'Perfil del cargo', 'text'],
+    ['ingreso_flexible', 'Ingreso flexible', 'text'],
+    ['recargos_nocturnos', 'Recargos nocturnos', 'text'],
+    ['otros_ingresos', 'Otros ingresos', 'text'],
+    ['carga_prestacional', 'Carga prestacional aplicable', 'text'],
+    ['ingreso_basico_letras', 'Ingreso básico en letras', 'text'],
+    ['funciones_puesto', 'Funciones del puesto', 'textarea'],
+    ['ejecucion_horario_no_habil', 'Ejecución horario no hábil', 'text'],
+    ['horario_laboral', 'Horario laboral', 'textarea'],
+    ['direccion_proyecto', 'Dirección del proyecto', 'text'],
+    ['politica_viaticos', 'Política de viáticos', 'text'],
+    ['consideraciones_gch', 'Consideraciones GCH', 'textarea'],
+    ['consideraciones_gos', 'Consideraciones GOS', 'textarea'],
+    ['contacto_focal_1_nombre', 'Focal 1 — nombre', 'text'],
+    ['contacto_focal_1_cargo', 'Focal 1 — cargo', 'text'],
+    ['contacto_focal_1_movil', 'Focal 1 — móvil', 'text'],
+    ['contacto_focal_1_email', 'Focal 1 — e-mail', 'text'],
+    ['contacto_focal_2_nombre', 'Focal 2 — nombre', 'text'],
+    ['contacto_focal_2_cargo', 'Focal 2 — cargo', 'text'],
+    ['contacto_focal_2_movil', 'Focal 2 — móvil', 'text'],
+    ['contacto_focal_2_email', 'Focal 2 — e-mail', 'text'],
+    ['contacto_admin_nombre', 'Contacto admin — nombre', 'text'],
+    ['contacto_admin_cargo', 'Contacto admin — cargo', 'text'],
+    ['contacto_admin_movil', 'Contacto admin — móvil', 'text'],
+    ['contacto_admin_email', 'Contacto admin — e-mail', 'text'],
+    ['requiere_pc', 'Requiere PC', 'text'],
+    ['requiere_correo_corp', 'Requiere correo corporativo', 'text'],
+    ['requiere_antivirus', 'Requiere antivirus', 'text'],
+    ['requerimientos_dotacion', 'Requerimientos especiales dotación', 'textarea']
 ];
 
 export const CO_EXTENDED_META = RAW_FIELDS.map(([key, label, kind]) => ({ key, label, kind }));
@@ -108,7 +159,28 @@ export const CO_CONSULTOR_SECTIONS = [
             'fecha_nacimiento',
             'edad',
             'sexo',
-            'estado_civil'
+            'estado_civil',
+            'clasificacion_candidato',
+            'segundo_idioma'
+        ]
+    },
+    {
+        title: 'Datos del correo / servicio',
+        keys: ['tipo_servicio', 'tipo_ingreso', 'duracion_servicio', 'analista_at', 'frente_proyecto']
+    },
+    {
+        title: 'Contactos de emergencia',
+        keys: [
+            'emergencia_1_nombre',
+            'emergencia_1_parentesco',
+            'emergencia_1_telefono',
+            'emergencia_1_email',
+            'emergencia_2_nombre',
+            'emergencia_2_parentesco',
+            'emergencia_2_telefono',
+            'emergencia_2_email',
+            'primer_contacto_familiar',
+            'segundo_contacto_familiar'
         ]
     },
     {
@@ -132,6 +204,17 @@ export const CO_CONSULTOR_SECTIONS = [
         ]
     },
     {
+        title: 'Indicadores y costos del correo',
+        keys: [
+            'tarifa_promedio_mes',
+            'venta_total',
+            'costos_personal',
+            'otros_costos',
+            'facturar_servicio_a',
+            'consideraciones_financieras'
+        ]
+    },
+    {
         title: 'Costos y remuneración',
         keys: [
             'costo_empresa',
@@ -139,6 +222,11 @@ export const CO_CONSULTOR_SECTIONS = [
             'utilidad',
             'rt_aprox',
             'sueldo_nomina',
+            'ingreso_basico_letras',
+            'ingreso_flexible',
+            'recargos_nocturnos',
+            'otros_ingresos',
+            'carga_prestacional',
             'auxilio_transporte_obligatorio',
             'auxilios_no_prestacionales',
             'honorarios',
@@ -149,8 +237,17 @@ export const CO_CONSULTOR_SECTIONS = [
         ]
     },
     {
-        title: 'Puesto',
-        keys: ['puesto', 'descriptivo_puesto_sig']
+        title: 'Puesto y ejecución del servicio',
+        keys: [
+            'puesto',
+            'perfil_cargo',
+            'descriptivo_puesto_sig',
+            'funciones_puesto',
+            'horario_laboral',
+            'ejecucion_horario_no_habil',
+            'direccion_proyecto',
+            'politica_viaticos'
+        ]
     },
     {
         title: 'Seguridad social',
@@ -163,20 +260,36 @@ export const CO_CONSULTOR_SECTIONS = [
             'ciudad',
             'departamento',
             'celular_personal',
+            'telefono_fijo',
             'email_personal',
             'profesion',
-            'primer_contacto_familiar',
-            'segundo_contacto_familiar',
             'datos_bancarios'
+        ]
+    },
+    {
+        title: 'Stakeholders del cliente',
+        keys: [
+            'contacto_focal_1_nombre',
+            'contacto_focal_1_cargo',
+            'contacto_focal_1_movil',
+            'contacto_focal_1_email',
+            'contacto_focal_2_nombre',
+            'contacto_focal_2_cargo',
+            'contacto_focal_2_movil',
+            'contacto_focal_2_email',
+            'contacto_admin_nombre',
+            'contacto_admin_cargo',
+            'contacto_admin_movil',
+            'contacto_admin_email',
+            'gerente_servicio',
+            'controller_staff',
+            'email_gerente_servicio'
         ]
     },
     {
         title: 'Gestión y seguimiento',
         keys: [
             'reporte_arl_teletrabajo',
-            'gerente_servicio',
-            'controller_staff',
-            'email_gerente_servicio',
             'seguimiento_pp',
             'desempeno_ed_servicio'
         ]
@@ -186,12 +299,22 @@ export const CO_CONSULTOR_SECTIONS = [
         keys: ['tiene_dependientes', 'tiene_hijos', 'edades_hijos']
     },
     {
+        title: 'Consideraciones y dotación',
+        keys: [
+            'consideraciones_gch',
+            'consideraciones_gos',
+            'requiere_pc',
+            'requiere_correo_corp',
+            'requiere_antivirus',
+            'requerimientos_dotacion',
+            'teletrabajo'
+        ]
+    },
+    {
         title: 'Proyecto, anexos y normas',
         keys: [
             'ficha_extension_proyecto',
-            'frente_proyecto',
             'afiliado_foneh',
-            'teletrabajo',
             'anexo1',
             'anexo2',
             'documentos_complementarios',
@@ -224,28 +347,39 @@ export const CO_TABS = [
         title: 'Información General',
         shortTitle: 'General',
         masterFields: true,
-        sectionTitles: ['Identificación y nombre', 'Ubicación y contacto', 'Familia']
+        sectionTitles: [
+            'Identificación y nombre',
+            'Datos del correo / servicio',
+            'Ubicación y contacto',
+            'Contactos de emergencia',
+            'Familia'
+        ]
     },
     {
         id: 'financiera',
         title: 'Información Financiera y administrativa',
         shortTitle: 'Financiera y admin.',
         masterFields: false,
-        sectionTitles: ['Contrato y fechas', 'Costos y remuneración', 'Seguridad social']
+        sectionTitles: [
+            'Contrato y fechas',
+            'Indicadores y costos del correo',
+            'Costos y remuneración',
+            'Seguridad social'
+        ]
     },
     {
         id: 'candidato',
         title: 'Información del candidato',
         shortTitle: 'Candidato',
         masterFields: false,
-        sectionTitles: ['Puesto', 'Gestión y seguimiento']
+        sectionTitles: ['Puesto y ejecución del servicio', 'Stakeholders del cliente', 'Gestión y seguimiento']
     },
     {
         id: 'complementaria',
         title: 'Información Complementaria del servicio',
         shortTitle: 'Complementaria',
         masterFields: false,
-        sectionTitles: ['Proyecto, anexos y normas']
+        sectionTitles: ['Consideraciones y dotación', 'Proyecto, anexos y normas']
     }
 ];
 
@@ -360,6 +494,25 @@ export function buildStaffColaboradorPayload(coForm) {
         }
     }
     ext.montos_divisa = Object.keys(md).length ? md : null;
+
+    const e1 = [
+        coForm.emergencia_1_nombre,
+        coForm.emergencia_1_parentesco,
+        coForm.emergencia_1_telefono
+    ]
+        .map((x) => String(x || '').trim())
+        .filter(Boolean)
+        .join('-');
+    const e2 = [
+        coForm.emergencia_2_nombre,
+        coForm.emergencia_2_parentesco,
+        coForm.emergencia_2_telefono
+    ]
+        .map((x) => String(x || '').trim())
+        .filter(Boolean)
+        .join('-');
+    if (e1) ext.primer_contacto_familiar = e1;
+    if (e2) ext.segundo_contacto_familiar = e2;
 
     return ext;
 }

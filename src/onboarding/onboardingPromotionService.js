@@ -18,6 +18,8 @@
  */
 
 const { z } = require('zod');
+const { COLABORADORES_EXTENDED_KEYS } = require('../colaboradores/colaboradoresExtendedColumns');
+const { applyLegacyEmergencyParse } = require('../contratacion/extractorToFichaMap');
 
 /** Estados terminales de n8n que disparan el upsert real a `colaboradores`. */
 const TERMINAL_STATUSES = new Set([
@@ -268,8 +270,15 @@ function mapDynamoItemForPromotion(rawItem) {
     }
 
     const cedula = normalizeCedula(r.cedula ?? r['cédula'] ?? r.cedula_identidad ?? r.documento ?? r.documento_identidad);
-    const correoCinte = normalizeEmail(r.correo_cinte) || normalizeEmail(r.email);
-    const celular = trimOrNull(r.celular) || trimOrNull(r.celular_personal) || trimOrNull(r.telefono) || trimOrNull(r.whatsapp) || null;
+    const correoCinte = normalizeEmail(r.correo_cinte);
+    const emailPersonal = normalizeEmail(r.email_personal) || normalizeEmail(r.email);
+    const celular =
+        trimOrNull(r.celular_personal) ||
+        trimOrNull(r.celular) ||
+        trimOrNull(r.whatsapp_numerico) ||
+        trimOrNull(r.telefono) ||
+        trimOrNull(r.whatsapp) ||
+        null;
     const whatsappNumber = trimOrNull(r.whatsapp_number) || trimOrNull(r.whatsappNumber) || null;
     const status = trimOrNull(r.status) || trimOrNull(r.statuses) || null;
 
@@ -291,28 +300,41 @@ function mapDynamoItemForPromotion(rawItem) {
         parseSalarioCop(r.salario_numeros) ??
         parseNumberOrNull(r.sueldo_nomina ?? r.salario ?? r.salary);
     const tipoContrato = trimOrNull(r.tipo_contrato);
+    const esquemaContrato = trimOrNull(r.esquema_contrato);
+
+    const extended = {};
+    for (const key of COLABORADORES_EXTENDED_KEYS) {
+        if (key === 'montos_divisa') continue;
+        const v = r[key];
+        if (v == null || v === '') continue;
+        if (typeof v === 'object') extended[key] = v;
+        else extended[key] = trimOrNull(v, 8000);
+    }
+
+    const merged = applyLegacyEmergencyParse({ ...r, ...extended });
 
     return {
         cedula,
         nombre: nombreFull,
-        nombres,
-        primer_apellido: primerApellido,
-        segundo_apellido: segundoApellido,
+        nombres: trimOrNull(merged.nombres) || nombres,
+        primer_apellido: trimOrNull(merged.primer_apellido) || primerApellido,
+        segundo_apellido: trimOrNull(merged.segundo_apellido) || segundoApellido,
         correo_cinte: correoCinte,
+        email_personal: emailPersonal,
         celular_personal: celular,
         direccion_domicilio: trimOrNull(r.direccion) || trimOrNull(r.direccion_domicilio) || null,
         puesto: trimOrNull(r.puesto) || trimOrNull(r.cargo) || trimOrNull(r.Descriptivo_Cinte) || null,
-        empleador: trimOrNull(r.empresa) || trimOrNull(r.empleador) || null,
+        empleador: trimOrNull(r.empleador) || trimOrNull(r.empresa) || null,
         sueldo_nomina: sueldoNomina,
         cliente: trimOrNull(r.cliente) || trimOrNull(r.cliente_proyecto) || null,
         fecha_ingreso: fechaIngreso,
-        // tipo_contrato hoy NO es columna de `colaboradores`; lo dejamos en el
-        // payload para que quede en `onboarding_staging.payload` (auditoría /
-        // futura migración) sin afectar el INSERT actual.
         tipo_contrato: tipoContrato,
+        esquema_contrato: esquemaContrato,
+        codigo: trimOrNull(r.codigo) || trimOrNull(r.codigo_opt) || null,
         status,
         whatsapp_number: whatsappNumber,
         dynamo_external_id: whatsappNumber || trimOrNull(r.id) || trimOrNull(r.execution_id) || null,
+        extended,
         __raw: r
     };
 }
@@ -330,6 +352,7 @@ const promotionPayloadSchema = z
         primer_apellido: z.string().max(200).optional().nullable(),
         segundo_apellido: z.string().max(200).optional().nullable(),
         correo_cinte: z.string().email().max(320).optional().nullable(),
+        email_personal: z.string().email().max(320).optional().nullable(),
         celular_personal: z.string().max(60).optional().nullable(),
         direccion_domicilio: z.string().max(500).optional().nullable(),
         puesto: z.string().max(400).optional().nullable(),
@@ -578,6 +601,23 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 source,
                 tipoPersonal: meta.tipoPersonal
             });
+
+            const extPayload = {
+                cedula: cedulaInsertada,
+                ...(validated.extended && typeof validated.extended === 'object' ? validated.extended : {}),
+                email_personal: validated.email_personal,
+                codigo: validated.codigo,
+                tipo_contrato: validated.tipo_contrato,
+                esquema_contrato: validated.esquema_contrato
+            };
+            const updatable = buildExtendedUpdate(extPayload, cedulaInsertada);
+            if (updatable.cols.length) {
+                await client.query(
+                    `UPDATE colaboradores SET ${updatable.cols.join(', ')}, updated_at = NOW()
+                     WHERE cedula = $1`,
+                    [cedulaInsertada, ...updatable.values]
+                );
+            }
 
             await markStaging(client, stagingId, { status: 'aplicado', cedula: cedulaInsertada });
             await client.query('COMMIT');

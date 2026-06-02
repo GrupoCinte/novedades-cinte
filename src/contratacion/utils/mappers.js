@@ -1,33 +1,5 @@
 const crypto = require('node:crypto');
 
-const SAFE_FULLDATA_KEYS = new Set([
-    'email',
-    'puesto',
-    'status',
-    'statuses',
-    'nombre',
-    'apellido',
-    'nombre y apellido',
-    'nombre_y_apellido',
-    'ts_documentos_recibidos',
-    'ts_primer_contacto_candidato',
-    'ts_analisis_ia_completado',
-    'ts_validacion_completada',
-    'ts_eliminado',
-    'obs_eliminado',
-    'documentos',
-    'whatsapp_numerico',
-    'whatsapp',
-    'telefono',
-    'celular',
-    'canal',
-    'workflow',
-    'origen',
-    'fuente',
-    'empresa',
-    'cargo'
-]);
-
 function isSensitiveKey(key) {
     const lk = String(key).toLowerCase();
     return (
@@ -35,14 +7,7 @@ function isSensitiveKey(key) {
         lk.includes('token') ||
         lk.includes('secret') ||
         lk.includes('apikey') ||
-        lk.includes('api_key') ||
-        lk.includes('cedula') ||
-        lk.includes('cédula') ||
-        lk.includes('documento_identidad') ||
-        lk.includes('direccion') ||
-        lk.includes('dirección') ||
-        lk.includes('salario') ||
-        lk.includes('salary')
+        lk.includes('api_key')
     );
 }
 
@@ -65,7 +30,6 @@ function buildSafeFullData(data) {
     const out = {};
     for (const [k, v] of Object.entries(data || {})) {
         if (isSensitiveKey(k)) continue;
-        if (!SAFE_FULLDATA_KEYS.has(k)) continue;
         out[k] = redactNested(v);
     }
     return out;
@@ -115,7 +79,6 @@ function mapDynamoItemToExecution(data) {
 
     const safeData = { ...data };
     delete safeData.password;
-    delete safeData.cedula;
     const redacted = buildSafeFullData(safeData);
 
     const tsCandidates = [

@@ -27,6 +27,7 @@ import { nativeCalendarOnlyInputProps } from '../nativeCalendarOnlyInputProps.js
 import {
     TipoPersonalBadge,
     MotivoBajaBadge,
+    ColaboradorEstadoBadge,
     DiasIngresoBadge
 } from './onboardingBadges.jsx';
 
@@ -206,10 +207,21 @@ export function PersonalView({
                       key: '_dias_para_ingresar',
                       label: 'Días para ingresar',
                       render: (r) => <DiasIngresoBadge dias={diasParaIngresar(r.fecha_ingreso)} isLight={isLight} />
+                  },
+                  {
+                      key: 'estado',
+                      label: 'Estado',
+                      render: (r) => (
+                          <ColaboradorEstadoBadge
+                              activo={r.activo}
+                              motivoBaja={r.motivo_baja}
+                              fechaIngreso={r.fecha_ingreso}
+                              isLight={isLight}
+                          />
+                      )
                   }
               ]
-            : []),
-        { key: 'activo', label: 'Activo', render: (r) => <StatusBadge value={r.activo} isLight={isLight} /> },
+            : [{ key: 'activo', label: 'Activo', render: (r) => <StatusBadge value={r.activo} isLight={isLight} /> }]),
         ...(activo === 'false' || activo === 'all'
             ? [
                   {

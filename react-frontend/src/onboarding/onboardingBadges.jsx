@@ -135,6 +135,71 @@ export function DiasIngresoBadge({ dias, isLight }) {
     );
 }
 
+/** true si la fecha de ingreso es estrictamente posterior a hoy (zona local). */
+export function isFechaIngresoFutura(fechaIngreso) {
+    if (!fechaIngreso) return false;
+    const s = String(fechaIngreso).slice(0, 10);
+    const [y, m, d] = s.split('-').map((n) => Number(n));
+    if (!y || !m || !d) return false;
+    const target = new Date(y, m - 1, d);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return target > today;
+}
+
+/** Estado operativo del colaborador para pills y modal (Baja / Próximos / Activo). */
+export function resolveColaboradorEstado({ activo, motivoBaja, fechaIngreso }) {
+    const esBaja = activo === false || Boolean(motivoBaja);
+    if (esBaja) {
+        return {
+            key: 'baja',
+            label: 'Baja',
+            dot: '#e11d48',
+            textCls: { light: 'text-rose-500', dark: 'text-rose-400' },
+            ping: false
+        };
+    }
+    if (isFechaIngresoFutura(fechaIngreso)) {
+        return {
+            key: 'proximos',
+            label: 'Próximos a ingresar',
+            dot: '#2F7BB8',
+            textCls: { light: 'text-sky-700', dark: 'text-sky-300' },
+            ping: true
+        };
+    }
+    return {
+        key: 'activo',
+        label: 'Activo',
+        dot: '#4f8831',
+        textCls: { light: 'text-emerald-700', dark: 'text-emerald-400' },
+        ping: true
+    };
+}
+
+export function ColaboradorEstadoBadge({ activo, motivoBaja, fechaIngreso, isLight }) {
+    const st = resolveColaboradorEstado({ activo, motivoBaja, fechaIngreso });
+    if (st.key === 'proximos') {
+        return (
+            <span className={pill('border-sky-300 bg-sky-50 text-sky-900', 'border-sky-500/30 bg-sky-500/10 text-sky-200', isLight)}>
+                {st.label}
+            </span>
+        );
+    }
+    if (st.key === 'baja') {
+        return (
+            <span className={pill('border-rose-300 bg-rose-50 text-rose-900', 'border-rose-500/30 bg-rose-500/10 text-rose-200', isLight)}>
+                {st.label}
+            </span>
+        );
+    }
+    return (
+        <span className={pill('border-emerald-300 bg-emerald-50 text-emerald-900', 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200', isLight)}>
+            {st.label}
+        </span>
+    );
+}
+
 export function VencimientoDocBadge({ fecha, isLight }) {
     if (!fecha) return null;
     const s = String(fecha).slice(0, 10);

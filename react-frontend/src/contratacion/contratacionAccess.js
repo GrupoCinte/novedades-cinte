@@ -64,10 +64,15 @@ export function getContratacionPermissions(authOrToken) {
     const payload = normalizePayload(authOrToken);
     const role = resolveRoleFromTokenPayload(payload);
     if (role === 'nomina') {
-        return { canEliminarCandidato: false, hasPanel: false, role };
+        return { canEliminarCandidato: false, canFinalizarCandidato: false, hasPanel: false, role };
     }
     const panels = Array.isArray(payload?.panels) ? payload.panels.map((p) => String(p)) : [];
     const hasPanel = panels.includes('contratacion') || ROLES_WITH_CONTRATACION_PANEL.has(role);
-    const canEliminarCandidato = role === 'super_admin' || role === 'admin_ch';
-    return { canEliminarCandidato, hasPanel, role };
+    const canManageCandidato = role === 'super_admin' || role === 'admin_ch';
+    return {
+        canEliminarCandidato: canManageCandidato,
+        canFinalizarCandidato: canManageCandidato,
+        hasPanel,
+        role
+    };
 }

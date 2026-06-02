@@ -11,7 +11,7 @@ import {
 } from '../constants/colaboradoresConsultorFields.js';
 import { onboardingApi } from './api.js';
 import { getOnboardingPermissions } from './onboardingAccess.js';
-import { TipoPersonalBadge } from './onboardingBadges.jsx';
+import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.jsx';
 
 async function fetchClientes() {
     try {
@@ -63,6 +63,16 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     const displaySubtitle = createMode
         ? 'Alta manual de ficha'
         : `${form.cedula || cedula || '—'}${form.cliente ? ` · ${form.cliente}` : ''}`;
+
+    const estadoColaborador = useMemo(
+        () =>
+            resolveColaboradorEstado({
+                activo: esBaja ? false : true,
+                motivoBaja: form.motivo_baja,
+                fechaIngreso: form.fecha_ingreso
+            }),
+        [esBaja, form.motivo_baja, form.fecha_ingreso]
+    );
 
     const handleLiderFetch = useCallback(async (cliente) => {
         setLiderLoading(true);
@@ -214,18 +224,18 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                 <div className="flex min-w-fit items-center gap-3">
                     <div className="relative flex h-3.5 w-3.5">
                         <span
-                            className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${esBaja ? '' : 'animate-ping'}`}
-                            style={{ backgroundColor: esBaja ? '#e11d48' : '#4f8831' }}
+                            className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${estadoColaborador.ping ? 'animate-ping' : ''}`}
+                            style={{ backgroundColor: estadoColaborador.dot }}
                         />
                         <span
                             className="relative inline-flex h-3.5 w-3.5 rounded-full"
-                            style={{ backgroundColor: esBaja ? '#e11d48' : '#4f8831' }}
+                            style={{ backgroundColor: estadoColaborador.dot }}
                         />
                     </div>
                     <span
-                        className={`text-[11px] font-bold uppercase tracking-widest ${esBaja ? 'text-rose-500' : isLight ? 'text-emerald-700' : 'text-emerald-400'}`}
+                        className={`text-[11px] font-bold uppercase tracking-widest ${isLight ? estadoColaborador.textCls.light : estadoColaborador.textCls.dark}`}
                     >
-                        {esBaja ? 'Baja' : 'Activo'}
+                        {estadoColaborador.label}
                     </span>
                 </div>
                 <div className={`hidden h-6 w-px sm:block ${isLight ? 'bg-slate-300' : 'bg-slate-700'}`} />

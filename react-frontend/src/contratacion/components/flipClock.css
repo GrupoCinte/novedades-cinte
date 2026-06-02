@@ -1,0 +1,151 @@
+/* Estilo flip-clock clásico (split-flap) para contadores En ingreso */
+.fc-wrap {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.fc-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.fc-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.fc-sep {
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1;
+    opacity: 0.85;
+    padding-bottom: 0.15rem;
+}
+
+.fc-unit {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.fc-unit-label {
+    font-size: 0.55rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.65;
+}
+
+.fc-pair {
+    display: flex;
+    gap: 0.2rem;
+}
+
+.fc-digit {
+    position: relative;
+    width: 1.65rem;
+    height: 2.35rem;
+    perspective: 220px;
+    border-radius: 0.35rem;
+    overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+
+.fc-digit-face {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    backface-visibility: hidden;
+}
+
+.fc-digit-top {
+    height: 50%;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.fc-digit-top .fc-digit-face {
+    height: 200%;
+    align-items: flex-end;
+    padding-bottom: 0.05rem;
+}
+
+.fc-digit-bottom {
+    top: 50%;
+    height: 50%;
+    overflow: hidden;
+}
+
+.fc-digit-bottom .fc-digit-face {
+    height: 200%;
+    align-items: flex-start;
+    padding-top: 0.05rem;
+}
+
+.fc-digit.fc-flip .fc-flap {
+    animation: fc-flip-down 0.45s ease-in-out forwards;
+    transform-origin: center top;
+}
+
+.fc-flap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    height: 50%;
+    overflow: hidden;
+    z-index: 2;
+    transform-style: preserve-3d;
+}
+
+.fc-flap .fc-digit-face {
+    height: 200%;
+    align-items: flex-end;
+    padding-bottom: 0.05rem;
+}
+
+.fc-light .fc-digit {
+    background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+    color: #0f172a;
+}
+
+.fc-light .fc-label {
+    color: #475569;
+}
+
+.fc-light .fc-sep {
+    color: #64748b;
+}
+
+.fc-dark .fc-digit {
+    background: linear-gradient(180deg, #334155 0%, #1e293b 100%);
+    color: #f8fafc;
+}
+
+.fc-dark .fc-label {
+    color: #94a3b8;
+}
+
+.fc-dark .fc-sep {
+    color: #cbd5e1;
+}
+
+@keyframes fc-flip-down {
+    0% {
+        transform: rotateX(0deg);
+    }
+    100% {
+        transform: rotateX(-180deg);
+    }
+}

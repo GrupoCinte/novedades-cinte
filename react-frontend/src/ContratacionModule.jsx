@@ -23,7 +23,10 @@ import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 export { userHasContratacionPanel } from './contratacion/contratacionAccess';
 
 export function ContratacionDashboard({ auth, currentView, onNavigate, isLight, metricsExtra = null, ingresosByMonth = null }) {
-    const { canEliminarCandidato } = useMemo(() => getContratacionPermissions(auth), [auth]);
+    const { canEliminarCandidato, canFinalizarCandidato } = useMemo(
+        () => getContratacionPermissions(auth),
+        [auth]
+    );
     const data = useMonitorData(auth);
 
     return (
@@ -49,6 +52,7 @@ export function ContratacionDashboard({ auth, currentView, onNavigate, isLight, 
                                 refetch={data.refetch}
                                 authToken={auth?.token || ''}
                                 canEliminarCandidato={canEliminarCandidato}
+                                canFinalizarCandidato={canFinalizarCandidato}
                                 dynamoConfigured={data.dynamoConfigured}
                             />
                         )}

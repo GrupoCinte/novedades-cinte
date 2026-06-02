@@ -34,14 +34,13 @@ import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
 import MallasTurnosModule from './MallasTurnosModule';
+import ColaboradorFichaFields from './components/ColaboradorFichaFields.jsx';
 import {
     initialStaffForm,
     mapRowToStaffForm,
     buildStaffColaboradorPayload,
-    CO_CONSULTOR_SECTIONS,
-    getFieldMeta
+    CO_TABS
 } from './constants/colaboradoresConsultorFields.js';
-import { currencyNarrowSymbol, formatMoneyAmountOnly, parseMoneyInput } from './multiCurrencyMoney.js';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -236,6 +235,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const [staffModalOpen, setStaffModalOpen] = useState(false);
     const [staffModalMode, setStaffModalMode] = useState('create');
     const [coForm, setCoForm] = useState(() => initialStaffForm());
+    const [staffFichaTab, setStaffFichaTab] = useState(CO_TABS[0]?.id || 'general');
     const [catalogClientes, setCatalogClientes] = useState([]);
     const [liderOptions, setLiderOptions] = useState([]);
     const [liderLoading, setLiderLoading] = useState(false);
@@ -1956,272 +1956,37 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 <X size={18} />
                             </button>
                         </div>
-                        <form onSubmit={submitStaffModal} className="p-5 space-y-4 overflow-y-auto">
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Cédula (solo dígitos)</label>
-                                <input
-                                    className={`w-full ${field} disabled:opacity-50`}
-                                    value={coForm.cedula}
-                                    onChange={(e) => setCoForm((f) => ({ ...f, cedula: e.target.value }))}
-                                    disabled={staffModalMode === 'edit'}
-                                    required={staffModalMode === 'create'}
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Nombres y Apellidos</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={coForm.nombre}
-                                    onChange={(e) => setCoForm((f) => ({ ...f, nombre: e.target.value }))}
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Correo Cinte</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={coForm.correo_cinte}
-                                    onChange={(e) => setCoForm((f) => ({ ...f, correo_cinte: e.target.value }))}
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Cliente</label>
-                                <select
-                                    className={`w-full ${field}`}
-                                    value={coForm.cliente}
-                                    onChange={(e) => {
-                                        const v = e.target.value;
-                                        setCoForm((f) => ({ ...f, cliente: v, lider_catalogo: '' }));
-                                        fetchLideresForCliente(v);
-                                    }}
-                                >
-                                    <option value="">— Seleccionar —</option>
-                                    {catalogClientes.map((c) => (
-                                        <option key={c} value={c}>
-                                            {c}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
-                                <select
-                                    className={`w-full ${field}`}
-                                    value={coForm.lider_catalogo}
-                                    onChange={(e) => setCoForm((f) => ({ ...f, lider_catalogo: e.target.value }))}
-                                    disabled={!coForm.cliente || liderLoading}
-                                >
-                                    <option value="">
-                                        {!coForm.cliente ? 'Elige un cliente primero' : liderLoading ? 'Cargando…' : '— Seleccionar —'}
-                                    </option>
-                                    {liderOptions.map((l) => (
-                                        <option key={l} value={l}>
-                                            {l}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <p className={`text-xs ${labelMuted}`}>
-                                El GP se toma automáticamente del par cliente–líder en el catálogo (si está definido).
-                            </p>
-
-                            <div className="border-t border-[var(--border)] pt-4 mt-4 space-y-6">
-                                <p className="text-sm font-semibold text-[var(--text)]">Ficha extendida</p>
-                                {CO_CONSULTOR_SECTIONS.map((sec) => (
-                                    <div key={sec.title} className="space-y-3">
-                                        <h3
-                                            className={`text-xs font-bold uppercase tracking-wide ${labelMuted}`}
-                                        >
-                                            {sec.title}
-                                        </h3>
-                                        <div className="grid gap-3 sm:grid-cols-2">
-                                            {sec.keys.map((key) => {
-                                                const meta = getFieldMeta(key);
-                                                if (!meta) return null;
-                                                const val = coForm[key] ?? '';
-                                                const cellWide =
-                                                    meta.kind === 'textarea' ? 'sm:col-span-2' : '';
-                                                let control;
-                                                if (meta.kind === 'bool') {
-                                                    control = (
-                                                        <select
-                                                            className={`w-full ${field}`}
-                                                            value={val}
-                                                            onChange={(e) =>
-                                                                setCoForm((f) => ({
-                                                                    ...f,
-                                                                    [key]: e.target.value
-                                                                }))
-                                                            }
-                                                        >
-                                                            <option value="">Sin especificar</option>
-                                                            <option value="true">Sí</option>
-                                                            <option value="false">No</option>
-                                                        </select>
-                                                    );
-                                                } else if (meta.kind === 'date') {
-                                                    control = (
-                                                        <input
-                                                            {...nativeCalendarOnlyInputProps}
-                                                            type="date"
-                                                            className={`w-full ${field}`}
-                                                            value={val}
-                                                            onChange={(e) =>
-                                                                setCoForm((f) => ({
-                                                                    ...f,
-                                                                    [key]: e.target.value
-                                                                }))
-                                                            }
-                                                        />
-                                                    );
-                                                } else if (meta.kind === 'money') {
-                                                    const ccy = coForm.montos_divisa?.[key] || 'COP';
-                                                    const sym = currencyNarrowSymbol(ccy);
-                                                    control = (
-                                                        <div className="flex flex-wrap gap-2 items-center">
-                                                            <select
-                                                                className={`w-[4.75rem] shrink-0 rounded-md border px-2 py-2 text-sm ${field}`}
-                                                                value={ccy}
-                                                                onChange={(e) => {
-                                                                    const next = e.target.value;
-                                                                    setCoForm((f) => {
-                                                                        const prevCcy = f.montos_divisa?.[key] || 'COP';
-                                                                        const rawVal = f[key];
-                                                                        const n = parseMoneyInput(rawVal, prevCcy);
-                                                                        const nextMd = {
-                                                                            ...(f.montos_divisa || {}),
-                                                                            [key]: next
-                                                                        };
-                                                                        if (
-                                                                            n != null &&
-                                                                            Number.isFinite(n)
-                                                                        ) {
-                                                                            return {
-                                                                                ...f,
-                                                                                montos_divisa: nextMd,
-                                                                                [key]: formatMoneyAmountOnly(n, next)
-                                                                            };
-                                                                        }
-                                                                        return {
-                                                                            ...f,
-                                                                            montos_divisa: nextMd
-                                                                        };
-                                                                    });
-                                                                }}
-                                                            >
-                                                                <option value="COP">COP</option>
-                                                                <option value="CLP">CLP</option>
-                                                                <option value="USD">USD</option>
-                                                            </select>
-                                                            <span
-                                                                className={`text-sm tabular-nums shrink-0 ${labelMuted}`}
-                                                                title={ccy}
-                                                            >
-                                                                {sym}
-                                                            </span>
-                                                            <input
-                                                                type="text"
-                                                                inputMode="decimal"
-                                                                className={`min-w-0 flex-1 rounded-md border px-3 py-2 ${field}`}
-                                                                value={val}
-                                                                onChange={(e) =>
-                                                                    setCoForm((f) => ({
-                                                                        ...f,
-                                                                        [key]: e.target.value
-                                                                    }))
-                                                                }
-                                                                onBlur={(e) => {
-                                                                    const rawBlur = e.target.value;
-                                                                    setCoForm((f) => {
-                                                                        const cur =
-                                                                            f.montos_divisa?.[key] ||
-                                                                            'COP';
-                                                                        const n = parseMoneyInput(
-                                                                            rawBlur,
-                                                                            cur
-                                                                        );
-                                                                        if (
-                                                                            n == null ||
-                                                                            !Number.isFinite(n)
-                                                                        ) {
-                                                                            return { ...f, [key]: '' };
-                                                                        }
-                                                                        return {
-                                                                            ...f,
-                                                                            [key]: formatMoneyAmountOnly(
-                                                                                n,
-                                                                                cur
-                                                                            )
-                                                                        };
-                                                                    });
-                                                                }}
-                                                            />
-                                                        </div>
-                                                    );
-                                                } else if (
-                                                    meta.kind === 'number' ||
-                                                    meta.kind === 'int'
-                                                ) {
-                                                    control = (
-                                                        <input
-                                                            type="text"
-                                                            inputMode="decimal"
-                                                            className={`w-full ${field}`}
-                                                            value={val}
-                                                            onChange={(e) =>
-                                                                setCoForm((f) => ({
-                                                                    ...f,
-                                                                    [key]: e.target.value
-                                                                }))
-                                                            }
-                                                        />
-                                                    );
-                                                } else if (meta.kind === 'textarea') {
-                                                    control = (
-                                                        <textarea
-                                                            rows={3}
-                                                            className={`w-full ${field}`}
-                                                            value={val}
-                                                            onChange={(e) =>
-                                                                setCoForm((f) => ({
-                                                                    ...f,
-                                                                    [key]: e.target.value
-                                                                }))
-                                                            }
-                                                        />
-                                                    );
-                                                } else {
-                                                    control = (
-                                                        <input
-                                                            type="text"
-                                                            className={`w-full ${field}`}
-                                                            value={val}
-                                                            onChange={(e) =>
-                                                                setCoForm((f) => ({
-                                                                    ...f,
-                                                                    [key]: e.target.value
-                                                                }))
-                                                            }
-                                                        />
-                                                    );
-                                                }
-                                                return (
-                                                    <div key={key} className={cellWide}>
-                                                        <label
-                                                            className={`block text-xs ${labelMuted} mb-1`}
-                                                        >
-                                                            {meta.label}
-                                                        </label>
-                                                        {control}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
+                        <form onSubmit={submitStaffModal} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                            <div className="border-b border-[var(--border)] px-5 flex flex-wrap gap-1">
+                                {CO_TABS.map((tab) => (
+                                    <button
+                                        key={tab.id}
+                                        type="button"
+                                        onClick={() => setStaffFichaTab(tab.id)}
+                                        className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${
+                                            staffFichaTab === tab.id
+                                                ? 'border-[#2F7BB8] text-[var(--text)]'
+                                                : `border-transparent ${labelMuted}`
+                                        }`}
+                                    >
+                                        {tab.shortTitle || tab.title}
+                                    </button>
                                 ))}
                             </div>
+                            <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
+                                <ColaboradorFichaFields
+                                    value={coForm}
+                                    onChange={(patch) => setCoForm((f) => ({ ...f, ...patch }))}
+                                    mode={staffModalMode}
+                                    clientes={catalogClientes}
+                                    liderOptions={liderOptions}
+                                    liderLoading={liderLoading}
+                                    onClienteChange={(v) => fetchLideresForCliente(v)}
+                                    activeTabId={staffFichaTab}
+                                />
+                            </div>
 
-                            <div className="flex gap-2 pt-2">
+                            <div className="flex gap-2 border-t border-[var(--border)] p-5">
                                 <button
                                     type="submit"
                                     className="px-4 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold"

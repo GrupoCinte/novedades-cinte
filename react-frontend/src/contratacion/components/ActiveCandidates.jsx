@@ -7,7 +7,6 @@ import ModuleFiltersDrawer from '../../shared/filters/ModuleFiltersDrawer.jsx';
 import { buildGestionTableDash, gestionTableHeadRowCls, gestionTableHeadCellCls } from '../../gestionTableDashTheme.js';
 import { normalizeStatus, getTrazabilidadStageKey, TRAZABILIDAD_STAGE_ORDER } from '../hooks/useMonitorData';
 import { statusTone } from '../contratacionStatusBadges.js';
-import { TERMINAL_STATUSES_SET } from '../constants/trazabilidad.js';
 import { useModuleTheme } from '../../moduleTheme.js';
 import { nativeCalendarOnlyInputProps } from '../../nativeCalendarOnlyInputProps.js';
 import { buildCsrfHeaders } from '../../cognitoAuth.js';
@@ -117,58 +116,6 @@ export function TaskProgressCompact({ completedStages, maxStages, isLight }) {
     );
 }
 
-function parseTs(value) {
-    const ms = new Date(value).getTime();
-    return Number.isFinite(ms) && ms > 0 ? ms : null;
-}
-
-function formatDuration(ms) {
-    const safeMs = Number.isFinite(ms) && ms > 0 ? ms : 0;
-    const totalSeconds = Math.floor(safeMs / 1000);
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function resolveFlowProcessingTime(execution, nowTs) {
-    const fd = execution.fullData || {};
-    const status = normalizeStatus(fd.status || execution.realStatus);
-    const isTerminal = TERMINAL_STATUSES_SET.has(status);
-    const start =
-        parseTs(fd.ts_documentos_recibidos) ??
-        parseTs(fd.ts_analisis_ia_completado) ??
-        parseTs(fd.ts_primer_contacto_candidato) ??
-        parseTs(execution.timestamp) ??
-        nowTs;
-    const end = isTerminal ? (parseTs(fd.ts_validacion_completada) ?? nowTs) : nowTs;
-    const waitStart = parseTs(fd.ts_primer_contacto_candidato) ?? parseTs(fd.ts_analisis_ia_completado);
-    const waitEnd = end;
-
-    const totalMs = Math.max(0, end - start);
-    let waitOverlapMs = 0;
-    if (waitStart && waitEnd > waitStart) {
-        const overlapStart = Math.max(start, waitStart);
-        const overlapEnd = Math.min(end, waitEnd);
-        waitOverlapMs = Math.max(0, overlapEnd - overlapStart);
-    }
-    return formatDuration(Math.max(0, totalMs - waitOverlapMs));
-}
-
-function resolveCandidateWaitTime(execution, nowTs) {
-    const fd = execution.fullData || {};
-    const status = normalizeStatus(fd.status || execution.realStatus);
-    const isTerminal = TERMINAL_STATUSES_SET.has(status);
-    const start =
-        parseTs(fd.ts_primer_contacto_candidato) ??
-        parseTs(fd.ts_analisis_ia_completado) ??
-        parseTs(fd.ts_documentos_recibidos) ??
-        parseTs(execution.timestamp) ??
-        nowTs;
-    const end = isTerminal ? (parseTs(fd.ts_validacion_completada) ?? nowTs) : nowTs;
-    return formatDuration(Math.max(0, end - start));
-}
-
 function taskProgress(status, statusId = null) {
     const stageKey = getTrazabilidadStageKey(status, statusId);
     const idx = TRAZABILIDAD_STAGE_ORDER.indexOf(stageKey);
@@ -203,6 +150,61 @@ function resolveWhatsAppDigits(ex) {
         if (d.length >= 10 && d.length <= 15) return d;
     }
     return null;
+}
+
+function FinalizarCandidatoOverlay({ candidate, obs, setObs, errorMsg, submitting, onClose, onConfirm }) {
+    if (!candidate) return null;
+    return (
+        <div className="fixed inset-0 z-[160] flex items-center justify-center p-4">
+            <div
+                role="presentation"
+                className="modal-glass-scrim absolute inset-0 transition-opacity"
+                onClick={submitting ? undefined : onClose}
+            />
+            <div className="modal-glass-sheet relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl font-body">
+                <h3 className="text-lg font-semibold text-[var(--text)] font-heading">Finalizar proceso manualmente</h3>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+                    El flujo de contactación debería pasar a{' '}
+                    <span className="font-semibold text-[#4f8831]">Finalizado</span> de forma automática al completarse.
+                    Use esta acción solo si el proceso quedó detenido y debe cerrarse manualmente en la Base de Datos.
+                </p>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
+                    El candidato quedará marcado como finalizado y, si aplica, se promoverá a{' '}
+                    <span className="font-semibold text-[var(--text)]">Próximos a ingresar</span>.
+                </p>
+                <p className="mt-3 font-mono text-xs text-[var(--muted)]">{candidate.workflowName}</p>
+                <label className="mt-4 block text-[11px] font-bold uppercase tracking-wider text-[var(--muted)]">
+                    Observación obligatoria
+                </label>
+                <textarea
+                    className="field-control mt-2 min-h-[100px] w-full resize-y px-3 py-2 text-sm"
+                    placeholder="Indique por qué se finaliza manualmente (p. ej. n8n no cerró el flujo)…"
+                    value={obs}
+                    onChange={(e) => setObs(e.target.value)}
+                    disabled={submitting}
+                />
+                {errorMsg ? <p className="mt-2 text-sm text-[var(--error)]">{errorMsg}</p> : null}
+                <div className="mt-5 flex flex-wrap justify-end gap-3">
+                    <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={onClose}
+                        className="rounded-xl border border-[var(--border)] bg-transparent px-4 py-2 text-sm font-semibold text-[var(--muted)] transition hover:bg-[var(--surface-muted)] hover:text-[var(--text)] disabled:opacity-50"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={onConfirm}
+                        className="rounded-xl border border-[#4f8831]/65 bg-transparent px-4 py-2 text-sm font-semibold text-[#4f8831] transition hover:bg-[rgba(79,136,49,0.1)] disabled:opacity-50"
+                    >
+                        {submitting ? 'Guardando…' : 'Confirmar finalización'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 }
 
 function EliminarCandidatoOverlay({ candidate, obs, setObs, errorMsg, submitting, onClose, onConfirm }) {
@@ -256,19 +258,6 @@ function EliminarCandidatoOverlay({ candidate, obs, setObs, errorMsg, submitting
     );
 }
 
-function LiveDurations({ execution, isLight }) {
-    const [nowTs, setNowTs] = useState(Date.now());
-    useEffect(() => {
-        const id = setInterval(() => setNowTs(Date.now()), 1000);
-        return () => clearInterval(id);
-    }, []);
-    return (
-        <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-[var(--muted)]'}`}>
-            Flujo {resolveFlowProcessingTime(execution, nowTs)} · Espera {resolveCandidateWaitTime(execution, nowTs)}
-        </p>
-    );
-}
-
 export default function ActiveCandidates({
     executions,
     metrics,
@@ -278,6 +267,7 @@ export default function ActiveCandidates({
     refetch,
     authToken,
     canEliminarCandidato,
+    canFinalizarCandidato,
     dynamoConfigured,
     totalMonitorCount = 0
 }) {
@@ -296,6 +286,10 @@ export default function ActiveCandidates({
     const [eliminarObs, setEliminarObs] = useState('');
     const [eliminarError, setEliminarError] = useState('');
     const [eliminarSubmitting, setEliminarSubmitting] = useState(false);
+    const [finalizarTarget, setFinalizarTarget] = useState(null);
+    const [finalizarObs, setFinalizarObs] = useState('');
+    const [finalizarError, setFinalizarError] = useState('');
+    const [finalizarSubmitting, setFinalizarSubmitting] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
     const [sortBy, setSortBy] = useState('start'); // employee | type | start | tasks
@@ -369,6 +363,51 @@ export default function ActiveCandidates({
             return;
         }
         window.open(`https://wa.me/${digits}`, '_blank', 'noopener,noreferrer');
+    }
+
+    function openFinalizar(ex, e) {
+        e.stopPropagation();
+        setFinalizarTarget(ex);
+        setFinalizarObs('');
+        setFinalizarError('');
+    }
+
+    async function confirmFinalizar() {
+        const text = finalizarObs.trim();
+        if (!finalizarTarget || !text) {
+            setFinalizarError('Debe escribir una observación.');
+            return;
+        }
+        setFinalizarSubmitting(true);
+        setFinalizarError('');
+        try {
+            await axios.post(
+                '/api/contratacion/finalizar-candidato',
+                { executionId: finalizarTarget.executionId, obs_finalizado_manual: text },
+                {
+                    withCredentials: true,
+                    headers: buildCsrfHeaders(
+                        authToken ? { Authorization: `Bearer ${authToken}` } : {}
+                    )
+                }
+            );
+            setFinalizarTarget(null);
+            setFinalizarObs('');
+            if (selectedUser?.executionId === finalizarTarget.executionId) {
+                setSelectedUser(null);
+            }
+            if (typeof refetch === 'function') await refetch();
+        } catch (err) {
+            const msg =
+                err.response?.data?.message ||
+                err.response?.data?.error ||
+                err.response?.data?.errors?.[0]?.message ||
+                err.message ||
+                'No se pudo guardar.';
+            setFinalizarError(msg);
+        } finally {
+            setFinalizarSubmitting(false);
+        }
     }
 
     async function confirmEliminar() {
@@ -633,7 +672,7 @@ export default function ActiveCandidates({
                 )
             ) : (
                 <div className={isLight ? 'flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border backdrop-blur-xl bg-white/80 border-white/40 shadow-xl' : 'glass-card flex min-h-0 w-full flex-1 flex-col p-0'}>
-                    <div className={`grid grid-cols-[1.8fr_0.95fr_0.95fr_1fr_120px] items-center gap-3 ${gestionTableHeadRowCls(isLight)}`}>
+                    <div className={`grid grid-cols-[1.8fr_0.95fr_0.95fr_1fr_minmax(200px,1fr)] items-center gap-3 ${gestionTableHeadRowCls(isLight)}`}>
                         <button
                             type="button"
                             className={`${headCellCls} flex items-center gap-2 text-left`}
@@ -673,11 +712,17 @@ export default function ActiveCandidates({
                             const completedStages = taskProgress(ex.realStatus, ex.statusId);
                             const maxStages = TRAZABILIDAD_STAGE_ORDER.length - 1; // 5
                             const startDate = resolveIngresoRaw(ex);
+                            const stageKey = getTrazabilidadStageKey(ex.realStatus, ex.statusId);
+                            const showFinalizar =
+                                canFinalizarCandidato &&
+                                stageKey !== 'finalizado' &&
+                                normalizeStatus(ex.realStatus) !== 'eliminado';
+
                             return (
                                 <div
                                     key={ex.executionId}
                                     onClick={() => setSelectedUser(ex)}
-                                    className={`grid w-full cursor-pointer grid-cols-[1.8fr_0.95fr_0.95fr_1fr_120px] items-center gap-3 px-4 py-3 transition-colors ${isLight ? 'hover:bg-white/60' : 'hover:bg-white/5'}`}
+                                    className={`grid w-full cursor-pointer grid-cols-[1.8fr_0.95fr_0.95fr_1fr_minmax(200px,1fr)] items-center gap-3 px-4 py-3 transition-colors ${isLight ? 'hover:bg-white/60' : 'hover:bg-white/5'}`}
                                 >
                                     <div className="min-w-0">
                                         <p className={`truncate text-sm font-semibold ${isLight ? 'text-slate-900' : 'text-slate-100'}`}>{ex.workflowName || 'Name Last Name'}</p>
@@ -692,10 +737,7 @@ export default function ActiveCandidates({
                                         {startDate ? new Date(startDate).toLocaleDateString('es-CO') : 'DD/MM/YYYY'}
                                     </div>
                                     <div className="min-w-0">
-                                        <LiveDurations execution={ex} isLight={isLight} />
-                                        <div className="mt-2">
-                                            <TaskProgressCompact completedStages={completedStages} maxStages={maxStages} isLight={isLight} />
-                                        </div>
+                                        <TaskProgressCompact completedStages={completedStages} maxStages={maxStages} isLight={isLight} />
                                     </div>
                                     <div className="flex shrink-0 items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                                         <button
@@ -707,6 +749,15 @@ export default function ActiveCandidates({
                                         >
                                             <WhatsAppGlyph className="h-4 w-4" />
                                         </button>
+                                        {showFinalizar ? (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => openFinalizar(ex, e)}
+                                                className="rounded-md border border-[#4f8831]/65 bg-transparent px-2 py-1 text-[10px] font-semibold text-[#4f8831] transition hover:bg-[rgba(79,136,49,0.08)]"
+                                            >
+                                                Finalizar
+                                            </button>
+                                        ) : null}
                                         {canEliminarCandidato ? (
                                             <button
                                                 type="button"
@@ -762,11 +813,20 @@ export default function ActiveCandidates({
                         )}
 
                         {/* Total Dynamo */}
-                        <span className="data-chip text-xs">Total en Dynamo: {totalMonitorCount}</span>
+                        <span className="data-chip text-xs">Total en la Base de Datos: {totalMonitorCount}</span>
                     </div>
                     </div>
             )}
 
+            <FinalizarCandidatoOverlay
+                candidate={finalizarTarget}
+                obs={finalizarObs}
+                setObs={setFinalizarObs}
+                errorMsg={finalizarError}
+                submitting={finalizarSubmitting}
+                onClose={() => !finalizarSubmitting && setFinalizarTarget(null)}
+                onConfirm={confirmFinalizar}
+            />
             <EliminarCandidatoOverlay
                 candidate={eliminarTarget}
                 obs={eliminarObs}

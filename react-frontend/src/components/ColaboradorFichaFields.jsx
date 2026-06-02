@@ -29,6 +29,9 @@ import { useModuleTheme } from '../moduleTheme.js';
  *    secciones de esa pestaña (y el bloque maestro solo si tab.masterFields === true).
  *    Si no se pasa (o no encuentra la tab), se mantiene el render completo en columna.
  */
+/** Campos derivados (concat Excel); no editables si hay desglose de emergencia. */
+const COMPUTED_READONLY_KEYS = new Set(['primer_contacto_familiar', 'segundo_contacto_familiar']);
+
 export default function ColaboradorFichaFields({
     value,
     onChange,
@@ -164,6 +167,7 @@ export default function ColaboradorFichaFields({
                                 if (!meta) return null;
                                 const val = coForm[key] ?? '';
                                 const cellWide = meta.kind === 'textarea' ? 'sm:col-span-2' : '';
+                                const fieldDisabled = readOnly || COMPUTED_READONLY_KEYS.has(key);
                                 let control;
                                 if (meta.kind === 'bool') {
                                     control = (
@@ -171,7 +175,7 @@ export default function ColaboradorFichaFields({
                                             className={`w-full ${field}`}
                                             value={val}
                                             onChange={(e) => set({ [key]: e.target.value })}
-                                            disabled={readOnly}
+                                            disabled={fieldDisabled}
                                         >
                                             <option value="">Sin especificar</option>
                                             <option value="true">Sí</option>
@@ -186,7 +190,7 @@ export default function ColaboradorFichaFields({
                                             className={`w-full ${field}`}
                                             value={val}
                                             onChange={(e) => set({ [key]: e.target.value })}
-                                            disabled={readOnly}
+                                            disabled={fieldDisabled}
                                         />
                                     );
                                 } else if (meta.kind === 'money') {
@@ -216,7 +220,7 @@ export default function ColaboradorFichaFields({
                                                         set({ montos_divisa: nextMd });
                                                     }
                                                 }}
-                                                disabled={readOnly}
+                                                disabled={fieldDisabled}
                                             >
                                                 <option value="COP">COP</option>
                                                 <option value="CLP">CLP</option>
@@ -247,7 +251,7 @@ export default function ColaboradorFichaFields({
                                                         });
                                                     }
                                                 }}
-                                                disabled={readOnly}
+                                                disabled={fieldDisabled}
                                             />
                                         </div>
                                     );
@@ -259,7 +263,7 @@ export default function ColaboradorFichaFields({
                                             className={`w-full ${field}`}
                                             value={val}
                                             onChange={(e) => set({ [key]: e.target.value })}
-                                            disabled={readOnly}
+                                            disabled={fieldDisabled}
                                         />
                                     );
                                 } else if (meta.kind === 'textarea') {
@@ -269,7 +273,7 @@ export default function ColaboradorFichaFields({
                                             className={`w-full ${field}`}
                                             value={val}
                                             onChange={(e) => set({ [key]: e.target.value })}
-                                            disabled={readOnly}
+                                            disabled={fieldDisabled}
                                         />
                                     );
                                 } else {
@@ -279,7 +283,7 @@ export default function ColaboradorFichaFields({
                                             className={`w-full ${field}`}
                                             value={val}
                                             onChange={(e) => set({ [key]: e.target.value })}
-                                            disabled={readOnly}
+                                            disabled={fieldDisabled}
                                         />
                                     );
                                 }

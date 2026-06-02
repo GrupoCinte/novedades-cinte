@@ -1,7 +1,18 @@
+import { useMemo, useState } from 'react';
 import { useModuleTheme } from '../../moduleTheme.js';
+import ColaboradorFichaFields from '../../components/ColaboradorFichaFields.jsx';
+import { CO_TABS } from '../../constants/colaboradoresConsultorFields.js';
 import { normalizeStatus } from '../hooks/useMonitorData';
 import MonitorGlassModalShell from '../../shared/modals/MonitorGlassModalShell.jsx';
 import { buildMonitorGlassModalTheme } from '../../shared/modals/monitorGlassModalTheme.js';
+import CandidateDurationClocks from './CandidateDurationClocks.jsx';
+import {
+    getPipelineFieldEntries,
+    mapDynamoToStaffForm,
+    MONITOR_PROCESO_TAB
+} from '../utils/mapDynamoToStaffForm.js';
+
+const MONITOR_TABS = [...CO_TABS, MONITOR_PROCESO_TAB];
 
 /** Si VITE_MASK_SENSITIVE_UI=true, enmascara email/tel/salario en pantalla (mismo modelo de datos). */
 function formatDetailDisplay(key, value) {
@@ -9,7 +20,7 @@ function formatDetailDisplay(key, value) {
     const raw = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value);
     if (!mask) return raw;
     const lk = String(key).toLowerCase();
-    if (lk.includes('email')) {
+    if (lk.includes('email') || lk.includes('correo')) {
         const at = raw.indexOf('@');
         if (at <= 1) return '••••';
         return `${raw[0]}•••••${raw.slice(at)}`;
@@ -19,41 +30,40 @@ function formatDetailDisplay(key, value) {
         if (d.length < 4) return '••••';
         return `••••${d.slice(-4)}`;
     }
-    if (lk.includes('salario') || lk.includes('direccion') || lk.includes('dirección')) return '••••';
+    if (lk.includes('salario') || lk.includes('direccion') || lk.includes('dirección') || lk.includes('cedula')) return '••••';
     return raw;
 }
 
 export default function CandidateModal({ selectedUser, onClose }) {
-    const { isLight } = useModuleTheme();
+    const { isLight, labelMuted } = useModuleTheme();
     const T = buildMonitorGlassModalTheme(isLight);
+    const [activeTab, setActiveTab] = useState(CO_TABS[0].id);
 
-    if (!selectedUser) return null;
-
-    const obsElim = selectedUser.fullData?.obs_eliminado;
-    const isEliminado = normalizeStatus(selectedUser.realStatus) === 'eliminado' || Boolean(obsElim);
-    const fullData = selectedUser.fullData || {};
+    const fullData = selectedUser?.fullData || {};
+    const obsElim = fullData.obs_eliminado;
+    const obsFinalizadoManual = fullData.obs_finalizado_manual;
 
     const extractField = (keywords) => {
         const key = Object.keys(fullData).find((k) => keywords.some((kw) => k.toLowerCase().includes(kw)));
         return key ? { key, value: fullData[key] } : null;
     };
 
+    const mainName =
+        extractField(['nombre_y_apellido', 'nombre y apellido', 'nombre'])?.value || selectedUser?.workflowName || '';
+
+    const fichaForm = useMemo(
+        () => mapDynamoToStaffForm(fullData, { nombre: mainName }),
+        [fullData, mainName]
+    );
+    const pipelineEntries = useMemo(() => getPipelineFieldEntries(fullData), [fullData]);
+
+    if (!selectedUser) return null;
+
+    const isEliminado = normalizeStatus(selectedUser.realStatus) === 'eliminado' || Boolean(obsElim);
+
     const mainEmail = extractField(['email', 'correo']);
     const mainPhone = extractField(['whatsapp_numerico', 'whatsapp', 'telefono', 'celular']);
     const mainRole = extractField(['puesto', 'cargo', 'rol']);
-    const mainName =
-        extractField(['nombre_y_apellido', 'nombre y apellido', 'nombre'])?.value || selectedUser.workflowName;
-
-    const excludeKeys = [
-        mainEmail?.key,
-        mainPhone?.key,
-        mainRole?.key,
-        'obs_eliminado',
-        'nombre_y_apellido',
-        'nombre y apellido'
-    ].filter(Boolean);
-
-    const detailEntries = Object.entries(fullData).filter(([k]) => !excludeKeys.includes(k));
 
     const dotColor =
         selectedUser.realStatus === 'finalizado'
@@ -63,6 +73,10 @@ export default function CandidateModal({ selectedUser, onClose }) {
               : '#f59e0b';
 
     const statusLabel = selectedUser.realStatus || 'Sin Estado';
+
+    const subTabsBarCls = isLight
+        ? 'mb-4 flex flex-wrap items-stretch gap-x-1 gap-y-0 border-b border-slate-200/80 px-1'
+        : 'mb-4 flex flex-wrap items-stretch gap-x-1 gap-y-0 border-b border-white/10 px-1';
 
     const hero = (
         <>
@@ -117,6 +131,8 @@ export default function CandidateModal({ selectedUser, onClose }) {
         </>
     );
 
+    const activeTabMeta = MONITOR_TABS.find((t) => t.id === activeTab) || CO_TABS[0];
+
     return (
         <MonitorGlassModalShell
             open
@@ -125,9 +141,10 @@ export default function CandidateModal({ selectedUser, onClose }) {
             subtitle={`ID: ${selectedUser.executionId}`}
             avatarLetter={mainName}
             hero={hero}
+            bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-6 pt-2"
         >
             {isEliminado && obsElim ? (
-                <div className="mb-6 flex items-start gap-3 rounded-xl border border-[var(--color-cinte-red)]/40 bg-[var(--color-cinte-red)]/10 p-4">
+                <div className="mb-4 flex items-start gap-3 rounded-xl border border-[var(--color-cinte-red)]/40 bg-[var(--color-cinte-red)]/10 p-4">
                     <svg className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-cinte-red)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
@@ -137,30 +154,74 @@ export default function CandidateModal({ selectedUser, onClose }) {
                     </div>
                 </div>
             ) : null}
-
-            <p className={`${T.labelUpperCls} mb-3`}>Toda la información adicional</p>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {detailEntries.length > 0 ? (
-                    detailEntries.map(([key, value]) => {
-                        const isDate = key.toLowerCase().includes('ts_') || key.toLowerCase().includes('fecha');
-                        return (
-                            <div key={key} className={`group rounded-xl p-4 transition-all duration-300 ${T.cardCls}`}>
-                                <div
-                                    className={`mb-1.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${isLight ? 'text-[var(--color-cinte-turquesa)]' : 'text-[var(--color-cinte-cyan)]'}`}
-                                >
-                                    {key.replace(/_/g, ' ')}
-                                </div>
-                                <div className={`break-words text-sm font-medium leading-relaxed ${T.textCls} ${isDate ? 'font-mono text-xs' : ''}`}>
-                                    {formatDetailDisplay(key, value)}
-                                </div>
-                            </div>
-                        );
-                    })
-                ) : (
-                    <div className="col-span-full rounded-xl border border-dashed border-slate-500/30 p-8 text-center">
-                        <p className={`text-sm italic ${T.textMuted}`}>No hay más detalles disponibles para este candidato.</p>
+            {!isEliminado && obsFinalizadoManual ? (
+                <div className="mb-4 flex items-start gap-3 rounded-xl border border-[#4f8831]/40 bg-[#4f8831]/10 p-4">
+                    <svg className="mt-0.5 h-5 w-5 shrink-0 text-[#4f8831]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <div>
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-[#4f8831]">Finalización manual</p>
+                        <p className={`mt-1 text-sm leading-relaxed ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>{obsFinalizadoManual}</p>
                     </div>
+                </div>
+            ) : null}
+
+            <CandidateDurationClocks execution={selectedUser} isLight={isLight} />
+
+            <div role="tablist" aria-label="Secciones de la ficha" className={subTabsBarCls}>
+                {MONITOR_TABS.map((tab) => {
+                    const isActive = tab.id === activeTab;
+                    const label = tab.shortTitle || tab.title;
+                    return (
+                        <button
+                            key={tab.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={isActive}
+                            title={tab.title}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors sm:px-4 sm:py-3 ${
+                                isActive
+                                    ? `border-[#2F7BB8] ${isLight ? 'text-slate-900' : 'text-white'}`
+                                    : `border-transparent ${labelMuted}`
+                            }`}
+                        >
+                            {label}
+                        </button>
+                    );
+                })}
+            </div>
+
+            <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
+                {activeTabMeta.isPipelineTab ? (
+                    <>
+                        <p className={`${T.labelUpperCls} mb-3`}>Seguimiento del proceso (n8n / Dynamo)</p>
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                            {pipelineEntries.length > 0 ? (
+                                pipelineEntries.map(([label, value]) => {
+                                    const isDate = String(label).toLowerCase().includes('ts ');
+                                    return (
+                                        <div key={label} className={`group rounded-xl p-4 transition-all duration-300 ${T.cardCls}`}>
+                                            <div
+                                                className={`mb-1.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest ${isLight ? 'text-[var(--color-cinte-turquesa)]' : 'text-[var(--color-cinte-cyan)]'}`}
+                                            >
+                                                {label}
+                                            </div>
+                                            <div className={`break-words text-sm font-medium leading-relaxed ${T.textCls} ${isDate ? 'font-mono text-xs' : ''}`}>
+                                                {formatDetailDisplay(label, value)}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                <div className="col-span-full rounded-xl border border-dashed border-slate-500/30 p-8 text-center">
+                                    <p className={`text-sm italic ${T.textMuted}`}>Sin eventos de proceso registrados aún.</p>
+                                </div>
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <ColaboradorFichaFields value={fichaForm} readOnly mode="edit" activeTabId={activeTab} />
                 )}
             </div>
         </MonitorGlassModalShell>
