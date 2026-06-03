@@ -309,6 +309,15 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
 
     const clearSelection = () => setSelected(new Set());
 
+    const toggleDaySelection = (ymd) => {
+        setSelected((prev) => {
+            const n = new Set(prev);
+            if (n.has(ymd)) n.delete(ymd);
+            else n.add(ymd);
+            return n;
+        });
+    };
+
     const runSave = async (patches, { clearSelectionAfter = true } = {}) => {
         const cli = String(clienteSeleccionado || '').trim();
         if (!cli) return false;
@@ -334,7 +343,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
         }
         if (selected.size === 0) {
             setError(
-                'Selecciona al menos un día (clic en día vacío o marca en el modal de un día con malla)'
+                'Selecciona al menos un día (clic en día vacío, Ctrl+clic o checkbox en día con malla)'
             );
             return;
         }
@@ -565,20 +574,19 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                                         key={ymd}
                                         type="button"
                                         disabled={panelDisabled}
-                                        onClick={() => {
+                                        onClick={(e) => {
                                             if (!hasCliente) return;
+                                            if (e.ctrlKey || e.metaKey) {
+                                                toggleDaySelection(ymd);
+                                                return;
+                                            }
                                             if (hasData) {
                                                 setDayModalYmd(ymd);
                                             } else {
-                                                setSelected((prev) => {
-                                                    const n = new Set(prev);
-                                                    if (n.has(ymd)) n.delete(ymd);
-                                                    else n.add(ymd);
-                                                    return n;
-                                                });
+                                                toggleDaySelection(ymd);
                                             }
                                         }}
-                                        className={`${cellMinClass} flex flex-col gap-0.5 rounded-lg border p-1 text-left transition-colors disabled:cursor-default disabled:opacity-90 ${
+                                        className={`${cellMinClass} relative flex flex-col gap-0.5 rounded-lg border p-1 text-left transition-colors disabled:cursor-default disabled:opacity-90 ${
                                             isSel
                                                 ? 'border-[#2F7BB8] bg-[#2F7BB8]/15 ring-1 ring-[#2F7BB8]/50'
                                                 : `border-transparent hover:border-[#2F7BB8]/35 ${tableSurface}`
@@ -586,6 +594,16 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                                             isFestivo ? 'bg-violet-950/20 ring-1 ring-violet-500/45' : ''
                                         }`}
                                     >
+                                        {hasData ? (
+                                            <input
+                                                type="checkbox"
+                                                checked={isSel}
+                                                className="absolute right-0.5 top-0.5 z-10 h-3 w-3 shrink-0 cursor-pointer"
+                                                aria-label={`Incluir ${ymd} en asignación masiva`}
+                                                onClick={(e) => e.stopPropagation()}
+                                                onChange={() => toggleDaySelection(ymd)}
+                                            />
+                                        ) : null}
                                         <span
                                             className={`text-[11px] font-bold leading-none ${
                                                 dow === 0 ? 'text-red-500' : headingAccent
@@ -664,8 +682,8 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                             <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
                                 <p className={`text-xs ${labelMuted}`}>
                                     Días en masivo: <strong className={headingAccent}>{selected.size}</strong>. Día
-                                    vacío: clic alterna selección. Día con malla: abre el modal y puedes marcar para
-                                    masivo.
+                                    vacío: clic alterna selección. Día con malla: clic abre el modal; Ctrl+clic o
+                                    checkbox incluye en masivo.
                                 </p>
                                 <div className="space-y-1">
                                     <label className={`block text-xs font-semibold ${headingAccent}`}>
