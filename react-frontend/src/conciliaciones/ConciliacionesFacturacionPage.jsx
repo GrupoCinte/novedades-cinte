@@ -136,7 +136,9 @@ export default function ConciliacionesFacturacionPage({ token }) {
         if (clienteQuery) {
             const hit = clientes.find((c) => c.toLowerCase() === clienteQuery.toLowerCase());
             if (hit) setCliente(hit);
+            return;
         }
+        setCliente((prev) => (prev && clientes.includes(prev) ? prev : clientes[0] || ''));
     }, [clientes, clienteQuery]);
 
     const handleClienteChange = useCallback(
