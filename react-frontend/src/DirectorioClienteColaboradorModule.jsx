@@ -1283,7 +1283,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                                 }`}
                                                                 onClick={() => {
                                                                     setSelectedCatalogCliente(g.cliente);
-                                                                    openLeadersModalForCliente(g.cliente);
                                                                 }}
                                                             >
                                                                 <td className="p-4 pl-6">
@@ -1293,7 +1292,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                                         checked={selected}
                                                                         onChange={() => {
                                                                             setSelectedCatalogCliente(g.cliente);
-                                                                            openLeadersModalForCliente(g.cliente);
                                                                         }}
                                                                         onClick={(e) => e.stopPropagation()}
                                                                     />
