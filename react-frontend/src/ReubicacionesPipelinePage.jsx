@@ -634,7 +634,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                                 />
                             </div>
                             <div className="flex justify-end gap-2 pt-2">
-                                <button type="button" className={compactBtn} onClick={() => setCreateOpen(false)}>
+                                <button type="button" className={dash.compactBtn} onClick={() => setCreateOpen(false)}>
                                     Cancelar
                                 </button>
                                 <button type="submit" disabled={createSaving} className={toolbarBtn}>
@@ -688,7 +688,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                             <div className="flex justify-end gap-2 pt-2">
                                 <button
                                     type="button"
-                                    className={compactBtn}
+                                    className={dash.compactBtn}
                                     onClick={() => {
                                         setEditOpen(false);
                                         setEditRow(null);
