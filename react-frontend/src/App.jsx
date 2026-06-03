@@ -258,7 +258,7 @@ function App() {
               notificationCount={0}
               assistantSlot={
                 isNovedadesRoute
-                  ? <ChatWidget ctx={{ role: auth?.user?.role }} />
+                  ? <ChatWidget ctx={{ role: auth?.user?.role }} isLight={isLight} />
                   : null
               }
             />
