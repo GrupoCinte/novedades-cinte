@@ -481,7 +481,7 @@ async function listConciliacionesFacturacion(deps, scope, year, month) {
 
 async function upsertConciliacionFacturacionMasiva(deps, scope, payload) {
     const { pool } = deps;
-    const { cliente, anio, mes, estado, facturaFv, fechaRadicacion, motivoDevolucion, cedulas: cedulasPayload } = payload;
+    const { cliente, anio, mes, estado, facturaFv, fechaRadicacion, motivoDevolucion, observaciones, cedulas: cedulasPayload } = payload;
     
     const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
     if (!chk.ok) {
@@ -507,6 +507,7 @@ async function upsertConciliacionFacturacionMasiva(deps, scope, payload) {
     const fv = facturaFv !== undefined ? (facturaFv === null ? null : String(facturaFv).trim()) : null;
     const fRad = fechaRadicacion !== undefined ? (fechaRadicacion === null ? null : String(fechaRadicacion).trim()) : null;
     const mot = motivoDevolucion !== undefined ? (motivoDevolucion === null ? null : String(motivoDevolucion).trim()) : null;
+    const obs = observaciones !== undefined ? (observaciones === null ? null : String(observaciones).trim()) : null;
 
     // Obtener todas las cédulas de este cliente
     const colQ = await pool.query(
@@ -528,17 +529,18 @@ async function upsertConciliacionFacturacionMasiva(deps, scope, payload) {
         
         for (const ced of cedulas) {
             await client.query(
-                `INSERT INTO conciliaciones_facturacion (cedula, anio, mes, estado, factura_fv, fecha_radicacion, motivo_devolucion, fecha_cierre, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6::date, $7, CURRENT_DATE, NOW())
+                `INSERT INTO conciliaciones_facturacion (cedula, anio, mes, estado, factura_fv, fecha_radicacion, motivo_devolucion, observaciones, fecha_cierre, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, CURRENT_DATE, NOW())
                  ON CONFLICT (cedula, anio, mes)
                  DO UPDATE SET 
                     estado = EXCLUDED.estado,
                     factura_fv = EXCLUDED.factura_fv,
                     fecha_radicacion = EXCLUDED.fecha_radicacion,
                     motivo_devolucion = EXCLUDED.motivo_devolucion,
+                    observaciones = COALESCE(EXCLUDED.observaciones, conciliaciones_facturacion.observaciones),
                     fecha_cierre = CURRENT_DATE,
                     updated_at = NOW()`,
-                [ced, y, m, est, fv, fRad, mot]
+                [ced, y, m, est, fv, fRad, mot, obs]
             );
         }
         

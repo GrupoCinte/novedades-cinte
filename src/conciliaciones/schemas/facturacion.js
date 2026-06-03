@@ -23,6 +23,7 @@ const upsertFacturacionMasivaSchema = z.object({
     facturaFv: z.string().nullable().optional(),
     fechaRadicacion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (YYYY-MM-DD)').nullable().optional(),
     motivoDevolucion: z.string().nullable().optional(),
+    observaciones: z.string().nullable().optional(),
     cedulas: z.array(z.string().min(1, 'Cédula vacía')).optional()
 });
 

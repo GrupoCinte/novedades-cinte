@@ -262,7 +262,8 @@ export default function ConciliacionesFacturacionPage({ token }) {
                     estado: form.estado,
                     facturaFv: form.facturaFv,
                     fechaRadicacion: form.fechaRadicacion,
-                    motivoDevolucion: form.motivoDevolucion
+                    motivoDevolucion: form.motivoDevolucion,
+                    observaciones: form.observaciones
                 },
                 { cliente, anio: ym.year, mes: ym.month, cedulas }
             );
