@@ -83,6 +83,7 @@ export const onboardingApi = {
     marcarBaja: (token, cedula, body) => patch(token, `/personal/${encodeURIComponent(cedula)}/baja`, body),
     catalogoMotivoBaja: (token) => get(token, '/catalogos/motivo-baja'),
     catalogoCiudades: (token) => get(token, '/catalogos/ciudades'),
+    catalogoPuestos: (token) => get(token, '/catalogos/puestos'),
     reporteRotacion: (token, params) => get(token, '/reportes/rotacion', params),
     reporteGraficas: (token, params) => get(token, '/reportes/graficas', params),
     health: (token) => get(token, '/health')

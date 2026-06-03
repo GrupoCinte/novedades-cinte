@@ -111,6 +111,7 @@ export function PersonalView({
     const [draft, setDraft] = useState({});
     const [panelOpen, setPanelOpen] = useState(false);
     const [clientes, setClientes] = useState([]);
+    const [puestos, setPuestos] = useState([]);
     const [motivosBaja, setMotivosBaja] = useState([]);
     const token = auth?.token || '';
     const isBajas = activo === 'false';
@@ -132,6 +133,20 @@ export function PersonalView({
             alive = false;
         };
     }, []);
+
+    useEffect(() => {
+        if (isBajas) return undefined;
+        let alive = true;
+        onboardingApi
+            .catalogoPuestos(token)
+            .then((r) => {
+                if (alive && Array.isArray(r?.items)) setPuestos(r.items);
+            })
+            .catch(() => {});
+        return () => {
+            alive = false;
+        };
+    }, [isBajas, token]);
 
     useEffect(() => {
         if (!isBajas) return undefined;
@@ -441,8 +456,22 @@ export function PersonalView({
                             <input id="pv-empleador" type="text" value={draft.empleador || ''} onChange={(e) => setDraft((s) => ({ ...s, empleador: e.target.value }))} className={fieldCls} />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-puesto">Puesto (contiene)</label>
-                            <input id="pv-puesto" type="text" value={draft.puesto || ''} onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))} className={fieldCls} />
+                            <label className={labelCls} htmlFor="pv-puesto">Puesto</label>
+                            <select
+                                id="pv-puesto"
+                                value={draft.puesto || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todos los puestos</option>
+                                {puestos.map((p) => {
+                                    const label = String(p.puesto || p).trim();
+                                    if (!label) return null;
+                                    return (
+                                        <option key={label} value={label}>{label}</option>
+                                    );
+                                })}
+                            </select>
                         </div>
                         <div className="flex flex-col gap-1.5">
                             <label className={labelCls} htmlFor="pv-modalidad">Modalidad de trabajo</label>
