@@ -459,13 +459,18 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
     const chatWindow = (
             <div
                 className={`
-                    fixed z-[200] flex w-[370px] max-w-[calc(100vw-1.5rem)] flex-col rounded-2xl border border-slate-700/70 bg-[#0f172a] shadow-2xl
+                    fixed z-[200] flex w-[min(370px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col rounded-2xl border border-slate-700/70 bg-[#0f172a] shadow-2xl
                     transition-all duration-300 origin-bottom-right
                     ${open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none invisible scale-90 opacity-0'}
                 `}
                 style={{
-                    maxHeight: 'min(600px, calc(100vh - 120px))',
-                    ...(isDocked ? { left: sidebarLeftPx, bottom: 24 } : { right: 24, bottom: 96 })
+                    maxHeight: 'min(600px, calc(100dvh - max(6rem, env(safe-area-inset-bottom) + 5rem)))',
+                    ...(isDocked
+                        ? {
+                              left: Math.max(8, sidebarLeftPx),
+                              bottom: 'max(1rem, env(safe-area-inset-bottom, 0px))'
+                          }
+                        : { right: 16, bottom: 'max(6rem, calc(env(safe-area-inset-bottom, 0px) + 5rem))' })
                 }}
             >
                 <div className="flex flex-shrink-0 items-center gap-3 rounded-t-2xl border-b border-slate-700/60 bg-gradient-to-r from-blue-700/20 to-indigo-700/10 px-4 py-3">
@@ -597,7 +602,7 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
 
     if (isSidebar) {
         return (
-            <div className="relative mx-auto w-full max-w-[11rem] overflow-visible pb-1 pt-1">
+            <div className="relative mx-auto w-full min-w-0 max-w-[11rem] overflow-visible pb-1 pt-1">
                 {chatTrigger}
                 {chatWindow}
             </div>
