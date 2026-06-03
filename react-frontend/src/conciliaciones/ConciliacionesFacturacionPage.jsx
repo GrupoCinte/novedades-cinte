@@ -185,7 +185,7 @@ export default function ConciliacionesFacturacionPage({ token }) {
     const openDetalle = useCallback(
         async (row) => {
             const clienteRow = String(row?.cliente || cliente || '').trim();
-            if (!row?.novedadesCount || !clienteRow || !ym.year || !ym.month) return;
+            if (!clienteRow || !ym.year || !ym.month) return;
             setModalRow(row);
             setModalOpen(true);
             setModalLoading(true);
