@@ -138,6 +138,8 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
     const [editForm, setEditForm] = useState(emptyForm);
     const [editSaving, setEditSaving] = useState(false);
 
+    const [confirmDeleteRow, setConfirmDeleteRow] = useState(null);
+
     const totalPages = Math.max(1, Math.ceil((Number(total) || 0) / pageSize));
     const safePage = Math.min(Math.max(1, page), totalPages);
     const offset = (safePage - 1) * pageSize;
@@ -336,7 +338,6 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
 
     const deleteRow = async (row) => {
         if (!row?.id) return;
-        if (!window.confirm(`¿Eliminar el seguimiento de reubicación para la cédula ${row.cedula}?`)) return;
         try {
             const res = await fetch(`/api/directorio/reubicaciones-pipeline/${row.id}`, {
                 method: 'DELETE',
@@ -346,6 +347,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
             const j = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
             flash('Registro eliminado.');
+            setConfirmDeleteRow(null);
             await load();
         } catch (err) {
             flash(err.message || 'No se pudo eliminar.', false);
@@ -464,7 +466,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                                                     <button
                                                         type="button"
                                                         className="inline-flex items-center gap-1 text-red-400 hover:text-red-300 hover:underline"
-                                                        onClick={() => deleteRow(row)}
+                                                        onClick={() => setConfirmDeleteRow(row)}
                                                     >
                                                         <Trash2 size={14} /> Eliminar
                                                     </button>
@@ -701,6 +703,33 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            ) : null}
+
+            {confirmDeleteRow ? (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div
+                        className="modal-glass-scrim absolute inset-0 transition-opacity"
+                        onClick={() => setConfirmDeleteRow(null)}
+                    />
+                    <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
+                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
+                            ¿Eliminar el seguimiento de reubicación para la cédula{' '}
+                            <strong>{confirmDeleteRow.cedula}</strong>?
+                        </p>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button type="button" className={dash.compactBtn} onClick={() => setConfirmDeleteRow(null)}>
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                className="px-3 py-2 rounded-md bg-rose-600/90 text-white text-sm font-semibold"
+                                onClick={() => deleteRow(confirmDeleteRow)}
+                            >
+                                Eliminar
+                            </button>
+                        </div>
                     </div>
                 </div>
             ) : null}
