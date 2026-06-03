@@ -1283,6 +1283,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                                 }`}
                                                                 onClick={() => {
                                                                     setSelectedCatalogCliente(g.cliente);
+                                                                    openLeadersModalForCliente(g.cliente);
                                                                 }}
                                                             >
                                                                 <td className="p-4 pl-6">
@@ -1292,6 +1293,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                                         checked={selected}
                                                                         onChange={() => {
                                                                             setSelectedCatalogCliente(g.cliente);
+                                                                            openLeadersModalForCliente(g.cliente);
                                                                         }}
                                                                         onClick={(e) => e.stopPropagation()}
                                                                     />
@@ -2011,7 +2013,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         onClick={() => setConfirmDeactivateCatalog(false)}
                     />
                     <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
-                        <p className="text-sm text-[#e6edf3]">
+                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
                             ¿Desactivar <strong>todos los líderes</strong> del cliente{' '}
                             <strong>{selectedCatalogCliente}</strong> en el catálogo? Los registros permanecen en la
                             base de datos; con el filtro «Activos» el cliente dejará de mostrarse en la tabla.
@@ -2159,14 +2161,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 <input
                                     className={`w-full ${field}`}
                                     value={addLiderForm.nit}
-                                    readOnly
-                                    disabled
+                                    onChange={(e) => setAddLiderForm((f) => ({ ...f, nit: e.target.value }))}
                                     inputMode="numeric"
                                     autoComplete="off"
-                                    placeholder="NIT del cliente"
+                                    placeholder="Mismo NIT del cliente"
                                     required
                                 />
-                                <p className={`text-xs ${labelMuted} mt-1`}>Heredado del cliente; no editable.</p>
+                                <p className={`text-xs ${labelMuted} mt-1`}>Obligatorio; se guardan solo dígitos.</p>
                             </div>
                             <div>
                                 <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
