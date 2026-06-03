@@ -1283,7 +1283,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                                 }`}
                                                                 onClick={() => {
                                                                     setSelectedCatalogCliente(g.cliente);
-                                                                    openLeadersModalForCliente(g.cliente);
                                                                 }}
                                                             >
                                                                 <td className="p-4 pl-6">
@@ -1293,7 +1292,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                                         checked={selected}
                                                                         onChange={() => {
                                                                             setSelectedCatalogCliente(g.cliente);
-                                                                            openLeadersModalForCliente(g.cliente);
                                                                         }}
                                                                         onClick={(e) => e.stopPropagation()}
                                                                     />
@@ -2161,13 +2159,14 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 <input
                                     className={`w-full ${field}`}
                                     value={addLiderForm.nit}
-                                    onChange={(e) => setAddLiderForm((f) => ({ ...f, nit: e.target.value }))}
+                                    readOnly
+                                    disabled
                                     inputMode="numeric"
                                     autoComplete="off"
-                                    placeholder="Mismo NIT del cliente"
+                                    placeholder="NIT del cliente"
                                     required
                                 />
-                                <p className={`text-xs ${labelMuted} mt-1`}>Obligatorio; se guardan solo dígitos.</p>
+                                <p className={`text-xs ${labelMuted} mt-1`}>Heredado del cliente; no editable.</p>
                             </div>
                             <div>
                                 <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
