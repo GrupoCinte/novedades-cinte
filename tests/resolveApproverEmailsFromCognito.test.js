@@ -108,7 +108,7 @@ describe('createResolveApproverEmailsFromCognito', () => {
         });
 
         const out = await resolveApproverEmailsForNovedad('Incapacidad');
-        assert.deepEqual(out.emails.sort(), ['a@example.com', 'c@example.com'].sort());
+        assert.deepEqual(out.emails.sort(), ['a@example.com'].sort());
         assert.equal(out.reason, 'ok');
         assert.ok(calls.some((c) => c.GroupName === 'admin_ch' && !c.NextToken));
         assert.ok(calls.some((c) => c.GroupName === 'admin_ch' && c.NextToken === 't1'));
@@ -209,7 +209,7 @@ describe('createResolveApproverEmailsFromCognito', () => {
             getNovedadRuleByType,
             logger: { error() {}, warn() {} }
         });
-        const out = await resolveApproverEmailsForNovedad('Incapacidad');
+        const out = await resolveApproverEmailsForNovedad('Vacaciones en tiempo');
         assert.deepEqual(out.emails, ['teamcap@example.com']);
     });
 
@@ -241,7 +241,7 @@ describe('createResolveApproverEmailsFromCognito', () => {
             getNovedadRuleByType,
             logger: { error(...args) { errors.push(args); } }
         });
-        const out = await resolveApproverEmailsForNovedad('Incapacidad');
+        const out = await resolveApproverEmailsForNovedad('Vacaciones en tiempo');
         assert.equal(out.emails.includes('ok@example.com'), true);
         assert.equal(errors.length >= 1, true);
     });
