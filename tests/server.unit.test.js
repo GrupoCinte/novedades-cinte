@@ -30,6 +30,9 @@ function expect(received, message = '') {
     toBeLessThanOrEqual(expected) {
       assert.ok(received <= expected, message || `Expected ${received} <= ${expected}`);
     },
+    toEqual(expected) {
+      assert.deepStrictEqual(received, expected, message);
+    },
     not: {
       toContain(expected) {
         assert.ok(!received.includes(expected), message || `Expected ${JSON.stringify(received)} not to contain ${expected}`);

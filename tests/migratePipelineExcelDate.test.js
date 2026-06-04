@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseFechaFinCell, dateToSqlDate } = require('../scripts/pipelineExcelParse');
+const { parseFechaFinCell, dateToSqlDate } = require('./helpers/pipelineExcelParse');
 
 test('parseFechaFinCell: serial Excel ~2026', () => {
     const d = parseFechaFinCell(46000);
