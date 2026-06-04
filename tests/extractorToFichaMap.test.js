@@ -9,7 +9,7 @@ const {
 } = require('../src/contratacion/extractorToFichaMap');
 
 function loadSampleOutput() {
-    const p = path.join(__dirname, '../logs/exec-11259-detail.json');
+    const p = path.join(__dirname, 'fixtures/exec-11259-detail.json');
     const raw = fs.readFileSync(p, 'utf8');
     const doc = JSON.parse(raw);
     const run = doc?.data?.resultData?.runData?.['Agente Extractor Ficha']?.[0]?.data?.main?.[0]?.[0]?.json?.output;
