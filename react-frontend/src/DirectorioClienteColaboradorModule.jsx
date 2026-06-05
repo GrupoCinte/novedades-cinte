@@ -2013,7 +2013,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         onClick={() => setConfirmDeactivateCatalog(false)}
                     />
                     <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
-                        <p className="text-sm text-[#e6edf3]">
+                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
                             ¿Desactivar <strong>todos los líderes</strong> del cliente{' '}
                             <strong>{selectedCatalogCliente}</strong> en el catálogo? Los registros permanecen en la
                             base de datos; con el filtro «Activos» el cliente dejará de mostrarse en la tabla.
