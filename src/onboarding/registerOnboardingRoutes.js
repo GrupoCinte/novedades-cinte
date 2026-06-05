@@ -322,8 +322,8 @@ function registerOnboardingRoutes(deps) {
             where.push(`LOWER(TRIM(COALESCE(c.empleador, ''))) = LOWER($${p++})`);
         }
         if (filters.puesto) {
-            params.push(`%${String(filters.puesto).toLowerCase()}%`);
-            where.push(`LOWER(COALESCE(c.puesto, '')) LIKE $${p++}`);
+            params.push(String(filters.puesto).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.puesto, ''))) = LOWER($${p++})`);
         }
         if (filters.modalidad_trabajo) {
             params.push(String(filters.modalidad_trabajo).trim());
@@ -1314,6 +1314,19 @@ function registerOnboardingRoutes(deps) {
     app.get('/api/onboarding/catalogos/arl', ...catGuard, catalogoEndpoint('cat_arl'));
     app.get('/api/onboarding/catalogos/ccf', ...catGuard, catalogoEndpoint('cat_ccf'));
     app.get('/api/onboarding/catalogos/cesantias', ...catGuard, catalogoEndpoint('cat_cesantias'));
+    app.get('/api/onboarding/catalogos/puestos', ...catGuard, async (req, res) => {
+        try {
+            const q = await pool.query(
+                `SELECT DISTINCT TRIM(puesto) AS puesto
+                 FROM colaboradores
+                 WHERE puesto IS NOT NULL AND TRIM(puesto) <> ''
+                 ORDER BY 1`
+            );
+            return res.json({ ok: true, items: q.rows });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
 
     /* =========================================================================
      * Reporte de rotación (reemplazo de hoja Excel "Rotación").
