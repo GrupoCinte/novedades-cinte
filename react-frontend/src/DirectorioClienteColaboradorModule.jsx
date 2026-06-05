@@ -209,12 +209,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     /** Modal editar cliente (nombre + GP desde colaboradores). */
     const [editClienteModalOpen, setEditClienteModalOpen] = useState(false);
     const [editClienteOriginalName, setEditClienteOriginalName] = useState('');
-    const [editClienteForm, setEditClienteForm] = useState({ nombre: '', nit: '', gp_colaborador_cedula: '' });
+    const [editClienteForm, setEditClienteForm] = useState({ nombre: '', nit: '', gp_user_id: '' });
     const [editClienteNitHint, setEditClienteNitHint] = useState('');
     const [editClienteTargetRows, setEditClienteTargetRows] = useState([]);
     const [editClienteRowsLoading, setEditClienteRowsLoading] = useState(false);
-    const [editClienteGpOptions, setEditClienteGpOptions] = useState([]);
-    const [editClienteGpOptionsLoading, setEditClienteGpOptionsLoading] = useState(false);
     /** Aviso si hay un GP único en catálogo pero no se pudo preseleccionar colaborador por correo. */
     const [editClienteGpSelectHint, setEditClienteGpSelectHint] = useState('');
     const [editClienteSaving, setEditClienteSaving] = useState(false);
@@ -590,14 +588,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         }
         setSelectedCatalogCliente(original);
         setEditClienteOriginalName(original);
-        setEditClienteForm({ nombre: original, nit: '', gp_colaborador_cedula: '' });
+        setEditClienteForm({ nombre: original, nit: '', gp_user_id: '' });
         setEditClienteTargetRows([]);
-        setEditClienteGpOptions([]);
         setEditClienteGpSelectHint('');
         setEditClienteNitHint('');
         setEditClienteModalOpen(true);
         setEditClienteRowsLoading(true);
-        setEditClienteGpOptionsLoading(true);
         try {
             const u = new URLSearchParams();
             u.set('cliente', original);
@@ -621,55 +617,24 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 );
             }
             const gpIds = [...new Set(rows.map((r) => r.gp_user_id).filter(Boolean).map(String))];
-            let initialGpCedula = '';
+            let initialGpUserId = '';
             let gpSelectHint = '';
-            let opts = [];
-            try {
-                opts = await fetchColaboradoresAllPagesForGpSelect();
-            } catch (e2) {
-                flash(String(e2.message || e2), false);
-            }
-            setEditClienteGpOptions(opts);
             if (gpIds.length === 1) {
-                const uid = gpIds[0];
-                let gpEmailNorm = '';
-                let gpUserFound = false;
-                let gHit = gpItems.find((g) => String(g.id) === uid);
-                if (gHit) gpUserFound = true;
-                if (gHit?.email) gpEmailNorm = String(gHit.email).trim().toLowerCase();
-                if (!gpEmailNorm) {
-                    try {
-                        const gpRes = await fetch('/api/directorio/gp', { headers: authHeaders(token) });
-                        const gpJson = await gpRes.json().catch(() => ({}));
-                        const gpRows = gpRes.ok && Array.isArray(gpJson.items) ? gpJson.items : [];
-                        const g2 = gpRows.find((g) => String(g.id) === uid);
-                        if (g2) gpUserFound = true;
-                        if (g2?.email) gpEmailNorm = String(g2.email).trim().toLowerCase();
-                    } catch {
-                        /* ignore */
-                    }
+                initialGpUserId = gpIds[0];
+                if (!gpSelectOptions.some((g) => String(g.id) === initialGpUserId)) {
+                    gpSelectHint =
+                        'El GP del catálogo no está en la lista de usuarios GP; elija manualmente en la lista.';
                 }
-                if (gpEmailNorm) {
-                    const match = opts.find((o) => !o.disabled && o.correoNorm === gpEmailNorm);
-                    initialGpCedula = match?.cedula || '';
-                    if (!initialGpCedula) {
-                        gpSelectHint =
-                            'No hay colaborador con el mismo correo Cinte que el usuario GP; elija manualmente en la lista.';
-                    }
-                } else if (gpUserFound) {
-                    gpSelectHint = 'El usuario GP no tiene correo registrado; elija manualmente en la lista.';
-                } else {
-                    gpSelectHint = 'El GP del catálogo no está en la lista de usuarios GP; elija manualmente en la lista.';
-                }
+            } else if (gpIds.length > 1) {
+                gpSelectHint = 'Había GP distintos por líder; el valor que elijas unificará el GP en todas las filas.';
             }
             setEditClienteGpSelectHint(gpSelectHint);
-            setEditClienteForm({ nombre: original, nit: initialNit, gp_colaborador_cedula: initialGpCedula });
+            setEditClienteForm({ nombre: original, nit: initialNit, gp_user_id: initialGpUserId });
         } catch (e) {
             flash(String(e.message || e), false);
             closeEditClienteModal();
         } finally {
             setEditClienteRowsLoading(false);
-            setEditClienteGpOptionsLoading(false);
         }
     }
 
@@ -694,7 +659,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             flash('El NIT es obligatorio (al menos un dígito).', false);
             return;
         }
-        const gpCedula = String(editClienteForm.gp_colaborador_cedula || '').trim() || null;
+        const gpUserId = String(editClienteForm.gp_user_id || '').trim() || null;
         if (!editClienteTargetRows.length) {
             flash('No hay filas de catálogo para este cliente.', false);
             return;
@@ -708,7 +673,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     headers: authHeaders(token),
                     body: JSON.stringify({
                         cliente: nombre,
-                        gp_colaborador_cedula: gpCedula,
+                        gp_user_id: gpUserId,
                         nit: nitDigits
                     })
                 });
@@ -1865,43 +1830,18 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                         )}
                                     </div>
                                     <div>
-                                        <label className={`block text-xs ${labelMuted} mb-1`}>
-                                            GP (lista completa de colaboradores)
-                                        </label>
-                                        {editClienteGpOptionsLoading ? (
-                                            <p className={`text-xs ${labelMuted}`}>Cargando lista…</p>
-                                        ) : (
-                                            <select
-                                                className={`w-full ${field}`}
-                                                value={editClienteForm.gp_colaborador_cedula}
-                                                onChange={(e) =>
-                                                    setEditClienteForm((f) => ({
-                                                        ...f,
-                                                        gp_colaborador_cedula: e.target.value
-                                                    }))
-                                                }
-                                            >
-                                                <option value="">— Sin GP —</option>
-                                                {editClienteGpOptions.map((o, idx) => (
-                                                    <option
-                                                        key={`${o.cedula || 'sin-cedula'}-${idx}`}
-                                                        value={o.value}
-                                                        disabled={o.disabled}
-                                                    >
-                                                        {o.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        )}
-                                        {!editClienteGpOptionsLoading && editClienteGpOptions.length === 0 ? (
-                                            <p className={`text-xs ${labelMuted} mt-1`}>
-                                                No hay colaboradores en el directorio.
-                                            </p>
-                                        ) : !editClienteGpOptionsLoading ? (
-                                            <p className={`text-xs ${labelMuted} mt-1`}>
-                                                Si el colaborador no tiene correo Cinte, no puede seleccionarse.
-                                            </p>
-                                        ) : null}
+                                        <label className={`block text-xs ${labelMuted} mb-1`}>GP asignado</label>
+                                        <GpUserSelect
+                                            className={`w-full ${field}`}
+                                            value={editClienteForm.gp_user_id}
+                                            options={gpSelectOptions}
+                                            onChange={(e) =>
+                                                setEditClienteForm((f) => ({
+                                                    ...f,
+                                                    gp_user_id: e.target.value
+                                                }))
+                                            }
+                                        />
                                         {editClienteGpSelectHint ? (
                                             <p className={`text-xs mt-1 ${isLight ? 'text-amber-800' : 'text-amber-300/90'}`}>
                                                 {editClienteGpSelectHint}
