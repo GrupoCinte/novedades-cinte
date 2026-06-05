@@ -370,6 +370,23 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
         });
     };
 
+    const addCedulaToModal = (franjaId, cedula) => {
+        setModalCedulasByFranja((prev) => {
+            if (!prev) return prev;
+            const cur = [...(prev[franjaId] || [])];
+            if (cur.includes(cedula) || cur.length >= 10) return prev;
+            return { ...prev, [franjaId]: [...cur, cedula] };
+        });
+    };
+
+    const filteredColaboradoresForModalFranja = (franjaId) => {
+        const chosen = new Set(modalCedulasByFranja?.[franjaId] || []);
+        return colaboradores.filter((c) => {
+            if (chosen.has(c.cedula)) return false;
+            return matchesColabSearch(c, searchColaborador);
+        });
+    };
+
     const clearModalFranja = (franjaId) => {
         setModalCedulasByFranja((prev) => (prev ? { ...prev, [franjaId]: [] } : prev));
     };
@@ -867,6 +884,19 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                             />
                             Incluir este día en asignación masiva
                         </label>
+                        <div className="space-y-1 mb-4">
+                            <label className={`block text-xs font-semibold ${headingAccent}`}>
+                                Buscar colaborador
+                            </label>
+                            <input
+                                type="search"
+                                placeholder="Nombre, código o cédula…"
+                                className={`w-full text-sm ${field}`}
+                                value={searchColaborador}
+                                onChange={(e) => setSearchColaborador(e.target.value)}
+                                disabled={loadingCo}
+                            />
+                        </div>
                         <div className="space-y-4">
                             {!modalCedulasByFranja ? (
                                 <p className={`text-sm ${labelMuted}`}>Cargando…</p>
@@ -891,7 +921,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                                             {cedulas.length === 0 ? (
                                                 <p className={`text-xs ${labelMuted}`}>Sin asignados</p>
                                             ) : (
-                                                <ul className="space-y-2">
+                                                <ul className="space-y-2 mb-2">
                                                     {cedulas.map((ced) => {
                                                         const p = personForModalCedula(modalRow, f.id, ced, colaboradores);
                                                         return (
@@ -920,6 +950,29 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                                                         );
                                                     })}
                                                 </ul>
+                                            )}
+                                            {cedulas.length < 10 ? (
+                                                <select
+                                                    className={`w-full text-sm ${field}`}
+                                                    value=""
+                                                    onChange={(e) => {
+                                                        const v = e.target.value;
+                                                        if (v) {
+                                                            addCedulaToModal(f.id, v);
+                                                            e.target.value = '';
+                                                        }
+                                                    }}
+                                                    disabled={loadingCo || saving}
+                                                >
+                                                    <option value="">+ Añadir colaborador…</option>
+                                                    {filteredColaboradoresForModalFranja(f.id).map((c) => (
+                                                        <option key={c.cedula} value={c.cedula}>
+                                                            {shortLabelColaborador(c)} — {c.nombre}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <p className={`text-[10px] ${labelMuted}`}>Máximo 10 personas por franja.</p>
                                             )}
                                         </div>
                                     );
