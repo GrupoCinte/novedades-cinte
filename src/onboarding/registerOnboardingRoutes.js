@@ -162,10 +162,23 @@ function registerOnboardingRoutes(deps) {
     /** Catálogos (todo el panel onboarding). */
     const catGuard = [verificarToken, allowPanel('onboarding'), catalogLimiter];
 
+    const CINTE_EMAIL_SUFFIX_RE = /@(?:cinte\.com\.co|cinte\.co)$/i;
+    function zCorreoCinteOptional() {
+        return z
+            .string()
+            .email()
+            .max(320)
+            .optional()
+            .nullable()
+            .refine((v) => !v || CINTE_EMAIL_SUFFIX_RE.test(String(v).trim()), {
+                message: 'El correo Cinte debe ser @cinte.com.co o @cinte.co'
+            });
+    }
+
     const colabExtendedShape = buildColaboradorExtendedZodShape();
     const colabPatchSchema = z.object({
         nombre: z.string().min(2).max(400).optional(),
-        correo_cinte: z.string().email().max(320).optional().nullable(),
+        correo_cinte: zCorreoCinteOptional(),
         cliente: z.string().max(500).optional().nullable(),
         lider_catalogo: z.string().max(500).optional().nullable(),
         gp_user_id: z.string().uuid().optional().nullable(),
