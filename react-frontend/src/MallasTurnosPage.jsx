@@ -281,6 +281,10 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
     }, [clienteSeleccionado, franjas]);
 
     useEffect(() => {
+        if (hasCliente) setAsignacionOpen(true);
+    }, [clienteSeleccionado, hasCliente]);
+
+    useEffect(() => {
         if (!dayModalYmd) {
             setModalCedulasByFranja(null);
             return;
@@ -472,6 +476,22 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                         ))}
                     </select>
                 </div>
+                {hasCliente ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-xs">
+                        <label htmlFor="mallas-colab-search" className={`shrink-0 text-xs font-semibold ${headingAccent}`}>
+                            Colaborador
+                        </label>
+                        <input
+                            id="mallas-colab-search"
+                            type="search"
+                            placeholder="Nombre, código o cédula…"
+                            className={`min-w-0 flex-1 text-sm ${field}`}
+                            value={searchColaborador}
+                            onChange={(e) => setSearchColaborador(e.target.value)}
+                            disabled={loadingCo}
+                        />
+                    </div>
+                ) : null}
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     <button
                         type="button"
