@@ -261,7 +261,8 @@ export function buildFacturacionMasivaPayload(form, { cliente, anio, mes, cedula
         estado: est,
         facturaFv: needsRadicacion ? trimOrNull(form.facturaFv) : null,
         fechaRadicacion: needsRadicacion ? trimOrNull(form.fechaRadicacion) : null,
-        motivoDevolucion: est === 'DEVUELTA' ? trimOrNull(form.motivoDevolucion) : null
+        motivoDevolucion: est === 'DEVUELTA' ? trimOrNull(form.motivoDevolucion) : null,
+        observaciones: trimOrNull(form.observaciones)
     };
 
     if (Array.isArray(cedulas) && cedulas.length > 0) {

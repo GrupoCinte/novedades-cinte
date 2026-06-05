@@ -862,6 +862,11 @@ function registerRoutes(deps) {
                 ProposedPassword: String(newPassword),
                 AccessToken: cognitoAccessToken
             });
+            // Invalidar la sesión de aplicación actual para evitar reutilizar un JWT revocado
+            // en cambios sucesivos (AUT-462).
+            revokeAppSessionToken(req.authToken);
+            res.clearCookie('cinteSession', { path: '/api', sameSite, secure: secureCookie });
+            res.clearCookie('cinteXsrf', { path: '/', sameSite, secure: secureCookie });
             return res.json({ ok: true, message: 'Contrasena actualizada. Vuelve a iniciar sesion.' });
         } catch (error) {
             console.error('Error change-password:', error);

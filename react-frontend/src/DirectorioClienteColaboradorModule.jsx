@@ -205,15 +205,14 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const [clienteModalOpen, setClienteModalOpen] = useState(false);
     const [clienteForm, setClienteForm] = useState({ cliente: '', nit: '', lider: '', gp_colaborador_cedula: '' });
     const [confirmDeactivateCatalog, setConfirmDeactivateCatalog] = useState(false);
+    const [confirmDeleteColaboradorRow, setConfirmDeleteColaboradorRow] = useState(null);
     /** Modal editar cliente (nombre + GP desde colaboradores). */
     const [editClienteModalOpen, setEditClienteModalOpen] = useState(false);
     const [editClienteOriginalName, setEditClienteOriginalName] = useState('');
-    const [editClienteForm, setEditClienteForm] = useState({ nombre: '', nit: '', gp_colaborador_cedula: '' });
+    const [editClienteForm, setEditClienteForm] = useState({ nombre: '', nit: '', gp_user_id: '' });
     const [editClienteNitHint, setEditClienteNitHint] = useState('');
     const [editClienteTargetRows, setEditClienteTargetRows] = useState([]);
     const [editClienteRowsLoading, setEditClienteRowsLoading] = useState(false);
-    const [editClienteGpOptions, setEditClienteGpOptions] = useState([]);
-    const [editClienteGpOptionsLoading, setEditClienteGpOptionsLoading] = useState(false);
     /** Aviso si hay un GP único en catálogo pero no se pudo preseleccionar colaborador por correo. */
     const [editClienteGpSelectHint, setEditClienteGpSelectHint] = useState('');
     const [editClienteSaving, setEditClienteSaving] = useState(false);
@@ -589,14 +588,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         }
         setSelectedCatalogCliente(original);
         setEditClienteOriginalName(original);
-        setEditClienteForm({ nombre: original, nit: '', gp_colaborador_cedula: '' });
+        setEditClienteForm({ nombre: original, nit: '', gp_user_id: '' });
         setEditClienteTargetRows([]);
-        setEditClienteGpOptions([]);
         setEditClienteGpSelectHint('');
         setEditClienteNitHint('');
         setEditClienteModalOpen(true);
         setEditClienteRowsLoading(true);
-        setEditClienteGpOptionsLoading(true);
         try {
             const u = new URLSearchParams();
             u.set('cliente', original);
@@ -620,55 +617,24 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 );
             }
             const gpIds = [...new Set(rows.map((r) => r.gp_user_id).filter(Boolean).map(String))];
-            let initialGpCedula = '';
+            let initialGpUserId = '';
             let gpSelectHint = '';
-            let opts = [];
-            try {
-                opts = await fetchColaboradoresAllPagesForGpSelect();
-            } catch (e2) {
-                flash(String(e2.message || e2), false);
-            }
-            setEditClienteGpOptions(opts);
             if (gpIds.length === 1) {
-                const uid = gpIds[0];
-                let gpEmailNorm = '';
-                let gpUserFound = false;
-                let gHit = gpItems.find((g) => String(g.id) === uid);
-                if (gHit) gpUserFound = true;
-                if (gHit?.email) gpEmailNorm = String(gHit.email).trim().toLowerCase();
-                if (!gpEmailNorm) {
-                    try {
-                        const gpRes = await fetch('/api/directorio/gp', { headers: authHeaders(token) });
-                        const gpJson = await gpRes.json().catch(() => ({}));
-                        const gpRows = gpRes.ok && Array.isArray(gpJson.items) ? gpJson.items : [];
-                        const g2 = gpRows.find((g) => String(g.id) === uid);
-                        if (g2) gpUserFound = true;
-                        if (g2?.email) gpEmailNorm = String(g2.email).trim().toLowerCase();
-                    } catch {
-                        /* ignore */
-                    }
+                initialGpUserId = gpIds[0];
+                if (!gpSelectOptions.some((g) => String(g.id) === initialGpUserId)) {
+                    gpSelectHint =
+                        'El GP del catálogo no está en la lista de usuarios GP; elija manualmente en la lista.';
                 }
-                if (gpEmailNorm) {
-                    const match = opts.find((o) => !o.disabled && o.correoNorm === gpEmailNorm);
-                    initialGpCedula = match?.cedula || '';
-                    if (!initialGpCedula) {
-                        gpSelectHint =
-                            'No hay colaborador con el mismo correo Cinte que el usuario GP; elija manualmente en la lista.';
-                    }
-                } else if (gpUserFound) {
-                    gpSelectHint = 'El usuario GP no tiene correo registrado; elija manualmente en la lista.';
-                } else {
-                    gpSelectHint = 'El GP del catálogo no está en la lista de usuarios GP; elija manualmente en la lista.';
-                }
+            } else if (gpIds.length > 1) {
+                gpSelectHint = 'Había GP distintos por líder; el valor que elijas unificará el GP en todas las filas.';
             }
             setEditClienteGpSelectHint(gpSelectHint);
-            setEditClienteForm({ nombre: original, nit: initialNit, gp_colaborador_cedula: initialGpCedula });
+            setEditClienteForm({ nombre: original, nit: initialNit, gp_user_id: initialGpUserId });
         } catch (e) {
             flash(String(e.message || e), false);
             closeEditClienteModal();
         } finally {
             setEditClienteRowsLoading(false);
-            setEditClienteGpOptionsLoading(false);
         }
     }
 
@@ -693,7 +659,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             flash('El NIT es obligatorio (al menos un dígito).', false);
             return;
         }
-        const gpCedula = String(editClienteForm.gp_colaborador_cedula || '').trim() || null;
+        const gpUserId = String(editClienteForm.gp_user_id || '').trim() || null;
         if (!editClienteTargetRows.length) {
             flash('No hay filas de catálogo para este cliente.', false);
             return;
@@ -707,7 +673,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     headers: authHeaders(token),
                     body: JSON.stringify({
                         cliente: nombre,
-                        gp_colaborador_cedula: gpCedula,
+                        gp_user_id: gpUserId,
                         nit: nitDigits
                     })
                 });
@@ -900,10 +866,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     async function deleteColaboradorRow(row) {
         if (!row?.cedula) return;
-        const ok = window.confirm(
-            `¿Eliminar definitivamente al colaborador con cédula ${row.cedula}? Esta acción no se puede deshacer.`
-        );
-        if (!ok) return;
         try {
             const res = await fetch(`/api/directorio/colaboradores/${encodeURIComponent(row.cedula)}`, {
                 method: 'DELETE',
@@ -914,6 +876,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             if (!res.ok) throw new Error(data.error || res.statusText);
             flash('Colaborador eliminado.');
             setSelectedCoCedula(null);
+            setConfirmDeleteColaboradorRow(null);
             loadColaboradores();
         } catch (err) {
             flash(String(err.message || err), false);
@@ -1283,7 +1246,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                                 }`}
                                                                 onClick={() => {
                                                                     setSelectedCatalogCliente(g.cliente);
-                                                                    openLeadersModalForCliente(g.cliente);
                                                                 }}
                                                             >
                                                                 <td className="p-4 pl-6">
@@ -1293,7 +1255,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                                         checked={selected}
                                                                         onChange={() => {
                                                                             setSelectedCatalogCliente(g.cliente);
-                                                                            openLeadersModalForCliente(g.cliente);
                                                                         }}
                                                                         onClick={(e) => e.stopPropagation()}
                                                                     />
@@ -1519,7 +1480,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                                         className="text-red-400 hover:text-red-300 hover:underline"
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
-                                                                            deleteColaboradorRow(row);
+                                                                            setConfirmDeleteColaboradorRow(row);
                                                                         }}
                                                                     >
                                                                         Eliminar
@@ -1869,43 +1830,18 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                         )}
                                     </div>
                                     <div>
-                                        <label className={`block text-xs ${labelMuted} mb-1`}>
-                                            GP (lista completa de colaboradores)
-                                        </label>
-                                        {editClienteGpOptionsLoading ? (
-                                            <p className={`text-xs ${labelMuted}`}>Cargando lista…</p>
-                                        ) : (
-                                            <select
-                                                className={`w-full ${field}`}
-                                                value={editClienteForm.gp_colaborador_cedula}
-                                                onChange={(e) =>
-                                                    setEditClienteForm((f) => ({
-                                                        ...f,
-                                                        gp_colaborador_cedula: e.target.value
-                                                    }))
-                                                }
-                                            >
-                                                <option value="">— Sin GP —</option>
-                                                {editClienteGpOptions.map((o, idx) => (
-                                                    <option
-                                                        key={`${o.cedula || 'sin-cedula'}-${idx}`}
-                                                        value={o.value}
-                                                        disabled={o.disabled}
-                                                    >
-                                                        {o.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        )}
-                                        {!editClienteGpOptionsLoading && editClienteGpOptions.length === 0 ? (
-                                            <p className={`text-xs ${labelMuted} mt-1`}>
-                                                No hay colaboradores en el directorio.
-                                            </p>
-                                        ) : !editClienteGpOptionsLoading ? (
-                                            <p className={`text-xs ${labelMuted} mt-1`}>
-                                                Si el colaborador no tiene correo Cinte, no puede seleccionarse.
-                                            </p>
-                                        ) : null}
+                                        <label className={`block text-xs ${labelMuted} mb-1`}>GP asignado</label>
+                                        <GpUserSelect
+                                            className={`w-full ${field}`}
+                                            value={editClienteForm.gp_user_id}
+                                            options={gpSelectOptions}
+                                            onChange={(e) =>
+                                                setEditClienteForm((f) => ({
+                                                    ...f,
+                                                    gp_user_id: e.target.value
+                                                }))
+                                            }
+                                        />
                                         {editClienteGpSelectHint ? (
                                             <p className={`text-xs mt-1 ${isLight ? 'text-amber-800' : 'text-amber-300/90'}`}>
                                                 {editClienteGpSelectHint}
@@ -2006,6 +1942,37 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 </div>
             ) : null}
 
+            {confirmDeleteColaboradorRow ? (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div
+                        className="modal-glass-scrim absolute inset-0 transition-opacity"
+                        onClick={() => setConfirmDeleteColaboradorRow(null)}
+                    />
+                    <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
+                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
+                            ¿Eliminar definitivamente al colaborador con cédula{' '}
+                            <strong>{confirmDeleteColaboradorRow.cedula}</strong>? Esta acción no se puede deshacer.
+                        </p>
+                        <div className="mt-4 flex gap-2 justify-end">
+                            <button
+                                type="button"
+                                className={outlineBtn}
+                                onClick={() => setConfirmDeleteColaboradorRow(null)}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                className="px-3 py-2 rounded-md bg-rose-600/90 text-white text-sm font-semibold"
+                                onClick={() => deleteColaboradorRow(confirmDeleteColaboradorRow)}
+                            >
+                                Eliminar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
             {confirmDeactivateCatalog && selectedCatalogCliente ? (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div
@@ -2013,7 +1980,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         onClick={() => setConfirmDeactivateCatalog(false)}
                     />
                     <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
-                        <p className="text-sm text-[#e6edf3]">
+                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
                             ¿Desactivar <strong>todos los líderes</strong> del cliente{' '}
                             <strong>{selectedCatalogCliente}</strong> en el catálogo? Los registros permanecen en la
                             base de datos; con el filtro «Activos» el cliente dejará de mostrarse en la tabla.
@@ -2161,13 +2128,14 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 <input
                                     className={`w-full ${field}`}
                                     value={addLiderForm.nit}
-                                    onChange={(e) => setAddLiderForm((f) => ({ ...f, nit: e.target.value }))}
+                                    readOnly
+                                    disabled
                                     inputMode="numeric"
                                     autoComplete="off"
-                                    placeholder="Mismo NIT del cliente"
+                                    placeholder="NIT del cliente"
                                     required
                                 />
-                                <p className={`text-xs ${labelMuted} mt-1`}>Obligatorio; se guardan solo dígitos.</p>
+                                <p className={`text-xs ${labelMuted} mt-1`}>Heredado del cliente; no editable.</p>
                             </div>
                             <div>
                                 <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>

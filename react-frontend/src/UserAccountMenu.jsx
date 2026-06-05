@@ -11,7 +11,6 @@ import {
     Sun,
     User
 } from 'lucide-react';
-import { userHasNovedadesAdminAccess } from './comercialAccess';
 import { useUiTheme } from './UiThemeContext.jsx';
 
 function initials(auth) {
@@ -163,7 +162,7 @@ export default function UserAccountMenu({
         navigate(path);
     };
 
-    const novedades = userHasNovedadesAdminAccess(auth);
+    const ACCOUNT_SETTINGS_PATH = '/admin/cuenta';
 
     const accountProfileMenuItems = (
         <>
@@ -182,7 +181,7 @@ export default function UserAccountMenu({
                         type="button"
                         role="menuitem"
                         className={itemClass}
-                        onClick={() => go(novedades ? '/admin/novedades' : '/admin')}
+                        onClick={() => go(ACCOUNT_SETTINGS_PATH)}
                     >
                         <Settings size={18} className="opacity-80" />
                         Configuración
@@ -275,7 +274,7 @@ export default function UserAccountMenu({
                             type="button"
                             role="menuitem"
                             className={itemClass}
-                            onClick={() => go(novedades ? '/admin/novedades' : '/admin')}
+                            onClick={() => go(ACCOUNT_SETTINGS_PATH)}
                         >
                             <Settings size={18} className="opacity-80" />
                             Configuración
@@ -350,7 +349,7 @@ export default function UserAccountMenu({
             </button>
             {!isEntraConsultor ? (
                 <>
-                    <button type="button" role="menuitem" className={itemClass} onClick={() => go(novedades ? '/admin/novedades' : '/admin')}>
+                    <button type="button" role="menuitem" className={itemClass} onClick={() => go(ACCOUNT_SETTINGS_PATH)}>
                         <Settings size={18} className="opacity-80" />
                         Configuración
                     </button>

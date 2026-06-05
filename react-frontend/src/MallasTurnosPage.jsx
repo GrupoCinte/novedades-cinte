@@ -281,6 +281,10 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
     }, [clienteSeleccionado, franjas]);
 
     useEffect(() => {
+        if (hasCliente) setAsignacionOpen(true);
+    }, [clienteSeleccionado, hasCliente]);
+
+    useEffect(() => {
         if (!dayModalYmd) {
             setModalCedulasByFranja(null);
             return;
@@ -309,6 +313,15 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
 
     const clearSelection = () => setSelected(new Set());
 
+    const toggleDaySelection = (ymd) => {
+        setSelected((prev) => {
+            const n = new Set(prev);
+            if (n.has(ymd)) n.delete(ymd);
+            else n.add(ymd);
+            return n;
+        });
+    };
+
     const runSave = async (patches, { clearSelectionAfter = true } = {}) => {
         const cli = String(clienteSeleccionado || '').trim();
         if (!cli) return false;
@@ -334,7 +347,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
         }
         if (selected.size === 0) {
             setError(
-                'Selecciona al menos un día (clic en día vacío o marca en el modal de un día con malla)'
+                'Selecciona al menos un día (clic en día vacío, Ctrl+clic o checkbox en día con malla)'
             );
             return;
         }
@@ -354,6 +367,23 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                 ...prev,
                 [franjaId]: (prev[franjaId] || []).filter((c) => c !== cedula)
             };
+        });
+    };
+
+    const addCedulaToModal = (franjaId, cedula) => {
+        setModalCedulasByFranja((prev) => {
+            if (!prev) return prev;
+            const cur = [...(prev[franjaId] || [])];
+            if (cur.includes(cedula) || cur.length >= 10) return prev;
+            return { ...prev, [franjaId]: [...cur, cedula] };
+        });
+    };
+
+    const filteredColaboradoresForModalFranja = (franjaId) => {
+        const chosen = new Set(modalCedulasByFranja?.[franjaId] || []);
+        return colaboradores.filter((c) => {
+            if (chosen.has(c.cedula)) return false;
+            return matchesColabSearch(c, searchColaborador);
         });
     };
 
@@ -463,6 +493,22 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                         ))}
                     </select>
                 </div>
+                {hasCliente ? (
+                    <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-xs">
+                        <label htmlFor="mallas-colab-search" className={`shrink-0 text-xs font-semibold ${headingAccent}`}>
+                            Colaborador
+                        </label>
+                        <input
+                            id="mallas-colab-search"
+                            type="search"
+                            placeholder="Nombre, código o cédula…"
+                            className={`min-w-0 flex-1 text-sm ${field}`}
+                            value={searchColaborador}
+                            onChange={(e) => setSearchColaborador(e.target.value)}
+                            disabled={loadingCo}
+                        />
+                    </div>
+                ) : null}
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     <button
                         type="button"
@@ -515,7 +561,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
 
             <div className={`${dash.cardFlex} relative min-h-0 flex-1 overflow-hidden`}>
                 <div className="flex min-h-0 flex-1 overflow-hidden">
-                    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                    <div className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${isNocturnos ? 'overflow-y-auto overflow-x-visible' : 'overflow-hidden'}`}>
                         {!hasCliente ? (
                             <div
                                 className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center ${scrim} backdrop-blur-[1px]`}
@@ -546,7 +592,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                             ))}
                         </div>
                         <div
-                            className="grid min-h-0 flex-1 grid-cols-7 gap-1 px-3 pb-3"
+                            className={`grid min-h-0 flex-1 grid-cols-7 gap-1 px-3 pb-3 ${isNocturnos ? 'overflow-visible isolation-isolate' : ''}`}
                             style={{ gridTemplateRows: `repeat(${calendarRowCount}, minmax(0, 1fr))` }}
                         >
                             {calendarCells.map((cell, idx) => {
@@ -565,27 +611,36 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                                         key={ymd}
                                         type="button"
                                         disabled={panelDisabled}
-                                        onClick={() => {
+                                        onClick={(e) => {
                                             if (!hasCliente) return;
+                                            if (e.ctrlKey || e.metaKey) {
+                                                toggleDaySelection(ymd);
+                                                return;
+                                            }
                                             if (hasData) {
                                                 setDayModalYmd(ymd);
                                             } else {
-                                                setSelected((prev) => {
-                                                    const n = new Set(prev);
-                                                    if (n.has(ymd)) n.delete(ymd);
-                                                    else n.add(ymd);
-                                                    return n;
-                                                });
+                                                toggleDaySelection(ymd);
                                             }
                                         }}
-                                        className={`${cellMinClass} flex flex-col gap-0.5 rounded-lg border p-1 text-left transition-colors disabled:cursor-default disabled:opacity-90 ${
+                                        className={`${cellMinClass} relative flex flex-col gap-0.5 rounded-lg border p-1 text-left transition-colors disabled:cursor-default disabled:opacity-90 ${
                                             isSel
-                                                ? 'border-[#2F7BB8] bg-[#2F7BB8]/15 ring-1 ring-[#2F7BB8]/50'
-                                                : `border-transparent hover:border-[#2F7BB8]/35 ${tableSurface}`
+                                                ? 'z-20 border-[#2F7BB8] bg-[#2F7BB8]/15 ring-2 ring-[#2F7BB8]/50'
+                                                : `z-0 border-transparent hover:z-10 hover:border-[#2F7BB8]/35 ${tableSurface}`
                                         } ${isToday ? 'ring-1 ring-amber-400/50' : ''} ${
                                             isFestivo ? 'bg-violet-950/20 ring-1 ring-violet-500/45' : ''
-                                        }`}
+                                        } ${isNocturnos ? 'overflow-hidden' : ''}`}
                                     >
+                                        {hasData ? (
+                                            <input
+                                                type="checkbox"
+                                                checked={isSel}
+                                                className="absolute right-0.5 top-0.5 z-10 h-3 w-3 shrink-0 cursor-pointer"
+                                                aria-label={`Incluir ${ymd} en asignación masiva`}
+                                                onClick={(e) => e.stopPropagation()}
+                                                onChange={() => toggleDaySelection(ymd)}
+                                            />
+                                        ) : null}
                                         <span
                                             className={`text-[11px] font-bold leading-none ${
                                                 dow === 0 ? 'text-red-500' : headingAccent
@@ -664,8 +719,8 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                             <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
                                 <p className={`text-xs ${labelMuted}`}>
                                     Días en masivo: <strong className={headingAccent}>{selected.size}</strong>. Día
-                                    vacío: clic alterna selección. Día con malla: abre el modal y puedes marcar para
-                                    masivo.
+                                    vacío: clic alterna selección. Día con malla: clic abre el modal; Ctrl+clic o
+                                    checkbox incluye en masivo.
                                 </p>
                                 <div className="space-y-1">
                                     <label className={`block text-xs font-semibold ${headingAccent}`}>
@@ -829,6 +884,19 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                             />
                             Incluir este día en asignación masiva
                         </label>
+                        <div className="space-y-1 mb-4">
+                            <label className={`block text-xs font-semibold ${headingAccent}`}>
+                                Buscar colaborador
+                            </label>
+                            <input
+                                type="search"
+                                placeholder="Nombre, código o cédula…"
+                                className={`w-full text-sm ${field}`}
+                                value={searchColaborador}
+                                onChange={(e) => setSearchColaborador(e.target.value)}
+                                disabled={loadingCo}
+                            />
+                        </div>
                         <div className="space-y-4">
                             {!modalCedulasByFranja ? (
                                 <p className={`text-sm ${labelMuted}`}>Cargando…</p>
@@ -853,7 +921,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                                             {cedulas.length === 0 ? (
                                                 <p className={`text-xs ${labelMuted}`}>Sin asignados</p>
                                             ) : (
-                                                <ul className="space-y-2">
+                                                <ul className="space-y-2 mb-2">
                                                     {cedulas.map((ced) => {
                                                         const p = personForModalCedula(modalRow, f.id, ced, colaboradores);
                                                         return (
@@ -882,6 +950,29 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                                                         );
                                                     })}
                                                 </ul>
+                                            )}
+                                            {cedulas.length < 10 ? (
+                                                <select
+                                                    className={`w-full text-sm ${field}`}
+                                                    value=""
+                                                    onChange={(e) => {
+                                                        const v = e.target.value;
+                                                        if (v) {
+                                                            addCedulaToModal(f.id, v);
+                                                            e.target.value = '';
+                                                        }
+                                                    }}
+                                                    disabled={loadingCo || saving}
+                                                >
+                                                    <option value="">+ Añadir colaborador…</option>
+                                                    {filteredColaboradoresForModalFranja(f.id).map((c) => (
+                                                        <option key={c.cedula} value={c.cedula}>
+                                                            {shortLabelColaborador(c)} — {c.nombre}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <p className={`text-[10px] ${labelMuted}`}>Máximo 10 personas por franja.</p>
                                             )}
                                         </div>
                                     );

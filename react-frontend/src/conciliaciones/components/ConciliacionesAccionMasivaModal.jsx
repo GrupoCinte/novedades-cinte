@@ -19,6 +19,7 @@ export default function ConciliacionesAccionMasivaModal({
     const [facturaFv, setFacturaFv] = useState('');
     const [fechaRadicacion, setFechaRadicacion] = useState('');
     const [motivoDevolucion, setMotivoDevolucion] = useState('');
+    const [observaciones, setObservaciones] = useState('');
     const [applyToFiltered, setApplyToFiltered] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
 
@@ -32,6 +33,7 @@ export default function ConciliacionesAccionMasivaModal({
             setFacturaFv('');
             setFechaRadicacion('');
             setMotivoDevolucion('');
+            setObservaciones('');
             setApplyToFiltered(hasActiveFilters);
             setErrorMsg('');
             setTimeout(() => {
@@ -73,6 +75,7 @@ export default function ConciliacionesAccionMasivaModal({
                 facturaFv: estado === 'RADICADA' || estado === 'ENVIADA' ? facturaFv : null,
                 fechaRadicacion: estado === 'RADICADA' || estado === 'ENVIADA' ? fechaRadicacion : null,
                 motivoDevolucion: estado === 'DEVUELTA' ? motivoDevolucion : null,
+                observaciones: observaciones.trim() || null,
                 applyToFiltered: Boolean(applyToFiltered && hasActiveFilters)
             });
             onClose();
@@ -114,8 +117,8 @@ export default function ConciliacionesAccionMasivaModal({
                     ) : null}
 
                     <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-400">
-                        El estado (y datos de radicación o devolución) se aplicará a los colaboradores seleccionados. Proyecto y
-                        observaciones individuales no se modifican.
+                        El estado (y datos de radicación o devolución) se aplicará a los colaboradores seleccionados. Proyecto
+                        individual no se modifica; las observaciones opcionales se aplican a todos si las indicas.
                     </div>
 
                     {hasActiveFilters ? (
@@ -200,6 +203,20 @@ export default function ConciliacionesAccionMasivaModal({
                                 />
                             </div>
                         )}
+
+                        <div className="flex flex-col gap-1.5 sm:col-span-2">
+                            <label htmlFor="masiva-observaciones" className={`text-xs font-bold ${dash.titleLg}`}>
+                                Observaciones <span className="font-normal text-slate-500">(Opcional)</span>
+                            </label>
+                            <textarea
+                                id="masiva-observaciones"
+                                rows="3"
+                                placeholder="Notas que se aplicarán a todos los colaboradores seleccionados"
+                                value={observaciones}
+                                onChange={(e) => setObservaciones(e.target.value)}
+                                className={`resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
+                            />
+                        </div>
                     </div>
 
                     </div>

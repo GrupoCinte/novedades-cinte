@@ -162,10 +162,23 @@ function registerOnboardingRoutes(deps) {
     /** Catálogos (todo el panel onboarding). */
     const catGuard = [verificarToken, allowPanel('onboarding'), catalogLimiter];
 
+    const CINTE_EMAIL_SUFFIX_RE = /@(?:cinte\.com\.co|cinte\.co)$/i;
+    function zCorreoCinteOptional() {
+        return z
+            .string()
+            .email()
+            .max(320)
+            .optional()
+            .nullable()
+            .refine((v) => !v || CINTE_EMAIL_SUFFIX_RE.test(String(v).trim()), {
+                message: 'El correo Cinte debe ser @cinte.com.co o @cinte.co'
+            });
+    }
+
     const colabExtendedShape = buildColaboradorExtendedZodShape();
     const colabPatchSchema = z.object({
         nombre: z.string().min(2).max(400).optional(),
-        correo_cinte: z.string().email().max(320).optional().nullable(),
+        correo_cinte: zCorreoCinteOptional(),
         cliente: z.string().max(500).optional().nullable(),
         lider_catalogo: z.string().max(500).optional().nullable(),
         gp_user_id: z.string().uuid().optional().nullable(),
@@ -174,7 +187,7 @@ function registerOnboardingRoutes(deps) {
     });
     /** Alta de colaborador: cédula y nombre obligatorios; resto opcional (mismo shape extendido). */
     const colabCreateSchema = colabPatchSchema.extend({
-        cedula: z.string().regex(/^\d{4,20}$/, 'cédula debe tener entre 4 y 20 dígitos'),
+        cedula: z.string().regex(/^\d{3,20}$/, 'cédula debe tener entre 3 y 20 dígitos'),
         nombre: z.string().min(2).max(400)
     });
 
@@ -309,8 +322,8 @@ function registerOnboardingRoutes(deps) {
             where.push(`LOWER(TRIM(COALESCE(c.empleador, ''))) = LOWER($${p++})`);
         }
         if (filters.puesto) {
-            params.push(`%${String(filters.puesto).toLowerCase()}%`);
-            where.push(`LOWER(COALESCE(c.puesto, '')) LIKE $${p++}`);
+            params.push(String(filters.puesto).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.puesto, ''))) = LOWER($${p++})`);
         }
         if (filters.modalidad_trabajo) {
             params.push(String(filters.modalidad_trabajo).trim());
@@ -1301,6 +1314,19 @@ function registerOnboardingRoutes(deps) {
     app.get('/api/onboarding/catalogos/arl', ...catGuard, catalogoEndpoint('cat_arl'));
     app.get('/api/onboarding/catalogos/ccf', ...catGuard, catalogoEndpoint('cat_ccf'));
     app.get('/api/onboarding/catalogos/cesantias', ...catGuard, catalogoEndpoint('cat_cesantias'));
+    app.get('/api/onboarding/catalogos/puestos', ...catGuard, async (req, res) => {
+        try {
+            const q = await pool.query(
+                `SELECT DISTINCT TRIM(puesto) AS puesto
+                 FROM colaboradores
+                 WHERE puesto IS NOT NULL AND TRIM(puesto) <> ''
+                 ORDER BY 1`
+            );
+            return res.json({ ok: true, items: q.rows });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
 
     /* =========================================================================
      * Reporte de rotación (reemplazo de hoja Excel "Rotación").

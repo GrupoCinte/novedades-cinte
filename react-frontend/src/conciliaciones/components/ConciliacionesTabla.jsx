@@ -83,7 +83,9 @@ export default function ConciliacionesTabla({
                                     {r.cliente || '—'}
                                 </td>
                             ) : null}
-                            <td className={tdMutedCell}>{r.perfil || '—'}</td>
+                            <td className={`${tdRest} ${isLight ? 'text-slate-500' : 'text-slate-400'}`} title={r.perfil || ''}>
+                                {r.perfil || '—'}
+                            </td>
                             <td className={`${tdRest} tabular-nums`}>
                                 {formatCop(r.tarifaCliente)}
                                 {r.moneda ? <span className={`ml-1 text-xs ${labelMuted}`}>{r.moneda}</span> : null}
@@ -161,9 +163,8 @@ export default function ConciliacionesTabla({
                                     ) : null}
                                     <button
                                         type="button"
-                                        disabled={!r.novedadesCount}
                                         onClick={() => onVerDetalle(r)}
-                                        className={`${dash.actionBtn} disabled:opacity-40`}
+                                        className={dash.actionBtn}
                                     >
                                         <Eye size={14} aria-hidden />
                                         Ver detalle
