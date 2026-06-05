@@ -187,7 +187,7 @@ function registerOnboardingRoutes(deps) {
     });
     /** Alta de colaborador: cédula y nombre obligatorios; resto opcional (mismo shape extendido). */
     const colabCreateSchema = colabPatchSchema.extend({
-        cedula: z.string().regex(/^\d{4,20}$/, 'cédula debe tener entre 4 y 20 dígitos'),
+        cedula: z.string().regex(/^\d{3,20}$/, 'cédula debe tener entre 3 y 20 dígitos'),
         nombre: z.string().min(2).max(400)
     });
 
