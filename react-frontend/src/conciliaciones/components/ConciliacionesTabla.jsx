@@ -161,9 +161,8 @@ export default function ConciliacionesTabla({
                                     ) : null}
                                     <button
                                         type="button"
-                                        disabled={!r.novedadesCount}
                                         onClick={() => onVerDetalle(r)}
-                                        className={`${dash.actionBtn} disabled:opacity-40`}
+                                        className={dash.actionBtn}
                                     >
                                         <Eye size={14} aria-hidden />
                                         Ver detalle

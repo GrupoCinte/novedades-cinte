@@ -106,7 +106,7 @@ export default function ConciliacionesPage({ token }) {
 
     const openDetalle = useCallback(
         async (row) => {
-            if (!row?.novedadesCount || !cliente || !ym.year || !ym.month) return;
+            if (!cliente || !ym.year || !ym.month) return;
             setModalRow(row);
             setModalOpen(true);
             setModalLoading(true);
