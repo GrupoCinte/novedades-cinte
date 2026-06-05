@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDown, ArrowUp, Plus, Pencil, Trash2 } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
 import { buildGestionTableDash } from './gestionTableDashTheme.js';
@@ -108,7 +108,34 @@ function emptyForm() {
  * @typedef {{ seq: number, reset?: boolean, fechaFinDesde?: string, fechaFinHasta?: string, semaforo?: string }} PipelineNavIntent
  */
 
-export default function ReubicacionesPipelinePage({ token, navIntent }) {
+export default function ReubicacionesPipelinePage(props) {
+    return (
+        <ReubicacionesPipelineErrorBoundary>
+            <ReubicacionesPipelinePageInner {...props} />
+        </ReubicacionesPipelineErrorBoundary>
+    );
+}
+
+class ReubicacionesPipelineErrorBoundary extends Component {
+    state = { error: null };
+
+    static getDerivedStateFromError(error) {
+        return { error };
+    }
+
+    render() {
+        if (this.state.error) {
+            return (
+                <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800/50 dark:bg-red-950/30 dark:text-red-100">
+                    No se pudo mostrar Reubicaciones: {String(this.state.error?.message || this.state.error)}
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+function ReubicacionesPipelinePageInner({ token, navIntent }) {
     const { isLight, field, labelMuted, headingAccent } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -634,7 +661,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                                 />
                             </div>
                             <div className="flex justify-end gap-2 pt-2">
-                                <button type="button" className={compactBtn} onClick={() => setCreateOpen(false)}>
+                                <button type="button" className={dash.compactBtn} onClick={() => setCreateOpen(false)}>
                                     Cancelar
                                 </button>
                                 <button type="submit" disabled={createSaving} className={toolbarBtn}>
@@ -688,7 +715,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                             <div className="flex justify-end gap-2 pt-2">
                                 <button
                                     type="button"
-                                    className={compactBtn}
+                                    className={dash.compactBtn}
                                     onClick={() => {
                                         setEditOpen(false);
                                         setEditRow(null);
