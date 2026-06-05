@@ -524,7 +524,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
 
             <div className={`${dash.cardFlex} relative min-h-0 flex-1 overflow-hidden`}>
                 <div className="flex min-h-0 flex-1 overflow-hidden">
-                    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                    <div className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${isNocturnos ? 'overflow-y-auto overflow-x-visible' : 'overflow-hidden'}`}>
                         {!hasCliente ? (
                             <div
                                 className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center ${scrim} backdrop-blur-[1px]`}
@@ -555,7 +555,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                             ))}
                         </div>
                         <div
-                            className="grid min-h-0 flex-1 grid-cols-7 gap-1 px-3 pb-3"
+                            className={`grid min-h-0 flex-1 grid-cols-7 gap-1 px-3 pb-3 ${isNocturnos ? 'overflow-visible isolation-isolate' : ''}`}
                             style={{ gridTemplateRows: `repeat(${calendarRowCount}, minmax(0, 1fr))` }}
                         >
                             {calendarCells.map((cell, idx) => {
@@ -588,11 +588,11 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                                         }}
                                         className={`${cellMinClass} relative flex flex-col gap-0.5 rounded-lg border p-1 text-left transition-colors disabled:cursor-default disabled:opacity-90 ${
                                             isSel
-                                                ? 'border-[#2F7BB8] bg-[#2F7BB8]/15 ring-1 ring-[#2F7BB8]/50'
-                                                : `border-transparent hover:border-[#2F7BB8]/35 ${tableSurface}`
+                                                ? 'z-20 border-[#2F7BB8] bg-[#2F7BB8]/15 ring-2 ring-[#2F7BB8]/50'
+                                                : `z-0 border-transparent hover:z-10 hover:border-[#2F7BB8]/35 ${tableSurface}`
                                         } ${isToday ? 'ring-1 ring-amber-400/50' : ''} ${
                                             isFestivo ? 'bg-violet-950/20 ring-1 ring-violet-500/45' : ''
-                                        }`}
+                                        } ${isNocturnos ? 'overflow-hidden' : ''}`}
                                     >
                                         {hasData ? (
                                             <input
