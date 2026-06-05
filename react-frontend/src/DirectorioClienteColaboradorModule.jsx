@@ -205,6 +205,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const [clienteModalOpen, setClienteModalOpen] = useState(false);
     const [clienteForm, setClienteForm] = useState({ cliente: '', nit: '', lider: '', gp_colaborador_cedula: '' });
     const [confirmDeactivateCatalog, setConfirmDeactivateCatalog] = useState(false);
+    const [confirmDeleteColaboradorRow, setConfirmDeleteColaboradorRow] = useState(null);
     /** Modal editar cliente (nombre + GP desde colaboradores). */
     const [editClienteModalOpen, setEditClienteModalOpen] = useState(false);
     const [editClienteOriginalName, setEditClienteOriginalName] = useState('');
@@ -900,10 +901,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     async function deleteColaboradorRow(row) {
         if (!row?.cedula) return;
-        const ok = window.confirm(
-            `¿Eliminar definitivamente al colaborador con cédula ${row.cedula}? Esta acción no se puede deshacer.`
-        );
-        if (!ok) return;
         try {
             const res = await fetch(`/api/directorio/colaboradores/${encodeURIComponent(row.cedula)}`, {
                 method: 'DELETE',
@@ -914,6 +911,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             if (!res.ok) throw new Error(data.error || res.statusText);
             flash('Colaborador eliminado.');
             setSelectedCoCedula(null);
+            setConfirmDeleteColaboradorRow(null);
             loadColaboradores();
         } catch (err) {
             flash(String(err.message || err), false);
@@ -1519,7 +1517,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                                         className="text-red-400 hover:text-red-300 hover:underline"
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
-                                                                            deleteColaboradorRow(row);
+                                                                            setConfirmDeleteColaboradorRow(row);
                                                                         }}
                                                                     >
                                                                         Eliminar
@@ -2002,6 +2000,37 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            ) : null}
+
+            {confirmDeleteColaboradorRow ? (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div
+                        className="modal-glass-scrim absolute inset-0 transition-opacity"
+                        onClick={() => setConfirmDeleteColaboradorRow(null)}
+                    />
+                    <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
+                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
+                            ¿Eliminar definitivamente al colaborador con cédula{' '}
+                            <strong>{confirmDeleteColaboradorRow.cedula}</strong>? Esta acción no se puede deshacer.
+                        </p>
+                        <div className="mt-4 flex gap-2 justify-end">
+                            <button
+                                type="button"
+                                className={outlineBtn}
+                                onClick={() => setConfirmDeleteColaboradorRow(null)}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                className="px-3 py-2 rounded-md bg-rose-600/90 text-white text-sm font-semibold"
+                                onClick={() => deleteColaboradorRow(confirmDeleteColaboradorRow)}
+                            >
+                                Eliminar
+                            </button>
+                        </div>
                     </div>
                 </div>
             ) : null}
