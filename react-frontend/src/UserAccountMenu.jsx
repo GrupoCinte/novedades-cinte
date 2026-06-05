@@ -263,7 +263,7 @@ export default function UserAccountMenu({
 
                 {open ? (
                     <div
-                        className={`absolute ${isSidebarFooter ? 'left-0 bottom-full' : 'right-0 top-full'} z-[80] w-64 overflow-hidden rounded-xl py-1.5 ${panelClass}`}
+                        className={`absolute ${isSidebar ? 'left-0 bottom-full mb-2' : 'right-0 top-full'} z-[80] w-64 overflow-hidden rounded-xl py-1.5 ${panelClass}`}
                         role="menu"
                     >
                         <button type="button" role="menuitem" className={itemClass} onClick={() => go('/admin')}>
@@ -433,7 +433,7 @@ export default function UserAccountMenu({
 
     if (isSidebar && sidebarCompact) {
         return (
-            <div ref={wrapRef} className="relative z-[60] flex flex-col items-center gap-1.5 font-body">
+            <div ref={wrapRef} className="relative z-[60] flex w-full min-w-0 flex-col items-center gap-2 font-body">
                 {assistantSlot ? <div className="relative inline-flex shrink-0">{assistantSlot}</div> : null}
                 <button
                     ref={triggerRef}
