@@ -1533,7 +1533,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     ) : null}
 
                     {mainView === 'mallasTurnos' ? (
-                        <MallasTurnosModule token={token} />
+                        <MallasTurnosModule token={token} auth={auth} />
                     ) : null}
 
                     {mainView === 'cliente' ? (

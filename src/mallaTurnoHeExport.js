@@ -80,6 +80,22 @@ function variantLabel(variant) {
     return variant === 'nocturnos' ? 'turnos nocturnos' : 'mallas de turnos';
 }
 
+function formatAprobacionFechaObs(isoOrDate) {
+    if (!isoOrDate) return '';
+    try {
+        const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
+        if (Number.isNaN(d.getTime())) return String(isoOrDate);
+        return d.toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
+    } catch {
+        return String(isoOrDate);
+    }
+}
+
+function canReaprobarMallaRole(role) {
+    const r = String(role || '').trim();
+    return r === 'super_admin' || r === 'cac';
+}
+
 const INSERT_NOVEDAD_MALLA_SQL = `INSERT INTO novedades (
     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
@@ -106,6 +122,7 @@ const INSERT_NOVEDAD_MALLA_SQL = `INSERT INTO novedades (
  * @param {(cedula: string) => Promise<object|null>} deps.getColaboradorByCedula
  * @param {(cliente: string) => Promise<string[]>} deps.getLideresByCliente
  * @param {(opts: { cliente: string, desde: string, hasta: string }) => Promise<Array<object>>} deps.listMallaTurnosCeldasRange
+ * @param {boolean} [deps.allowReaprobacion] super_admin / cac pueden re-aprobar mes ya exportado
  */
 async function aprobarMallaTurnosMes(deps) {
     const {
@@ -117,7 +134,8 @@ async function aprobarMallaTurnosMes(deps) {
         approver,
         getColaboradorByCedula,
         getLideresByCliente,
-        listMallaTurnosCeldasRange
+        listMallaTurnosCeldasRange,
+        allowReaprobacion = false
     } = deps;
 
     const cliente = normalizeCatalogValue(clienteRaw);
@@ -153,6 +171,7 @@ async function aprobarMallaTurnosMes(deps) {
     const mesYmd = `${anio}-${String(mes).padStart(2, '0')}`;
     const observacionesBase = `Generada desde malla aprobada (cliente ${cliente}, ${mesYmd}, ${variantLabel(variant)}).`;
     const area = inferAreaFromNovedad({ tipoNovedad: 'Hora Extra' });
+    const puedeReaprobar = allowReaprobacion || canReaprobarMallaRole(approverRole);
 
     const dbClient = await pool.connect();
     try {
@@ -168,15 +187,41 @@ async function aprobarMallaTurnosMes(deps) {
             [cliente, anio, mes, variant, approver.userId || null, approverEmail, approverRole]
         );
 
+        let isReaprobacion = false;
+        let aprobacionId;
+        let aprobadoEnOriginal = null;
+
         if (!lockQ.rows?.[0]?.id) {
-            throw Object.assign(
-                new Error('Este mes ya fue aprobado para esta pestaña. El proceso no se puede revertir.'),
-                { status: 409 }
+            if (!puedeReaprobar) {
+                throw Object.assign(
+                    new Error('Este mes ya fue aprobado para esta pestaña. El proceso no se puede revertir.'),
+                    { status: 409 }
+                );
+            }
+            const existingQ = await dbClient.query(
+                `SELECT id, aprobado_en
+                 FROM malla_turno_aprobacion
+                 WHERE cliente = $1 AND anio = $2 AND mes = $3 AND variant = $4
+                 FOR UPDATE`,
+                [cliente, anio, mes, variant]
             );
+            const existing = existingQ.rows?.[0];
+            if (!existing?.id) {
+                throw Object.assign(new Error('No se encontró el registro de aprobación.'), { status: 409 });
+            }
+            isReaprobacion = true;
+            aprobacionId = existing.id;
+            aprobadoEnOriginal = existing.aprobado_en;
+        } else {
+            aprobacionId = lockQ.rows[0].id;
         }
 
-        const aprobacionId = lockQ.rows[0].id;
+        const observacionesReaprobacion = `Modificación a la aprobación original de malla (cliente ${cliente}, ${mesYmd}, ${variantLabel(
+            variant
+        )}). Aprobación inicial: ${formatAprobacionFechaObs(aprobadoEnOriginal)}.`;
+
         let novedadesGeneradas = 0;
+        const modStamp = Date.now();
 
         for (const item of items) {
             const cedula = String(item.cedula || '').trim();
@@ -234,7 +279,21 @@ async function aprobarMallaTurnosMes(deps) {
                 split.horasRecargoDomingoDiurnas,
                 split.horasRecargoDomingoNocturnas
             );
-            const mallaOrigenRef = buildMallaOrigenRef(cliente, variant, fecha, franja, cedula);
+            const mallaOrigenRefBase = buildMallaOrigenRef(cliente, variant, fecha, franja, cedula);
+            const dupQ = await dbClient.query(
+                `SELECT id FROM novedades
+                 WHERE malla_origen_ref = $1 OR malla_origen_ref LIKE $2
+                 LIMIT 1`,
+                [mallaOrigenRefBase, `${mallaOrigenRefBase}|mod:%`]
+            );
+            if (dupQ.rows?.[0]?.id) {
+                continue;
+            }
+
+            const mallaOrigenRef = isReaprobacion
+                ? `${mallaOrigenRefBase}|mod:${modStamp}`
+                : mallaOrigenRefBase;
+            const observaciones = isReaprobacion ? observacionesReaprobacion : observacionesBase;
             const nombre = String(colaborador.nombre || item.nombre || '').trim() || cedula;
 
             await dbClient.query(INSERT_NOVEDAD_MALLA_SQL, [
@@ -258,7 +317,7 @@ async function aprobarMallaTurnosMes(deps) {
                 split.horasRecargoDomingoDiurnas,
                 split.horasRecargoDomingoNocturnas,
                 tipoHoraExtra,
-                observacionesBase,
+                observaciones,
                 mallaOrigenRef,
                 approverRole,
                 approver.userId || null,
@@ -267,17 +326,33 @@ async function aprobarMallaTurnosMes(deps) {
             novedadesGeneradas += 1;
         }
 
-        const upd = await dbClient.query(
-            `UPDATE malla_turno_aprobacion SET novedades_generadas = $1 WHERE id = $2::uuid RETURNING aprobado_en`,
-            [novedadesGeneradas, aprobacionId]
-        );
+        let upd;
+        if (isReaprobacion) {
+            upd = await dbClient.query(
+                `UPDATE malla_turno_aprobacion
+                 SET aprobado_por_user_id = $1::uuid,
+                     aprobado_por_email = $2,
+                     aprobado_por_rol = $3,
+                     aprobado_en = NOW(),
+                     novedades_generadas = novedades_generadas + $4
+                 WHERE id = $5::uuid
+                 RETURNING aprobado_en`,
+                [approver.userId || null, approverEmail, approverRole, novedadesGeneradas, aprobacionId]
+            );
+        } else {
+            upd = await dbClient.query(
+                `UPDATE malla_turno_aprobacion SET novedades_generadas = $1 WHERE id = $2::uuid RETURNING aprobado_en`,
+                [novedadesGeneradas, aprobacionId]
+            );
+        }
 
         await dbClient.query('COMMIT');
 
         const aprobadoEn = upd.rows?.[0]?.aprobado_en;
         return {
             novedadesGeneradas,
-            aprobadoEn: aprobadoEn ? aprobadoEn.toISOString() : lockQ.rows[0].aprobado_en?.toISOString?.() || null
+            reaprobacion: isReaprobacion,
+            aprobadoEn: aprobadoEn ? aprobadoEn.toISOString() : lockQ.rows[0]?.aprobado_en?.toISOString?.() || null
         };
     } catch (e) {
         try {
@@ -297,5 +372,7 @@ module.exports = {
     buildMallaOrigenRef,
     monthRangeYmd,
     addDaysYmd,
+    canReaprobarMallaRole,
+    formatAprobacionFechaObs,
     aprobarMallaTurnosMes
 };

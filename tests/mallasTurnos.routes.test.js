@@ -26,6 +26,51 @@ function buildPoolAuditOnly() {
     };
 }
 
+function buildPoolReaprobacionRouteMock() {
+    const captured = { observaciones: [] };
+    const txClient = {
+        query: async (sql, params) => {
+            if (/BEGIN/i.test(sql)) return { rows: [] };
+            if (/INSERT INTO malla_turno_aprobacion/i.test(sql)) return { rows: [] };
+            if (/FROM malla_turno_aprobacion[\s\S]*FOR UPDATE/i.test(sql)) {
+                return {
+                    rows: [{ id: 'a1111111-1111-4111-8111-111111111111', aprobado_en: new Date('2026-06-01T10:00:00Z') }]
+                };
+            }
+            if (/SELECT id FROM novedades/i.test(sql)) return { rows: [] };
+            if (/INSERT INTO novedades/i.test(sql)) {
+                captured.observaciones.push(params[20]);
+                return { rows: [{ id: 'nv-1' }] };
+            }
+            if (/UPDATE malla_turno_aprobacion/i.test(sql)) {
+                return { rows: [{ aprobado_en: new Date('2026-06-09T15:00:00Z') }] };
+            }
+            if (/COMMIT/i.test(sql)) return { rows: [] };
+            if (/ROLLBACK/i.test(sql)) return { rows: [] };
+            return { rows: [] };
+        },
+        release: () => {}
+    };
+    const pool = {
+        query: async (sql) => {
+            if (/INSERT INTO audit_log/i.test(sql)) return { rows: [] };
+            if (/SELECT id::text AS id FROM users/i.test(sql)) return { rows: [] };
+            return { rows: [] };
+        },
+        connect: async () => txClient
+    };
+    return { pool, captured };
+}
+
+const colaboradorDemo = {
+    nombre: 'Colaborador Uno',
+    cedula: '1234567890',
+    cliente: 'Cliente Demo',
+    lider_catalogo: 'Lider Demo',
+    correo_cinte: 'col@test.com',
+    gp_user_id: null
+};
+
 function buildApp(role, pool, mallaMocks = {}) {
     const listMallaTurnosCeldasRange =
         mallaMocks.listMallaTurnosCeldasRange ||
@@ -54,7 +99,7 @@ function buildApp(role, pool, mallaMocks = {}) {
         verificarToken: authWithRole(role),
         allowPanel: () => (_req, _res, next) => next(),
         adminActionLimiter: limiter,
-        getLideresByCliente: async () => [],
+        getLideresByCliente: mallaMocks.getLideresByCliente || (async () => []),
         getAreaFromRole: () => 'Capital Humano',
         listClientesLideresPaged: async () => ({ rows: [], total: 0 }),
         listClientesLideresByClienteSummaryPaged: async () => ({ rows: [], total: 0 }),
@@ -205,4 +250,39 @@ test('POST /api/directorio/mallas-turnos/aprobar 400 sin asignaciones', async ()
     assert.equal(res.status, 400);
     assert.match(res.body.error || '', /asignaciones/i);
     void orig;
+});
+
+test('POST /api/directorio/mallas-turnos/aprobar 200 re-aprobación super_admin', async () => {
+    const { pool, captured } = buildPoolReaprobacionRouteMock();
+    const app = buildApp('super_admin', pool, {
+        getColaboradorByCedula: async () => colaboradorDemo,
+        getLideresByCliente: async () => ['Lider Demo'],
+        listMallaTurnosCeldasRange: async () => [
+            { fecha: '2026-06-10', franja: '06_14', cedula: '1234567890', nombre: 'Colaborador Uno' }
+        ]
+    });
+    const res = await request(app)
+        .post('/api/directorio/mallas-turnos/aprobar')
+        .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
+    assert.equal(res.status, 200, res.body?.error || '');
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.reaprobacion, true);
+    assert.equal(res.body.novedadesGeneradas, 1);
+    assert.match(captured.observaciones[0] || '', /Modificación a la aprobación original/i);
+});
+
+test('POST /api/directorio/mallas-turnos/aprobar 409 no aplica a super_admin en mes ya aprobado', async () => {
+    const { pool } = buildPoolReaprobacionRouteMock();
+    const app = buildApp('cac', pool, {
+        getColaboradorByCedula: async () => colaboradorDemo,
+        getLideresByCliente: async () => ['Lider Demo'],
+        listMallaTurnosCeldasRange: async () => [
+            { fecha: '2026-06-10', franja: '06_14', cedula: '1234567890', nombre: 'Colaborador Uno' }
+        ]
+    });
+    const res = await request(app)
+        .post('/api/directorio/mallas-turnos/aprobar')
+        .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
+    assert.notEqual(res.status, 409, res.body?.error || 'no debe bloquear re-aprobación CAC');
+    assert.equal(res.status, 200);
 });

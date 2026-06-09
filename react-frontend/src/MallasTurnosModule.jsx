@@ -6,7 +6,23 @@ import MallasTurnosPage from './MallasTurnosPage.jsx';
 /**
  * Shell de Mallas en Directorio: pestañas superiores Mallas / Turnos nocturnos.
  */
-export default function MallasTurnosModule({ token }) {
+const ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial'];
+
+function resolveDirectorioRole(auth) {
+    const claims = auth?.claims && typeof auth.claims === 'object' ? auth.claims : {};
+    const user = auth?.user && typeof auth.user === 'object' ? auth.user : {};
+    const groups = claims['cognito:groups'] ?? user['cognito:groups'];
+    const normalized = new Set(
+        (Array.isArray(groups) ? groups : groups ? [groups] : []).map((g) => String(g || '').trim().toLowerCase())
+    );
+    const fromGroups = ROLE_PRIORITY.find((role) => normalized.has(role));
+    if (fromGroups) return fromGroups;
+    const raw = String(user.role || claims.role || claims['custom:role'] || '').trim().toLowerCase();
+    return ROLE_PRIORITY.includes(raw) ? raw : raw;
+}
+
+export default function MallasTurnosModule({ token, auth }) {
+    const userRole = resolveDirectorioRole(auth);
     const { isLight } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const [subTab, setSubTab] = useState('mallas');
@@ -49,6 +65,7 @@ export default function MallasTurnosModule({ token }) {
             <MallasTurnosPage
                 key={subTab}
                 token={token}
+                userRole={userRole}
                 variant={subTab === 'nocturnos' ? 'nocturnos' : 'mallas'}
             />
         </div>

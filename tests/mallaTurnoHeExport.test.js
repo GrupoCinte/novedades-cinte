@@ -50,7 +50,7 @@ test('split 06_14 produce 8h diurnas en día hábil', () => {
     assert.equal(split.nocturnas, 0);
 });
 
-test('aprobarMallaTurnosMes 409 si mes ya aprobado', async () => {
+test('aprobarMallaTurnosMes 409 si mes ya aprobado sin permiso de re-aprobación', async () => {
     const { aprobarMallaTurnosMes } = require('../src/mallaTurnoHeExport');
     const dbClient = {
         query: async (sql) => {
@@ -72,7 +72,8 @@ test('aprobarMallaTurnosMes 409 si mes ya aprobado', async () => {
                 anio: 2026,
                 mes: 6,
                 variant: 'mallas',
-                approver: { userId: null, email: 'cac@test.com', role: 'cac' },
+                approver: { userId: null, email: 'gp@test.com', role: 'gp' },
+                allowReaprobacion: false,
                 getColaboradorByCedula: async () => null,
                 getLideresByCliente: async () => ['Lider'],
                 listMallaTurnosCeldasRange: async () => [
@@ -84,4 +85,123 @@ test('aprobarMallaTurnosMes 409 si mes ya aprobado', async () => {
             return true;
         }
     );
+});
+
+test('canReaprobarMallaRole solo super_admin y cac', () => {
+    const { canReaprobarMallaRole } = require('../src/mallaTurnoHeExport');
+    assert.equal(canReaprobarMallaRole('super_admin'), true);
+    assert.equal(canReaprobarMallaRole('cac'), true);
+    assert.equal(canReaprobarMallaRole('gp'), false);
+});
+
+test('aprobarMallaTurnosMes re-aprobación cac genera HE con observación de modificación', async () => {
+    const { aprobarMallaTurnosMes } = require('../src/mallaTurnoHeExport');
+    const captured = { observaciones: [], refs: [] };
+    const dbClient = {
+        query: async (sql, params) => {
+            if (/BEGIN/i.test(sql)) return { rows: [] };
+            if (/INSERT INTO malla_turno_aprobacion/i.test(sql)) return { rows: [] };
+            if (/FROM malla_turno_aprobacion[\s\S]*FOR UPDATE/i.test(sql)) {
+                return {
+                    rows: [{ id: 'a1111111-1111-4111-8111-111111111111', aprobado_en: new Date('2026-06-01T10:00:00Z') }]
+                };
+            }
+            if (/SELECT id FROM novedades/i.test(sql)) return { rows: [] };
+            if (/INSERT INTO novedades/i.test(sql)) {
+                captured.observaciones.push(params[20]);
+                captured.refs.push(params[21]);
+                return { rows: [{ id: 'nv-1' }] };
+            }
+            if (/UPDATE malla_turno_aprobacion/i.test(sql)) {
+                return { rows: [{ aprobado_en: new Date('2026-06-09T15:00:00Z') }] };
+            }
+            if (/COMMIT/i.test(sql)) return { rows: [] };
+            if (/ROLLBACK/i.test(sql)) return { rows: [] };
+            return { rows: [] };
+        },
+        release: () => {}
+    };
+    const pool = { connect: async () => dbClient };
+    const colaborador = {
+        nombre: 'Colaborador Uno',
+        cedula: '1234567890',
+        cliente: 'Cliente Demo',
+        lider_catalogo: 'Lider Demo',
+        correo_cinte: 'col@test.com',
+        gp_user_id: null
+    };
+    const result = await aprobarMallaTurnosMes({
+        pool,
+        cliente: 'Cliente Demo',
+        anio: 2026,
+        mes: 6,
+        variant: 'mallas',
+        approver: { userId: null, email: 'cac@cinte.test', role: 'cac' },
+        allowReaprobacion: true,
+        getColaboradorByCedula: async () => colaborador,
+        getLideresByCliente: async () => ['Lider Demo'],
+        listMallaTurnosCeldasRange: async () => [
+            { fecha: '2026-06-10', franja: '06_14', cedula: '1234567890', nombre: 'Colaborador Uno' }
+        ]
+    });
+    assert.equal(result.reaprobacion, true);
+    assert.equal(result.novedadesGeneradas, 1);
+    assert.match(captured.observaciones[0], /Modificación a la aprobación original de malla/i);
+    assert.match(captured.observaciones[0], /Aprobación inicial:/i);
+    assert.match(captured.refs[0], /\|mod:\d+$/);
+});
+
+test('aprobarMallaTurnosMes re-aprobación omite celdas ya exportadas', async () => {
+    const { aprobarMallaTurnosMes } = require('../src/mallaTurnoHeExport');
+    let insertCount = 0;
+    const dbClient = {
+        query: async (sql) => {
+            if (/BEGIN/i.test(sql)) return { rows: [] };
+            if (/INSERT INTO malla_turno_aprobacion/i.test(sql)) return { rows: [] };
+            if (/FROM malla_turno_aprobacion[\s\S]*FOR UPDATE/i.test(sql)) {
+                return {
+                    rows: [{ id: 'a1111111-1111-4111-8111-111111111111', aprobado_en: new Date('2026-06-01T10:00:00Z') }]
+                };
+            }
+            if (/SELECT id FROM novedades/i.test(sql)) {
+                return { rows: [{ id: 'existing-nv' }] };
+            }
+            if (/INSERT INTO novedades/i.test(sql)) {
+                insertCount += 1;
+                return { rows: [{ id: 'nv-new' }] };
+            }
+            if (/UPDATE malla_turno_aprobacion/i.test(sql)) {
+                return { rows: [{ aprobado_en: new Date('2026-06-09T15:00:00Z') }] };
+            }
+            if (/COMMIT/i.test(sql)) return { rows: [] };
+            return { rows: [] };
+        },
+        release: () => {}
+    };
+    const pool = { connect: async () => dbClient };
+    const colaborador = {
+        nombre: 'Colaborador Uno',
+        cedula: '1234567890',
+        cliente: 'Cliente Demo',
+        lider_catalogo: 'Lider Demo',
+        correo_cinte: 'col@test.com',
+        gp_user_id: null
+    };
+    const result = await aprobarMallaTurnosMes({
+        pool,
+        cliente: 'Cliente Demo',
+        anio: 2026,
+        mes: 6,
+        variant: 'mallas',
+        approver: { userId: null, email: 'super@cinte.test', role: 'super_admin' },
+        allowReaprobacion: true,
+        getColaboradorByCedula: async () => colaborador,
+        getLideresByCliente: async () => ['Lider Demo'],
+        listMallaTurnosCeldasRange: async () => [
+            { fecha: '2026-06-10', franja: '06_14', cedula: '1234567890', nombre: 'Colaborador Uno' }
+        ]
+    });
+    assert.equal(result.reaprobacion, true);
+    assert.equal(result.novedadesGeneradas, 0);
+    assert.equal(insertCount, 0);
 });

@@ -6,6 +6,7 @@ const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { normalizeRoleOrNull } = require('../rbac');
 const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSemaforo');
 const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
+const { resolveActorUserIdForSession } = require('../resolveActorUserId');
 
 function directorioGuard() {
     return (req, res, next) => {
@@ -726,14 +727,23 @@ function registerDirectorioRoutes(deps) {
             const parsed = mallasTurnosAprobarBodySchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const role = normalizeRoleOrNull(req.user?.role);
+            if (role !== 'super_admin' && role !== 'cac') {
+                return res.status(403).json({ ok: false, error: 'Sin permiso para aprobar mallas de turnos.' });
+            }
+            const actorEmail = String(req.user?.email || '').trim();
+            const actorUserId = await resolveActorUserIdForSession(pool, {
+                sub: req.user?.sub,
+                email: actorEmail
+            });
             const result = await aprobarMallaTurnosMes({
                 pool,
                 ...parsed.data,
                 approver: {
-                    userId: parseUuidActor(req.user?.sub),
-                    email: String(req.user?.email || '').trim(),
-                    role: role || 'cac'
+                    userId: actorUserId,
+                    email: actorEmail,
+                    role
                 },
+                allowReaprobacion: true,
                 getColaboradorByCedula,
                 getLideresByCliente,
                 listMallaTurnosCeldasRange
@@ -746,7 +756,8 @@ function registerDirectorioRoutes(deps) {
                 entityId: null,
                 metadata: {
                     ...parsed.data,
-                    novedadesGeneradas: result.novedadesGeneradas
+                    novedadesGeneradas: result.novedadesGeneradas,
+                    reaprobacion: Boolean(result.reaprobacion)
                 }
             });
             return res.json({ ok: true, ...result });
