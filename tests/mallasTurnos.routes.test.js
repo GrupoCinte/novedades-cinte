@@ -72,7 +72,16 @@ function buildApp(role, pool, mallaMocks = {}) {
         linkGpCognitoSubByEmail: async () => null,
         normalizeCedula: (v) => String(v || '').replace(/\D/g, ''),
         listMallaTurnosCeldasRange,
-        upsertMallaTurnosCeldas
+        upsertMallaTurnosCeldas,
+        getMallaTurnoAprobacionStatus:
+            mallaMocks.getMallaTurnoAprobacionStatus ||
+            (async () => ({
+                aprobada: false,
+                aprobadoEn: null,
+                novedadesGeneradas: 0,
+                aprobadoPorEmail: null
+            })),
+        getColaboradorByCedula: mallaMocks.getColaboradorByCedula || (async () => null)
     });
     return app;
 }
@@ -148,4 +157,52 @@ test('PUT /api/directorio/mallas-turnos 200 cac y llama upsert', async () => {
     assert.equal(payload.patches.length, 1);
     assert.equal(payload.patches[0].franja, '14_22');
     assert.deepEqual(payload.patches[0].cedulas, ['1234567890']);
+});
+
+test('GET /api/directorio/mallas-turnos/aprobacion 403 para rol gp', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly());
+    const res = await request(app).get(
+        '/api/directorio/mallas-turnos/aprobacion?cliente=Cliente%20Demo&anio=2026&mes=6&variant=mallas'
+    );
+    assert.equal(res.status, 403);
+});
+
+test('GET /api/directorio/mallas-turnos/aprobacion 200 super_admin', async () => {
+    const app = buildApp('super_admin', buildPoolAuditOnly(), {
+        getMallaTurnoAprobacionStatus: async () => ({
+            aprobada: true,
+            aprobadoEn: '2026-06-01T12:00:00.000Z',
+            novedadesGeneradas: 5,
+            aprobadoPorEmail: 'cac@cinte.test'
+        })
+    });
+    const res = await request(app).get(
+        '/api/directorio/mallas-turnos/aprobacion?cliente=Cliente%20Demo&anio=2026&mes=6&variant=mallas'
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.aprobada, true);
+    assert.equal(res.body.novedadesGeneradas, 5);
+});
+
+test('POST /api/directorio/mallas-turnos/aprobar 403 para rol gp', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly());
+    const res = await request(app)
+        .post('/api/directorio/mallas-turnos/aprobar')
+        .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
+    assert.equal(res.status, 403);
+});
+
+test('POST /api/directorio/mallas-turnos/aprobar 400 sin asignaciones', async () => {
+    const { aprobarMallaTurnosMes } = require('../src/mallaTurnoHeExport');
+    const orig = aprobarMallaTurnosMes;
+    const app = buildApp('cac', buildPoolAuditOnly(), {
+        listMallaTurnosCeldasRange: async () => []
+    });
+    const res = await request(app)
+        .post('/api/directorio/mallas-turnos/aprobar')
+        .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error || '', /asignaciones/i);
+    void orig;
 });

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, PanelRightClose, PanelRightOpen, Trash2, X } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
 import { buildGestionTableDash } from './gestionTableDashTheme.js';
-import { authHeaders, fetchMallasTurnos, putMallasTurnos } from './mallasTurnosApi.js';
+import { authHeaders, fetchMallasTurnos, putMallasTurnos, fetchMallaAprobacionStatus, postMallaAprobar } from './mallasTurnosApi.js';
 
 export const FRANJAS_MALLAS = [
     { id: '06_14', label: '06:00–14:00' },
@@ -14,6 +14,22 @@ export const FRANJAS_NOCTURNOS = [{ id: '22_06', label: '22:00–06:00' }];
 
 function franjasForVariant(variant) {
     return variant === 'nocturnos' ? FRANJAS_NOCTURNOS : FRANJAS_MALLAS;
+}
+
+function variantDisplayLabel(variant) {
+    return variant === 'nocturnos' ? 'Turnos nocturnos' : 'Mallas de turnos';
+}
+
+function formatAprobacionFecha(iso) {
+    if (!iso) return '';
+    try {
+        return new Date(iso).toLocaleString('es-CO', {
+            dateStyle: 'short',
+            timeStyle: 'short'
+        });
+    } catch {
+        return String(iso);
+    }
 }
 
 function emptyFranjasRecord(franjas) {
@@ -173,6 +189,10 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
     const [error, setError] = useState('');
     const [festivosSet, setFestivosSet] = useState(() => new Set());
     const [asignacionOpen, setAsignacionOpen] = useState(false);
+    const [aprobacionStatus, setAprobacionStatus] = useState(null);
+    const [aprobacionModalOpen, setAprobacionModalOpen] = useState(false);
+    const [aprobando, setAprobando] = useState(false);
+    const [successMsg, setSuccessMsg] = useState('');
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const hasCliente = Boolean(String(clienteSeleccionado || '').trim());
 
@@ -262,6 +282,51 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
         }
     }, [token, clienteSeleccionado, desde, hasta, franjas]);
 
+    const loadAprobacionStatus = useCallback(async () => {
+        const cli = String(clienteSeleccionado || '').trim();
+        if (!cli) {
+            setAprobacionStatus(null);
+            return;
+        }
+        try {
+            const data = await fetchMallaAprobacionStatus(token, {
+                cliente: cli,
+                anio: currentMonth.getFullYear(),
+                mes: currentMonth.getMonth() + 1,
+                variant
+            });
+            setAprobacionStatus(data);
+        } catch (e) {
+            setAprobacionStatus(null);
+            setError(e.message || 'No se pudo consultar el estado de aprobación');
+        }
+    }, [token, clienteSeleccionado, currentMonth, variant]);
+
+    const confirmarAprobacion = async () => {
+        const cli = String(clienteSeleccionado || '').trim();
+        if (!cli || aprobando) return;
+        setAprobando(true);
+        setError('');
+        setSuccessMsg('');
+        try {
+            const data = await postMallaAprobar(token, {
+                cliente: cli,
+                anio: currentMonth.getFullYear(),
+                mes: currentMonth.getMonth() + 1,
+                variant
+            });
+            setAprobacionModalOpen(false);
+            setSuccessMsg(
+                `${Number(data.novedadesGeneradas) || 0} Horas Extra generadas y aprobadas en Novedades.`
+            );
+            await loadAprobacionStatus();
+        } catch (e) {
+            setError(e.message || 'No se pudo aprobar la malla');
+        } finally {
+            setAprobando(false);
+        }
+    };
+
     useEffect(() => {
         loadClientesCatalogo();
     }, [loadClientesCatalogo]);
@@ -273,6 +338,10 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
     useEffect(() => {
         loadMesh();
     }, [loadMesh]);
+
+    useEffect(() => {
+        loadAprobacionStatus();
+    }, [loadAprobacionStatus]);
 
     useEffect(() => {
         setDraft(emptyFranjasRecord(franjas));
@@ -510,6 +579,32 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                     </div>
                 ) : null}
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+                    {hasCliente ? (
+                        aprobacionStatus?.aprobada ? (
+                            <span
+                                className={`rounded-lg border px-3 py-2 text-xs font-semibold ${
+                                    isLight
+                                        ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                                        : 'border-emerald-500/40 bg-emerald-950/40 text-emerald-200'
+                                }`}
+                                title={
+                                    aprobacionStatus.aprobadoPorEmail
+                                        ? `Aprobada por ${aprobacionStatus.aprobadoPorEmail}`
+                                        : undefined
+                                }
+                            >
+                                Aprobada el {formatAprobacionFecha(aprobacionStatus.aprobadoEn)}
+                            </span>
+                        ) : (
+                            <button
+                                type="button"
+                                className={dash.toolbarBtn}
+                                onClick={() => setAprobacionModalOpen(true)}
+                            >
+                                Aprobación
+                            </button>
+                        )
+                    ) : null}
                     <button
                         type="button"
                         className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${outlineBtn} ${
@@ -556,6 +651,11 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
             {error ? (
                 <div className="shrink-0 rounded-md border border-red-500/40 bg-red-950/30 px-3 py-2 text-sm text-red-200">
                     {error}
+                </div>
+            ) : null}
+            {successMsg ? (
+                <div className="shrink-0 rounded-md border border-emerald-500/40 bg-emerald-950/30 px-3 py-2 text-sm text-emerald-200">
+                    {successMsg}
                 </div>
             ) : null}
 
@@ -837,6 +937,50 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
                     </>
                 ) : null}
             </div>
+
+            {aprobacionModalOpen ? (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                        className="modal-glass-scrim absolute inset-0 transition-opacity"
+                        onClick={() => !aprobando && setAprobacionModalOpen(false)}
+                    />
+                    <div className="modal-glass-sheet font-body relative w-full max-w-lg overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
+                        <div className="border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
+                            <h2 className="text-lg font-heading font-bold text-[var(--text)]">Confirmar aprobación</h2>
+                        </div>
+                        <div className="space-y-4 p-5 text-sm text-[var(--text)]">
+                            <p>
+                                ¿Confirma que desea aprobar la malla de{' '}
+                                <strong>{clienteSeleccionado}</strong> correspondiente al mes de{' '}
+                                <strong>{monthLabel}</strong> ({variantDisplayLabel(variant)})?
+                            </p>
+                            <p className={`text-xs ${labelMuted}`}>
+                                Al aceptar, se cargarán en Novedades las Horas Extra de las franjas asignadas.{' '}
+                                <strong className="text-[var(--text)]">Este proceso no se puede revertir</strong>{' '}
+                                (no podrá volver a aprobar este mes para esta pestaña).
+                            </p>
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button
+                                    type="button"
+                                    className={outlineBtn}
+                                    disabled={aprobando}
+                                    onClick={() => setAprobacionModalOpen(false)}
+                                >
+                                    Regresar
+                                </button>
+                                <button
+                                    type="button"
+                                    className={dash.toolbarBtn}
+                                    disabled={aprobando}
+                                    onClick={confirmarAprobacion}
+                                >
+                                    {aprobando ? 'Procesando…' : 'Aceptar'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
 
             {dayModalYmd ? (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

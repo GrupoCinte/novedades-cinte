@@ -709,6 +709,49 @@ function createDataLayer(deps) {
         }
     }
 
+    /** Registro irreversible de aprobación mensual por cliente y variant (mallas | nocturnos). */
+    async function ensureMallaTurnoAprobacionTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS malla_turno_aprobacion (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cliente TEXT NOT NULL,
+                    anio SMALLINT NOT NULL,
+                    mes SMALLINT NOT NULL CHECK (mes BETWEEN 1 AND 12),
+                    variant TEXT NOT NULL CHECK (variant IN ('mallas', 'nocturnos')),
+                    aprobado_por_user_id UUID NULL,
+                    aprobado_por_email TEXT NOT NULL,
+                    aprobado_por_rol TEXT NOT NULL,
+                    aprobado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    novedades_generadas INT NOT NULL DEFAULT 0,
+                    CONSTRAINT uq_malla_turno_aprobacion UNIQUE (cliente, anio, mes, variant)
+                )
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Mallas] Permisos insuficientes para crear malla_turno_aprobacion.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureNovedadesMallaOrigenRefColumn() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS malla_origen_ref TEXT NULL');
+            await pool.query(`
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_novedades_malla_origen_ref
+                ON novedades (malla_origen_ref) WHERE malla_origen_ref IS NOT NULL
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Mallas] Permisos insuficientes para malla_origen_ref en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     const MALLA_FRANJAS = new Set(['06_14', '14_22', '22_06']);
 
     /**
@@ -736,6 +779,33 @@ function createDataLayer(deps) {
             nombre: String(row.nombre || ''),
             codigo: row.codigo != null && String(row.codigo).trim() !== '' ? String(row.codigo).trim() : null
         }));
+    }
+
+    /**
+     * @param {{ cliente: string, anio: number, mes: number, variant: 'mallas'|'nocturnos' }} q
+     */
+    async function getMallaTurnoAprobacionStatus({ cliente, anio, mes, variant }) {
+        const cli = normalizeCatalogValue(cliente);
+        if (!cli) {
+            throw Object.assign(new Error('Cliente es obligatorio'), { status: 400 });
+        }
+        const q = await pool.query(
+            `SELECT aprobado_en, novedades_generadas, aprobado_por_email
+             FROM malla_turno_aprobacion
+             WHERE cliente = $1 AND anio = $2 AND mes = $3 AND variant = $4
+             LIMIT 1`,
+            [cli, anio, mes, variant]
+        );
+        const row = q.rows?.[0];
+        if (!row) {
+            return { aprobada: false, aprobadoEn: null, novedadesGeneradas: 0, aprobadoPorEmail: null };
+        }
+        return {
+            aprobada: true,
+            aprobadoEn: row.aprobado_en ? row.aprobado_en.toISOString() : null,
+            novedadesGeneradas: Number(row.novedades_generadas) || 0,
+            aprobadoPorEmail: String(row.aprobado_por_email || '').trim() || null
+        };
     }
 
     /**
@@ -2114,8 +2184,11 @@ function createDataLayer(deps) {
         ensureReubicacionesPipelineTable,
         ensureMallaTurnosCeldaTable,
         ensureMallaTurnoAsignacionTable,
+        ensureMallaTurnoAprobacionTable,
+        ensureNovedadesMallaOrigenRefColumn,
         listMallaTurnosCeldasRange,
         upsertMallaTurnosCeldas,
+        getMallaTurnoAprobacionStatus,
         ensureConciliacionesFacturacionTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,

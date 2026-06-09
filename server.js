@@ -637,8 +637,11 @@ const {
     ensureReubicacionesPipelineTable,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
+    ensureMallaTurnoAprobacionTable,
+    ensureNovedadesMallaOrigenRefColumn,
     listMallaTurnosCeldasRange,
     upsertMallaTurnosCeldas,
+    getMallaTurnoAprobacionStatus,
     ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
@@ -801,7 +804,9 @@ registerDirectorioRoutes({
     linkGpCognitoSubByEmail,
     normalizeCedula,
     listMallaTurnosCeldasRange,
-    upsertMallaTurnosCeldas
+    upsertMallaTurnosCeldas,
+    getMallaTurnoAprobacionStatus,
+    getColaboradorByCedula
 });
 
 registerConciliacionesRoutes({

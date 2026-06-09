@@ -37,3 +37,29 @@ export async function putMallasTurnos(token, { cliente, patches }) {
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
 }
+
+export async function fetchMallaAprobacionStatus(token, { cliente, anio, mes, variant }) {
+    const qs = new URLSearchParams({
+        cliente,
+        anio: String(anio),
+        mes: String(mes),
+        variant
+    });
+    const res = await fetch(`/api/directorio/mallas-turnos/aprobacion?${qs}`, {
+        headers: authHeaders(token)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+}
+
+export async function postMallaAprobar(token, { cliente, anio, mes, variant }) {
+    const res = await fetch('/api/directorio/mallas-turnos/aprobar', {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({ cliente, anio, mes, variant })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+}

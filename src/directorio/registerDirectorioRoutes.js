@@ -5,6 +5,7 @@ const { normalizeCatalogValue } = require('../utils');
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { normalizeRoleOrNull } = require('../rbac');
 const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSemaforo');
+const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
 
 function directorioGuard() {
     return (req, res, next) => {
@@ -77,7 +78,9 @@ function registerDirectorioRoutes(deps) {
         linkGpCognitoSubByEmail,
         normalizeCedula,
         listMallaTurnosCeldasRange,
-        upsertMallaTurnosCeldas
+        upsertMallaTurnosCeldas,
+        getMallaTurnoAprobacionStatus,
+        getColaboradorByCedula
     } = deps;
 
     /** Lecturas: sin adminActionLimiter (200/hora incluía cada GET y bloqueaba uso normal del directorio). */
@@ -202,6 +205,20 @@ function registerDirectorioRoutes(deps) {
                 })
             )
             .max(1200)
+    });
+
+    const mallaVariantEnum = z.enum(['mallas', 'nocturnos']);
+    const mallasTurnosAprobacionQuerySchema = z.object({
+        cliente: z.string().min(1).max(500),
+        anio: z.coerce.number().int().min(2000).max(2100),
+        mes: z.coerce.number().int().min(1).max(12),
+        variant: mallaVariantEnum
+    });
+    const mallasTurnosAprobarBodySchema = z.object({
+        cliente: z.string().min(1).max(500),
+        anio: z.coerce.number().int().min(2000).max(2100),
+        mes: z.coerce.number().int().min(1).max(12),
+        variant: mallaVariantEnum
     });
 
     const colabExtendedShape = buildColaboradorExtendedZodShape();
@@ -688,6 +705,55 @@ function registerDirectorioRoutes(deps) {
             const st = Number(e?.status) || 500;
             if (st >= 500) console.error('PUT directorio mallas-turnos:', e);
             return res.status(st).json({ ok: false, error: e.message || 'No se pudo guardar la malla.' });
+        }
+    });
+
+    app.get('/api/directorio/mallas-turnos/aprobacion', ...readGuard, async (req, res) => {
+        try {
+            const parsed = mallasTurnosAprobacionQuerySchema.safeParse(req.query);
+            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
+            const status = await getMallaTurnoAprobacionStatus(parsed.data);
+            return res.json({ ok: true, ...status });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('GET directorio mallas-turnos/aprobacion:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo consultar la aprobación.' });
+        }
+    });
+
+    app.post('/api/directorio/mallas-turnos/aprobar', ...writeGuard, async (req, res) => {
+        try {
+            const parsed = mallasTurnosAprobarBodySchema.safeParse(req.body || {});
+            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            const role = normalizeRoleOrNull(req.user?.role);
+            const result = await aprobarMallaTurnosMes({
+                pool,
+                ...parsed.data,
+                approver: {
+                    userId: parseUuidActor(req.user?.sub),
+                    email: String(req.user?.email || '').trim(),
+                    role: role || 'cac'
+                },
+                getColaboradorByCedula,
+                getLideresByCliente,
+                listMallaTurnosCeldasRange
+            });
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user?.sub),
+                actorRole: role,
+                action: 'mallas_turnos.aprobar',
+                entityType: 'malla_turno_aprobacion',
+                entityId: null,
+                metadata: {
+                    ...parsed.data,
+                    novedadesGeneradas: result.novedadesGeneradas
+                }
+            });
+            return res.json({ ok: true, ...result });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('POST directorio mallas-turnos/aprobar:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo aprobar la malla.' });
         }
     });
 

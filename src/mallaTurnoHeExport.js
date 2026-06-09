@@ -1,0 +1,301 @@
+'use strict';
+
+const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
+const { toUtcMsFromDateAndTime } = require('./novedadHeTime');
+const { resolvePostedContactFromColaborador } = require('./colaboradorDirectory');
+const { inferAreaFromNovedad } = require('./rbac');
+const { normalizeCatalogValue } = require('./utils');
+const { foldForMatch } = require('./cotizador/clienteNombreMatch');
+const festivosService = require('./festivosService');
+
+const FRANJAS_MALLAS = ['06_14', '14_22', '22_06'];
+const FRANJAS_NOCTURNOS = ['22_06'];
+
+/**
+ * @param {'mallas'|'nocturnos'} variant
+ * @returns {string[]}
+ */
+function franjasForVariant(variant) {
+    return variant === 'nocturnos' ? FRANJAS_NOCTURNOS : FRANJAS_MALLAS;
+}
+
+/**
+ * @param {string} ymd YYYY-MM-DD
+ * @param {number} days
+ * @returns {string}
+ */
+function addDaysYmd(ymd, days) {
+    const [y, m, d] = ymd.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d + days));
+    const yy = dt.getUTCFullYear();
+    const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(dt.getUTCDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+}
+
+/**
+ * @param {number} anio
+ * @param {number} mes 1-12
+ * @returns {{ desde: string, hasta: string }}
+ */
+function monthRangeYmd(anio, mes) {
+    const mm = String(mes).padStart(2, '0');
+    const lastDay = new Date(Date.UTC(anio, mes, 0)).getUTCDate();
+    return {
+        desde: `${anio}-${mm}-01`,
+        hasta: `${anio}-${mm}-${String(lastDay).padStart(2, '0')}`
+    };
+}
+
+/**
+ * @param {string} fecha YYYY-MM-DD
+ * @param {'06_14'|'14_22'|'22_06'} franja
+ * @returns {{ fechaInicio: string, horaInicio: string, fechaFin: string, horaFin: string }}
+ */
+function franjaToDateTimeRange(fecha, franja) {
+    if (franja === '06_14') {
+        return { fechaInicio: fecha, horaInicio: '06:00', fechaFin: fecha, horaFin: '14:00' };
+    }
+    if (franja === '14_22') {
+        return { fechaInicio: fecha, horaInicio: '14:00', fechaFin: fecha, horaFin: '22:00' };
+    }
+    if (franja === '22_06') {
+        return { fechaInicio: fecha, horaInicio: '22:00', fechaFin: addDaysYmd(fecha, 1), horaFin: '06:00' };
+    }
+    throw Object.assign(new Error('Franja inválida'), { status: 400 });
+}
+
+/**
+ * @param {string} cliente
+ * @param {'mallas'|'nocturnos'} variant
+ * @param {string} fecha
+ * @param {string} franja
+ * @param {string} cedula
+ */
+function buildMallaOrigenRef(cliente, variant, fecha, franja, cedula) {
+    return `${normalizeCatalogValue(cliente)}|${variant}|${fecha}|${franja}|${cedula}`;
+}
+
+function variantLabel(variant) {
+    return variant === 'nocturnos' ? 'turnos nocturnos' : 'mallas de turnos';
+}
+
+const INSERT_NOVEDAD_MALLA_SQL = `INSERT INTO novedades (
+    nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
+    fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
+    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo,
+    horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra,
+    observaciones, estado, malla_origen_ref,
+    aprobado_en, aprobado_por_rol, aprobado_por_user_id, aprobado_por_email
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8::user_area,
+    $9::date, $10::time, $11::time, $12::date, $13::date,
+    $14, $15, $16, $17, $18, $19, $20,
+    $21, 'Aprobado'::novedad_estado, $22,
+    NOW(), $23::user_role, $24::uuid, NULLIF($25::text, '')
+) RETURNING id`;
+
+/**
+ * @param {object} deps
+ * @param {import('pg').Pool} deps.pool
+ * @param {string} deps.cliente
+ * @param {number} deps.anio
+ * @param {number} deps.mes
+ * @param {'mallas'|'nocturnos'} deps.variant
+ * @param {{ userId: string|null, email: string, role: string }} deps.approver
+ * @param {(cedula: string) => Promise<object|null>} deps.getColaboradorByCedula
+ * @param {(cliente: string) => Promise<string[]>} deps.getLideresByCliente
+ * @param {(opts: { cliente: string, desde: string, hasta: string }) => Promise<Array<object>>} deps.listMallaTurnosCeldasRange
+ */
+async function aprobarMallaTurnosMes(deps) {
+    const {
+        pool,
+        cliente: clienteRaw,
+        anio,
+        mes,
+        variant,
+        approver,
+        getColaboradorByCedula,
+        getLideresByCliente,
+        listMallaTurnosCeldasRange
+    } = deps;
+
+    const cliente = normalizeCatalogValue(clienteRaw);
+    if (!cliente) {
+        throw Object.assign(new Error('Cliente es obligatorio'), { status: 400 });
+    }
+    if (!Number.isInteger(anio) || anio < 2000 || anio > 2100) {
+        throw Object.assign(new Error('Año inválido'), { status: 400 });
+    }
+    if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
+        throw Object.assign(new Error('Mes inválido'), { status: 400 });
+    }
+    if (variant !== 'mallas' && variant !== 'nocturnos') {
+        throw Object.assign(new Error('Variant inválido'), { status: 400 });
+    }
+
+    const approverEmail = String(approver?.email || '').trim();
+    const approverRole = String(approver?.role || '').trim();
+    if (!approverEmail || !approverRole) {
+        throw Object.assign(new Error('Aprobador inválido'), { status: 400 });
+    }
+
+    const { desde, hasta } = monthRangeYmd(anio, mes);
+    const allowedFranjas = new Set(franjasForVariant(variant));
+    const allItems = await listMallaTurnosCeldasRange({ cliente, desde, hasta });
+    const items = allItems.filter((it) => allowedFranjas.has(String(it.franja)));
+
+    if (items.length === 0) {
+        throw Object.assign(new Error('No hay asignaciones para aprobar en este mes.'), { status: 400 });
+    }
+
+    const festivosSet = await festivosService.getFestivosSet();
+    const mesYmd = `${anio}-${String(mes).padStart(2, '0')}`;
+    const observacionesBase = `Generada desde malla aprobada (cliente ${cliente}, ${mesYmd}, ${variantLabel(variant)}).`;
+    const area = inferAreaFromNovedad({ tipoNovedad: 'Hora Extra' });
+
+    const dbClient = await pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+
+        const lockQ = await dbClient.query(
+            `INSERT INTO malla_turno_aprobacion (
+                cliente, anio, mes, variant,
+                aprobado_por_user_id, aprobado_por_email, aprobado_por_rol, novedades_generadas
+            ) VALUES ($1, $2, $3, $4, $5::uuid, $6, $7, 0)
+            ON CONFLICT (cliente, anio, mes, variant) DO NOTHING
+            RETURNING id, aprobado_en`,
+            [cliente, anio, mes, variant, approver.userId || null, approverEmail, approverRole]
+        );
+
+        if (!lockQ.rows?.[0]?.id) {
+            throw Object.assign(
+                new Error('Este mes ya fue aprobado para esta pestaña. El proceso no se puede revertir.'),
+                { status: 409 }
+            );
+        }
+
+        const aprobacionId = lockQ.rows[0].id;
+        let novedadesGeneradas = 0;
+
+        for (const item of items) {
+            const cedula = String(item.cedula || '').trim();
+            const fecha = String(item.fecha || '').trim();
+            const franja = String(item.franja || '').trim();
+            const colaborador = await getColaboradorByCedula(cedula);
+            if (!colaborador) {
+                throw Object.assign(
+                    new Error(`Colaborador ${cedula} (${fecha}, ${franja}) no está registrado o inactivo.`),
+                    { status: 400 }
+                );
+            }
+
+            const merged = resolvePostedContactFromColaborador({}, colaborador, normalizeCatalogValue);
+            const colCliente = merged.cliente;
+            const lider = merged.lider;
+            const correo = merged.correo || approverEmail;
+
+            if (!colCliente || foldForMatch(colCliente) !== foldForMatch(cliente)) {
+                throw Object.assign(
+                    new Error(`Colaborador ${cedula} (${fecha}) no pertenece al cliente ${cliente}.`),
+                    { status: 400 }
+                );
+            }
+            if (!lider) {
+                throw Object.assign(
+                    new Error(`Colaborador ${cedula} (${fecha}) no tiene líder en directorio.`),
+                    { status: 400 }
+                );
+            }
+
+            const lideresValidos = await getLideresByCliente(cliente);
+            const liderOk = lideresValidos.some((li) => foldForMatch(li) === foldForMatch(lider));
+            if (!liderOk) {
+                throw Object.assign(
+                    new Error(`Líder de ${cedula} (${fecha}) no es válido para el cliente ${cliente}.`),
+                    { status: 400 }
+                );
+            }
+
+            const { fechaInicio, horaInicio, fechaFin, horaFin } = franjaToDateTimeRange(fecha, franja);
+            const startMs = toUtcMsFromDateAndTime(fechaInicio, horaInicio);
+            const endMs = toUtcMsFromDateAndTime(fechaFin, horaFin);
+            const split = computeHoraExtraSplitBogota(startMs, endMs, festivosSet);
+            if (split.total <= 0) {
+                throw Object.assign(
+                    new Error(`No se pudo calcular horas para ${cedula} (${fecha}, ${franja}).`),
+                    { status: 400 }
+                );
+            }
+
+            const tipoHoraExtra = resolveHoraExtraLabel(
+                split.diurnas,
+                split.nocturnas,
+                split.horasRecargoDomingoDiurnas,
+                split.horasRecargoDomingoNocturnas
+            );
+            const mallaOrigenRef = buildMallaOrigenRef(cliente, variant, fecha, franja, cedula);
+            const nombre = String(colaborador.nombre || item.nombre || '').trim() || cedula;
+
+            await dbClient.query(INSERT_NOVEDAD_MALLA_SQL, [
+                nombre,
+                cedula,
+                correo,
+                colCliente,
+                lider,
+                colaborador.gp_user_id || null,
+                'Hora Extra',
+                area,
+                fechaInicio,
+                horaInicio,
+                horaFin,
+                fechaInicio,
+                fechaFin,
+                split.total,
+                split.diurnas,
+                split.nocturnas,
+                split.horasRecargoDomingo,
+                split.horasRecargoDomingoDiurnas,
+                split.horasRecargoDomingoNocturnas,
+                tipoHoraExtra,
+                observacionesBase,
+                mallaOrigenRef,
+                approverRole,
+                approver.userId || null,
+                approverEmail
+            ]);
+            novedadesGeneradas += 1;
+        }
+
+        const upd = await dbClient.query(
+            `UPDATE malla_turno_aprobacion SET novedades_generadas = $1 WHERE id = $2::uuid RETURNING aprobado_en`,
+            [novedadesGeneradas, aprobacionId]
+        );
+
+        await dbClient.query('COMMIT');
+
+        const aprobadoEn = upd.rows?.[0]?.aprobado_en;
+        return {
+            novedadesGeneradas,
+            aprobadoEn: aprobadoEn ? aprobadoEn.toISOString() : lockQ.rows[0].aprobado_en?.toISOString?.() || null
+        };
+    } catch (e) {
+        try {
+            await dbClient.query('ROLLBACK');
+        } catch {
+            /* ignore */
+        }
+        throw e;
+    } finally {
+        dbClient.release();
+    }
+}
+
+module.exports = {
+    franjasForVariant,
+    franjaToDateTimeRange,
+    buildMallaOrigenRef,
+    monthRangeYmd,
+    addDaysYmd,
+    aprobarMallaTurnosMes
+};
