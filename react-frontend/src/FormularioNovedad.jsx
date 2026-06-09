@@ -7,7 +7,6 @@ import {
     countCalendarDaysInclusive,
     TIPOS_CON_TOGGLE_HORAS
 } from './novedadRules';
-import { previewMonthlySplitCount } from './novedadMonthlySplit';
 import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat';
 import { toUtcMsFromDateAndTime } from './heNovedadBogotaClient.js';
 import { buildCsrfHeaders } from './cognitoAuth.js';
@@ -590,11 +589,6 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         }
         return 0;
     }, [autocalculaDiasCalendario, autocalculaDiasHabiles, formData.fechaInicio, formData.fechaFin, festivosSet]);
-
-    const monthlySplitPreviewCount = useMemo(
-        () => previewMonthlySplitCount(formData.tipo, formData.fechaInicio, formData.fechaFin),
-        [formData.tipo, formData.fechaInicio, formData.fechaFin]
-    );
 
     /** Incluye el cliente del directorio aunque no coincida literalmente con la lista del catálogo (evita <select> en blanco). */
     const clientesParaSelect = useMemo(() => {
@@ -1391,11 +1385,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             const data = await res.json().catch(() => ({}));
 
             if (res.ok) {
-                const splitN = Number(data?.splitCount || 0);
-                const successText = splitN > 1
-                    ? `✅ Se radicaron ${splitN} solicitudes (una por mes calendario). Capital Humano las revisará por separado.`
-                    : '✅ ¡Guardado con éxito!';
-                setStatus({ type: 'success', text: successText });
+                setStatus({ type: 'success', text: '✅ ¡Guardado con éxito!' });
                 if (consultorSession) {
                     // Sesión Microsoft: conservar datos del solicitante y verificación; solo limpiar detalle de la novedad.
                     setFormData((prev) => {
@@ -2180,11 +2170,6 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                         {esPermisoConToggleBloqueDias && (
                                             <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
                                                 Las fechas deben ser desde hoy (no días pasados), hasta un año calendario desde hoy.
-                                            </p>
-                                        )}
-                                        {monthlySplitPreviewCount > 1 && (
-                                            <p className={`md:col-span-2 text-sm font-body rounded-xl border px-3 py-2 ${theme.infoBanner || 'border-[#65BCF7]/40 bg-[#65BCF7]/10 text-[#65BCF7]'}`}>
-                                                Se crearán {monthlySplitPreviewCount} solicitudes (una por mes calendario). Capital Humano las revisará y aprobará por separado.
                                             </p>
                                         )}
                                     </div>

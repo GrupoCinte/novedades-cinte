@@ -9,8 +9,7 @@ export const NOVEDAD_RULES = {
     requiresDayCount: true,
     requiresTimeRange: false,
     /** Días corridos (calendario), no solo lun–vie. */
-    autoCalendarDays: true,
-    splitByCalendarMonth: true
+    autoCalendarDays: true
   },
   'Calamidad domestica': {
     requiredDocuments: ['Soporte de calamidad', 'Formato de permiso'],
@@ -39,8 +38,7 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
-    autoBusinessDays: true,
-    splitByCalendarMonth: true
+    autoBusinessDays: true
   },
   'Licencia de paternidad': {
     requiredDocuments: ['Certificado nacido vivo', 'Registro civil bebe', 'Semanas de gestacion'],
@@ -49,8 +47,7 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina', 'gp'],
     requiresDayCount: true,
     requiresTimeRange: false,
-    autoBusinessDays: true,
-    splitByCalendarMonth: true
+    autoBusinessDays: true
   },
   'Licencia de maternidad': {
     requiredDocuments: ['Incapacidad', 'Registro civil nacido vivo', 'Semanas de gestacion'],
@@ -59,8 +56,7 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'nomina', 'gp'],
     requiresDayCount: true,
     requiresTimeRange: false,
-    autoBusinessDays: true,
-    splitByCalendarMonth: true
+    autoBusinessDays: true
   },
   'Licencia remunerada': {
     requiredDocuments: ['Soporte de ausencia'],
@@ -69,8 +65,7 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'admin_ch', 'team_ch', 'cac', 'gp', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
-    autoBusinessDays: true,
-    splitByCalendarMonth: true
+    autoBusinessDays: true
   },
   'Licencia no remunerada': {
     requiredDocuments: [],
@@ -79,8 +74,7 @@ export const NOVEDAD_RULES = {
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
     requiresDayCount: true,
     requiresTimeRange: false,
-    autoBusinessDays: true,
-    splitByCalendarMonth: true
+    autoBusinessDays: true
   },
   'Permiso no remunerado': {
     requiredDocuments: [],
