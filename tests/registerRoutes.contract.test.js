@@ -4,6 +4,7 @@ const express = require('express');
 const request = require('supertest');
 const path = require('node:path');
 const fs = require('node:fs');
+const multer = require('multer');
 const { registerRoutes } = require('../src/registerRoutes');
 
 function noAuth(req, _res, next) {
@@ -328,4 +329,137 @@ test('POST /api/actualizar-estado: Rechazado con observacionesRechazo → 200 y 
   assert.equal(res.body.ok, true);
   assert.ok(captured);
   assert.equal(captured[8], motivo, '$9 = observaciones de rechazo');
+});
+
+// ─── AUT-384: división mensual incapacidades/licencias al radicar ─────────────
+
+function buildColaboradorEnviarNovedad() {
+  return {
+    nombre: 'Consultor Test',
+    cliente: 'Cliente A',
+    lider_catalogo: 'Lider A',
+    correo_cinte: 'consultor@example.com',
+    gp_user_id: null
+  };
+}
+
+function buildPoolForEnviarNovedad({ onDupCheck } = {}) {
+  const inserts = [];
+  const queryImpl = async (sql, params) => {
+    const text = String(sql || '').trim();
+    if (text.includes('FROM novedades') && text.includes('Pendiente')) {
+      const dup = onDupCheck ? onDupCheck(params, inserts.length) : false;
+      return dup ? { rows: [{ id: 'dup-existing' }] } : { rows: [] };
+    }
+    if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') {
+      return { rows: [] };
+    }
+    if (text.includes('INSERT INTO novedades')) {
+      const id = `nov-split-${inserts.length + 1}`;
+      inserts.push({ params, id });
+      return { rows: [{ id }] };
+    }
+    return { rows: [] };
+  };
+  return {
+    inserts,
+    query: queryImpl,
+    connect: async () => ({
+      query: queryImpl,
+      release: () => {}
+    })
+  };
+}
+
+function buildAppEnviarNovedad(poolOverrides = {}) {
+  const pool = buildPoolForEnviarNovedad(poolOverrides);
+  const memoryUpload = multer({ storage: multer.memoryStorage() });
+  const app = buildApp({
+    pool,
+    inferAreaFromNovedad: () => 'Capital Humano',
+    getColaboradorByCedula: async () => buildColaboradorEnviarNovedad(),
+    getNovedadRuleByType: () => ({
+      key: 'incapacidad',
+      displayName: 'Incapacidad',
+      requiredMinSupports: 0
+    }),
+    upload: { any: () => memoryUpload.any() }
+  });
+  return { app, pool };
+}
+
+test('POST /api/enviar-novedad: incapacidad multi-mes → splitCount e ids', async () => {
+  const { app, pool } = buildAppEnviarNovedad();
+  const res = await request(app)
+    .post('/api/enviar-novedad')
+    .field('tipoNovedad', 'Incapacidad')
+    .field('cedula', '1015123456')
+    .field('aceptaPoliticaDatos', 'true')
+    .field('fechaInicio', '2026-01-15')
+    .field('fechaFin', '2026-04-10')
+    .field('cantidadHoras', '86')
+    .field('cliente', 'Cliente A')
+    .field('lider', 'Lider A')
+    .field('correoSolicitante', 'consultor@example.com');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.splitCount, 4);
+  assert.equal(Array.isArray(res.body.ids), true);
+  assert.equal(res.body.ids.length, 4);
+  assert.equal(res.body.id, res.body.ids[0]);
+  assert.equal(pool.inserts.length, 4);
+
+  const seg1Params = pool.inserts[0].params;
+  assert.equal(String(seg1Params[11]), '2026-01-15');
+  assert.equal(String(seg1Params[12]), '2026-01-31');
+  const seg4Params = pool.inserts[3].params;
+  assert.equal(String(seg4Params[11]), '2026-04-01');
+  assert.equal(String(seg4Params[12]), '2026-04-10');
+  assert.match(String(seg4Params[26] || ''), /Segmento 4\/4/);
+});
+
+test('POST /api/enviar-novedad: incapacidad mismo mes → un solo registro', async () => {
+  const { app, pool } = buildAppEnviarNovedad();
+  const res = await request(app)
+    .post('/api/enviar-novedad')
+    .field('tipoNovedad', 'Incapacidad')
+    .field('cedula', '1015123456')
+    .field('aceptaPoliticaDatos', 'true')
+    .field('fechaInicio', '2026-01-05')
+    .field('fechaFin', '2026-01-20')
+    .field('cantidadHoras', '16')
+    .field('cliente', 'Cliente A')
+    .field('lider', 'Lider A')
+    .field('correoSolicitante', 'consultor@example.com');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.splitCount, undefined);
+  assert.equal(pool.inserts.length, 1);
+});
+
+test('POST /api/enviar-novedad: duplicado en segmento → 409 sin inserts', async () => {
+  let dupChecks = 0;
+  const { app, pool } = buildAppEnviarNovedad({
+    onDupCheck: () => {
+      dupChecks += 1;
+      return dupChecks === 2;
+    }
+  });
+  const res = await request(app)
+    .post('/api/enviar-novedad')
+    .field('tipoNovedad', 'Incapacidad')
+    .field('cedula', '1015123456')
+    .field('aceptaPoliticaDatos', 'true')
+    .field('fechaInicio', '2026-01-15')
+    .field('fechaFin', '2026-03-10')
+    .field('cantidadHoras', '55')
+    .field('cliente', 'Cliente A')
+    .field('lider', 'Lider A')
+    .field('correoSolicitante', 'consultor@example.com');
+
+  assert.equal(res.status, 409);
+  assert.equal(res.body.ok, false);
+  assert.equal(pool.inserts.length, 0);
 });
