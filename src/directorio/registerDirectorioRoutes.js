@@ -197,20 +197,29 @@ function registerDirectorioRoutes(deps) {
                 ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Rango máximo 400 días', path: ['hasta'] });
             }
         });
+    const mallaHhMm = z.string().regex(/^\d{2}:\d{2}$/);
     const mallasTurnosPutSchema = z.object({
         cliente: z.string().min(1).max(500),
         patches: z
             .array(
-                z.object({
-                    fecha: mallaIsoDate,
-                    franja: mallaTurnoFranjaEnum,
-                    cedulas: z.array(z.string().min(5).max(24)).max(10)
-                })
+                z
+                    .object({
+                        fecha: mallaIsoDate,
+                        franja: mallaTurnoFranjaEnum,
+                        cedulas: z.array(z.string().min(5).max(24)).max(10),
+                        horaInicio: mallaHhMm.optional(),
+                        horaFin: mallaHhMm.optional()
+                    })
+                    .refine(
+                        (p) =>
+                            (p.horaInicio == null && p.horaFin == null) ||
+                            (p.horaInicio != null && p.horaFin != null),
+                        { message: 'horaInicio y horaFin deben enviarse juntos' }
+                    )
             )
             .max(1200)
     });
 
-    const mallaHhMm = z.string().regex(/^\d{2}:\d{2}$/);
     const mallaNocturnoConfigPutSchema = z.object({
         horaInicio: mallaHhMm,
         horaFin: mallaHhMm
@@ -723,7 +732,11 @@ function registerDirectorioRoutes(deps) {
             return res.json({ ok: true, ...config });
         } catch (e) {
             console.error('GET directorio mallas-turnos/nocturno-config:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo leer el horario nocturno.' });
+            const st = Number(e?.status) || 500;
+            return res.status(st).json({
+                ok: false,
+                error: e.message || 'No se pudo leer el horario nocturno.'
+            });
         }
     });
 
@@ -785,7 +798,8 @@ function registerDirectorioRoutes(deps) {
                 allowReaprobacion: true,
                 getColaboradorByCedula,
                 getLideresByCliente,
-                listMallaTurnosCeldasRange
+                listMallaTurnosCeldasRange,
+                getMallaNocturnoConfig
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user?.sub),

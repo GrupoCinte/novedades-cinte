@@ -2,6 +2,7 @@
 
 const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
 const { toUtcMsFromDateAndTime } = require('./novedadHeTime');
+const { resolveNocturnoDateTimeRange } = require('./directorio/mallaNocturnoConfig');
 const { resolvePostedContactFromColaborador } = require('./colaboradorDirectory');
 const { inferAreaFromNovedad } = require('./rbac');
 const { normalizeCatalogValue } = require('./utils');
@@ -122,7 +123,7 @@ const INSERT_NOVEDAD_MALLA_SQL = `INSERT INTO novedades (
  * @param {(cedula: string) => Promise<object|null>} deps.getColaboradorByCedula
  * @param {(cliente: string) => Promise<string[]>} deps.getLideresByCliente
  * @param {(opts: { cliente: string, desde: string, hasta: string }) => Promise<Array<object>>} deps.listMallaTurnosCeldasRange
- * @param {boolean} [deps.allowReaprobacion] super_admin / cac pueden re-aprobar mes ya exportado
+ * @param {() => Promise<{ horaInicio: string, horaFin: string }>} [deps.getMallaNocturnoConfig]
  */
 async function aprobarMallaTurnosMes(deps) {
     const {
@@ -135,6 +136,7 @@ async function aprobarMallaTurnosMes(deps) {
         getColaboradorByCedula,
         getLideresByCliente,
         listMallaTurnosCeldasRange,
+        getMallaNocturnoConfig,
         allowReaprobacion = false
     } = deps;
 
@@ -165,6 +167,11 @@ async function aprobarMallaTurnosMes(deps) {
 
     if (items.length === 0) {
         throw Object.assign(new Error('No hay asignaciones para aprobar en este mes.'), { status: 400 });
+    }
+
+    let nocturnoFallback = null;
+    if (variant === 'nocturnos' && typeof getMallaNocturnoConfig === 'function') {
+        nocturnoFallback = await getMallaNocturnoConfig();
     }
 
     const festivosSet = await festivosService.getFestivosSet();
@@ -262,7 +269,14 @@ async function aprobarMallaTurnosMes(deps) {
                 );
             }
 
-            const { fechaInicio, horaInicio, fechaFin, horaFin } = franjaToDateTimeRange(fecha, franja);
+            const { fechaInicio, horaInicio, fechaFin, horaFin } =
+                variant === 'nocturnos' && franja === '22_06'
+                    ? resolveNocturnoDateTimeRange(
+                          fecha,
+                          item.horaInicio || nocturnoFallback?.horaInicio || '22:00',
+                          item.horaFin || nocturnoFallback?.horaFin || '06:00'
+                      )
+                    : franjaToDateTimeRange(fecha, franja);
             const startMs = toUtcMsFromDateAndTime(fechaInicio, horaInicio);
             const endMs = toUtcMsFromDateAndTime(fechaFin, horaFin);
             const split = computeHoraExtraSplitBogota(startMs, endMs, festivosSet);

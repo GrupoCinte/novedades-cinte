@@ -700,6 +700,12 @@ function createDataLayer(deps) {
             await pool.query(
                 'CREATE INDEX IF NOT EXISTS idx_malla_turno_asignacion_lookup ON malla_turno_asignacion (cliente, fecha, franja)'
             );
+            await pool.query(
+                'ALTER TABLE malla_turno_asignacion ADD COLUMN IF NOT EXISTS hora_inicio TIME NULL'
+            );
+            await pool.query(
+                'ALTER TABLE malla_turno_asignacion ADD COLUMN IF NOT EXISTS hora_fin TIME NULL'
+            );
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Mallas] Permisos insuficientes para crear malla_turno_asignacion.');
@@ -781,6 +787,7 @@ function createDataLayer(deps) {
 
     const {
         buildConfigPayload: buildNocturnoConfigPayload,
+        buildConfigPayloadFromDb: buildNocturnoConfigFromDb,
         normalizeTimeFromDb: normalizeNocturnoTimeFromDb,
         DEFAULT_HORA_INICIO: defaultNocturnoHoraInicio,
         DEFAULT_HORA_FIN: defaultNocturnoHoraFin
@@ -797,10 +804,15 @@ function createDataLayer(deps) {
         if (!row) {
             return buildNocturnoConfigPayload(defaultNocturnoHoraInicio, defaultNocturnoHoraFin);
         }
-        return buildNocturnoConfigPayload(
-            normalizeNocturnoTimeFromDb(row.hora_inicio),
-            normalizeNocturnoTimeFromDb(row.hora_fin)
-        );
+        const config = buildNocturnoConfigFromDb(row.hora_inicio, row.hora_fin);
+        if (config.storedInvalid) {
+            console.warn('[Mallas] malla_nocturno_config inválida en BD; devolviendo defaults.', {
+                horaInicio: row.hora_inicio,
+                horaFin: row.hora_fin,
+                error: config.storedError
+            });
+        }
+        return config;
     }
 
     /**
@@ -830,7 +842,9 @@ function createDataLayer(deps) {
             throw Object.assign(new Error('Cliente es obligatorio'), { status: 400 });
         }
         const q = await pool.query(
-            `SELECT a.fecha::text AS fecha, a.franja, a.cedula, a.orden, c.nombre, c.codigo
+            `SELECT a.fecha::text AS fecha, a.franja, a.cedula, a.orden,
+                    a.hora_inicio, a.hora_fin,
+                    c.nombre, c.codigo
              FROM malla_turno_asignacion a
              INNER JOIN colaboradores c ON c.cedula = a.cedula
              WHERE a.cliente = $1 AND a.fecha >= $2::date AND a.fecha <= $3::date
@@ -843,7 +857,11 @@ function createDataLayer(deps) {
             cedula: String(row.cedula),
             orden: Number(row.orden) || 0,
             nombre: String(row.nombre || ''),
-            codigo: row.codigo != null && String(row.codigo).trim() !== '' ? String(row.codigo).trim() : null
+            codigo: row.codigo != null && String(row.codigo).trim() !== '' ? String(row.codigo).trim() : null,
+            horaInicio: row.hora_inicio
+                ? normalizeNocturnoTimeFromDb(row.hora_inicio)
+                : null,
+            horaFin: row.hora_fin ? normalizeNocturnoTimeFromDb(row.hora_fin, defaultNocturnoHoraFin) : null
         }));
     }
 
@@ -876,7 +894,7 @@ function createDataLayer(deps) {
 
     /**
      * Reemplaza por completo cada (cliente, fecha, franja) según patches.
-     * @param {{ cliente: string, patches: Array<{ fecha: string, franja: string, cedulas: string[] }> }} payload
+     * @param {{ cliente: string, patches: Array<{ fecha: string, franja: string, cedulas: string[], horaInicio?: string, horaFin?: string }> }} payload
      */
     async function upsertMallaTurnosCeldas({ cliente: clienteRaw, patches }) {
         const cliente = normalizeCatalogValue(clienteRaw);
@@ -906,6 +924,23 @@ function createDataLayer(deps) {
                     cedulas.push(ced);
                     if (cedulas.length >= 10) break;
                 }
+                let horaInicio = null;
+                let horaFin = null;
+                const rawHi = raw.horaInicio != null ? String(raw.horaInicio).trim() : '';
+                const rawHf = raw.horaFin != null ? String(raw.horaFin).trim() : '';
+                if (rawHi || rawHf) {
+                    if (franja !== '22_06') {
+                        throw Object.assign(new Error('Horario solo aplica a turnos nocturnos'), { status: 400 });
+                    }
+                    if (!rawHi || !rawHf) {
+                        throw Object.assign(new Error('horaInicio y horaFin deben enviarse juntos'), {
+                            status: 400
+                        });
+                    }
+                    const built = buildNocturnoConfigPayload(rawHi, rawHf);
+                    horaInicio = built.horaInicio;
+                    horaFin = built.horaFin;
+                }
                 await dbClient.query(
                     `DELETE FROM malla_turno_asignacion WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
                     [cliente, fecha, franja]
@@ -931,9 +966,9 @@ function createDataLayer(deps) {
                         });
                     }
                     await dbClient.query(
-                        `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, updated_at)
-                         VALUES ($1, $2::date, $3, $4, $5, NOW())`,
-                        [cliente, fecha, franja, ced, orden]
+                        `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, hora_inicio, hora_fin, updated_at)
+                         VALUES ($1, $2::date, $3, $4, $5, $6::time, $7::time, NOW())`,
+                        [cliente, fecha, franja, ced, orden, horaInicio, horaFin]
                     );
                     orden += 1;
                 }
