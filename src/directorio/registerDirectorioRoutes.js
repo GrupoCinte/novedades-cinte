@@ -65,6 +65,7 @@ function registerDirectorioRoutes(deps) {
         listClientesLideresByClienteSummaryPaged,
         insertClienteLider,
         updateClienteLiderById,
+        deleteClienteLiderById,
         listColaboradoresPaged,
         insertColaborador,
         updateColaboradorByCedula,
@@ -552,6 +553,28 @@ function registerDirectorioRoutes(deps) {
             const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
             if (st >= 500) console.error('PATCH directorio clientes-lideres:', e);
             return res.status(st).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
+        }
+    });
+
+    app.delete('/api/directorio/clientes-lideres/:id', ...writeGuard, async (req, res) => {
+        try {
+            const id = String(req.params.id || '').trim();
+            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
+            const row = await deleteClienteLiderById(id);
+            if (!row) return res.status(404).json({ ok: false, error: 'No encontrado' });
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user?.sub),
+                actorRole: normalizeRoleOrNull(req.user?.role),
+                action: 'clientes_lideres.delete',
+                entityType: 'clientes_lideres',
+                entityId: row.id,
+                metadata: { cliente: row.cliente, lider: row.lider, nit: row.nit }
+            });
+            return res.json({ ok: true, deleted: row });
+        } catch (e) {
+            const st = Number(e?.status) || (String(e?.code) === '23503' ? 409 : 500);
+            if (st >= 500) console.error('DELETE directorio clientes-lideres:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
         }
     });
 
