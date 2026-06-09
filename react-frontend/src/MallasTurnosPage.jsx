@@ -614,7 +614,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     return (
         <div className="flex min-h-0 flex-1 flex-col gap-2">
             <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">
-                <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-sm">
+                <div className="flex w-full min-w-0 basis-full items-center gap-2 lg:max-w-sm lg:flex-1">
                     <label htmlFor="mallas-cliente-select" className={`shrink-0 text-xs font-semibold ${headingAccent}`}>
                         Cliente
                     </label>
@@ -622,6 +622,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                         id="mallas-cliente-select"
                         className={`min-w-0 flex-1 text-sm ${field}`}
                         value={clienteSeleccionado}
+                        title={clienteSeleccionado || undefined}
                         onChange={(e) => setClienteSeleccionado(e.target.value)}
                         disabled={loadingClientes}
                     >
@@ -717,7 +718,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
             ) : null}
 
             <div className={`${dash.cardFlex} flex min-h-0 flex-1 flex-row overflow-hidden`}>
-                <div className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${isNocturnos ? 'overflow-y-auto overflow-x-visible' : 'overflow-hidden'}`}>
+                <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
                         {!hasCliente ? (
                             <div
                                 className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center ${scrim} backdrop-blur-[1px]`}
@@ -748,7 +749,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                             ))}
                         </div>
                         <div
-                            className={`grid min-h-0 flex-1 grid-cols-7 gap-1 px-3 pb-3 ${isNocturnos ? 'overflow-visible isolation-isolate' : ''}`}
+                            className="grid min-h-0 flex-1 grid-cols-7 gap-1 overflow-hidden px-3 pb-3"
                             style={{ gridTemplateRows: `repeat(${calendarRowCount}, minmax(0, 1fr))` }}
                         >
                             {calendarCells.map((cell, idx) => {
@@ -779,19 +780,21 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                                 toggleDaySelection(ymd);
                                             }
                                         }}
-                                        className={`${cellMinClass} relative flex flex-col gap-0.5 rounded-lg border p-1 text-left transition-colors disabled:cursor-default disabled:opacity-90 ${
+                                        className={`${cellMinClass} relative flex flex-col gap-0.5 overflow-hidden rounded-lg border-2 p-1 text-left transition-colors disabled:cursor-default disabled:opacity-90 ${
                                             isSel
-                                                ? 'z-20 border-[#2F7BB8] bg-[#2F7BB8]/15 ring-2 ring-[#2F7BB8]/50'
-                                                : `z-0 border-transparent hover:z-10 hover:border-[#2F7BB8]/35 ${tableSurface}`
-                                        } ${isToday ? 'ring-1 ring-amber-400/50' : ''} ${
-                                            isFestivo ? 'bg-violet-950/20 ring-1 ring-violet-500/45' : ''
-                                        } ${isNocturnos ? 'overflow-hidden' : ''}`}
+                                                ? 'border-[#2F7BB8] bg-[#2F7BB8]/15 ring-inset ring-1 ring-[#2F7BB8]/40'
+                                                : `border-transparent hover:border-[#2F7BB8]/35 ${tableSurface}`
+                                        } ${!isSel && isToday ? 'ring-inset ring-1 ring-amber-400/50' : ''} ${
+                                            !isSel && isFestivo
+                                                ? 'bg-violet-950/20 ring-inset ring-1 ring-violet-500/45'
+                                                : ''
+                                        }`}
                                     >
                                         {hasData ? (
                                             <input
                                                 type="checkbox"
                                                 checked={isSel}
-                                                className="absolute right-0.5 top-0.5 z-10 h-3 w-3 shrink-0 cursor-pointer"
+                                                className="absolute right-1 top-1 z-[1] h-3 w-3 shrink-0 cursor-pointer"
                                                 aria-label={`Incluir ${ymd} en asignación masiva`}
                                                 onClick={(e) => e.stopPropagation()}
                                                 onChange={() => toggleDaySelection(ymd)}
