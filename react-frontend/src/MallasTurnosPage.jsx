@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, PanelRightClose, PanelRightOpen, Trash2, X } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
 import { buildGestionTableDash } from './gestionTableDashTheme.js';
-import { authHeaders, fetchMallasTurnos, putMallasTurnos, fetchMallaAprobacionStatus, postMallaAprobar } from './mallasTurnosApi.js';
+import { authHeaders, fetchMallasTurnos, putMallasTurnos, fetchMallaAprobacionStatus, postMallaAprobar, fetchNocturnoConfig, putNocturnoConfig } from './mallasTurnosApi.js';
+import {
+    DEFAULT_NOCTURNO_CONFIG,
+    computeShiftHours,
+    formatCantidadHoras,
+    nocturnoFranjaFromConfig
+} from './mallaNocturnoConfig.js';
 
 export const FRANJAS_MALLAS = [
     { id: '06_14', label: '06:00–14:00' },
@@ -10,10 +16,8 @@ export const FRANJAS_MALLAS = [
     { id: '22_06', label: '22:00–06:00' }
 ];
 
-export const FRANJAS_NOCTURNOS = [{ id: '22_06', label: '22:00–06:00' }];
-
-function franjasForVariant(variant) {
-    return variant === 'nocturnos' ? FRANJAS_NOCTURNOS : FRANJAS_MALLAS;
+function franjasForVariant(variant, nocturnoConfig) {
+    return variant === 'nocturnos' ? nocturnoFranjaFromConfig(nocturnoConfig) : FRANJAS_MALLAS;
 }
 
 function variantDisplayLabel(variant) {
@@ -144,8 +148,20 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
         mainCanvas
     } = mt;
 
-    const franjas = useMemo(() => franjasForVariant(variant), [variant]);
     const isNocturnos = variant === 'nocturnos';
+
+    const [nocturnoConfig, setNocturnoConfig] = useState(DEFAULT_NOCTURNO_CONFIG);
+    const [nocturnoDraft, setNocturnoDraft] = useState({
+        horaInicio: DEFAULT_NOCTURNO_CONFIG.horaInicio,
+        horaFin: DEFAULT_NOCTURNO_CONFIG.horaFin
+    });
+    const [loadingNocturnoConfig, setLoadingNocturnoConfig] = useState(false);
+    const [savingNocturnoHorario, setSavingNocturnoHorario] = useState(false);
+
+    const franjas = useMemo(
+        () => franjasForVariant(variant, nocturnoConfig),
+        [variant, nocturnoConfig]
+    );
 
     const [clienteSeleccionado, setClienteSeleccionado] = useState('');
     const [clientesOptions, setClientesOptions] = useState([]);
@@ -172,6 +188,15 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     const canAprobarMalla =
         userRole === 'super_admin' || userRole === 'cac' || userRole === '';
     const hasCliente = Boolean(String(clienteSeleccionado || '').trim());
+
+    const nocturnoPreviewHours = useMemo(() => {
+        if (!isNocturnos) return null;
+        return computeShiftHours(nocturnoDraft.horaInicio, nocturnoDraft.horaFin);
+    }, [isNocturnos, nocturnoDraft.horaInicio, nocturnoDraft.horaFin]);
+
+    const nocturnoHorarioSinCambios =
+        nocturnoDraft.horaInicio === nocturnoConfig.horaInicio &&
+        nocturnoDraft.horaFin === nocturnoConfig.horaFin;
 
     const monthLabel = useMemo(() => {
         return `${MESES[currentMonth.getMonth()]} ${currentMonth.getFullYear()}`;
@@ -213,6 +238,54 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
             setLoadingClientes(false);
         }
     }, [token]);
+
+    const loadNocturnoConfig = useCallback(async () => {
+        if (!isNocturnos) return;
+        setLoadingNocturnoConfig(true);
+        try {
+            const data = await fetchNocturnoConfig(token);
+            const next = {
+                horaInicio: data.horaInicio,
+                horaFin: data.horaFin,
+                cantidadHoras: data.cantidadHoras,
+                label: data.label
+            };
+            setNocturnoConfig(next);
+            setNocturnoDraft({ horaInicio: next.horaInicio, horaFin: next.horaFin });
+        } catch (e) {
+            setError(e.message || 'No se pudo cargar el horario nocturno');
+        } finally {
+            setLoadingNocturnoConfig(false);
+        }
+    }, [isNocturnos, token]);
+
+    const saveNocturnoHorario = async () => {
+        if (nocturnoPreviewHours == null) {
+            setError('Horario nocturno inválido');
+            return;
+        }
+        setSavingNocturnoHorario(true);
+        setError('');
+        try {
+            const data = await putNocturnoConfig(token, {
+                horaInicio: nocturnoDraft.horaInicio,
+                horaFin: nocturnoDraft.horaFin
+            });
+            const next = {
+                horaInicio: data.horaInicio,
+                horaFin: data.horaFin,
+                cantidadHoras: data.cantidadHoras,
+                label: data.label
+            };
+            setNocturnoConfig(next);
+            setNocturnoDraft({ horaInicio: next.horaInicio, horaFin: next.horaFin });
+            setSuccessMsg('Horario nocturno guardado.');
+        } catch (e) {
+            setError(e.message || 'No se pudo guardar el horario nocturno');
+        } finally {
+            setSavingNocturnoHorario(false);
+        }
+    };
 
     const loadColaboradores = useCallback(async () => {
         const cli = String(clienteSeleccionado || '').trim();
@@ -314,6 +387,10 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     useEffect(() => {
         loadClientesCatalogo();
     }, [loadClientesCatalogo]);
+
+    useEffect(() => {
+        loadNocturnoConfig();
+    }, [loadNocturnoConfig]);
 
     useEffect(() => {
         loadColaboradores();
@@ -501,6 +578,76 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
 
     return (
         <div className="flex min-h-0 flex-1 flex-col gap-2">
+            {isNocturnos ? (
+                <div className={`shrink-0 rounded-xl border ${borderSubtle} p-3 space-y-3`}>
+                    <p className={`text-xs font-semibold ${headingAccent}`}>Horario global — turnos nocturnos</p>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        <div>
+                            <label htmlFor="nocturno-hora-inicio" className={`block text-xs ${labelMuted} mb-1`}>
+                                Hora inicio
+                            </label>
+                            <input
+                                id="nocturno-hora-inicio"
+                                type="time"
+                                className={`w-full text-sm ${field}`}
+                                value={nocturnoDraft.horaInicio}
+                                onChange={(e) =>
+                                    setNocturnoDraft((d) => ({ ...d, horaInicio: e.target.value.slice(0, 5) }))
+                                }
+                                disabled={loadingNocturnoConfig || savingNocturnoHorario}
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="nocturno-hora-fin" className={`block text-xs ${labelMuted} mb-1`}>
+                                Hora fin
+                            </label>
+                            <input
+                                id="nocturno-hora-fin"
+                                type="time"
+                                className={`w-full text-sm ${field}`}
+                                value={nocturnoDraft.horaFin}
+                                onChange={(e) =>
+                                    setNocturnoDraft((d) => ({ ...d, horaFin: e.target.value.slice(0, 5) }))
+                                }
+                                disabled={loadingNocturnoConfig || savingNocturnoHorario}
+                            />
+                        </div>
+                        <div>
+                            <label htmlFor="nocturno-cantidad-horas" className={`block text-xs ${labelMuted} mb-1`}>
+                                Cantidad de horas
+                            </label>
+                            <input
+                                id="nocturno-cantidad-horas"
+                                type="text"
+                                readOnly
+                                disabled
+                                className={`w-full text-sm ${field} opacity-90`}
+                                value={formatCantidadHoras(nocturnoPreviewHours)}
+                            />
+                        </div>
+                        <div className="flex items-end">
+                            <button
+                                type="button"
+                                className={`w-full ${dash.btnPrimaryCinte} disabled:opacity-50`}
+                                disabled={
+                                    loadingNocturnoConfig ||
+                                    savingNocturnoHorario ||
+                                    nocturnoPreviewHours == null ||
+                                    nocturnoHorarioSinCambios
+                                }
+                                onClick={saveNocturnoHorario}
+                            >
+                                {savingNocturnoHorario ? 'Guardando…' : 'Guardar horario'}
+                            </button>
+                        </div>
+                    </div>
+                    {nocturnoConfig.label ? (
+                        <p className={`text-xs ${labelMuted}`}>
+                            Franja activa: <span className={headingAccent}>{nocturnoConfig.label}</span>
+                        </p>
+                    ) : null}
+                </div>
+            ) : null}
             <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">
                 <div className="flex min-w-0 flex-1 items-center gap-2 sm:max-w-sm">
                     <label htmlFor="mallas-cliente-select" className={`shrink-0 text-xs font-semibold ${headingAccent}`}>

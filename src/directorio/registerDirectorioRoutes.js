@@ -81,6 +81,8 @@ function registerDirectorioRoutes(deps) {
         listMallaTurnosCeldasRange,
         upsertMallaTurnosCeldas,
         getMallaTurnoAprobacionStatus,
+        getMallaNocturnoConfig,
+        upsertMallaNocturnoConfig,
         getColaboradorByCedula
     } = deps;
 
@@ -206,6 +208,12 @@ function registerDirectorioRoutes(deps) {
                 })
             )
             .max(1200)
+    });
+
+    const mallaHhMm = z.string().regex(/^\d{2}:\d{2}$/);
+    const mallaNocturnoConfigPutSchema = z.object({
+        horaInicio: mallaHhMm,
+        horaFin: mallaHhMm
     });
 
     const mallaVariantEnum = z.enum(['mallas', 'nocturnos']);
@@ -706,6 +714,37 @@ function registerDirectorioRoutes(deps) {
             const st = Number(e?.status) || 500;
             if (st >= 500) console.error('PUT directorio mallas-turnos:', e);
             return res.status(st).json({ ok: false, error: e.message || 'No se pudo guardar la malla.' });
+        }
+    });
+
+    app.get('/api/directorio/mallas-turnos/nocturno-config', ...readGuard, async (_req, res) => {
+        try {
+            const config = await getMallaNocturnoConfig();
+            return res.json({ ok: true, ...config });
+        } catch (e) {
+            console.error('GET directorio mallas-turnos/nocturno-config:', e);
+            return res.status(500).json({ ok: false, error: 'No se pudo leer el horario nocturno.' });
+        }
+    });
+
+    app.put('/api/directorio/mallas-turnos/nocturno-config', ...writeGuard, async (req, res) => {
+        try {
+            const parsed = mallaNocturnoConfigPutSchema.safeParse(req.body || {});
+            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            const config = await upsertMallaNocturnoConfig(parsed.data);
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user?.sub),
+                actorRole: normalizeRoleOrNull(req.user?.role),
+                action: 'malla_nocturno_config.upsert',
+                entityType: 'malla_nocturno_config',
+                entityId: null,
+                metadata: { horaInicio: config.horaInicio, horaFin: config.horaFin }
+            });
+            return res.json({ ok: true, ...config });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('PUT directorio mallas-turnos/nocturno-config:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo guardar el horario nocturno.' });
         }
     });
 

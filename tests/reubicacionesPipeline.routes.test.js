@@ -114,7 +114,20 @@ function buildApp(role, pool) {
         linkGpCognitoSubByEmail: async () => null,
         normalizeCedula: (v) => String(v || '').replace(/\D/g, ''),
         listMallaTurnosCeldasRange: async () => [],
-        upsertMallaTurnosCeldas: async () => {}
+        upsertMallaTurnosCeldas: async () => {},
+        getMallaTurnoAprobacionStatus: async () => ({
+            aprobada: false,
+            aprobadoEn: null,
+            novedadesGeneradas: 0,
+            aprobadoPorEmail: null
+        }),
+        getMallaNocturnoConfig: async () => ({
+            horaInicio: '22:00',
+            horaFin: '06:00',
+            cantidadHoras: 8,
+            label: '22:00–06:00 (8 h)'
+        }),
+        upsertMallaNocturnoConfig: async () => ({})
     });
     return app;
 }

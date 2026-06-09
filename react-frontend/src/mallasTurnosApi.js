@@ -63,3 +63,23 @@ export async function postMallaAprobar(token, { cliente, anio, mes, variant }) {
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     return data;
 }
+
+export async function fetchNocturnoConfig(token) {
+    const res = await fetch('/api/directorio/mallas-turnos/nocturno-config', {
+        headers: authHeaders(token)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+}
+
+export async function putNocturnoConfig(token, { horaInicio, horaFin }) {
+    const res = await fetch('/api/directorio/mallas-turnos/nocturno-config', {
+        method: 'PUT',
+        headers: authHeaders(token),
+        body: JSON.stringify({ horaInicio, horaFin })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+}

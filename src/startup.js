@@ -34,6 +34,7 @@ async function startServer(deps) {
         ensureMallaTurnosCeldaTable,
         ensureMallaTurnoAsignacionTable,
         ensureMallaTurnoAprobacionTable,
+        ensureMallaNocturnoConfigTable,
         ensureNovedadesMallaOrigenRefColumn,
         ensureConciliacionesFacturacionTable,
         ensureUsersCognitoSubColumn,
@@ -75,6 +76,7 @@ async function startServer(deps) {
     await ensureMallaTurnosCeldaTable();
     await ensureMallaTurnoAsignacionTable();
     await ensureMallaTurnoAprobacionTable();
+    await ensureMallaNocturnoConfigTable();
     await ensureNovedadesMallaOrigenRefColumn();
     await ensureConciliacionesFacturacionTable();
     await ensureUsersCognitoSubColumn();

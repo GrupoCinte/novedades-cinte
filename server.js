@@ -638,10 +638,13 @@ const {
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
     ensureMallaTurnoAprobacionTable,
+    ensureMallaNocturnoConfigTable,
     ensureNovedadesMallaOrigenRefColumn,
     listMallaTurnosCeldasRange,
     upsertMallaTurnosCeldas,
     getMallaTurnoAprobacionStatus,
+    getMallaNocturnoConfig,
+    upsertMallaNocturnoConfig,
     ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
@@ -806,6 +809,8 @@ registerDirectorioRoutes({
     listMallaTurnosCeldasRange,
     upsertMallaTurnosCeldas,
     getMallaTurnoAprobacionStatus,
+    getMallaNocturnoConfig,
+    upsertMallaNocturnoConfig,
     getColaboradorByCedula
 });
 
@@ -901,6 +906,7 @@ startServer({
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
     ensureMallaTurnoAprobacionTable,
+    ensureMallaNocturnoConfigTable,
     ensureNovedadesMallaOrigenRefColumn,
     ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,

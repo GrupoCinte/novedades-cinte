@@ -709,6 +709,31 @@ function createDataLayer(deps) {
         }
     }
 
+    /** Horario global de la franja Turnos nocturnos (singleton id=1). */
+    async function ensureMallaNocturnoConfigTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS malla_nocturno_config (
+                    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+                    hora_inicio TIME NOT NULL DEFAULT '22:00',
+                    hora_fin TIME NOT NULL DEFAULT '06:00',
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(`
+                INSERT INTO malla_nocturno_config (id, hora_inicio, hora_fin)
+                VALUES (1, '22:00', '06:00')
+                ON CONFLICT (id) DO NOTHING
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Mallas] Permisos insuficientes para crear malla_nocturno_config.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** Registro irreversible de aprobación mensual por cliente y variant (mallas | nocturnos). */
     async function ensureMallaTurnoAprobacionTable() {
         try {
@@ -753,6 +778,47 @@ function createDataLayer(deps) {
     }
 
     const MALLA_FRANJAS = new Set(['06_14', '14_22', '22_06']);
+
+    const {
+        buildConfigPayload: buildNocturnoConfigPayload,
+        normalizeTimeFromDb: normalizeNocturnoTimeFromDb,
+        DEFAULT_HORA_INICIO: defaultNocturnoHoraInicio,
+        DEFAULT_HORA_FIN: defaultNocturnoHoraFin
+    } = require('./directorio/mallaNocturnoConfig');
+
+    /**
+     * @returns {Promise<{ horaInicio: string, horaFin: string, cantidadHoras: number, label: string }>}
+     */
+    async function getMallaNocturnoConfig() {
+        const q = await pool.query(
+            'SELECT hora_inicio, hora_fin FROM malla_nocturno_config WHERE id = 1 LIMIT 1'
+        );
+        const row = q.rows?.[0];
+        if (!row) {
+            return buildNocturnoConfigPayload(defaultNocturnoHoraInicio, defaultNocturnoHoraFin);
+        }
+        return buildNocturnoConfigPayload(
+            normalizeNocturnoTimeFromDb(row.hora_inicio),
+            normalizeNocturnoTimeFromDb(row.hora_fin)
+        );
+    }
+
+    /**
+     * @param {{ horaInicio: string, horaFin: string }} payload
+     */
+    async function upsertMallaNocturnoConfig(payload) {
+        const built = buildNocturnoConfigPayload(payload.horaInicio, payload.horaFin);
+        await pool.query(
+            `INSERT INTO malla_nocturno_config (id, hora_inicio, hora_fin, updated_at)
+             VALUES (1, $1::time, $2::time, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+                hora_inicio = EXCLUDED.hora_inicio,
+                hora_fin = EXCLUDED.hora_fin,
+                updated_at = NOW()`,
+            [built.horaInicio, built.horaFin]
+        );
+        return built;
+    }
 
     /**
      * @param {{ cliente: string, desde: string, hasta: string }} rango YYYY-MM-DD inclusive
@@ -2185,10 +2251,13 @@ function createDataLayer(deps) {
         ensureMallaTurnosCeldaTable,
         ensureMallaTurnoAsignacionTable,
         ensureMallaTurnoAprobacionTable,
+        ensureMallaNocturnoConfigTable,
         ensureNovedadesMallaOrigenRefColumn,
         listMallaTurnosCeldasRange,
         upsertMallaTurnosCeldas,
         getMallaTurnoAprobacionStatus,
+        getMallaNocturnoConfig,
+        upsertMallaNocturnoConfig,
         ensureConciliacionesFacturacionTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
