@@ -900,6 +900,8 @@ startServer({
     ensureReubicacionesPipelineTable,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
+    ensureMallaTurnoAprobacionTable,
+    ensureNovedadesMallaOrigenRefColumn,
     ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
