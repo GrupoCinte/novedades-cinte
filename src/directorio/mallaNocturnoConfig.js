@@ -9,7 +9,7 @@ const {
     NOCTURNO_EVENING_MIN,
     NOCTURNO_MORNING_MAX,
     NOCTURNO_MAX_HORAS
-} = require('../mallaNocturnoCore');
+} = require('../mallaNocturnoCore.cjs');
 
 function normalizeTimeFromDb(value, fallback = DEFAULT_HORA_INICIO) {
     if (value instanceof Date && !Number.isNaN(value.getTime())) {

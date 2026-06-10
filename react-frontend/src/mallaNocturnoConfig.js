@@ -1,4 +1,4 @@
-import * as nocturnoCore from '../../src/mallaNocturnoCore.js';
+import * as nocturnoCore from './mallaNocturnoCore.js';
 
 const {
     parseHhMm,
