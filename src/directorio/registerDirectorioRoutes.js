@@ -81,6 +81,8 @@ function registerDirectorioRoutes(deps) {
         listMallaTurnosCeldasRange,
         upsertMallaTurnosCeldas,
         getMallaTurnoAprobacionStatus,
+        getMallaNocturnoConfig,
+        upsertMallaNocturnoConfig,
         getColaboradorByCedula
     } = deps;
 
@@ -195,17 +197,32 @@ function registerDirectorioRoutes(deps) {
                 ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Rango máximo 400 días', path: ['hasta'] });
             }
         });
+    const mallaHhMm = z.string().regex(/^\d{2}:\d{2}$/);
     const mallasTurnosPutSchema = z.object({
         cliente: z.string().min(1).max(500),
         patches: z
             .array(
-                z.object({
-                    fecha: mallaIsoDate,
-                    franja: mallaTurnoFranjaEnum,
-                    cedulas: z.array(z.string().min(5).max(24)).max(10)
-                })
+                z
+                    .object({
+                        fecha: mallaIsoDate,
+                        franja: mallaTurnoFranjaEnum,
+                        cedulas: z.array(z.string().min(5).max(24)).max(10),
+                        horaInicio: mallaHhMm.optional(),
+                        horaFin: mallaHhMm.optional()
+                    })
+                    .refine(
+                        (p) =>
+                            (p.horaInicio == null && p.horaFin == null) ||
+                            (p.horaInicio != null && p.horaFin != null),
+                        { message: 'horaInicio y horaFin deben enviarse juntos' }
+                    )
             )
             .max(1200)
+    });
+
+    const mallaNocturnoConfigPutSchema = z.object({
+        horaInicio: mallaHhMm,
+        horaFin: mallaHhMm
     });
 
     const mallaVariantEnum = z.enum(['mallas', 'nocturnos']);
@@ -709,6 +726,41 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
+    app.get('/api/directorio/mallas-turnos/nocturno-config', ...readGuard, async (_req, res) => {
+        try {
+            const config = await getMallaNocturnoConfig();
+            return res.json({ ok: true, ...config });
+        } catch (e) {
+            console.error('GET directorio mallas-turnos/nocturno-config:', e);
+            const st = Number(e?.status) || 500;
+            return res.status(st).json({
+                ok: false,
+                error: e.message || 'No se pudo leer el horario nocturno.'
+            });
+        }
+    });
+
+    app.put('/api/directorio/mallas-turnos/nocturno-config', ...writeGuard, async (req, res) => {
+        try {
+            const parsed = mallaNocturnoConfigPutSchema.safeParse(req.body || {});
+            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            const config = await upsertMallaNocturnoConfig(parsed.data);
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user?.sub),
+                actorRole: normalizeRoleOrNull(req.user?.role),
+                action: 'malla_nocturno_config.upsert',
+                entityType: 'malla_nocturno_config',
+                entityId: null,
+                metadata: { horaInicio: config.horaInicio, horaFin: config.horaFin }
+            });
+            return res.json({ ok: true, ...config });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('PUT directorio mallas-turnos/nocturno-config:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo guardar el horario nocturno.' });
+        }
+    });
+
     app.get('/api/directorio/mallas-turnos/aprobacion', ...readGuard, async (req, res) => {
         try {
             const parsed = mallasTurnosAprobacionQuerySchema.safeParse(req.query);
@@ -746,7 +798,8 @@ function registerDirectorioRoutes(deps) {
                 allowReaprobacion: true,
                 getColaboradorByCedula,
                 getLideresByCliente,
-                listMallaTurnosCeldasRange
+                listMallaTurnosCeldasRange,
+                getMallaNocturnoConfig
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user?.sub),

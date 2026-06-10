@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { registerDirectorioRoutes } = require('../src/directorio/registerDirectorioRoutes');
+const { buildConfigPayload } = require('../src/directorio/mallaNocturnoConfig');
 const {
     colaboradorDemo,
     buildPoolReaprobacionRouteMock
@@ -49,6 +50,17 @@ function buildApp(role, pool, mallaMocks = {}) {
             ];
         });
     const upsertMallaTurnosCeldas = mallaMocks.upsertMallaTurnosCeldas || (async () => {});
+    const getMallaNocturnoConfig =
+        mallaMocks.getMallaNocturnoConfig ||
+        (async () => ({
+            horaInicio: '22:00',
+            horaFin: '06:00',
+            cantidadHoras: 8,
+            label: '22:00–06:00 (8 h)'
+        }));
+    const upsertMallaNocturnoConfig =
+        mallaMocks.upsertMallaNocturnoConfig ||
+        (async ({ horaInicio, horaFin }) => buildConfigPayload(horaInicio, horaFin));
 
     const app = express();
     app.use(express.json());
@@ -85,6 +97,8 @@ function buildApp(role, pool, mallaMocks = {}) {
                 novedadesGeneradas: 0,
                 aprobadoPorEmail: null
             })),
+        getMallaNocturnoConfig,
+        upsertMallaNocturnoConfig,
         getColaboradorByCedula: mallaMocks.getColaboradorByCedula || (async () => null)
     });
     return app;
@@ -244,4 +258,50 @@ test('POST /api/directorio/mallas-turnos/aprobar 409 no aplica a super_admin en 
         .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
     assert.notEqual(res.status, 409, res.body?.error || 'no debe bloquear re-aprobación CAC');
     assert.equal(res.status, 200);
+});
+
+test('GET /api/directorio/mallas-turnos/nocturno-config 403 para rol gp', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly());
+    const res = await request(app).get('/api/directorio/mallas-turnos/nocturno-config');
+    assert.equal(res.status, 403);
+});
+
+test('GET /api/directorio/mallas-turnos/nocturno-config 200 default', async () => {
+    const app = buildApp('super_admin', buildPoolAuditOnly());
+    const res = await request(app).get('/api/directorio/mallas-turnos/nocturno-config');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.horaInicio, '22:00');
+    assert.equal(res.body.horaFin, '06:00');
+    assert.equal(res.body.cantidadHoras, 8);
+});
+
+test('PUT /api/directorio/mallas-turnos/nocturno-config 400 horario inválido', async () => {
+    const app = buildApp('cac', buildPoolAuditOnly());
+    const res = await request(app)
+        .put('/api/directorio/mallas-turnos/nocturno-config')
+        .send({ horaInicio: '22:00', horaFin: '22:00' });
+    assert.equal(res.status, 400);
+});
+
+test('PUT /api/directorio/mallas-turnos/nocturno-config 200 y llama upsert', async () => {
+    let payload;
+    const app = buildApp('cac', buildPoolAuditOnly(), {
+        upsertMallaNocturnoConfig: async (p) => {
+            payload = p;
+            return {
+                horaInicio: p.horaInicio,
+                horaFin: p.horaFin,
+                cantidadHoras: 8,
+                label: '20:00–04:00 (8 h)'
+            };
+        }
+    });
+    const res = await request(app)
+        .put('/api/directorio/mallas-turnos/nocturno-config')
+        .send({ horaInicio: '20:00', horaFin: '04:00' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(payload.horaInicio, '20:00');
+    assert.equal(payload.horaFin, '04:00');
 });
