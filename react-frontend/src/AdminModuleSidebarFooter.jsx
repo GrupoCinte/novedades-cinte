@@ -23,11 +23,17 @@ export default function AdminModuleSidebarFooter({
 
     return (
         <div
-            className={`relative z-[60] mt-auto shrink-0 overflow-visible border-t ${borderSubtle} ${
-                sidebarOpen ? 'px-3 py-3' : 'px-2 py-2'
+            className={`relative z-[60] mt-auto shrink-0 overflow-visible border-t pb-[max(0.75rem,env(safe-area-inset-bottom))] ${borderSubtle} ${
+                sidebarOpen ? 'px-3 py-3' : 'px-2 py-2.5'
             }`}
         >
-            <div className={`flex ${sidebarOpen ? 'justify-end' : 'flex-col items-center justify-center gap-1.5'}`}>
+            <div
+                className={`flex min-w-0 ${
+                    sidebarOpen
+                        ? 'flex-wrap items-center justify-end gap-2'
+                        : 'flex-col items-center justify-center gap-2'
+                }`}
+            >
                 <UserAccountMenu
                     auth={auth}
                     onLogout={onLogout}

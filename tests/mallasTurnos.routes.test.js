@@ -3,6 +3,11 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { registerDirectorioRoutes } = require('../src/directorio/registerDirectorioRoutes');
+const { buildConfigPayload } = require('../src/directorio/mallaNocturnoConfig');
+const {
+    colaboradorDemo,
+    buildPoolReaprobacionRouteMock
+} = require('./helpers/mallaTurnoAprobacionMocks');
 
 function authWithRole(role) {
     return (req, _res, next) => {
@@ -45,6 +50,17 @@ function buildApp(role, pool, mallaMocks = {}) {
             ];
         });
     const upsertMallaTurnosCeldas = mallaMocks.upsertMallaTurnosCeldas || (async () => {});
+    const getMallaNocturnoConfig =
+        mallaMocks.getMallaNocturnoConfig ||
+        (async () => ({
+            horaInicio: '22:00',
+            horaFin: '06:00',
+            cantidadHoras: 8,
+            label: '22:00–06:00 (8 h)'
+        }));
+    const upsertMallaNocturnoConfig =
+        mallaMocks.upsertMallaNocturnoConfig ||
+        (async ({ horaInicio, horaFin }) => buildConfigPayload(horaInicio, horaFin));
 
     const app = express();
     app.use(express.json());
@@ -54,7 +70,7 @@ function buildApp(role, pool, mallaMocks = {}) {
         verificarToken: authWithRole(role),
         allowPanel: () => (_req, _res, next) => next(),
         adminActionLimiter: limiter,
-        getLideresByCliente: async () => [],
+        getLideresByCliente: mallaMocks.getLideresByCliente || (async () => []),
         getAreaFromRole: () => 'Capital Humano',
         listClientesLideresPaged: async () => ({ rows: [], total: 0 }),
         listClientesLideresByClienteSummaryPaged: async () => ({ rows: [], total: 0 }),
@@ -73,7 +89,18 @@ function buildApp(role, pool, mallaMocks = {}) {
         linkGpCognitoSubByEmail: async () => null,
         normalizeCedula: (v) => String(v || '').replace(/\D/g, ''),
         listMallaTurnosCeldasRange,
-        upsertMallaTurnosCeldas
+        upsertMallaTurnosCeldas,
+        getMallaTurnoAprobacionStatus:
+            mallaMocks.getMallaTurnoAprobacionStatus ||
+            (async () => ({
+                aprobada: false,
+                aprobadoEn: null,
+                novedadesGeneradas: 0,
+                aprobadoPorEmail: null
+            })),
+        getMallaNocturnoConfig,
+        upsertMallaNocturnoConfig,
+        getColaboradorByCedula: mallaMocks.getColaboradorByCedula || (async () => null)
     });
     return app;
 }
@@ -149,4 +176,133 @@ test('PUT /api/directorio/mallas-turnos 200 cac y llama upsert', async () => {
     assert.equal(payload.patches.length, 1);
     assert.equal(payload.patches[0].franja, '14_22');
     assert.deepEqual(payload.patches[0].cedulas, ['1234567890']);
+});
+
+test('GET /api/directorio/mallas-turnos/aprobacion 403 para rol gp', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly());
+    const res = await request(app).get(
+        '/api/directorio/mallas-turnos/aprobacion?cliente=Cliente%20Demo&anio=2026&mes=6&variant=mallas'
+    );
+    assert.equal(res.status, 403);
+});
+
+test('GET /api/directorio/mallas-turnos/aprobacion 200 super_admin', async () => {
+    const app = buildApp('super_admin', buildPoolAuditOnly(), {
+        getMallaTurnoAprobacionStatus: async () => ({
+            aprobada: true,
+            aprobadoEn: '2026-06-01T12:00:00.000Z',
+            novedadesGeneradas: 5,
+            aprobadoPorEmail: 'cac@cinte.test'
+        })
+    });
+    const res = await request(app).get(
+        '/api/directorio/mallas-turnos/aprobacion?cliente=Cliente%20Demo&anio=2026&mes=6&variant=mallas'
+    );
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.aprobada, true);
+    assert.equal(res.body.novedadesGeneradas, 5);
+});
+
+test('POST /api/directorio/mallas-turnos/aprobar 403 para rol gp', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly());
+    const res = await request(app)
+        .post('/api/directorio/mallas-turnos/aprobar')
+        .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
+    assert.equal(res.status, 403);
+});
+
+test('POST /api/directorio/mallas-turnos/aprobar 400 sin asignaciones', async () => {
+    const { aprobarMallaTurnosMes } = require('../src/mallaTurnoHeExport');
+    const orig = aprobarMallaTurnosMes;
+    const app = buildApp('cac', buildPoolAuditOnly(), {
+        listMallaTurnosCeldasRange: async () => []
+    });
+    const res = await request(app)
+        .post('/api/directorio/mallas-turnos/aprobar')
+        .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error || '', /asignaciones/i);
+    void orig;
+});
+
+test('POST /api/directorio/mallas-turnos/aprobar 200 re-aprobación super_admin', async () => {
+    const { pool, captured } = buildPoolReaprobacionRouteMock();
+    const app = buildApp('super_admin', pool, {
+        getColaboradorByCedula: async () => colaboradorDemo,
+        getLideresByCliente: async () => ['Lider Demo'],
+        listMallaTurnosCeldasRange: async () => [
+            { fecha: '2026-06-10', franja: '06_14', cedula: '1234567890', nombre: 'Colaborador Uno' }
+        ]
+    });
+    const res = await request(app)
+        .post('/api/directorio/mallas-turnos/aprobar')
+        .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
+    assert.equal(res.status, 200, res.body?.error || '');
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.reaprobacion, true);
+    assert.equal(res.body.novedadesGeneradas, 1);
+    assert.match(captured.observaciones[0] || '', /Modificación a la aprobación original/i);
+});
+
+test('POST /api/directorio/mallas-turnos/aprobar 409 no aplica a super_admin en mes ya aprobado', async () => {
+    const { pool } = buildPoolReaprobacionRouteMock();
+    const app = buildApp('cac', pool, {
+        getColaboradorByCedula: async () => colaboradorDemo,
+        getLideresByCliente: async () => ['Lider Demo'],
+        listMallaTurnosCeldasRange: async () => [
+            { fecha: '2026-06-10', franja: '06_14', cedula: '1234567890', nombre: 'Colaborador Uno' }
+        ]
+    });
+    const res = await request(app)
+        .post('/api/directorio/mallas-turnos/aprobar')
+        .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
+    assert.notEqual(res.status, 409, res.body?.error || 'no debe bloquear re-aprobación CAC');
+    assert.equal(res.status, 200);
+});
+
+test('GET /api/directorio/mallas-turnos/nocturno-config 403 para rol gp', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly());
+    const res = await request(app).get('/api/directorio/mallas-turnos/nocturno-config');
+    assert.equal(res.status, 403);
+});
+
+test('GET /api/directorio/mallas-turnos/nocturno-config 200 default', async () => {
+    const app = buildApp('super_admin', buildPoolAuditOnly());
+    const res = await request(app).get('/api/directorio/mallas-turnos/nocturno-config');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.horaInicio, '22:00');
+    assert.equal(res.body.horaFin, '06:00');
+    assert.equal(res.body.cantidadHoras, 8);
+});
+
+test('PUT /api/directorio/mallas-turnos/nocturno-config 400 horario inválido', async () => {
+    const app = buildApp('cac', buildPoolAuditOnly());
+    const res = await request(app)
+        .put('/api/directorio/mallas-turnos/nocturno-config')
+        .send({ horaInicio: '22:00', horaFin: '22:00' });
+    assert.equal(res.status, 400);
+});
+
+test('PUT /api/directorio/mallas-turnos/nocturno-config 200 y llama upsert', async () => {
+    let payload;
+    const app = buildApp('cac', buildPoolAuditOnly(), {
+        upsertMallaNocturnoConfig: async (p) => {
+            payload = p;
+            return {
+                horaInicio: p.horaInicio,
+                horaFin: p.horaFin,
+                cantidadHoras: 8,
+                label: '20:00–04:00 (8 h)'
+            };
+        }
+    });
+    const res = await request(app)
+        .put('/api/directorio/mallas-turnos/nocturno-config')
+        .send({ horaInicio: '20:00', horaFin: '04:00' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(payload.horaInicio, '20:00');
+    assert.equal(payload.horaFin, '04:00');
 });

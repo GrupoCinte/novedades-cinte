@@ -136,7 +136,9 @@ export default function ConciliacionesFacturacionPage({ token }) {
         if (clienteQuery) {
             const hit = clientes.find((c) => c.toLowerCase() === clienteQuery.toLowerCase());
             if (hit) setCliente(hit);
+            return;
         }
+        setCliente((prev) => (prev && clientes.includes(prev) ? prev : clientes[0] || ''));
     }, [clientes, clienteQuery]);
 
     const handleClienteChange = useCallback(
@@ -185,7 +187,7 @@ export default function ConciliacionesFacturacionPage({ token }) {
     const openDetalle = useCallback(
         async (row) => {
             const clienteRow = String(row?.cliente || cliente || '').trim();
-            if (!row?.novedadesCount || !clienteRow || !ym.year || !ym.month) return;
+            if (!clienteRow || !ym.year || !ym.month) return;
             setModalRow(row);
             setModalOpen(true);
             setModalLoading(true);
@@ -262,7 +264,8 @@ export default function ConciliacionesFacturacionPage({ token }) {
                     estado: form.estado,
                     facturaFv: form.facturaFv,
                     fechaRadicacion: form.fechaRadicacion,
-                    motivoDevolucion: form.motivoDevolucion
+                    motivoDevolucion: form.motivoDevolucion,
+                    observaciones: form.observaciones
                 },
                 { cliente, anio: ym.year, mes: ym.month, cedulas }
             );

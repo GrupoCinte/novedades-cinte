@@ -251,7 +251,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const [confirmDeleteLiderRow, setConfirmDeleteLiderRow] = useState(null);
     const [confirmDeleteColaboradorRow, setConfirmDeleteColaboradorRow] = useState(null);
     const [editClienteOriginalName, setEditClienteOriginalName] = useState('');
-    const [editClienteForm, setEditClienteForm] = useState({ nombre: '', nit: '', gp_colaborador_cedula: '' });
+    const [editClienteForm, setEditClienteForm] = useState({ nombre: '', nit: '', gp_user_id: '' });
     const [editClienteNitHint, setEditClienteNitHint] = useState('');
     const [editClienteTargetRows, setEditClienteTargetRows] = useState([]);
     const [editClienteRowsLoading, setEditClienteRowsLoading] = useState(false);
@@ -659,7 +659,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             return;
         }
         setEditClienteOriginalName(original);
-        setEditClienteForm({ nombre: original, nit: '', gp_colaborador_cedula: '' });
+        setEditClienteForm({ nombre: original, nit: '', gp_user_id: '' });
         setEditClienteTargetRows([]);
         setEditClienteGpSelectHint('');
         setEditClienteNitHint('');
@@ -687,7 +687,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 );
             }
             const gpIds = [...new Set(rows.map((r) => r.gp_user_id).filter(Boolean).map(String))];
-            let initialGpCedula = '';
+            let initialGpUserId = '';
             let gpSelectHint = '';
             if (gpIds.length === 1) {
                 initialGpCedula = cedulaForGpUserId(gsOpts, gpIds[0]);
@@ -700,7 +700,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     'Había Gerentes de Servicio distintos por líder; el valor que elijas unificará el GS en todas las filas.';
             }
             setEditClienteGpSelectHint(gpSelectHint);
-            setEditClienteForm({ nombre: original, nit: initialNit, gp_colaborador_cedula: initialGpCedula });
+            setEditClienteForm({ nombre: original, nit: initialNit, gp_user_id: initialGpUserId });
         } catch (e) {
             flash(String(e.message || e), false);
             setClienteDetailModal((m) => (m ? { ...m, mode: 'view' } : null));
@@ -769,7 +769,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             flash('El NIT es obligatorio (al menos un dígito).', false);
             return;
         }
-        const gpCedula = String(editClienteForm.gp_colaborador_cedula || '').trim() || null;
+        const gpUserId = String(editClienteForm.gp_user_id || '').trim() || null;
         if (!editClienteTargetRows.length) {
             flash('No hay filas de catálogo para este cliente.', false);
             return;
@@ -783,7 +783,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     headers: authHeaders(token),
                     body: JSON.stringify({
                         cliente: nombre,
-                        gp_colaborador_cedula: gpCedula,
+                        gp_user_id: gpUserId,
                         nit: nitDigits
                     })
                 });

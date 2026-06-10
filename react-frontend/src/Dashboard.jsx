@@ -3591,6 +3591,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </div>
                         <div className={dash.modalFooter}>
                             <button type="button" onClick={() => setAlertaHeDetailItem(null)} className={`${outlineBtn} text-sm`}>Cerrar</button>
+                            {canApproveItem(alertaHeDetailItem) ? (
+                                <>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -3622,6 +3624,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                             >
                                 Aprobar
                             </button>
+                                </>
+                            ) : null}
                         </div>
                     </div>
                 </div>

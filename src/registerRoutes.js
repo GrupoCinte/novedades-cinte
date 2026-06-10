@@ -6,7 +6,18 @@ const {
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
 const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
-const { formatCantidadNovedad, getCantidadMedidaKind } = require('./novedadCantidadFormat');
+const {
+    formatCantidadNovedad,
+    getCantidadMedidaKind,
+    countCalendarDaysInclusive,
+    countBusinessDaysInclusive: countBusinessDaysInclusiveCantidad
+} = require('./novedadCantidadFormat');
+const {
+    shouldSplitNovedadByCalendarMonth,
+    splitDateRangeByCalendarMonth,
+    computeSegmentCantidadHoras,
+    buildSegmentObservacion
+} = require('./novedadMonthlySplit');
 const {
     buildHoraExtraExportSlices,
     compensacionDominicalExcelEtiqueta,
@@ -862,6 +873,11 @@ function registerRoutes(deps) {
                 ProposedPassword: String(newPassword),
                 AccessToken: cognitoAccessToken
             });
+            // Invalidar la sesión de aplicación actual para evitar reutilizar un JWT revocado
+            // en cambios sucesivos (AUT-462).
+            revokeAppSessionToken(req.authToken);
+            res.clearCookie('cinteSession', { path: '/api', sameSite, secure: secureCookie });
+            res.clearCookie('cinteXsrf', { path: '/', sameSite, secure: secureCookie });
             return res.json({ ok: true, message: 'Contrasena actualizada. Vuelve a iniciar sesion.' });
         } catch (error) {
             console.error('Error change-password:', error);
@@ -1955,50 +1971,7 @@ function registerRoutes(deps) {
                 insertFechaFin = null;
             }
 
-            /**
-             * Anti-duplicados (spec evitar-duplicados-radicacion-novedad):
-             * Bloquear si la misma cédula ya tiene una novedad PENDIENTE con el mismo tipo y mismas
-             * fechas/horas. No aplica a `compensatorio_votacion_jurado` (tiene su propia regla previa).
-             * Defensa en profundidad: SELECT preventivo aquí + índice único parcial en BD + manejo del
-             * 23505 más abajo (carrera entre POST simultáneos).
-             */
-            if (
-                novedadTypeKey !== 'compensatorio_votacion_jurado' &&
-                insertFechaInicio
-            ) {
-                const dupPend = await pool.query(
-                    `SELECT id FROM novedades
-                     WHERE cedula = $1
-                       AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
-                           = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
-                       AND fecha_inicio = $3::date
-                       AND COALESCE(fecha_fin, fecha_inicio) = COALESCE($4::date, $3::date)
-                       AND COALESCE(hora_inicio, TIME '00:00:00') = COALESCE($5::time, TIME '00:00:00')
-                       AND COALESCE(hora_fin,    TIME '00:00:00') = COALESCE($6::time, TIME '00:00:00')
-                       AND estado = 'Pendiente'::novedad_estado
-                     LIMIT 1`,
-                    [
-                        cedulaNorm,
-                        tipoNovedad,
-                        insertFechaInicio,
-                        insertFechaFin,
-                        horaInicio,
-                        horaFin
-                    ]
-                );
-                if (dupPend.rows.length) {
-                    return res.status(409).json({
-                        ok: false,
-                        error:
-                            'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
-                    });
-                }
-            }
-
-            let insertResult;
-            try {
-                insertResult = await pool.query(
-                `INSERT INTO novedades (
+            const INSERT_NOVEDAD_SQL = `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
                     cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion,
@@ -2012,102 +1985,284 @@ function registerRoutes(deps) {
                     $24, $25::date, $26, $27,
                     'Pendiente'::novedad_estado
                 )
-                RETURNING id`,
-                [
+                RETURNING id`;
+
+            const buildInsertParams = ({
+                segFechaInicio,
+                segFechaFin,
+                segCantidadHoras,
+                segObservaciones
+            }) => [
+                nombreColaborador,
+                cedulaNorm,
+                correoSolicitanteFinal,
+                cliente,
+                lider,
+                gpUserIdSnapshot,
+                tipoNovedad,
+                area,
+                fecha,
+                horaInicio,
+                horaFin,
+                segFechaInicio,
+                segFechaFin,
+                segCantidadHoras,
+                horasDiurnas,
+                horasNocturnas,
+                horasRecargoDomingo,
+                horasRecargoDomingoDiurnas,
+                horasRecargoDomingoNocturnas,
+                tipoHoraExtra,
+                archivoRuta,
+                montoCop,
+                heDomingoObservacionInsert || null,
+                insertModalidad,
+                insertFechaVotacion || null,
+                insertUnidad || null,
+                segObservaciones
+            ];
+
+            const isPendingDuplicateError = (insertError) =>
+                String(insertError?.code || '') === '23505' &&
+                String(insertError?.constraint || '') === 'uq_novedades_pendiente_dedup';
+
+            const pendingDuplicateResponse = () =>
+                res.status(409).json({
+                    ok: false,
+                    error:
+                        'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
+                });
+
+            /**
+             * Anti-duplicados (spec evitar-duplicados-radicacion-novedad):
+             * Bloquear si la misma cédula ya tiene una novedad PENDIENTE con el mismo tipo y mismas
+             * fechas/horas. No aplica a `compensatorio_votacion_jurado` (tiene su propia regla previa).
+             */
+            const findPendingDuplicateForInsert = async (dbClient, fi, ff) => {
+                if (novedadTypeKey === 'compensatorio_votacion_jurado' || !fi) {
+                    return null;
+                }
+                const dupPend = await dbClient.query(
+                    `SELECT id FROM novedades
+                     WHERE cedula = $1
+                       AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                           = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                       AND fecha_inicio = $3::date
+                       AND COALESCE(fecha_fin, fecha_inicio) = COALESCE($4::date, $3::date)
+                       AND COALESCE(hora_inicio, TIME '00:00:00') = COALESCE($5::time, TIME '00:00:00')
+                       AND COALESCE(hora_fin,    TIME '00:00:00') = COALESCE($6::time, TIME '00:00:00')
+                       AND estado = 'Pendiente'::novedad_estado
+                     LIMIT 1`,
+                    [cedulaNorm, tipoNovedad, fi, ff, horaInicio, horaFin]
+                );
+                return dupPend.rows.length ? dupPend.rows[0].id : null;
+            };
+
+            const cantidadDeps = {
+                countCalendarDaysInclusive,
+                countBusinessDaysInclusive: countBusinessDaysInclusiveCantidad
+            };
+
+            const publishFormSubmittedForRow = async ({
+                novedadId,
+                rowFechaInicio,
+                rowFechaFin,
+                rowCantidadHoras
+            }) => {
+                const emailPayload = buildFormSubmittedNotificationEvent({
+                    novedadId,
+                    body,
                     nombreColaborador,
-                    cedulaNorm,
-                    correoSolicitanteFinal,
                     cliente,
                     lider,
-                    gpUserIdSnapshot,
                     tipoNovedad,
-                    area,
-                    fecha,
-                    horaInicio,
-                    horaFin,
-                    insertFechaInicio,
-                    insertFechaFin,
-                    cantidadHoras,
-                    horasDiurnas,
-                    horasNocturnas,
-                    horasRecargoDomingo,
-                    horasRecargoDomingoDiurnas,
-                    horasRecargoDomingoNocturnas,
-                    tipoHoraExtra,
-                    archivoRuta,
+                    fechaInicio: rowFechaInicio,
+                    fechaFin: rowFechaFin,
+                    cantidadHoras: rowCantidadHoras,
                     montoCop,
-                    heDomingoObservacionInsert || null,
-                    insertModalidad,
-                    insertFechaVotacion || null,
-                    insertUnidad || null,
-                    observacionesPersist
-                ]
-            );
-            } catch (insertError) {
-                if (
-                    String(insertError?.code || '') === '23505' &&
-                    String(insertError?.constraint || '') === 'uq_novedades_pendiente_dedup'
-                ) {
-                    return res.status(409).json({
-                        ok: false,
-                        error:
-                            'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
+                    correoSolicitanteResolved: correoSolicitanteFinal
+                });
+                try {
+                    if (typeof resolveApproverEmailsForNovedad === 'function') {
+                        const { emails, reason, insights } = await resolveApproverEmailsForNovedad(tipoNovedad);
+                        emailPayload.admin.notifyTo = emails;
+                        if (emails.length === 0) {
+                            console.warn(
+                                '[email-notifications] notifyTo vacío desde Cognito; la Lambda no usará EMAIL_ADMIN_TO* (solo correo al solicitante).',
+                                { novedadId, tipoNovedad, reason, insights }
+                            );
+                        }
+                    }
+                } catch (resolverErr) {
+                    emailPayload.admin.notifyTo = [];
+                    console.error('[email-notifications] Error resolviendo correos de approvers (Cognito)', {
+                        novedadId,
+                        tipoNovedad,
+                        message: resolverErr?.message || String(resolverErr)
                     });
+                }
+                try {
+                    const publishResult = await emailNotificationsPublisher?.publishFormSubmitted?.(emailPayload);
+                    if (publishResult?.accepted) {
+                        console.log('[email-notifications] Evento form_submitted aceptado.', {
+                            eventId: emailPayload.eventId,
+                            requestId: publishResult.requestId
+                        });
+                    } else if (!publishResult?.skipped) {
+                        console.warn('[email-notifications] Evento no aceptado.', {
+                            eventId: emailPayload.eventId,
+                            statusCode: publishResult?.statusCode || 0
+                        });
+                    }
+                } catch (notifyError) {
+                    console.error('[email-notifications] Error publicando evento form_submitted', {
+                        eventId: emailPayload.eventId,
+                        message: notifyError?.message || String(notifyError)
+                    });
+                }
+            };
+
+            const applyMonthlySplit =
+                novedadTypeKey !== 'vacaciones_dinero' &&
+                insertFechaFin &&
+                shouldSplitNovedadByCalendarMonth(novedadTypeKey, insertFechaInicio, insertFechaFin);
+
+            if (applyMonthlySplit) {
+                const originalFi = insertFechaInicio;
+                const originalFf = insertFechaFin;
+                const segments = splitDateRangeByCalendarMonth(originalFi, originalFf);
+                if (!segments.length) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'No se pudo dividir el rango de fechas por mes calendario.'
+                    });
+                }
+
+                const segmentRows = [];
+                for (const seg of segments) {
+                    const segCantidad = computeSegmentCantidadHoras(
+                        novedadTypeKey,
+                        seg.fechaInicio,
+                        seg.fechaFin,
+                        cantidadDeps
+                    );
+                    if (segCantidad <= 0) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: `El segmento ${seg.segmentIndex}/${seg.segmentTotal} no contiene días válidos para ${tipoNovedad}.`
+                        });
+                    }
+                    const dupId = await findPendingDuplicateForInsert(pool, seg.fechaInicio, seg.fechaFin);
+                    if (dupId) {
+                        return pendingDuplicateResponse();
+                    }
+                    segmentRows.push({
+                        ...seg,
+                        cantidadHoras: segCantidad,
+                        observaciones: buildSegmentObservacion(
+                            observacionesPersist,
+                            seg.segmentIndex,
+                            seg.segmentTotal,
+                            originalFi,
+                            originalFf
+                        )
+                    });
+                }
+
+                const dbClient = typeof pool.connect === 'function' ? await pool.connect() : pool;
+                const insertedIds = [];
+                try {
+                    if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                        await dbClient.query('BEGIN');
+                    }
+                    for (const seg of segmentRows) {
+                        let insertResult;
+                        try {
+                            insertResult = await dbClient.query(
+                                INSERT_NOVEDAD_SQL,
+                                buildInsertParams({
+                                    segFechaInicio: seg.fechaInicio,
+                                    segFechaFin: seg.fechaFin,
+                                    segCantidadHoras: seg.cantidadHoras,
+                                    segObservaciones: seg.observaciones
+                                })
+                            );
+                        } catch (insertError) {
+                            if (isPendingDuplicateError(insertError)) {
+                                if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                                    await dbClient.query('ROLLBACK');
+                                }
+                                return pendingDuplicateResponse();
+                            }
+                            throw insertError;
+                        }
+                        insertedIds.push(String(insertResult?.rows?.[0]?.id || ''));
+                    }
+                    if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                        await dbClient.query('COMMIT');
+                    }
+                } catch (splitInsertError) {
+                    if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                        try {
+                            await dbClient.query('ROLLBACK');
+                        } catch (_rollbackErr) {
+                            /* ignore */
+                        }
+                    }
+                    throw splitInsertError;
+                } finally {
+                    if (typeof dbClient.release === 'function') {
+                        dbClient.release();
+                    }
+                }
+
+                for (let i = 0; i < segmentRows.length; i += 1) {
+                    await publishFormSubmittedForRow({
+                        novedadId: insertedIds[i],
+                        rowFechaInicio: segmentRows[i].fechaInicio,
+                        rowFechaFin: segmentRows[i].fechaFin,
+                        rowCantidadHoras: segmentRows[i].cantidadHoras
+                    });
+                }
+
+                return res.json({
+                    ok: true,
+                    success: true,
+                    id: insertedIds[0] || '',
+                    ids: insertedIds,
+                    splitCount: insertedIds.length
+                });
+            }
+
+            const dupIdSingle = await findPendingDuplicateForInsert(pool, insertFechaInicio, insertFechaFin);
+            if (dupIdSingle) {
+                return pendingDuplicateResponse();
+            }
+
+            let insertResult;
+            try {
+                insertResult = await pool.query(
+                    INSERT_NOVEDAD_SQL,
+                    buildInsertParams({
+                        segFechaInicio: insertFechaInicio,
+                        segFechaFin: insertFechaFin,
+                        segCantidadHoras: cantidadHoras,
+                        segObservaciones: observacionesPersist
+                    })
+                );
+            } catch (insertError) {
+                if (isPendingDuplicateError(insertError)) {
+                    return pendingDuplicateResponse();
                 }
                 throw insertError;
             }
             const novedadId = insertResult?.rows?.[0]?.id || '';
-            const emailPayload = buildFormSubmittedNotificationEvent({
+            await publishFormSubmittedForRow({
                 novedadId,
-                body,
-                nombreColaborador,
-                cliente,
-                lider,
-                tipoNovedad,
-                fechaInicio: insertFechaInicio,
-                fechaFin: insertFechaFin,
-                cantidadHoras,
-                montoCop,
-                correoSolicitanteResolved: correoSolicitanteFinal
+                rowFechaInicio: insertFechaInicio,
+                rowFechaFin: insertFechaFin,
+                rowCantidadHoras: cantidadHoras
             });
-            try {
-                if (typeof resolveApproverEmailsForNovedad === 'function') {
-                    const { emails, reason, insights } = await resolveApproverEmailsForNovedad(tipoNovedad);
-                    emailPayload.admin.notifyTo = emails;
-                    if (emails.length === 0) {
-                        console.warn(
-                            '[email-notifications] notifyTo vacío desde Cognito; la Lambda no usará EMAIL_ADMIN_TO* (solo correo al solicitante).',
-                            { novedadId, tipoNovedad, reason, insights }
-                        );
-                    }
-                }
-            } catch (resolverErr) {
-                emailPayload.admin.notifyTo = [];
-                console.error('[email-notifications] Error resolviendo correos de approvers (Cognito)', {
-                    novedadId,
-                    tipoNovedad,
-                    message: resolverErr?.message || String(resolverErr)
-                });
-            }
-            try {
-                const publishResult = await emailNotificationsPublisher?.publishFormSubmitted?.(emailPayload);
-                if (publishResult?.accepted) {
-                    console.log('[email-notifications] Evento form_submitted aceptado.', {
-                        eventId: emailPayload.eventId,
-                        requestId: publishResult.requestId
-                    });
-                } else if (!publishResult?.skipped) {
-                    console.warn('[email-notifications] Evento no aceptado.', {
-                        eventId: emailPayload.eventId,
-                        statusCode: publishResult?.statusCode || 0
-                    });
-                }
-            } catch (notifyError) {
-                console.error('[email-notifications] Error publicando evento form_submitted', {
-                    eventId: emailPayload.eventId,
-                    message: notifyError?.message || String(notifyError)
-                });
-            }
             return res.json({ ok: true, success: true, id: novedadId });
         } catch (error) {
             console.error('Error al guardar:', error);

@@ -111,9 +111,11 @@ export function PersonalView({
     const [draft, setDraft] = useState({});
     const [panelOpen, setPanelOpen] = useState(false);
     const [clientes, setClientes] = useState([]);
+    const [puestos, setPuestos] = useState([]);
     const [motivosBaja, setMotivosBaja] = useState([]);
     const token = auth?.token || '';
     const isBajas = activo === 'false';
+    const hideEmpleadorFilter = tipoPersonal === 'consultor' && activo === 'true' && !endpointKey;
     const perms = useMemo(() => getOnboardingPermissions(auth), [auth]);
     const canCrear = perms.canEditFicha && !isBajas;
 
@@ -132,6 +134,20 @@ export function PersonalView({
             alive = false;
         };
     }, []);
+
+    useEffect(() => {
+        if (isBajas) return undefined;
+        let alive = true;
+        onboardingApi
+            .catalogoPuestos(token)
+            .then((r) => {
+                if (alive && Array.isArray(r?.items)) setPuestos(r.items);
+            })
+            .catch(() => {});
+        return () => {
+            alive = false;
+        };
+    }, [isBajas, token]);
 
     useEffect(() => {
         if (!isBajas) return undefined;
@@ -153,10 +169,11 @@ export function PersonalView({
         if (activo) p.activo = activo;
         if (search) p.q = search;
         for (const [k, v] of Object.entries(filters)) {
+            if (hideEmpleadorFilter && k === 'empleador') continue;
             if (v !== undefined && v !== '' && v !== null) p[k] = v;
         }
         return p;
-    }, [pageSize, page, tipoPersonal, activo, search, filters]);
+    }, [pageSize, page, tipoPersonal, activo, search, filters, hideEmpleadorFilter]);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -239,7 +256,7 @@ export function PersonalView({
         [Boolean(search), search ? `Búsqueda: ${search.length > 18 ? `${search.slice(0, 16)}…` : search}` : ''],
         [Boolean(filters.cliente), filters.cliente ? `Cliente: ${String(filters.cliente).length > 16 ? `${String(filters.cliente).slice(0, 14)}…` : filters.cliente}` : ''],
         [Boolean(filters.pais), filters.pais ? `País: ${filters.pais}` : ''],
-        [Boolean(filters.empleador), filters.empleador ? `Empleador: ${filters.empleador}` : ''],
+        [Boolean(filters.empleador) && !hideEmpleadorFilter, filters.empleador ? `Empleador: ${filters.empleador}` : ''],
         [Boolean(filters.puesto), filters.puesto ? `Puesto: ${filters.puesto}` : ''],
         [Boolean(filters.modalidad_trabajo), filters.modalidad_trabajo ? `Modalidad: ${filters.modalidad_trabajo}` : ''],
         [Boolean(filters.motivo_baja), filters.motivo_baja ? `Motivo: ${filters.motivo_baja.length > 16 ? `${filters.motivo_baja.slice(0, 14)}…` : filters.motivo_baja}` : ''],
@@ -436,13 +453,29 @@ export function PersonalView({
                             <label className={labelCls} htmlFor="pv-pais">País</label>
                             <input id="pv-pais" type="text" value={draft.pais || ''} onChange={(e) => setDraft((s) => ({ ...s, pais: e.target.value }))} className={fieldCls} placeholder="Colombia, México…" />
                         </div>
+                        {!hideEmpleadorFilter ? (
                         <div className="flex flex-col gap-1.5">
                             <label className={labelCls} htmlFor="pv-empleador">Empleador</label>
                             <input id="pv-empleador" type="text" value={draft.empleador || ''} onChange={(e) => setDraft((s) => ({ ...s, empleador: e.target.value }))} className={fieldCls} />
                         </div>
+                        ) : null}
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-puesto">Puesto (contiene)</label>
-                            <input id="pv-puesto" type="text" value={draft.puesto || ''} onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))} className={fieldCls} />
+                            <label className={labelCls} htmlFor="pv-puesto">Puesto</label>
+                            <select
+                                id="pv-puesto"
+                                value={draft.puesto || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todos los puestos</option>
+                                {puestos.map((p) => {
+                                    const label = String(p.puesto || p).trim();
+                                    if (!label) return null;
+                                    return (
+                                        <option key={label} value={label}>{label}</option>
+                                    );
+                                })}
+                            </select>
                         </div>
                         <div className="flex flex-col gap-1.5">
                             <label className={labelCls} htmlFor="pv-modalidad">Modalidad de trabajo</label>

@@ -20,6 +20,7 @@ import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboar
 import ConciliacionesPage from './conciliaciones/ConciliacionesPage.jsx';
 import ConciliacionesFacturacionPage from './conciliaciones/ConciliacionesFacturacionPage.jsx';
 import AdminPortalHome from './AdminPortalHome';
+import AdminAccountSettingsPage from './AdminAccountSettingsPage.jsx';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
@@ -258,7 +259,7 @@ function App() {
               notificationCount={0}
               assistantSlot={
                 isNovedadesRoute
-                  ? <ChatWidget ctx={{ role: auth?.user?.role }} />
+                  ? <ChatWidget ctx={{ role: auth?.user?.role }} isLight={isLight} />
                   : null
               }
             />
@@ -347,6 +348,18 @@ function App() {
           />
           <Route path="/admin/forgot" element={<ForgotPassword />} />
           <Route path="/admin/reset" element={<ResetPassword />} />
+          <Route
+            path="/admin/cuenta"
+            element={(
+              <ProtectedRoute auth={auth}>
+                {auth?.user?.authProvider === 'entra_consultor' ? (
+                  <Navigate to="/consultor" replace />
+                ) : (
+                  <AdminAccountSettingsPage auth={auth} onLogout={handleLogout} />
+                )}
+              </ProtectedRoute>
+            )}
+          />
           <Route
             path="/perfil/cambiar-clave"
             element={(
