@@ -1,6 +1,6 @@
 'use strict';
 
-/** Si cambias la lógica aquí, mantén alineado `react-frontend/src/heNovedadBogotaClient.js` (ESM para Vite). */
+/** Si cambias la lógica aquí, mantén alineado `packages/shared/src/heNovedadBogotaClient.js` (o `@cinte/shared/heNovedadBogotaClient.js` - ESM para Vite). */
 const {
     bogotaDateKeyFromMs,
     isDiaRecargoDominicalBogotaYmd,

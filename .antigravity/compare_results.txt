@@ -1,0 +1,155 @@
+=== COMPARISON REPORT ===
+
+Missing files in MFE (14):
+- App.css (Old path: c:\Projects\novedades-cinte\react-frontend\src\App.css)
+- assets/react.svg (Old path: c:\Projects\novedades-cinte\react-frontend\src\assets\react.svg)
+- test/chatWidget.test.jsx (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\chatWidget.test.jsx)
+- test/clienteMesSelectors.test.jsx (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\clienteMesSelectors.test.jsx)
+- test/conciliacionesDashboardPage.test.jsx (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\conciliacionesDashboardPage.test.jsx)
+- test/conciliacionesFacturacionEstadosResumen.test.jsx (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\conciliacionesFacturacionEstadosResumen.test.jsx)
+- test/conciliacionesFiltrosResumen.test.js (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\conciliacionesFiltrosResumen.test.js)
+- test/conciliacionesGestionShell.test.jsx (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\conciliacionesGestionShell.test.jsx)
+- test/conciliacionesPageHeader.test.jsx (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\conciliacionesPageHeader.test.jsx)
+- test/contratacionModule.test.jsx (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\contratacionModule.test.jsx)
+- test/dashboardLoadData.test.jsx (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\dashboardLoadData.test.jsx)
+- test/facturacionDisplay.test.js (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\facturacionDisplay.test.js)
+- test/facturacionLogic.test.js (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\facturacionLogic.test.js)
+- test/gestionTableDashTheme.test.js (Old path: c:\Projects\novedades-cinte\react-frontend\src\test\gestionTableDashTheme.test.js)
+
+Different files in MFE (34):
+- AdminPortalHome.jsx
+  Old: react-frontend/src/AdminPortalHome.jsx (306 lines)
+  New: apps/shell/src/AdminPortalHome.jsx (306 lines)
+
+- App.jsx
+  Old: react-frontend/src/App.jsx (428 lines)
+  New: apps/shell/src/App.jsx (398 lines)
+
+- ChangePassword.jsx
+  Old: react-frontend/src/ChangePassword.jsx (154 lines)
+  New: apps/shell/src/ChangePassword.jsx (154 lines)
+
+- ChatWidget.jsx
+  Old: react-frontend/src/ChatWidget.jsx (613 lines)
+  New: apps/shell/src/ChatWidget.jsx (613 lines)
+
+- ChatWidget.jsx
+  Old: react-frontend/src/ChatWidget.jsx (613 lines)
+  New: packages/ui-shell/src/ChatWidget.jsx (613 lines)
+
+- ConsultorModulePlaceholder.jsx
+  Old: react-frontend/src/ConsultorModulePlaceholder.jsx (67 lines)
+  New: apps/shell/src/ConsultorModulePlaceholder.jsx (67 lines)
+
+- ConsultorNovedadesPage.jsx
+  Old: react-frontend/src/ConsultorNovedadesPage.jsx (7 lines)
+  New: apps/mf-portal-consultor/src/ConsultorNovedadesPage.jsx (8 lines)
+
+- ConsultorPortalHome.jsx
+  Old: react-frontend/src/ConsultorPortalHome.jsx (310 lines)
+  New: apps/mf-portal-consultor/src/ConsultorPortalHome.jsx (311 lines)
+
+- ConsultorProtectedLayout.jsx
+  Old: react-frontend/src/ConsultorProtectedLayout.jsx (55 lines)
+  New: apps/shell/src/ConsultorProtectedLayout.jsx (55 lines)
+
+- contratacion/contratacionAccess.js
+  Old: react-frontend/src/contratacion/contratacionAccess.js (78 lines)
+  New: packages/shared/src/contratacionAccess.js (78 lines)
+
+- ForgotPassword.jsx
+  Old: react-frontend/src/ForgotPassword.jsx (159 lines)
+  New: apps/shell/src/ForgotPassword.jsx (159 lines)
+
+- index.css
+  Old: react-frontend/src/index.css (297 lines)
+  New: apps/mf-admin-capital-humano/src/index.css (7 lines)
+
+- index.css
+  Old: react-frontend/src/index.css (297 lines)
+  New: apps/mf-admin-comercial/src/index.css (7 lines)
+
+- index.css
+  Old: react-frontend/src/index.css (297 lines)
+  New: apps/mf-admin-conciliaciones/src/index.css (7 lines)
+
+- index.css
+  Old: react-frontend/src/index.css (297 lines)
+  New: apps/mf-admin-directorio/src/index.css (7 lines)
+
+- index.css
+  Old: react-frontend/src/index.css (297 lines)
+  New: apps/mf-admin-novedades/src/index.css (7 lines)
+
+- index.css
+  Old: react-frontend/src/index.css (297 lines)
+  New: apps/mf-portal-consultor/src/index.css (7 lines)
+
+- index.css
+  Old: react-frontend/src/index.css (297 lines)
+  New: apps/mf-radicacion/src/index.css (7 lines)
+
+- index.css
+  Old: react-frontend/src/index.css (297 lines)
+  New: apps/shell/src/index.css (8 lines)
+
+- Login.jsx
+  Old: react-frontend/src/Login.jsx (301 lines)
+  New: apps/shell/src/Login.jsx (301 lines)
+
+- main.jsx
+  Old: react-frontend/src/main.jsx (16 lines)
+  New: apps/mf-admin-capital-humano/src/main.jsx (18 lines)
+
+- main.jsx
+  Old: react-frontend/src/main.jsx (16 lines)
+  New: apps/mf-admin-comercial/src/main.jsx (18 lines)
+
+- main.jsx
+  Old: react-frontend/src/main.jsx (16 lines)
+  New: apps/mf-admin-conciliaciones/src/main.jsx (18 lines)
+
+- main.jsx
+  Old: react-frontend/src/main.jsx (16 lines)
+  New: apps/mf-admin-directorio/src/main.jsx (18 lines)
+
+- main.jsx
+  Old: react-frontend/src/main.jsx (16 lines)
+  New: apps/mf-admin-novedades/src/main.jsx (18 lines)
+
+- main.jsx
+  Old: react-frontend/src/main.jsx (16 lines)
+  New: apps/mf-portal-consultor/src/main.jsx (18 lines)
+
+- main.jsx
+  Old: react-frontend/src/main.jsx (16 lines)
+  New: apps/mf-radicacion/src/main.jsx (18 lines)
+
+- main.jsx
+  Old: react-frontend/src/main.jsx (16 lines)
+  New: apps/shell/src/main.jsx (16 lines)
+
+- onboarding/onboardingAccess.js
+  Old: react-frontend/src/onboarding/onboardingAccess.js (69 lines)
+  New: packages/shared/src/onboardingAccess.js (69 lines)
+
+- ResetPassword.jsx
+  Old: react-frontend/src/ResetPassword.jsx (152 lines)
+  New: apps/shell/src/ResetPassword.jsx (152 lines)
+
+- rolesTiAccess.js
+  Old: react-frontend/src/rolesTiAccess.js (37 lines)
+  New: packages/shared/src/rolesTiAccess.js (37 lines)
+
+- test/novedadRules.test.js
+  Old: react-frontend/src/test/novedadRules.test.js (421 lines)
+  New: packages/shared/src/novedadRules.test.js (36 lines)
+
+- UiThemeContext.jsx
+  Old: react-frontend/src/UiThemeContext.jsx (52 lines)
+  New: packages/ui-shell/src/UiThemeContext.jsx (57 lines)
+
+- UserAccountMenu.jsx
+  Old: react-frontend/src/UserAccountMenu.jsx (463 lines)
+  New: packages/ui-shell/src/UserAccountMenu.jsx (463 lines)
+

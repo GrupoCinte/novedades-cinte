@@ -1,0 +1,46 @@
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Copiar descriptores de dependencias para caching óptimo en Docker
+COPY package*.json turbo.json ./
+COPY apps/shell/package.json ./apps/shell/
+COPY apps/mf-radicacion/package.json ./apps/mf-radicacion/
+COPY apps/mf-portal-consultor/package.json ./apps/mf-portal-consultor/
+COPY apps/mf-admin-novedades/package.json ./apps/mf-admin-novedades/
+COPY apps/mf-admin-conciliaciones/package.json ./apps/mf-admin-conciliaciones/
+COPY apps/mf-admin-comercial/package.json ./apps/mf-admin-comercial/
+COPY apps/mf-admin-capital-humano/package.json ./apps/mf-admin-capital-humano/
+COPY apps/mf-admin-directorio/package.json ./apps/mf-admin-directorio/
+COPY packages/api-client/package.json ./packages/api-client/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/ui-shell/package.json ./packages/ui-shell/
+COPY packages/vite-config/package.json ./packages/vite-config/
+COPY packages/vitest-config/package.json ./packages/vitest-config/
+
+# Instalar dependencias limpiamente
+RUN npm ci
+
+# Copiar código fuente
+COPY . .
+
+# Compilar todo el monorepo (Shell y Microfrontends)
+RUN npm run build
+
+# Servidor web ligero en producción
+FROM caddy:2-alpine
+
+# Copiar el Shell a la raíz
+COPY --from=build /app/apps/shell/dist /usr/share/caddy
+
+# Copiar remotos MFE a subcarpetas /mf/
+COPY --from=build /app/apps/mf-radicacion/dist /usr/share/caddy/mf/radicacion
+COPY --from=build /app/apps/mf-portal-consultor/dist /usr/share/caddy/mf/consultor
+COPY --from=build /app/apps/mf-admin-novedades/dist /usr/share/caddy/mf/novedades
+COPY --from=build /app/apps/mf-admin-conciliaciones/dist /usr/share/caddy/mf/conciliaciones
+COPY --from=build /app/apps/mf-admin-comercial/dist /usr/share/caddy/mf/comercial
+COPY --from=build /app/apps/mf-admin-capital-humano/dist /usr/share/caddy/mf/capital-humano
+COPY --from=build /app/apps/mf-admin-directorio/dist /usr/share/caddy/mf/directorio
+
+# Usar la configuración de Caddy de la raíz
+COPY Caddyfile.frontend /etc/caddy/Caddyfile
+

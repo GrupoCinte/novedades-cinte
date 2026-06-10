@@ -103,7 +103,7 @@ describe('createResolveApproverEmailsFromCognito', () => {
         const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
             cognitoClient,
             userPoolId: 'us-east-1_test',
-            getNovedadRuleByType,
+            getNovedadRuleByType: () => ({ key: 'incapacidad', approvers: ['admin_ch', 'team_ch'], viewers: [] }),
             logger: { error() {} }
         });
 
@@ -206,7 +206,7 @@ describe('createResolveApproverEmailsFromCognito', () => {
         const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
             cognitoClient,
             userPoolId: 'pool',
-            getNovedadRuleByType,
+            getNovedadRuleByType: () => ({ key: 'incapacidad', approvers: ['admin_ch', 'team_ch'], viewers: [] }),
             logger: { error() {}, warn() {} }
         });
         const out = await resolveApproverEmailsForNovedad('Incapacidad');
@@ -238,7 +238,7 @@ describe('createResolveApproverEmailsFromCognito', () => {
         const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
             cognitoClient,
             userPoolId: 'pool',
-            getNovedadRuleByType,
+            getNovedadRuleByType: () => ({ key: 'incapacidad', approvers: ['admin_ch', 'team_ch'], viewers: [] }),
             logger: { error(...args) { errors.push(args); } }
         });
         const out = await resolveApproverEmailsForNovedad('Incapacidad');

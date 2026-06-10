@@ -1,0 +1,20 @@
+@theme {
+  --font-heading: 'Exo 2', sans-serif;
+  --font-subtitle: 'Exo', sans-serif;
+  --font-body: 'Montserrat', sans-serif;
+  --font-sans: var(--font-body);
+
+  --color-cinte-primary: #004D87;
+  --color-cinte-medio: #2F7BB8;
+  --color-cinte-celeste: #65BCF7;
+  --color-cinte-turquesa: #088DC6;
+  --color-cinte-night: #04141E;
+  --color-cinte-red: #d21b30;
+  --color-cinte-purple: #494294;
+  --color-cinte-green: #4f8831;
+  --color-cinte-support: #2F7BB8;
+  --color-cinte-cyan: #08bdc6;
+  --color-cinte-dark: #04141E;
+  --color-cinte-card: #0b1e30;
+  --color-cinte-warning: #f59e0b;
+}

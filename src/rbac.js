@@ -135,7 +135,7 @@ const NOVELTY_RULES = {
     }
 };
 
-const ROLE_PRIORITY = require('../react-frontend/src/constants/rolePriority.json');
+const ROLE_PRIORITY = require('../packages/shared/src/constants/rolePriority.json');
 
 function normalizeRoleOrNull(value) {
     const v = String(value || '').trim().toLowerCase();

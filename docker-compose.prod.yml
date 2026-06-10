@@ -32,8 +32,8 @@ services:
 
   frontend:
     build:
-      context: ./react-frontend
-      dockerfile: Dockerfile.frontend
+      context: .
+      dockerfile: Dockerfile.frontend.mfe
     restart: unless-stopped
     networks: [nc_net]
 

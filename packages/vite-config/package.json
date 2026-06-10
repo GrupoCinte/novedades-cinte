@@ -1,0 +1,16 @@
+{
+  "name": "@cinte/vite-config",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./createViteConfig.js"
+  },
+  "dependencies": {
+    "@module-federation/vite": "^1.16.2",
+    "@tailwindcss/vite": "^4.2.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.2.1",
+    "vite": "^6.3.5"
+  }
+}

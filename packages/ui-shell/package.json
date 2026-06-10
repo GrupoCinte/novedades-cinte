@@ -1,0 +1,27 @@
+{
+  "name": "@cinte/ui-shell",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.13.1",
+    "lucide-react": "^0.576.0"
+  },
+  "devDependencies": {
+    "@cinte/vitest-config": "*",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "happy-dom": "^20.8.3",
+    "vitest": "^4.1.0"
+  }
+}

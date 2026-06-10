@@ -1,0 +1,7 @@
+{
+    "window.commandCenter": true,
+    "window.closeWhenEmpty": false,
+    "window.autoDetectColorScheme": false,
+    "workbench.activityBar.iconClickBehavior": "toggle",
+    "window.density.editorTabHeight": "default"
+}

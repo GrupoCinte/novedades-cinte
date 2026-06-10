@@ -18,11 +18,10 @@ Sistema unificado para radicacion y gestion de novedades laborales.
 - `src/rbac.js`: politica de roles y reglas por tipo de novedad
 - `src/dataLayer.js`: acceso a datos, migraciones iniciales e indices
 - `src/notifications/emailNotificationsPublisher.js`: publicador desacoplado de eventos de correo a Lambda
-- `react-frontend/src/`: app React (formulario publico + dashboard admin)
+- `apps/`: microfrontends del sistema (shell y módulos remotos)
+- `packages/`: librerías y configuraciones compartidas (@cinte/shared, @cinte/ui-shell, @cinte/api-client)
 - `lambda/email-transactions/`: Lambda TypeScript para render de emails y envio con SES
 - `tests/`: pruebas backend (unitarias + integracion + matriz RBAC)
-- `react-frontend/src/test/`: pruebas unitarias frontend
-- `react-frontend/e2e/`: pruebas E2E Playwright
 - `docs/`: contexto funcional y auditorias tecnicas
 
 ## Requisitos
@@ -35,7 +34,7 @@ Sistema unificado para radicacion y gestion de novedades laborales.
 ## Variables de entorno
 
 - Backend: copiar `.env.example` a `.env` y completar valores reales.
-- Frontend: copiar `react-frontend/.env.example` a `react-frontend/.env` solo si aplica.
+- Shell (Frontend): copiar `apps/shell/.env.example` a `apps/shell/.env` si es necesario (el shell usa defaults para localhost en desarrollo).
 
 Nunca subir archivos `.env` al repositorio.
 
@@ -45,39 +44,34 @@ Nunca subir archivos `.env` al repositorio.
 
 ```bash
 npm install
-npm run dev
+npm run dev:backend
 ```
 
 API: `http://localhost:3005`
 
-### 2) Frontend
+### 2) Frontend (MFE Shell + Remotos)
 
 ```bash
-cd react-frontend
 npm install
 npm run dev
 ```
 
-UI: `http://localhost:5175`
+UI: `http://localhost:5175` (Shell principal)
 
 ## Scripts principales
 
 Las utilidades que antes estaban en `scripts/` no se versionan en este repositorio; permanecen en el repositorio de operaciones interno y se ejecutan desde el entorno de desarrollo autorizado, no desde el despliegue del código de aplicación.
 
-### Backend (`/`)
+### Backend y Monorepo (Raíz)
 
-- `npm run dev`: backend en modo watch
-- `npm run start`: backend normal
-- `npm run test:all`: unit + integration + RBAC
-- `node --test src/notifications/emailNotificationsPublisher.test.js`: test unitario del publisher
-
-### Frontend (`/react-frontend`)
-
-- `npm run dev`: frontend en desarrollo
-- `npm run build`: build de produccion
-- `npm run test`: unit tests
-- `npm run test:coverage`: cobertura de modulos de negocio
-- `npm run test:e2e`: pruebas E2E Playwright
+- `npm run dev:backend`: backend en modo watch
+- `npm run dev`: arranca todos los frontends en paralelo usando Turborepo
+- `npm run build`: compila todos los paquetes y aplicaciones del monorepo
+- `npm run test:all`: ejecuta toda la suite de pruebas (backend + frontend)
+- `npm run test`: ejecuta las pruebas del backend con node:test (con auto-descubrimiento por glob)
+- `npm run test:frontend`: ejecuta las pruebas de frontend con Vitest
+- `npm run build:frontend`: compila el host y sus dependencias MFE
+- `npm run start`: backend normal en producción
 
 ## Seguridad aplicada
 
@@ -114,18 +108,18 @@ Lambda (`email-transactions`):
 
 ## Que debe ir a Git
 
-- Codigo fuente (`server.js`, `src/`, `react-frontend/src/`)
-- Configuracion de proyecto (`package.json`, `vitest.config.js`, `playwright.config.js`)
-- Tests (`tests/`, `react-frontend/src/test/`, `react-frontend/e2e/`)
+- Codigo fuente (`server.js`, `src/`, `apps/`, `packages/`)
+- Configuracion de proyecto (`package.json`, `turbo.json`, `packages/*/package.json`, `apps/*/package.json`)
+- Tests (`tests/`, `packages/*/src/*.test.js`)
 - SQL y docs utiles (`schema.postgres.sql`, `docs/`, `.env.example`)
-- Lockfiles (`package-lock.json`, `react-frontend/package-lock.json`)
+- Lockfiles (`package-lock.json`)
 
 ## Que NO debe ir a Git
 
 - `scripts/`, `tooling/` (operaciones locales o en repo ops interno)
 - `node_modules/`
 - `.env`, `.env.*` (excepto `.env.example`)
-- builds y reportes: `react-frontend/dist/`, `react-frontend/coverage/`, `react-frontend/playwright-report/`, `react-frontend/test-results/`
+- builds y reportes: `apps/*/dist/`, `packages/*/dist/`
 - temporales y logs (`*.log`, `*.tmp`, `*.temp`)
 - adjuntos locales (`assets/uploads/`)
 
@@ -133,9 +127,9 @@ Lambda (`email-transactions`):
 
 Se eliminaron artefactos y archivos legacy que no aportaban al uso o mantenimiento actual:
 
-- reportes generados (`coverage`, `playwright-report`, `test-results`, `dist`)
+- reportes generados y builds del monolito antiguo
 - readmes/metadata obsoletos de plantilla
-- utilitarios legacy no referenciados
+- la carpeta física `react-frontend`
 
 ## Documentacion
 
@@ -143,10 +137,6 @@ Se eliminaron artefactos y archivos legacy que no aportaban al uso o mantenimien
 
 | Documento | Descripcion |
 |-----------|------------|
-| [`docs/DEVELOPER_GUIDE.md`](docs/DEVELOPER_GUIDE.md) | Setup, workflow, convenciones de codigo |
-| [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) | Referencia completa de endpoints HTTP |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura del sistema y diagramas |
-| [`docs/ENV_REFERENCE.md`](docs/ENV_REFERENCE.md) | Todas las variables de entorno |
+| [`docs/MFE_MIGRATION.md`](docs/MFE_MIGRATION.md) | Detalles de la migración y arquitectura de Microfrontends |
 | [`docs/RBAC_MATRIX.md`](docs/RBAC_MATRIX.md) | Matriz de permisos por rol |
-| [`docs/CONTEXTO_PROYECTO.md`](docs/CONTEXTO_PROYECTO.md) | Contexto funcional del proyecto |
-| [`docs/CODE_REVIEW.md`](docs/CODE_REVIEW.md) | Hallazgos y reparaciones aplicadas |
+| [`docs/plan_flujo_conciliacion.md`](docs/plan_flujo_conciliacion.md) | Plan y flujo de la funcionalidad de conciliación |

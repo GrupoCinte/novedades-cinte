@@ -11,29 +11,21 @@ Requisitos
 
 Instalación (primera vez)
 -------------------------
-1) Raíz del repo (backend):
+1) Raíz del repo (Instala backend y todos los frontends vía workspaces):
    npm install
 
-2) Frontend:
-   cd react-frontend
-   npm install
-
-3) Crear .env en la raíz a partir de .env.example (JWT_SECRET obligatorio, >=32
+2) Crear .env en la raíz a partir de .env.example (JWT_SECRET obligatorio, >=32
    caracteres). No subir .env al repositorio.
 
 Arranque local (cada sesión)
 ----------------------------
 Terminal A — backend (desde la raíz del repo):
-  npm run dev
+  npm run dev:backend
   API: http://localhost:3005  (o el puerto definido en PORT)
 
-Terminal B — frontend:
-  cd react-frontend
+Terminal B — frontend (arranca todos los MFEs en paralelo con Turborepo):
   npm run dev
-  UI: http://localhost:5175  (o VITE_DEV_SERVER_PORT si lo cambiaste)
-
-En Windows PowerShell, si un script falla con "&&", usar en su lugar:
-  Set-Location <ruta>; npm run dev
+  UI: http://localhost:5175  (Shell principal de microfrontends)
 
 ================================================================================
 Login muestra «Error interno» (backend) — qué revisar
@@ -42,8 +34,7 @@ Login muestra «Error interno» (backend) — qué revisar
 Aclaración importante (cambios recientes en el repo)
 ----------------------------------------------------
 Las mejoras del módulo «Mallas de turnos» en administración/directorio se
-implementaron principalmente en:
-  react-frontend/src/MallasTurnosPage.jsx
+implementaron en la aplicación MFE respectiva.
 Ese código no modifica POST /api/login ni la integración con Cognito en el
 backend. Si el login dejó de funcionar justo después de reiniciar servidores
 o de un cambio de red/.env, suele ser un tema de entorno o de conectividad

@@ -1,0 +1,47 @@
+{
+  "data": {
+    "resultData": {
+      "runData": {
+        "Agente Extractor Ficha": [
+          {
+            "data": {
+              "main": [
+                [
+                  {
+                    "json": {
+                      "output": {
+                        "I_Informacion_General": {
+                          "Cliente": "EXPERIAN COLOMBIA",
+                          "Fecha_Inicio": "2026-05-25"
+                        },
+                        "III_Informacion_Candidato": {
+                          "Nombre": "Diego Andres Contreras Camargo",
+                          "Identificacion_Numero": "1010170944",
+                          "Email": "diego.personal@example.com",
+                          "Contacto_Emergencia_1_Nombre": "Maria Alejandra Amaya",
+                          "Contacto_Emergencia_1_Parentesco": "Madre",
+                          "Contacto_Emergencia_1_Telefono": "3001234567"
+                        },
+                        "IV_Informacion_Contratacion": {
+                          "Puesto_Cargo": "Lider Vulnerabilidades Windows",
+                          "Ingreso_Basico": "5000000",
+                          "Funciones": "Administración de Windows Server y vulnerabilidades"
+                        },
+                        "V_Consideraciones_GCH": {
+                          "Consideraciones": "Contrato Termino indefinido"
+                        },
+                        "VI_Stakeholders": {
+                          "Contacto_Focal_1_Nombre": "Oscar Cisternas"
+                        }
+                      }
+                    }
+                  }
+                ]
+              ]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -16,6 +16,7 @@ react-frontend/.env.*
 # Artefactos de build/test/reportes
 artifacts/
 react-frontend/dist/
+apps/*/dist/
 react-frontend/coverage/
 react-frontend/playwright-report/
 react-frontend/test-results/
@@ -61,6 +62,9 @@ seed_colaboradores*.sql
 
 # Operaciones locales (no versionar; sync y utilidades se ejecutan desde entorno de desarrollo / repo ops)
 scripts/
+!scripts/mfe-shims.js
+!scripts/scaffold-mfe-remotes.js
+!scripts/mfe-sync-remote-styles.js
 tooling/
 
 # Scripts y migraciones locales
@@ -71,3 +75,4 @@ migrations/
 
 # Matriz RBAC versionada (excepción a *.md)
 !docs/RBAC_MATRIX.md
+!docs/MFE_MIGRATION.md

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Formato de cantidad (horas / días / dinero) alineado con `react-frontend/src/novedadRules.js`
+ * Formato de cantidad (horas / días / dinero) alineado con `packages/shared/src/novedadRules.js`
  * y con el dashboard. Usado por el backend en export Excel (CommonJS).
  */
 
