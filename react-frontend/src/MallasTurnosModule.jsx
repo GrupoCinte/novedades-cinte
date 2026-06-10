@@ -18,7 +18,7 @@ function resolveDirectorioRole(auth) {
     const fromGroups = ROLE_PRIORITY.find((role) => normalized.has(role));
     if (fromGroups) return fromGroups;
     const raw = String(user.role || claims.role || claims['custom:role'] || '').trim().toLowerCase();
-    return ROLE_PRIORITY.includes(raw) ? raw : raw;
+    return ROLE_PRIORITY.includes(raw) ? raw : '';
 }
 
 export default function MallasTurnosModule({ token, auth }) {
