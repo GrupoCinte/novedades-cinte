@@ -13,25 +13,18 @@ function countCalendarDaysInclusive(startDateRaw, endDateRaw) {
     if (!startDateRaw || !endDateRaw || endDateRaw < startDateRaw) return 0;
     const start = new Date(`${startDateRaw}T00:00:00`);
     const end = new Date(`${endDateRaw}T00:00:00`);
-    let count = 0;
-    let cursor = new Date(start);
-    while (cursor <= end) {
-        count += 1;
-        cursor.setDate(cursor.getDate() + 1);
-    }
-    return count;
+    const msPerDay = 24 * 60 * 60 * 1000;
+    return Math.floor((end.getTime() - start.getTime()) / msPerDay) + 1;
 }
 
 function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
-    if (!startDateRaw || !endDateRaw || endDateRaw < startDateRaw) return 0;
+    const totalDays = countCalendarDaysInclusive(startDateRaw, endDateRaw);
+    if (totalDays === 0) return 0;
     const start = new Date(`${startDateRaw}T00:00:00`);
-    const end = new Date(`${endDateRaw}T00:00:00`);
     let count = 0;
-    let cursor = new Date(start);
-    while (cursor <= end) {
-        const day = cursor.getDay();
+    for (let i = 0; i < totalDays; i += 1) {
+        const day = new Date(start.getTime() + i * 24 * 60 * 60 * 1000).getDay();
         if (day !== 0 && day !== 6) count += 1;
-        cursor.setDate(cursor.getDate() + 1);
     }
     return count;
 }
