@@ -32,8 +32,8 @@ services:
 
   frontend:
     build:
-      context: ./react-frontend
-      dockerfile: Dockerfile.frontend
+      context: .
+      dockerfile: react-frontend/Dockerfile.frontend
     restart: unless-stopped
     networks: [nc_net]
 
