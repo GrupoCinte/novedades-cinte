@@ -15,7 +15,9 @@ function toHhMm(h, m) {
 }
 
 function minutesForHour(hour, excludeTime) {
-    const [exH, exM] = excludeTime ? excludeTime.split(':').map((x) => parseInt(x, 10)) : [null, null];
+    const [exH, exM] = excludeTime
+        ? excludeTime.split(':').map((x) => Number.parseInt(x, 10))
+        : [null, null];
     return nocturnoMinutesForHour(hour).filter((m) => !(hour === exH && m === exM));
 }
 

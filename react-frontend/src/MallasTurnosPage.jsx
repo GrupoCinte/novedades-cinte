@@ -1042,9 +1042,12 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
 
             {aprobacionModalOpen ? (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div
+                    <button
+                        type="button"
                         className="modal-glass-scrim absolute inset-0 transition-opacity"
-                        onClick={() => !aprobando && setAprobacionModalOpen(false)}
+                        aria-label="Cerrar"
+                        disabled={aprobando}
+                        onClick={() => setAprobacionModalOpen(false)}
                     />
                     <div className="modal-glass-sheet font-body relative w-full max-w-lg overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
                         <div className="border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
@@ -1109,9 +1112,12 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
 
             {dayModalYmd ? (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div
+                    <button
+                        type="button"
                         className="modal-glass-scrim absolute inset-0 transition-opacity"
-                        onClick={() => !saving && setDayModalYmd(null)}
+                        aria-label="Cerrar"
+                        disabled={saving}
+                        onClick={() => setDayModalYmd(null)}
                     />
                     <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
                         <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
