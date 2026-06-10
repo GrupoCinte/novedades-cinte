@@ -1383,6 +1383,20 @@ function createDataLayer(deps) {
         return q.rows[0] || null;
     }
 
+    async function deleteClienteLiderById(idRaw) {
+        const id = String(idRaw || '').trim();
+        if (!/^[0-9a-f-]{36}$/i.test(id)) {
+            throw Object.assign(new Error('Id inválido'), { status: 400 });
+        }
+        const q = await pool.query(
+            `DELETE FROM clientes_lideres
+             WHERE id = $1::uuid
+             RETURNING id, cliente, lider, activo, gp_user_id, nit`,
+            [id]
+        );
+        return q.rows[0] || null;
+    }
+
     async function deleteColaboradorByCedula(cedulaRaw) {
         const ced = normalizeCedula(cedulaRaw);
         if (!ced) throw Object.assign(new Error('Cédula inválida'), { status: 400 });
@@ -2305,6 +2319,7 @@ function createDataLayer(deps) {
         getClientesNitMapFromLideres,
         insertClienteLider,
         updateClienteLiderById,
+        deleteClienteLiderById,
         listColaboradoresPaged,
         insertColaborador,
         updateColaboradorByCedula,

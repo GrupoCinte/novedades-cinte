@@ -46,10 +46,9 @@ export default function GestionDataTable({ columns, rows, isLight, emptyText, on
                                 onClick={clickable ? () => onRowClick(row) : undefined}
                             >
                                 {columns.map((c) => {
-                                    /** Damos tratamiento de "celda principal" a la primera columna. */
-                                    const cellCls = idx === -1 || c.key === columns[0]?.key
-                                        ? G.tdName
-                                        : G.tdCell;
+                                    const cellCls =
+                                        c.cellClassName ??
+                                        (c.key === columns[0]?.key ? G.tdName : G.tdCell);
                                     return (
                                         <td key={c.key} className={cellCls}>
                                             {c.render ? c.render(row) : String(row[c.key] ?? '')}

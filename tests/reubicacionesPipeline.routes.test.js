@@ -102,6 +102,7 @@ function buildApp(role, pool) {
         listClientesLideresByClienteSummaryPaged: async () => ({ rows: [], total: 0 }),
         insertClienteLider: async () => ({}),
         updateClienteLiderById: async () => ({}),
+        deleteClienteLiderById: async () => null,
         listColaboradoresPaged: async () => ({ rows: [], total: 0 }),
         insertColaborador: async () => ({}),
         updateColaboradorByCedula: async () => ({}),
