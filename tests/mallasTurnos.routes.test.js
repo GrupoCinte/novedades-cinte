@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const express = require('express');
 const request = require('supertest');
 const { registerDirectorioRoutes } = require('../src/directorio/registerDirectorioRoutes');
+const { buildConfigPayload } = require('../src/directorio/mallaNocturnoConfig');
 const {
     colaboradorDemo,
     buildPoolReaprobacionRouteMock
