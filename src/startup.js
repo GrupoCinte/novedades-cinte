@@ -33,6 +33,9 @@ async function startServer(deps) {
         ensureReubicacionesPipelineTable,
         ensureMallaTurnosCeldaTable,
         ensureMallaTurnoAsignacionTable,
+        ensureMallaTurnoAprobacionTable,
+        ensureMallaNocturnoConfigTable,
+        ensureNovedadesMallaOrigenRefColumn,
         ensureConciliacionesFacturacionTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
@@ -72,6 +75,9 @@ async function startServer(deps) {
     await ensureReubicacionesPipelineTable();
     await ensureMallaTurnosCeldaTable();
     await ensureMallaTurnoAsignacionTable();
+    await ensureMallaTurnoAprobacionTable();
+    await ensureMallaNocturnoConfigTable();
+    await ensureNovedadesMallaOrigenRefColumn();
     await ensureConciliacionesFacturacionTable();
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();

@@ -637,8 +637,14 @@ const {
     ensureReubicacionesPipelineTable,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
+    ensureMallaTurnoAprobacionTable,
+    ensureMallaNocturnoConfigTable,
+    ensureNovedadesMallaOrigenRefColumn,
     listMallaTurnosCeldasRange,
     upsertMallaTurnosCeldas,
+    getMallaTurnoAprobacionStatus,
+    getMallaNocturnoConfig,
+    upsertMallaNocturnoConfig,
     ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
@@ -801,7 +807,11 @@ registerDirectorioRoutes({
     linkGpCognitoSubByEmail,
     normalizeCedula,
     listMallaTurnosCeldasRange,
-    upsertMallaTurnosCeldas
+    upsertMallaTurnosCeldas,
+    getMallaTurnoAprobacionStatus,
+    getMallaNocturnoConfig,
+    upsertMallaNocturnoConfig,
+    getColaboradorByCedula
 });
 
 registerConciliacionesRoutes({
@@ -895,6 +905,9 @@ startServer({
     ensureReubicacionesPipelineTable,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
+    ensureMallaTurnoAprobacionTable,
+    ensureMallaNocturnoConfigTable,
+    ensureNovedadesMallaOrigenRefColumn,
     ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,

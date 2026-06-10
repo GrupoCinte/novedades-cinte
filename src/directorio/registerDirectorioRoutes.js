@@ -5,6 +5,8 @@ const { normalizeCatalogValue } = require('../utils');
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { normalizeRoleOrNull } = require('../rbac');
 const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSemaforo');
+const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
+const { resolveActorUserIdForSession } = require('../resolveActorUserId');
 
 function directorioGuard() {
     return (req, res, next) => {
@@ -77,7 +79,11 @@ function registerDirectorioRoutes(deps) {
         linkGpCognitoSubByEmail,
         normalizeCedula,
         listMallaTurnosCeldasRange,
-        upsertMallaTurnosCeldas
+        upsertMallaTurnosCeldas,
+        getMallaTurnoAprobacionStatus,
+        getMallaNocturnoConfig,
+        upsertMallaNocturnoConfig,
+        getColaboradorByCedula
     } = deps;
 
     /** Lecturas: sin adminActionLimiter (200/hora incluía cada GET y bloqueaba uso normal del directorio). */
@@ -191,17 +197,46 @@ function registerDirectorioRoutes(deps) {
                 ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Rango máximo 400 días', path: ['hasta'] });
             }
         });
+    const mallaHhMm = z.string().regex(/^\d{2}:\d{2}$/);
     const mallasTurnosPutSchema = z.object({
         cliente: z.string().min(1).max(500),
         patches: z
             .array(
-                z.object({
-                    fecha: mallaIsoDate,
-                    franja: mallaTurnoFranjaEnum,
-                    cedulas: z.array(z.string().min(5).max(24)).max(10)
-                })
+                z
+                    .object({
+                        fecha: mallaIsoDate,
+                        franja: mallaTurnoFranjaEnum,
+                        cedulas: z.array(z.string().min(5).max(24)).max(10),
+                        horaInicio: mallaHhMm.optional(),
+                        horaFin: mallaHhMm.optional()
+                    })
+                    .refine(
+                        (p) =>
+                            (p.horaInicio == null && p.horaFin == null) ||
+                            (p.horaInicio != null && p.horaFin != null),
+                        { message: 'horaInicio y horaFin deben enviarse juntos' }
+                    )
             )
             .max(1200)
+    });
+
+    const mallaNocturnoConfigPutSchema = z.object({
+        horaInicio: mallaHhMm,
+        horaFin: mallaHhMm
+    });
+
+    const mallaVariantEnum = z.enum(['mallas', 'nocturnos']);
+    const mallasTurnosAprobacionQuerySchema = z.object({
+        cliente: z.string().min(1).max(500),
+        anio: z.coerce.number().int().min(2000).max(2100),
+        mes: z.coerce.number().int().min(1).max(12),
+        variant: mallaVariantEnum
+    });
+    const mallasTurnosAprobarBodySchema = z.object({
+        cliente: z.string().min(1).max(500),
+        anio: z.coerce.number().int().min(2000).max(2100),
+        mes: z.coerce.number().int().min(1).max(12),
+        variant: mallaVariantEnum
     });
 
     const colabExtendedShape = buildColaboradorExtendedZodShape();
@@ -688,6 +723,101 @@ function registerDirectorioRoutes(deps) {
             const st = Number(e?.status) || 500;
             if (st >= 500) console.error('PUT directorio mallas-turnos:', e);
             return res.status(st).json({ ok: false, error: e.message || 'No se pudo guardar la malla.' });
+        }
+    });
+
+    app.get('/api/directorio/mallas-turnos/nocturno-config', ...readGuard, async (_req, res) => {
+        try {
+            const config = await getMallaNocturnoConfig();
+            return res.json({ ok: true, ...config });
+        } catch (e) {
+            console.error('GET directorio mallas-turnos/nocturno-config:', e);
+            const st = Number(e?.status) || 500;
+            return res.status(st).json({
+                ok: false,
+                error: e.message || 'No se pudo leer el horario nocturno.'
+            });
+        }
+    });
+
+    app.put('/api/directorio/mallas-turnos/nocturno-config', ...writeGuard, async (req, res) => {
+        try {
+            const parsed = mallaNocturnoConfigPutSchema.safeParse(req.body || {});
+            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            const config = await upsertMallaNocturnoConfig(parsed.data);
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user?.sub),
+                actorRole: normalizeRoleOrNull(req.user?.role),
+                action: 'malla_nocturno_config.upsert',
+                entityType: 'malla_nocturno_config',
+                entityId: null,
+                metadata: { horaInicio: config.horaInicio, horaFin: config.horaFin }
+            });
+            return res.json({ ok: true, ...config });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('PUT directorio mallas-turnos/nocturno-config:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo guardar el horario nocturno.' });
+        }
+    });
+
+    app.get('/api/directorio/mallas-turnos/aprobacion', ...readGuard, async (req, res) => {
+        try {
+            const parsed = mallasTurnosAprobacionQuerySchema.safeParse(req.query);
+            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
+            const status = await getMallaTurnoAprobacionStatus(parsed.data);
+            return res.json({ ok: true, ...status });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('GET directorio mallas-turnos/aprobacion:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo consultar la aprobación.' });
+        }
+    });
+
+    app.post('/api/directorio/mallas-turnos/aprobar', ...writeGuard, async (req, res) => {
+        try {
+            const parsed = mallasTurnosAprobarBodySchema.safeParse(req.body || {});
+            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            const role = normalizeRoleOrNull(req.user?.role);
+            if (role !== 'super_admin' && role !== 'cac') {
+                return res.status(403).json({ ok: false, error: 'Sin permiso para aprobar mallas de turnos.' });
+            }
+            const actorEmail = String(req.user?.email || '').trim();
+            const actorUserId = await resolveActorUserIdForSession(pool, {
+                sub: req.user?.sub,
+                email: actorEmail
+            });
+            const result = await aprobarMallaTurnosMes({
+                pool,
+                ...parsed.data,
+                approver: {
+                    userId: actorUserId,
+                    email: actorEmail,
+                    role
+                },
+                allowReaprobacion: true,
+                getColaboradorByCedula,
+                getLideresByCliente,
+                listMallaTurnosCeldasRange,
+                getMallaNocturnoConfig
+            });
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user?.sub),
+                actorRole: role,
+                action: 'mallas_turnos.aprobar',
+                entityType: 'malla_turno_aprobacion',
+                entityId: null,
+                metadata: {
+                    ...parsed.data,
+                    novedadesGeneradas: result.novedadesGeneradas,
+                    reaprobacion: Boolean(result.reaprobacion)
+                }
+            });
+            return res.json({ ok: true, ...result });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('POST directorio mallas-turnos/aprobar:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo aprobar la malla.' });
         }
     });
 
