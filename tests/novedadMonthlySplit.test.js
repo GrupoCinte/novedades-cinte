@@ -14,8 +14,10 @@ function countCalendarDaysInclusive(startDateRaw, endDateRaw) {
     const start = new Date(`${startDateRaw}T00:00:00`);
     const end = new Date(`${endDateRaw}T00:00:00`);
     let count = 0;
-    for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    let cursor = new Date(start);
+    while (cursor <= end) {
         count += 1;
+        cursor.setDate(cursor.getDate() + 1);
     }
     return count;
 }
@@ -25,9 +27,11 @@ function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
     const start = new Date(`${startDateRaw}T00:00:00`);
     const end = new Date(`${endDateRaw}T00:00:00`);
     let count = 0;
-    for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    let cursor = new Date(start);
+    while (cursor <= end) {
         const day = cursor.getDay();
         if (day !== 0 && day !== 6) count += 1;
+        cursor.setDate(cursor.getDate() + 1);
     }
     return count;
 }

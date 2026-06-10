@@ -373,7 +373,10 @@ function buildPoolForEnviarNovedad({ onDupCheck } = {}) {
 
 function buildAppEnviarNovedad(poolOverrides = {}) {
   const pool = buildPoolForEnviarNovedad(poolOverrides);
-  const memoryUpload = multer({ storage: multer.memoryStorage() });
+  const memoryUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024, files: 10 }
+  });
   const app = buildApp({
     pool,
     inferAreaFromNovedad: () => 'Capital Humano',
