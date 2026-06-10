@@ -27,14 +27,13 @@ export default function MallasTurnosModule({ token, auth }) {
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const [subTab, setSubTab] = useState('mallas');
 
-    const tabBtn = (active) =>
-        active
-            ? isLight
-                ? 'rounded-t-lg border border-b-0 border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm'
-                : 'rounded-t-lg border border-b-0 border-slate-600 bg-[#1e293b] px-4 py-2 text-sm font-semibold text-white shadow-sm'
-            : isLight
-              ? 'rounded-t-lg border border-transparent px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              : 'rounded-t-lg border border-transparent px-4 py-2 text-sm font-medium text-slate-400 hover:bg-slate-800/60 hover:text-slate-200';
+    const activeTabClass = isLight
+        ? 'rounded-t-lg border border-b-0 border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm'
+        : 'rounded-t-lg border border-b-0 border-slate-600 bg-[#1e293b] px-4 py-2 text-sm font-semibold text-white shadow-sm';
+    const inactiveTabClass = isLight
+        ? 'rounded-t-lg border border-transparent px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+        : 'rounded-t-lg border border-transparent px-4 py-2 text-sm font-medium text-slate-400 hover:bg-slate-800/60 hover:text-slate-200';
+    const tabBtn = (active) => (active ? activeTabClass : inactiveTabClass);
 
     return (
         <div className={`${dash.moduleTabShellFull} font-body`}>
@@ -66,7 +65,7 @@ export default function MallasTurnosModule({ token, auth }) {
                 key={subTab}
                 token={token}
                 userRole={userRole}
-                variant={subTab === 'nocturnos' ? 'nocturnos' : 'mallas'}
+                variant={subTab}
             />
         </div>
     );
