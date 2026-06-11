@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, X } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash, GESTION_TOOLBAR_PRIMARY_BTN, withNovedadesTabShellAliases } from '../gestionTableDashTheme.js';
 import { CONCILIACIONES_FACTURACION_PAGE, CONCILIACIONES_FACTURACION_SHELL } from './conciliacionesLayout.js';
 import ClienteMesSelectors from './components/ClienteMesSelectors.jsx';
-import ConciliacionesFacturacionEstadosResumen from './components/ConciliacionesFacturacionEstadosResumen.jsx';
 import ConciliacionesClienteEstadoIndicador from './components/ConciliacionesClienteEstadoIndicador.jsx';
+import ConciliacionesReglaBanner from './components/ConciliacionesReglaBanner.jsx';
 import { formatConciliacionesMonthLabel } from './conciliacionesFiltrosResumen.js';
 import ConciliacionesTabla from './components/ConciliacionesTabla.jsx';
 import ConciliacionesDetalleModal from './components/ConciliacionesDetalleModal.jsx';
@@ -21,13 +21,10 @@ import {
 } from './conciliacionesApi.js';
 import {
     filterFacturacionRows,
-    buildFacturacionTotales,
-    toggleFacturacionEstadoFilter,
     buildFacturacionMasivaPayload,
     facturacionSuccessMessage,
     hasFacturacionAdvancedFilters,
     planSuccessBannerDismiss,
-    shouldShowFacturacionEstadosResumen,
     shouldShowFacturacionAccionGrupal,
     shouldShowClienteConciliacionIndicador,
     computeClienteConciliacionSnapshot
@@ -48,8 +45,11 @@ function parseMonthValue(v) {
 }
 
 export default function ConciliacionesFacturacionPage({ token }) {
+    const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const clienteQuery = useMemo(() => String(searchParams.get('cliente') || '').trim(), [searchParams]);
+    const yearQuery = useMemo(() => String(searchParams.get('year') || '').trim(), [searchParams]);
+    const monthQuery = useMemo(() => String(searchParams.get('month') || '').trim(), [searchParams]);
 
     const mt = useModuleTheme();
     const { isLight, headingAccent, labelMuted, field } = mt;
@@ -61,9 +61,17 @@ export default function ConciliacionesFacturacionPage({ token }) {
 
     const [clientes, setClientes] = useState([]);
     const [cliente, setCliente] = useState('');
-    const [monthValue, setMonthValue] = useState(currentMonthValue);
+    const [monthValue, setMonthValue] = useState(() => {
+        if (yearQuery && monthQuery) {
+            const m = String(monthQuery).padStart(2, '0');
+            return `${yearQuery}-${m}`;
+        }
+        return currentMonthValue();
+    });
     const [rows, setRows] = useState([]);
     const [totales, setTotales] = useState(null);
+    const [regla, setRegla] = useState(null);
+    const [periodo, setPeriodo] = useState(null);
     const [loadingList, setLoadingList] = useState(true);
     const [loadingResumen, setLoadingResumen] = useState(false);
     const [savingFacturacion, setSavingFacturacion] = useState(false);
@@ -94,17 +102,13 @@ export default function ConciliacionesFacturacionPage({ token }) {
         setFNovedades('TODOS');
     }, []);
 
-    const handleEstadoPillClick = useCallback((estadoKey) => {
-        setFEstado((prev) => toggleFacturacionEstadoFilter(prev, estadoKey));
-    }, []);
-
     useEffect(() => {
         if (!success) return undefined;
         return planSuccessBannerDismiss(() => setSuccess(''));
     }, [success]);
 
     const ym = useMemo(() => parseMonthValue(monthValue), [monthValue]);
-    const isTodosClientes = !String(cliente || '').trim();
+    const isTodosClientes = false;
 
     const filteredRows = useMemo(
         () => filterFacturacionRows(rows, facturacionFilters),
@@ -132,14 +136,22 @@ export default function ConciliacionesFacturacionPage({ token }) {
     }, [token]);
 
     useEffect(() => {
-        if (!clientes.length) return;
-        if (clienteQuery) {
-            const hit = clientes.find((c) => c.toLowerCase() === clienteQuery.toLowerCase());
-            if (hit) setCliente(hit);
+        if (!clienteQuery) {
+            navigate('/admin/conciliaciones/dashboard', { replace: true });
             return;
         }
-        setCliente((prev) => (prev && clientes.includes(prev) ? prev : clientes[0] || ''));
-    }, [clientes, clienteQuery]);
+        if (!clientes.length) return;
+        const hit = clientes.find((c) => c.toLowerCase() === clienteQuery.toLowerCase());
+        if (hit) setCliente(hit);
+        else setCliente(clienteQuery);
+    }, [clientes, clienteQuery, navigate]);
+
+    useEffect(() => {
+        if (yearQuery && monthQuery) {
+            const m = String(monthQuery).padStart(2, '0');
+            setMonthValue(`${yearQuery}-${m}`);
+        }
+    }, [yearQuery, monthQuery]);
 
     const handleClienteChange = useCallback(
         (nextCliente) => {
@@ -151,29 +163,35 @@ export default function ConciliacionesFacturacionPage({ token }) {
     );
 
     const loadResumen = useCallback(async () => {
-        if (!ym.year || !ym.month) {
+        if (!ym.year || !ym.month || !cliente.trim()) {
             setRows([]);
             setTotales(null);
+            setRegla(null);
+            setPeriodo(null);
             return;
         }
         setLoadingResumen(true);
         setError('');
         try {
             const data = await fetchConciliacionPorCliente(token, {
-                cliente: isTodosClientes ? '' : cliente,
+                cliente,
                 year: ym.year,
                 month: ym.month
             });
             setRows(Array.isArray(data.rows) ? data.rows : []);
             setTotales(data.totales || null);
+            setRegla(data.regla || null);
+            setPeriodo(data.periodo || null);
         } catch (e) {
             setError(e.message || 'Error al cargar el resumen');
             setRows([]);
             setTotales(null);
+            setRegla(null);
+            setPeriodo(null);
         } finally {
             setLoadingResumen(false);
         }
-    }, [token, cliente, isTodosClientes, ym.year, ym.month]);
+    }, [token, cliente, ym.year, ym.month]);
 
     useEffect(() => {
         loadResumen();
@@ -290,11 +308,6 @@ export default function ConciliacionesFacturacionPage({ token }) {
 
     const modalLabel = modalRow ? `${modalRow.nombre} · ${modalRow.cedula}` : '';
 
-    const facturacionTotales = useMemo(
-        () => buildFacturacionTotales(rows, totales),
-        [rows, totales]
-    );
-
     const monthLabel = useMemo(() => formatConciliacionesMonthLabel(monthValue), [monthValue]);
 
     const conciliacionSnapshot = useMemo(() => {
@@ -343,6 +356,8 @@ export default function ConciliacionesFacturacionPage({ token }) {
                     </div>
                 ) : null}
 
+                <ConciliacionesReglaBanner regla={regla} periodo={periodo} cliente={cliente} isLight={isLight} />
+
                 {shouldShowClienteConciliacionIndicador(isTodosClientes) ? (
                     <ConciliacionesClienteEstadoIndicador
                         snapshot={conciliacionSnapshot}
@@ -354,49 +369,50 @@ export default function ConciliacionesFacturacionPage({ token }) {
 
                 <ClienteMesSelectors
                     variant="gestion"
-                clientes={clientes}
-                clienteValue={cliente}
-                onClienteChange={handleClienteChange}
-                monthValue={monthValue}
-                onMonthChange={setMonthValue}
-                field={field}
-                labelMuted={labelMuted}
-                isFacturacion={true}
-                fSearch={fSearch}
-                onSearchChange={setFSearch}
-                fEstado={fEstado}
-                onEstadoChange={setFEstado}
-                fCerrado={fCerrado}
-                onCerradoChange={setFCerrado}
-                fProyecto={fProyecto}
-                onProyectoChange={setFProyecto}
-                fNovedades={fNovedades}
-                onNovedadesChange={setFNovedades}
-                onResetFilters={handleResetFilters}
-                trailingActions={
-                    shouldShowFacturacionAccionGrupal(isTodosClientes) ? (
-                        <button
-                            type="button"
-                            onClick={() => setMasivaOpen(true)}
-                            disabled={rows.length === 0}
-                            className={GESTION_TOOLBAR_PRIMARY_BTN}
-                            title="Acción grupal"
-                        >
-                            Acción grupal
-                        </button>
-                    ) : null
-                }
+                    clientes={clientes}
+                    clienteValue={cliente}
+                    onClienteChange={handleClienteChange}
+                    clienteLocked
+                    clienteDisplayLabel={cliente}
+                    monthValue={monthValue}
+                    onMonthChange={setMonthValue}
+                    field={field}
+                    labelMuted={labelMuted}
+                    isFacturacion={true}
+                    fSearch={fSearch}
+                    onSearchChange={setFSearch}
+                    fEstado={fEstado}
+                    onEstadoChange={setFEstado}
+                    fCerrado={fCerrado}
+                    onCerradoChange={setFCerrado}
+                    fProyecto={fProyecto}
+                    onProyectoChange={setFProyecto}
+                    fNovedades={fNovedades}
+                    onNovedadesChange={setFNovedades}
+                    onResetFilters={handleResetFilters}
+                    trailingActions={(
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => navigate('/admin/conciliaciones/dashboard')}
+                                className={GESTION_TOOLBAR_PRIMARY_BTN}
+                            >
+                                <ArrowLeft size={16} className="mr-1.5 inline" aria-hidden />
+                                Volver a cierres
+                            </button>
+                            {shouldShowFacturacionAccionGrupal(isTodosClientes) ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setMasivaOpen(true)}
+                                    disabled={!filteredRows.length || tableLoading}
+                                    className={GESTION_TOOLBAR_PRIMARY_BTN}
+                                >
+                                    Acción grupal
+                                </button>
+                            ) : null}
+                        </>
+                    )}
                 />
-
-                {shouldShowFacturacionEstadosResumen(isTodosClientes) && facturacionTotales?.estados && !loadingResumen ? (
-                    <ConciliacionesFacturacionEstadosResumen
-                        variant="inline"
-                        estados={facturacionTotales.estados}
-                        activeEstado={fEstado}
-                        onEstadoClick={handleEstadoPillClick}
-                        isLight={isLight}
-                    />
-                ) : null}
 
                 <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                     <div className={dash.tableWrap}>
@@ -447,6 +463,7 @@ export default function ConciliacionesFacturacionPage({ token }) {
                 colaborador={facturacionRow}
                 saving={savingFacturacion}
                 isLight={isLight}
+                reglaTipo={regla?.tipo || 'MES_CALENDARIO'}
             />
 
             <ConciliacionesAccionMasivaModal

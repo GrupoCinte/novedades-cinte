@@ -1,72 +1,139 @@
-import { ESTADOS_FACTURACION_META } from '../facturacionLogic.js';
+import {
+    ESTADOS_FACTURACION_META,
+    conciliacionEstadoStepCircleClass,
+    conciliacionEstadoStepConnectorClass,
+    conciliacionEstadoStepLabelClass
+} from '../facturacionLogic.js';
+
+function formatStepCount(count) {
+    const n = Number(count) || 0;
+    if (n > 999) return '999+';
+    return String(n);
+}
+
+function countFontClass(count) {
+    const n = Number(count) || 0;
+    if (n >= 100) return 'text-[9px] sm:text-[10px]';
+    return '';
+}
 
 /**
- * Pills de resumen por estado. Si `onEstadoClick` está definido, filtran la tabla al pulsar.
+ * Stepper horizontal de estados (misma línea que En ingreso / TaskProgressCompact).
+ * Centrado, círculos con conectores, etiqueta y conteo por estado.
  */
 export default function ConciliacionesFacturacionEstadosResumen({
     estados,
     activeEstado = '',
     onEstadoClick = null,
-    variant = 'inline',
-    isLight
+    isLight = true,
+    loading = false
 }) {
-    if (!estados) return null;
+    if (!estados && !loading) return null;
 
-    const borderMuted = isLight ? 'border-slate-200' : 'border-slate-700/50';
-
-    if (variant === 'inline') {
+    if (loading) {
         return (
-            <div className="mb-2 flex flex-wrap items-center gap-2" role="list" aria-label="Resumen de estados">
-                {ESTADOS_FACTURACION_META.map(({ key, label, pill }) => {
-                    const active = activeEstado === key;
-                    const count = estados[key] ?? 0;
-                    const className = `inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-body text-xs font-medium tabular-nums transition-all ${pill} ${
-                        active ? 'ring-2 ring-[#65BCF7] ring-offset-1 ring-offset-transparent' : ''
-                    } ${onEstadoClick ? 'cursor-pointer hover:brightness-110' : ''}`;
-
-                    if (onEstadoClick) {
-                        return (
-                            <button
-                                key={key}
-                                type="button"
-                                role="listitem"
-                                className={className}
-                                title={active ? `Quitar filtro (${label})` : `Filtrar por ${label}`}
-                                aria-pressed={active}
-                                onClick={() => onEstadoClick(key)}
-                            >
-                                <span className="font-medium opacity-80">{label}</span>
-                                <span>{count}</span>
-                            </button>
-                        );
-                    }
-
-                    return (
-                        <span key={key} role="listitem" className={className} title={`${label}: ${count}`}>
-                            <span className="font-medium opacity-80">{label}</span>
-                            <span>{count}</span>
-                        </span>
-                    );
-                })}
+            <div
+                className="mb-4 flex w-full justify-center overflow-x-auto px-2"
+                role="status"
+                aria-live="polite"
+                aria-busy="true"
+                aria-label="Cargando estados"
+            >
+                <div className="flex items-start gap-0">
+                    {ESTADOS_FACTURACION_META.map(({ key }, idx) => (
+                        <div key={key} className="flex items-start">
+                            <div className="flex min-w-[4.25rem] flex-col items-center sm:min-w-[5rem]">
+                                <span
+                                    aria-hidden
+                                    className={`h-9 w-9 animate-pulse rounded-full sm:h-10 sm:w-10 ${
+                                        isLight ? 'bg-slate-100' : 'bg-slate-800/50'
+                                    }`}
+                                />
+                                <span
+                                    aria-hidden
+                                    className={`mt-2 h-3 w-12 animate-pulse rounded ${
+                                        isLight ? 'bg-slate-100' : 'bg-slate-800/40'
+                                    }`}
+                                />
+                            </div>
+                            {idx < ESTADOS_FACTURACION_META.length - 1 ? (
+                                <span
+                                    aria-hidden
+                                    className={`mt-[1.125rem] h-0.5 w-6 animate-pulse sm:mt-5 sm:w-10 md:w-14 ${
+                                        isLight ? 'bg-slate-100' : 'bg-slate-800/40'
+                                    }`}
+                                />
+                            ) : null}
+                        </div>
+                    ))}
+                </div>
             </div>
         );
     }
 
     return (
-        <div className={`mt-3 grid grid-cols-2 gap-2 border-t pt-3 sm:grid-cols-3 xl:grid-cols-5 ${borderMuted}`}>
-            {ESTADOS_FACTURACION_META.map(({ key, label, pill }) => (
-                <div
-                    key={key}
-                    className={`rounded-lg border px-3 py-2 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700/50 bg-slate-800/40'}`}
-                >
-                    <span className={`text-[10px] font-heading font-bold uppercase tracking-wider ${pill.split(' ')[0]}`}>
-                        {label}
-                    </span>
-                    <div className={`mt-0.5 font-heading text-lg font-extrabold tabular-nums ${pill.split(' ')[0]}`}>
-                        {estados[key] ?? 0}
-                    </div>
-                </div>
-            ))}
+        <div className="mb-4 flex w-full justify-center overflow-x-auto px-2">
+            <div className="flex items-start" role="list" aria-label="Resumen de estados de conciliación">
+                {ESTADOS_FACTURACION_META.map((meta, idx) => {
+                    const { key, label } = meta;
+                    const count = estados[key] ?? 0;
+                    const hasCount = count > 0;
+                    const active = activeEstado === key;
+                    const stepNum = idx + 1;
+                    const circleClass = conciliacionEstadoStepCircleClass(meta, isLight, {
+                        activeFilter: active,
+                        hasCount
+                    });
+                    const labelClass = conciliacionEstadoStepLabelClass(meta, isLight, {
+                        activeFilter: active,
+                        hasCount
+                    });
+                    const interactive = Boolean(onEstadoClick);
+                    const stepBody = (
+                        <>
+                            <div className={circleClass}>
+                                {hasCount ? (
+                                    <span className={countFontClass(count)}>{formatStepCount(count)}</span>
+                                ) : (
+                                    stepNum
+                                )}
+                            </div>
+                            <span className={labelClass}>{label}</span>
+                        </>
+                    );
+
+                    return (
+                        <div key={key} className="flex items-start">
+                            {interactive ? (
+                                <button
+                                    type="button"
+                                    role="listitem"
+                                    className="flex min-w-[4.25rem] flex-col items-center rounded-lg px-0.5 py-1 transition-opacity hover:opacity-90 sm:min-w-[5rem]"
+                                    title={active ? `Quitar filtro (${label})` : `Filtrar por ${label}`}
+                                    aria-pressed={active}
+                                    onClick={() => onEstadoClick(key)}
+                                >
+                                    {stepBody}
+                                </button>
+                            ) : (
+                                <div
+                                    role="listitem"
+                                    className="flex min-w-[4.25rem] flex-col items-center px-0.5 py-1 sm:min-w-[5rem]"
+                                    title={`${label}: ${count}`}
+                                >
+                                    {stepBody}
+                                </div>
+                            )}
+                            {idx < ESTADOS_FACTURACION_META.length - 1 ? (
+                                <div
+                                    aria-hidden
+                                    className={conciliacionEstadoStepConnectorClass(meta, isLight, hasCount)}
+                                />
+                            ) : null}
+                        </div>
+                    );
+                })}
+            </div>
         </div>
     );
 }

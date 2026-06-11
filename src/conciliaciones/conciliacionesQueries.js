@@ -5,6 +5,22 @@
  */
 
 const { buildFoldToCanonicoMap, matchExcelClienteABd, foldForMatch } = require('../cotizador/clienteNombreMatch');
+const {
+    resolvePeriodoForCliente,
+    daysUntilCutoff,
+    cutoffLabelFromDays,
+    mapConfigRow,
+    todayIsoBogota,
+    REGLA_DISPLAY
+} = require('./conciliacionesCiclos');
+const {
+    computeFacturaCop,
+    aggregateCardState,
+    countConciliados,
+    countEstadosFromRows,
+    computeSlaTier,
+    computeSlaAlert
+} = require('./facturacionCalculo');
 
 /** @param {string} alias */
 function effectiveNovedadDateSql(alias = 'nov') {
@@ -14,16 +30,37 @@ function effectiveNovedadDateSql(alias = 'nov') {
 /**
  * @param {number} year
  * @param {number} month 1-12
+ * @deprecated Use resolvePeriodoForCliente from conciliacionesCiclos
  */
 function monthRangeDates(year, month) {
-    const y = Number(year);
-    const m = Number(month);
-    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return null;
-    const start = new Date(Date.UTC(y, m - 1, 1));
-    const end = new Date(Date.UTC(y, m, 0));
-    const pad = (n) => String(n).padStart(2, '0');
-    const iso = (d) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
-    return { start: iso(start), end: iso(end) };
+    return resolvePeriodoForCliente({ year, month, reglaTipo: 'MES_CALENDARIO' });
+}
+
+async function loadClienteFacturacionConfig(deps, clienteCanon) {
+    if (typeof deps.getClienteFacturacionConfig !== 'function') return null;
+    const row = await deps.getClienteFacturacionConfig(clienteCanon);
+    return mapConfigRow(row);
+}
+
+async function resolveReglaContext(deps, clienteCanon, year, month) {
+    const config = await loadClienteFacturacionConfig(deps, clienteCanon);
+    const reglaTipo =
+        config && config.activo !== false && config.reglaTipo ? config.reglaTipo : 'MES_CALENDARIO';
+    const periodo = resolvePeriodoForCliente({
+        year,
+        month,
+        diaCorte: config?.diaCorte,
+        reglaTipo
+    });
+    const regla = {
+        tipo: reglaTipo,
+        detalle: config?.reglaDetalle || '',
+        horasBase: config?.horasBase ?? null,
+        diaCorte: config?.diaCorte ?? null,
+        display: REGLA_DISPLAY[reglaTipo] || reglaTipo,
+        configured: Boolean(config && config.activo !== false && config.diaCorte)
+    };
+    return { config, regla, periodo };
 }
 
 async function resolveClienteCanon(deps, clienteRaw) {
@@ -115,8 +152,9 @@ function novedadesAreaClause(scope) {
  */
 async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, year, month) {
     const { pool, normalizeCedula, canRoleViewType } = deps;
-    const mr = monthRangeDates(year, month);
-    if (!mr) return { rows: [], totales: { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0 } };
+    const { regla, periodo } = await resolveReglaContext(deps, clienteCanon, year, month);
+    const mr = periodo;
+    if (!mr) return { rows: [], totales: { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0 }, regla, periodo: null };
 
     const areaPart = novedadesAreaClause(scope);
     let areaSql = areaPart.sql;
@@ -196,13 +234,21 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
         const a = cedDigits ? agg.get(cedDigits) : null;
         const cnt = a?.count ?? 0;
         const sumMonto = a?.sumMonto ?? 0;
-        const factura = tarifa - sumMonto;
+        const fIngreso = c.fecha_ingreso ? (c.fecha_ingreso instanceof Date ? c.fecha_ingreso.toISOString().slice(0, 10) : String(c.fecha_ingreso).slice(0, 10)) : '';
+        const fCierre = c.fecha_cierre ? (c.fecha_cierre instanceof Date ? c.fecha_cierre.toISOString().slice(0, 10) : String(c.fecha_cierre).slice(0, 10)) : '';
+        const horasFacturadas = c.horas_facturadas != null ? Number(c.horas_facturadas) : 0;
+        const { facturaCop: factura, desglose } = computeFacturaCop({
+            reglaTipo: regla.tipo,
+            tarifa,
+            sumMonto,
+            periodo: mr,
+            horasFacturadas,
+            horasBase: regla.horasBase,
+            fechaIngreso: fIngreso
+        });
         tarifaSum += tarifa;
         deduccionSum += sumMonto;
         facturaSum += factura;
-        
-        const fIngreso = c.fecha_ingreso ? (c.fecha_ingreso instanceof Date ? c.fecha_ingreso.toISOString().slice(0, 10) : String(c.fecha_ingreso).slice(0, 10)) : '';
-        const fCierre = c.fecha_cierre ? (c.fecha_cierre instanceof Date ? c.fecha_cierre.toISOString().slice(0, 10) : String(c.fecha_cierre).slice(0, 10)) : '';
 
         rows.push({
             cedula: String(c.cedula || '').trim(),
@@ -214,6 +260,7 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
             novedadesCount: cnt,
             novedadesSumCop: sumMonto,
             facturaCop: factura,
+            facturaDesglose: desglose,
             fechaIngreso: fIngreso,
             tipoContrato: c.tipo_contrato != null ? String(c.tipo_contrato) : '',
             comercial: c.comercial != null ? String(c.comercial) : '',
@@ -227,7 +274,7 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
             proyecto: c.proyecto != null ? String(c.proyecto) : (c.cliente_proyecto != null ? String(c.cliente_proyecto) : ''),
             observaciones: c.observaciones != null ? String(c.observaciones) : '',
             fechaCierre: fCierre,
-            horasFacturadas: c.horas_facturadas != null ? Number(c.horas_facturadas) : 0,
+            horasFacturadas,
             estado: c.estado != null ? String(c.estado) : 'PENDIENTE',
             facturaFv: c.factura_fv != null ? String(c.factura_fv) : '',
             fechaRadicacion: c.fecha_radicacion ? (c.fecha_radicacion instanceof Date ? c.fecha_radicacion.toISOString().slice(0, 10) : String(c.fecha_radicacion).slice(0, 10)) : '',
@@ -244,7 +291,9 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
             facturaSum,
             colaboradores: rows.length,
             conNovedad: rows.filter((r) => r.novedadesCount > 0).length
-        }
+        },
+        regla,
+        periodo: { start: mr.start, end: mr.end, cycleLabel: mr.cycleLabel || `${mr.start} – ${mr.end}` }
     };
 }
 
@@ -303,7 +352,8 @@ async function getConciliacionResumenTodosClientesMes(deps, scope, year, month) 
 
 async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedulaRaw, year, month) {
     const { pool, normalizeCedula, canRoleViewType } = deps;
-    const mr = monthRangeDates(year, month);
+    const { periodo } = await resolveReglaContext(deps, clienteCanon, year, month);
+    const mr = periodo;
     if (!mr) return [];
     const cedDigits = normalizeCedula(cedulaRaw);
     if (!cedDigits) return [];
@@ -374,6 +424,110 @@ async function getConciliacionesDashboardResumen(deps, scope, year, month) {
         { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 }
     );
     return { rows, globalTotales, clientesCount: clientes.length };
+}
+
+/**
+ * Dashboard de próximos cierres (Bento / Kanban).
+ * @returns {Promise<{ hoy: string, cierres: object[] }>}
+ */
+async function getConciliacionesCierresProximos(deps, scope, year, month) {
+    const clientes = await listConciliacionesClientes(deps, scope);
+    const hoy = todayIsoBogota();
+
+    /** @type {Map<string, object>} */
+    const configsByFold = new Map();
+    if (typeof deps.listClientesFacturacionConfig === 'function') {
+        const allConfigs = await deps.listClientesFacturacionConfig();
+        for (const row of allConfigs || []) {
+            const cfg = mapConfigRow(row);
+            if (cfg?.cliente) configsByFold.set(foldForMatch(cfg.cliente), cfg);
+        }
+    }
+
+    const cierres = [];
+    for (const cliente of clientes) {
+        const cfg = configsByFold.get(foldForMatch(cliente)) || null;
+        const isConfigured = Boolean(cfg && cfg.activo !== false && cfg.diaCorte);
+
+        const payload = await getConciliacionResumenPorClienteMes(deps, scope, cliente, year, month);
+        const card = aggregateCardState(payload.rows || []);
+        const conciliadosCount = countConciliados(payload.rows || []);
+        const totalConsultores = (payload.rows || []).length;
+        const estados = countEstadosFromRows(payload.rows || []);
+
+        if (!isConfigured) {
+            const reglaPayload = payload.regla || {};
+            cierres.push({
+                cliente,
+                configured: false,
+                diaCorte: null,
+                daysUntil: null,
+                cutoffLabel: '',
+                periodo: payload.periodo || null,
+                totalConsultores,
+                conciliadosCount,
+                estados,
+                estadoTarjeta: card.estadoTarjeta,
+                estadoTarjetaLabel: card.estadoTarjetaLabel,
+                slaTier: null,
+                slaDiasVerde: null,
+                slaDiasAmarillo: null,
+                slaAlert: false,
+                regla: {
+                    tipo: reglaPayload.tipo || 'MES_CALENDARIO',
+                    detalle: reglaPayload.detalle || '',
+                    horasBase: reglaPayload.horasBase ?? null,
+                    display: reglaPayload.display || REGLA_DISPLAY.MES_CALENDARIO || 'Mes calendario'
+                }
+            });
+            continue;
+        }
+
+        const daysUntil = daysUntilCutoff({ today: hoy, year, month, diaCorte: cfg.diaCorte });
+        const slaDiasVerde = cfg.slaDiasVerde;
+        const slaDiasAmarillo = cfg.slaDiasAmarillo;
+        const slaTier = computeSlaTier({ daysUntil, slaDiasVerde, slaDiasAmarillo });
+        const slaAlert = computeSlaAlert({
+            daysUntil,
+            rows: payload.rows || [],
+            slaDiasVerde,
+            slaDiasAmarillo
+        });
+
+        cierres.push({
+            cliente,
+            configured: true,
+            diaCorte: cfg.diaCorte,
+            daysUntil,
+            cutoffLabel: cutoffLabelFromDays(daysUntil),
+            periodo: payload.periodo || null,
+            totalConsultores,
+            conciliadosCount,
+            estados,
+            estadoTarjeta: card.estadoTarjeta,
+            estadoTarjetaLabel: card.estadoTarjetaLabel,
+            slaTier,
+            slaDiasVerde,
+            slaDiasAmarillo,
+            slaAlert,
+            regla: {
+                tipo: cfg.reglaTipo,
+                detalle: cfg.reglaDetalle || '',
+                horasBase: cfg.horasBase,
+                display: REGLA_DISPLAY[cfg.reglaTipo] || cfg.reglaTipo
+            }
+        });
+    }
+
+    cierres.sort((a, b) => {
+        if (a.configured !== b.configured) return a.configured ? -1 : 1;
+        const da = Number.isFinite(a.daysUntil) ? a.daysUntil : 9999;
+        const db = Number.isFinite(b.daysUntil) ? b.daysUntil : 9999;
+        if (da !== db) return da - db;
+        return String(a.cliente || '').localeCompare(String(b.cliente || ''), 'es', { sensitivity: 'base' });
+    });
+
+    return { hoy, cierres };
 }
 
 async function upsertConciliacionFacturacion(deps, scope, payload) {
@@ -564,6 +718,7 @@ module.exports = {
     getConciliacionResumenTodosClientesMes,
     listConciliacionNovedadesDetalle,
     getConciliacionesDashboardResumen,
+    getConciliacionesCierresProximos,
     upsertConciliacionFacturacion,
     upsertConciliacionFacturacionMasiva,
     listConciliacionesFacturacion

@@ -26,6 +26,8 @@ export default function ClienteMesSelectors({
     trailingActions = null,
 
     isFacturacion = false,
+    clienteLocked = false,
+    clienteDisplayLabel = '',
     fSearch = '',
     onSearchChange = () => {},
     fEstado = '',
@@ -113,25 +115,38 @@ export default function ClienteMesSelectors({
             ) : null}
 
             <div className="flex items-center gap-1.5">
-                {!dense ? (
+                {!dense && !clienteLocked ? (
                     <label htmlFor="conciliaciones-page-cliente" className={`${dash.labelFilter} whitespace-nowrap`}>
                         Cliente
                     </label>
                 ) : null}
-                <select
-                    id="conciliaciones-page-cliente"
-                    className={fieldCompact(field)}
-                    value={clienteValue}
-                    onChange={(e) => onClienteChange(e.target.value)}
-                    aria-label="Cliente"
-                >
-                    <option value="">{dense ? 'Todos…' : 'Todos / seleccionar'}</option>
-                    {clientes.map((c) => (
-                        <option key={c} value={c}>
-                            {c}
-                        </option>
-                    ))}
-                </select>
+                {clienteLocked ? (
+                    <span
+                        className={
+                            isLight
+                                ? 'inline-flex max-w-[min(100%,18rem)] items-center truncate rounded-lg border border-cyan-300 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-950'
+                                : 'inline-flex max-w-[min(100%,18rem)] items-center truncate rounded-lg border border-cyan-500/35 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-100'
+                        }
+                        title={clienteDisplayLabel || clienteValue}
+                    >
+                        {clienteDisplayLabel || clienteValue || '—'}
+                    </span>
+                ) : (
+                    <select
+                        id="conciliaciones-page-cliente"
+                        className={fieldCompact(field)}
+                        value={clienteValue}
+                        onChange={(e) => onClienteChange(e.target.value)}
+                        aria-label="Cliente"
+                    >
+                        <option value="">{dense ? 'Todos…' : 'Todos / seleccionar'}</option>
+                        {clientes.map((c) => (
+                            <option key={c} value={c}>
+                                {c}
+                            </option>
+                        ))}
+                    </select>
+                )}
             </div>
 
             {facturacionFiltersOn ? (

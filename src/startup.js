@@ -37,6 +37,7 @@ async function startServer(deps) {
         ensureMallaNocturnoConfigTable,
         ensureNovedadesMallaOrigenRefColumn,
         ensureConciliacionesFacturacionTable,
+        ensureClientesFacturacionConfigTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
@@ -79,6 +80,7 @@ async function startServer(deps) {
     await ensureMallaNocturnoConfigTable();
     await ensureNovedadesMallaOrigenRefColumn();
     await ensureConciliacionesFacturacionTable();
+    await ensureClientesFacturacionConfigTable();
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
     /**

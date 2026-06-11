@@ -14,12 +14,14 @@ export default function ConciliacionesFacturacionModal({
     onSave,
     colaborador, // El objeto colaborador completo con los campos que agregamos en la capa de datos
     saving,
-    isLight
+    isLight,
+    reglaTipo = 'MES_CALENDARIO'
 }) {
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const [proyecto, setProyecto] = useState('');
     const [observaciones, setObservaciones] = useState('');
     const [estado, setEstado] = useState('PENDIENTE');
+    const [horasFacturadas, setHorasFacturadas] = useState('');
     const [facturaFv, setFacturaFv] = useState('');
     const [fechaRadicacion, setFechaRadicacion] = useState('');
     const [motivoDevolucion, setMotivoDevolucion] = useState('');
@@ -33,6 +35,11 @@ export default function ConciliacionesFacturacionModal({
             setProyecto(colaborador.proyecto || colaborador.clienteProyecto || '');
             setObservaciones(colaborador.observaciones || '');
             setEstado(colaborador.estado || 'PENDIENTE');
+            setHorasFacturadas(
+                colaborador.horasFacturadas != null && colaborador.horasFacturadas !== ''
+                    ? String(colaborador.horasFacturadas)
+                    : ''
+            );
             setFacturaFv(colaborador.facturaFv || '');
             setFechaRadicacion(colaborador.fechaRadicacion || '');
             setMotivoDevolucion(colaborador.motivoDevolucion || '');
@@ -67,7 +74,9 @@ export default function ConciliacionesFacturacionModal({
             estado,
             facturaFv,
             fechaRadicacion,
-            motivoDevolucion
+            motivoDevolucion,
+            horasFacturadas,
+            requireHoras: reglaTipo === 'HORAS_BASE'
         });
         if (!validation.ok) {
             setErrorMsg(validation.error);
@@ -75,7 +84,7 @@ export default function ConciliacionesFacturacionModal({
         }
 
         const payload = buildFacturacionSavePayload(
-            { proyecto, observaciones, estado, facturaFv, fechaRadicacion, motivoDevolucion },
+            { proyecto, observaciones, estado, facturaFv, fechaRadicacion, motivoDevolucion, horasFacturadas },
             { cedula: colaborador.cedula, anio: null, mes: null }
         );
 
@@ -208,6 +217,13 @@ export default function ConciliacionesFacturacionModal({
                                     {formatCop(colaborador.facturaCop)}
                                 </span>
                             </div>
+                            {colaborador.facturaDesglose ? (
+                                <div className="sm:col-span-2 md:col-span-3 lg:col-span-4 text-[11px] opacity-80">
+                                    Cálculo ({colaborador.facturaDesglose.reglaTipo}): bruto{' '}
+                                    {formatCop(colaborador.facturaDesglose.bruto)} − deducciones{' '}
+                                    {formatCop(colaborador.facturaDesglose.sumMonto || colaborador.novedadesSumCop)}
+                                </div>
+                            ) : null}
                         </div>
                     </div>
 
@@ -218,6 +234,24 @@ export default function ConciliacionesFacturacionModal({
                         </h3>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                            {reglaTipo === 'HORAS_BASE' ? (
+                                <div className="flex flex-col gap-1.5">
+                                    <label htmlFor="facturacion-horas" className={`text-xs font-bold ${dash.titleLg}`}>
+                                        Horas facturadas <span className="text-red-500">*</span>
+                                    </label>
+                                    <input
+                                        id="facturacion-horas"
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        required
+                                        value={horasFacturadas}
+                                        onChange={(e) => setHorasFacturadas(e.target.value)}
+                                        className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
+                                    />
+                                </div>
+                            ) : null}
                             
                             <div className="flex flex-col gap-1.5 md:col-span-2">
                                 <label 

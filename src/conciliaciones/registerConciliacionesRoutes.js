@@ -25,6 +25,7 @@ function assertConciliacionesRouteDeps(deps) {
         'getConciliacionResumenTodosClientesMesForScope',
         'listConciliacionNovedadesDetalleForScope',
         'getConciliacionesDashboardResumenForScope',
+        'getConciliacionesCierresProximosForScope',
         'upsertConciliacionFacturacionForScope',
         'upsertConciliacionFacturacionMasivaForScope',
         'listConciliacionesFacturacionForScope'
@@ -51,6 +52,7 @@ function registerConciliacionesRoutes(deps) {
         getConciliacionResumenTodosClientesMesForScope,
         listConciliacionNovedadesDetalleForScope,
         getConciliacionesDashboardResumenForScope,
+        getConciliacionesCierresProximosForScope,
         upsertConciliacionFacturacionForScope,
         upsertConciliacionFacturacionMasivaForScope,
         listConciliacionesFacturacionForScope
@@ -65,6 +67,25 @@ function registerConciliacionesRoutes(deps) {
         } catch (e) {
             console.error('[conciliaciones/clientes]', e);
             return res.status(500).json({ ok: false, error: 'Error al listar clientes' });
+        }
+    });
+
+    app.get('/api/conciliaciones/cierres-proximos', ...guardChain, async (req, res) => {
+        const ym = parseYearMonth(req.query);
+        if (!ym) return res.status(400).json({ ok: false, error: 'year y month válidos requeridos (1-12)' });
+        try {
+            const out = await getConciliacionesCierresProximosForScope(req.scope, ym.year, ym.month);
+            if (!out.ok) return res.status(500).json({ ok: false, error: 'Error' });
+            return res.json({
+                ok: true,
+                year: ym.year,
+                month: ym.month,
+                hoy: out.hoy,
+                cierres: out.cierres
+            });
+        } catch (e) {
+            console.error('[conciliaciones/cierres-proximos]', e);
+            return res.status(500).json({ ok: false, error: 'Error al armar cierres próximos' });
         }
     });
 
@@ -114,7 +135,9 @@ function registerConciliacionesRoutes(deps) {
                 year: ym.year,
                 month: ym.month,
                 rows: out.rows,
-                totales: out.totales
+                totales: out.totales,
+                regla: out.regla,
+                periodo: out.periodo
             });
         } catch (e) {
             console.error('[conciliaciones/por-cliente]', e);

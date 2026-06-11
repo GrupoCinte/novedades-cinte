@@ -17,7 +17,6 @@ import CapitalHumanoModule from './CapitalHumanoModule';
 import DirectorioClienteColaboradorModule from './DirectorioClienteColaboradorModule';
 import ConciliacionesModule from './conciliaciones/ConciliacionesModule.jsx';
 import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboardPage.jsx';
-import ConciliacionesPage from './conciliaciones/ConciliacionesPage.jsx';
 import ConciliacionesFacturacionPage from './conciliaciones/ConciliacionesFacturacionPage.jsx';
 import AdminPortalHome from './AdminPortalHome';
 import AdminAccountSettingsPage from './AdminAccountSettingsPage.jsx';
@@ -326,7 +325,7 @@ function App() {
               path="dashboard"
               element={<ConciliacionesDashboardPage token={auth?.token || ''} />}
             />
-            <Route path="resumen" element={<ConciliacionesPage token={auth?.token || ''} />} />
+            <Route path="resumen" element={<Navigate to="../dashboard" replace />} />
             <Route path="facturacion" element={<ConciliacionesFacturacionPage token={auth?.token || ''} />} />
           </Route>
           <Route

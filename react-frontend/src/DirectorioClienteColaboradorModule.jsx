@@ -43,6 +43,13 @@ import {
     buildStaffColaboradorPayload,
     CO_TABS
 } from './constants/colaboradoresConsultorFields.js';
+import DirectorioFacturacionConfigFields from './conciliaciones/components/DirectorioFacturacionConfigFields.jsx';
+import {
+    DEFAULT_FACTURACION_FORM,
+    facturacionFormFromApiRow,
+    validateFacturacionForm,
+    buildFacturacionPayload
+} from './directorio/directorioFacturacionConfig.js';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -265,6 +272,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     /** Aviso si hay un GS único en catálogo pero no se pudo preseleccionar colaborador CINTE. */
     const [editClienteGpSelectHint, setEditClienteGpSelectHint] = useState('');
     const [editClienteSaving, setEditClienteSaving] = useState(false);
+    const [editFacturacionForm, setEditFacturacionForm] = useState({ ...DEFAULT_FACTURACION_FORM });
+    const [createFacturacionForm, setCreateFacturacionForm] = useState({ ...DEFAULT_FACTURACION_FORM });
+    const [facturacionSaving, setFacturacionSaving] = useState(false);
+    const [facturacionConfigByCliente, setFacturacionConfigByCliente] = useState({});
     const [gsCinteOptions, setGsCinteOptions] = useState([]);
     const [gsCinteOptionsLoading, setGsCinteOptionsLoading] = useState(false);
 
@@ -400,11 +411,21 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             if (clQ.trim()) u.set('q', clQ.trim());
             u.set('limit', String(clPageSize));
             u.set('offset', String((clPage - 1) * clPageSize));
-            const res = await fetch(`/api/directorio/clientes-resumen?${u}`, { headers: authHeaders(token) });
+            const [res, resCfg] = await Promise.all([
+                fetch(`/api/directorio/clientes-resumen?${u}`, { headers: authHeaders(token) }),
+                fetch('/api/directorio/clientes-facturacion-config', { headers: authHeaders(token) })
+            ]);
             const data = await res.json().catch(() => ({}));
+            const cfgData = await resCfg.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
             setClItems(data.items || []);
             setClTotal(data.total ?? 0);
+            const map = {};
+            for (const row of cfgData.items || []) {
+                const c = String(row.cliente || '').trim();
+                if (c) map[c.toLowerCase()] = row;
+            }
+            setFacturacionConfigByCliente(map);
         } catch (e) {
             flash(String(e.message || e), false);
         } finally {
@@ -583,6 +604,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     async function openClienteModalCreate() {
         setClienteForm({ cliente: '', nit: '', lider: '', gp_colaborador_cedula: '' });
+        setCreateFacturacionForm({ ...DEFAULT_FACTURACION_FORM });
         setGsCinteOptions([]);
         setGsCinteOptionsLoading(true);
         setClienteModalOpen(true);
@@ -716,6 +738,62 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         }
     }
 
+    async function loadFacturacionConfigForCliente(cliente) {
+        const c = String(cliente || '').trim();
+        if (!c) return;
+        try {
+            const res = await fetch(`/api/directorio/clientes-facturacion-config/${encodeURIComponent(c)}`, {
+                headers: authHeaders(token)
+            });
+            const data = await res.json().catch(() => ({}));
+            setEditFacturacionForm(facturacionFormFromApiRow(data.item));
+        } catch {
+            /* ignore */
+        }
+    }
+
+    function updateFacturacionConfigMap(clienteCanon, item) {
+        const key = String(clienteCanon || '').trim().toLowerCase();
+        if (!key || !item) return;
+        setFacturacionConfigByCliente((prev) => ({ ...prev, [key]: item }));
+    }
+
+    async function saveFacturacionConfigForCliente(clienteCanon, form) {
+        const validation = validateFacturacionForm(form);
+        if (!validation.ok) {
+            const first = Object.values(validation.errors)[0];
+            throw new Error(first || 'Datos de conciliación inválidos');
+        }
+        const cfgBody = buildFacturacionPayload(form);
+        const cfgRes = await fetch(
+            `/api/directorio/clientes-facturacion-config/${encodeURIComponent(clienteCanon)}`,
+            {
+                method: 'PUT',
+                credentials: 'include',
+                headers: authHeaders(token),
+                body: JSON.stringify(cfgBody)
+            }
+        );
+        const cfgData = await cfgRes.json().catch(() => ({}));
+        if (!cfgRes.ok) throw new Error(cfgData.error || 'No se pudo guardar configuración de conciliación');
+        if (cfgData.item) updateFacturacionConfigMap(clienteCanon, cfgData.item);
+        return cfgData.item;
+    }
+
+    async function submitSaveFacturacionConfig() {
+        if (!clienteDetailModal?.cliente) return;
+        const cliente = clienteDetailModal.cliente;
+        setFacturacionSaving(true);
+        try {
+            await saveFacturacionConfigForCliente(cliente, editFacturacionForm);
+            flash('Corte y regla guardados.');
+        } catch (err) {
+            flash(String(err.message || err), false);
+        } finally {
+            setFacturacionSaving(false);
+        }
+    }
+
     async function openClienteDetailModal(cliente, mode = 'view') {
         const c = String(cliente || '').trim();
         if (!c) {
@@ -727,6 +805,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         setEditClienteNitHint('');
         setClienteDetailModal({ cliente: c, mode });
         void fetchLeadersForCliente(c);
+        void loadFacturacionConfigForCliente(c);
         const gsOpts = await ensureGsCinteOptionsLoaded();
         if (mode === 'edit') {
             await loadEditClienteDataForModal(c, gsOpts);
@@ -797,6 +876,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) throw new Error(data.error || res.statusText);
             }
+            const cfgValidation = validateFacturacionForm(editFacturacionForm);
+            if (!cfgValidation.ok) {
+                const first = Object.values(cfgValidation.errors)[0];
+                throw new Error(first || 'Datos de conciliación inválidos');
+            }
+            await saveFacturacionConfigForCliente(nombre, editFacturacionForm);
             await loadCatalogo();
             flash('Cliente actualizado.');
             if (selectedCatalogCliente === editClienteOriginalName) {
@@ -887,6 +972,23 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
+            const clienteName = String(clienteForm.cliente || '').trim();
+            const cfgValidation = validateFacturacionForm(createFacturacionForm);
+            if (cfgValidation.ok) {
+                try {
+                    await saveFacturacionConfigForCliente(clienteName, createFacturacionForm);
+                } catch (cfgErr) {
+                    flash(
+                        `Cliente guardado, pero no se pudo guardar corte/regla: ${String(cfgErr.message || cfgErr)}`,
+                        false
+                    );
+                    setClienteModalOpen(false);
+                    loadCatalogo();
+                    if (mainView === 'consultores') loadCatalogoActivoForStaff();
+                    refreshGpList();
+                    return;
+                }
+            }
             flash('Cliente y primer líder guardados en el catálogo.');
             setClienteModalOpen(false);
             loadCatalogo();
@@ -1149,6 +1251,24 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 render: (g) => g.cliente
             },
             {
+                key: 'corte',
+                label: 'Corte / Regla',
+                cellClassName: dash.tdMuted,
+                render: (g) => {
+                    const cfg = facturacionConfigByCliente[String(g.cliente || '').toLowerCase()];
+                    if (!cfg) return '—';
+                    const labels = {
+                        HORAS_BASE: 'Horas base',
+                        CALENDARIO_30: 'Cal. 30',
+                        DIAS_HABILES: 'Días háb.',
+                        MES_CALENDARIO: 'Mes cal.'
+                    };
+                    const slaVerde = cfg.sla_dias_verde ?? 10;
+                    const slaAmarillo = cfg.sla_dias_amarillo ?? 5;
+                    return `Día ${cfg.dia_corte} · ${labels[cfg.regla_tipo] || cfg.regla_tipo} · SLA ${slaVerde}/${slaAmarillo}`;
+                }
+            },
+            {
                 key: 'lideres',
                 label: 'Líderes (activos / total)',
                 cellClassName: dash.tdCell,
@@ -1194,7 +1314,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 )
             }
         ],
-        [gpLabelById, isLight, dash.tdName, dash.tdCell, dash.tdMuted]
+        [gpLabelById, isLight, dash.tdName, dash.tdCell, dash.tdMuted, facturacionConfigByCliente]
     );
 
     const leadersModalColumns = useMemo(
@@ -1840,15 +1960,23 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             </p>
                         ) : null}
                     </div>
+                    <DirectorioFacturacionConfigFields
+                        value={createFacturacionForm}
+                        onChange={setCreateFacturacionForm}
+                        isLight={isLight}
+                        field={field}
+                        dash={dash}
+                        showPreview
+                    />
                 </form>
             </GestionModalShell>
 
             <GestionModalShell
                 open={Boolean(clienteDetailModal)}
                 onClose={() => {
-                    if (!editClienteSaving) closeClienteDetailModal();
+                    if (!editClienteSaving && !facturacionSaving) closeClienteDetailModal();
                 }}
-                disableClose={editClienteSaving}
+                disableClose={editClienteSaving || facturacionSaving}
                 title="Cliente"
                 subtitle={clienteDetailModal?.cliente || ''}
                 size="wide"
@@ -1857,8 +1985,17 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         <div className="flex flex-wrap gap-2 justify-end w-full">
                             <button
                                 type="button"
+                                disabled={facturacionSaving}
+                                className={`${dash.btnPrimaryCinte} disabled:opacity-40`}
+                                onClick={() => void submitSaveFacturacionConfig()}
+                            >
+                                {facturacionSaving ? 'Guardando corte…' : 'Guardar corte y regla'}
+                            </button>
+                            <button
+                                type="button"
                                 onClick={() => void enterClienteDetailEditMode()}
                                 className={dash.btnPrimaryCinte}
+                                disabled={facturacionSaving}
                             >
                                 Editar cliente
                             </button>
@@ -1951,6 +2088,15 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                 })()}
                             </div>
                         </div>
+                        <DirectorioFacturacionConfigFields
+                            value={editFacturacionForm}
+                            onChange={setEditFacturacionForm}
+                            isLight={isLight}
+                            field={field}
+                            dash={dash}
+                            disabled={facturacionSaving}
+                            showPreview
+                        />
                         <div>
                             <h3 className={`${dash.titleLg} mb-3`}>Líderes</h3>
                             <GestionDataTable
@@ -2042,6 +2188,14 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                         </p>
                                     )}
                                 </div>
+                                <DirectorioFacturacionConfigFields
+                                    value={editFacturacionForm}
+                                    onChange={setEditFacturacionForm}
+                                    isLight={isLight}
+                                    field={field}
+                                    dash={dash}
+                                    showPreview
+                                />
                             </>
                         )}
                     </form>

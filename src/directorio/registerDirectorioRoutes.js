@@ -84,6 +84,9 @@ function registerDirectorioRoutes(deps) {
         getMallaTurnoAprobacionStatus,
         getMallaNocturnoConfig,
         upsertMallaNocturnoConfig,
+        getClienteFacturacionConfig,
+        listClientesFacturacionConfig,
+        upsertClienteFacturacionConfig,
         getColaboradorByCedula
     } = deps;
 
@@ -1174,6 +1177,101 @@ function registerDirectorioRoutes(deps) {
         } catch (e) {
             console.error('PATCH directorio gp:', e);
             return res.status(500).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
+        }
+    });
+
+    const facturacionReglaTipoEnum = z.enum([
+        'HORAS_BASE',
+        'CALENDARIO_30',
+        'DIAS_HABILES',
+        'MES_CALENDARIO'
+    ]);
+
+    const facturacionConfigUpsertSchema = z
+        .object({
+            diaCorte: z.coerce.number().int().min(1).max(31),
+            reglaTipo: facturacionReglaTipoEnum,
+            reglaDetalle: z.string().max(2000).optional().nullable(),
+            horasBase: z.coerce.number().positive().optional().nullable(),
+            slaDiasVerde: z.coerce.number().int().min(0).max(60).default(10),
+            slaDiasAmarillo: z.coerce.number().int().min(0).max(60).default(5),
+            activo: z.boolean().optional()
+        })
+        .superRefine((data, ctx) => {
+            if (data.reglaTipo === 'HORAS_BASE' && (data.horasBase == null || !Number.isFinite(Number(data.horasBase)))) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: 'Horas base obligatorias para regla HORAS_BASE',
+                    path: ['horasBase']
+                });
+            }
+            if (data.slaDiasVerde <= data.slaDiasAmarillo) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: 'slaDiasVerde debe ser mayor que slaDiasAmarillo',
+                    path: ['slaDiasVerde']
+                });
+            }
+        });
+
+    app.get('/api/directorio/clientes-facturacion-config', ...readGuard, async (req, res) => {
+        try {
+            const cliente = String(req.query.cliente || '').trim();
+            const rows = await listClientesFacturacionConfig(cliente || undefined);
+            return res.json({ ok: true, items: rows });
+        } catch (e) {
+            console.error('GET clientes-facturacion-config:', e);
+            return res.status(500).json({ ok: false, error: 'No se pudo listar configuración de facturación' });
+        }
+    });
+
+    app.get('/api/directorio/clientes-facturacion-config/:cliente', ...readGuard, async (req, res) => {
+        try {
+            const cliente = decodeURIComponent(String(req.params.cliente || '').trim());
+            if (!cliente) return res.status(400).json({ ok: false, error: 'Cliente requerido' });
+            const row = await getClienteFacturacionConfig(cliente);
+            return res.json({ ok: true, item: row });
+        } catch (e) {
+            console.error('GET clientes-facturacion-config/:cliente:', e);
+            return res.status(500).json({ ok: false, error: 'No se pudo obtener configuración' });
+        }
+    });
+
+    app.put('/api/directorio/clientes-facturacion-config/:cliente', ...writeGuard, async (req, res) => {
+        try {
+            const clienteParam = decodeURIComponent(String(req.params.cliente || '').trim());
+            if (!clienteParam) return res.status(400).json({ ok: false, error: 'Cliente requerido' });
+            const parsed = facturacionConfigUpsertSchema.safeParse(req.body);
+            if (!parsed.success) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Datos inválidos',
+                    errors: parsed.error.errors.map((e) => ({ field: e.path.join('.'), message: e.message }))
+                });
+            }
+            const clienteCanon = normalizeCatalogValue(clienteParam);
+            const row = await upsertClienteFacturacionConfig(clienteCanon, {
+                diaCorte: parsed.data.diaCorte,
+                reglaTipo: parsed.data.reglaTipo,
+                reglaDetalle: parsed.data.reglaDetalle ?? null,
+                horasBase: parsed.data.horasBase ?? null,
+                slaDiasVerde: parsed.data.slaDiasVerde,
+                slaDiasAmarillo: parsed.data.slaDiasAmarillo,
+                activo: parsed.data.activo !== undefined ? parsed.data.activo : true
+            });
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user?.sub),
+                actorRole: normalizeRoleOrNull(req.user?.role),
+                action: 'directorio.cliente_facturacion_config.upsert',
+                entityType: 'clientes_facturacion_config',
+                entityId: null,
+                metadata: { cliente: clienteCanon, reglaTipo: parsed.data.reglaTipo, diaCorte: parsed.data.diaCorte }
+            });
+            return res.json({ ok: true, item: row });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('PUT clientes-facturacion-config:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo guardar configuración' });
         }
     });
 

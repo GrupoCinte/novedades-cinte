@@ -25,6 +25,9 @@ function buildApp(deps = {}) {
         getConciliacionesDashboardResumenForScope:
             deps.getConciliacionesDashboardResumenForScope
             ?? (async () => ({ ok: true, clientesCount: 0, globalTotales: {}, rows: [] })),
+        getConciliacionesCierresProximosForScope:
+            deps.getConciliacionesCierresProximosForScope
+            ?? (async () => ({ ok: true, hoy: '2026-06-09', cierres: [] })),
         upsertConciliacionFacturacionForScope: deps.upsertConciliacionFacturacionForScope ?? stubAsync,
         upsertConciliacionFacturacionMasivaForScope: deps.upsertConciliacionFacturacionMasivaForScope ?? stubAsync,
         listConciliacionesFacturacionForScope: deps.listConciliacionesFacturacionForScope ?? (async () => [])
@@ -325,4 +328,38 @@ test('GET /api/conciliaciones/facturacion devuelve lista', async () => {
     assert.equal(res.body.ok, true);
     assert.equal(res.body.items.length, 1);
     assert.equal(res.body.items[0].proyecto, 'X');
+});
+
+test('GET /api/conciliaciones/cierres-proximos devuelve tarjetas', async () => {
+    const noAuth = (req, _res, next) => {
+        req.user = { role: 'super_admin', sub: 'x', email: 'qa@example.com' };
+        next();
+    };
+    const applyScope = (req, _res, next) => {
+        req.scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+        next();
+    };
+    const app = buildApp({
+        verificarToken: noAuth,
+        allowAnyPanel: () => (_r, _res, next) => next(),
+        applyScope,
+        getConciliacionesCierresProximosForScope: async () => ({
+            ok: true,
+            hoy: '2026-06-09',
+            cierres: [{
+                cliente: 'A',
+                configured: true,
+                diaCorte: 8,
+                conciliadosCount: 0,
+                totalConsultores: 2,
+                estados: { PENDIENTE: 2, ENVIADA: 0, DEVUELTA: 0, CONCILIADA: 0, RADICADA: 0 }
+            }]
+        })
+    });
+    const res = await request(app).get('/api/conciliaciones/cierres-proximos').query({ year: 2026, month: 6 });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.cierres.length, 1);
+    assert.equal(res.body.cierres[0].cliente, 'A');
+    assert.equal(res.body.cierres[0].estados.PENDIENTE, 2);
 });

@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LayoutDashboard } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { CalendarClock, Search } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
-import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import { nativeCalendarOnlyInputProps } from '../nativeCalendarOnlyInputProps.js';
+import { buildGestionTableDash, GESTION_SEARCH_FIELD_WIDTH } from '../gestionTableDashTheme.js';
+import ModuleFiltersToolbar from '../shared/filters/ModuleFiltersToolbar.jsx';
+import ModuleFiltersDrawer from '../shared/filters/ModuleFiltersDrawer.jsx';
 import ConciliacionesPageHeader from './components/ConciliacionesPageHeader.jsx';
+import ConciliacionesSlaTierResumen from './components/ConciliacionesSlaTierResumen.jsx';
+import ConciliacionesCierresTable from './components/ConciliacionesCierresTable.jsx';
 import { CONCILIACIONES_PAGE_MAIN, conciliacionesErrorBannerClass } from './conciliacionesLayout.js';
-import { fetchConciliacionesDashboardResumen } from './conciliacionesApi.js';
+import { fetchConciliacionesCierresProximos } from './conciliacionesApi.js';
+import { aggregateSlaTierCounts, cierreVisualState } from './conciliacionesCierreVisual.js';
 
 function currentMonthValue() {
     const d = new Date();
@@ -23,28 +27,36 @@ function parseMonthValue(v) {
     return { year: Number(m[1]), month: Number(m[2]) };
 }
 
-function formatCop(n) {
-    const x = Number(n) || 0;
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(x);
+function formatHoyEs(iso) {
+    const p = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+    if (!p) return '';
+    return `${Number(p[3])}/${Number(p[2])}/${p[1]}`;
 }
 
-function shortCliente(label) {
-    const s = String(label || '').trim();
-    if (s.length <= 14) return s;
-    return `${s.slice(0, 12)}…`;
+function foldCliente(s) {
+    return String(s || '')
+        .trim()
+        .toLocaleLowerCase('es')
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '');
 }
 
 export default function ConciliacionesDashboardPage({ token }) {
     const navigate = useNavigate();
     const mt = useModuleTheme();
-    const { isLight, headingAccent, labelMuted, field } = mt;
-
+    const { isLight, labelMuted, field } = mt;
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
 
     const [monthValue, setMonthValue] = useState(currentMonthValue);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [payload, setPayload] = useState(null);
+    const [search, setSearch] = useState('');
+    const [filterSlaTier, setFilterSlaTier] = useState('');
+    const [filterSoloSinConfig, setFilterSoloSinConfig] = useState(false);
+    const [filterSoloSlaAlert, setFilterSoloSlaAlert] = useState(false);
+    const [pageSize, setPageSize] = useState(20);
+    const [drawerOpen, setDrawerOpen] = useState(false);
 
     const ym = useMemo(() => parseMonthValue(monthValue), [monthValue]);
 
@@ -53,10 +65,10 @@ export default function ConciliacionesDashboardPage({ token }) {
         setLoading(true);
         setError('');
         try {
-            const data = await fetchConciliacionesDashboardResumen(token, { year: ym.year, month: ym.month });
+            const data = await fetchConciliacionesCierresProximos(token, { year: ym.year, month: ym.month });
             setPayload(data);
         } catch (e) {
-            setError(e.message || 'No se pudo cargar el dashboard');
+            setError(e.message || 'No se pudo cargar el dashboard de cierres');
             setPayload(null);
         } finally {
             setLoading(false);
@@ -67,139 +79,214 @@ export default function ConciliacionesDashboardPage({ token }) {
         load();
     }, [load]);
 
-    const chartData = useMemo(() => {
-        const rows = payload?.rows || [];
-        return [...rows]
-            .map((r) => ({
-                cliente: shortCliente(r.cliente),
-                clienteFull: r.cliente,
-                factura: Number(r.totales?.facturaSum) || 0,
-                deduccion: Number(r.totales?.deduccionSum) || 0
-            }))
-            .sort((a, b) => b.factura - a.factura || b.deduccion - a.deduccion)
-            .slice(0, 16);
-    }, [payload]);
+    const cierres = payload?.cierres || [];
+    const hoyLabel = formatHoyEs(payload?.hoy);
 
-    const gt = payload?.globalTotales;
+    const slaTierCounts = useMemo(() => aggregateSlaTierCounts(cierres), [cierres]);
+
+    const pendientesNombres = useMemo(() => {
+        return cierres
+            .filter((c) => c.configured && c.slaAlert)
+            .map((c) => c.cliente)
+            .slice(0, 8);
+    }, [cierres]);
+
+    const activeFilterCount = useMemo(() => {
+        let n = 0;
+        if (filterSoloSinConfig) n += 1;
+        if (filterSoloSlaAlert) n += 1;
+        if (pageSize !== 20) n += 1;
+        return n;
+    }, [filterSoloSinConfig, filterSoloSlaAlert, pageSize]);
+
+    const filteredCierres = useMemo(() => {
+        const q = foldCliente(search);
+        return cierres.filter((c) => {
+            const state = cierreVisualState(c);
+            if (filterSlaTier && state !== filterSlaTier) return false;
+            if (filterSoloSinConfig && state !== 'sinConfig') return false;
+            if (filterSoloSlaAlert && !c.slaAlert) return false;
+            if (q && !foldCliente(c.cliente).includes(q)) return false;
+            return true;
+        });
+    }, [cierres, search, filterSlaTier, filterSoloSinConfig, filterSoloSlaAlert]);
+
+    const handleVerConciliacion = useCallback(
+        (cierre) => {
+            if (!cierre?.cliente) return;
+            const q = new URLSearchParams({
+                cliente: cierre.cliente,
+                year: String(ym.year),
+                month: String(ym.month)
+            });
+            navigate(`/admin/conciliaciones/facturacion?${q}`);
+        },
+        [navigate, ym.year, ym.month]
+    );
+
+    const handleTierClick = useCallback((key) => {
+        setFilterSlaTier((cur) => (cur === key ? '' : key));
+    }, []);
+
+    const emptyText = cierres.length
+        ? 'Ningún cliente coincide con los filtros.'
+        : 'No hay clientes en el alcance.';
 
     return (
         <div className={CONCILIACIONES_PAGE_MAIN}>
             <ConciliacionesPageHeader
                 isLight={isLight}
-                icon={LayoutDashboard}
-                title="Dashboard de conciliaciones"
-                description="Vista consolidada por cliente para el mes seleccionado (tarifas, deducciones por novedades aprobadas y facturación neta). Abre el resumen detallado por colaborador desde la tabla."
+                title="Próximos cierres"
+                description="Panel operativo por fecha de corte y avance de conciliación"
+                icon={CalendarClock}
             >
-                <label className="flex w-full max-w-xs flex-col gap-1.5">
-                    <span className={`${dash.labelFilter} whitespace-nowrap`}>Mes</span>
-                    <input
-                        {...nativeCalendarOnlyInputProps}
-                        type="month"
-                        className={`${field} cinte-month-picker`}
-                        value={monthValue}
-                        onChange={(e) => setMonthValue(e.target.value)}
-                    />
-                </label>
+                <input
+                    type="month"
+                    className={`${field} max-w-[11rem]`}
+                    value={monthValue}
+                    onChange={(e) => setMonthValue(e.target.value)}
+                    {...nativeCalendarOnlyInputProps}
+                    aria-label="Mes de referencia del ciclo"
+                />
             </ConciliacionesPageHeader>
 
-            {error ? (
-                <div className={conciliacionesErrorBannerClass(isLight)}>{error}</div>
+            {error ? <div className={conciliacionesErrorBannerClass(isLight)}>{error}</div> : null}
+
+            {hoyLabel ? (
+                <div
+                    className={`mb-5 rounded-xl border px-4 py-3 text-sm ${
+                        isLight ? 'border-cyan-200 bg-cyan-50/80 text-slate-800' : 'border-cyan-500/25 bg-cyan-950/30 text-cyan-50'
+                    }`}
+                >
+                    <p className="font-semibold">Hoy es {hoyLabel}.</p>
+                    {pendientesNombres.length ? (
+                        <p className="mt-1 text-xs opacity-90">
+                            Tienes cierres que requieren atención para: {pendientesNombres.join(', ')}
+                            {pendientesNombres.length < cierres.filter((c) => c.slaAlert).length ? '…' : ''}
+                        </p>
+                    ) : (
+                        <p className="mt-1 text-xs opacity-80">No hay alertas SLA activas en este mes.</p>
+                    )}
+                </div>
             ) : null}
 
-            {loading ? <p className={`text-sm ${labelMuted}`}>Cargando indicadores…</p> : null}
+            <ConciliacionesSlaTierResumen
+                counts={slaTierCounts}
+                activeTier={filterSlaTier}
+                onTierClick={handleTierClick}
+                isLight={isLight}
+                loading={loading}
+            />
 
-            {!loading && !error && !gt ? (
-                <p className={`rounded-xl border px-4 py-3 text-sm ${isLight ? 'border-slate-200 bg-white text-slate-700' : 'border-slate-700 bg-[#1e293b] text-slate-300'}`}>
-                    No hay datos de conciliación para el mes seleccionado. Prueba otro mes o revisa que existan novedades aprobadas en ese periodo.
-                </p>
-            ) : null}
-
-            {!loading && gt ? (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                    {[
-                        { label: 'Clientes en alcance', value: String(payload?.clientesCount ?? 0) },
-                        { label: 'Suma tarifas', value: formatCop(gt.tarifaSum) },
-                        { label: 'Deducciones (aprobadas)', value: formatCop(gt.deduccionSum) },
-                        { label: 'Total facturación neta', value: formatCop(gt.facturaSum) }
-                    ].map(({ label, value }) => (
-                        <div key={label} className={`${dash.card} p-4`}>
-                            <p className={`text-[10px] font-heading font-bold uppercase tracking-wider ${labelMuted}`}>{label}</p>
-                            <p className={`mt-2 font-heading text-lg font-extrabold sm:text-xl ${headingAccent}`}>{value}</p>
+            {!loading ? (
+                <>
+                    <ModuleFiltersToolbar
+                        chipLabel={
+                            activeFilterCount > 0
+                                ? `${activeFilterCount} filtro${activeFilterCount !== 1 ? 's' : ''} activo${activeFilterCount !== 1 ? 's' : ''}`
+                                : 'Sin filtros'
+                        }
+                        filtersPanelOpen={drawerOpen}
+                        onToggleFilters={() => setDrawerOpen((o) => !o)}
+                        toggleId="conciliaciones-cierres-filtros-toggle"
+                        panelId="conciliaciones-cierres-filtros-panel"
+                        dash={dash}
+                    >
+                        <div className={`relative min-w-[200px] flex-1 ${GESTION_SEARCH_FIELD_WIDTH}`}>
+                            <Search
+                                className={`pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 ${
+                                    isLight ? 'text-slate-400' : 'text-slate-500'
+                                }`}
+                                aria-hidden
+                            />
+                            <input
+                                type="search"
+                                className={`${field} w-full pl-9`}
+                                placeholder="Buscar clientes"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                aria-label="Buscar clientes"
+                            />
                         </div>
-                    ))}
-                </div>
-            ) : null}
+                    </ModuleFiltersToolbar>
 
-            {!loading && chartData.length > 0 ? (
-                <div className={`${dash.card} p-4 sm:p-5`}>
-                    <h2 className={`mb-4 font-heading text-sm font-bold ${headingAccent}`}>Facturación neta por cliente</h2>
-                    <div className="h-[min(360px,50vh)] w-full min-h-[240px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 40 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke={isLight ? '#e2e8f0' : '#1a3a56'} />
-                                <XAxis dataKey="cliente" tick={{ fill: isLight ? '#475569' : '#94a3b8', fontSize: 10 }} interval={0} angle={-25} textAnchor="end" height={70} />
-                                <YAxis tick={{ fill: isLight ? '#475569' : '#94a3b8', fontSize: 10 }} tickFormatter={(v) => `${Math.round(v / 1_000_000)}M`} />
-                                <Tooltip
-                                    formatter={(value) => formatCop(value)}
-                                    labelFormatter={(_, pl) => (Array.isArray(pl) && pl[0]?.payload?.clienteFull ? String(pl[0].payload.clienteFull) : '')}
-                                    contentStyle={
-                                        isLight
-                                            ? { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8 }
-                                            : { background: '#0b1e30', border: '1px solid #1a3a56', borderRadius: 8, color: '#e2e8f0' }
-                                    }
+                    <ModuleFiltersDrawer
+                        open={drawerOpen}
+                        onClose={() => setDrawerOpen(false)}
+                        panelId="conciliaciones-cierres-filtros-panel"
+                        dash={dash}
+                        isLight={isLight}
+                    >
+                        <div className="flex flex-col gap-1.5">
+                            <label className={dash.filtrosDrawerLabel}>Opciones</label>
+                            <label
+                                className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm transition ${
+                                    isLight
+                                        ? 'border-slate-200 bg-slate-50 text-slate-800'
+                                        : 'border-slate-700/60 bg-slate-800/40 text-slate-200'
+                                }`}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={filterSoloSinConfig}
+                                    onChange={(e) => setFilterSoloSinConfig(e.target.checked)}
+                                    className="h-4 w-4 cursor-pointer rounded accent-[#2F7BB8]"
                                 />
-                                <Bar dataKey="factura" name="Factura neta" fill="#65BCF7" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
+                                <div>
+                                    <p className="font-semibold">Solo sin configurar</p>
+                                    <p className={`mt-0.5 text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                                        Clientes sin corte/regla en Directorio
+                                    </p>
+                                </div>
+                            </label>
+                            <label
+                                className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm transition ${
+                                    isLight
+                                        ? 'border-slate-200 bg-slate-50 text-slate-800'
+                                        : 'border-slate-700/60 bg-slate-800/40 text-slate-200'
+                                }`}
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={filterSoloSlaAlert}
+                                    onChange={(e) => setFilterSoloSlaAlert(e.target.checked)}
+                                    className="h-4 w-4 cursor-pointer rounded accent-[#2F7BB8]"
+                                />
+                                <div>
+                                    <p className="font-semibold">Solo con alerta SLA</p>
+                                    <p className={`mt-0.5 text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                                        Tier crítico con consultores pendientes
+                                    </p>
+                                </div>
+                            </label>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label className={dash.filtrosDrawerLabel}>Filas por página</label>
+                            <select
+                                value={pageSize}
+                                onChange={(e) => setPageSize(Number(e.target.value))}
+                                className={`${field} w-full cursor-pointer px-3 py-2.5 text-sm`}
+                            >
+                                <option value={10}>10 filas</option>
+                                <option value={20}>20 filas</option>
+                                <option value={50}>50 filas</option>
+                            </select>
+                        </div>
+                    </ModuleFiltersDrawer>
+                </>
             ) : null}
 
-            {!loading && payload?.rows?.length ? (
-                <div className={`${dash.cardFlex} overflow-hidden`}>
-                    <h2 className={`border-b px-4 py-3 font-heading text-sm font-bold ${dash.titleLg} ${dash.gestionHead}`}>Detalle por cliente</h2>
-                    <div className={dash.tableWrap}>
-                        <table className="w-full min-w-[640px] text-left text-sm">
-                            <thead className={dash.thead}>
-                                <tr>
-                                    <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Cliente</th>
-                                    <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Colaboradores</th>
-                                    <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Con novedad</th>
-                                    <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Tarifas</th>
-                                    <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Deducción</th>
-                                    <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Factura</th>
-                                    <th className="px-3 py-2" />
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {payload.rows.map((r) => (
-                                    <tr key={r.cliente} className={dash.trHover}>
-                                        <td className={dash.tdName}>{r.cliente}</td>
-                                        <td className={`${dash.tdCell} tabular-nums`}>{r.totales?.colaboradores ?? 0}</td>
-                                        <td className={`${dash.tdCell} tabular-nums`}>{r.totales?.conNovedad ?? 0}</td>
-                                        <td className={`${dash.tdCell} tabular-nums`}>{formatCop(r.totales?.tarifaSum)}</td>
-                                        <td className={`${dash.tdCell} tabular-nums`}>{formatCop(r.totales?.deduccionSum)}</td>
-                                        <td className={`${dash.tdCell} tabular-nums font-semibold`}>{formatCop(r.totales?.facturaSum)}</td>
-                                        <td className={`${dash.tdCell} text-right`}>
-                                            <button
-                                                type="button"
-                                                className={dash.actionBtn}
-                                                onClick={() =>
-                                                    navigate(`/admin/conciliaciones/resumen?cliente=${encodeURIComponent(r.cliente)}`)
-                                                }
-                                            >
-                                                Resumen
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            ) : !loading && !error ? (
-                <p className={`text-sm ${labelMuted}`}>No hay clientes en alcance para este usuario o no hay datos para el mes.</p>
-            ) : null}
+            {loading ? (
+                <p className={labelMuted}>Cargando cierres…</p>
+            ) : (
+                <ConciliacionesCierresTable
+                    rows={filteredCierres}
+                    isLight={isLight}
+                    pageSize={pageSize}
+                    onVerConciliacion={handleVerConciliacion}
+                    emptyText={emptyText}
+                />
+            )}
         </div>
     );
 }

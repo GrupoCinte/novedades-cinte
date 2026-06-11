@@ -646,6 +646,7 @@ const {
     getMallaNocturnoConfig,
     upsertMallaNocturnoConfig,
     ensureConciliacionesFacturacionTable,
+    ensureClientesFacturacionConfigTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     getColaboradorByCedula,
@@ -678,9 +679,13 @@ const {
     getConciliacionResumenTodosClientesMesForScope,
     listConciliacionNovedadesDetalleForScope,
     getConciliacionesDashboardResumenForScope,
+    getConciliacionesCierresProximosForScope,
     upsertConciliacionFacturacionForScope,
     upsertConciliacionFacturacionMasivaForScope,
-    listConciliacionesFacturacionForScope
+    listConciliacionesFacturacionForScope,
+    listClientesFacturacionConfig,
+    getClienteFacturacionConfig,
+    upsertClienteFacturacionConfig
 } = createDataLayer({
     pool,
     fs,
@@ -813,6 +818,9 @@ registerDirectorioRoutes({
     getMallaTurnoAprobacionStatus,
     getMallaNocturnoConfig,
     upsertMallaNocturnoConfig,
+    getClienteFacturacionConfig,
+    listClientesFacturacionConfig,
+    upsertClienteFacturacionConfig,
     getColaboradorByCedula
 });
 
@@ -826,6 +834,7 @@ registerConciliacionesRoutes({
     getConciliacionResumenTodosClientesMesForScope,
     listConciliacionNovedadesDetalleForScope,
     getConciliacionesDashboardResumenForScope,
+    getConciliacionesCierresProximosForScope,
     upsertConciliacionFacturacionForScope,
     upsertConciliacionFacturacionMasivaForScope,
     listConciliacionesFacturacionForScope
@@ -911,6 +920,7 @@ startServer({
     ensureMallaNocturnoConfigTable,
     ensureNovedadesMallaOrigenRefColumn,
     ensureConciliacionesFacturacionTable,
+    ensureClientesFacturacionConfigTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     PORT,

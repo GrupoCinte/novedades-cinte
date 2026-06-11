@@ -2,9 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { normalizeCedula } = require('../src/utils');
 const { canRoleViewType } = require('../src/rbac');
-const { 
+const {
     getConciliacionResumenPorClienteMes,
     getConciliacionResumenTodosClientesMes,
+    getConciliacionesCierresProximos,
     upsertConciliacionFacturacion,
     listConciliacionesFacturacion
 } = require('../src/conciliaciones/conciliacionesQueries');
@@ -246,4 +247,128 @@ test('upsertConciliacionFacturacionMasiva respeta cedulas opcionales del payload
     const upserts = queryArgs.filter((q) => String(q.sql).includes('INSERT INTO conciliaciones_facturacion'));
     assert.equal(upserts.length, 1);
     assert.equal(upserts[0].params[0], '222');
+});
+
+test('getConciliacionesCierresProximos sin config devuelve avance operativo con fallback mes calendario', async () => {
+    const pool = {
+        query: async (sql) => {
+            if (String(sql).includes('FROM novedades')) {
+                return { rows: [] };
+            }
+            if (String(sql).includes('FROM colaboradores')) {
+                return {
+                    rows: [
+                        {
+                            cedula: '12345678',
+                            nombre: 'Consultor A',
+                            cliente: 'Cliente X',
+                            tarifa_cliente: '5000',
+                            estado: 'PENDIENTE'
+                        },
+                        {
+                            cedula: '87654321',
+                            nombre: 'Consultor B',
+                            cliente: 'Cliente X',
+                            tarifa_cliente: '4000',
+                            estado: 'CONCILIADA'
+                        }
+                    ]
+                };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = {
+        pool,
+        normalizeCedula,
+        canRoleViewType,
+        getClientesList: async () => ['Cliente X'],
+        listScopedDistinctClientes: async () => ['Cliente X'],
+        listAssignedClientesForGpUserId: async () => [],
+        resolveGpInternalUserIdForScope: async () => null,
+        getClienteFacturacionConfig: async () => null,
+        listClientesFacturacionConfig: async () => []
+    };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+    const { hoy, cierres } = await getConciliacionesCierresProximos(deps, scope, 2026, 6);
+
+    assert.ok(hoy);
+    assert.equal(cierres.length, 1);
+    const card = cierres[0];
+    assert.equal(card.cliente, 'Cliente X');
+    assert.equal(card.configured, false);
+    assert.equal(card.totalConsultores, 2);
+    assert.equal(card.conciliadosCount, 1);
+    assert.equal(card.regla.tipo, 'MES_CALENDARIO');
+    assert.equal(card.periodo.start, '2026-06-01');
+    assert.equal(card.periodo.end, '2026-06-30');
+    assert.equal(card.slaAlert, false);
+    assert.equal(card.diaCorte, null);
+    assert.ok(card.estados);
+    assert.equal(card.estados.PENDIENTE + card.estados.CONCILIADA, card.totalConsultores);
+});
+
+test('getConciliacionesCierresProximos con config usa ciclo por dia_corte', async () => {
+    const pool = {
+        query: async (sql) => {
+            if (String(sql).includes('FROM novedades')) {
+                return { rows: [] };
+            }
+            if (String(sql).includes('FROM colaboradores')) {
+                return {
+                    rows: [
+                        {
+                            cedula: '12345678',
+                            nombre: 'Consultor A',
+                            cliente: 'BANCO POPULAR',
+                            tarifa_cliente: '5000',
+                            estado: 'PENDIENTE'
+                        }
+                    ]
+                };
+            }
+            return { rows: [] };
+        }
+    };
+    const configRow = {
+        cliente: 'BANCO POPULAR',
+        dia_corte: 8,
+        regla_tipo: 'CALENDARIO_30',
+        regla_detalle: null,
+        horas_base: null,
+        sla_dias_verde: 10,
+        sla_dias_amarillo: 5,
+        activo: true
+    };
+    const deps = {
+        pool,
+        normalizeCedula,
+        canRoleViewType,
+        getClientesList: async () => ['BANCO POPULAR'],
+        listScopedDistinctClientes: async () => ['BANCO POPULAR'],
+        listAssignedClientesForGpUserId: async () => [],
+        resolveGpInternalUserIdForScope: async () => null,
+        getClienteFacturacionConfig: async () => configRow,
+        listClientesFacturacionConfig: async () => [configRow]
+    };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+    const { cierres } = await getConciliacionesCierresProximos(deps, scope, 2026, 6);
+
+    assert.equal(cierres.length, 1);
+    const card = cierres[0];
+    assert.equal(card.configured, true);
+    assert.equal(card.diaCorte, 8);
+    assert.equal(card.regla.tipo, 'CALENDARIO_30');
+    assert.equal(card.periodo.start, '2026-05-09');
+    assert.equal(card.periodo.end, '2026-06-08');
+    assert.equal(card.slaDiasVerde, 10);
+    assert.equal(card.slaDiasAmarillo, 5);
+    const { computeSlaTier } = require('../src/conciliaciones/facturacionCalculo');
+    assert.equal(
+        card.slaTier,
+        computeSlaTier({ daysUntil: card.daysUntil, slaDiasVerde: 10, slaDiasAmarillo: 5 })
+    );
+    assert.ok(card.estados);
+    const estadosSum = Object.values(card.estados).reduce((a, n) => a + Number(n), 0);
+    assert.equal(estadosSum, card.totalConsultores);
 });

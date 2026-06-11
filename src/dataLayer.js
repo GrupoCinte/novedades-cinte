@@ -645,6 +645,130 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureClientesFacturacionConfigTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS clientes_facturacion_config (
+                    cliente TEXT PRIMARY KEY,
+                    dia_corte SMALLINT NOT NULL CHECK (dia_corte BETWEEN 1 AND 31),
+                    regla_tipo TEXT NOT NULL CHECK (regla_tipo IN (
+                        'HORAS_BASE', 'CALENDARIO_30', 'DIAS_HABILES', 'MES_CALENDARIO'
+                    )),
+                    regla_detalle TEXT NULL,
+                    horas_base NUMERIC(8,2) NULL,
+                    activo BOOLEAN NOT NULL DEFAULT TRUE,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Directorio] Permisos insuficientes para crear clientes_facturacion_config.');
+                return;
+            }
+            throw error;
+        }
+        try {
+            await pool.query(
+                'ALTER TABLE clientes_facturacion_config ADD COLUMN IF NOT EXISTS sla_dias_verde SMALLINT NOT NULL DEFAULT 10'
+            );
+            await pool.query(
+                'ALTER TABLE clientes_facturacion_config ADD COLUMN IF NOT EXISTS sla_dias_amarillo SMALLINT NOT NULL DEFAULT 5'
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Directorio] Permisos insuficientes para migrar columnas SLA en clientes_facturacion_config.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * @param {string} [clienteFilter]
+     * @returns {Promise<object[]>}
+     */
+    async function listClientesFacturacionConfig(clienteFilter) {
+        await ensureClientesFacturacionConfigTable();
+        const cf = String(clienteFilter || '').trim();
+        if (cf) {
+            const q = await pool.query(
+                `SELECT cliente, dia_corte, regla_tipo, regla_detalle, horas_base, sla_dias_verde, sla_dias_amarillo, activo, updated_at
+                 FROM clientes_facturacion_config
+                 WHERE lower(btrim(cliente)) = lower(btrim($1::text))`,
+                [cf]
+            );
+            return q.rows || [];
+        }
+        const q = await pool.query(
+            `SELECT cliente, dia_corte, regla_tipo, regla_detalle, horas_base, sla_dias_verde, sla_dias_amarillo, activo, updated_at
+             FROM clientes_facturacion_config
+             ORDER BY cliente ASC`
+        );
+        return q.rows || [];
+    }
+
+    /**
+     * @param {string} cliente
+     * @returns {Promise<object|null>}
+     */
+    async function getClienteFacturacionConfig(cliente) {
+        const rows = await listClientesFacturacionConfig(cliente);
+        return rows[0] || null;
+    }
+
+    /**
+     * @param {string} clienteCanon
+     * @param {{ diaCorte: number, reglaTipo: string, reglaDetalle?: string|null, horasBase?: number|null, slaDiasVerde?: number, slaDiasAmarillo?: number, activo?: boolean }} payload
+     */
+    async function upsertClienteFacturacionConfig(clienteCanon, payload) {
+        await ensureClientesFacturacionConfigTable();
+        const cliente = String(clienteCanon || '').trim();
+        if (!cliente) {
+            throw Object.assign(new Error('Cliente obligatorio'), { status: 400 });
+        }
+        const diaCorte = Number(payload.diaCorte);
+        const reglaTipo = String(payload.reglaTipo || '').trim();
+        const reglaDetalle =
+            payload.reglaDetalle === undefined || payload.reglaDetalle === null
+                ? null
+                : String(payload.reglaDetalle).trim();
+        const horasBase =
+            payload.horasBase === undefined || payload.horasBase === null
+                ? null
+                : Number(payload.horasBase);
+        const slaDiasVerde = Number(payload.slaDiasVerde ?? 10);
+        const slaDiasAmarillo = Number(payload.slaDiasAmarillo ?? 5);
+        const activo = payload.activo !== undefined ? Boolean(payload.activo) : true;
+
+        if (!Number.isInteger(slaDiasVerde) || slaDiasVerde < 0 || slaDiasVerde > 60) {
+            throw Object.assign(new Error('slaDiasVerde debe ser entero entre 0 y 60'), { status: 400 });
+        }
+        if (!Number.isInteger(slaDiasAmarillo) || slaDiasAmarillo < 0 || slaDiasAmarillo > 60) {
+            throw Object.assign(new Error('slaDiasAmarillo debe ser entero entre 0 y 60'), { status: 400 });
+        }
+        if (slaDiasVerde <= slaDiasAmarillo) {
+            throw Object.assign(new Error('slaDiasVerde debe ser mayor que slaDiasAmarillo'), { status: 400 });
+        }
+
+        const q = await pool.query(
+            `INSERT INTO clientes_facturacion_config
+                (cliente, dia_corte, regla_tipo, regla_detalle, horas_base, sla_dias_verde, sla_dias_amarillo, activo, updated_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+             ON CONFLICT (cliente) DO UPDATE SET
+                dia_corte = EXCLUDED.dia_corte,
+                regla_tipo = EXCLUDED.regla_tipo,
+                regla_detalle = EXCLUDED.regla_detalle,
+                horas_base = EXCLUDED.horas_base,
+                sla_dias_verde = EXCLUDED.sla_dias_verde,
+                sla_dias_amarillo = EXCLUDED.sla_dias_amarillo,
+                activo = EXCLUDED.activo,
+                updated_at = NOW()
+             RETURNING cliente, dia_corte, regla_tipo, regla_detalle, horas_base, sla_dias_verde, sla_dias_amarillo, activo, updated_at`,
+            [cliente, diaCorte, reglaTipo, reglaDetalle, horasBase, slaDiasVerde, slaDiasAmarillo, activo]
+        );
+        return q.rows[0];
+    }
+
     async function ensureConciliacionesFacturacionTable() {
         try {
             await pool.query(`
@@ -2208,7 +2332,9 @@ function createDataLayer(deps) {
         listAssignedClientesForGpUserId,
         resolveGpInternalUserIdForScope,
         normalizeCedula,
-        canRoleViewType
+        canRoleViewType,
+        getClienteFacturacionConfig,
+        listClientesFacturacionConfig
     };
 
     async function listConciliacionesClientesForScope(scope) {
@@ -2254,6 +2380,16 @@ function createDataLayer(deps) {
 
     async function getConciliacionesDashboardResumenForScope(scope, year, month) {
         const payload = await conciliacionesQueries.getConciliacionesDashboardResumen(
+            conciliacionesDeps,
+            scope,
+            year,
+            month
+        );
+        return { ok: true, ...payload };
+    }
+
+    async function getConciliacionesCierresProximosForScope(scope, year, month) {
+        const payload = await conciliacionesQueries.getConciliacionesCierresProximos(
             conciliacionesDeps,
             scope,
             year,
@@ -2308,6 +2444,10 @@ function createDataLayer(deps) {
         getMallaNocturnoConfig,
         upsertMallaNocturnoConfig,
         ensureConciliacionesFacturacionTable,
+        ensureClientesFacturacionConfigTable,
+        listClientesFacturacionConfig,
+        getClienteFacturacionConfig,
+        upsertClienteFacturacionConfig,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         getColaboradorByCedula,
@@ -2340,6 +2480,7 @@ function createDataLayer(deps) {
         getConciliacionResumenTodosClientesMesForScope,
         listConciliacionNovedadesDetalleForScope,
         getConciliacionesDashboardResumenForScope,
+        getConciliacionesCierresProximosForScope,
         upsertConciliacionFacturacionForScope,
         upsertConciliacionFacturacionMasivaForScope,
         listConciliacionesFacturacionForScope

@@ -34,6 +34,17 @@ export async function fetchConciliacionesClientes(token) {
     return Array.isArray(data.clientes) ? data.clientes : [];
 }
 
+export async function fetchConciliacionesCierresProximos(token, { year, month }) {
+    const q = new URLSearchParams({ year: String(year), month: String(month) });
+    const res = await fetch(`/api/conciliaciones/cierres-proximos?${q}`, {
+        headers: conciliacionesAuthHeaders(token),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar cierres'));
+    return data;
+}
+
 export async function fetchConciliacionesDashboardResumen(token, { year, month }) {
     const q = new URLSearchParams({ year: String(year), month: String(month) });
     const res = await fetch(`/api/conciliaciones/dashboard-resumen?${q}`, {
