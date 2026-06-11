@@ -20,6 +20,7 @@ export default function ConciliacionesAccionMasivaModal({
     const [fechaRadicacion, setFechaRadicacion] = useState('');
     const [motivoDevolucion, setMotivoDevolucion] = useState('');
     const [applyToFiltered, setApplyToFiltered] = useState(false);
+    const [observaciones, setObservaciones] = useState('');
     const [errorMsg, setErrorMsg] = useState('');
 
     const closeBtnRef = useRef(null);
@@ -33,6 +34,7 @@ export default function ConciliacionesAccionMasivaModal({
             setFechaRadicacion('');
             setMotivoDevolucion('');
             setApplyToFiltered(hasActiveFilters);
+            setObservaciones('');
             setErrorMsg('');
             setTimeout(() => {
                 if (closeBtnRef.current) closeBtnRef.current.focus();
@@ -73,6 +75,7 @@ export default function ConciliacionesAccionMasivaModal({
                 facturaFv: estado === 'RADICADA' || estado === 'ENVIADA' ? facturaFv : null,
                 fechaRadicacion: estado === 'RADICADA' || estado === 'ENVIADA' ? fechaRadicacion : null,
                 motivoDevolucion: estado === 'DEVUELTA' ? motivoDevolucion : null,
+                observaciones: observaciones ? String(observaciones).trim() : null,
                 applyToFiltered: Boolean(applyToFiltered && hasActiveFilters)
             });
             onClose();
@@ -200,6 +203,21 @@ export default function ConciliacionesAccionMasivaModal({
                                 />
                             </div>
                         )}
+
+                        <div className="flex flex-col gap-1.5 sm:col-span-2">
+                            <label htmlFor="masiva-observaciones" className={`text-xs font-bold ${dash.titleLg}`}>
+                                Observaciones <span className="font-normal text-slate-500">(Opcional)</span>
+                            </label>
+                            <textarea
+                                id="masiva-observaciones"
+                                rows="3"
+                                placeholder="Notas que se aplicarán a todos los colaboradores seleccionados"
+                                value={observaciones}
+                                onChange={(e) => setObservaciones(e.target.value)}
+                                maxLength={1000}
+                                className={`resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
+                            />
+                        </div>
                     </div>
 
                     </div>
