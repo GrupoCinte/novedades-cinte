@@ -279,6 +279,13 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
     }, [isInline, bubbleVisible]);
 
     useEffect(() => {
+        if (isInline && !sidebarExpanded) {
+            setBubbleVisible(false);
+            setBubbleFading(false);
+        }
+    }, [isInline, sidebarExpanded]);
+
+    useEffect(() => {
         setMessages((prev) => {
             const first = prev[0];
             if (!first || first.role !== 'bot' || first.id !== 0) return prev;
@@ -381,7 +388,7 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
         : 'border-r border-b border-blue-400/30 bg-[#0f172a]';
 
     const welcomeBubble =
-        isInline && bubbleVisible && !open ? (
+        isInline && sidebarExpanded && bubbleVisible && !open ? (
             <div
                 role="status"
                 aria-live="polite"

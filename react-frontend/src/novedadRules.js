@@ -127,7 +127,7 @@ export const NOVEDAD_RULES = {
     montoDiligenciadoPorAprobador: true
   },
   'Hora Extra': {
-    requiredDocuments: [],
+    requiredDocuments: ['Pantallazo, documento de aceptación o evidencia de aprobación de la HE'],
     formatLinks: [],
     approvers: ['gp'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
