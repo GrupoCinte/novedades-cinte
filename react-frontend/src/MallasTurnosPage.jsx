@@ -505,18 +505,28 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
             );
             return;
         }
+        const franjasConBorrador = franjas.filter(({ id }) => (draft[id] || []).length > 0);
+        if (franjasConBorrador.length === 0) {
+            setError('Añade al menos un colaborador en el panel de asignación');
+            return;
+        }
         const patches = [];
         for (const ymd of selected) {
-            for (const { id } of franjas) {
+            for (const { id } of franjasConBorrador) {
                 patches.push({
                     fecha: ymd,
                     franja: id,
                     cedulas: [...(draft[id] || [])],
+                    mode: 'merge',
                     ...nocturnoHorarioPatch
                 });
             }
         }
-        await runSave(patches);
+        const ok = await runSave(patches);
+        if (ok) {
+            setDraft(emptyFranjasRecord(franjas));
+            setSuccessMsg('Colaboradores agregados a los días seleccionados.');
+        }
     };
 
     const removeModalCedula = (franjaId, cedula) => {
@@ -576,6 +586,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
             fecha: ymd,
             franja: id,
             cedulas: [...(modalCedulasByFranja[id] || [])],
+            mode: 'replace',
             ...nocturnoHorarioPatch
         }));
         const ok = await runSave(patches, { clearSelectionAfter: false });
@@ -885,9 +896,9 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                         Horario del turno
                                     </p>
                                     <p id="nocturno-horario-hint" className={`text-xs ${labelMuted}`}>
-                                        Ajusta el horario, asigna colaboradores y guarda la malla. Puedes
-                                        cambiar el horario y volver a asignar cuantas veces necesites; cada
-                                        guardado conserva el horario vigente en ese momento.
+                                        El horario del picker aplica solo a la tanda que agregues ahora. La
+                                        plantilla guardada es el valor por defecto al abrir; no modifica
+                                        asignaciones ya cargadas en el calendario.
                                     </p>
                                     <div>
                                         <label htmlFor="nocturno-hora-inicio" className={`block text-xs ${labelMuted} mb-1`}>
@@ -1026,11 +1037,17 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                             <div className="flex flex-col gap-2 pt-1">
                                 <button
                                     type="button"
-                                    disabled={panelDisabled || saving || loadingCo || selected.size === 0}
+                                    disabled={
+                                        panelDisabled ||
+                                        saving ||
+                                        loadingCo ||
+                                        selected.size === 0 ||
+                                        !franjas.some(({ id }) => (draft[id] || []).length > 0)
+                                    }
                                     className={`w-full rounded-lg py-2 text-sm font-semibold bg-[#2F7BB8] text-white hover:bg-[#25649a] disabled:opacity-50 ${compactBtn}`}
                                     onClick={onApplyToSelected}
                                 >
-                                    {saving ? 'Guardando…' : 'Aplicar a días seleccionados'}
+                                    {saving ? 'Guardando…' : 'Agregar colaboradores a días seleccionados'}
                                 </button>
                                 <button
                                     type="button"

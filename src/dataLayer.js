@@ -896,8 +896,10 @@ function createDataLayer(deps) {
     }
 
     /**
-     * Reemplaza por completo cada (cliente, fecha, franja) según patches.
-     * @param {{ cliente: string, patches: Array<{ fecha: string, franja: string, cedulas: string[], horaInicio?: string, horaFin?: string }> }} payload
+     * Actualiza celdas (cliente, fecha, franja) según patches.
+     * mode `replace`: borra la celda y reinserta la lista (modal editar día).
+     * mode `merge`: agrega/actualiza cédulas sin borrar las demás (asignación masiva).
+     * @param {{ cliente: string, patches: Array<{ fecha: string, franja: string, cedulas: string[], horaInicio?: string, horaFin?: string, mode?: 'replace'|'merge' }> }} payload
      */
     async function upsertMallaTurnosCeldas({ cliente: clienteRaw, patches }) {
         const cliente = normalizeCatalogValue(clienteRaw);
@@ -911,6 +913,7 @@ function createDataLayer(deps) {
             for (const raw of list) {
                 const fecha = String(raw.fecha || '').trim();
                 const franja = String(raw.franja || '').trim();
+                const mode = raw.mode === 'merge' ? 'merge' : 'replace';
                 if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
                     throw Object.assign(new Error('Fecha inválida'), { status: 400 });
                 }
@@ -944,6 +947,67 @@ function createDataLayer(deps) {
                     horaInicio = built.horaInicio;
                     horaFin = built.horaFin;
                 }
+
+                if (mode === 'merge') {
+                    if (cedulas.length === 0) {
+                        continue;
+                    }
+                    const countQ = await dbClient.query(
+                        `SELECT cedula FROM malla_turno_asignacion
+                         WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
+                        [cliente, fecha, franja]
+                    );
+                    const existingCedulas = new Set(
+                        (countQ.rows || []).map((r) => String(r.cedula || ''))
+                    );
+                    const newCedulas = cedulas.filter((c) => !existingCedulas.has(c));
+                    if (existingCedulas.size + newCedulas.length > 10) {
+                        throw Object.assign(
+                            new Error('Máximo 10 personas por franja y día'),
+                            { status: 400 }
+                        );
+                    }
+                    let ordenBase = existingCedulas.size;
+                    for (const ced of cedulas) {
+                        const chk = await dbClient.query(
+                            `SELECT activo FROM colaboradores
+                             WHERE cedula = $1
+                               AND lower(trim(COALESCE(cliente, ''))) = lower(trim($2))
+                             LIMIT 1`,
+                            [ced, cliente]
+                        );
+                        if (!chk.rows[0]) {
+                            throw Object.assign(
+                                new Error('Colaborador no encontrado o no pertenece al cliente seleccionado'),
+                                { status: 400 }
+                            );
+                        }
+                        if (!chk.rows[0].activo) {
+                            throw Object.assign(
+                                new Error('El colaborador debe estar activo para asignarlo en la malla'),
+                                { status: 400 }
+                            );
+                        }
+                        const isNew = !existingCedulas.has(ced);
+                        const orden = isNew ? ordenBase++ : null;
+                        if (isNew) {
+                            await dbClient.query(
+                                `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, hora_inicio, hora_fin, updated_at)
+                                 VALUES ($1, $2::date, $3, $4, $5, $6::time, $7::time, NOW())`,
+                                [cliente, fecha, franja, ced, orden, horaInicio, horaFin]
+                            );
+                        } else if (horaInicio != null && horaFin != null) {
+                            await dbClient.query(
+                                `UPDATE malla_turno_asignacion
+                                 SET hora_inicio = $5::time, hora_fin = $6::time, updated_at = NOW()
+                                 WHERE cliente = $1 AND fecha = $2::date AND franja = $3 AND cedula = $4`,
+                                [cliente, fecha, franja, ced, horaInicio, horaFin]
+                            );
+                        }
+                    }
+                    continue;
+                }
+
                 await dbClient.query(
                     `DELETE FROM malla_turno_asignacion WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
                     [cliente, fecha, franja]

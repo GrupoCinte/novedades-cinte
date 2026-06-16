@@ -199,6 +199,7 @@ function registerDirectorioRoutes(deps) {
             }
         });
     const mallaHhMm = z.string().regex(/^\d{2}:\d{2}$/);
+    const mallaPatchModeEnum = z.enum(['replace', 'merge']);
     const mallasTurnosPutSchema = z.object({
         cliente: z.string().min(1).max(500),
         patches: z
@@ -209,7 +210,8 @@ function registerDirectorioRoutes(deps) {
                         franja: mallaTurnoFranjaEnum,
                         cedulas: z.array(z.string().min(5).max(24)).max(10),
                         horaInicio: mallaHhMm.optional(),
-                        horaFin: mallaHhMm.optional()
+                        horaFin: mallaHhMm.optional(),
+                        mode: mallaPatchModeEnum.optional()
                     })
                     .refine(
                         (p) =>
