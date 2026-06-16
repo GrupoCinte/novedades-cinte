@@ -2,13 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, PanelRightClose, PanelRightOpen, Trash2, X } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
 import { buildGestionTableDash } from './gestionTableDashTheme.js';
-import { authHeaders, fetchMallasTurnos, putMallasTurnos, fetchMallaAprobacionStatus, postMallaAprobar, fetchNocturnoConfig, putNocturnoConfig } from './mallasTurnosApi.js';
+import { authHeaders, fetchMallasTurnos, putMallasTurnos, fetchMallaAprobacionStatus, postMallaAprobar } from './mallasTurnosApi.js';
 import {
     DEFAULT_NOCTURNO_CONFIG,
-    clampNocturnoHhMm,
+    buildMallaTurnoPatch,
     formatCantidadHoras,
-    nocturnoFranjaFromConfig,
-    previewNocturnoHours
+    nocturnoFranjaDefFromHorario,
+    nocturnoFranjasFromMeshRow,
+    nocturnoVirtualFranjaId,
+    previewNocturnoHours,
+    resolveNocturnoHorarioPair
 } from './mallaNocturnoConfig.js';
 import { NocturnoTimePicker } from './NocturnoTimePicker.jsx';
 
@@ -18,8 +21,68 @@ export const FRANJAS_MALLAS = [
     { id: '22_06', label: '22:00–06:00' }
 ];
 
-function franjasForVariant(variant, nocturnoConfig) {
-    return variant === 'nocturnos' ? nocturnoFranjaFromConfig(nocturnoConfig) : FRANJAS_MALLAS;
+function buildMeshMap(items, variant) {
+    const map = {};
+    if (variant === 'nocturnos') {
+        for (const it of items || []) {
+            if (String(it.franja) !== '22_06') continue;
+            const { horaInicio, horaFin } = resolveNocturnoHorarioPair(it.horaInicio, it.horaFin);
+            const franjaId = nocturnoVirtualFranjaId(horaInicio, horaFin);
+            const ymd = it.fecha;
+            if (!map[ymd]) map[ymd] = {};
+            if (!map[ymd][franjaId]) map[ymd][franjaId] = [];
+            map[ymd][franjaId].push({
+                cedula: String(it.cedula),
+                nombre: String(it.nombre || ''),
+                codigo: it.codigo != null ? String(it.codigo) : null,
+                orden: Number(it.orden) || 0,
+                horaInicio,
+                horaFin
+            });
+        }
+        for (const ymd of Object.keys(map)) {
+            for (const franjaId of Object.keys(map[ymd])) {
+                map[ymd][franjaId].sort(
+                    (a, b) => a.orden - b.orden || a.cedula.localeCompare(b.cedula)
+                );
+            }
+        }
+        return map;
+    }
+
+    const ids = new Set(FRANJAS_MALLAS.map((f) => f.id));
+    for (const it of items || []) {
+        const franjaId = it.franja;
+        if (!ids.has(franjaId)) continue;
+        const ymd = it.fecha;
+        if (!map[ymd]) map[ymd] = emptyFranjasRecord(FRANJAS_MALLAS);
+        const arr = map[ymd][franjaId];
+        if (Array.isArray(arr)) {
+            arr.push({
+                cedula: String(it.cedula),
+                nombre: String(it.nombre || ''),
+                codigo: it.codigo != null ? String(it.codigo) : null,
+                orden: Number(it.orden) || 0,
+                horaInicio: it.horaInicio ? String(it.horaInicio) : null,
+                horaFin: it.horaFin ? String(it.horaFin) : null
+            });
+        }
+    }
+    for (const ymd of Object.keys(map)) {
+        for (const { id } of FRANJAS_MALLAS) {
+            map[ymd][id].sort((a, b) => a.orden - b.orden || a.cedula.localeCompare(b.cedula));
+        }
+    }
+    return map;
+}
+
+function dayHasAssignments(meshByYmd, ymd, variant) {
+    const row = meshByYmd[ymd];
+    if (!row) return false;
+    if (variant === 'nocturnos') {
+        return Object.values(row).some((arr) => (arr || []).length > 0);
+    }
+    return FRANJAS_MALLAS.some((f) => (row[f.id] || []).length > 0);
 }
 
 function variantDisplayLabel(variant) {
@@ -95,45 +158,6 @@ function displayNocturnoHorarioPerson(p) {
     return null;
 }
 
-function nocturnoHorarioPatchFromDraft(isNocturnos, draft, previewHours) {
-    if (!isNocturnos || previewHours == null) return {};
-    return { horaInicio: draft.horaInicio, horaFin: draft.horaFin };
-}
-
-function buildMeshMap(items, franjas) {
-    const ids = new Set(franjas.map((f) => f.id));
-    const map = {};
-    for (const it of items || []) {
-        const franjaId = it.franja;
-        if (!ids.has(franjaId)) continue;
-        const ymd = it.fecha;
-        if (!map[ymd]) map[ymd] = emptyFranjasRecord(franjas);
-        const arr = map[ymd][franjaId];
-        if (Array.isArray(arr)) {
-            arr.push({
-                cedula: String(it.cedula),
-                nombre: String(it.nombre || ''),
-                codigo: it.codigo != null ? String(it.codigo) : null,
-                orden: Number(it.orden) || 0,
-                horaInicio: it.horaInicio ? String(it.horaInicio) : null,
-                horaFin: it.horaFin ? String(it.horaFin) : null
-            });
-        }
-    }
-    for (const ymd of Object.keys(map)) {
-        for (const { id } of franjas) {
-            map[ymd][id].sort((a, b) => a.orden - b.orden || a.cedula.localeCompare(b.cedula));
-        }
-    }
-    return map;
-}
-
-function dayHasAssignments(meshByYmd, ymd, franjas) {
-    const row = meshByYmd[ymd];
-    if (!row) return false;
-    return franjas.some((f) => (row[f.id] || []).length > 0);
-}
-
 /** Datos de visualización para una cédula en el modal (malla actual o catálogo). */
 function personForModalCedula(meshRow, franjaId, cedula, colaboradores) {
     const ced = String(cedula);
@@ -164,18 +188,26 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
 
     const isNocturnos = variant === 'nocturnos';
 
-    const [nocturnoConfig, setNocturnoConfig] = useState(DEFAULT_NOCTURNO_CONFIG);
     const [nocturnoDraft, setNocturnoDraft] = useState({
         horaInicio: DEFAULT_NOCTURNO_CONFIG.horaInicio,
         horaFin: DEFAULT_NOCTURNO_CONFIG.horaFin
     });
-    const [loadingNocturnoConfig, setLoadingNocturnoConfig] = useState(false);
-    const [savingNocturnoHorario, setSavingNocturnoHorario] = useState(false);
 
-    const franjas = useMemo(
-        () => franjasForVariant(variant, nocturnoConfig),
-        [variant, nocturnoConfig]
-    );
+    const nocturnoPreviewHours = useMemo(() => {
+        if (!isNocturnos) return null;
+        return previewNocturnoHours(nocturnoDraft.horaInicio, nocturnoDraft.horaFin);
+    }, [isNocturnos, nocturnoDraft.horaInicio, nocturnoDraft.horaFin]);
+
+    const pickerFranja = useMemo(() => {
+        if (!isNocturnos) return null;
+        return nocturnoFranjaDefFromHorario(
+            nocturnoDraft.horaInicio,
+            nocturnoDraft.horaFin,
+            nocturnoPreviewHours
+        );
+    }, [isNocturnos, nocturnoDraft.horaInicio, nocturnoDraft.horaFin, nocturnoPreviewHours]);
+
+    const massAssignFranjas = isNocturnos && pickerFranja ? [pickerFranja] : FRANJAS_MALLAS;
 
     const [clienteSeleccionado, setClienteSeleccionado] = useState('');
     const [clientesOptions, setClientesOptions] = useState([]);
@@ -184,8 +216,10 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     const [currentMonth, setCurrentMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     const [meshByYmd, setMeshByYmd] = useState({});
     const [selected, setSelected] = useState(() => new Set());
-    const [draft, setDraft] = useState(() => emptyFranjasRecord(franjasForVariant('mallas')));
+    const [draft, setDraft] = useState(() => emptyFranjasRecord(FRANJAS_MALLAS));
     const [dayModalYmd, setDayModalYmd] = useState(null);
+    /** Franjas visibles en el modal del día (fijadas al abrir; no siguen el picker). */
+    const [modalFranjas, setModalFranjas] = useState([]);
     /** Copia editable de cédulas por franja mientras el modal del día está abierto. */
     const [modalCedulasByFranja, setModalCedulasByFranja] = useState(null);
     const [loadingMesh, setLoadingMesh] = useState(false);
@@ -202,16 +236,6 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     const canAprobarMalla =
         userRole === 'super_admin' || userRole === 'cac' || userRole === '';
     const hasCliente = Boolean(String(clienteSeleccionado || '').trim());
-
-    const nocturnoPreviewHours = useMemo(() => {
-        if (!isNocturnos) return null;
-        return previewNocturnoHours(nocturnoDraft.horaInicio, nocturnoDraft.horaFin);
-    }, [isNocturnos, nocturnoDraft.horaInicio, nocturnoDraft.horaFin]);
-
-    const nocturnoHorarioPatch = useMemo(
-        () => nocturnoHorarioPatchFromDraft(isNocturnos, nocturnoDraft, nocturnoPreviewHours),
-        [isNocturnos, nocturnoDraft, nocturnoPreviewHours]
-    );
 
     const monthLabel = useMemo(() => {
         return `${MESES[currentMonth.getMonth()]} ${currentMonth.getFullYear()}`;
@@ -254,60 +278,6 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
         }
     }, [token]);
 
-    const loadNocturnoConfig = useCallback(async () => {
-        if (!isNocturnos) return;
-        setLoadingNocturnoConfig(true);
-        try {
-            const data = await fetchNocturnoConfig(token);
-            const next = {
-                horaInicio: data.horaInicio,
-                horaFin: data.horaFin,
-                cantidadHoras: data.cantidadHoras,
-                label: data.label
-            };
-            setNocturnoConfig(next);
-            setNocturnoDraft({
-                horaInicio: clampNocturnoHhMm(next.horaInicio, DEFAULT_NOCTURNO_CONFIG.horaInicio),
-                horaFin: clampNocturnoHhMm(next.horaFin, DEFAULT_NOCTURNO_CONFIG.horaFin)
-            });
-        } catch (e) {
-            setError(e.message || 'No se pudo cargar el horario nocturno');
-        } finally {
-            setLoadingNocturnoConfig(false);
-        }
-    }, [isNocturnos, token]);
-
-    const saveNocturnoHorario = async () => {
-        if (nocturnoPreviewHours == null) {
-            setError('Horario nocturno inválido');
-            return;
-        }
-        setSavingNocturnoHorario(true);
-        setError('');
-        try {
-            const data = await putNocturnoConfig(token, {
-                horaInicio: nocturnoDraft.horaInicio,
-                horaFin: nocturnoDraft.horaFin
-            });
-            const next = {
-                horaInicio: data.horaInicio,
-                horaFin: data.horaFin,
-                cantidadHoras: data.cantidadHoras,
-                label: data.label
-            };
-            setNocturnoConfig(next);
-            setNocturnoDraft({
-                horaInicio: clampNocturnoHhMm(next.horaInicio, DEFAULT_NOCTURNO_CONFIG.horaInicio),
-                horaFin: clampNocturnoHhMm(next.horaFin, DEFAULT_NOCTURNO_CONFIG.horaFin)
-            });
-            setSuccessMsg('Horario nocturno guardado.');
-        } catch (e) {
-            setError(e.message || 'No se pudo guardar el horario nocturno');
-        } finally {
-            setSavingNocturnoHorario(false);
-        }
-    };
-
     const loadColaboradores = useCallback(async () => {
         const cli = String(clienteSeleccionado || '').trim();
         if (!cli) {
@@ -345,13 +315,13 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
         setError('');
         try {
             const data = await fetchMallasTurnos(token, cli, desde, hasta);
-            setMeshByYmd(buildMeshMap(data.items, franjas));
+            setMeshByYmd(buildMeshMap(data.items, variant));
         } catch (e) {
             setError(e.message || 'No se pudo cargar la malla');
         } finally {
             setLoadingMesh(false);
         }
-    }, [token, clienteSeleccionado, desde, hasta, franjas]);
+    }, [token, clienteSeleccionado, desde, hasta, variant]);
 
     const loadAprobacionStatus = useCallback(async () => {
         const cli = String(clienteSeleccionado || '').trim();
@@ -410,10 +380,6 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     }, [loadClientesCatalogo]);
 
     useEffect(() => {
-        loadNocturnoConfig();
-    }, [loadNocturnoConfig]);
-
-    useEffect(() => {
         loadColaboradores();
     }, [loadColaboradores]);
 
@@ -426,9 +392,13 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     }, [loadAprobacionStatus]);
 
     useEffect(() => {
-        setDraft(emptyFranjasRecord(franjas));
+        if (isNocturnos && pickerFranja) {
+            setDraft({ [pickerFranja.id]: [] });
+        } else {
+            setDraft(emptyFranjasRecord(FRANJAS_MALLAS));
+        }
         setSelected(new Set());
-    }, [clienteSeleccionado, franjas]);
+    }, [clienteSeleccionado, isNocturnos, pickerFranja?.id]);
 
     useEffect(() => {
         if (hasCliente) setAsignacionOpen(true);
@@ -437,15 +407,18 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     useEffect(() => {
         if (!dayModalYmd) {
             setModalCedulasByFranja(null);
+            setModalFranjas([]);
             return;
         }
-        const row = meshByYmd[dayModalYmd] || emptyFranjasRecord(franjas);
+        const row = meshByYmd[dayModalYmd] || {};
+        const bands = isNocturnos ? nocturnoFranjasFromMeshRow(row) : FRANJAS_MALLAS;
+        setModalFranjas(bands);
         const next = {};
-        for (const { id } of franjas) {
+        for (const { id } of bands) {
             next[id] = (row[id] || []).map((p) => String(p.cedula));
         }
         setModalCedulasByFranja(next);
-    }, [dayModalYmd, meshByYmd, franjas]);
+    }, [dayModalYmd, meshByYmd, isNocturnos]);
 
     const calendarCells = useMemo(() => {
         const y = currentMonth.getFullYear();
@@ -505,26 +478,25 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
             );
             return;
         }
-        const franjasConBorrador = franjas.filter(({ id }) => (draft[id] || []).length > 0);
-        if (franjasConBorrador.length === 0) {
+        const pickerId = pickerFranja?.id;
+        const cedulas = pickerId ? draft[pickerId] || [] : [];
+        if (cedulas.length === 0) {
             setError('Añade al menos un colaborador en el panel de asignación');
             return;
         }
         const patches = [];
         for (const ymd of selected) {
-            for (const { id } of franjasConBorrador) {
-                patches.push({
+            patches.push(
+                buildMallaTurnoPatch(pickerId, {
                     fecha: ymd,
-                    franja: id,
-                    cedulas: [...(draft[id] || [])],
-                    mode: 'merge',
-                    ...nocturnoHorarioPatch
-                });
-            }
+                    cedulas: [...cedulas],
+                    mode: 'merge'
+                })
+            );
         }
         const ok = await runSave(patches);
         if (ok) {
-            setDraft(emptyFranjasRecord(franjas));
+            setDraft({ [pickerId]: [] });
             setSuccessMsg('Colaboradores agregados a los días seleccionados.');
         }
     };
@@ -559,8 +531,8 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
 
     const modalHasChanges = useMemo(() => {
         if (!dayModalYmd || !modalCedulasByFranja) return false;
-        const row = meshByYmd[dayModalYmd] || emptyFranjasRecord(franjas);
-        for (const { id } of franjas) {
+        const row = meshByYmd[dayModalYmd] || {};
+        for (const { id } of modalFranjas) {
             const was = (row[id] || []).map((p) => String(p.cedula));
             const cur = modalCedulasByFranja[id] || [];
             if (was.length !== cur.length) return true;
@@ -569,26 +541,22 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
             }
         }
         return false;
-    }, [dayModalYmd, modalCedulasByFranja, meshByYmd, franjas]);
+    }, [dayModalYmd, modalCedulasByFranja, meshByYmd, modalFranjas]);
 
     const onSaveModalDay = async () => {
         const ymd = dayModalYmd;
         if (!ymd || !modalCedulasByFranja) return;
-        if (isNocturnos && nocturnoPreviewHours == null) {
-            setError('Define un horario nocturno válido antes de guardar el día');
-            return;
-        }
         if (!modalHasChanges) {
             setDayModalYmd(null);
             return;
         }
-        const patches = franjas.map(({ id }) => ({
-            fecha: ymd,
-            franja: id,
-            cedulas: [...(modalCedulasByFranja[id] || [])],
-            mode: 'replace',
-            ...nocturnoHorarioPatch
-        }));
+        const patches = modalFranjas.map(({ id }) =>
+            buildMallaTurnoPatch(id, {
+                fecha: ymd,
+                cedulas: [...(modalCedulasByFranja[id] || [])],
+                mode: 'replace'
+            })
+        );
         const ok = await runSave(patches, { clearSelectionAfter: false });
         if (ok) setDayModalYmd(null);
     };
@@ -615,7 +583,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
 
     const weekHeader = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 
-    const modalRow = dayModalYmd ? meshByYmd[dayModalYmd] || emptyFranjasRecord(franjas) : emptyFranjasRecord(franjas);
+    const modalRow = dayModalYmd ? meshByYmd[dayModalYmd] || {} : {};
     const modalInSelected = dayModalYmd ? selected.has(dayModalYmd) : false;
     const calendarRowCount = useMemo(() => Math.ceil(calendarCells.length / 7), [calendarCells]);
     const calendarRowMin = isNocturnos ? '6.5rem' : '4.5rem';
@@ -774,8 +742,11 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                 const isToday = ymd === todayYmd;
                                 const dow = cell.getDay();
                                 const isFestivo = festivosSet.has(ymd);
-                                const row = meshByYmd[ymd] || emptyFranjasRecord(franjas);
-                                const hasData = dayHasAssignments(meshByYmd, ymd, franjas);
+                                const row = meshByYmd[ymd] || (isNocturnos ? {} : emptyFranjasRecord(FRANJAS_MALLAS));
+                                const hasData = dayHasAssignments(meshByYmd, ymd, variant);
+                                const dayFranjas = isNocturnos
+                                    ? nocturnoFranjasFromMeshRow(row)
+                                    : FRANJAS_MALLAS;
                                 const cellSelectedClass = isSel
                                     ? 'border-[#2F7BB8] bg-[#2F7BB8]/15 ring-inset ring-1 ring-[#2F7BB8]/40'
                                     : `border-transparent hover:border-[#2F7BB8]/35 ${tableSurface}`;
@@ -827,18 +798,26 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                             ) : null}
                                         </span>
                                         <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-                                            {franjas.map((f) => {
+                                            {isNocturnos && dayFranjas.length === 0 ? (
+                                                <div
+                                                    className={`truncate rounded px-0.5 py-0.5 text-[9px] ${labelMuted} opacity-60`}
+                                                >
+                                                    —
+                                                </div>
+                                            ) : null}
+                                            {(isNocturnos ? dayFranjas : FRANJAS_MALLAS).map((f) => {
                                                 const people = row[f.id] || [];
-                                                if (people.length === 0) {
+                                                if (!isNocturnos && people.length === 0) {
                                                     return (
                                                         <div
                                                             key={f.id}
                                                             className={`truncate rounded px-0.5 py-0.5 text-[9px] ${labelMuted} opacity-60`}
                                                         >
-                                                            {isNocturnos ? '—' : `${f.label.slice(0, 5)} —`}
+                                                            {`${f.label.slice(0, 5)} —`}
                                                         </div>
                                                     );
                                                 }
+                                                if (people.length === 0) return null;
                                                 const first = people[0];
                                                 const bg = hslForCedula(first.cedula, isLight);
                                                 const fg = textColorForCedula(first.cedula, isLight);
@@ -859,7 +838,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                                         key={f.id}
                                                         className="truncate rounded px-0.5 py-0.5 text-[9px] font-semibold"
                                                         style={{ backgroundColor: bg, color: fg }}
-                                                        title={horarioTip}
+                                                        title={isNocturnos ? `${f.label} · ${horarioTip}` : horarioTip}
                                                     >
                                                         {label}
                                                         {extra}
@@ -893,12 +872,12 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                             {isNocturnos ? (
                                 <div className={`space-y-3 border-b pb-3 mb-1 ${borderSubtle}`}>
                                     <p className={`text-xs font-semibold ${headingAccent}`}>
-                                        Horario del turno
+                                        Horario de la asignación
                                     </p>
                                     <p id="nocturno-horario-hint" className={`text-xs ${labelMuted}`}>
-                                        El horario del picker aplica solo a la tanda que agregues ahora. La
-                                        plantilla guardada es el valor por defecto al abrir; no modifica
-                                        asignaciones ya cargadas en el calendario.
+                                        Elige inicio y fin; al agregar colaboradores a los días seleccionados
+                                        se guardará cada uno con este horario. No hace falta un paso aparte
+                                        para guardar el horario.
                                     </p>
                                     <div>
                                         <label htmlFor="nocturno-hora-inicio" className={`block text-xs ${labelMuted} mb-1`}>
@@ -912,7 +891,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                             onChange={(horaInicio) =>
                                                 setNocturnoDraft((d) => ({ ...d, horaInicio }))
                                             }
-                                            disabled={loadingNocturnoConfig || savingNocturnoHorario}
+                                            disabled={saving}
                                             fieldClassName={field}
                                             ariaDescribedBy="nocturno-horario-hint"
                                         />
@@ -929,7 +908,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                             onChange={(horaFin) =>
                                                 setNocturnoDraft((d) => ({ ...d, horaFin }))
                                             }
-                                            disabled={loadingNocturnoConfig || savingNocturnoHorario}
+                                            disabled={saving}
                                             fieldClassName={field}
                                             ariaDescribedBy="nocturno-horario-hint"
                                         />
@@ -947,40 +926,25 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                             value={formatCantidadHoras(nocturnoPreviewHours)}
                                         />
                                     </div>
-                                    <button
-                                        type="button"
-                                        className={`w-full ${dash.btnPrimaryCinte} disabled:opacity-50`}
-                                        disabled={
-                                            loadingNocturnoConfig ||
-                                            savingNocturnoHorario ||
-                                            nocturnoPreviewHours == null
-                                        }
-                                        onClick={saveNocturnoHorario}
-                                    >
-                                        {savingNocturnoHorario ? 'Guardando…' : 'Guardar plantilla de horario'}
-                                    </button>
                                     {nocturnoPreviewHours != null ? (
                                         <p className={`text-xs ${labelMuted}`}>
-                                            Plantilla actual:{' '}
+                                            Franja seleccionada:{' '}
                                             <span className={headingAccent}>
                                                 {nocturnoDraft.horaInicio}–{nocturnoDraft.horaFin} (
                                                 {formatCantidadHoras(nocturnoPreviewHours)})
                                             </span>
                                         </p>
-                                    ) : null}
-                                    {nocturnoConfig.horaInicio !== nocturnoDraft.horaInicio ||
-                                    nocturnoConfig.horaFin !== nocturnoDraft.horaFin ? (
-                                        <p className={`text-xs ${labelMuted}`}>
-                                            Última plantilla guardada:{' '}
-                                            <span className={headingAccent}>{nocturnoConfig.label}</span>
+                                    ) : (
+                                        <p className={`text-xs text-amber-600 dark:text-amber-400`}>
+                                            Ajusta inicio y fin a un turno nocturno válido antes de asignar.
                                         </p>
-                                    ) : null}
+                                    )}
                                 </div>
                             ) : null}
                             <p className={`text-xs ${labelMuted}`}>
                                 Días en masivo: <strong className={headingAccent}>{selected.size}</strong>
                             </p>
-                            {franjas.map((f) => (
+                            {massAssignFranjas.map((f) => (
                                 <div key={f.id} className="space-y-1">
                                     <label className={`block text-xs font-semibold ${headingAccent}`}>
                                         {f.label}
@@ -1042,7 +1006,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                         saving ||
                                         loadingCo ||
                                         selected.size === 0 ||
-                                        !franjas.some(({ id }) => (draft[id] || []).length > 0)
+                                        !massAssignFranjas.some(({ id }) => (draft[id] || []).length > 0)
                                     }
                                     className={`w-full rounded-lg py-2 text-sm font-semibold bg-[#2F7BB8] text-white hover:bg-[#25649a] disabled:opacity-50 ${compactBtn}`}
                                     onClick={onApplyToSelected}
@@ -1183,7 +1147,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                 {!modalCedulasByFranja ? (
                                     <p className={`text-sm ${labelMuted}`}>Cargando…</p>
                                 ) : (
-                                    franjas.map((f) => {
+                                    modalFranjas.map((f) => {
                                         const cedulas = modalCedulasByFranja[f.id] || [];
                                         return (
                                             <div key={f.id} className={`rounded-lg border ${borderSubtle} p-3`}>

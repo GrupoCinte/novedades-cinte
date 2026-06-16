@@ -948,26 +948,47 @@ function createDataLayer(deps) {
                     horaFin = built.horaFin;
                 }
 
+                const nocturnoBand =
+                    franja === '22_06' && horaInicio != null && horaFin != null;
+
                 if (mode === 'merge') {
                     if (cedulas.length === 0) {
                         continue;
                     }
+                    const bandParams = nocturnoBand
+                        ? [cliente, fecha, franja, horaInicio, horaFin]
+                        : [cliente, fecha, franja];
+                    const bandWhere = nocturnoBand
+                        ? `cliente = $1 AND fecha = $2::date AND franja = $3
+                           AND hora_inicio IS NOT DISTINCT FROM $4::time
+                           AND hora_fin IS NOT DISTINCT FROM $5::time`
+                        : 'cliente = $1 AND fecha = $2::date AND franja = $3';
                     const countQ = await dbClient.query(
-                        `SELECT cedula FROM malla_turno_asignacion
-                         WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
-                        [cliente, fecha, franja]
+                        `SELECT cedula FROM malla_turno_asignacion WHERE ${bandWhere}`,
+                        bandParams
                     );
-                    const existingCedulas = new Set(
+                    const existingInBand = new Set(
                         (countQ.rows || []).map((r) => String(r.cedula || ''))
                     );
-                    const newCedulas = cedulas.filter((c) => !existingCedulas.has(c));
-                    if (existingCedulas.size + newCedulas.length > 10) {
+                    let existingAllFranja = existingInBand;
+                    if (nocturnoBand) {
+                        const allQ = await dbClient.query(
+                            `SELECT cedula FROM malla_turno_asignacion
+                             WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
+                            [cliente, fecha, franja]
+                        );
+                        existingAllFranja = new Set(
+                            (allQ.rows || []).map((r) => String(r.cedula || ''))
+                        );
+                    }
+                    const newCedulas = cedulas.filter((c) => !existingInBand.has(c));
+                    if (existingInBand.size + newCedulas.length > 10) {
                         throw Object.assign(
                             new Error('Máximo 10 personas por franja y día'),
                             { status: 400 }
                         );
                     }
-                    let ordenBase = existingCedulas.size;
+                    let ordenBase = existingInBand.size;
                     for (const ced of cedulas) {
                         const chk = await dbClient.query(
                             `SELECT activo FROM colaboradores
@@ -988,7 +1009,13 @@ function createDataLayer(deps) {
                                 { status: 400 }
                             );
                         }
-                        const isNew = !existingCedulas.has(ced);
+                        if (nocturnoBand && existingAllFranja.has(ced) && !existingInBand.has(ced)) {
+                            throw Object.assign(
+                                new Error('Colaborador ya asignado en otro horario este día'),
+                                { status: 400 }
+                            );
+                        }
+                        const isNew = !existingInBand.has(ced);
                         const orden = isNew ? ordenBase++ : null;
                         if (isNew) {
                             await dbClient.query(
@@ -997,21 +1024,38 @@ function createDataLayer(deps) {
                                 [cliente, fecha, franja, ced, orden, horaInicio, horaFin]
                             );
                         } else if (horaInicio != null && horaFin != null) {
+                            const updateWhere = nocturnoBand
+                                ? `cliente = $1 AND fecha = $2::date AND franja = $3 AND cedula = $4
+                                   AND hora_inicio IS NOT DISTINCT FROM $5::time
+                                   AND hora_fin IS NOT DISTINCT FROM $6::time`
+                                : 'cliente = $1 AND fecha = $2::date AND franja = $3 AND cedula = $4';
                             await dbClient.query(
                                 `UPDATE malla_turno_asignacion
                                  SET hora_inicio = $5::time, hora_fin = $6::time, updated_at = NOW()
-                                 WHERE cliente = $1 AND fecha = $2::date AND franja = $3 AND cedula = $4`,
-                                [cliente, fecha, franja, ced, horaInicio, horaFin]
+                                 WHERE ${updateWhere}`,
+                                nocturnoBand
+                                    ? [cliente, fecha, franja, ced, horaInicio, horaFin]
+                                    : [cliente, fecha, franja, ced, horaInicio, horaFin]
                             );
                         }
                     }
                     continue;
                 }
 
-                await dbClient.query(
-                    `DELETE FROM malla_turno_asignacion WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
-                    [cliente, fecha, franja]
-                );
+                if (nocturnoBand) {
+                    await dbClient.query(
+                        `DELETE FROM malla_turno_asignacion
+                         WHERE cliente = $1 AND fecha = $2::date AND franja = $3
+                           AND hora_inicio IS NOT DISTINCT FROM $4::time
+                           AND hora_fin IS NOT DISTINCT FROM $5::time`,
+                        [cliente, fecha, franja, horaInicio, horaFin]
+                    );
+                } else {
+                    await dbClient.query(
+                        `DELETE FROM malla_turno_asignacion WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
+                        [cliente, fecha, franja]
+                    );
+                }
                 let orden = 0;
                 for (const ced of cedulas) {
                     const chk = await dbClient.query(

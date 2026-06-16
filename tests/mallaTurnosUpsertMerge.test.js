@@ -166,3 +166,98 @@ test('upsertMallaTurnosCeldas merge rechaza más de 10 personas por franja', asy
         (err) => err.status === 400 && /10 personas/i.test(err.message)
     );
 });
+
+test('upsertMallaTurnosCeldas replace nocturno borra solo la banda horaria indicada', async () => {
+    const pool = buildConnectPool(colaboradorActivoResponder());
+    const layer = buildLayer(pool);
+
+    await layer.upsertMallaTurnosCeldas({
+        cliente: 'Cliente Demo',
+        patches: [
+            {
+                fecha: '2026-06-10',
+                franja: '22_06',
+                cedulas: ['3333333333'],
+                horaInicio: '20:00',
+                horaFin: '04:00'
+            }
+        ]
+    });
+
+    const deletes = pool.calls.filter((c) => /DELETE FROM malla_turno_asignacion/i.test(c.text));
+    assert.equal(deletes.length, 1);
+    assert.match(deletes[0].text, /hora_inicio IS NOT DISTINCT/i);
+    assert.equal(deletes[0].params[3], '20:00');
+    assert.equal(deletes[0].params[4], '04:00');
+});
+
+test('upsertMallaTurnosCeldas merge nocturno inserta en banda distinta sin borrar otras', async () => {
+    const pool = buildConnectPool(async (text) => {
+        if (/FROM colaboradores/i.test(text)) {
+            return { rows: [{ activo: true }] };
+        }
+        if (/FROM malla_turno_asignacion/i.test(text) && /SELECT cedula/i.test(text)) {
+            if (/hora_inicio IS NOT DISTINCT/i.test(text)) {
+                return { rows: [] };
+            }
+            return { rows: [{ cedula: '111' }] };
+        }
+        return { rows: [] };
+    });
+    const layer = buildLayer(pool);
+
+    await layer.upsertMallaTurnosCeldas({
+        cliente: 'Cliente Demo',
+        patches: [
+            {
+                fecha: '2026-06-10',
+                franja: '22_06',
+                cedulas: ['2222222222'],
+                horaInicio: '20:00',
+                horaFin: '04:00',
+                mode: 'merge'
+            }
+        ]
+    });
+
+    const deletes = pool.calls.filter((c) => /DELETE FROM malla_turno_asignacion/i.test(c.text));
+    assert.equal(deletes.length, 0);
+    const inserts = pool.calls.filter((c) => /INSERT INTO malla_turno_asignacion/i.test(c.text));
+    assert.equal(inserts.length, 1);
+    assert.equal(inserts[0].params[5], '20:00');
+    assert.equal(inserts[0].params[6], '04:00');
+});
+
+test('upsertMallaTurnosCeldas merge nocturno rechaza cédula ya asignada en otra banda', async () => {
+    const pool = buildConnectPool(async (text) => {
+        if (/FROM colaboradores/i.test(text)) {
+            return { rows: [{ activo: true }] };
+        }
+        if (/FROM malla_turno_asignacion/i.test(text) && /SELECT cedula/i.test(text)) {
+            if (/hora_inicio IS NOT DISTINCT/i.test(text)) {
+                return { rows: [] };
+            }
+            return { rows: [{ cedula: '111' }] };
+        }
+        return { rows: [] };
+    });
+    const layer = buildLayer(pool);
+
+    await assert.rejects(
+        () =>
+            layer.upsertMallaTurnosCeldas({
+                cliente: 'Cliente Demo',
+                patches: [
+                    {
+                        fecha: '2026-06-10',
+                        franja: '22_06',
+                        cedulas: ['111'],
+                        horaInicio: '20:00',
+                        horaFin: '04:00',
+                        mode: 'merge'
+                    }
+                ]
+            }),
+        (err) => err.status === 400 && /otro horario/i.test(err.message)
+    );
+});
