@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { X, RefreshCw } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash, GESTION_TOOLBAR_PRIMARY_BTN, withNovedadesTabShellAliases } from '../gestionTableDashTheme.js';
 import { CONCILIACIONES_FACTURACION_PAGE, CONCILIACIONES_FACTURACION_SHELL } from './conciliacionesLayout.js';
@@ -374,17 +374,30 @@ export default function ConciliacionesFacturacionPage({ token }) {
                 onNovedadesChange={setFNovedades}
                 onResetFilters={handleResetFilters}
                 trailingActions={
-                    shouldShowFacturacionAccionGrupal(isTodosClientes) ? (
-                        <button
-                            type="button"
-                            onClick={() => setMasivaOpen(true)}
-                            disabled={rows.length === 0}
-                            className={GESTION_TOOLBAR_PRIMARY_BTN}
-                            title="Acción grupal"
-                        >
-                            Acción grupal
-                        </button>
-                    ) : null
+                    <>
+                        {hasActiveFilters ? (
+                            <button
+                                type="button"
+                                onClick={handleResetFilters}
+                                className={`${dash.borrarFiltros} inline-flex items-center gap-1.5`}
+                                title="Limpiar filtros"
+                            >
+                                <RefreshCw size={14} aria-hidden />
+                                <span className="hidden sm:inline">Limpiar</span>
+                            </button>
+                        ) : null}
+                        {shouldShowFacturacionAccionGrupal(isTodosClientes) ? (
+                            <button
+                                type="button"
+                                onClick={() => setMasivaOpen(true)}
+                                disabled={rows.length === 0}
+                                className={GESTION_TOOLBAR_PRIMARY_BTN}
+                                title="Acción grupal"
+                            >
+                                Acción grupal
+                            </button>
+                        ) : null}
+                    </>
                 }
                 />
 
