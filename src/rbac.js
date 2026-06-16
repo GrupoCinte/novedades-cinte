@@ -93,7 +93,7 @@ const NOVELTY_RULES = {
     },
     hora_extra: {
         displayName: 'Hora Extra',
-        requiredMinSupports: 0,
+        requiredMinSupports: 1,
         approvers: ['gp'],
         viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina']
     },
