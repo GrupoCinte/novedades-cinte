@@ -976,6 +976,12 @@ function registerDirectorioRoutes(deps) {
                         error: 'Ya existe un registro de reubicación para esta cédula.'
                     });
                 }
+                if (String(e?.code) === '23503') {
+                    return res.status(400).json({
+                        ok: false,
+                        error: 'La cédula ingresada no pertenece a ningún colaborador registrado en el directorio.'
+                    });
+                }
                 throw e;
             }
             const joined = await pool.query(
