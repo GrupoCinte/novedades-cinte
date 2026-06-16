@@ -36,6 +36,7 @@ const {
     isAllowedLicenciasSort,
     isAllowedExtranjerosSort
 } = require('./onboardingListSort');
+const { normalizeColabTextPatch } = require('./chTextNormalize');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -514,7 +515,8 @@ function registerOnboardingRoutes(deps) {
             });
         }
         try {
-            const updated = await updateColaboradorByCedula(cedula, parsed.data);
+            const patch = normalizeColabTextPatch(parsed.data);
+            const updated = await updateColaboradorByCedula(cedula, patch);
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
@@ -524,7 +526,7 @@ function registerOnboardingRoutes(deps) {
                 action: 'colaboradores.patch_onboarding',
                 entityType: 'colaboradores',
                 entityId: null,
-                metadata: { cedula, patch: parsed.data }
+                metadata: { cedula, patch }
             });
             return res.json({ ok: true, item: updated });
         } catch (e) {
@@ -565,14 +567,15 @@ function registerOnboardingRoutes(deps) {
             if (existsQ.rows.length > 0) {
                 return res.status(409).json({ ok: false, error: 'Ya existe un colaborador con esa cédula.' });
             }
-            const tipoPersonal = parsed.data.tipo_personal || 'consultor';
+            const normalizedCreate = normalizeColabTextPatch(parsed.data);
+            const tipoPersonal = normalizedCreate.tipo_personal || 'consultor';
             await pool.query(
                 `INSERT INTO colaboradores (cedula, nombre, activo, tipo_personal, created_at, updated_at)
                  VALUES ($1, $2, TRUE, $3, NOW(), NOW())`,
-                [cedula, parsed.data.nombre, tipoPersonal]
+                [cedula, normalizedCreate.nombre, tipoPersonal]
             );
             // Resto de campos (cliente, líder, extendidos) vía el mismo helper del PATCH.
-            const { cedula: _omit, nombre: _n, ...rest } = parsed.data;
+            const { cedula: _omit, nombre: _n, ...rest } = normalizedCreate;
             const updated = await updateColaboradorByCedula(cedula, rest);
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -1107,7 +1110,11 @@ function registerOnboardingRoutes(deps) {
             if (filters.q) {
                 params.push(`%${String(filters.q).toLowerCase()}%`);
                 where.push(`(LOWER(p.cedula) LIKE $${p} OR LOWER(COALESCE(c.nombre, '')) LIKE $${p})`);
-                p
+                p += 1;
+            }
+            if (filters.cliente_proyecto) {
+                params.push(`%${String(filters.cliente_proyecto).toLowerCase()}%`);
+                where.push(`LOWER(COALESCE(p.cliente
 00).json({ ok: false, error: e.message });
             }
         };
