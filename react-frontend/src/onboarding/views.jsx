@@ -167,6 +167,7 @@ export function PersonalView({
     }, [isBajas, token]);
 
     const isProximos = endpointKey === 'listProximos';
+    const isPersonalActivo = tipoPersonal === 'consultor' && activo === 'true' && !endpointKey;
 
     const params = useMemo(() => {
         const p = {
@@ -223,7 +224,20 @@ export function PersonalView({
         return <TipoPersonalBadge value={r.tipo_personal} isLight={isLight} />;
     };
 
-    const columns = [
+    const columns = isPersonalActivo
+        ? [
+              { key: 'cedula', label: 'Cédula' },
+              { key: 'nombre', label: 'Nombre' },
+              { key: 'cliente', label: 'Cliente' },
+              { key: 'fecha_ingreso', label: 'F. inicio', render: (r) => fmtFecha(r.fecha_ingreso) },
+              { key: 'fecha_termino', label: 'F. término', render: (r) => fmtFecha(r.fecha_termino) },
+              { key: 'tipo_contrato', label: 'Tipo contrato' },
+              {
+                  key: 'descriptivo_puesto_sig',
+                  label: 'Cargo Cinte'
+              }
+          ]
+        : [
         { key: 'cedula', label: 'Cédula' },
         { key: 'nombre', label: 'Nombre' },
         { key: 'tipo_personal', label: 'Tipo', render: renderTipoPersonal },
