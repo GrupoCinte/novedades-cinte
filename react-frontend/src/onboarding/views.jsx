@@ -16,7 +16,8 @@ import { Plus } from 'lucide-react';
 import { onboardingApi } from './api.js';
 import { getOnboardingPermissions } from './onboardingAccess.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
-import GestionDataTable from './GestionDataTable.jsx';
+import SortableGestionDataTable from './SortableGestionDataTable.jsx';
+import { PERSONAL_DEFAULT_SORT, toggleSort } from './onboardingSortDefaults.js';
 import OnboardingFiltersBar, { buildChipLabel } from './OnboardingFiltersBar.jsx';
 import OnboardingFiltersDrawer, {
     drawerFieldCls,
@@ -62,6 +63,7 @@ export function fmtMoney(v) {
     return n.toLocaleString('es-CO', { maximumFractionDigits: 2 });
 }
 
+
 /** Para reusar fuera (filtros de Bajas). */
 export const TIPO_PERSONAL_OPTIONS = [
     { value: 'consultor', label: 'Consultor' },
@@ -105,6 +107,7 @@ export function PersonalView({
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(50);
+    const [sort, setSort] = useState(PERSONAL_DEFAULT_SORT);
     const [selectedCedula, setSelectedCedula] = useState(null);
     const [creando, setCreando] = useState(false);
     const [filters, setFilters] = useState({});
@@ -163,8 +166,15 @@ export function PersonalView({
         };
     }, [isBajas, token]);
 
+    const isProximos = endpointKey === 'listProximos';
+
     const params = useMemo(() => {
-        const p = { limit: pageSize, offset: page * pageSize };
+        const p = {
+            limit: pageSize,
+            offset: page * pageSize,
+            sort: sort.key,
+            dir: sort.dir
+        };
         if (tipoPersonal) p.tipo_personal = tipoPersonal;
         if (activo) p.activo = activo;
         if (search) p.q = search;
@@ -173,7 +183,12 @@ export function PersonalView({
             if (v !== undefined && v !== '' && v !== null) p[k] = v;
         }
         return p;
-    }, [pageSize, page, tipoPersonal, activo, search, filters, hideEmpleadorFilter]);
+    }, [pageSize, page, sort, tipoPersonal, activo, search, filters, hideEmpleadorFilter]);
+
+    const handleSort = useCallback((columnKey) => {
+        setSort((cur) => toggleSort(cur, columnKey));
+        setPage(0);
+    }, []);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -202,8 +217,6 @@ export function PersonalView({
         load();
     }, [load]);
 
-    const isProximos = endpointKey === 'listProximos';
-
     const renderTipoPersonal = (r) => {
         if (tipoPersonal === 'sena') return <TipoPersonalBadge isLight={isLight} fixedLabel="SENA" value="sena" />;
         if (tipoPersonal === 'staff') return <TipoPersonalBadge isLight={isLight} fixedLabel="Staff" value="staff" />;
@@ -223,11 +236,13 @@ export function PersonalView({
                   {
                       key: '_dias_para_ingresar',
                       label: 'Días para ingresar',
+                      sortable: false,
                       render: (r) => <DiasIngresoBadge dias={diasParaIngresar(r.fecha_ingreso)} isLight={isLight} />
                   },
                   {
                       key: 'estado',
                       label: 'Estado',
+                      sortable: false,
                       render: (r) => (
                           <ColaboradorEstadoBadge
                               activo={r.activo}
@@ -334,10 +349,12 @@ export function PersonalView({
                 </div>
             ) : null}
 
-            <GestionDataTable
+            <SortableGestionDataTable
                 columns={columns}
                 rows={rows}
                 isLight={isLight}
+                sort={sort}
+                onSort={handleSort}
                 emptyText={loading ? 'Cargando…' : 'Sin colaboradores en este filtro.'}
                 onRowClick={(r) => {
                     if (r && r.cedula) setSelectedCedula(String(r.cedula));

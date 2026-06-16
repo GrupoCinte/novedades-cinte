@@ -27,6 +27,7 @@ import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import OnboardingListView from './onboarding/OnboardingListView.jsx';
+import { EXTRANJEROS_DEFAULT_SORT, LICENCIAS_DEFAULT_SORT } from './onboarding/onboardingSortDefaults.js';
 import {
     PersonalView,
     CalculadoraView,
@@ -232,6 +233,7 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                         title="Licencias maternidad / paternidad / lactancia"
                         subtitle="Reemplazo de hoja PREGNANCY del Excel."
                         isLight={isLight}
+                        defaultSort={LICENCIAS_DEFAULT_SORT}
                         fetcher={(params) => onboardingApi.listLicencias(token, params)}
                         searchPlaceholder="Buscar cédula / nombre..."
                         emptyText="Sin licencias registradas para este filtro."
@@ -298,6 +300,7 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                         title="Documentos extranjeros"
                         subtitle="SIRE / RUTEC / PPT con alertas de vencimiento."
                         isLight={isLight}
+                        defaultSort={EXTRANJEROS_DEFAULT_SORT}
                         fetcher={(params) => onboardingApi.listExtranjeros(token, params)}
                         searchPlaceholder="Buscar cédula / nombre..."
                         emptyText="Sin documentos para este filtro."
