@@ -15,7 +15,8 @@ import {
     Globe,
     Radio,
     LineChart,
-    CalendarPlus
+    CalendarPlus,
+    Ban
 } from 'lucide-react';
 import { onboardingApi } from './onboarding/api.js';
 import { userHasOnboardingPanel } from './onboarding/onboardingAccess.js';
@@ -25,6 +26,7 @@ import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import OnboardingListView from './onboarding/OnboardingListView.jsx';
+import CancelacionesView from './onboarding/CancelacionesView.jsx';
 import { EXTRANJEROS_DEFAULT_SORT, LICENCIAS_DEFAULT_SORT } from './onboarding/onboardingSortDefaults.js';
 import {
     PersonalView,
@@ -71,6 +73,7 @@ const NAV_GROUPS = [
             { id: 'licencias', label: 'Licencias', icon: Baby },
             { id: 'calculadora', label: 'Calculadora', icon: Calculator },
             { id: 'extranjeros', label: 'Extranjeros', icon: Globe },
+            { id: 'cancelaciones', label: 'Cancelaciones / eliminaciones', icon: Ban }
         ]
     }
 ];
@@ -343,6 +346,8 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                         ]}
                     />
                 );
+            case 'cancelaciones':
+                return <CancelacionesView auth={auth} isLight={isLight} />;
             default:
                 return null;
         }
