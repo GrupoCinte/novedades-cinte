@@ -67,7 +67,7 @@ test('computeMallaRecargoPayload 14_22 día hábil genera 3h recargo nocturno', 
     assert.equal(payload.horasDiurnas, 0);
     assert.equal(payload.horasNocturnas, 0);
     assert.equal(payload.cantidadHoras, 3);
-    assert.equal(payload.tipoHoraExtra, 'Nocturna');
+    assert.equal(payload.tipoHoraExtra, 'Recargo nocturno');
 });
 
 test('computeMallaRecargoPayload 22_06 día hábil genera 8h recargo nocturno', () => {
@@ -93,7 +93,7 @@ test('split 06_14 produce 8h diurnas en día hábil (HE manual sin cambios)', ()
 test('resolveMallaRecargoLabel mixta con recargo nocturno y dominical', () => {
     assert.equal(
         resolveMallaRecargoLabel({ horasRecargoNocturno: 3, horasRecargoDomingoDiurnas: 5, horasRecargoDomingoNocturnas: 0 }),
-        'Mixta'
+        'Recargos mixtos'
     );
 });
 

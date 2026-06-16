@@ -141,7 +141,8 @@ function toClientNovedad(row) {
         fechaVotacion: pgDateToYmd(row.fecha_votacion),
         unidad: row.unidad != null ? String(row.unidad).trim() : '',
         observaciones: decodePossiblyMisencodedText(String(row.observaciones || '')),
-        observacionesRechazo: decodePossiblyMisencodedText(String(row.observaciones_rechazo || ''))
+        observacionesRechazo: decodePossiblyMisencodedText(String(row.observaciones_rechazo || '')),
+        mallaOrigenRef: row.malla_origen_ref ? String(row.malla_origen_ref) : null
     };
 }
 

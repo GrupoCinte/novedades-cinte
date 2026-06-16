@@ -1,9 +1,17 @@
 'use strict';
 
-const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
+const { computeHoraExtraSplitBogota } = require('./heBogotaSplit');
 
 function round2(n) {
     return Number(Number(n || 0).toFixed(2));
+}
+
+/**
+ * @param {{ mallaOrigenRef?: string|null }} it
+ * @returns {boolean}
+ */
+function isMallaOrigenNovedad(it) {
+    return Boolean(String(it?.mallaOrigenRef || '').trim());
 }
 
 /**
@@ -15,12 +23,12 @@ function resolveMallaRecargoLabel(payload) {
     const n = Number(payload?.horasRecargoNocturno || 0);
     const d = Number(payload?.horasRecargoDomingoDiurnas || 0);
     const dn = Number(payload?.horasRecargoDomingoNocturnas || 0);
-    if (d > 0 || dn > 0) {
-        if (n > 0) return 'Mixta';
-        return resolveHoraExtraLabel(0, 0, d, dn) || 'Diurna';
-    }
-    if (n > 0) return 'Nocturna';
-    return null;
+    const kinds = [d > 0, dn > 0, n > 0].filter(Boolean).length;
+    if (kinds === 0) return null;
+    if (kinds > 1) return 'Recargos mixtos';
+    if (n > 0) return 'Recargo nocturno';
+    if (d > 0) return 'Recargo dominical diurno';
+    return 'Recargo dominical nocturno';
 }
 
 /**
@@ -88,5 +96,6 @@ function computeMallaRecargoPayload(startMs, endMs, festivosSet) {
 
 module.exports = {
     computeMallaRecargoPayload,
-    resolveMallaRecargoLabel
+    resolveMallaRecargoLabel,
+    isMallaOrigenNovedad
 };

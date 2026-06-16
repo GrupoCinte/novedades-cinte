@@ -31,6 +31,7 @@ const {
     buildSyntheticHoraExtraRow,
     isYmdEnVentanaCompensatorio
 } = require('./heDomingoCompensacion');
+const { isMallaOrigenNovedad } = require('./mallaRecargoSplit');
 const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
 const festivosService = require('./festivosService');
 const { decodePossiblyMisencodedText } = require('./novedadesMapper');
@@ -72,6 +73,7 @@ function itemIsHoraExtraTipo(it) {
 function formatTipoNovedadParaExportExcel(it) {
     const tipo = String(it?.tipoNovedad || '').trim();
     if (!itemIsHoraExtraTipo(it)) return tipo;
+    const fromMalla = isMallaOrigenNovedad(it);
     const partes = [];
     const hd = Number(it?.horasDiurnas || 0);
     const hn = Number(it?.horasNocturnas || 0);
@@ -79,27 +81,33 @@ function formatTipoNovedadParaExportExcel(it) {
     const rdn = Number(it?.horasRecargoDomingoNocturnas || 0);
     const rTot = Number(it?.horasRecargoDomingo || 0);
     const rn = Number(it?.horasRecargoNocturno || 0);
-    if (hd > 0) partes.push('Hora Diurna');
-    if (hn > 0) partes.push('Hora Nocturna');
+    if (!fromMalla) {
+        if (hd > 0) partes.push('Hora Diurna');
+        if (hn > 0) partes.push('Hora Nocturna');
+    }
     if (rn > 0) partes.push('Recargo nocturno');
     if (rdd > 0) partes.push('Recargo dominical diurno');
     if (rdn > 0) partes.push('Recargo dominical nocturno');
     if (rTot > 0 && rdd === 0 && rdn === 0) partes.push('Recargo dominical');
     if (partes.length === 0) {
         const raw = String(it?.tipoHoraExtra || '').trim();
-        const fold = raw
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .toLowerCase();
-        if (fold === 'diurna') partes.push('Hora Diurna');
-        else if (fold === 'nocturna') partes.push('Hora Nocturna');
-        else if (fold === 'mixta') {
-            partes.push('Hora Diurna', 'Hora Nocturna');
-        } else if (raw) partes.push(raw);
+        if (fromMalla) {
+            if (raw) partes.push(raw);
+        } else {
+            const fold = raw
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase();
+            if (fold === 'diurna') partes.push('Hora Diurna');
+            else if (fold === 'nocturna') partes.push('Hora Nocturna');
+            else if (fold === 'mixta') {
+                partes.push('Hora Diurna', 'Hora Nocturna');
+            } else if (raw) partes.push(raw);
+        }
     }
     let base;
-    if (partes.length === 0) base = tipo || 'Hora Extra';
-    else base = `Hora Extra / ${partes.join(', ')}`;
+    if (partes.length === 0) base = fromMalla ? 'Recargo' : tipo || 'Hora Extra';
+    else base = `${fromMalla ? 'Recargo' : 'Hora Extra'} / ${partes.join(', ')}`;
     const suf = formatHeDomingoCompTipoSuffix(String(it?.heDomingoObservacion || ''));
     return suf ? base + suf : base;
 }

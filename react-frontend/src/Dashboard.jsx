@@ -791,7 +791,8 @@ export default function Dashboard({ token, auth, onLogout }) {
             estado: it.estado || 'Pendiente',
             heDomingoObservacion: it.heDomingoObservacion || '',
             observaciones: it.observaciones || '',
-            soporteRuta: sopRuta
+            soporteRuta: sopRuta,
+            mallaOrigenRef: it.mallaOrigenRef || ''
         };
     };
 
@@ -3064,7 +3065,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 ) : null}
                                             </div>
                                         )}
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {!gestionDetailItem.mallaOrigenRef ? (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div
                                                 className={
                                                     isLight
@@ -3149,6 +3151,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     {Number(gestionDetailItem.horasNocturnas ?? 0)}h
                                                 </span>
                                             </div>
+                                        </div>
+                                        ) : null}
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                             <div
                                                 className={
                                                     isLight

@@ -1840,6 +1840,7 @@ function createDataLayer(deps) {
                 nov.he_domingo_observacion,
                 nov.observaciones,
                 nov.observaciones_rechazo,
+                nov.malla_origen_ref,
                 COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
                 COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
              FROM novedades nov
