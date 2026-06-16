@@ -20,6 +20,7 @@
 const { z } = require('zod');
 const { COLABORADORES_EXTENDED_KEYS } = require('../colaboradores/colaboradoresExtendedColumns');
 const { applyLegacyEmergencyParse } = require('../contratacion/extractorToFichaMap');
+const { normalizeChListText, normalizeColabTextPatch } = require('./chTextNormalize');
 
 /** Estados terminales de n8n que disparan el upsert real a `colaboradores`. */
 const TERMINAL_STATUSES = new Set([
@@ -85,6 +86,21 @@ function trimOrNull(value, maxLen = 1000) {
     const s = String(value).trim();
     if (!s) return null;
     return s.length > maxLen ? s.slice(0, maxLen) : s;
+}
+
+function normalizePromotionTextFields(payload) {
+    if (!payload || typeof payload !== 'object') return payload;
+    const out = { ...payload };
+    for (const key of ['nombre', 'cliente', 'puesto', 'descriptivo_puesto_sig', 'nombres', 'primer_apellido', 'segundo_apellido']) {
+        if (out[key] != null) out[key] = normalizeChListText(out[key]);
+    }
+    if (out.extended && typeof out.extended === 'object') {
+        out.extended = { ...out.extended };
+        for (const key of ['nombre', 'cliente', 'puesto', 'descriptivo_puesto_sig']) {
+            if (out.extended[key] != null) out.extended[key] = normalizeChListText(out.extended[key]);
+        }
+    }
+    return out;
 }
 
 function parseDateOrNull(value) {
@@ -313,7 +329,7 @@ function mapDynamoItemForPromotion(rawItem) {
 
     const merged = applyLegacyEmergencyParse({ ...r, ...extended });
 
-    return {
+    return normalizePromotionTextFields({
         cedula,
         nombre: nombreFull,
         nombres: trimOrNull(merged.nombres) || nombres,
@@ -336,7 +352,7 @@ function mapDynamoItemForPromotion(rawItem) {
         dynamo_external_id: whatsappNumber || trimOrNull(r.id) || trimOrNull(r.execution_id) || null,
         extended,
         __raw: r
-    };
+    });
 }
 
 /**
@@ -599,19 +615,20 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 return { ok: false, status: 'requiere_revision', stagingId, error: err };
             }
 
-            const cedulaInsertada = await upsertColaborador(client, validated, {
+            const normalizedValidated = normalizePromotionTextFields(validated);
+            const cedulaInsertada = await upsertColaborador(client, normalizedValidated, {
                 source,
                 tipoPersonal: meta.tipoPersonal
             });
 
-            const extPayload = {
+            const extPayload = normalizeColabTextPatch({
                 cedula: cedulaInsertada,
-                ...(validated.extended && typeof validated.extended === 'object' ? validated.extended : {}),
-                email_personal: validated.email_personal,
-                codigo: validated.codigo,
-                tipo_contrato: validated.tipo_contrato,
-                esquema_contrato: validated.esquema_contrato
-            };
+                ...(normalizedValidated.extended && typeof normalizedValidated.extended === 'object' ? normalizedValidated.extended : {}),
+                email_personal: normalizedValidated.email_personal,
+                codigo: normalizedValidated.codigo,
+                tipo_contrato: normalizedValidated.tipo_contrato,
+                esquema_contrato: normalizedValidated.esquema_contrato
+            });
             if (validated.fecha_ingreso) {
                 extPayload.fecha_ingreso = validated.fecha_ingreso;
             }
@@ -665,7 +682,7 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 return { ok: false, status: 'requiere_revision', stagingId, error: 'cedula vacía o no numérica' };
             }
 
-            const nombreVal = trimOrNull(extendedPayload.nombre) || 'SIN NOMBRE';
+            const nombreVal = normalizeChListText(trimOrNull(extendedPayload.nombre) || 'SIN NOMBRE');
             const activo = opts.activo !== undefined ? Boolean(opts.activo) : true;
             const tp = opts.tipoPersonal || extendedPayload.tipo_personal || 'consultor';
 

@@ -63,6 +63,9 @@ export function fmtMoney(v) {
     return n.toLocaleString('es-CO', { maximumFractionDigits: 2 });
 }
 
+function chUpper(value) {
+    return String(value || '').toUpperCase();
+}
 
 /** Para reusar fuera (filtros de Bajas). */
 export const TIPO_PERSONAL_OPTIONS = [
@@ -227,22 +230,23 @@ export function PersonalView({
     const columns = isPersonalActivo
         ? [
               { key: 'cedula', label: 'Cédula' },
-              { key: 'nombre', label: 'Nombre' },
-              { key: 'cliente', label: 'Cliente' },
+              { key: 'nombre', label: 'Nombre', render: (r) => chUpper(r.nombre) },
+              { key: 'cliente', label: 'Cliente', render: (r) => chUpper(r.cliente) },
               { key: 'fecha_ingreso', label: 'F. inicio', render: (r) => fmtFecha(r.fecha_ingreso) },
               { key: 'fecha_termino', label: 'F. término', render: (r) => fmtFecha(r.fecha_termino) },
               { key: 'tipo_contrato', label: 'Tipo contrato' },
               {
                   key: 'descriptivo_puesto_sig',
-                  label: 'Cargo Cinte'
+                  label: 'Cargo Cinte',
+                  render: (r) => chUpper(r.descriptivo_puesto_sig)
               }
           ]
         : [
         { key: 'cedula', label: 'Cédula' },
-        { key: 'nombre', label: 'Nombre' },
+        { key: 'nombre', label: 'Nombre', render: (r) => chUpper(r.nombre) },
         { key: 'tipo_personal', label: 'Tipo', render: renderTipoPersonal },
-        { key: 'cliente', label: 'Cliente' },
-        { key: 'puesto', label: 'Puesto' },
+        { key: 'cliente', label: 'Cliente', render: (r) => chUpper(r.cliente) },
+        { key: 'puesto', label: 'Puesto', render: (r) => chUpper(r.puesto) },
         { key: 'pais', label: 'País' },
         { key: 'fecha_ingreso', label: 'F. ingreso', render: (r) => fmtFecha(r.fecha_ingreso) },
         ...(isProximos
