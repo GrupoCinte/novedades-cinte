@@ -13,8 +13,6 @@ import {
     Baby,
     Calculator,
     Globe,
-    Plane,
-    BookOpen,
     Radio,
     LineChart,
     CalendarPlus
@@ -33,16 +31,12 @@ import {
     CalculadoraView,
     OnboardingAnalyticsPanel,
     StatusBadge,
-    fmtFecha,
-    fmtMoney
+    fmtFecha
 } from './onboarding/views.jsx';
 import {
     LicenciaTipoBadge,
     LicenciaEstadoBadge,
-    PolizaEstadoBadge,
-    VencimientoDocBadge,
-    MonedaBadge,
-    AreaFinanciaBadge
+    VencimientoDocBadge
 } from './onboarding/onboardingBadges.jsx';
 import { ContratacionDashboard } from './ContratacionModule.jsx';
 
@@ -77,8 +71,6 @@ const NAV_GROUPS = [
             { id: 'licencias', label: 'Licencias', icon: Baby },
             { id: 'calculadora', label: 'Calculadora', icon: Calculator },
             { id: 'extranjeros', label: 'Extranjeros', icon: Globe },
-            { id: 'polizas', label: 'Pólizas', icon: Plane },
-            { id: 'capacitaciones', label: 'Capacitaciones', icon: BookOpen }
         ]
     }
 ];
@@ -347,94 +339,6 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                                 key: 'vigencia_renovar',
                                 label: 'Renovar',
                                 render: (r) => <VencimientoDocBadge fecha={r.vigencia_renovar} isLight={isLight} />
-                            }
-                        ]}
-                    />
-                );
-            case 'polizas':
-                return (
-                    <OnboardingListView
-                        title="Pólizas internacionales"
-                        subtitle="Viajes con cobertura activa."
-                        isLight={isLight}
-                        fetcher={(params) => onboardingApi.listPolizas(token, params)}
-                        searchPlaceholder="Buscar cédula / nombre..."
-                        emptyText="Sin pólizas registradas para este filtro."
-                        filtersConfig={[
-                            { id: 'cliente_proyecto', paramKey: 'cliente_proyecto', label: 'Cliente / proyecto (contiene)', type: 'text' },
-                            {
-                                id: 'estado',
-                                paramKey: 'estado',
-                                label: 'Estado',
-                                type: 'select',
-                                options: [
-                                    { value: 'Activa', label: 'Activa' },
-                                    { value: 'Cerrada', label: 'Cerrada' },
-                                    { value: 'Cancelada', label: 'Cancelada' }
-                                ],
-                                summaryFormatter: (v) => `Estado: ${v}`
-                            },
-                            { id: 'destino', paramKey: 'destino', label: 'Destino (contiene)', type: 'text' },
-                            {
-                                id: 'salida',
-                                paramKeys: { desde: 'salida_desde', hasta: 'salida_hasta' },
-                                label: 'Rango fecha de salida',
-                                type: 'date-range'
-                            }
-                        ]}
-                        columns={[
-                            { key: 'cedula', label: 'Cédula' },
-                            { key: 'nombre', label: 'Nombre' },
-                            { key: 'cliente_proyecto', label: 'Cliente/Proyecto' },
-                            { key: 'ciudad_pais_viaje', label: 'Destino' },
-                            { key: 'fecha_salida', label: 'Salida', render: (r) => fmtFecha(r.fecha_salida) },
-                            { key: 'fecha_retorno', label: 'Retorno', render: (r) => fmtFecha(r.fecha_retorno) },
-                            { key: 'numero_poliza', label: 'No. póliza' },
-                            {
-                                key: 'estado',
-                                label: 'Estado',
-                                render: (r) => <PolizaEstadoBadge value={r.estado} isLight={isLight} />
-                            }
-                        ]}
-                    />
-                );
-            case 'capacitaciones':
-                return (
-                    <OnboardingListView
-                        title="Capacitaciones"
-                        subtitle="Cursos financiados con cliente / área."
-                        isLight={isLight}
-                        fetcher={(params) => onboardingApi.listCapacitaciones(token, params)}
-                        searchPlaceholder="Buscar cédula / nombre / curso..."
-                        emptyText="Sin capacitaciones registradas para este filtro."
-                        filtersConfig={[
-                            { id: 'cliente_proyecto', paramKey: 'cliente_proyecto', label: 'Cliente / proyecto (contiene)', type: 'text' },
-                            { id: 'centro', paramKey: 'centro', label: 'Centro (contiene)', type: 'text' },
-                            { id: 'area_que_financia', paramKey: 'area_que_financia', label: 'Área que financia', type: 'text' },
-                            {
-                                id: 'fecha',
-                                paramKeys: { desde: 'fecha_desde', hasta: 'fecha_hasta' },
-                                label: 'Rango fecha de la capacitación',
-                                type: 'date-range'
-                            }
-                        ]}
-                        columns={[
-                            { key: 'cedula', label: 'Cédula' },
-                            { key: 'nombre', label: 'Nombre' },
-                            { key: 'cliente_proyecto', label: 'Cliente' },
-                            { key: 'curso', label: 'Curso' },
-                            { key: 'centro', label: 'Centro' },
-                            { key: 'fecha', label: 'Fecha', render: (r) => fmtFecha(r.fecha) },
-                            { key: 'costo', label: 'Costo', render: (r) => fmtMoney(r.costo) },
-                            {
-                                key: 'moneda',
-                                label: 'Moneda',
-                                render: (r) => <MonedaBadge value={r.moneda} isLight={isLight} />
-                            },
-                            {
-                                key: 'area_que_financia',
-                                label: 'Área financia',
-                                render: (r) => <AreaFinanciaBadge value={r.area_que_financia} isLight={isLight} />
                             }
                         ]}
                     />
