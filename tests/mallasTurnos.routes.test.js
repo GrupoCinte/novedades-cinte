@@ -178,6 +178,51 @@ test('PUT /api/directorio/mallas-turnos 200 cac y llama upsert', async () => {
     assert.deepEqual(payload.patches[0].cedulas, ['1234567890']);
 });
 
+test('PUT /api/directorio/mallas-turnos 200 acepta mode merge', async () => {
+    let payload;
+    const app = buildApp('cac', buildPoolAuditOnly(), {
+        upsertMallaTurnosCeldas: async (p) => {
+            payload = p;
+        }
+    });
+    const res = await request(app)
+        .put('/api/directorio/mallas-turnos')
+        .send({
+            cliente: 'Cliente Demo',
+            patches: [
+                {
+                    fecha: '2026-05-10',
+                    franja: '22_06',
+                    cedulas: ['1234567890'],
+                    horaInicio: '22:00',
+                    horaFin: '06:00',
+                    mode: 'merge'
+                }
+            ]
+        });
+    assert.equal(res.status, 200);
+    assert.equal(payload.patches[0].mode, 'merge');
+    assert.equal(payload.patches[0].horaInicio, '22:00');
+});
+
+test('PUT /api/directorio/mallas-turnos 400 mode inválido', async () => {
+    const app = buildApp('cac', buildPoolAuditOnly());
+    const res = await request(app)
+        .put('/api/directorio/mallas-turnos')
+        .send({
+            cliente: 'Cliente Demo',
+            patches: [
+                {
+                    fecha: '2026-05-10',
+                    franja: '14_22',
+                    cedulas: ['1234567890'],
+                    mode: 'append'
+                }
+            ]
+        });
+    assert.equal(res.status, 400);
+});
+
 test('GET /api/directorio/mallas-turnos/aprobacion 403 para rol gp', async () => {
     const app = buildApp('gp', buildPoolAuditOnly());
     const res = await request(app).get(

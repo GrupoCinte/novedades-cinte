@@ -57,14 +57,70 @@ export function formatCantidadHoras(hours) {
 export function nocturnoFranjaFromConfig(config) {
     const c = config || DEFAULT_NOCTURNO_CONFIG;
     return [
-        {
-            id: '22_06',
-            label: c.label,
-            horaInicio: c.horaInicio,
-            horaFin: c.horaFin,
-            cantidadHoras: c.cantidadHoras
-        }
+        nocturnoFranjaDefFromHorario(c.horaInicio, c.horaFin, c.cantidadHoras)
     ];
+}
+
+/** Id virtual UI: una banda horaria dentro de la franja API `22_06`. */
+export function nocturnoVirtualFranjaId(horaInicio, horaFin) {
+    return `22_06@${horaInicio}@${horaFin}`;
+}
+
+/** Resuelve id virtual nocturno o id de malla (`06_14`, …) hacia franja API + horario. */
+export function parseNocturnoVirtualFranjaId(id) {
+    const s = String(id || '');
+    if (!s.startsWith('22_06@')) {
+        return { apiFranja: s, horaInicio: null, horaFin: null };
+    }
+    const parts = s.split('@');
+    return { apiFranja: '22_06', horaInicio: parts[1], horaFin: parts[2] };
+}
+
+export function resolveNocturnoHorarioPair(horaInicio, horaFin) {
+    return {
+        horaInicio: horaInicio ? String(horaInicio).slice(0, 5) : DEFAULT_NOCTURNO_CONFIG.horaInicio,
+        horaFin: horaFin ? String(horaFin).slice(0, 5) : DEFAULT_NOCTURNO_CONFIG.horaFin
+    };
+}
+
+export function nocturnoFranjaDefFromHorario(horaInicio, horaFin, cantidadHoras = null) {
+    const hours = cantidadHoras ?? previewNocturnoHours(horaInicio, horaFin);
+    return {
+        id: nocturnoVirtualFranjaId(horaInicio, horaFin),
+        horaInicio,
+        horaFin,
+        cantidadHoras: hours,
+        label:
+            hours != null
+                ? `${horaInicio}–${horaFin} (${formatCantidadHoras(hours)})`
+                : `${horaInicio}–${horaFin}`
+    };
+}
+
+/** Franjas horarias presentes en una fila del mesh (solo bandas con asignados). */
+export function nocturnoFranjasFromMeshRow(row) {
+    if (!row || typeof row !== 'object') return [];
+    return Object.keys(row)
+        .filter((id) => id.startsWith('22_06@') && (row[id] || []).length > 0)
+        .map((id) => {
+            const { horaInicio, horaFin } = parseNocturnoVirtualFranjaId(id);
+            return nocturnoFranjaDefFromHorario(horaInicio, horaFin);
+        })
+        .sort(
+            (a, b) =>
+                a.horaInicio.localeCompare(b.horaInicio) || a.horaFin.localeCompare(b.horaFin)
+        );
+}
+
+/** Convierte id de UI (virtual nocturno o franja malla) al payload PUT /mallas-turnos. */
+export function buildMallaTurnoPatch(virtualFranjaId, patchBase) {
+    const { apiFranja, horaInicio, horaFin } = parseNocturnoVirtualFranjaId(virtualFranjaId);
+    const patch = { ...patchBase, franja: apiFranja };
+    if (apiFranja === '22_06' && horaInicio && horaFin) {
+        patch.horaInicio = horaInicio;
+        patch.horaFin = horaFin;
+    }
+    return patch;
 }
 
 export { NOCTURNO_MAX_HORAS };
