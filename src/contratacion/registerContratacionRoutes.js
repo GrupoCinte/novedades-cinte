@@ -235,7 +235,7 @@ function registerContratacionRoutes(deps) {
                 if (promo && out.Attributes) {
                     try {
                         const payload = mapDynamoItemForPromotion(out.Attributes);
-                        await promo.promoteToColaborador(payload, 'manual_finalizar', { eventType: 'MODIFY' });
+                        await promo.promoteToColaborador(payload, 'manual', { eventType: 'MODIFY' });
                     } catch (promoErr) {
                         console.warn(
                             'Contratación finalizar-candidato: autopromote falló (Dynamo ya actualizado):',

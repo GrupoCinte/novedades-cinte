@@ -425,6 +425,12 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
     async function upsertColaborador(client, payload, { source, tipoPersonal }) {
         const completedAtSql = payload.status && isTerminalStatus(payload.status) ? 'NOW()' : 'NULL';
         const tp = tipoPersonal || payload.tipo_personal || 'consultor';
+        /** n8n/Dynamo es fuente de verdad para fecha_ingreso en promoción automática. */
+        const fechaFromN8n = source === 'dynamo_stream' || source === 'n8n_webhook' || source === 'manual';
+        const insertFechaSql = fechaFromN8n ? '$17::date' : 'COALESCE($17::date, CURRENT_DATE)';
+        const updateFechaSql = fechaFromN8n
+            ? 'fecha_ingreso = COALESCE(EXCLUDED.fecha_ingreso, colaboradores.fecha_ingreso)'
+            : 'fecha_ingreso = COALESCE(colaboradores.fecha_ingreso, EXCLUDED.fecha_ingreso)';
 
         const q = await client.query(
             `INSERT INTO colaboradores (
@@ -442,7 +448,7 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 $12,
                 $13, $14,
                 $15, ${completedAtSql},
-                $16, TRUE, COALESCE($17::date, CURRENT_DATE), NOW(), NOW()
+                $16, TRUE, ${insertFechaSql}, NOW(), NOW()
             )
             ON CONFLICT (cedula) DO UPDATE SET
                 nombre = COALESCE(NULLIF(EXCLUDED.nombre, ''), colaboradores.nombre),
@@ -454,9 +460,8 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 direccion_domicilio = COALESCE(EXCLUDED.direccion_domicilio, colaboradores.direccion_domicilio),
                 puesto = COALESCE(EXCLUDED.puesto, colaboradores.puesto),
                 empleador = COALESCE(EXCLUDED.empleador, colaboradores.empleador),
-                /* salario y fecha_ingreso: solo se fijan la primera vez */
                 sueldo_nomina = COALESCE(colaboradores.sueldo_nomina, EXCLUDED.sueldo_nomina),
-                fecha_ingreso = COALESCE(colaboradores.fecha_ingreso, EXCLUDED.fecha_ingreso),
+                ${updateFechaSql},
                 cliente = COALESCE(EXCLUDED.cliente, colaboradores.cliente),
                 whatsapp_number = COALESCE(EXCLUDED.whatsapp_number, colaboradores.whatsapp_number),
                 dynamo_external_id = COALESCE(EXCLUDED.dynamo_external_id, colaboradores.dynamo_external_id),
@@ -580,15 +585,12 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 return { ok: true, status: 'recibido', stagingId };
             }
 
-            // Requeridos para upsert terminal
+            // Requeridos mínimos para upsert terminal desde n8n/Dynamo.
+            // correo_cinte NO es excluyente: n8n no lo envía; CH lo completa después en la ficha
+            // (login Entra fallará hasta que exista, pero el colaborador debe aparecer en el maestro).
             const missing = [];
             if (!validated.cedula) missing.push('cedula');
             if (!validated.nombre) missing.push('nombre');
-            // correo_cinte es necesario para login Entra; lo exigimos en flujo automático.
-            // Para `manual` lo dejamos opcional (CH puede dar de alta sin correo y completarlo después).
-            if (source !== 'manual' && source !== 'excel_etl' && !validated.correo_cinte) {
-                missing.push('correo_cinte');
-            }
 
             if (missing.length) {
                 const err = `Faltan requeridos: ${missing.join(', ')}`;
@@ -610,6 +612,9 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 tipo_contrato: validated.tipo_contrato,
                 esquema_contrato: validated.esquema_contrato
             };
+            if (validated.fecha_ingreso) {
+                extPayload.fecha_ingreso = validated.fecha_ingreso;
+            }
             const updatable = buildExtendedUpdate(extPayload, cedulaInsertada);
             if (updatable.cols.length) {
                 await client.query(
