@@ -607,10 +607,9 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     const modalRow = dayModalYmd ? meshByYmd[dayModalYmd] || emptyFranjasRecord(franjas) : emptyFranjasRecord(franjas);
     const modalInSelected = dayModalYmd ? selected.has(dayModalYmd) : false;
     const calendarRowCount = useMemo(() => Math.ceil(calendarCells.length / 7), [calendarCells]);
-    const cellMinClass = isNocturnos ? 'min-h-[6.5rem]' : 'min-h-[4.5rem]';
-    const calendarGridClass = isNocturnos
-        ? 'grid min-h-0 flex-1 grid-cols-7 gap-1.5 overflow-hidden px-3 pb-3 isolation-isolate'
-        : 'grid min-h-0 flex-1 grid-cols-7 gap-1 overflow-hidden px-3 pb-3';
+    const calendarRowMin = isNocturnos ? '6.5rem' : '4.5rem';
+    const cellLayoutClass = 'h-full min-h-0 min-w-0';
+    const calendarGridClass = 'grid min-h-0 flex-1 grid-cols-7 gap-1 overflow-hidden px-3 pb-3';
     const panelDisabled = !hasCliente;
     const mallaYaAprobada = Boolean(aprobacionStatus?.aprobada);
 
@@ -753,11 +752,11 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                         </div>
                         <div
                             className={calendarGridClass}
-                            style={{ gridTemplateRows: `repeat(${calendarRowCount}, minmax(0, 1fr))` }}
+                            style={{ gridTemplateRows: `repeat(${calendarRowCount}, minmax(${calendarRowMin}, 1fr))` }}
                         >
                             {calendarCells.map((cell, idx) => {
                                 if (!cell) {
-                                    return <div key={`e-${idx}`} className={cellMinClass} />;
+                                    return <div key={`e-${idx}`} className={cellLayoutClass} />;
                                 }
                                 const ymd = ymdLocal(cell);
                                 const isSel = selected.has(ymd);
@@ -767,21 +766,13 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                 const row = meshByYmd[ymd] || emptyFranjasRecord(franjas);
                                 const hasData = dayHasAssignments(meshByYmd, ymd, franjas);
                                 const cellSelectedClass = isSel
-                                    ? isNocturnos
-                                        ? 'border-[#2F7BB8] bg-[#2F7BB8]/15 shadow-[inset_0_0_0_2px_rgba(47,123,184,0.55)]'
-                                        : 'border-[#2F7BB8] bg-[#2F7BB8]/15 ring-inset ring-1 ring-[#2F7BB8]/40'
+                                    ? 'border-[#2F7BB8] bg-[#2F7BB8]/15 ring-inset ring-1 ring-[#2F7BB8]/40'
                                     : `border-transparent hover:border-[#2F7BB8]/35 ${tableSurface}`;
                                 const cellTodayClass =
-                                    !isSel && isToday
-                                        ? isNocturnos
-                                            ? 'shadow-[inset_0_0_0_1px_rgba(251,191,36,0.5)]'
-                                            : 'ring-inset ring-1 ring-amber-400/50'
-                                        : '';
+                                    !isSel && isToday ? 'ring-inset ring-1 ring-amber-400/50' : '';
                                 const cellFestivoClass =
                                     !isSel && isFestivo
-                                        ? isNocturnos
-                                            ? 'bg-violet-950/20 shadow-[inset_0_0_0_1px_rgba(139,92,246,0.45)]'
-                                            : 'bg-violet-950/20 ring-inset ring-1 ring-violet-500/45'
+                                        ? 'bg-violet-950/20 ring-inset ring-1 ring-violet-500/45'
                                         : '';
                                 return (
                                     <button
@@ -800,7 +791,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                                                 toggleDaySelection(ymd);
                                             }
                                         }}
-                                        className={`${cellMinClass} relative flex flex-col gap-0.5 overflow-hidden rounded-lg border-2 p-1 text-left transition-colors disabled:cursor-default disabled:opacity-90 ${cellSelectedClass} ${cellTodayClass} ${cellFestivoClass}`}
+                                        className={`${cellLayoutClass} relative flex flex-col gap-0.5 overflow-hidden rounded-lg border-2 p-1 text-left transition-colors disabled:cursor-default disabled:opacity-90 ${cellSelectedClass} ${cellTodayClass} ${cellFestivoClass}`}
                                     >
                                         {hasData ? (
                                             <input
