@@ -9,8 +9,6 @@
  * - GET  /api/onboarding/licencias[/:cedula] — licencias maternidad/paternidad/lactancia.
  * - GET  /api/onboarding/calculadora/:cedula | PUT /api/onboarding/calculadora/:cedula
  * - GET  /api/onboarding/documentos-extranjeros[/:cedula] | PUT ./:cedula
- * - GET  /api/onboarding/polizas
- * - GET  /api/onboarding/capacitaciones
  * - GET  /api/onboarding/catalogos/motivo-baja | /ciudades | /eps | /afp | /arl | /ccf
  * - GET  /api/onboarding/reportes/rotacion
  * - GET  /api/onboarding/staging — auditoría del buzón (solo super_admin).
@@ -1081,41 +1079,7 @@ function registerOnboardingRoutes(deps) {
                 );
                 return res.json({ ok: true, items: q.rows });
             } catch (e) {
-                return res.status(5    /* =========================================================================
-     * Pólizas internacionales.
-     * ========================================================================= */
-    const polizasQuerySchema = z.object({
-        q: z.string().max(200).optional(),
-        cliente_proyecto: z.string().max(500).optional(),
-        estado: z.string().max(60).optional(),
-        destino: z.string().max(500).optional(),
-        salida_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        salida_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        limit: z.coerce.number().int().min(1).max(2000).optional(),
-        offset: z.coerce.number().int().min(0).optional()
-    });
-
-    app.get('/api/onboarding/polizas', ...readGuard, async (req, res) => {
-        const parsed = polizasQuerySchema.safeParse(req.query || {});
-        if (!parsed.success) {
-            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
-        }
-        const filters = parsed.data;
-        const limit = Math.min(filters.limit || 100, 2000);
-        const offset = filters.offset || 0;
-        try {
-            const where = [];
-            const params = [];
-            let p = 1;
-            if (filters.q) {
-                params.push(`%${String(filters.q).toLowerCase()}%`);
-                where.push(`(LOWER(p.cedula) LIKE $${p} OR LOWER(COALESCE(c.nombre, '')) LIKE $${p})`);
-                p += 1;
-            }
-            if (filters.cliente_proyecto) {
-                params.push(`%${String(filters.cliente_proyecto).toLowerCase()}%`);
-                where.push(`LOWER(COALESCE(p.cliente
-00).json({ ok: false, error: e.message });
+                return res.status(500).json({ ok: false, error: e.message });
             }
         };
     }
