@@ -187,6 +187,9 @@ function createDataLayer(deps) {
             await pool.query(
                 'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_recargo_domingo_nocturnas NUMERIC(8,2) NOT NULL DEFAULT 0'
             );
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_recargo_nocturno NUMERIC(8,2) NOT NULL DEFAULT 0'
+            );
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[DB] Permisos insuficientes para horas_recargo_domingo / franjas en novedades.');
@@ -1831,7 +1834,7 @@ function createDataLayer(deps) {
                 nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.gp_user_id, nov.tipo_novedad, nov.area,
                 nov.modalidad, nov.fecha_votacion, nov.unidad,
                 nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas, nov.horas_recargo_domingo,
-                nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas,
+                nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas, nov.horas_recargo_nocturno,
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
                 nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
                 nov.he_domingo_observacion,

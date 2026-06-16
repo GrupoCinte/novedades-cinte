@@ -73,6 +73,12 @@ const SLICE_SPECS = [
         getter: (it) => Number(it?.horasRecargoDomingoDiurnas || 0)
     },
     {
+        sliceKey: 'recargo_nocturno_ordinario',
+        columnKey: 'horasRecargoNocturno',
+        tipoLabel: 'Recargo nocturno',
+        getter: (it) => Number(it?.horasRecargoNocturno || 0)
+    },
+    {
         sliceKey: 'recargo_nocturno',
         columnKey: 'horasRecargoDomingoNocturnas',
         tipoLabel: 'Recargo dominical nocturno',

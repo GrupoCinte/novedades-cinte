@@ -232,7 +232,7 @@ test('POST /api/directorio/mallas-turnos/aprobar 200 re-aprobación super_admin'
         getColaboradorByCedula: async () => colaboradorDemo,
         getLideresByCliente: async () => ['Lider Demo'],
         listMallaTurnosCeldasRange: async () => [
-            { fecha: '2026-06-10', franja: '06_14', cedula: '1234567890', nombre: 'Colaborador Uno' }
+            { fecha: '2026-06-10', franja: '14_22', cedula: '1234567890', nombre: 'Colaborador Uno' }
         ]
     });
     const res = await request(app)

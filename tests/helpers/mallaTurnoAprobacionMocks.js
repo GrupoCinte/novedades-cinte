@@ -32,8 +32,10 @@ function createMallaAprobacionTxClient(opts = {}) {
             if (/INSERT INTO novedades/i.test(sql)) {
                 insertCount += 1;
                 if (params) {
-                    captured.observaciones.push(params[20]);
-                    if (Array.isArray(captured.refs)) captured.refs.push(params[21]);
+                    captured.observaciones.push(params[21]);
+                    if (Array.isArray(captured.refs)) captured.refs.push(params[22]);
+                    captured.insertParams = captured.insertParams || [];
+                    captured.insertParams.push(params);
                 }
                 return { rows: [{ id: 'nv-1' }] };
             }

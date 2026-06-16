@@ -78,8 +78,10 @@ function formatTipoNovedadParaExportExcel(it) {
     const rdd = Number(it?.horasRecargoDomingoDiurnas || 0);
     const rdn = Number(it?.horasRecargoDomingoNocturnas || 0);
     const rTot = Number(it?.horasRecargoDomingo || 0);
+    const rn = Number(it?.horasRecargoNocturno || 0);
     if (hd > 0) partes.push('Hora Diurna');
     if (hn > 0) partes.push('Hora Nocturna');
+    if (rn > 0) partes.push('Recargo nocturno');
     if (rdd > 0) partes.push('Recargo dominical diurno');
     if (rdn > 0) partes.push('Recargo dominical nocturno');
     if (rTot > 0 && rdd === 0 && rdn === 0) partes.push('Recargo dominical');
@@ -139,6 +141,7 @@ function buildExcelRowHoraExtraSlice(opts) {
         horasRecargoDomingo: ck === 'horasRecargoDomingo' && h > 0 ? h : '',
         horasRecargoDomingoDiurnas: ck === 'horasRecargoDomingoDiurnas' && h > 0 ? h : '',
         horasRecargoDomingoNocturnas: ck === 'horasRecargoDomingoNocturnas' && h > 0 ? h : '',
+        horasRecargoNocturno: ck === 'horasRecargoNocturno' && h > 0 ? h : '',
         compensacionDominical,
         observacionHeDomingo,
         observaciones: String(it.observaciones || '').trim(),
@@ -156,7 +159,7 @@ function buildExcelRowHoraExtraLegacy(opts) {
     const rdd = Number(it.horasRecargoDomingoDiurnas || 0);
     const rdn = Number(it.horasRecargoDomingoNocturnas || 0);
     const rTot = Number(it.horasRecargoDomingo || 0);
-    const recargoAny = rdd > 0 || rdn > 0 || rTot > 0;
+    const recargoAny = rdd > 0 || rdn > 0 || rTot > 0 || Number(it.horasRecargoNocturno || 0) > 0;
     const sliceKeyForComp = recargoAny ? 'recargo_diurno' : 'diurna';
     const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, sliceKeyForComp);
     return {
@@ -179,6 +182,7 @@ function buildExcelRowHoraExtraLegacy(opts) {
             Number(it.horasRecargoDomingoDiurnas || 0) > 0 ? Number(it.horasRecargoDomingoDiurnas) : '',
         horasRecargoDomingoNocturnas:
             Number(it.horasRecargoDomingoNocturnas || 0) > 0 ? Number(it.horasRecargoDomingoNocturnas) : '',
+        horasRecargoNocturno: Number(it.horasRecargoNocturno || 0) > 0 ? Number(it.horasRecargoNocturno) : '',
         compensacionDominical,
         observacionHeDomingo,
         observaciones: String(it.observaciones || '').trim(),
@@ -209,6 +213,7 @@ function buildExcelRowOtroTipo(opts) {
         horasRecargoDomingo: '',
         horasRecargoDomingoDiurnas: '',
         horasRecargoDomingoNocturnas: '',
+        horasRecargoNocturno: '',
         compensacionDominical: '',
         observacionHeDomingo,
         observaciones: String(it.observaciones || '').trim(),
@@ -1024,6 +1029,7 @@ function registerRoutes(deps) {
                 { header: 'Horas recargo domingo', key: 'horasRecargoDomingo', width: 18 },
                 { header: 'Recargo dominical/festivos — diurno', key: 'horasRecargoDomingoDiurnas', width: 22 },
                 { header: 'Recargo dominical/festivos — nocturno', key: 'horasRecargoDomingoNocturnas', width: 24 },
+                { header: 'Recargo nocturno', key: 'horasRecargoNocturno', width: 16 },
                 { header: 'Compensación dominical', key: 'compensacionDominical', width: 32 },
                 { header: 'Observación HE domingo', key: 'observacionHeDomingo', width: 48 },
                 { header: 'Observaciones', key: 'observaciones', width: 48 },

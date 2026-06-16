@@ -785,6 +785,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             horasRecargoDomingo: String(it.horasRecargoDomingo ?? 0),
             horasRecargoDomingoDiurnas: String(it.horasRecargoDomingoDiurnas ?? 0),
             horasRecargoDomingoNocturnas: String(it.horasRecargoDomingoNocturnas ?? 0),
+            horasRecargoNocturno: String(it.horasRecargoNocturno ?? 0),
             tipoHoraExtra: it.tipoHoraExtra || '',
             montoCop: monto,
             estado: it.estado || 'Pendiente',
@@ -830,6 +831,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             horasRecargoDomingo: num(draft.horasRecargoDomingo),
             horasRecargoDomingoDiurnas: num(draft.horasRecargoDomingoDiurnas),
             horasRecargoDomingoNocturnas: num(draft.horasRecargoDomingoNocturnas),
+            horasRecargoNocturno: num(draft.horasRecargoNocturno),
             tipoHoraExtra: String(draft.tipoHoraExtra || '').trim() || null,
             montoCop,
             estado: String(draft.estado || 'Pendiente').trim(),
@@ -2961,7 +2963,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 >
                                     <div className="flex flex-col gap-3">
                                         {(Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0) > 0 ||
-                                            Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0) > 0) && (
+                                            Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0) > 0 ||
+                                            Number(gestionDetailItem.horasRecargoNocturno ?? 0) > 0) && (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 {Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0) > 0 ? (
                                                     <div
@@ -3030,6 +3033,32 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                             }
                                                         >
                                                             {Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0)}h
+                                                        </span>
+                                                    </div>
+                                                ) : null}
+                                                {Number(gestionDetailItem.horasRecargoNocturno ?? 0) > 0 ? (
+                                                    <div
+                                                        className={
+                                                            isLight
+                                                                ? 'flex flex-col items-center gap-1 rounded-xl border border-violet-200 bg-violet-50 p-3 text-center text-violet-950'
+                                                                : 'flex flex-col items-center gap-1 rounded-xl border border-violet-500/40 bg-violet-950/30 p-3 text-center'
+                                                        }
+                                                    >
+                                                        <span
+                                                            className={
+                                                                isLight
+                                                                    ? 'text-[10px] font-black uppercase leading-tight tracking-widest text-violet-900'
+                                                                    : 'text-[10px] font-black uppercase leading-tight tracking-widest text-violet-200'
+                                                            }
+                                                        >
+                                                            Recargo nocturno
+                                                        </span>
+                                                        <span
+                                                            className={
+                                                                isLight ? 'text-xl font-black text-violet-950' : 'text-xl font-black text-violet-300'
+                                                            }
+                                                        >
+                                                            {Number(gestionDetailItem.horasRecargoNocturno ?? 0)}h
                                                         </span>
                                                     </div>
                                                 ) : null}

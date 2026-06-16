@@ -1,5 +1,11 @@
+'use strict';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const {
+    computeMallaRecargoPayload,
+    resolveMallaRecargoLabel
+} = require('../src/mallaRecargoSplit');
 const {
     franjasForVariant,
     franjaToDateTimeRange,
@@ -41,7 +47,40 @@ test('monthRangeYmd y addDaysYmd', () => {
     assert.equal(addDaysYmd('2026-06-30', 1), '2026-07-01');
 });
 
-test('split 06_14 produce 8h diurnas en día hábil', () => {
+test('computeMallaRecargoPayload 06_14 día hábil omite novedad', () => {
+    const range = franjaToDateTimeRange('2026-06-10', '06_14');
+    const startMs = toUtcMsFromDateAndTime(range.fechaInicio, range.horaInicio);
+    const endMs = toUtcMsFromDateAndTime(range.fechaFin, range.horaFin);
+    const payload = computeMallaRecargoPayload(startMs, endMs, new Set());
+    assert.equal(payload.skip, true);
+    assert.equal(payload.horasRecargoNocturno, 0);
+    assert.equal(payload.horasDiurnas, 0);
+});
+
+test('computeMallaRecargoPayload 14_22 día hábil genera 3h recargo nocturno', () => {
+    const range = franjaToDateTimeRange('2026-06-10', '14_22');
+    const startMs = toUtcMsFromDateAndTime(range.fechaInicio, range.horaInicio);
+    const endMs = toUtcMsFromDateAndTime(range.fechaFin, range.horaFin);
+    const payload = computeMallaRecargoPayload(startMs, endMs, new Set());
+    assert.equal(payload.skip, false);
+    assert.equal(payload.horasRecargoNocturno, 3);
+    assert.equal(payload.horasDiurnas, 0);
+    assert.equal(payload.horasNocturnas, 0);
+    assert.equal(payload.cantidadHoras, 3);
+    assert.equal(payload.tipoHoraExtra, 'Nocturna');
+});
+
+test('computeMallaRecargoPayload 22_06 día hábil genera 8h recargo nocturno', () => {
+    const range = franjaToDateTimeRange('2026-06-10', '22_06');
+    const startMs = toUtcMsFromDateAndTime(range.fechaInicio, range.horaInicio);
+    const endMs = toUtcMsFromDateAndTime(range.fechaFin, range.horaFin);
+    const payload = computeMallaRecargoPayload(startMs, endMs, new Set());
+    assert.equal(payload.skip, false);
+    assert.equal(payload.horasRecargoNocturno, 8);
+    assert.equal(payload.cantidadHoras, 8);
+});
+
+test('split 06_14 produce 8h diurnas en día hábil (HE manual sin cambios)', () => {
     const range = franjaToDateTimeRange('2026-06-10', '06_14');
     const startMs = toUtcMsFromDateAndTime(range.fechaInicio, range.horaInicio);
     const endMs = toUtcMsFromDateAndTime(range.fechaFin, range.horaFin);
@@ -49,6 +88,13 @@ test('split 06_14 produce 8h diurnas en día hábil', () => {
     assert.equal(split.total, 8);
     assert.equal(split.diurnas, 8);
     assert.equal(split.nocturnas, 0);
+});
+
+test('resolveMallaRecargoLabel mixta con recargo nocturno y dominical', () => {
+    assert.equal(
+        resolveMallaRecargoLabel({ horasRecargoNocturno: 3, horasRecargoDomingoDiurnas: 5, horasRecargoDomingoNocturnas: 0 }),
+        'Mixta'
+    );
 });
 
 test('aprobarMallaTurnosMes 409 si mes ya aprobado sin permiso de re-aprobación', async () => {
@@ -95,9 +141,9 @@ test('canReaprobarMallaRole solo super_admin y cac', () => {
     assert.equal(canReaprobarMallaRole('gp'), false);
 });
 
-test('aprobarMallaTurnosMes re-aprobación cac genera HE con observación de modificación', async () => {
+test('aprobarMallaTurnosMes re-aprobación cac con 06_14 no inserta (turno diurno planificado)', async () => {
     const { aprobarMallaTurnosMes } = require('../src/mallaTurnoHeExport');
-    const { client: dbClient, captured } = createMallaAprobacionTxClient({ refs: [] });
+    const { client: dbClient, captured, getInsertCount } = createMallaAprobacionTxClient({ refs: [] });
     const pool = { connect: async () => dbClient };
     const result = await aprobarMallaTurnosMes({
         pool,
@@ -114,9 +160,33 @@ test('aprobarMallaTurnosMes re-aprobación cac genera HE con observación de mod
         ]
     });
     assert.equal(result.reaprobacion, true);
+    assert.equal(result.novedadesGeneradas, 0);
+    assert.equal(getInsertCount(), 0);
+    assert.equal(captured.observaciones.length, 0);
+});
+
+test('aprobarMallaTurnosMes re-aprobación cac con 14_22 inserta recargo nocturno', async () => {
+    const { aprobarMallaTurnosMes } = require('../src/mallaTurnoHeExport');
+    const { client: dbClient, captured, getInsertCount } = createMallaAprobacionTxClient({ refs: [] });
+    const pool = { connect: async () => dbClient };
+    const result = await aprobarMallaTurnosMes({
+        pool,
+        cliente: 'Cliente Demo',
+        anio: 2026,
+        mes: 6,
+        variant: 'mallas',
+        approver: { userId: null, email: 'cac@cinte.test', role: 'cac' },
+        allowReaprobacion: true,
+        getColaboradorByCedula: async () => colaboradorDemo,
+        getLideresByCliente: async () => ['Lider Demo'],
+        listMallaTurnosCeldasRange: async () => [
+            { fecha: '2026-06-10', franja: '14_22', cedula: '1234567890', nombre: 'Colaborador Uno' }
+        ]
+    });
+    assert.equal(result.reaprobacion, true);
     assert.equal(result.novedadesGeneradas, 1);
+    assert.equal(getInsertCount(), 1);
     assert.match(captured.observaciones[0], /Modificación a la aprobación original de malla/i);
-    assert.match(captured.observaciones[0], /Aprobación inicial:/i);
     assert.match(captured.refs[0], /\|mod:\d+$/);
 });
 
@@ -135,7 +205,7 @@ test('aprobarMallaTurnosMes re-aprobación omite celdas ya exportadas', async ()
         getColaboradorByCedula: async () => colaboradorDemo,
         getLideresByCliente: async () => ['Lider Demo'],
         listMallaTurnosCeldasRange: async () => [
-            { fecha: '2026-06-10', franja: '06_14', cedula: '1234567890', nombre: 'Colaborador Uno' }
+            { fecha: '2026-06-10', franja: '14_22', cedula: '1234567890', nombre: 'Colaborador Uno' }
         ]
     });
     assert.equal(result.reaprobacion, true);

@@ -1,6 +1,7 @@
 'use strict';
 
-const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
+const { computeHoraExtraSplitBogota } = require('./heBogotaSplit');
+const { computeMallaRecargoPayload } = require('./mallaRecargoSplit');
 const { toUtcMsFromDateAndTime } = require('./novedadHeTime');
 const { resolveNocturnoDateTimeRange } = require('./directorio/mallaNocturnoConfig');
 const { resolvePostedContactFromColaborador } = require('./colaboradorDirectory');
@@ -101,15 +102,15 @@ const INSERT_NOVEDAD_MALLA_SQL = `INSERT INTO novedades (
     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
     cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo,
-    horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra,
+    horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, horas_recargo_nocturno, tipo_hora_extra,
     observaciones, estado, malla_origen_ref,
     aprobado_en, aprobado_por_rol, aprobado_por_user_id, aprobado_por_email
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8::user_area,
     $9::date, $10::time, $11::time, $12::date, $13::date,
-    $14, $15, $16, $17, $18, $19, $20,
-    $21, 'Aprobado'::novedad_estado, $22,
-    NOW(), $23::user_role, $24::uuid, NULLIF($25::text, '')
+    $14, $15, $16, $17, $18, $19, $20, $21,
+    $22, 'Aprobado'::novedad_estado, $23,
+    NOW(), $24::user_role, $25::uuid, NULLIF($26::text, '')
 ) RETURNING id`;
 
 /**
@@ -279,20 +280,10 @@ async function aprobarMallaTurnosMes(deps) {
                     : franjaToDateTimeRange(fecha, franja);
             const startMs = toUtcMsFromDateAndTime(fechaInicio, horaInicio);
             const endMs = toUtcMsFromDateAndTime(fechaFin, horaFin);
-            const split = computeHoraExtraSplitBogota(startMs, endMs, festivosSet);
-            if (split.total <= 0) {
-                throw Object.assign(
-                    new Error(`No se pudo calcular horas para ${cedula} (${fecha}, ${franja}).`),
-                    { status: 400 }
-                );
+            const recargo = computeMallaRecargoPayload(startMs, endMs, festivosSet);
+            if (recargo.skip) {
+                continue;
             }
-
-            const tipoHoraExtra = resolveHoraExtraLabel(
-                split.diurnas,
-                split.nocturnas,
-                split.horasRecargoDomingoDiurnas,
-                split.horasRecargoDomingoNocturnas
-            );
             const mallaOrigenRefBase = buildMallaOrigenRef(cliente, variant, fecha, franja, cedula);
             const dupQ = await dbClient.query(
                 `SELECT id FROM novedades
@@ -324,13 +315,14 @@ async function aprobarMallaTurnosMes(deps) {
                 horaFin,
                 fechaInicio,
                 fechaFin,
-                split.total,
-                split.diurnas,
-                split.nocturnas,
-                split.horasRecargoDomingo,
-                split.horasRecargoDomingoDiurnas,
-                split.horasRecargoDomingoNocturnas,
-                tipoHoraExtra,
+                recargo.cantidadHoras,
+                recargo.horasDiurnas,
+                recargo.horasNocturnas,
+                recargo.horasRecargoDomingo,
+                recargo.horasRecargoDomingoDiurnas,
+                recargo.horasRecargoDomingoNocturnas,
+                recargo.horasRecargoNocturno,
+                recargo.tipoHoraExtra,
                 observaciones,
                 mallaOrigenRef,
                 approverRole,
@@ -388,5 +380,6 @@ module.exports = {
     addDaysYmd,
     canReaprobarMallaRole,
     formatAprobacionFechaObs,
-    aprobarMallaTurnosMes
+    aprobarMallaTurnosMes,
+    computeMallaRecargoPayload
 };
