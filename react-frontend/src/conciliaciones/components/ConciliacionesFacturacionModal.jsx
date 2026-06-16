@@ -330,6 +330,7 @@ export default function ConciliacionesFacturacionModal({
                                     placeholder="Notas sobre el cierre, incidencias de facturación, etc."
                                     value={observaciones}
                                     onChange={(e) => setObservaciones(e.target.value)}
+                                    maxLength={1000}
                                     className={`rounded-lg border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
                                 />
                             </div>

@@ -214,6 +214,7 @@ export default function ConciliacionesAccionMasivaModal({
                                 placeholder="Notas que se aplicarán a todos los colaboradores seleccionados"
                                 value={observaciones}
                                 onChange={(e) => setObservaciones(e.target.value)}
+                                maxLength={1000}
                                 className={`resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
                             />
                         </div>
