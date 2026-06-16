@@ -162,7 +162,7 @@ function registerOnboardingRoutes(deps) {
     /** Catálogos (todo el panel onboarding). */
     const catGuard = [verificarToken, allowPanel('onboarding'), catalogLimiter];
 
-    const CINTE_EMAIL_SUFFIX_RE = /@(?:cinte\.com\.co|cinte\.co)$/i;
+    const CINTE_EMAIL_SUFFIX_RE = /@(?:grupocinte\.com)$/i;
     function zCorreoCinteOptional() {
         return z
             .string()
@@ -171,7 +171,7 @@ function registerOnboardingRoutes(deps) {
             .optional()
             .nullable()
             .refine((v) => !v || CINTE_EMAIL_SUFFIX_RE.test(String(v).trim()), {
-                message: 'El correo Cinte debe ser @cinte.com.co o @cinte.co'
+                message: 'El correo Cinte debe ser @grupocinte.com'
             });
     }
 

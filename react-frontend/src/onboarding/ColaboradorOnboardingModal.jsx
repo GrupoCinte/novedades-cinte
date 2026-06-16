@@ -151,8 +151,8 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             const payload = buildStaffColaboradorPayload(form);
             payload.nombre = String(form.nombre || '').trim();
             payload.correo_cinte = form.correo_cinte ? String(form.correo_cinte).trim().toLowerCase() : null;
-            if (payload.correo_cinte && !/@(?:cinte\.com\.co|cinte\.co)$/i.test(payload.correo_cinte)) {
-                setError('El correo Cinte debe ser @cinte.com.co o @cinte.co');
+            if (payload.correo_cinte && !/@(?:grupocinte\.com)$/i.test(payload.correo_cinte)) {
+                setError('El correo Cinte debe ser @grupocinte.com');
                 setSaving(false);
                 return;
             }
