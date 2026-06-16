@@ -4,9 +4,10 @@ import OnboardingFiltersDrawer, {
     drawerFieldCls,
     drawerLabelCls
 } from './OnboardingFiltersDrawer.jsx';
-import GestionDataTable from './GestionDataTable.jsx';
+import SortableGestionDataTable from './SortableGestionDataTable.jsx';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import { nativeCalendarOnlyInputProps } from '../nativeCalendarOnlyInputProps.js';
+import { LICENCIAS_DEFAULT_SORT, toggleSort } from './onboardingSortDefaults.js';
 
 /**
  * Componente declarativo de lista para los submódulos de Onboarding.
@@ -37,15 +38,12 @@ export default function OnboardingListView({
     searchPlaceholder = 'Buscar…',
     searchParamKey = 'q',
     onRowClick,
-    // `DataTable` queda como prop opcional para no romper llamadas existentes,
-    // pero por defecto usamos GestionDataTable (línea visual Gestión de Novedades).
-    DataTable,
     emptyText = 'Sin registros',
     pageSizes = [10, 20, 50, 100],
-    headerRight = null
+    headerRight = null,
+    defaultSort = LICENCIAS_DEFAULT_SORT
 }) {
     const G = buildGestionTableDash(Boolean(isLight));
-    const TableImpl = DataTable || GestionDataTable;
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
@@ -53,6 +51,7 @@ export default function OnboardingListView({
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(pageSizes[2] || 50);
+    const [sort, setSort] = useState(defaultSort);
     const [filters, setFilters] = useState({});
     const [draft, setDraft] = useState({});
     const [panelOpen, setPanelOpen] = useState(false);
@@ -64,6 +63,8 @@ export default function OnboardingListView({
         const p = {
             limit: pageSize,
             offset: page * pageSize,
+            sort: sort.key,
+            dir: sort.dir,
             ...extraParams
         };
         if (search) p[searchParamKey] = search;
@@ -80,7 +81,12 @@ export default function OnboardingListView({
             }
         }
         return p;
-    }, [pageSize, page, extraParams, search, searchParamKey, filtersConfig, filters]);
+    }, [pageSize, page, sort, extraParams, search, searchParamKey, filtersConfig, filters]);
+
+    const handleSort = useCallback((columnKey) => {
+        setSort((cur) => toggleSort(cur, columnKey));
+        setPage(0);
+    }, []);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -260,10 +266,12 @@ export default function OnboardingListView({
                 </div>
             ) : null}
 
-            <TableImpl
+            <SortableGestionDataTable
                 columns={columns}
                 rows={rows}
                 isLight={isLight}
+                sort={sort}
+                onSort={handleSort}
                 emptyText={loading ? 'Cargando…' : emptyText}
                 onRowClick={onRowClick}
             />
