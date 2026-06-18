@@ -6,7 +6,13 @@ const {
     getConciliacionResumenPorClienteMes,
     getConciliacionResumenTodosClientesMes,
     upsertConciliacionFacturacion,
-    listConciliacionesFacturacion
+    listConciliacionesFacturacion,
+    listServicios,
+    createServicio,
+    updateServicio,
+    deleteServicio,
+    listServicioConsultores,
+    upsertServicioConsultores
 } = require('../src/conciliaciones/conciliacionesQueries');
 
 test('getConciliacionResumenPorClienteMes agrega solo novedades visibles y calcula factura', async () => {
@@ -246,4 +252,183 @@ test('upsertConciliacionFacturacionMasiva respeta cedulas opcionales del payload
     const upserts = queryArgs.filter((q) => String(q.sql).includes('INSERT INTO conciliaciones_facturacion'));
     assert.equal(upserts.length, 1);
     assert.equal(upserts[0].params[0], '222');
+});
+
+test('createServicio inserta correctamente', async () => {
+    let queryArgs = [];
+    const pool = {
+        query: async (sql, params) => {
+            queryArgs.push({ sql, params });
+            if (String(sql).includes('INSERT INTO servicios')) {
+                return {
+                    rows: [{
+                        id: 'srv-123',
+                        cliente: params[0],
+                        nombre_servicio: params[1],
+                        inicio_contrato: new Date('2026-06-08'),
+                        dia_cierre: params[3],
+                        modo_facturacion: params[4],
+                        tipo_facturacion: params[5],
+                        horas_base: params[6]
+                    }]
+                };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = {
+        pool,
+        normalizeCedula,
+        getClientesList: async () => ['Cliente X'],
+        listScopedDistinctClientes: async () => ['Cliente X'],
+        listAssignedClientesForGpUserId: async () => [],
+        resolveGpInternalUserIdForScope: async () => null,
+        normalizeCatalogValue: (v) => v
+    };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+    const payload = {
+        client: 'Cliente X',
+        serviceName: 'Soporte',
+        inicio_contrato: '2026-06-08',
+        dia_cierre: 31,
+        modo_facturacion: 'HORAS',
+        tipo_facturacion: 'MES_VENCIDO',
+        horas_base: 160
+    };
+
+    const out = await createServicio(deps, scope, payload);
+    assert.equal(out.id, 'srv-123');
+    assert.equal(out.client, 'Cliente X');
+    assert.equal(out.serviceName, 'Soporte');
+    assert.equal(out.diaCierre, 31);
+    assert.equal(out.tipoFacturacion, 'MES_VENCIDO');
+    assert.equal(out.horasBase, 160);
+});
+
+test('listServicios devuelve lista formateada', async () => {
+    const pool = {
+        query: async () => ({
+            rows: [{
+                id: 'srv-123',
+                cliente: 'Cliente X',
+                nombre_servicio: 'Soporte',
+                inicio_contrato: new Date('2026-06-08'),
+                dia_cierre: 31,
+                modo_facturacion: 'HORAS',
+                tipo_facturacion: 'MES_VENCIDO',
+                horas_base: 160,
+                created_at: new Date('2026-06-17')
+            }]
+        })
+    };
+    const deps = {
+        pool,
+        getClientesList: async () => ['Cliente X'],
+        listScopedDistinctClientes: async () => ['Cliente X'],
+        listAssignedClientesForGpUserId: async () => [],
+        resolveGpInternalUserIdForScope: async () => null,
+        normalizeCatalogValue: (v) => v
+    };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+
+    const items = await listServicios(deps, scope);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].id, 'srv-123');
+    assert.equal(items[0].serviceName, 'Soporte');
+    assert.equal(items[0].diaCierre, 31);
+    assert.equal(items[0].modoFacturacion, 'HORAS');
+    assert.equal(items[0].tipoFacturacion, 'MES_VENCIDO');
+    assert.equal(items[0].horasBase, 160);
+});
+
+test('updateServicio actualiza correctamente', async () => {
+    let queryArgs = [];
+    const pool = {
+        query: async (sql, params) => {
+            queryArgs.push({ sql, params });
+            if (String(sql).includes('SELECT cliente FROM servicios')) {
+                return { rows: [{ cliente: 'Cliente X' }] };
+            }
+            if (String(sql).includes('UPDATE servicios')) {
+                return {
+                    rows: [{
+                        id: 'srv-123',
+                        cliente: params[0],
+                        nombre_servicio: params[1],
+                        inicio_contrato: new Date('2026-06-09'),
+                        dia_cierre: params[3],
+                        modo_facturacion: params[4],
+                        tipo_facturacion: params[5],
+                        horas_base: params[6]
+                    }]
+                };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = {
+        pool,
+        normalizeCedula,
+        getClientesList: async () => ['Cliente X'],
+        listScopedDistinctClientes: async () => ['Cliente X'],
+        listAssignedClientesForGpUserId: async () => [],
+        resolveGpInternalUserIdForScope: async () => null,
+        normalizeCatalogValue: (v) => v
+    };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+    const payload = {
+        client: 'Cliente X',
+        serviceName: 'Soporte Modificado',
+        inicio_contrato: '2026-06-09',
+        dia_cierre: 15,
+        modo_facturacion: 'HORAS',
+        tipo_facturacion: 'MES_VENCIDO',
+        horas_base: 160
+    };
+
+    const out = await updateServicio(deps, scope, 'srv-123', payload);
+    assert.equal(out.id, 'srv-123');
+    assert.equal(out.serviceName, 'Soporte Modificado');
+    assert.equal(out.diaCierre, 15);
+    assert.equal(out.tipoFacturacion, 'MES_VENCIDO');
+    assert.equal(out.horasBase, 160);
+});
+
+test('deleteServicio elimina servicio y consultores asociados', async () => {
+    let queryArgs = [];
+    const client = {
+        query: async (sql, params) => {
+            queryArgs.push({ sql, params });
+            return { rows: [] };
+        },
+        release: () => {}
+    };
+    const pool = {
+        query: async (sql, params) => {
+            queryArgs.push({ sql, params });
+            if (String(sql).includes('SELECT cliente FROM servicios')) {
+                return { rows: [{ cliente: 'Cliente X' }] };
+            }
+            return { rows: [] };
+        },
+        connect: async () => client
+    };
+    const deps = {
+        pool,
+        getClientesList: async () => ['Cliente X'],
+        listScopedDistinctClientes: async () => ['Cliente X'],
+        listAssignedClientesForGpUserId: async () => [],
+        resolveGpInternalUserIdForScope: async () => null,
+        normalizeCatalogValue: (v) => v
+    };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+
+    const out = await deleteServicio(deps, scope, 'srv-123');
+    assert.deepEqual(out, { success: true });
+
+    // Verificar que se eliminaron consultores asociados y luego el servicio
+    const deletes = queryArgs.filter(q => String(q.sql).includes('DELETE FROM'));
+    assert.equal(deletes.length, 2);
+    assert.ok(deletes[0].sql.includes('servicio_consultores'));
+    assert.ok(deletes[1].sql.includes('servicios'));
 });

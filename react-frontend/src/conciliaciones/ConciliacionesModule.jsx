@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Home, LayoutDashboard, Menu, Scale, X, Receipt } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Home, LayoutDashboard, Menu, Scale, X, Receipt, Briefcase } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import AdminModuleSidebarBrand from '../AdminModuleSidebarBrand.jsx';
 import AdminModuleSidebarFooter from '../AdminModuleSidebarFooter.jsx';
@@ -31,6 +31,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
     const onDashboard = path.includes('/admin/conciliaciones/dashboard');
     const onResumen = path.includes('/admin/conciliaciones/resumen');
     const onFacturacion = path.includes('/admin/conciliaciones/facturacion');
+    const onServicios = path.includes('/admin/conciliaciones/servicios');
 
     const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
@@ -141,6 +142,17 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         <Receipt size={17} className={navIconClass(onFacturacion)} />
                         <span>Facturación</span>
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            navigate('/admin/conciliaciones/servicios');
+                            closeMobile();
+                        }}
+                        className={navItemClass(onServicios)}
+                    >
+                        <Briefcase size={17} className={navIconClass(onServicios)} />
+                        <span>Servicios</span>
+                    </button>
                 </nav>
                 <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
             </aside>
@@ -228,6 +240,17 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                     >
                         <Receipt size={18} className={navIconClass(onFacturacion)} />
                         {sidebarOpen ? <span className="truncate whitespace-nowrap">Facturación</span> : null}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/admin/conciliaciones/servicios')}
+                        title={!sidebarOpen ? 'Servicios' : undefined}
+                        className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
+                            sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
+                        } ${onServicios ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
+                    >
+                        <Briefcase size={18} className={navIconClass(onServicios)} />
+                        {sidebarOpen ? <span className="truncate whitespace-nowrap">Servicios</span> : null}
                     </button>
                 </nav>
 
