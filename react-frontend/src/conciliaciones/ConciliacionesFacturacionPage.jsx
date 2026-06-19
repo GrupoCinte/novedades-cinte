@@ -150,6 +150,11 @@ export default function ConciliacionesFacturacionPage({ token }) {
         [handleResetFilters]
     );
 
+    const handleVerTodosClientes = useCallback(() => {
+        setCliente('');
+        handleResetFilters();
+    }, [handleResetFilters]);
+
     const loadResumen = useCallback(async () => {
         if (!ym.year || !ym.month) {
             setRows([]);
@@ -375,6 +380,17 @@ export default function ConciliacionesFacturacionPage({ token }) {
                 onResetFilters={handleResetFilters}
                 trailingActions={
                     <>
+                        {!isTodosClientes ? (
+                            <button
+                                type="button"
+                                onClick={handleVerTodosClientes}
+                                className={`${dash.borrarFiltros} inline-flex items-center gap-1.5`}
+                                title="Quitar filtro de cliente y ver todos"
+                            >
+                                <RefreshCw size={14} aria-hidden />
+                                <span className="hidden sm:inline">Ver todos</span>
+                            </button>
+                        ) : null}
                         {hasActiveFilters ? (
                             <button
                                 type="button"
