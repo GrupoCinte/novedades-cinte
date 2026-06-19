@@ -185,7 +185,8 @@ function registerDirectorioRoutes(deps) {
         .object({
             cliente: z.string().min(1).max(500),
             desde: mallaIsoDate,
-            hasta: mallaIsoDate
+            hasta: mallaIsoDate,
+            origen: z.enum(['mallas', 'nocturnos']).optional()
         })
         .superRefine((data, ctx) => {
             if (data.desde > data.hasta) {
@@ -211,7 +212,8 @@ function registerDirectorioRoutes(deps) {
                         cedulas: z.array(z.string().min(5).max(24)).max(10),
                         horaInicio: mallaHhMm.optional(),
                         horaFin: mallaHhMm.optional(),
-                        mode: mallaPatchModeEnum.optional()
+                        mode: mallaPatchModeEnum.optional(),
+                        origen: z.enum(['mallas', 'nocturnos']).optional()
                     })
                     .refine(
                         (p) =>
@@ -739,8 +741,8 @@ function registerDirectorioRoutes(deps) {
         try {
             const parsed = mallasTurnosListSchema.safeParse(req.query);
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { desde, hasta, cliente } = parsed.data;
-            const items = await listMallaTurnosCeldasRange({ cliente, desde, hasta });
+            const { desde, hasta, cliente, origen } = parsed.data;
+            const items = await listMallaTurnosCeldasRange({ cliente, desde, hasta, origen });
             return res.json({ ok: true, items });
         } catch (e) {
             console.error('GET directorio mallas-turnos:', e);
