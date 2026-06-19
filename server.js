@@ -680,7 +680,13 @@ const {
     getConciliacionesDashboardResumenForScope,
     upsertConciliacionFacturacionForScope,
     upsertConciliacionFacturacionMasivaForScope,
-    listConciliacionesFacturacionForScope
+    listConciliacionesFacturacionForScope,
+    listServiciosForScope,
+    createServicioForScope,
+    updateServicioForScope,
+    deleteServicioForScope,
+    listServicioConsultoresForScope,
+    upsertServicioConsultoresForScope
 } = createDataLayer({
     pool,
     fs,
@@ -828,7 +834,13 @@ registerConciliacionesRoutes({
     getConciliacionesDashboardResumenForScope,
     upsertConciliacionFacturacionForScope,
     upsertConciliacionFacturacionMasivaForScope,
-    listConciliacionesFacturacionForScope
+    listConciliacionesFacturacionForScope,
+    listServiciosForScope,
+    createServicioForScope,
+    updateServicioForScope,
+    deleteServicioForScope,
+    listServicioConsultoresForScope,
+    upsertServicioConsultoresForScope
 });
 
 registerCotizadorRoutes({

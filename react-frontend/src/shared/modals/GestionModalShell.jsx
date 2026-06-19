@@ -13,6 +13,7 @@ export default function GestionModalShell({
     subtitle,
     size = 'wide',
     titleSize = '2xl',
+    headerActions,
     footer,
     children,
     disableClose = false,
@@ -60,16 +61,19 @@ export default function GestionModalShell({
                             <p className={`${dash.modalMuted} mt-1 text-sm leading-relaxed`}>{subtitle}</p>
                         ) : null}
                     </div>
-                    {!disableClose ? (
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className={dash.modalClose}
-                            aria-label="Cerrar"
-                        >
-                            <X size={18} />
-                        </button>
-                    ) : null}
+                    <div className="flex items-center gap-4">
+                        {headerActions && <div>{headerActions}</div>}
+                        {!disableClose ? (
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className={dash.modalClose}
+                                aria-label="Cerrar"
+                            >
+                                <X size={18} />
+                            </button>
+                        ) : null}
+                    </div>
                 </div>
                 <div className={`${dash.modalBodyScroll} px-1`}>{children}</div>
                 {footer ? <div className={`${dash.modalFooter} px-1`}>{footer}</div> : null}

@@ -676,6 +676,10 @@ function createDataLayer(deps) {
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS factura_fv VARCHAR(100) NULL`);
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS fecha_radicacion DATE NULL`);
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS motivo_devolucion TEXT NULL`);
+
+            // Columnas para servicios
+            await pool.query(`ALTER TABLE servicios ADD COLUMN IF NOT EXISTS horas_base NUMERIC(8,2) NULL`);
+            await pool.query(`ALTER TABLE servicios ADD COLUMN IF NOT EXISTS tipo_facturacion VARCHAR(100) NULL`);
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Conciliaciones] Permisos insuficientes para crear/alterar conciliaciones_facturacion.');
@@ -2386,6 +2390,32 @@ function createDataLayer(deps) {
         return conciliacionesQueries.listConciliacionesFacturacion(conciliacionesDeps, scope, year, month);
     }
 
+    const serviciosDynamoData = require('./conciliaciones/serviciosDynamoData');
+
+    async function listServiciosForScope(scope) {
+        return serviciosDynamoData.listServicios(conciliacionesDeps, scope);
+    }
+
+    async function createServicioForScope(scope, payload) {
+        return serviciosDynamoData.createServicio(conciliacionesDeps, scope, payload);
+    }
+
+    async function updateServicioForScope(scope, idServicio, payload) {
+        return serviciosDynamoData.updateServicio(conciliacionesDeps, scope, idServicio, payload);
+    }
+
+    async function deleteServicioForScope(scope, idServicio) {
+        return serviciosDynamoData.deleteServicio(conciliacionesDeps, scope, idServicio);
+    }
+
+    async function listServicioConsultoresForScope(scope, idServicio) {
+        return serviciosDynamoData.listServicioConsultores(conciliacionesDeps, scope, idServicio);
+    }
+
+    async function upsertServicioConsultoresForScope(scope, idServicio, cedulas) {
+        return serviciosDynamoData.upsertServicioConsultores(conciliacionesDeps, scope, idServicio, cedulas);
+    }
+
     return {
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
@@ -2454,7 +2484,13 @@ function createDataLayer(deps) {
         getConciliacionesDashboardResumenForScope,
         upsertConciliacionFacturacionForScope,
         upsertConciliacionFacturacionMasivaForScope,
-        listConciliacionesFacturacionForScope
+        listConciliacionesFacturacionForScope,
+        listServiciosForScope,
+        createServicioForScope,
+        updateServicioForScope,
+        deleteServicioForScope,
+        listServicioConsultoresForScope,
+        upsertServicioConsultoresForScope
     };
 }
 
