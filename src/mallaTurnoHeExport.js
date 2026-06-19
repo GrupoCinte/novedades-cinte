@@ -229,6 +229,7 @@ async function aprobarMallaTurnosMes(deps) {
         )}). Aprobación inicial: ${formatAprobacionFechaObs(aprobadoEnOriginal)}.`;
 
         let novedadesGeneradas = 0;
+        let totalHoras = 0;
         const modStamp = Date.now();
 
         for (const item of items) {
@@ -331,6 +332,7 @@ async function aprobarMallaTurnosMes(deps) {
                 approverEmail
             ]);
             novedadesGeneradas += 1;
+            totalHoras += Number(recargo.cantidadHoras) || 0;
         }
 
         let upd;
@@ -358,6 +360,7 @@ async function aprobarMallaTurnosMes(deps) {
         const aprobadoEn = upd.rows?.[0]?.aprobado_en;
         return {
             novedadesGeneradas,
+            horasGeneradas: Math.round(totalHoras * 100) / 100,
             reaprobacion: isReaprobacion,
             aprobadoEn: aprobadoEn ? aprobadoEn.toISOString() : lockQ.rows[0]?.aprobado_en?.toISOString?.() || null
         };

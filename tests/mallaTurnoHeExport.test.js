@@ -161,6 +161,7 @@ test('aprobarMallaTurnosMes re-aprobación cac con 06_14 no inserta (turno diurn
     });
     assert.equal(result.reaprobacion, true);
     assert.equal(result.novedadesGeneradas, 0);
+    assert.equal(result.horasGeneradas, 0);
     assert.equal(getInsertCount(), 0);
     assert.equal(captured.observaciones.length, 0);
 });
@@ -185,6 +186,7 @@ test('aprobarMallaTurnosMes re-aprobación cac con 14_22 inserta recargo nocturn
     });
     assert.equal(result.reaprobacion, true);
     assert.equal(result.novedadesGeneradas, 1);
+    assert.equal(result.horasGeneradas, 3);
     assert.equal(getInsertCount(), 1);
     assert.match(captured.observaciones[0], /Modificación a la aprobación original de malla/i);
     assert.match(captured.refs[0], /\|mod:\d+$/);

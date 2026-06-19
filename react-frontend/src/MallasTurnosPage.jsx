@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, PanelRightClose, PanelRightOpen, Trash2, X } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
 import { buildGestionTableDash } from './gestionTableDashTheme.js';
@@ -323,10 +323,15 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
         }
     }, [token, clienteSeleccionado, desde, hasta, variant]);
 
+    const aprobacionSeqRef = useRef(0);
+
     const loadAprobacionStatus = useCallback(async () => {
+        const seq = ++aprobacionSeqRef.current;
         const cli = String(clienteSeleccionado || '').trim();
+        // Reset optimista: evita que el banner de aprobación del cliente/mes anterior
+        // quede "pegado" mientras llega la respuesta del nuevo.
+        setAprobacionStatus(null);
         if (!cli) {
-            setAprobacionStatus(null);
             return;
         }
         try {
@@ -336,8 +341,10 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                 mes: currentMonth.getMonth() + 1,
                 variant
             });
+            if (seq !== aprobacionSeqRef.current) return;
             setAprobacionStatus(data);
         } catch (e) {
+            if (seq !== aprobacionSeqRef.current) return;
             setAprobacionStatus(null);
             setError(e.message || 'No se pudo consultar el estado de aprobación');
         }
@@ -358,14 +365,17 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
             });
             setAprobacionModalOpen(false);
             const n = Number(data.novedadesGeneradas) || 0;
+            const horas = Number(data.horasGeneradas) || 0;
+            const horasTxt = formatCantidadHoras(horas);
+            const novedadesTxt = `${n} ${n === 1 ? 'novedad' : 'novedades'} de Horas Extra`;
             if (data.reaprobacion) {
                 setSuccessMsg(
                     n > 0
-                        ? `${n} Horas Extra adicionales generadas por modificación a la aprobación original.`
+                        ? `${novedadesTxt} adicionales (${horasTxt}) generadas por modificación a la aprobación original.`
                         : 'No había asignaciones nuevas pendientes de cargar en Novedades.'
                 );
             } else {
-                setSuccessMsg(`${n} Horas Extra generadas y aprobadas en Novedades.`);
+                setSuccessMsg(`${novedadesTxt} (${horasTxt}) generadas y aprobadas en Novedades.`);
             }
             await loadAprobacionStatus();
         } catch (e) {
@@ -390,6 +400,13 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     useEffect(() => {
         loadAprobacionStatus();
     }, [loadAprobacionStatus]);
+
+    useEffect(() => {
+        // Al cambiar cliente/mes/variante, cerrar el modal de aprobación y limpiar el
+        // mensaje de éxito del contexto anterior (AUT-523).
+        setAprobacionModalOpen(false);
+        setSuccessMsg('');
+    }, [clienteSeleccionado, currentMonth, variant]);
 
     useEffect(() => {
         if (isNocturnos && pickerFranja) {
