@@ -213,8 +213,16 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         }
         if (v === 'reubicaciones') {
             setMainView('reubicaciones');
+            const semaforoParam = searchParams.get('semaforo');
+            if (semaforoParam) {
+                setReubicacionesNavIntent((cur) => ({
+                    seq: cur.seq + 1,
+                    semaforo: semaforoParam
+                }));
+            }
             const next = new URLSearchParams(searchParams);
             next.delete('v');
+            next.delete('semaforo');
             setSearchParams(next, { replace: true });
             return;
         }

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import UserAccountMenu from './UserAccountMenu.jsx';
+import { useReubicacionesAlerts } from './useReubicacionesAlerts.js';
 import ChatWidget from './ChatWidget';
 import Dashboard from './Dashboard';
 import ConsultorRadicacionPortal from './ConsultorRadicacionPortal.jsx';
@@ -95,6 +96,7 @@ function App() {
   // El Asistente CINTE solo se ofrece dentro del módulo Novedades del portal admin.
   const isNovedadesRoute = location.pathname.startsWith('/admin/novedades');
   const moduleCount = adminPortalModuleCount(auth);
+  const { alertCount: reubicacionesAlertCount } = useReubicacionesAlerts({ auth });
   /** Hub con tarjetas: sin cabecera duplicada; logo/título van sobre el banner en AdminPortalHome. */
   const isAdminHubHome = Boolean(auth?.user && location.pathname === '/admin' && moduleCount > 0);
   /** Módulos con sidebar propio: logo y título van en el panel lateral, no en el header global. */
@@ -258,7 +260,7 @@ function App() {
               auth={auth}
               onLogout={handleLogout}
               surface="header"
-              notificationCount={0}
+              notificationCount={reubicacionesAlertCount}
               assistantSlot={
                 isNovedadesRoute
                   ? <ChatWidget ctx={{ role: auth?.user?.role }} isLight={isLight} />

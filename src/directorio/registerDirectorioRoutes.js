@@ -871,6 +871,31 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
+    /**
+     * GET /api/directorio/reubicaciones-pipeline/alertas-count
+     * Devuelve el número de reubicaciones en estado Urgente (Rojo) o Vencido.
+     * Usado por la campana de notificaciones en el frontend.
+     * Requiere al menos acceso de lectura (readGuard).
+     */
+    app.get('/api/directorio/reubicaciones-pipeline/alertas-count', ...readGuard, async (req, res) => {
+        try {
+            const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
+            // Rojo: 0..14 días restantes; Vencido: diasRestantes < 0
+            const sql = `
+                SELECT COUNT(*)::int AS count
+                FROM reubicaciones_pipeline rp
+                INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                WHERE ${diasSql} <= 14
+            `;
+            const result = await pool.query(sql);
+            const count = result.rows[0]?.count ?? 0;
+            return res.json({ ok: true, count });
+        } catch (e) {
+            console.error('GET reubicaciones-pipeline/alertas-count:', e);
+            return res.status(500).json({ ok: false, count: 0, error: 'No se pudo obtener alertas.' });
+        }
+    });
+
     app.get('/api/directorio/reubicaciones-pipeline', ...readGuard, async (req, res) => {
         try {
             const parsed = reubicacionesPipelineListSchema.safeParse(req.query);

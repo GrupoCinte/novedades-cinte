@@ -324,15 +324,20 @@ export default function UserAccountMenu({
             </button>
 
 
-            <span className="inline-flex" title="Notificaciones: no disponible por el momento">
+            <span className="inline-flex" title={notificationCount > 0 ? `${notificationCount} reubicación(es) urgente(s) o vencida(s)` : "Sin notificaciones nuevas"}>
                 <button
                     type="button"
-                    disabled
-                    aria-disabled="true"
-                    aria-label="Notificaciones no disponibles temporalmente"
-                    className={`${tileClass} cursor-not-allowed opacity-45`}
+                    disabled={notificationCount === 0}
+                    aria-label={notificationCount > 0 ? "Ver reubicaciones urgentes" : "Sin notificaciones"}
+                    onClick={() => go('/admin/directorio?v=reubicaciones&semaforo=Rojo,Vencido')}
+                    className={`${tileClass} ${notificationCount === 0 ? 'cursor-not-allowed opacity-45' : ''}`}
                 >
-                    <Bell size={20} strokeWidth={2} className={bannerLight ? 'text-[#004D87]' : isBanner ? 'text-white' : ''} />
+                    <Bell size={20} strokeWidth={2} className={bannerLight && notificationCount === 0 ? 'text-[#004D87]' : isBanner && notificationCount === 0 ? 'text-white' : ''} />
+                    {notificationCount > 0 && (
+                        <span className="absolute -right-1.5 -top-1.5 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white shadow ring-2 ring-white sm:-right-2 sm:-top-2">
+                            {notificationCount > 9 ? '9+' : notificationCount}
+                        </span>
+                    )}
                 </button>
             </span>
         </>
@@ -373,15 +378,21 @@ export default function UserAccountMenu({
                 {isLight ? <Moon size={18} className="opacity-80" /> : <Sun size={18} className="opacity-80" />}
                 {isLight ? 'Modo oscuro' : 'Modo claro'}
             </button>
-            <span className="block w-full" title="Notificaciones: no disponible por el momento">
+            <span className="block w-full" title={notificationCount > 0 ? `${notificationCount} reubicación(es) urgente(s) o vencida(s)` : "Sin notificaciones nuevas"}>
                 <button
                     type="button"
-                    disabled
-                    className={`flex w-full cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium opacity-45 ${bannerLight ? 'text-slate-600' : isLight ? 'text-slate-600' : 'text-slate-300'}`}
-                    aria-label="Notificaciones no disponibles temporalmente"
+                    disabled={notificationCount === 0}
+                    onClick={() => go('/admin/directorio?v=reubicaciones&semaforo=Rojo,Vencido')}
+                    className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium ${notificationCount === 0 ? `cursor-not-allowed opacity-45 ${bannerLight ? 'text-slate-600' : isLight ? 'text-slate-600' : 'text-slate-300'}` : `text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/30`}`}
+                    aria-label={notificationCount > 0 ? "Ver reubicaciones urgentes" : "Sin notificaciones"}
                 >
-                    <Bell size={18} />
-                    Notificaciones (pronto)
+                    <div className="relative">
+                        <Bell size={18} />
+                        {notificationCount > 0 && (
+                            <span className="absolute -top-1 -right-1 flex h-2 w-2 rounded-full bg-red-600"></span>
+                        )}
+                    </div>
+                    {notificationCount > 0 ? `Alertas: ${notificationCount} urgente(s)` : 'Sin notificaciones'}
                 </button>
             </span>
             <div className={`my-1.5 h-px ${bannerLight ? 'bg-slate-200' : isBanner ? 'bg-white/10' : isLight ? 'bg-slate-200' : 'bg-[#1a3a56]'}`} />
