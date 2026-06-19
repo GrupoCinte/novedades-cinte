@@ -243,6 +243,8 @@ async function aprobarMallaTurnosMes(deps) {
                 );
             }
 
+            const nombre = String(colaborador.nombre || item.nombre || '').trim() || cedula;
+
             const merged = resolvePostedContactFromColaborador({}, colaborador, normalizeCatalogValue);
             const colCliente = merged.cliente;
             const lider = merged.lider;
@@ -250,13 +252,13 @@ async function aprobarMallaTurnosMes(deps) {
 
             if (!colCliente || foldForMatch(colCliente) !== foldForMatch(cliente)) {
                 throw Object.assign(
-                    new Error(`Colaborador ${cedula} (${fecha}) no pertenece al cliente ${cliente}.`),
+                    new Error(`Colaborador ${nombre} (${fecha}) no pertenece al cliente ${cliente}.`),
                     { status: 400 }
                 );
             }
             if (!lider) {
                 throw Object.assign(
-                    new Error(`Colaborador ${cedula} (${fecha}) no tiene líder en directorio.`),
+                    new Error(`Colaborador ${nombre} (${fecha}) no tiene líder en directorio.`),
                     { status: 400 }
                 );
             }
@@ -265,7 +267,7 @@ async function aprobarMallaTurnosMes(deps) {
             const liderOk = lideresValidos.some((li) => foldForMatch(li) === foldForMatch(lider));
             if (!liderOk) {
                 throw Object.assign(
-                    new Error(`Líder de ${cedula} (${fecha}) no es válido para el cliente ${cliente}.`),
+                    new Error(`Líder de ${nombre} (${fecha}) no es válido para el cliente ${cliente}.`),
                     { status: 400 }
                 );
             }
@@ -299,7 +301,6 @@ async function aprobarMallaTurnosMes(deps) {
                 ? `${mallaOrigenRefBase}|mod:${modStamp}`
                 : mallaOrigenRefBase;
             const observaciones = isReaprobacion ? observacionesReaprobacion : observacionesBase;
-            const nombre = String(colaborador.nombre || item.nombre || '').trim() || cedula;
 
             await dbClient.query(INSERT_NOVEDAD_MALLA_SQL, [
                 nombre,
