@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import OnboardingFiltersBar, { buildChipLabel } from './OnboardingFiltersBar.jsx';
 import OnboardingFiltersDrawer, {
     drawerFieldCls,
@@ -88,17 +88,24 @@ export default function OnboardingListView({
         setPage(0);
     }, []);
 
+    const loadSeqRef = useRef(0);
+
     const load = useCallback(async () => {
+        const seq = ++loadSeqRef.current;
         setLoading(true);
         setError('');
+        // Evita mezclar el orden anterior con la nueva cabecera mientras llega la respuesta.
+        setRows([]);
         try {
             const r = await fetcher(params);
+            if (seq !== loadSeqRef.current) return;
             setRows(Array.isArray(r?.items) ? r.items : []);
             setTotal(Number(r?.total) || 0);
         } catch (e) {
+            if (seq !== loadSeqRef.current) return;
             setError(e?.response?.data?.error || e?.message || 'Error cargando');
         } finally {
-            setLoading(false);
+            if (seq === loadSeqRef.current) setLoading(false);
         }
     }, [fetcher, params]);
 
