@@ -257,6 +257,7 @@ export default function ConciliacionesFacturacionModal({
                                             placeholder="Ej. FV-1234"
                                             value={facturaFv}
                                             onChange={(e) => setFacturaFv(e.target.value)}
+                                            maxLength={100}
                                             className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
                                         />
                                     </div>
@@ -294,6 +295,7 @@ export default function ConciliacionesFacturacionModal({
                                         placeholder="Especifique el motivo de la devolución"
                                         value={motivoDevolucion}
                                         onChange={(e) => setMotivoDevolucion(e.target.value)}
+                                        maxLength={1000}
                                         className={`rounded-lg border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
                                     />
                                 </div>

@@ -10,9 +10,9 @@ const upsertFacturacionSchema = z.object({
     observaciones: z.string().max(1000, 'Las observaciones no pueden exceder los 1000 caracteres').nullable().optional(),
     horasFacturadas: z.coerce.number().optional().default(0),
     estado: z.enum(ESTADOS_CONCILIACION).optional().default('PENDIENTE'),
-    facturaFv: z.string().nullable().optional(),
+    facturaFv: z.string().max(100, 'El número de factura no puede exceder los 100 caracteres').nullable().optional(),
     fechaRadicacion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (YYYY-MM-DD)').nullable().optional(),
-    motivoDevolucion: z.string().nullable().optional()
+    motivoDevolucion: z.string().max(1000, 'El motivo de devolución no puede exceder los 1000 caracteres').nullable().optional()
 });
 
 const upsertFacturacionMasivaSchema = z.object({
@@ -20,9 +20,9 @@ const upsertFacturacionMasivaSchema = z.object({
     anio: z.coerce.number({ required_error: 'El año es requerido' }).int().min(2000, 'El año debe ser mayor o igual a 2000').max(2100, 'El año debe ser menor o igual a 2100'),
     mes: z.coerce.number({ required_error: 'El mes es requerido' }).int().min(1, 'El mes debe estar entre 1 y 12').max(12, 'El mes debe estar entre 1 y 12'),
     estado: z.enum(ESTADOS_CONCILIACION).optional().default('PENDIENTE'),
-    facturaFv: z.string().nullable().optional(),
+    facturaFv: z.string().max(100, 'El número de factura no puede exceder los 100 caracteres').nullable().optional(),
     fechaRadicacion: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (YYYY-MM-DD)').nullable().optional(),
-    motivoDevolucion: z.string().nullable().optional(),
+    motivoDevolucion: z.string().max(1000, 'El motivo de devolución no puede exceder los 1000 caracteres').nullable().optional(),
     observaciones: z.string().max(1000, 'Las observaciones no pueden exceder los 1000 caracteres').nullable().optional(),
     cedulas: z.array(z.string().min(1, 'Cédula vacía')).optional()
 });
