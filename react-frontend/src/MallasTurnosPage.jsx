@@ -478,25 +478,32 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
             );
             return;
         }
-        const pickerId = pickerFranja?.id;
-        const cedulas = pickerId ? draft[pickerId] || [] : [];
-        if (cedulas.length === 0) {
+        const franjasConCedulas = massAssignFranjas
+            .map(({ id }) => ({ id, cedulas: draft[id] || [] }))
+            .filter(({ cedulas }) => cedulas.length > 0);
+        if (franjasConCedulas.length === 0) {
             setError('Añade al menos un colaborador en el panel de asignación');
             return;
         }
         const patches = [];
         for (const ymd of selected) {
-            patches.push(
-                buildMallaTurnoPatch(pickerId, {
-                    fecha: ymd,
-                    cedulas: [...cedulas],
-                    mode: 'merge'
-                })
-            );
+            for (const { id, cedulas } of franjasConCedulas) {
+                patches.push(
+                    buildMallaTurnoPatch(id, {
+                        fecha: ymd,
+                        cedulas: [...cedulas],
+                        mode: 'merge'
+                    })
+                );
+            }
         }
         const ok = await runSave(patches);
         if (ok) {
-            setDraft({ [pickerId]: [] });
+            setDraft(
+                isNocturnos && pickerFranja
+                    ? { [pickerFranja.id]: [] }
+                    : emptyFranjasRecord(FRANJAS_MALLAS)
+            );
             setSuccessMsg('Colaboradores agregados a los días seleccionados.');
         }
     };

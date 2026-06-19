@@ -155,6 +155,20 @@ test('PUT /api/directorio/mallas-turnos 400 franja inválida', async () => {
             patches: [{ fecha: '2026-05-10', franja: '99_99', cedulas: ['1234567890'] }]
         });
     assert.equal(res.status, 400);
+    assert.match(res.body.error || '', /franja/i);
+});
+
+test('PUT /api/directorio/mallas-turnos 400 cédula inválida con mensaje descriptivo', async () => {
+    const app = buildApp('cac', buildPoolAuditOnly());
+    const res = await request(app)
+        .put('/api/directorio/mallas-turnos')
+        .send({
+            cliente: 'Cliente Demo',
+            patches: [{ fecha: '2026-05-10', franja: '14_22', cedulas: ['12'] }]
+        });
+    assert.equal(res.status, 400);
+    assert.notEqual(res.body.error, 'Datos inválidos');
+    assert.match(res.body.error || '', /[Cc]édula/);
 });
 
 test('PUT /api/directorio/mallas-turnos 200 cac y llama upsert', async () => {
