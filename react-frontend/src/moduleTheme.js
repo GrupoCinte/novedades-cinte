@@ -138,6 +138,29 @@ export function useModuleTheme() {
         dangerSoftBtn: L
             ? 'w-full rounded border border-rose-200 bg-rose-50 px-2 py-2 text-sm font-medium text-rose-900 hover:bg-rose-100'
             : 'w-full rounded border border-rose-500/40 bg-rose-950/30 px-2 py-2 text-sm font-medium text-rose-100 hover:bg-rose-900/40',
+        /** Botón primario con el acento corporativo CINTE (#088DC6) */
+        primaryBtn:
+            'inline-flex items-center justify-center gap-2 rounded-lg bg-[#088DC6] px-4 py-2 text-sm font-semibold text-white shadow-[0_4px_12px_rgba(8,141,198,0.28)] transition-colors hover:bg-[#0b7cad] focus:outline-none focus:ring-2 focus:ring-[#088DC6]/40 disabled:opacity-50',
+        /** Chip / badge informativo (acento sky) */
+        chipNeutral: L
+            ? 'inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-xs font-semibold text-sky-700'
+            : 'inline-flex items-center rounded-full border border-[#2F7BB8]/45 bg-[#0a1f2e] px-2.5 py-0.5 text-xs font-semibold text-[#65BCF7]',
+        /** Botón icono cuadrado (acciones en filas de tabla) */
+        iconActionBtn: L
+            ? 'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-40'
+            : 'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#1a3a56] text-[#9fb3c8] transition-colors hover:bg-[#0f2942]/60 hover:text-white disabled:opacity-40',
+        /** Botón icono destructivo (eliminar fila) */
+        iconActionDanger: L
+            ? 'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-40'
+            : 'inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-500/40 text-rose-300 transition-colors hover:bg-rose-500/10 disabled:opacity-40',
+        /** Título de sección (cabecera de página tipo cotizador) */
+        sectionTitle: L
+            ? 'text-xl md:text-2xl font-black font-heading text-slate-900'
+            : 'text-xl md:text-2xl font-black font-heading text-white',
+        /** Subtítulo de sección bajo el título */
+        sectionSubtitle: L
+            ? 'text-sm font-subtitle font-extralight text-slate-500'
+            : 'text-sm font-subtitle font-extralight text-[#9fb3c8]',
     };
 }
 

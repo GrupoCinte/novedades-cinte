@@ -23,8 +23,18 @@ export default function CotizadorForm({
         infoCallout,
         infoCalloutAccent,
         formErrorBox,
-        dangerSoftBtn
+        dangerSoftBtn,
+        primaryBtn,
+        isLight
     } = useModuleTheme();
+    const segmentBtn = (active) =>
+        `flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-all ${
+            active
+                ? 'bg-[#088DC6] text-white shadow-[0_4px_12px_rgba(8,141,198,0.3)]'
+                : isLight
+                  ? 'border border-slate-200 text-slate-600 hover:bg-slate-100'
+                  : 'border border-[#1a3a56] text-slate-300 hover:bg-[#0f2942]/60'
+        }`;
     const cargos = Array.isArray(cargosResueltos) ? cargosResueltos : [];
     const prevClienteRef = useRef(form.cliente);
     const [salarioFocusedIdx, setSalarioFocusedIdx] = useState(null);
@@ -134,74 +144,91 @@ export default function CotizadorForm({
     const clientNit = clientes.find((c) => c.nombre === form.cliente)?.nit || '';
 
     return (
-        <div className={cardPanel}>
-            <h3 className={`${panelTitle} mb-4`}>Cotizador</h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div className="md:col-span-2">
-                    <label className={`text-xs ${labelMuted}`}>Cliente</label>
-                    <select
-                        className={`w-full ${field}`}
-                        value={form.cliente}
-                        onChange={(e) => setForm((p) => ({ ...p, cliente: e.target.value }))}
-                    >
-                        <option value="">Selecciona cliente</option>
-                        {clientes.map((c) => <option key={c.nombre} value={c.nombre}>{c.nombre}</option>)}
-                    </select>
+        <div className="space-y-4">
+            <div className={cardPanel}>
+                <div className="mb-4">
+                    <h3 className={panelTitle}>Información básica</h3>
+                    <p className={`text-xs ${labelMuted}`}>Datos principales de la cotización</p>
                 </div>
-                <div>
-                    <label className={`text-xs ${labelMuted}`}>NIT</label>
-                    <input
-                        value={clientNit}
-                        readOnly
-                        className={`w-full ${field} cursor-default tabular-nums opacity-90`}
-                    />
-                </div>
-                <div>
-                    <label className={`text-xs ${labelMuted}`}>Comercial</label>
-                    <select
-                        className={`w-full ${field}`}
-                        value={form.comercial}
-                        onChange={(e) => setForm((p) => ({ ...p, comercial: e.target.value }))}
-                    >
-                        <option value="">Selecciona comercial</option>
-                        {comerciales.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                </div>
-                <div>
-                    <label className={`text-xs ${labelMuted}`}>Plazo</label>
-                    <select className={`w-full ${field}`} value={form.plazo} onChange={(e) => setForm((p) => ({ ...p, plazo: e.target.value }))}>
-                        <option value="30">30</option>
-                        <option value="45">45</option>
-                        <option value="60">60</option>
-                    </select>
-                </div>
-                <div>
-                    <label className={`text-xs ${labelMuted}`}>Margen (%) min {Math.round(margenMin * 100)}</label>
-                    <input
-                        type="number"
-                        min={Math.round(margenMin * 100)}
-                        className={`w-full ${field}`}
-                        value={form.margenPct}
-                        onChange={(e) => setForm((p) => ({ ...p, margenPct: e.target.value }))}
-                    />
-                </div>
-                <div>
-                    <label className={`text-xs ${labelMuted}`}>Meses</label>
-                    <input type="number" min="1" className={`w-full ${field}`} value={form.meses} onChange={(e) => setForm((p) => ({ ...p, meses: e.target.value }))} />
-                </div>
-                <div>
-                    <label className={`text-xs ${labelMuted}`}>Moneda</label>
-                    <select className={`w-full ${field}`} value={form.moneda} onChange={(e) => setForm((p) => ({ ...p, moneda: e.target.value }))}>
-                        {Object.keys(monedas).map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                </div>
-                <div className={`md:col-span-4 text-xs flex gap-4 ${labelMuted}`}>
-                    <span>Tasa financiera: {(tasaFin * 100).toFixed(2)}%</span>
-                    <span>Tasa conversión: {form.moneda === 'COP' ? 'N/A' : tasaConv.toLocaleString('es-CO')}</span>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div className="md:col-span-2">
+                        <label className={`text-xs ${labelMuted}`}>Cliente</label>
+                        <select
+                            className={`w-full ${field}`}
+                            value={form.cliente}
+                            onChange={(e) => setForm((p) => ({ ...p, cliente: e.target.value }))}
+                        >
+                            <option value="">Selecciona cliente</option>
+                            {clientes.map((c) => <option key={c.nombre} value={c.nombre}>{c.nombre}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className={`text-xs ${labelMuted}`}>NIT</label>
+                        <input
+                            value={clientNit}
+                            readOnly
+                            className={`w-full ${field} cursor-default tabular-nums opacity-90`}
+                        />
+                    </div>
+                    <div>
+                        <label className={`text-xs ${labelMuted}`}>Comercial</label>
+                        <select
+                            className={`w-full ${field}`}
+                            value={form.comercial}
+                            onChange={(e) => setForm((p) => ({ ...p, comercial: e.target.value }))}
+                        >
+                            <option value="">Selecciona comercial</option>
+                            {comerciales.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                    </div>
+                    <div className="md:col-span-2">
+                        <label className={`text-xs ${labelMuted}`}>Plazo de pago (días)</label>
+                        <div className="flex gap-2 mt-0.5">
+                            {['30', '45', '60'].map((pl) => (
+                                <button
+                                    key={pl}
+                                    type="button"
+                                    className={segmentBtn(form.plazo === pl)}
+                                    onClick={() => setForm((p) => ({ ...p, plazo: pl }))}
+                                >
+                                    {pl} días
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div>
+                        <label className={`text-xs ${labelMuted}`}>Margen (%) min {Math.round(margenMin * 100)}</label>
+                        <input
+                            type="number"
+                            min={Math.round(margenMin * 100)}
+                            className={`w-full ${field}`}
+                            value={form.margenPct}
+                            onChange={(e) => setForm((p) => ({ ...p, margenPct: e.target.value }))}
+                        />
+                    </div>
+                    <div>
+                        <label className={`text-xs ${labelMuted}`}>Meses</label>
+                        <input type="number" min="1" className={`w-full ${field}`} value={form.meses} onChange={(e) => setForm((p) => ({ ...p, meses: e.target.value }))} />
+                    </div>
+                    <div>
+                        <label className={`text-xs ${labelMuted}`}>Moneda</label>
+                        <select className={`w-full ${field}`} value={form.moneda} onChange={(e) => setForm((p) => ({ ...p, moneda: e.target.value }))}>
+                            {Object.keys(monedas).map((m) => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                    </div>
+                    <div className={`md:col-span-4 text-xs flex gap-4 ${labelMuted}`}>
+                        <span>Tasa financiera: {(tasaFin * 100).toFixed(2)}%</span>
+                        <span>Tasa conversión: {form.moneda === 'COP' ? 'N/A' : tasaConv.toLocaleString('es-CO')}</span>
+                    </div>
                 </div>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className={cardPanel}>
+                <div className="mb-3">
+                    <h3 className={panelTitle}>Perfiles</h3>
+                    <p className={`text-xs ${labelMuted}`}>Cargos incluidos en esta cotización</p>
+                </div>
+                <div className="space-y-3">
                 {!form.cliente && (
                     <p className={`text-xs ${labelMuted} p-2 ${insetWell}`}>
                         Seleccione un cliente para cargar las tarifas disponibles.
@@ -313,19 +340,20 @@ export default function CotizadorForm({
                     );
                 })}
                 <button type="button" onClick={addPerfil} className={ghostBtn}>+ Agregar perfil</button>
-            </div>
+                </div>
 
-            {formError && <div className={formErrorBox}>{formError}</div>}
+                {formError && <div className={formErrorBox}>{formError}</div>}
 
-            <div className="mt-4">
-                <button
-                    type="button"
-                    disabled={loading}
-                    onClick={handleCotizarClick}
-                    className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold"
-                >
-                    {loading ? 'Calculando...' : 'Cotizar'}
-                </button>
+                <div className="mt-4 flex justify-end">
+                    <button
+                        type="button"
+                        disabled={loading}
+                        onClick={handleCotizarClick}
+                        className={primaryBtn}
+                    >
+                        {loading ? 'Calculando…' : 'Cotizar'}
+                    </button>
+                </div>
             </div>
         </div>
     );
