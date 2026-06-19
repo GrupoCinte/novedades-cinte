@@ -26,6 +26,8 @@ function buildMeshMap(items, variant) {
     if (variant === 'nocturnos') {
         for (const it of items || []) {
             if (String(it.franja) !== '22_06') continue;
+            // AUT-550: solo asignaciones cuyo origen es Turnos nocturnos.
+            if ((it.origen || 'mallas') !== 'nocturnos') continue;
             const { horaInicio, horaFin } = resolveNocturnoHorarioPair(it.horaInicio, it.horaFin);
             const franjaId = nocturnoVirtualFranjaId(horaInicio, horaFin);
             const ymd = it.fecha;
@@ -54,6 +56,8 @@ function buildMeshMap(items, variant) {
     for (const it of items || []) {
         const franjaId = it.franja;
         if (!ids.has(franjaId)) continue;
+        // AUT-550: excluir asignaciones de Turnos nocturnos de la vista de Mallas.
+        if ((it.origen || 'mallas') === 'nocturnos') continue;
         const ymd = it.fecha;
         if (!map[ymd]) map[ymd] = emptyFranjasRecord(FRANJAS_MALLAS);
         const arr = map[ymd][franjaId];
@@ -314,7 +318,8 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
         setLoadingMesh(true);
         setError('');
         try {
-            const data = await fetchMallasTurnos(token, cli, desde, hasta);
+            const origen = variant === 'nocturnos' ? 'nocturnos' : 'mallas';
+            const data = await fetchMallasTurnos(token, cli, desde, hasta, origen);
             setMeshByYmd(buildMeshMap(data.items, variant));
         } catch (e) {
             setError(e.message || 'No se pudo cargar la malla');
@@ -468,7 +473,11 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
         setSaving(true);
         setError('');
         try {
-            await putMallasTurnos(token, { cliente: cli, patches });
+            // AUT-550: marca cada patch con el origen de la pestaña activa para no
+            // cruzar Mallas con Turnos nocturnos al guardar.
+            const origen = isNocturnos ? 'nocturnos' : 'mallas';
+            const patchesConOrigen = (patches || []).map((p) => ({ ...p, origen }));
+            await putMallasTurnos(token, { cliente: cli, patches: patchesConOrigen });
             await loadMesh();
             if (clearSelectionAfter) clearSelection();
             return true;

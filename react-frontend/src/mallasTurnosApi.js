@@ -17,8 +17,9 @@ export function authHeaders(token) {
     return headers;
 }
 
-export async function fetchMallasTurnos(token, cliente, desde, hasta) {
+export async function fetchMallasTurnos(token, cliente, desde, hasta, origen) {
     const qs = new URLSearchParams({ cliente, desde, hasta });
+    if (origen === 'mallas' || origen === 'nocturnos') qs.set('origen', origen);
     const res = await fetch(`/api/directorio/mallas-turnos?${qs}`, {
         headers: authHeaders(token)
     });

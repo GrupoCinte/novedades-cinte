@@ -164,7 +164,13 @@ async function aprobarMallaTurnosMes(deps) {
     const { desde, hasta } = monthRangeYmd(anio, mes);
     const allowedFranjas = new Set(franjasForVariant(variant));
     const allItems = await listMallaTurnosCeldasRange({ cliente, desde, hasta });
-    const items = allItems.filter((it) => allowedFranjas.has(String(it.franja)));
+    // AUT-550: cada pestaña aprueba solo sus propias asignaciones (no las del otro origen),
+    // aunque compartan la franja 22_06.
+    const items = allItems.filter(
+        (it) =>
+            allowedFranjas.has(String(it.franja)) &&
+            (String(it.origen || 'mallas') === variant)
+    );
 
     if (items.length === 0) {
         throw Object.assign(new Error('No hay asignaciones para aprobar en este mes.'), { status: 400 });
