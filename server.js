@@ -822,26 +822,31 @@ registerDirectorioRoutes({
     getColaboradorByCedula
 });
 
-registerConciliacionesRoutes({
-    app,
-    verificarToken,
-    allowAnyPanel,
-    applyScope,
-    listConciliacionesClientesForScope,
-    getConciliacionResumenPorClienteMesForScope,
-    getConciliacionResumenTodosClientesMesForScope,
-    listConciliacionNovedadesDetalleForScope,
-    getConciliacionesDashboardResumenForScope,
-    upsertConciliacionFacturacionForScope,
-    upsertConciliacionFacturacionMasivaForScope,
-    listConciliacionesFacturacionForScope,
-    listServiciosForScope,
-    createServicioForScope,
-    updateServicioForScope,
-    deleteServicioForScope,
-    listServicioConsultoresForScope,
-    upsertServicioConsultoresForScope
-});
+// Conciliaciones queda detras de un flag: por defecto OFF (apagado en produccion).
+// Activar en QA/entornos de prueba con CONCILIACIONES_MODULE_ENABLED=true.
+const conciliacionesModuleEnabled = String(process.env.CONCILIACIONES_MODULE_ENABLED || 'false').toLowerCase() === 'true';
+if (conciliacionesModuleEnabled) {
+    registerConciliacionesRoutes({
+        app,
+        verificarToken,
+        allowAnyPanel,
+        applyScope,
+        listConciliacionesClientesForScope,
+        getConciliacionResumenPorClienteMesForScope,
+        getConciliacionResumenTodosClientesMesForScope,
+        listConciliacionNovedadesDetalleForScope,
+        getConciliacionesDashboardResumenForScope,
+        upsertConciliacionFacturacionForScope,
+        upsertConciliacionFacturacionMasivaForScope,
+        listConciliacionesFacturacionForScope,
+        listServiciosForScope,
+        createServicioForScope,
+        updateServicioForScope,
+        deleteServicioForScope,
+        listServicioConsultoresForScope,
+        upsertServicioConsultoresForScope
+    });
+}
 
 registerCotizadorRoutes({
     app,

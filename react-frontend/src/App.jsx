@@ -30,6 +30,7 @@ import { cognitoSignOut } from './cognitoAuth';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { pathIsAdminModuleShell, ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
 import { installRuntimeClientTrace } from './runtimeClientTrace.js';
+import { CONCILIACIONES_MODULE_ENABLED } from './featureFlags.js';
 
 function AdminPortalSinModulos({ onLogout }) {
   const { theme } = useUiTheme();
@@ -310,27 +311,31 @@ function App() {
               </ProtectedRoute>
             )}
           />
-          <Route
-            path="/admin/conciliaciones"
-            element={(
-              <ProtectedRoute auth={auth}>
-                {userHasNovedadesAdminAccess(auth) ? (
-                  <ConciliacionesModule auth={auth} onLogout={handleLogout} />
-                ) : (
-                  <Navigate to="/admin" replace />
-                )}
-              </ProtectedRoute>
-            )}
-          >
-            <Route index element={<Navigate to="dashboard" replace />} />
+          {CONCILIACIONES_MODULE_ENABLED ? (
             <Route
-              path="dashboard"
-              element={<ConciliacionesDashboardPage token={auth?.token || ''} />}
-            />
-            <Route path="resumen" element={<ConciliacionesPage token={auth?.token || ''} />} />
-            <Route path="facturacion" element={<ConciliacionesFacturacionPage token={auth?.token || ''} />} />
-            <Route path="servicios" element={<ConciliacionesServiciosPage token={auth?.token || ''} />} />
-          </Route>
+              path="/admin/conciliaciones"
+              element={(
+                <ProtectedRoute auth={auth}>
+                  {userHasNovedadesAdminAccess(auth) ? (
+                    <ConciliacionesModule auth={auth} onLogout={handleLogout} />
+                  ) : (
+                    <Navigate to="/admin" replace />
+                  )}
+                </ProtectedRoute>
+              )}
+            >
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route
+                path="dashboard"
+                element={<ConciliacionesDashboardPage token={auth?.token || ''} />}
+              />
+              <Route path="resumen" element={<ConciliacionesPage token={auth?.token || ''} />} />
+              <Route path="facturacion" element={<ConciliacionesFacturacionPage token={auth?.token || ''} />} />
+              <Route path="servicios" element={<ConciliacionesServiciosPage token={auth?.token || ''} />} />
+            </Route>
+          ) : (
+            <Route path="/admin/conciliaciones/*" element={<Navigate to="/admin" replace />} />
+          )}
           <Route
             path="/admin"
             element={
