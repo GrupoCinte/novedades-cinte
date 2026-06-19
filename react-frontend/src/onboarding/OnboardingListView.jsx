@@ -89,6 +89,15 @@ export default function OnboardingListView({
     }, []);
 
     const loadSeqRef = useRef(0);
+    // `fetcher` y `params` llegan como referencias nuevas en cada render (props inline y
+    // defaults {}/[]). Si la carga dependiera de su identidad, el efecto se redispararía en
+    // cada render → setState → render → … (tormenta de peticiones). Los leemos desde refs y
+    // disparamos por el VALOR serializado de params.
+    const fetcherRef = useRef(fetcher);
+    fetcherRef.current = fetcher;
+    const paramsRef = useRef(params);
+    paramsRef.current = params;
+    const paramsKey = JSON.stringify(params);
 
     const load = useCallback(async () => {
         const seq = ++loadSeqRef.current;
@@ -97,7 +106,7 @@ export default function OnboardingListView({
         // Evita mezclar el orden anterior con la nueva cabecera mientras llega la respuesta.
         setRows([]);
         try {
-            const r = await fetcher(params);
+            const r = await fetcherRef.current(paramsRef.current);
             if (seq !== loadSeqRef.current) return;
             setRows(Array.isArray(r?.items) ? r.items : []);
             setTotal(Number(r?.total) || 0);
@@ -107,11 +116,13 @@ export default function OnboardingListView({
         } finally {
             if (seq === loadSeqRef.current) setLoading(false);
         }
-    }, [fetcher, params]);
+    }, []);
 
     useEffect(() => {
         load();
-    }, [load]);
+        // load es estable; recargamos solo cuando cambia el valor de params.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paramsKey]);
 
     const chipPairs = useMemo(() => {
         const arr = [];
