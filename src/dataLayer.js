@@ -677,7 +677,35 @@ function createDataLayer(deps) {
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS fecha_radicacion DATE NULL`);
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS motivo_devolucion TEXT NULL`);
 
-            // Columnas para servicios
+            // Tablas de servicios (facturacion): crearlas antes de alterarlas para no romper el arranque
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS servicios (
+                    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cliente             TEXT NOT NULL,
+                    nombre_servicio     TEXT NOT NULL,
+                    inicio_contrato     DATE NOT NULL,
+                    dia_cierre          INTEGER NOT NULL,
+                    modo_facturacion    VARCHAR(100) NOT NULL,
+                    horas_base          NUMERIC(8,2) NULL,
+                    tipo_facturacion    VARCHAR(100) NULL,
+                    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS servicio_consultores (
+                    servicio_id         UUID NOT NULL REFERENCES servicios(id) ON DELETE CASCADE,
+                    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    licencias           TEXT NULL,
+                    equipo              TEXT NULL,
+                    otras_dotaciones    TEXT NULL,
+                    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (servicio_id, cedula)
+                )
+            `);
+
+            // Columnas para servicios (idempotente para BD que ya tenian la tabla)
             await pool.query(`ALTER TABLE servicios ADD COLUMN IF NOT EXISTS horas_base NUMERIC(8,2) NULL`);
             await pool.query(`ALTER TABLE servicios ADD COLUMN IF NOT EXISTS tipo_facturacion VARCHAR(100) NULL`);
         } catch (error) {
