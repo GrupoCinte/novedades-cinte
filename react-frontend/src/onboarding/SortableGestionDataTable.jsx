@@ -12,10 +12,15 @@ export default function SortableGestionDataTable({
     onRowClick,
     sort,
     onSort,
-    sortableKeys
+    sortableKeys,
+    rowKey
 }) {
     const G = buildGestionTableDash(Boolean(isLight));
     const clickable = typeof onRowClick === 'function';
+    const getRowKey =
+        typeof rowKey === 'function'
+            ? rowKey
+            : (row, idx) => row?.id ?? row?.cedula ?? row?.executionId ?? idx;
 
     const isSortable = (col) => {
         if (!col?.key || col.sortable === false) return false;
@@ -69,7 +74,7 @@ export default function SortableGestionDataTable({
                     <tbody className={G.tbody}>
                         {rows.map((row, idx) => (
                             <tr
-                                key={row.id || row.cedula || row.executionId || idx}
+                                key={getRowKey(row, idx)}
                                 className={`${G.trHover} ${clickable ? 'cursor-pointer' : ''}`}
                                 onClick={clickable ? () => onRowClick(row) : undefined}
                             >
