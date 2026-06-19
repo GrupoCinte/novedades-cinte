@@ -223,6 +223,25 @@ function registerDirectorioRoutes(deps) {
             .max(1200)
     });
 
+    const describeMallaPutValidationError = (zodError) => {
+        const issue = zodError?.issues?.[0];
+        if (!issue) return 'Datos inválidos al guardar la malla.';
+        const path = (Array.isArray(issue.path) ? issue.path : []).map((p) => String(p));
+        const has = (key) => path.includes(key);
+        if (has('cliente')) return 'Selecciona un cliente válido.';
+        if (has('cedulas')) {
+            return 'Cédula inválida (entre 5 y 24 caracteres) o más de 10 personas por franja.';
+        }
+        if (has('fecha')) return 'Una de las fechas seleccionadas no es válida.';
+        if (has('franja')) return 'Franja horaria inválida.';
+        if (has('horaInicio') || has('horaFin')) {
+            return 'Horario nocturno inválido: usa formato HH:MM y envía inicio y fin juntos.';
+        }
+        if (has('mode')) return 'Modo de asignación inválido.';
+        if (has('patches')) return 'Demasiados cambios en una sola operación.';
+        return issue.message || 'Datos inválidos al guardar la malla.';
+    };
+
     const mallaNocturnoConfigPutSchema = z.object({
         horaInicio: mallaHhMm,
         horaFin: mallaHhMm
@@ -732,7 +751,11 @@ function registerDirectorioRoutes(deps) {
     app.put('/api/directorio/mallas-turnos', ...writeGuard, async (req, res) => {
         try {
             const parsed = mallasTurnosPutSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            if (!parsed.success) {
+                return res
+                    .status(400)
+                    .json({ ok: false, error: describeMallaPutValidationError(parsed.error) });
+            }
             const { cliente, patches } = parsed.data;
             await upsertMallaTurnosCeldas({ cliente, patches });
             await writeAudit(pool, {
