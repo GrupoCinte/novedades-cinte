@@ -358,14 +358,17 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
             });
             setAprobacionModalOpen(false);
             const n = Number(data.novedadesGeneradas) || 0;
+            const horas = Number(data.horasGeneradas) || 0;
+            const horasTxt = formatCantidadHoras(horas);
+            const novedadesTxt = `${n} ${n === 1 ? 'novedad' : 'novedades'} de Horas Extra`;
             if (data.reaprobacion) {
                 setSuccessMsg(
                     n > 0
-                        ? `${n} Horas Extra adicionales generadas por modificación a la aprobación original.`
+                        ? `${novedadesTxt} adicionales (${horasTxt}) generadas por modificación a la aprobación original.`
                         : 'No había asignaciones nuevas pendientes de cargar en Novedades.'
                 );
             } else {
-                setSuccessMsg(`${n} Horas Extra generadas y aprobadas en Novedades.`);
+                setSuccessMsg(`${novedadesTxt} (${horasTxt}) generadas y aprobadas en Novedades.`);
             }
             await loadAprobacionStatus();
         } catch (e) {
