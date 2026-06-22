@@ -12,7 +12,7 @@ applications:
             - npm ci
         build:
           commands:
-            - npx turbo run build --filter=shell
+            - npx turbo run build --filter=@cinte/shell
       artifacts:
         baseDirectory: dist
         files:
@@ -27,7 +27,7 @@ applications:
             - key: 'Access-Control-Allow-Origin'
               value: '*'
 
-  - appRoot: apps/conciliaciones
+  - appRoot: apps/mf-admin-conciliaciones
     frontend:
       phases:
         preBuild:
@@ -35,7 +35,7 @@ applications:
             - npm ci
         build:
           commands:
-            - npx turbo run build --filter=conciliaciones
+            - npx turbo run build --filter=@cinte/mf-admin-conciliaciones
       artifacts:
         baseDirectory: dist
         files:
