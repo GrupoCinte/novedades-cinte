@@ -9,7 +9,8 @@ import {
     applyClientSideFilters,
     buildFiltrosResumen,
     creadoEnRangeForMonthIndex,
-    filtersToGestionParams
+    filtersToGestionParams,
+    filtersToNominaProcesarBody
 } from './novedades/novedadesFilters.js';
 import {
     getNovedadRule,
@@ -387,8 +388,9 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [gestionDispMontoInput, setGestionDispMontoInput] = useState('$ ');
     const [gestionDispMontoError, setGestionDispMontoError] = useState('');
     const [gestionSelectedIds, setGestionSelectedIds] = useState(() => new Set());
+    const [gestionNominaSelectAllFiltered, setGestionNominaSelectAllFiltered] = useState(false);
+    const [gestionNominaEligibleTotal, setGestionNominaEligibleTotal] = useState(null);
     const [gestionNominaModalOpen, setGestionNominaModalOpen] = useState(false);
-    const [gestionNominaLote, setGestionNominaLote] = useState('');
     const [gestionNominaBusy, setGestionNominaBusy] = useState(false);
     /** Drawer lateral de filtros avanzados (compartido entre pestañas del módulo). */
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -1463,9 +1465,91 @@ export default function Dashboard({ token, auth, onLogout }) {
         [pagedItems, canMarkNominaProcesado]
     );
 
+    const clearGestionNominaSelection = useCallback(() => {
+        setGestionSelectedIds(new Set());
+        setGestionNominaSelectAllFiltered(false);
+        setGestionNominaEligibleTotal(null);
+    }, []);
+
+    const gestionNominaHasSelection = gestionNominaSelectAllFiltered || gestionSelectedIds.size > 0;
+
+    useEffect(() => {
+        clearGestionNominaSelection();
+    }, [
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket,
+        fNominaProcesado,
+        fFechaInicioDesde,
+        fFechaInicioHasta,
+        clearGestionNominaSelection
+    ]);
+
+    useEffect(() => {
+        if (!gestionNominaSelectAllFiltered) {
+            setGestionNominaEligibleTotal(null);
+            return undefined;
+        }
+        const ac = new AbortController();
+        (async () => {
+            try {
+                const params = filtersToGestionParams(
+                    {
+                        fTipo,
+                        fEstado,
+                        fNombre,
+                        fCliente,
+                        fCreadoDesde,
+                        fCreadoHasta,
+                        fGpUserId,
+                        fLeadTimeBucket,
+                        fNominaProcesado: 'no',
+                        fFechaInicioDesde,
+                        fFechaInicioHasta
+                    },
+                    { page: 1, limit: 1 }
+                );
+                params.estado = 'Aprobado';
+                params.nominaProcesado = 'no';
+                const res = await fetch(`/api/novedades?${new URLSearchParams(params)}`, {
+                    credentials: 'include',
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal: ac.signal
+                });
+                if (!res.ok) throw new Error('count_failed');
+                const data = await res.json();
+                setGestionNominaEligibleTotal(Number(data?.pagination?.total ?? 0));
+            } catch {
+                if (!ac.signal.aborted) setGestionNominaEligibleTotal(null);
+            }
+        })();
+        return () => ac.abort();
+    }, [
+        gestionNominaSelectAllFiltered,
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket,
+        fNominaProcesado,
+        fFechaInicioDesde,
+        fFechaInicioHasta,
+        token
+    ]);
+
     const toggleGestionSelectId = (id) => {
         const sid = String(id || '');
         if (!sid) return;
+        setGestionNominaSelectAllFiltered(false);
+        setGestionNominaEligibleTotal(null);
         setGestionSelectedIds((prev) => {
             const next = new Set(prev);
             if (next.has(sid)) next.delete(sid);
@@ -1474,40 +1558,48 @@ export default function Dashboard({ token, auth, onLogout }) {
         });
     };
 
-    const toggleGestionSelectAllOnPage = () => {
-        const pageIds = gestionSelectableOnPage.map((it) => String(it.id));
-        if (!pageIds.length) return;
-        setGestionSelectedIds((prev) => {
-            const allSelected = pageIds.every((id) => prev.has(id));
-            const next = new Set(prev);
-            if (allSelected) pageIds.forEach((id) => next.delete(id));
-            else pageIds.forEach((id) => next.add(id));
-            return next;
-        });
+    const toggleGestionSelectAllFiltered = () => {
+        if (gestionNominaSelectAllFiltered) {
+            setGestionNominaSelectAllFiltered(false);
+            setGestionNominaEligibleTotal(null);
+            return;
+        }
+        setGestionSelectedIds(new Set());
+        setGestionNominaSelectAllFiltered(true);
     };
 
     const submitNominaProcesado = async () => {
-        if (!gestionSelectedIds.size) return;
+        if (!gestionNominaSelectAllFiltered && !gestionSelectedIds.size) return;
         setGestionNominaBusy(true);
         setStateError(null);
         try {
+            const body = gestionNominaSelectAllFiltered
+                ? {
+                    filters: filtersToNominaProcesarBody({
+                        fTipo,
+                        fEstado,
+                        fNombre,
+                        fCliente,
+                        fCreadoDesde,
+                        fCreadoHasta,
+                        fGpUserId,
+                        fLeadTimeBucket,
+                        fNominaProcesado: 'no',
+                        fFechaInicioDesde,
+                        fFechaInicioHasta
+                    })
+                }
+                : { ids: [...gestionSelectedIds] };
             const res = await fetch('/api/novedades/nomina-procesar', {
                 method: 'POST',
                 credentials: 'include',
-                headers: {
-                    Authorization: `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    ids: [...gestionSelectedIds],
-                    lote: gestionNominaLote.trim() || undefined
-                })
+                headers: gestionAdminHeaders(),
+                body: JSON.stringify(body)
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data?.error || 'No se pudo marcar procesado nómina');
             setGestionNominaModalOpen(false);
-            setGestionNominaLote('');
-            setGestionSelectedIds(new Set());
+            clearGestionNominaSelection();
             await loadGestionData(safePage, pageSize);
             await loadData();
         } catch (err) {
@@ -2200,7 +2292,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <span className="sm:hidden">Exportar</span>
                             </button>
                         </NovedadesFiltersToolbar>
-                        {canMarkNominaProcesado && gestionSelectedIds.size > 0 ? (
+                        {canMarkNominaProcesado && gestionNominaHasSelection ? (
                             <div
                                 className={
                                     isLight
@@ -2208,7 +2300,13 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         : 'mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-3 text-sm text-violet-100'
                                 }
                             >
-                                <span className="font-medium">{gestionSelectedIds.size} seleccionada(s)</span>
+                                <span className="font-medium">
+                                    {gestionNominaSelectAllFiltered
+                                        ? `Todas las aprobadas pendientes de nómina del filtro${
+                                            gestionNominaEligibleTotal != null ? ` (${gestionNominaEligibleTotal})` : ''
+                                        } — todas las páginas`
+                                        : `${gestionSelectedIds.size} seleccionada(s)`}
+                                </span>
                                 <button
                                     type="button"
                                     disabled={gestionNominaBusy}
@@ -2221,7 +2319,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <button
                                     type="button"
                                     disabled={gestionNominaBusy}
-                                    onClick={() => setGestionSelectedIds(new Set())}
+                                    onClick={clearGestionNominaSelection}
                                     className={isLight ? 'text-violet-800 underline hover:text-violet-950' : 'text-violet-200 underline hover:text-white'}
                                 >
                                     Limpiar selección
@@ -2239,13 +2337,10 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                         <input
                                                             type="checkbox"
                                                             className="h-4 w-4 rounded border-slate-400"
-                                                            checked={
-                                                                gestionSelectableOnPage.length > 0
-                                                                && gestionSelectableOnPage.every((it) => gestionSelectedIds.has(String(it.id)))
-                                                            }
+                                                            checked={gestionNominaSelectAllFiltered}
                                                             disabled={!gestionSelectableOnPage.length || gestionNominaBusy}
-                                                            onChange={toggleGestionSelectAllOnPage}
-                                                            aria-label="Seleccionar todas las aprobadas pendientes de nómina en esta página"
+                                                            onChange={toggleGestionSelectAllFiltered}
+                                                            aria-label="Seleccionar todas las aprobadas pendientes de nómina del filtro (todas las páginas)"
                                                         />
                                                     </th>
                                                 ) : null}
@@ -2285,7 +2380,10 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                     <input
                                                                         type="checkbox"
                                                                         className="h-4 w-4 rounded border-slate-400"
-                                                                        checked={gestionSelectedIds.has(String(it.id))}
+                                                                        checked={
+                                                                            (gestionNominaSelectAllFiltered && canSelectItemForNominaProcesado(it))
+                                                                            || gestionSelectedIds.has(String(it.id))
+                                                                        }
                                                                         disabled={!canSelectItemForNominaProcesado(it) || gestionNominaBusy}
                                                                         onChange={() => toggleGestionSelectId(it.id)}
                                                                         aria-label={`Seleccionar ${it.nombre || 'novedad'}`}
@@ -4077,7 +4175,6 @@ export default function Dashboard({ token, auth, onLogout }) {
                     onClick={() => {
                         if (gestionNominaBusy) return;
                         setGestionNominaModalOpen(false);
-                        setGestionNominaLote('');
                     }}
                     role="presentation"
                 >
@@ -4087,35 +4184,29 @@ export default function Dashboard({ token, auth, onLogout }) {
                     >
                         <h3 className={dash.titleLg}>Marcar procesado nómina</h3>
                         <p className={`${dash.modalMuted} mt-2 text-sm`}>
-                            Se marcarán {gestionSelectedIds.size} novedad(es) aprobada(s). Esta acción es irreversible.
+                            {gestionNominaSelectAllFiltered
+                                ? `Se marcarán todas las novedades aprobadas pendientes de nómina que coinciden con el filtro actual${
+                                    gestionNominaEligibleTotal != null ? ` (${gestionNominaEligibleTotal})` : ''
+                                }.`
+                                : `Se marcarán ${gestionSelectedIds.size} novedad(es) aprobada(s).`}
+                            {' '}Quedarán registrados la fecha y hora, y tu correo como responsable. Esta acción es irreversible.
                         </p>
-                        <label htmlFor="gestion-nomina-lote" className={`${dash.filtrosDrawerLabel} mt-4 block`}>
-                            Etiqueta de lote (opcional)
-                        </label>
-                        <input
-                            id="gestion-nomina-lote"
-                            type="text"
-                            maxLength={120}
-                            value={gestionNominaLote}
-                            onChange={(e) => setGestionNominaLote(e.target.value)}
-                            placeholder="Ej. 2026-05-hasta-26"
-                            className={`mt-1 w-full ${fieldInput}`}
-                        />
                         <div className="mt-4 flex flex-wrap justify-end gap-2">
                             <button
                                 type="button"
                                 disabled={gestionNominaBusy}
-                                onClick={() => {
-                                    setGestionNominaModalOpen(false);
-                                    setGestionNominaLote('');
-                                }}
+                                onClick={() => setGestionNominaModalOpen(false)}
                                 className={`${outlineBtn} text-sm`}
                             >
                                 Cancelar
                             </button>
                             <button
                                 type="button"
-                                disabled={gestionNominaBusy || !gestionSelectedIds.size}
+                                disabled={
+                                    gestionNominaBusy
+                                    || (!gestionNominaSelectAllFiltered && !gestionSelectedIds.size)
+                                    || (gestionNominaSelectAllFiltered && gestionNominaEligibleTotal === 0)
+                                }
                                 onClick={() => void submitNominaProcesado()}
                                 className="rounded-lg border border-[#004D87] bg-[#004D87] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003a66] disabled:opacity-40"
                             >
