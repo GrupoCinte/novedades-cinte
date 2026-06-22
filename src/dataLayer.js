@@ -176,6 +176,28 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureNovedadesNominaProcesadoColumns() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_procesado_en TIMESTAMPTZ NULL');
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_procesado_por_user_id UUID NULL'
+            );
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_procesado_por_email TEXT NULL');
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_procesado_lote TEXT NULL');
+            await pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_novedades_nomina_procesado_en
+                ON novedades (nomina_procesado_en)
+                WHERE nomina_procesado_en IS NOT NULL
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para columnas de procesado nómina en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     async function ensureNovedadesHorasRecargoDomingoColumn() {
         try {
             await pool.query(
@@ -1904,6 +1926,9 @@ function createDataLayer(deps) {
         const cliente = String(options?.cliente || '').trim().toLowerCase();
         const createdFrom = String(options?.createdFrom || '').trim();
         const createdTo = String(options?.createdTo || '').trim();
+        const nominaProcesado = String(options?.nominaProcesado || '').trim().toLowerCase();
+        const fechaInicioDesde = String(options?.fechaInicioDesde || '').trim();
+        const fechaInicioHasta = String(options?.fechaInicioHasta || '').trim();
         const whereParts = [];
         const params = [];
         if (!scope?.canViewAllAreas && Array.isArray(scope?.areas) && scope.areas.length > 0) {
@@ -1943,6 +1968,19 @@ function createDataLayer(deps) {
         if (/^\d{4}-\d{2}-\d{2}$/.test(createdTo)) {
             params.push(createdTo);
             whereParts.push(`nov.creado_en::date <= $${params.length}::date`);
+        }
+        if (nominaProcesado === 'si') {
+            whereParts.push('nov.nomina_procesado_en IS NOT NULL');
+        } else if (nominaProcesado === 'no') {
+            whereParts.push('nov.nomina_procesado_en IS NULL');
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(fechaInicioDesde)) {
+            params.push(fechaInicioDesde);
+            whereParts.push(`nov.fecha_inicio >= $${params.length}::date`);
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(fechaInicioHasta)) {
+            params.push(fechaInicioHasta);
+            whereParts.push(`nov.fecha_inicio <= $${params.length}::date`);
         }
         /** Super admin / CAC: filtrar por GP según catálogo `clientes_lideres` (clientes asignados a ese usuario GP), alineado con el alcance del rol `gp`. */
         const gpUserIdOpt = String(options?.gpUserId || '').trim();
@@ -2012,6 +2050,7 @@ function createDataLayer(deps) {
                 nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas, nov.horas_recargo_nocturno,
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
                 nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
+                nov.nomina_procesado_en, nov.nomina_procesado_por_user_id, nov.nomina_procesado_por_email, nov.nomina_procesado_lote,
                 nov.he_domingo_observacion,
                 nov.observaciones,
                 nov.observaciones_rechazo,
@@ -2491,6 +2530,7 @@ function createDataLayer(deps) {
         ensureNovedadesHoraExtraAlertColumns,
         ensureNovedadesHeDomingoObservacionColumn,
         ensureNovedadesNominaVerificacionColumns,
+        ensureNovedadesNominaProcesadoColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         ensureNovedadesModalidadVotacionUnidadColumns,
         ensureNovedadesObservacionesColumn,
@@ -2536,6 +2576,7 @@ function createDataLayer(deps) {
         clearGpUserReferences,
         linkGpCognitoSubByEmail,
         migrateExcelIfNeeded,
+        buildScopedNovedadesWhere,
         getScopedNovedades,
         listScopedDistinctClientes,
         getHoraExtraAlerts,

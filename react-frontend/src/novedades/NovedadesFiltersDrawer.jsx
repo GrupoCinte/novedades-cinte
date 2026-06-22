@@ -26,7 +26,8 @@ export default function NovedadesFiltersDrawer({
     clienteOptions = [],
     gpFilterOptions = [],
     isSuperAdminNovedades = false,
-    labelGpOption
+    labelGpOption,
+    showNominaFilters = false
 }) {
     const mesShortcutValue = showMesShortcut
         ? mesIndexFromCreadoEnRange(filters.fCreadoDesde, filters.fCreadoHasta)
@@ -141,6 +142,47 @@ export default function NovedadesFiltersDrawer({
                         })}
                     </select>
                 </div>
+            ) : null}
+            {showNominaFilters ? (
+                <>
+                    <div className="flex flex-col gap-1.5">
+                        <label htmlFor="novedades-drawer-nomina" className={dash.filtrosDrawerLabel}>
+                            Nómina
+                        </label>
+                        <select
+                            id="novedades-drawer-nomina"
+                            value={filters.fNominaProcesado || ''}
+                            onChange={(e) => onChange({ fNominaProcesado: e.target.value })}
+                            className={`${fieldInputClassName} w-full text-sm`}
+                        >
+                            <option value="">Todas (nómina)</option>
+                            <option value="no">Pendiente de nómina</option>
+                            <option value="si">Procesado nómina</option>
+                        </select>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <span className={dash.filtrosDrawerLabel}>Fecha inicio (evento)</span>
+                        <div className="flex items-center gap-2">
+                            <input
+                                {...nativeCalendarOnlyInputProps}
+                                type="date"
+                                value={filters.fFechaInicioDesde || ''}
+                                onChange={(e) => onChange({ fFechaInicioDesde: e.target.value })}
+                                className={`${fieldInputClassName} min-w-0 flex-1 px-2 py-1.5 text-sm`}
+                                aria-label="Fecha inicio: desde"
+                            />
+                            <span className={`${dash.modalMuted} shrink-0 text-xs`}>a</span>
+                            <input
+                                {...nativeCalendarOnlyInputProps}
+                                type="date"
+                                value={filters.fFechaInicioHasta || ''}
+                                onChange={(e) => onChange({ fFechaInicioHasta: e.target.value })}
+                                className={`${fieldInputClassName} min-w-0 flex-1 px-2 py-1.5 text-sm`}
+                                aria-label="Fecha inicio: hasta"
+                            />
+                        </div>
+                    </div>
+                </>
             ) : null}
             <div className="flex flex-col gap-1.5">
                 <span className={dash.filtrosDrawerLabel}>Rango de fechas</span>
