@@ -1,5 +1,7 @@
+import { apiFetch } from '@cinte/api-client';
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { signInWithRedirect } from 'aws-amplify/auth';
 import { HelpCircle, Loader2 } from 'lucide-react';
 import { useAuthSurface } from './moduleTheme.js';
 /** Misma imagen base que `FormularioNovedad.jsx`. */
@@ -94,7 +96,7 @@ export default function ConsultorRadicacionPortal() {
 
   const refreshMe = useCallback(async () => {
     try {
-      const res = await fetch('/api/me', { credentials: 'include' });
+      const res = await apiFetch('/api/me', { credentials: 'include' });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data?.ok && data?.me) setMe(data.me);
       else setMe(null);
@@ -129,7 +131,13 @@ export default function ConsultorRadicacionPortal() {
     return <Navigate to="/consultor" replace />;
   }
 
-  const startUrl = '/api/auth/entra/start';
+  const handleEntraLogin = async () => {
+    try {
+      await signInWithRedirect({ provider: 'EntraID' });
+    } catch (err) {
+      setEntraLoginError('No se pudo iniciar el proceso de autenticación con Microsoft.');
+    }
+  };
 
   return (
     <PortalShell>
@@ -173,13 +181,14 @@ export default function ConsultorRadicacionPortal() {
           misma que usas en el trabajo.
         </p>
 
-        <a
-          href={startUrl}
+        <button
+          onClick={handleEntraLogin}
+          type="button"
           className="mx-auto flex w-full max-w-sm items-center justify-center gap-3 rounded-xl bg-[#0078d4] px-5 py-3 text-center font-heading text-sm font-semibold text-white shadow-[0_8px_24px_rgba(0,120,212,0.35)] transition-colors hover:bg-[#106ebe] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#65BCF7] sm:py-3.5 [@media(max-height:720px)]:py-2.5 [@media(max-height:720px)]:text-[0.8125rem]"
         >
           <MicrosoftLogoMark className="h-5 w-5" />
           Iniciar sesión con Microsoft
-        </a>
+        </button>
 
         <footer className={`mt-7 border-t pt-5 sm:mt-9 sm:pt-6 [@media(max-height:720px)]:mt-5 [@media(max-height:720px)]:pt-4 ${au.isLight ? 'border-slate-200/90' : 'border-white/10'}`}>
           <div

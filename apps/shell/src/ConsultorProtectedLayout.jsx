@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
+import { apiFetch } from '@cinte/api-client';
 import { useUiTheme } from '@cinte/ui-shell';
 
 function isConsultorEntra(me) {
   return Boolean(
-    me && me.authProvider === 'entra_consultor' && String(me.role || '').toLowerCase() === 'consultor'
+    me && (me.authProvider === 'entra_consultor' || me.authProvider === 'cognito') && String(me.role || '').toLowerCase() === 'consultor'
   );
 }
 
@@ -19,7 +20,7 @@ export default function ConsultorProtectedLayout() {
 
   const refreshMe = useCallback(async () => {
     try {
-      const res = await fetch('/api/me', { credentials: 'include' });
+      const res = await apiFetch('/api/me');
       const data = await res.json().catch(() => ({}));
       if (res.ok && data?.ok && data?.me) setMe(data.me);
       else setMe(null);

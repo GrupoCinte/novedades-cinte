@@ -4,13 +4,13 @@ import { Link, useNavigate } from "react-router-dom";
 import { buildCsrfHeaders, cognitoCompleteNewPassword, cognitoSignIn } from '@cinte/shared/cognitoAuth.js';
 import { useAuthSurface, ADMIN_PORTAL_UNIFIED_TITLE } from '@cinte/ui-shell';
 
+import { apiFetch } from '@cinte/api-client';
+
 /** Intenta guardar cognito_sub en users para rol gp (no bloquea el login). */
 function tryGpVincularCognitoSelf(user) {
   if (String(user?.role || "").toLowerCase() !== "gp") return;
-  fetch("/api/directorio/gp/vincular-cognito-self", {
-    method: "POST",
-    credentials: "include",
-    headers: buildCsrfHeaders({ "Content-Type": "application/json" }),
+  apiFetch("/api/directorio/gp/vincular-cognito-self", {
+    method: "POST"
   }).catch(() => {});
 }
 

@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
@@ -326,7 +327,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 u.set('activo', 'all');
                 u.set('limit', '2000');
                 u.set('offset', '0');
-                const res = await fetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
+                const res = await apiFetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok) throw new Error(data.error || res.statusText);
                 setLeadersModalRows(data.items || []);
@@ -348,7 +349,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             if (clQ.trim()) u.set('q', clQ.trim());
             u.set('limit', String(clPageSize));
             u.set('offset', String((clPage - 1) * clPageSize));
-            const res = await fetch(`/api/directorio/clientes-resumen?${u}`, { headers: authHeaders(token) });
+            const res = await apiFetch(`/api/directorio/clientes-resumen?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
             setClItems(data.items || []);
@@ -367,7 +368,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             u.set('activo', 'true');
             u.set('limit', '500');
             u.set('offset', '0');
-            const res = await fetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
+            const res = await apiFetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) return;
             setStaffCatalogActivoRows(data.items || []);
@@ -389,7 +390,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 u.set('sort', coSort.key);
                 u.set('dir', coSort.dir);
             }
-            const res = await fetch(`/api/directorio/colaboradores?${u}`, { headers: authHeaders(token) });
+            const res = await apiFetch(`/api/directorio/colaboradores?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
             setCoItems(data.items || []);
@@ -403,7 +404,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     const fetchCatalogClientes = useCallback(async () => {
         try {
-            const res = await fetch('/api/catalogos/clientes', { credentials: 'include' });
+            const res = await apiFetch('/api/catalogos/clientes', { credentials: 'include' });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) return;
             setCatalogClientes(Array.isArray(data.items) ? data.items : []);
@@ -420,7 +421,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         }
         setLiderLoading(true);
         try {
-            const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(c)}`, {
+            const res = await apiFetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(c)}`, {
                 credentials: 'include'
             });
             const data = await res.json().catch(() => ({}));
@@ -464,7 +465,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         let cancelled = false;
         (async () => {
             try {
-                const res = await fetch('/api/directorio/gp', { headers: authHeaders(token) });
+                const res = await apiFetch('/api/directorio/gp', { headers: authHeaders(token) });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok || cancelled) return;
                 const items = data.items || [];
@@ -493,7 +494,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     async function patchCatalogo(row, patch) {
         try {
-            const res = await fetch(`/api/directorio/clientes-lideres/${row.id}`, {
+            const res = await apiFetch(`/api/directorio/clientes-lideres/${row.id}`, {
                 method: 'PATCH',
                 credentials: 'include',
                 headers: authHeaders(token),
@@ -541,7 +542,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             u.set('activo', 'all');
             u.set('limit', String(limit));
             u.set('offset', String(offset));
-            const res = await fetch(`/api/directorio/colaboradores?${u}`, { headers: authHeaders(token) });
+            const res = await apiFetch(`/api/directorio/colaboradores?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
             const items = data.items || [];
@@ -603,7 +604,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             u.set('activo', 'all');
             u.set('limit', '2000');
             u.set('offset', '0');
-            const res = await fetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
+            const res = await apiFetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
             const rows = data.items || [];
@@ -638,7 +639,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 if (gHit?.email) gpEmailNorm = String(gHit.email).trim().toLowerCase();
                 if (!gpEmailNorm) {
                     try {
-                        const gpRes = await fetch('/api/directorio/gp', { headers: authHeaders(token) });
+                        const gpRes = await apiFetch('/api/directorio/gp', { headers: authHeaders(token) });
                         const gpJson = await gpRes.json().catch(() => ({}));
                         const gpRows = gpRes.ok && Array.isArray(gpJson.items) ? gpJson.items : [];
                         const g2 = gpRows.find((g) => String(g.id) === uid);
@@ -701,7 +702,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         setEditClienteSaving(true);
         try {
             for (const row of editClienteTargetRows) {
-                const res = await fetch(`/api/directorio/clientes-lideres/${row.id}`, {
+                const res = await apiFetch(`/api/directorio/clientes-lideres/${row.id}`, {
                     method: 'PATCH',
                     credentials: 'include',
                     headers: authHeaders(token),
@@ -754,7 +755,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         }
         try {
             const gpVal = addLiderForm.gp_user_id ? String(addLiderForm.gp_user_id).trim() : null;
-            const res = await fetch('/api/directorio/clientes-lideres', {
+            const res = await apiFetch('/api/directorio/clientes-lideres', {
                 method: 'POST',
                 credentials: 'include',
                 headers: authHeaders(token),
@@ -780,7 +781,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     async function refreshGpList() {
         try {
-            const res = await fetch('/api/directorio/gp', { headers: authHeaders(token) });
+            const res = await apiFetch('/api/directorio/gp', { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) return;
             const items = data.items || [];
@@ -802,7 +803,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             const gpCedula = clienteForm.gp_colaborador_cedula
                 ? String(clienteForm.gp_colaborador_cedula).trim()
                 : null;
-            const res = await fetch('/api/directorio/clientes-lideres', {
+            const res = await apiFetch('/api/directorio/clientes-lideres', {
                 method: 'POST',
                 credentials: 'include',
                 headers: authHeaders(token),
@@ -832,13 +833,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         u.set('activo', 'all');
         u.set('limit', '2000');
         u.set('offset', '0');
-        const res = await fetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
+        const res = await apiFetch(`/api/directorio/clientes-lideres?${u}`, { headers: authHeaders(token) });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || res.statusText);
         const rows = data.items || [];
         for (const row of rows) {
             if (!row.activo) continue;
-            const res = await fetch(`/api/directorio/clientes-lideres/${row.id}`, {
+            const res = await apiFetch(`/api/directorio/clientes-lideres/${row.id}`, {
                 method: 'PATCH',
                 credentials: 'include',
                 headers: authHeaders(token),
@@ -864,7 +865,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     gp_user_id: gpDerived,
                     ...ext
                 };
-                const res = await fetch('/api/directorio/colaboradores', {
+                const res = await apiFetch('/api/directorio/colaboradores', {
                     method: 'POST',
                     credentials: 'include',
                     headers: authHeaders(token),
@@ -874,7 +875,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 if (!res.ok) throw new Error(data.error || res.statusText);
                 flash('Colaborador creado.');
             } else if (selectedCoCedula) {
-                const res = await fetch(`/api/directorio/colaboradores/${encodeURIComponent(selectedCoCedula)}`, {
+                const res = await apiFetch(`/api/directorio/colaboradores/${encodeURIComponent(selectedCoCedula)}`, {
                     method: 'PATCH',
                     credentials: 'include',
                     headers: authHeaders(token),
@@ -905,7 +906,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         );
         if (!ok) return;
         try {
-            const res = await fetch(`/api/directorio/colaboradores/${encodeURIComponent(row.cedula)}`, {
+            const res = await apiFetch(`/api/directorio/colaboradores/${encodeURIComponent(row.cedula)}`, {
                 method: 'DELETE',
                 credentials: 'include',
                 headers: authHeaders(token)
@@ -922,7 +923,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     async function patchColaborador(cedula, patch) {
         try {
-            const res = await fetch(`/api/directorio/colaboradores/${encodeURIComponent(cedula)}`, {
+            const res = await apiFetch(`/api/directorio/colaboradores/${encodeURIComponent(cedula)}`, {
                 method: 'PATCH',
                 credentials: 'include',
                 headers: authHeaders(token),

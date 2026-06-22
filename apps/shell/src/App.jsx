@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState, useCallback } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { apiFetch } from '@cinte/api-client';
 import UserAccountMenu from '@cinte/ui-shell/UserAccountMenu.jsx';
 import ChatWidget from './ChatWidget';
 import ConsultorProtectedLayout from './ConsultorProtectedLayout.jsx';
@@ -100,24 +101,20 @@ function App() {
     !isAdminModuleShell;
 
   const handleLogout = useCallback(async () => {
-    const isEntraConsultor = auth?.user?.authProvider === 'entra_consultor';
-    if (isEntraConsultor) {
-      window.location.href = '/api/auth/entra/logout';
-      return;
-    }
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      // Notificamos al backend por si hay cookies residuales
+      await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch { /* ignore */ }
     cognitoSignOut();
     setAuth(null);
-    navigate('/admin', { replace: true });
-  }, [navigate, auth]);
+    navigate('/', { replace: true });
+  }, [navigate]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch('/api/me', { credentials: 'include' });
+        const res = await apiFetch('/api/me');
         const data = await res.json().catch(() => ({}));
         if (!mounted) return;
         if (res.ok && data?.ok && data?.me) {
@@ -150,7 +147,7 @@ function App() {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch('/api/me', { credentials: 'include' });
+        const res = await apiFetch('/api/me');
         const data = await res.json().catch(() => ({}));
         if (!mounted) return;
         if (res.ok && data?.ok && data?.me) {

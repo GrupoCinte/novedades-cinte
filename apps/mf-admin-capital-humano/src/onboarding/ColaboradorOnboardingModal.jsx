@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import ColaboradorFichaFields from '../components/ColaboradorFichaFields.jsx';
 import { useModuleTheme } from '../moduleTheme.js';
@@ -15,7 +16,7 @@ import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.
 
 async function fetchClientes() {
     try {
-        const res = await fetch('/api/catalogos/clientes', { credentials: 'include' });
+        const res = await apiFetch('/api/catalogos/clientes', { credentials: 'include' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) return [];
         return Array.isArray(data.items) ? data.items : [];
@@ -28,7 +29,7 @@ async function fetchLideres(cliente) {
     const c = String(cliente || '').trim();
     if (!c) return [];
     try {
-        const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(c)}`, {
+        const res = await apiFetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(c)}`, {
             credentials: 'include'
         });
         const data = await res.json().catch(() => ({}));

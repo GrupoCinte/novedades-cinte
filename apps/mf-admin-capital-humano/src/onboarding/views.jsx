@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     BarChart,
@@ -122,7 +123,7 @@ export function PersonalView({
 
     useEffect(() => {
         let alive = true;
-        fetch('/api/catalogos/clientes', { credentials: 'include' })
+        apiFetch('/api/catalogos/clientes', { credentials: 'include' })
             .then((r) => r.json().catch(() => ({})))
             .then((d) => {
                 if (alive && Array.isArray(d?.items)) setClientes(d.items);

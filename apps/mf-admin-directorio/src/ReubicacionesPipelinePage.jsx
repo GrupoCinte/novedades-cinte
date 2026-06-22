@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDown, ArrowUp, Plus, Pencil, Trash2 } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
@@ -222,7 +223,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                 u.set('sort', sort.key);
                 u.set('dir', sort.dir);
             }
-            const res = await fetch(`/api/directorio/reubicaciones-pipeline?${u}`, {
+            const res = await apiFetch(`/api/directorio/reubicaciones-pipeline?${u}`, {
                 credentials: 'include',
                 headers: authHeaders(token)
             });
@@ -271,7 +272,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
         e.preventDefault();
         setCreateSaving(true);
         try {
-            const res = await fetch('/api/directorio/reubicaciones-pipeline', {
+            const res = await apiFetch('/api/directorio/reubicaciones-pipeline', {
                 method: 'POST',
                 credentials: 'include',
                 headers: authHeaders(token),
@@ -311,7 +312,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
         if (!editRow?.id) return;
         setEditSaving(true);
         try {
-            const res = await fetch(`/api/directorio/reubicaciones-pipeline/${editRow.id}`, {
+            const res = await apiFetch(`/api/directorio/reubicaciones-pipeline/${editRow.id}`, {
                 method: 'PATCH',
                 credentials: 'include',
                 headers: authHeaders(token),
@@ -338,7 +339,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
         if (!row?.id) return;
         if (!window.confirm(`¿Eliminar el seguimiento de reubicación para la cédula ${row.cedula}?`)) return;
         try {
-            const res = await fetch(`/api/directorio/reubicaciones-pipeline/${row.id}`, {
+            const res = await apiFetch(`/api/directorio/reubicaciones-pipeline/${row.id}`, {
                 method: 'DELETE',
                 credentials: 'include',
                 headers: authHeaders(token)

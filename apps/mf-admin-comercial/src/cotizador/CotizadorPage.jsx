@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { resolveCargosLista } from './resolveCargosLista';
@@ -25,7 +26,7 @@ function authHeadersJson(token, extra = {}) {
 
 /** Misma lista que el formulario de novedades: `clientes_lideres` vía API de catálogo. */
 async function fetchClientesDesdeBdCatalogo(token) {
-    const res = await fetch('/api/catalogos/clientes', {
+    const res = await apiFetch('/api/catalogos/clientes', {
         credentials: 'include',
         headers: authHeadersJson(token)
     });
@@ -53,7 +54,7 @@ function mergeClienteRowsDedupe(rowsA, rowsB) {
 }
 
 async function api(path, token, options = {}) {
-    const res = await fetch(path, {
+    const res = await apiFetch(path, {
         credentials: 'include',
         ...options,
         headers: {
@@ -279,7 +280,7 @@ export default function CotizadorPage({ token, embedded = false }) {
         setDescargandoPdf(true);
         setError('');
         try {
-            const res = await fetch('/api/cotizador/pdf', {
+            const res = await apiFetch('/api/cotizador/pdf', {
                 method: 'POST',
                 credentials: 'include',
                 headers: authHeadersJson(token),
@@ -337,7 +338,7 @@ export default function CotizadorPage({ token, embedded = false }) {
         try {
             const headers = buildCsrfHeaders({});
             if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
-            const res = await fetch(`/api/cotizador/pdf/${encodeURIComponent(it.id)}`, {
+            const res = await apiFetch(`/api/cotizador/pdf/${encodeURIComponent(it.id)}`, {
                 method: 'GET',
                 credentials: 'include',
                 headers

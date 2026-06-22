@@ -1,0 +1,51 @@
+version: 1
+customRules:
+  - source: '</^[^.]+$|\.(?!(css|gif|ico|jpg|js|png|txt|svg|woff|woff2|ttf|map|json|webp)$)([^.]+$)/>'
+    target: '/index.html'
+    status: '200'
+applications:
+  - appRoot: apps/shell
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci
+        build:
+          commands:
+            - npx turbo run build --filter=shell
+      artifacts:
+        baseDirectory: dist
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
+          - .turbo/**/*
+      customHeaders:
+        - pattern: '**/*'
+          headers:
+            - key: 'Access-Control-Allow-Origin'
+              value: '*'
+
+  - appRoot: apps/conciliaciones
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci
+        build:
+          commands:
+            - npx turbo run build --filter=conciliaciones
+      artifacts:
+        baseDirectory: dist
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*
+          - .turbo/**/*
+      customHeaders:
+        - pattern: '**/*'
+          headers:
+            - key: 'Access-Control-Allow-Origin'
+              value: '*'

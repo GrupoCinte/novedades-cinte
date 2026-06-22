@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Eye, Search, X } from 'lucide-react';
@@ -73,7 +74,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
 
     const loadMeta = useCallback(async () => {
         try {
-            const r = await fetch('/api/cotizador/ti-catalog/interno-cliente', {
+            const r = await apiFetch('/api/cotizador/ti-catalog/interno-cliente', {
                 credentials: 'include',
                 headers: authHeaders(token)
             });
@@ -96,7 +97,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
                 limit: String(limit),
                 q: qDebounced
             });
-            const r = await fetch(`/api/cotizador/ti-catalog/filas?${qs}`, {
+            const r = await apiFetch(`/api/cotizador/ti-catalog/filas?${qs}`, {
                 credentials: 'include',
                 headers: authHeaders(token)
             });
@@ -139,7 +140,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
 
     const openDetail = async (row, startInEdit = false) => {
         try {
-            const metaRes = await fetch('/api/cotizador/ti-catalog/interno-cliente', {
+            const metaRes = await apiFetch('/api/cotizador/ti-catalog/interno-cliente', {
                 credentials: 'include',
                 headers: authHeaders(token)
             });
@@ -150,7 +151,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
         }
         let freshRow = row;
         try {
-            const res = await fetch(`/api/cotizador/ti-catalog/filas/${encodeURIComponent(row.id)}`, {
+            const res = await apiFetch(`/api/cotizador/ti-catalog/filas/${encodeURIComponent(row.id)}`, {
                 credentials: 'include',
                 headers: authHeaders(token)
             });
@@ -177,7 +178,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
         if (!canWrite || !detailRow) return;
         setEditSaving(true);
         try {
-            const r = await fetch(`/api/cotizador/ti-catalog/filas/${encodeURIComponent(detailRow.id)}`, {
+            const r = await apiFetch(`/api/cotizador/ti-catalog/filas/${encodeURIComponent(detailRow.id)}`, {
                 method: 'PATCH',
                 credentials: 'include',
                 headers: authHeaders(token),
@@ -203,7 +204,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
     const onDeleteFila = async () => {
         if (!canWrite || !detailRow || !window.confirm('¿Eliminar esta fila del catálogo?')) return;
         try {
-            const r = await fetch(`/api/cotizador/ti-catalog/filas/${encodeURIComponent(detailRow.id)}`, {
+            const r = await apiFetch(`/api/cotizador/ti-catalog/filas/${encodeURIComponent(detailRow.id)}`, {
                 method: 'DELETE',
                 credentials: 'include',
                 headers: authHeaders(token)
@@ -229,7 +230,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
         setErr('');
         const empty = emptyCellsOfficial();
         try {
-            const r = await fetch('/api/cotizador/ti-catalog/filas', {
+            const r = await apiFetch('/api/cotizador/ti-catalog/filas', {
                 method: 'POST',
                 credentials: 'include',
                 headers: authHeaders(token),

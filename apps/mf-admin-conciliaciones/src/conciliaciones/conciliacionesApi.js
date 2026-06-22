@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
     if (!raw) return '';
@@ -28,7 +29,7 @@ export function conciliacionesAuthHeaders(token) {
 }
 
 export async function fetchConciliacionesClientes(token) {
-    const res = await fetch('/api/conciliaciones/clientes', { headers: conciliacionesAuthHeaders(token), credentials: 'include' });
+    const res = await apiFetch('/api/conciliaciones/clientes', { headers: conciliacionesAuthHeaders(token), credentials: 'include' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar clientes'));
     return Array.isArray(data.clientes) ? data.clientes : [];
@@ -36,7 +37,7 @@ export async function fetchConciliacionesClientes(token) {
 
 export async function fetchConciliacionesDashboardResumen(token, { year, month }) {
     const q = new URLSearchParams({ year: String(year), month: String(month) });
-    const res = await fetch(`/api/conciliaciones/dashboard-resumen?${q}`, {
+    const res = await apiFetch(`/api/conciliaciones/dashboard-resumen?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });
@@ -49,7 +50,7 @@ export async function fetchConciliacionPorCliente(token, { cliente, year, month 
     const q = new URLSearchParams({ year: String(year), month: String(month) });
     const clienteTrim = String(cliente || '').trim();
     if (clienteTrim) q.set('cliente', clienteTrim);
-    const res = await fetch(`/api/conciliaciones/por-cliente?${q}`, {
+    const res = await apiFetch(`/api/conciliaciones/por-cliente?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });
@@ -65,7 +66,7 @@ export async function fetchConciliacionNovedadesDetalle(token, { cliente, cedula
         year: String(year),
         month: String(month)
     });
-    const res = await fetch(`/api/conciliaciones/novedades-detalle?${q}`, {
+    const res = await apiFetch(`/api/conciliaciones/novedades-detalle?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });
@@ -75,7 +76,7 @@ export async function fetchConciliacionNovedadesDetalle(token, { cliente, cedula
 }
 
 export async function saveConciliacionFacturacion(token, payload) {
-    const res = await fetch('/api/conciliaciones/facturacion', {
+    const res = await apiFetch('/api/conciliaciones/facturacion', {
         method: 'POST',
         headers: conciliacionesAuthHeaders(token),
         body: JSON.stringify(payload),
@@ -87,7 +88,7 @@ export async function saveConciliacionFacturacion(token, payload) {
 }
 
 export async function saveConciliacionFacturacionMasiva(token, payload) {
-    const res = await fetch('/api/conciliaciones/facturacion/masiva', {
+    const res = await apiFetch('/api/conciliaciones/facturacion/masiva', {
         method: 'POST',
         headers: conciliacionesAuthHeaders(token),
         body: JSON.stringify(payload),
@@ -100,7 +101,7 @@ export async function saveConciliacionFacturacionMasiva(token, payload) {
 
 export async function fetchConciliacionesFacturacionList(token, { year, month }) {
     const q = new URLSearchParams({ year: String(year), month: String(month) });
-    const res = await fetch(`/api/conciliaciones/facturacion?${q}`, {
+    const res = await apiFetch(`/api/conciliaciones/facturacion?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });

@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import './index.css';
 import { useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -170,7 +171,7 @@ export default function ConsultorPortalHome() {
 
   const onLogout = useCallback(async () => {
     try {
-      await fetch('/api/auth/logout', {
+      await apiFetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
         headers: buildCsrfHeaders({})

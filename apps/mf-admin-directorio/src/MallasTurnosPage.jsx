@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, PanelRightClose, PanelRightOpen, Trash2, X } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
@@ -189,7 +190,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
     }, [currentMonth]);
 
     useEffect(() => {
-        fetch('/api/festivos')
+        apiFetch('/api/festivos')
             .then((r) => r.json())
             .then((data) => {
                 if (data.ok && Array.isArray(data.festivos)) {
@@ -206,7 +207,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
             u.set('activo', 'true');
             u.set('limit', '2000');
             u.set('offset', '0');
-            const res = await fetch(`/api/directorio/clientes-resumen?${u}`, { headers: authHeaders(token) });
+            const res = await apiFetch(`/api/directorio/clientes-resumen?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
             setClientesOptions(Array.isArray(data.items) ? data.items : []);
@@ -233,7 +234,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas' }) {
             u.set('offset', '0');
             u.set('sort', 'nombre');
             u.set('dir', 'asc');
-            const res = await fetch(`/api/directorio/colaboradores?${u}`, { headers: authHeaders(token) });
+            const res = await apiFetch(`/api/directorio/colaboradores?${u}`, { headers: authHeaders(token) });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
             setColaboradores(Array.isArray(data.items) ? data.items : []);

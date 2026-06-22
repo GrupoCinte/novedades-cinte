@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
@@ -384,7 +385,7 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     useEffect(() => {
         const ac = new AbortController();
-        fetch('/api/festivos', { credentials: 'include', signal: ac.signal })
+        apiFetch('/api/festivos', { credentials: 'include', signal: ac.signal })
             .then((r) => r.json())
             .then((data) => {
                 if (data?.ok && Array.isArray(data.festivos)) {
@@ -419,7 +420,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             const qp = new URLSearchParams();
             if (fGpUserId) qp.set('gpUserId', fGpUserId);
             const qs = qp.toString();
-            const res = await fetch(qs ? `/api/novedades?${qs}` : '/api/novedades', {
+            const res = await apiFetch(qs ? `/api/novedades?${qs}` : '/api/novedades', {
                 credentials: 'include',
                 headers: { Authorization: `Bearer ${token}` },
                 signal
@@ -457,7 +458,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                 { page, limit }
             );
             const query = new URLSearchParams(params).toString();
-            const res = await fetch(`/api/novedades?${query}`, {
+            const res = await apiFetch(`/api/novedades?${query}`, {
                 credentials: 'include',
                 headers: { Authorization: `Bearer ${token}` },
                 signal
@@ -509,7 +510,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             if (fGpUserId) params.gpUserId = fGpUserId;
             const query = new URLSearchParams(params).toString();
             const url = query ? `/api/novedades/hora-extra-alertas?${query}` : '/api/novedades/hora-extra-alertas';
-            const alertRes = await fetch(url, {
+            const alertRes = await apiFetch(url, {
                 credentials: 'include',
                 headers: { Authorization: `Bearer ${token}` },
                 signal
@@ -543,7 +544,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         let cancelled = false;
         (async () => {
             try {
-                const res = await fetch('/api/directorio/gp', {
+                const res = await apiFetch('/api/directorio/gp', {
                     credentials: 'include',
                     headers: { Authorization: `Bearer ${token}` }
                 });
@@ -567,7 +568,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             try {
                 const headers = {};
                 if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
-                const res = await fetch('/api/catalogos/clientes', { credentials: 'include', headers });
+                const res = await apiFetch('/api/catalogos/clientes', { credentials: 'include', headers });
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) setCalendarClientesList(json.items);
             } catch (err) {
@@ -587,7 +588,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                 const qp = new URLSearchParams();
                 if (fGpUserId) qp.set('gpUserId', fGpUserId);
                 const qs = qp.toString();
-                const res = await fetch(
+                const res = await apiFetch(
                     qs ? `/api/novedades/clientes-filtro?${qs}` : '/api/novedades/clientes-filtro',
                     { credentials: 'include', headers: { Authorization: `Bearer ${token}` } }
                 );
@@ -666,7 +667,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             if (options && options.observacionesRechazo != null) {
                 bodyPayload.observacionesRechazo = options.observacionesRechazo;
             }
-            const res = await fetch('/api/actualizar-estado', {
+            const res = await apiFetch('/api/actualizar-estado', {
                 method: 'POST',
                 credentials: 'include',
                 headers,
@@ -852,7 +853,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         try {
             const id = gestionNovedadPublicId(gestionDetailItem);
             if (!id) throw new Error('No se pudo resolver el identificador de la novedad.');
-            const res = await fetch(`/api/novedades/${encodeURIComponent(id)}`, {
+            const res = await apiFetch(`/api/novedades/${encodeURIComponent(id)}`, {
                 method: 'PATCH',
                 credentials: 'include',
                 headers: gestionAdminHeaders(),
@@ -886,7 +887,7 @@ export default function Dashboard({ token, auth, onLogout }) {
         try {
             const id = gestionNovedadPublicId(gestionDetailItem);
             if (!id) throw new Error('No se pudo resolver el identificador de la novedad.');
-            const res = await fetch(`/api/novedades/${encodeURIComponent(id)}`, {
+            const res = await apiFetch(`/api/novedades/${encodeURIComponent(id)}`, {
                 method: 'DELETE',
                 credentials: 'include',
                 headers: gestionAdminHeaders(),
@@ -935,7 +936,7 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     const fetchSupportUrl = async (support) => {
         if (support.isLocal) return support.key;
-        const res = await fetch(`/api/soportes/url?key=${encodeURIComponent(support.key)}`, {
+        const res = await apiFetch(`/api/soportes/url?key=${encodeURIComponent(support.key)}`, {
             headers: { Authorization: `Bearer ${token}` }
         });
         const json = await res.json();
@@ -967,7 +968,7 @@ export default function Dashboard({ token, auth, onLogout }) {
     };
 
     const fetchExcelPreview = async (support) => {
-        const res = await fetch(`/api/soportes/preview?key=${encodeURIComponent(support.key)}`, {
+        const res = await apiFetch(`/api/soportes/preview?key=${encodeURIComponent(support.key)}`, {
             headers: { Authorization: `Bearer ${token}` }
         });
         const json = await res.json();
@@ -1401,7 +1402,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                 fLeadTimeBucket
             });
             const query = new URLSearchParams(params).toString();
-            const res = await fetch(`/api/novedades/export-excel?${query}`, {
+            const res = await apiFetch(`/api/novedades/export-excel?${query}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (!res.ok) {

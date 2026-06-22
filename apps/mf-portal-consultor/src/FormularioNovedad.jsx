@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -301,7 +302,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
     }, [consultorSession, uiTheme]);
 
     useEffect(() => {
-        fetch('/api/festivos')
+        apiFetch('/api/festivos')
             .then(res => res.json())
             .then(data => {
                 if (data.ok && Array.isArray(data.festivos)) {
@@ -469,7 +470,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         heDomingoPreviewTimerRef.current = setTimeout(async () => {
             setHeDomingoPreviewLoading(true);
             try {
-                const res = await fetch('/api/hora-extra-domingo-preview', {
+                const res = await apiFetch('/api/hora-extra-domingo-preview', {
                     method: 'POST',
                     credentials: 'include',
                     headers: buildCsrfHeaders({ 'Content-Type': 'application/json' }),
@@ -780,7 +781,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         if (horaFin) params.set('horaFin', horaFin);
         const ctrl = new AbortController();
         const timer = window.setTimeout(() => {
-            fetch(`/api/novedades/duplicado-pendiente?${params.toString()}`, {
+            apiFetch(`/api/novedades/duplicado-pendiente?${params.toString()}`, {
                 method: 'GET',
                 credentials: 'include',
                 signal: ctrl.signal
@@ -965,7 +966,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         setDocumentoMensaje({ tipo: '', text: '' });
         setStatus({ type: '', text: '' });
         try {
-            const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`, {
+            const res = await apiFetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`, {
                 credentials: 'include'
             });
             const data = await res.json().catch(() => ({}));
@@ -1021,7 +1022,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             if (!c) return;
             setVerificandoCedula(true);
             try {
-                const res = await fetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`, {
+                const res = await apiFetch(`/api/catalogos/colaborador?cedula=${encodeURIComponent(c)}`, {
                     credentials: 'include'
                 });
                 const data = await res.json().catch(() => ({}));
@@ -1052,7 +1053,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         const loadClientes = async () => {
             setLoadingCatalogos(true);
             try {
-                const res = await fetch('/api/catalogos/clientes', { credentials: 'include' });
+                const res = await apiFetch('/api/catalogos/clientes', { credentials: 'include' });
                 const json = await res.json();
                 if (res.ok && Array.isArray(json.items)) {
                     setClientes(json.items);
@@ -1074,7 +1075,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             }
             setLoadingCatalogos(true);
             try {
-                const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(formData.cliente)}`, {
+                const res = await apiFetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(formData.cliente)}`, {
                     credentials: 'include'
                 });
                 const json = await res.json();
@@ -1375,7 +1376,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                 }
             }
 
-            const res = await fetch('/api/enviar-novedad', {
+            const res = await apiFetch('/api/enviar-novedad', {
                 method: 'POST',
                 credentials: 'include',
                 headers: buildCsrfHeaders({}),

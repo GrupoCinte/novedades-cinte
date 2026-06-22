@@ -1,3 +1,4 @@
+import { apiFetch } from '@cinte/api-client';
 import { useEffect, useState } from 'react';
 import { formatMoney } from './salarioFormat';
 import { useModuleTheme } from '../moduleTheme.js';
@@ -38,7 +39,7 @@ export default function CotizadorResultados({
             try {
                 const headers = buildCsrfHeaders({ 'Content-Type': 'application/json' });
                 if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
-                const res = await fetch('/api/cotizador/pdf', {
+                const res = await apiFetch('/api/cotizador/pdf', {
                     method: 'POST',
                     credentials: 'include',
                     headers,
