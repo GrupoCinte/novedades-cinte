@@ -676,6 +676,38 @@ function createDataLayer(deps) {
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS factura_fv VARCHAR(100) NULL`);
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS fecha_radicacion DATE NULL`);
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS motivo_devolucion TEXT NULL`);
+
+            // Tablas de servicios (facturacion): crearlas antes de alterarlas para no romper el arranque
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS servicios (
+                    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cliente             TEXT NOT NULL,
+                    nombre_servicio     TEXT NOT NULL,
+                    inicio_contrato     DATE NOT NULL,
+                    dia_cierre          INTEGER NOT NULL,
+                    modo_facturacion    VARCHAR(100) NOT NULL,
+                    horas_base          NUMERIC(8,2) NULL,
+                    tipo_facturacion    VARCHAR(100) NULL,
+                    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS servicio_consultores (
+                    servicio_id         UUID NOT NULL REFERENCES servicios(id) ON DELETE CASCADE,
+                    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    licencias           TEXT NULL,
+                    equipo              TEXT NULL,
+                    otras_dotaciones    TEXT NULL,
+                    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (servicio_id, cedula)
+                )
+            `);
+
+            // Columnas para servicios (idempotente para BD que ya tenian la tabla)
+            await pool.query(`ALTER TABLE servicios ADD COLUMN IF NOT EXISTS horas_base NUMERIC(8,2) NULL`);
+            await pool.query(`ALTER TABLE servicios ADD COLUMN IF NOT EXISTS tipo_facturacion VARCHAR(100) NULL`);
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Conciliaciones] Permisos insuficientes para crear/alterar conciliaciones_facturacion.');
@@ -708,6 +740,24 @@ function createDataLayer(deps) {
             );
             await pool.query(
                 'ALTER TABLE malla_turno_asignacion ADD COLUMN IF NOT EXISTS hora_fin TIME NULL'
+            );
+            // AUT-550: separar Mallas de Turnos nocturnos. Ambas vistas comparten la franja
+            // 22_06; el origen distingue a qué pestaña pertenece cada asignación.
+            await pool.query(
+                "ALTER TABLE malla_turno_asignacion ADD COLUMN IF NOT EXISTS origen TEXT NOT NULL DEFAULT 'mallas'"
+            );
+            // Migración idempotente: las filas 22_06 con horario explícito provienen de
+            // Turnos nocturnos (Mallas nunca guarda horas en su franja noche).
+            await pool.query(
+                "UPDATE malla_turno_asignacion SET origen = 'nocturnos' WHERE franja = '22_06' AND hora_inicio IS NOT NULL AND origen <> 'nocturnos'"
+            );
+            // El unique pasa a incluir el origen para que una misma persona pueda estar el
+            // mismo día en la malla diurna/noche y en turnos nocturnos sin colisionar.
+            await pool.query(
+                'ALTER TABLE malla_turno_asignacion DROP CONSTRAINT IF EXISTS uq_malla_turno_asignacion'
+            );
+            await pool.query(
+                'ALTER TABLE malla_turno_asignacion ADD CONSTRAINT uq_malla_turno_asignacion UNIQUE (cliente, fecha, franja, cedula, origen)'
             );
         } catch (error) {
             if (String(error?.code || '') === '42501') {
@@ -839,26 +889,35 @@ function createDataLayer(deps) {
      * @param {{ cliente: string, desde: string, hasta: string }} rango YYYY-MM-DD inclusive
      * @returns {Promise<Array<{ fecha: string, franja: string, cedula: string, orden: number, nombre: string, codigo: string | null }>>}
      */
-    async function listMallaTurnosCeldasRange({ cliente, desde, hasta }) {
+    async function listMallaTurnosCeldasRange({ cliente, desde, hasta, origen }) {
         const cli = normalizeCatalogValue(cliente);
         if (!cli) {
             throw Object.assign(new Error('Cliente es obligatorio'), { status: 400 });
         }
+        // AUT-550: filtro opcional por origen (mallas | nocturnos) para no mezclar pestañas.
+        const origenFilter = origen === 'mallas' || origen === 'nocturnos' ? origen : null;
+        const params = [cli, desde, hasta];
+        let origenWhere = '';
+        if (origenFilter) {
+            params.push(origenFilter);
+            origenWhere = ` AND a.origen = $${params.length}`;
+        }
         const q = await pool.query(
             `SELECT a.fecha::text AS fecha, a.franja, a.cedula, a.orden,
-                    a.hora_inicio, a.hora_fin,
+                    a.hora_inicio, a.hora_fin, a.origen,
                     c.nombre, c.codigo
              FROM malla_turno_asignacion a
              INNER JOIN colaboradores c ON c.cedula = a.cedula
-             WHERE a.cliente = $1 AND a.fecha >= $2::date AND a.fecha <= $3::date
+             WHERE a.cliente = $1 AND a.fecha >= $2::date AND a.fecha <= $3::date${origenWhere}
              ORDER BY a.fecha ASC, a.franja ASC, a.orden ASC, a.cedula ASC`,
-            [cli, desde, hasta]
+            params
         );
         return (q.rows || []).map((row) => ({
             fecha: String(row.fecha),
             franja: String(row.franja),
             cedula: String(row.cedula),
             orden: Number(row.orden) || 0,
+            origen: row.origen === 'nocturnos' ? 'nocturnos' : 'mallas',
             nombre: String(row.nombre || ''),
             codigo: row.codigo != null && String(row.codigo).trim() !== '' ? String(row.codigo).trim() : null,
             horaInicio: row.hora_inicio
@@ -914,11 +973,20 @@ function createDataLayer(deps) {
                 const fecha = String(raw.fecha || '').trim();
                 const franja = String(raw.franja || '').trim();
                 const mode = raw.mode === 'merge' ? 'merge' : 'replace';
+                // AUT-550: el origen (mallas | nocturnos) aísla los datos de cada pestaña
+                // aunque compartan la franja 22_06.
+                const origen = raw.origen === 'nocturnos' ? 'nocturnos' : 'mallas';
                 if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
                     throw Object.assign(new Error('Fecha inválida'), { status: 400 });
                 }
                 if (!MALLA_FRANJAS.has(franja)) {
                     throw Object.assign(new Error('Franja inválida'), { status: 400 });
+                }
+                if (origen === 'nocturnos' && franja !== '22_06') {
+                    throw Object.assign(
+                        new Error('Turnos nocturnos solo admite la franja 22:00–06:00'),
+                        { status: 400 }
+                    );
                 }
                 const rawList = Array.isArray(raw.cedulas) ? raw.cedulas : [];
                 const seen = new Set();
@@ -934,7 +1002,8 @@ function createDataLayer(deps) {
                 let horaFin = null;
                 const rawHi = raw.horaInicio != null ? String(raw.horaInicio).trim() : '';
                 const rawHf = raw.horaFin != null ? String(raw.horaFin).trim() : '';
-                if (rawHi || rawHf) {
+                // El horario solo aplica a turnos nocturnos; en Mallas la franja noche no lleva horas.
+                if (origen === 'nocturnos' && (rawHi || rawHf)) {
                     if (franja !== '22_06') {
                         throw Object.assign(new Error('Horario solo aplica a turnos nocturnos'), { status: 400 });
                     }
@@ -949,20 +1018,20 @@ function createDataLayer(deps) {
                 }
 
                 const nocturnoBand =
-                    franja === '22_06' && horaInicio != null && horaFin != null;
+                    origen === 'nocturnos' && franja === '22_06' && horaInicio != null && horaFin != null;
 
                 if (mode === 'merge') {
                     if (cedulas.length === 0) {
                         continue;
                     }
                     const bandParams = nocturnoBand
-                        ? [cliente, fecha, franja, horaInicio, horaFin]
-                        : [cliente, fecha, franja];
+                        ? [cliente, fecha, franja, origen, horaInicio, horaFin]
+                        : [cliente, fecha, franja, origen];
                     const bandWhere = nocturnoBand
-                        ? `cliente = $1 AND fecha = $2::date AND franja = $3
-                           AND hora_inicio IS NOT DISTINCT FROM $4::time
-                           AND hora_fin IS NOT DISTINCT FROM $5::time`
-                        : 'cliente = $1 AND fecha = $2::date AND franja = $3';
+                        ? `cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4
+                           AND hora_inicio IS NOT DISTINCT FROM $5::time
+                           AND hora_fin IS NOT DISTINCT FROM $6::time`
+                        : 'cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4';
                     const countQ = await dbClient.query(
                         `SELECT cedula FROM malla_turno_asignacion WHERE ${bandWhere}`,
                         bandParams
@@ -974,8 +1043,8 @@ function createDataLayer(deps) {
                     if (nocturnoBand) {
                         const allQ = await dbClient.query(
                             `SELECT cedula FROM malla_turno_asignacion
-                             WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
-                            [cliente, fecha, franja]
+                             WHERE cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4`,
+                            [cliente, fecha, franja, origen]
                         );
                         existingAllFranja = new Set(
                             (allQ.rows || []).map((r) => String(r.cedula || ''))
@@ -1019,23 +1088,21 @@ function createDataLayer(deps) {
                         const orden = isNew ? ordenBase++ : null;
                         if (isNew) {
                             await dbClient.query(
-                                `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, hora_inicio, hora_fin, updated_at)
-                                 VALUES ($1, $2::date, $3, $4, $5, $6::time, $7::time, NOW())`,
-                                [cliente, fecha, franja, ced, orden, horaInicio, horaFin]
+                                `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, hora_inicio, hora_fin, origen, updated_at)
+                                 VALUES ($1, $2::date, $3, $4, $5, $6::time, $7::time, $8, NOW())`,
+                                [cliente, fecha, franja, ced, orden, horaInicio, horaFin, origen]
                             );
                         } else if (horaInicio != null && horaFin != null) {
                             const updateWhere = nocturnoBand
-                                ? `cliente = $1 AND fecha = $2::date AND franja = $3 AND cedula = $4
-                                   AND hora_inicio IS NOT DISTINCT FROM $5::time
-                                   AND hora_fin IS NOT DISTINCT FROM $6::time`
-                                : 'cliente = $1 AND fecha = $2::date AND franja = $3 AND cedula = $4';
+                                ? `cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4 AND cedula = $5
+                                   AND hora_inicio IS NOT DISTINCT FROM $6::time
+                                   AND hora_fin IS NOT DISTINCT FROM $7::time`
+                                : 'cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4 AND cedula = $5';
                             await dbClient.query(
                                 `UPDATE malla_turno_asignacion
-                                 SET hora_inicio = $5::time, hora_fin = $6::time, updated_at = NOW()
+                                 SET hora_inicio = $6::time, hora_fin = $7::time, updated_at = NOW()
                                  WHERE ${updateWhere}`,
-                                nocturnoBand
-                                    ? [cliente, fecha, franja, ced, horaInicio, horaFin]
-                                    : [cliente, fecha, franja, ced, horaInicio, horaFin]
+                                [cliente, fecha, franja, origen, ced, horaInicio, horaFin]
                             );
                         }
                     }
@@ -1045,15 +1112,15 @@ function createDataLayer(deps) {
                 if (nocturnoBand) {
                     await dbClient.query(
                         `DELETE FROM malla_turno_asignacion
-                         WHERE cliente = $1 AND fecha = $2::date AND franja = $3
-                           AND hora_inicio IS NOT DISTINCT FROM $4::time
-                           AND hora_fin IS NOT DISTINCT FROM $5::time`,
-                        [cliente, fecha, franja, horaInicio, horaFin]
+                         WHERE cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4
+                           AND hora_inicio IS NOT DISTINCT FROM $5::time
+                           AND hora_fin IS NOT DISTINCT FROM $6::time`,
+                        [cliente, fecha, franja, origen, horaInicio, horaFin]
                     );
                 } else {
                     await dbClient.query(
-                        `DELETE FROM malla_turno_asignacion WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
-                        [cliente, fecha, franja]
+                        `DELETE FROM malla_turno_asignacion WHERE cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4`,
+                        [cliente, fecha, franja, origen]
                     );
                 }
                 let orden = 0;
@@ -1077,9 +1144,9 @@ function createDataLayer(deps) {
                         });
                     }
                     await dbClient.query(
-                        `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, hora_inicio, hora_fin, updated_at)
-                         VALUES ($1, $2::date, $3, $4, $5, $6::time, $7::time, NOW())`,
-                        [cliente, fecha, franja, ced, orden, horaInicio, horaFin]
+                        `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, hora_inicio, hora_fin, origen, updated_at)
+                         VALUES ($1, $2::date, $3, $4, $5, $6::time, $7::time, $8, NOW())`,
+                        [cliente, fecha, franja, ced, orden, horaInicio, horaFin, origen]
                     );
                     orden += 1;
                 }
@@ -2386,6 +2453,32 @@ function createDataLayer(deps) {
         return conciliacionesQueries.listConciliacionesFacturacion(conciliacionesDeps, scope, year, month);
     }
 
+    const serviciosDynamoData = require('./conciliaciones/serviciosDynamoData');
+
+    async function listServiciosForScope(scope) {
+        return serviciosDynamoData.listServicios(conciliacionesDeps, scope);
+    }
+
+    async function createServicioForScope(scope, payload) {
+        return serviciosDynamoData.createServicio(conciliacionesDeps, scope, payload);
+    }
+
+    async function updateServicioForScope(scope, idServicio, payload) {
+        return serviciosDynamoData.updateServicio(conciliacionesDeps, scope, idServicio, payload);
+    }
+
+    async function deleteServicioForScope(scope, idServicio) {
+        return serviciosDynamoData.deleteServicio(conciliacionesDeps, scope, idServicio);
+    }
+
+    async function listServicioConsultoresForScope(scope, idServicio) {
+        return serviciosDynamoData.listServicioConsultores(conciliacionesDeps, scope, idServicio);
+    }
+
+    async function upsertServicioConsultoresForScope(scope, idServicio, cedulas) {
+        return serviciosDynamoData.upsertServicioConsultores(conciliacionesDeps, scope, idServicio, cedulas);
+    }
+
     return {
         ensureUserRoleEnumValues,
         ensureClientesLideresTable,
@@ -2454,7 +2547,13 @@ function createDataLayer(deps) {
         getConciliacionesDashboardResumenForScope,
         upsertConciliacionFacturacionForScope,
         upsertConciliacionFacturacionMasivaForScope,
-        listConciliacionesFacturacionForScope
+        listConciliacionesFacturacionForScope,
+        listServiciosForScope,
+        createServicioForScope,
+        updateServicioForScope,
+        deleteServicioForScope,
+        listServicioConsultoresForScope,
+        upsertServicioConsultoresForScope
     };
 }
 

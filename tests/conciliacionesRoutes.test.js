@@ -27,7 +27,13 @@ function buildApp(deps = {}) {
             ?? (async () => ({ ok: true, clientesCount: 0, globalTotales: {}, rows: [] })),
         upsertConciliacionFacturacionForScope: deps.upsertConciliacionFacturacionForScope ?? stubAsync,
         upsertConciliacionFacturacionMasivaForScope: deps.upsertConciliacionFacturacionMasivaForScope ?? stubAsync,
-        listConciliacionesFacturacionForScope: deps.listConciliacionesFacturacionForScope ?? (async () => [])
+        listConciliacionesFacturacionForScope: deps.listConciliacionesFacturacionForScope ?? (async () => []),
+        listServiciosForScope: deps.listServiciosForScope ?? (async () => []),
+        createServicioForScope: deps.createServicioForScope ?? stubAsync,
+        updateServicioForScope: deps.updateServicioForScope ?? stubAsync,
+        deleteServicioForScope: deps.deleteServicioForScope ?? stubAsync,
+        listServicioConsultoresForScope: deps.listServicioConsultoresForScope ?? (async () => []),
+        upsertServicioConsultoresForScope: deps.upsertServicioConsultoresForScope ?? stubAsync
     });
     return app;
 }
@@ -325,4 +331,126 @@ test('GET /api/conciliaciones/facturacion devuelve lista', async () => {
     assert.equal(res.body.ok, true);
     assert.equal(res.body.items.length, 1);
     assert.equal(res.body.items[0].proyecto, 'X');
+});
+
+test('GET /api/conciliaciones/servicios devuelve lista', async () => {
+    const noAuth = (req, _res, next) => {
+        req.user = { role: 'super_admin', sub: 'x', email: 'qa@example.com' };
+        next();
+    };
+    const applyScope = (req, _res, next) => {
+        req.scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+        next();
+    };
+    const app = buildApp({
+        verificarToken: noAuth,
+        allowAnyPanel: () => (_r, _res, next) => next(),
+        applyScope,
+        listServiciosForScope: async () => [{ id: 'srv-1', nombreServicio: 'Soporte' }]
+    });
+
+    const res = await request(app).get('/api/conciliaciones/servicios');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.items.length, 1);
+    assert.equal(res.body.items[0].nombreServicio, 'Soporte');
+});
+
+test('POST /api/conciliaciones/servicios crea servicio', async () => {
+    const noAuth = (req, _res, next) => {
+        req.user = { role: 'super_admin', sub: 'x', email: 'qa@example.com' };
+        next();
+    };
+    const applyScope = (req, _res, next) => {
+        req.scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+        next();
+    };
+    let receivedPayload = null;
+    const app = buildApp({
+        verificarToken: noAuth,
+        allowAnyPanel: () => (_r, _res, next) => next(),
+        applyScope,
+        createServicioForScope: async (scope, payload) => {
+            receivedPayload = payload;
+            return { id: 'new-srv', ...payload };
+        }
+    });
+
+    const res = await request(app).post('/api/conciliaciones/servicios').send({
+        client: 'Cliente DEMO',
+        serviceName: 'Soporte',
+        initDate: '2026-06-08',
+        closingDay: 31,
+        billingMode: 'HOURS',
+        billingType: 'EXPIRED_MONTH',
+        baseHours: 160
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.data.id, 'new-srv');
+    assert.equal(receivedPayload.serviceName, 'Soporte');
+});
+
+test('PUT /api/conciliaciones/servicios/:idServicio actualiza servicio', async () => {
+    const noAuth = (req, _res, next) => {
+        req.user = { role: 'super_admin', sub: 'x', email: 'qa@example.com' };
+        next();
+    };
+    const applyScope = (req, _res, next) => {
+        req.scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+        next();
+    };
+    let receivedPayload = null;
+    let receivedId = null;
+    const app = buildApp({
+        verificarToken: noAuth,
+        allowAnyPanel: () => (_r, _res, next) => next(),
+        applyScope,
+        updateServicioForScope: async (scope, id, payload) => {
+            receivedId = id;
+            receivedPayload = payload;
+            return { id, ...payload };
+        }
+    });
+
+    const res = await request(app).put('/api/conciliaciones/servicios/srv-123').send({
+        client: 'Cliente DEMO',
+        serviceName: 'Soporte Modificado',
+        initDate: '2026-06-08',
+        closingDay: 15,
+        billingMode: 'HOURS',
+        billingType: 'EXPIRED_MONTH',
+        baseHours: 160
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.data.id, 'srv-123');
+    assert.equal(receivedId, 'srv-123');
+    assert.equal(receivedPayload.serviceName, 'Soporte Modificado');
+});
+
+test('DELETE /api/conciliaciones/servicios/:idServicio elimina servicio', async () => {
+    const noAuth = (req, _res, next) => {
+        req.user = { role: 'super_admin', sub: 'x', email: 'qa@example.com' };
+        next();
+    };
+    const applyScope = (req, _res, next) => {
+        req.scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+        next();
+    };
+    let receivedId = null;
+    const app = buildApp({
+        verificarToken: noAuth,
+        allowAnyPanel: () => (_r, _res, next) => next(),
+        applyScope,
+        deleteServicioForScope: async (scope, id) => {
+            receivedId = id;
+            return { success: true };
+        }
+    });
+
+    const res = await request(app).delete('/api/conciliaciones/servicios/srv-123');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(receivedId, 'srv-123');
 });

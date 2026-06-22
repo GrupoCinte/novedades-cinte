@@ -306,4 +306,40 @@ CREATE TRIGGER trg_conciliaciones_facturacion_updated_at
 BEFORE UPDATE ON conciliaciones_facturacion
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ========= Servicios (Facturacion) =========
+CREATE TABLE IF NOT EXISTS servicios (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cliente             TEXT NOT NULL,
+    nombre_servicio     TEXT NOT NULL,
+    inicio_contrato     DATE NOT NULL,
+    dia_cierre          INTEGER NOT NULL,
+    modo_facturacion    VARCHAR(100) NOT NULL,
+    horas_base          NUMERIC(8,2) NULL,
+    tipo_facturacion    VARCHAR(100) NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS trg_servicios_updated_at ON servicios;
+CREATE TRIGGER trg_servicios_updated_at
+BEFORE UPDATE ON servicios
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ========= Servicio Consultores (Asignaciones) =========
+CREATE TABLE IF NOT EXISTS servicio_consultores (
+    servicio_id         UUID NOT NULL REFERENCES servicios(id) ON DELETE CASCADE,
+    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+    licencias           TEXT NULL,
+    equipo              TEXT NULL,
+    otras_dotaciones    TEXT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (servicio_id, cedula)
+);
+
+DROP TRIGGER IF EXISTS trg_servicio_consultores_updated_at ON servicio_consultores;
+CREATE TRIGGER trg_servicio_consultores_updated_at
+BEFORE UPDATE ON servicio_consultores
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 COMMIT;

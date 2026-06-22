@@ -8,6 +8,7 @@ import { userHasDirectorioPanel } from './directorioAccess';
 import UserAccountMenu from './UserAccountMenu.jsx';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
+import { CONCILIACIONES_MODULE_ENABLED } from './featureFlags.js';
 
 function resolveWelcomeName(auth) {
     const u = auth?.user && typeof auth.user === 'object' ? auth.user : {};
@@ -139,13 +140,15 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 path: '/admin/novedades',
                 Icon: Briefcase
             });
-            out.push({
-                key: 'conciliaciones',
-                title: 'Conciliaciones',
-                description: 'Tarifas por cliente y mes frente a novedades aprobadas (solo lectura).',
-                path: '/admin/conciliaciones/dashboard',
-                Icon: Scale
-            });
+            if (CONCILIACIONES_MODULE_ENABLED) {
+                out.push({
+                    key: 'conciliaciones',
+                    title: 'Conciliaciones',
+                    description: 'Tarifas por cliente y mes frente a novedades aprobadas (solo lectura).',
+                    path: '/admin/conciliaciones/dashboard',
+                    Icon: Scale
+                });
+            }
         }
         if (userHasCotizadorAccess(auth)) {
             out.push({

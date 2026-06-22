@@ -27,7 +27,13 @@ function assertConciliacionesRouteDeps(deps) {
         'getConciliacionesDashboardResumenForScope',
         'upsertConciliacionFacturacionForScope',
         'upsertConciliacionFacturacionMasivaForScope',
-        'listConciliacionesFacturacionForScope'
+        'listConciliacionesFacturacionForScope',
+        'listServiciosForScope',
+        'createServicioForScope',
+        'updateServicioForScope',
+        'deleteServicioForScope',
+        'listServicioConsultoresForScope',
+        'upsertServicioConsultoresForScope'
     ];
     for (const key of required) {
         if (deps == null || deps[key] == null) {
@@ -53,7 +59,13 @@ function registerConciliacionesRoutes(deps) {
         getConciliacionesDashboardResumenForScope,
         upsertConciliacionFacturacionForScope,
         upsertConciliacionFacturacionMasivaForScope,
-        listConciliacionesFacturacionForScope
+        listConciliacionesFacturacionForScope,
+        listServiciosForScope,
+        createServicioForScope,
+        updateServicioForScope,
+        deleteServicioForScope,
+        listServicioConsultoresForScope,
+        upsertServicioConsultoresForScope
     } = deps;
 
     const guardChain = [verificarToken, allowAnyPanel(NOVEDADES_ADMIN_PANELS), applyScope];
@@ -188,6 +200,91 @@ function registerConciliacionesRoutes(deps) {
         } catch (e) {
             console.error('[conciliaciones/facturacion GET]', e);
             return res.status(500).json({ ok: false, error: 'Error al listar facturación' });
+        }
+    });
+
+    app.get('/api/conciliaciones/servicios', ...guardChain, async (req, res) => {
+        try {
+            const items = await listServiciosForScope(req.scope);
+            return res.json({ ok: true, items });
+        } catch (e) {
+            console.error('[conciliaciones/servicios GET]', e);
+            return res.status(500).json({ ok: false, error: 'Error al listar servicios' });
+        }
+    });
+
+    app.post('/api/conciliaciones/servicios', ...guardChain, async (req, res) => {
+        try {
+            // Validación mínima
+            const payload = req.body || {};
+            console.log('[DEBUG] POST /api/conciliaciones/servicios payload:', payload);
+            if (!payload.client || !payload.serviceName) {
+                return res.status(400).json({ ok: false, error: 'Faltan campos requeridos (client, serviceName)' });
+            }
+            const out = await createServicioForScope(req.scope, payload);
+            return res.json({ ok: true, data: out });
+        } catch (e) {
+            console.error('[conciliaciones/servicios POST]', e);
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al crear servicio' });
+        }
+    });
+
+    app.put('/api/conciliaciones/servicios/:idServicio', ...guardChain, async (req, res) => {
+        const idServicio = req.params.idServicio;
+        if (!idServicio) return res.status(400).json({ ok: false, error: 'idServicio requerido' });
+        try {
+            const payload = req.body || {};
+            if (!payload.client || !payload.serviceName) {
+                return res.status(400).json({ ok: false, error: 'Faltan campos requeridos (client, serviceName)' });
+            }
+            const out = await updateServicioForScope(req.scope, idServicio, payload);
+            return res.json({ ok: true, data: out });
+        } catch (e) {
+            console.error(`[conciliaciones/servicios/${idServicio} PUT]`, e);
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al actualizar servicio' });
+        }
+    });
+
+    app.delete('/api/conciliaciones/servicios/:idServicio', ...guardChain, async (req, res) => {
+        const idServicio = req.params.idServicio;
+        if (!idServicio) return res.status(400).json({ ok: false, error: 'idServicio requerido' });
+        try {
+            await deleteServicioForScope(req.scope, idServicio);
+            return res.json({ ok: true });
+        } catch (e) {
+            console.error(`[conciliaciones/servicios/${idServicio} DELETE]`, e);
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al eliminar servicio' });
+        }
+    });
+
+    app.get('/api/conciliaciones/servicios/:idServicio/consultores', ...guardChain, async (req, res) => {
+        const idServicio = req.params.idServicio;
+        if (!idServicio) return res.status(400).json({ ok: false, error: 'idServicio requerido' });
+        try {
+            const items = await listServicioConsultoresForScope(req.scope, idServicio);
+            return res.json({ ok: true, items });
+        } catch (e) {
+            console.error(`[conciliaciones/servicios/${idServicio}/consultores GET]`, e);
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al listar consultores del servicio' });
+        }
+    });
+
+    app.post('/api/conciliaciones/servicios/:idServicio/consultores', ...guardChain, async (req, res) => {
+        const idServicio = req.params.idServicio;
+        const cedulas = req.body.cedulas;
+        if (!idServicio) return res.status(400).json({ ok: false, error: 'idServicio requerido' });
+        if (!Array.isArray(cedulas)) return res.status(400).json({ ok: false, error: 'cedulas debe ser un array' });
+        try {
+            await upsertServicioConsultoresForScope(req.scope, idServicio, cedulas);
+            return res.json({ ok: true });
+        } catch (e) {
+            console.error(`[conciliaciones/servicios/${idServicio}/consultores POST]`, e);
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al asociar consultores al servicio' });
         }
     });
 }
