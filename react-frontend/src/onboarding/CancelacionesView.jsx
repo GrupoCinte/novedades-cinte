@@ -78,7 +78,7 @@ export default function CancelacionesView({ auth, isLight }) {
     }
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 min-w-0 w-full">
             <header>
                 <h2 className={G.titleXl}>Cancelaciones / eliminaciones</h2>
                 <p className={G.mutedSm}>

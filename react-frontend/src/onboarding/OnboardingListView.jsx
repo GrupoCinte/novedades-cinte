@@ -257,7 +257,7 @@ export default function OnboardingListView({
     const safePage = Math.min(page, totalPages - 1);
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 min-w-0 w-full">
             <header className="flex flex-wrap items-end gap-3">
                 <div className="flex-1 min-w-[12rem]">
                     <h2 className={G.titleXl}>{title}</h2>
