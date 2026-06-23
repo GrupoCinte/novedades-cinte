@@ -58,6 +58,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     const [liderOptions, setLiderOptions] = useState([]);
     const [liderLoading, setLiderLoading] = useState(false);
     const [activeTab, setActiveTab] = useState(CO_TABS[0]?.id || 'general');
+    const [zohoHistorial, setZohoHistorial] = useState([]);
 
     const displayName = createMode ? 'Nuevo colaborador' : form.nombre || 'Ficha del colaborador';
     const displaySubtitle = createMode
@@ -127,6 +128,22 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     useEffect(() => {
         load();
     }, [load]);
+
+    useEffect(() => {
+        if (createMode || !cedula) return undefined;
+        let alive = true;
+        onboardingApi
+            .listFichaNovedades(token, { cedula, scope: 'historico', limit: 20 })
+            .then((r) => {
+                if (alive) setZohoHistorial(r?.items || []);
+            })
+            .catch(() => {
+                if (alive) setZohoHistorial([]);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [createMode, cedula, token]);
 
     const handleEdit = () => {
         if (!perms.canEditFicha) return;
@@ -343,6 +360,22 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                             activeTabId={activeTab}
                         />
                     )}
+                    {!loading && !error && !createMode && zohoHistorial.length > 0 ? (
+                        <div className={`mt-6 rounded-xl border p-4 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/[0.02]'}`}>
+                            <p className={`mb-2 text-xs font-bold uppercase tracking-widest ${labelMuted}`}>
+                                Historial novedades Zoho
+                            </p>
+                            <ul className="flex flex-col gap-2 text-sm">
+                                {zohoHistorial.map((h) => (
+                                    <li key={h.id} className="flex flex-wrap items-center gap-2">
+                                        <span className="font-medium">{h.tipo_novedad}</span>
+                                        <span className={labelMuted}>{h.status}</span>
+                                        <span className={labelMuted}>{h.subject || h.id_registro}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ) : null}
                 </form>
             </MonitorGlassModalShell>
 

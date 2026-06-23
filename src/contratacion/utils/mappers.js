@@ -42,6 +42,18 @@ function normalizeStatus(status) {
         .replace(/[\u0300-\u036f]/g, '');
 }
 
+/** Ítems Zoho novedad (pk/whatsapp zoho_novedad#…) no pertenecen al monitor En ingreso. */
+function isOnboardingMonitorItem(data) {
+    if (!data || typeof data !== 'object') return false;
+    const pk = String(data.pk || data.PK || data.whatsapp_number || data.whatsappNumber || '')
+        .trim()
+        .toLowerCase();
+    if (pk.startsWith('zoho_novedad#')) return false;
+    const rt = String(data.record_type || data.recordType || '').trim().toLowerCase();
+    if (rt === 'zoho_novedad') return false;
+    return true;
+}
+
 function mapStatusToId(status) {
     const s = normalizeStatus(status);
     if (s.includes('cargando')) return 1;
@@ -119,5 +131,6 @@ function mapDynamoItemToExecution(data) {
 }
 
 module.exports = {
+    isOnboardingMonitorItem,
     mapDynamoItemToExecution
 };
