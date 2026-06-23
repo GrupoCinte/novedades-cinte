@@ -1,5 +1,5 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, QueryCommand, ScanCommand, PutCommand, DeleteCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
 
 function getDynamoClient() {
     const region = process.env.AWS_REGION || 'us-east-1';
@@ -37,8 +37,8 @@ async function callAppSyncPutService(payloadData) {
     }
 
     const query = `
-        mutation PutService($client: String!, $serviceName: String!, $initDate: AWSDate!, $closingDay: Int!, $billingMode: BillingMode!, $baseHours: Int!, $billingType: BillingType!) {
-            putService(client: $client, serviceName: $serviceName, initDate: $initDate, closingDay: $closingDay, billingMode: $billingMode, baseHours: $baseHours, billingType: $billingType) {
+        mutation PutService($client: String!, $serviceName: String!, $initDate: AWSDate!, $closingDay: Int!, $billingMode: BillingMode!, $baseHours: Int!, $billingType: BillingType!, $collabs: [String!]) {
+            putService(client: $client, serviceName: $serviceName, initDate: $initDate, closingDay: $closingDay, billingMode: $billingMode, baseHours: $baseHours, billingType: $billingType, collabs: $collabs) {
                 success
             }
         }
@@ -51,7 +51,8 @@ async function callAppSyncPutService(payloadData) {
         closingDay: Number(payloadData.closingDay),
         billingMode: payloadData.billingMode,
         baseHours: Number(payloadData.baseHours),
-        billingType: payloadData.billingType
+        billingType: payloadData.billingType,
+        collabs: payloadData.collabs || []
     };
 
     console.log('Enviando mutación a AppSync:', variables);
@@ -81,13 +82,28 @@ async function callAppSyncPutService(payloadData) {
  */
 async function _getServiceById(id) {
     const docClient = getDynamoClient();
-    const cmd = new QueryCommand({
-        TableName: TABLE_NAME,
-        IndexName: 'TipoEntidad',
-        KeyConditionExpression: 'entityType = :entityType',
-        ExpressionAttributeValues: {
-            ':entityType': 'SERVICIO'
+    
+    // Try decoding composite id
+    let client, serviceName;
+    try {
+        const decoded = Buffer.from(id, 'base64').toString('utf8');
+        if (decoded.includes('|')) {
+            [client, serviceName] = decoded.split('|');
         }
+    } catch(e) {}
+
+    if (client && serviceName) {
+        const cmd = new GetCommand({
+            TableName: TABLE_NAME,
+            Key: { client, serviceName }
+        });
+        const { Item } = await docClient.send(cmd);
+        return Item || null;
+    }
+
+    // Fallback for old UUIDs using Scan
+    const cmd = new ScanCommand({
+        TableName: TABLE_NAME
     });
     const { Items } = await docClient.send(cmd);
     return (Items || []).find(i => i.id === id) || null;
@@ -98,13 +114,8 @@ async function listServicios(deps, scope) {
     if (!allowedClients.length) return [];
 
     const docClient = getDynamoClient();
-    const cmd = new QueryCommand({
-        TableName: TABLE_NAME,
-        IndexName: 'TipoEntidad',
-        KeyConditionExpression: 'entityType = :entityType',
-        ExpressionAttributeValues: {
-            ':entityType': 'SERVICIO'
-        }
+    const cmd = new ScanCommand({
+        TableName: TABLE_NAME
     });
     
     const { Items } = await docClient.send(cmd);
@@ -125,7 +136,7 @@ async function listServicios(deps, scope) {
     });
 
     return filtered.map(r => ({
-        id: r.id,
+        id: r.id || Buffer.from(`${r.client}|${r.serviceName}`).toString('base64'),
         client: String(r.client || '').trim(),
         serviceName: String(r.serviceName || '').trim(),
         initDate: r.initDate || '',
@@ -133,7 +144,7 @@ async function listServicios(deps, scope) {
         billingMode: String(r.billingMode || '').trim(),
         billingType: r.billingType ? String(r.billingType).trim() : '',
         baseHours: r.baseHours != null ? Number(r.baseHours) : null,
-        consultoresCount: Array.isArray(r.consultores_asociados) ? r.consultores_asociados.length : 0,
+        consultoresCount: Array.isArray(r.collabs) ? r.collabs.length : (Array.isArray(r.consultores_asociados) ? r.consultores_asociados.length : 0),
         createdAt: r.created_at ? new Date(r.created_at) : new Date()
     }));
 }
@@ -165,18 +176,15 @@ async function createServicio(deps, scope, payload) {
         throw error;
     }
 
-    const newId = randomUUID();
     const item = {
         client: chk.canon,
         serviceName: nombreServicio,
-        entityType: 'SERVICIO',
-        id: newId,
         initDate: initDate,
         closingDay: closingDay,
         billingMode: billingMode,
         billingType: billingType,
         baseHours: baseHours,
-        consultores_asociados: [],
+        collabs: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
     };
@@ -189,11 +197,11 @@ async function createServicio(deps, scope, payload) {
     // 1. Invocar la API de AppSync para registrar la programación del "profesor batch"
     await callAppSyncPutService(item);
 
-    // 2. Insertar/Actualizar en DynamoDB para garantizar que nuestro frontend tenga los campos id y entityType (GSI)
+    // 2. Insertar/Actualizar en DynamoDB
     await docClient.send(cmd);
 
     return {
-        id: item.id,
+        id: Buffer.from(`${item.client}|${item.serviceName}`).toString('base64'),
         client: item.client,
         serviceName: item.serviceName,
         initDate: item.initDate,
@@ -250,17 +258,19 @@ async function updateServicio(deps, scope, idServicio, payload) {
     const item = {
         client: chkNew.canon,
         serviceName: nombreServicio,
-        entityType: 'SERVICIO',
-        id: idServicio,
         initDate: payload.initDate || oldService.initDate || null,
         closingDay: closingDayRaw !== undefined ? Number(closingDayRaw) : (oldService.closingDay ?? null),
         billingMode: payload.billingMode || oldService.billingMode || null,
         billingType: payload.billingType || oldService.billingType || null,
         baseHours: payload.baseHours !== undefined ? payload.baseHours : (oldService.baseHours ?? null),
-        consultores_asociados: oldService.consultores_asociados || [],
+        collabs: oldService.collabs || [],
         created_at: oldService.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString()
     };
+
+    if (oldService.consultores_asociados && (!oldService.collabs || oldService.collabs.length === 0)) {
+        item.collabs = oldService.consultores_asociados.map(c => c.cedula);
+    }
 
     const putCmd = new PutCommand({
         TableName: TABLE_NAME,
@@ -274,7 +284,7 @@ async function updateServicio(deps, scope, idServicio, payload) {
     await docClient.send(putCmd);
 
     return {
-        id: item.id,
+        id: idServicio,
         client: item.client,
         serviceName: item.serviceName,
         initDate: item.initDate,
@@ -344,8 +354,9 @@ async function listServicioConsultores(deps, scope, servicioId) {
     );
 
     const asociadosMap = {};
-    for (const asc of (service.consultores_asociados || [])) {
-        asociadosMap[String(asc.cedula).trim()] = asc;
+    const collabs = service.collabs || (service.consultores_asociados ? service.consultores_asociados.map(c => c.cedula) : []);
+    for (const ced of collabs) {
+        asociadosMap[String(ced).trim()] = true;
     }
 
     return q.rows.map(r => {
@@ -354,9 +365,6 @@ async function listServicioConsultores(deps, scope, servicioId) {
         return {
             cedula: r.cedula,
             nombre: r.nombre,
-            licencias: asoc ? asoc.licencias : '',
-            equipo: asoc ? asoc.equipo : '',
-            otrasDotaciones: asoc ? asoc.otras_dotaciones : '',
             tarifaCliente: r.tarifa_cliente != null ? Number(r.tarifa_cliente) : null,
             costoCinte: r.costo_empresa != null ? Number(r.costo_empresa) : null,
             moneda: r.moneda ? String(r.moneda).trim() : 'COP',
@@ -383,12 +391,10 @@ async function upsertServicioConsultores(deps, scope, servicioId, consultoresAso
     }
 
     // Actualizamos el array embebido en el servicio
-    oldService.consultores_asociados = consultoresAsociados.map(c => ({
-        cedula: c.cedula,
-        licencias: c.licencias ?? null,
-        equipo: c.equipo ?? null,
-        otras_dotaciones: (c.otrasDotaciones !== undefined ? c.otrasDotaciones : c.otras_dotaciones) ?? null
-    }));
+    oldService.collabs = consultoresAsociados.collabs || [];
+    if ('consultores_asociados' in oldService) delete oldService.consultores_asociados;
+    if ('id' in oldService) delete oldService.id;
+    if ('entityType' in oldService) delete oldService.entityType;
     oldService.updated_at = new Date().toISOString();
 
     const docClient = getDynamoClient();
@@ -397,6 +403,7 @@ async function upsertServicioConsultores(deps, scope, servicioId, consultoresAso
         Item: oldService
     });
 
+    await callAppSyncPutService(oldService);
     await docClient.send(putCmd);
     return { updated: true };
 }

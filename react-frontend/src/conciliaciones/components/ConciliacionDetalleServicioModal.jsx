@@ -144,9 +144,9 @@ export default function ConciliacionDetalleServicioModal({
             baseHours: billingMode === 'HOURS' ? Number(baseHours) : null
         };
 
-        const payloadAsociacion = Object.keys(selectedConsultores).map(cedula => ({
-            cedula
-        }));
+        const payloadAsociacion = {
+            collabs: Object.keys(selectedConsultores)
+        };
 
         try {
             await updateServicio(token, servicio.id, payloadServicio);
@@ -282,7 +282,8 @@ export default function ConciliacionDetalleServicioModal({
                                     required
                                     value={client}
                                     onChange={(e) => setClient(e.target.value)}
-                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
+                                    disabled={true}
+                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg} opacity-60 cursor-not-allowed`}
                                 >
                                     <option value="">Seleccione un cliente</option>
                                     {clientes.map(c => (
@@ -300,8 +301,9 @@ export default function ConciliacionDetalleServicioModal({
                                     required
                                     value={serviceName}
                                     onChange={(e) => setServiceName(e.target.value)}
+                                    disabled={true}
                                     placeholder="Ej. Soporte Nivel 2"
-                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
+                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg} opacity-60 cursor-not-allowed`}
                                 />
                             </div>
 
