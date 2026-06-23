@@ -41,6 +41,39 @@ const { validateObservacionesRechazo } = require('./novedadPersistValidation');
 // Inicializar festivos en background al arrancar el servidor
 festivosService.initFestivosCache();
 
+/**
+ * Compensatorio por votación/jurado: jornadas electorales habilitadas (2026).
+ * Solo se permite radicar contra una de estas fechas de votación.
+ * Ventana de disfrute por modalidad: 45 días calendario para jurado, 30 para votación (medio día).
+ */
+const FECHAS_VOTACION_HABILITADAS = new Set(['2026-05-31', '2026-06-21']);
+const DIAS_DISFRUTE_JURADO = 45;
+const DIAS_DISFRUTE_VOTO = 30;
+
+/** Normaliza un valor de hora a HH:MM:SS para comparación lexicográfica del mismo día. */
+function toHmsForCompare(value) {
+    return String(value || '').trim().slice(0, 8);
+}
+
+/**
+ * Detecta si una nueva franja [nuevoIni, nuevoFin) se solapa con alguna de las franjas
+ * existentes (cada una con { hora_inicio, hora_fin }). Los bordes que se tocan
+ * (fin == inicio) NO cuentan como solape. Devuelve la franja existente que choca o null.
+ */
+function findVotacionFranjaSolapada(nuevoIniRaw, nuevoFinRaw, existentes = []) {
+    const nuevoIni = toHmsForCompare(nuevoIniRaw);
+    const nuevoFin = toHmsForCompare(nuevoFinRaw);
+    if (!nuevoIni || !nuevoFin) return null;
+    return (
+        (existentes || []).find((r) => {
+            const exIni = toHmsForCompare(r && r.hora_inicio);
+            const exFin = toHmsForCompare(r && r.hora_fin);
+            if (!exIni || !exFin) return false;
+            return nuevoIni < exFin && exIni < nuevoFin;
+        }) || null
+    );
+}
+
 /** HH:MM para Excel; tolera hora de un dígito desde BD. */
 function formatHoraMinutaParaExcel(value) {
     const t = parseTimeOrNullForExport(value);
@@ -1615,27 +1648,26 @@ function registerRoutes(deps) {
                 if (!fd) {
                     return res.status(422).json({ ok: false, error: 'La fecha de disfrute es obligatoria.' });
                 }
-                const fvYm = fv.slice(0, 7);
-                const mesEnCursoYm = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }).slice(0, 7);
-                if (fvYm !== mesEnCursoYm) {
+                if (!FECHAS_VOTACION_HABILITADAS.has(fv)) {
                     return res.status(422).json({
                         ok: false,
-                        error: 'La fecha de la jornada electoral debe pertenecer al mes calendario en curso (cualquier día de ese mes).'
+                        error: 'La fecha de la jornada electoral no está habilitada. Selecciona una de las jornadas válidas.'
                     });
                 }
-                const maxVentana = ymdAddCalendarDaysUTC(fv, 30);
+                const diasVentana = modalidadKey === 'solo_jurado' ? DIAS_DISFRUTE_JURADO : DIAS_DISFRUTE_VOTO;
+                const maxVentana = ymdAddCalendarDaysUTC(fv, diasVentana);
                 const hoyBogotaYmd = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
                 if (!maxVentana || ymdCompareStrings(hoyBogotaYmd, maxVentana) > 0) {
                     return res.status(422).json({
                         ok: false,
                         error:
-                            'Plazo vencido: el compensatorio debe solicitarse dentro de los 30 días calendario posteriores a la votación'
+                            `Plazo vencido: el compensatorio debe solicitarse dentro de los ${diasVentana} días calendario posteriores a la votación`
                     });
                 }
                 if (ymdCompareStrings(fd, fv) < 0 || ymdCompareStrings(fd, maxVentana) > 0) {
                     return res.status(422).json({
                         ok: false,
-                        error: 'La fecha de disfrute debe estar dentro de los 30 días calendario siguientes a la votación'
+                        error: `La fecha de disfrute debe estar dentro de los ${diasVentana} días calendario siguientes a la votación`
                     });
                 }
 
@@ -1700,6 +1732,37 @@ function registerRoutes(deps) {
                         ok: false,
                         error: 'Ya existe una solicitud de esta misma modalidad para esta jornada electoral'
                     });
+                }
+
+                /**
+                 * Votación (medio día): si ya existe otra radicación de votación para la MISMA
+                 * fecha de disfrute (p. ej. una por la jornada del 31-may y otra por la del 21-jun),
+                 * sus franjas horarias no pueden solaparse. Los bordes que se tocan (fin == inicio)
+                 * no cuentan como solape. Comparación lexicográfica de HH:MM:SS sobre el mismo día.
+                 */
+                if (modalidadKey === 'solo_voto' && horaInicio && horaFin) {
+                    const solapeQ = await pool.query(
+                        `SELECT hora_inicio, hora_fin, fecha_votacion FROM novedades
+                         WHERE cedula = $1
+                           AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                               = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                           AND coalesce(modalidad, '') = 'solo_voto'
+                           AND fecha_inicio = $3::date
+                           AND fecha_votacion IS DISTINCT FROM $4::date
+                           AND hora_inicio IS NOT NULL AND hora_fin IS NOT NULL
+                           AND estado IN ('Pendiente'::novedad_estado, 'Aprobado'::novedad_estado)`,
+                        [cedulaNorm, tipoCanonInsert, fd, fv]
+                    );
+                    const solapada = findVotacionFranjaSolapada(horaInicio, horaFin, solapeQ.rows);
+                    if (solapada) {
+                        const exIni = toHmsForCompare(solapada.hora_inicio).slice(0, 5);
+                        const exFin = toHmsForCompare(solapada.hora_fin).slice(0, 5);
+                        return res.status(409).json({
+                            ok: false,
+                            error:
+                                `Ya tienes una solicitud de votación para ese mismo día de disfrute en un horario que se cruza (${exIni}–${exFin}). Elige una franja que no se solape.`
+                        });
+                    }
                 }
                 insertModalidad = modalidadKey;
                 insertFechaVotacion = fv;
@@ -2654,4 +2717,10 @@ function registerRoutes(deps) {
     });
 }
 
-module.exports = { registerRoutes };
+module.exports = {
+    registerRoutes,
+    findVotacionFranjaSolapada,
+    FECHAS_VOTACION_HABILITADAS,
+    DIAS_DISFRUTE_JURADO,
+    DIAS_DISFRUTE_VOTO
+};
