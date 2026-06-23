@@ -52,11 +52,11 @@ export function useModuleTheme() {
         /** inputs / selects en formularios de módulo */
         field: L
             ? 'rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500/40'
-            : 'rounded border border-[#1a3a56] bg-[#04141E] px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-[#2F7BB8] focus:outline-none focus:ring-1 focus:ring-[#2F7BB8]/40',
+            : 'rounded border border-[#1a3a56] bg-transparent px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-[#2F7BB8] focus:outline-none focus:ring-1 focus:ring-[#2F7BB8]/40',
         /** Campo en modo manual (cotizador) */
         fieldManual: L
             ? 'w-full rounded border border-amber-500/50 bg-amber-50/40 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500/30'
-            : 'w-full rounded border border-amber-500/40 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500/25',
+            : 'w-full rounded border border-amber-500/40 bg-transparent px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500/25',
         labelMuted: L ? 'text-slate-500' : 'text-[#9fb3c8]',
         headingAccent: L ? 'text-sky-700' : 'text-[#65BCF7]',
         /** Nav tipo Directorio (acento cyan) */
@@ -161,6 +161,26 @@ export function useModuleTheme() {
         sectionSubtitle: L
             ? 'text-sm font-subtitle font-extralight text-slate-500'
             : 'text-sm font-subtitle font-extralight text-[#9fb3c8]',
+        /** Modales compartidos */
+        modalBackdrop: L
+            ? 'fixed inset-0 z-[240] flex animate-in items-center justify-center bg-slate-900/40 p-4 backdrop-blur fade-in duration-200'
+            : 'fixed inset-0 z-[240] flex animate-in items-center justify-center bg-[#0f172a]/90 p-4 backdrop-blur fade-in duration-200',
+        modalCard: L
+            ? 'relative flex w-full min-w-0 max-w-4xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
+            : 'relative flex w-full min-w-0 max-w-4xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
+        modalCardMd: L
+            ? 'relative flex w-full min-w-0 max-w-3xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
+            : 'relative flex w-full min-w-0 max-w-3xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
+        modalCardWide: L
+            ? 'relative flex w-full min-w-0 max-w-5xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]'
+            : 'relative flex w-full min-w-0 max-w-5xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[90vh]',
+        modalHeadBorder: L
+            ? 'mb-4 flex items-start justify-between border-b border-slate-200 pb-4'
+            : 'mb-4 flex items-start justify-between border-b border-slate-700/50 pb-4',
+        modalClose: L
+            ? 'flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 text-slate-600 transition-all hover:border-rose-400 hover:bg-rose-50 hover:text-rose-600'
+            : 'flex h-10 w-10 items-center justify-center rounded-lg border border-slate-600 text-slate-300 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-300',
+        modalGrid: 'grid grid-cols-1 gap-2 text-sm sm:grid-cols-2 md:grid-cols-3'
     };
 }
 

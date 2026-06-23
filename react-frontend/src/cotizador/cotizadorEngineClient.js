@@ -7,7 +7,7 @@ function round2(value) {
     return Number(safeNumber(value).toFixed(2));
 }
 
-function calcularSsDinamico(salarioBase, smmlv, arlRiesgo = 0.0052) {
+export function calcularSsDinamico(salarioBase, smmlv, arlRiesgo = 0.0052) {
     const salario = safeNumber(salarioBase);
     if (salario <= 0) return 0;
     const tope10 = safeNumber(smmlv) * 10;
@@ -20,7 +20,7 @@ function calcularSsDinamico(salarioBase, smmlv, arlRiesgo = 0.0052) {
     return round2(salud + pension + arl + caja + icbf + sena);
 }
 
-function calcularPrestacionesDinamico(salarioBase, smmlv, auxTransporteLegal) {
+export function calcularPrestacionesDinamico(salarioBase, smmlv, auxTransporteLegal) {
     const salario = safeNumber(salarioBase);
     if (salario <= 0) return 0;
     const tope2 = safeNumber(smmlv) * 2;
@@ -39,7 +39,7 @@ function resolveEquipoCosto(equipos = {}, equipoTipo = '1') {
     return safeNumber(fallback.total);
 }
 
-function calcularTarifa({
+export function calcularTarifa({
     cargoData,
     parametros,
     equipos,
@@ -127,19 +127,13 @@ function calcularTarifa({
     };
 }
 
-function calcularCotizacion(payload, catalogos) {
+export function calcularCotizacionFront(payload, catalogos) {
     const parametros = catalogos?.parametros || {};
     const cargos = Array.isArray(catalogos?.cargos) ? catalogos.cargos : [];
     const equipos = catalogos?.equipos || {};
     const resultados = [];
     const perfiles = Array.isArray(payload?.perfiles) ? payload.perfiles : [];
     const margen = safeNumber(payload?.margen);
-
-    if (margen < safeNumber(parametros?.margen_minimo, 0)) {
-        const err = new Error('Margen minimo no alcanzado');
-        err.status = 400;
-        throw err;
-    }
 
     for (const p of perfiles) {
         const modoPerfil = String(p?.modo || 'AUTO').toUpperCase();
@@ -181,14 +175,11 @@ function calcularCotizacion(payload, catalogos) {
         resultados.push(item);
     }
 
-    if (resultados.length === 0) {
-        const err = new Error('No hay perfiles válidos para cotizar');
-        err.status = 400;
-        throw err;
-    }
+    const subtotal = resultados.reduce((acc, r) => acc + (r.tarifa_mes * r.cantidad * safeNumber(payload?.meses, 1)), 0);
+    const iva = subtotal * 0.19;
+    const total = subtotal + iva;
 
     return {
-        id: payload?.id,
         cliente: String(payload?.cliente || ''),
         nit: String(payload?.nit || ''),
         comercial: String(payload?.comercial || ''),
@@ -198,104 +189,10 @@ function calcularCotizacion(payload, catalogos) {
         moneda: String(payload?.moneda || 'COP'),
         tasa_conversion: payload?.tasa_conversion ?? null,
         nombre_moneda: String(payload?.nombre_moneda || ''),
-        titulo: String(payload?.titulo || ''),
-        estado: String(payload?.estado || 'Borrador'),
-        notas: String(payload?.notas || ''),
-        terminos: String(payload?.terminos || ''),
         factores_he: catalogos?.factores_he || { diurna: 0.25, nocturna: 0.75, dom_diurna: 1.15, dom_nocturna: 2 },
-        resultados
+        resultados,
+        subtotal: round2(subtotal),
+        iva: round2(iva),
+        total: round2(total)
     };
 }
-
-function generarDashboardData(historial = []) {
-    if (!Array.isArray(historial) || historial.length === 0) {
-        return {
-            empty: true,
-            total_cot: 0,
-            total_valor: 0,
-            promedio: 0,
-            total_perfiles: 0,
-            por_comercial_count: {},
-            por_comercial_valor: {},
-            top_cargos: [],
-            tendencia: [],
-            modo_stats: { AUTO: 0, MANUAL: 0 },
-            ultimas: []
-        };
-    }
-
-    let totalValor = 0;
-    let totalPerfiles = 0;
-    const porComercialCount = {};
-    const porComercialValor = {};
-    const cargoCount = {};
-    const modoStats = { AUTO: 0, MANUAL: 0 };
-    const tendencia = {};
-
-    for (const cot of historial) {
-        const comercial = String(cot?.comercial || 'Sin asignar') || 'Sin asignar';
-        porComercialCount[comercial] = (porComercialCount[comercial] || 0) + 1;
-        let cotValor = 0;
-        const meses = Number(cot?.meses || 1);
-
-        for (const r of (cot?.resultados || [])) {
-            const cant = Number(r?.cantidad || 1);
-            const valor = Number(r?.tarifa_mes || 0) * cant * meses;
-            cotValor += valor;
-            totalPerfiles += cant;
-            const cargo = String(r?.cargo || 'N/A');
-            cargoCount[cargo] = (cargoCount[cargo] || 0) + cant;
-            const modo = String(r?.modo || 'AUTO').toUpperCase() === 'MANUAL' ? 'MANUAL' : 'AUTO';
-            modoStats[modo] = (modoStats[modo] || 0) + cant;
-        }
-
-        totalValor += cotValor;
-        porComercialValor[comercial] = (porComercialValor[comercial] || 0) + cotValor;
-        const iso = String(cot?.fecha_generacion_iso || '');
-        const legacyFecha = String(cot?.fecha || '');
-        const fechaKey =
-            iso.length >= 7
-                ? iso.slice(0, 7)
-                : /^\d{4}-\d{2}/.test(legacyFecha)
-                  ? legacyFecha.slice(0, 7)
-                  : '';
-        if (fechaKey) tendencia[fechaKey] = (tendencia[fechaKey] || 0) + 1;
-    }
-
-    const topCargos = Object.entries(cargoCount).sort((a, b) => b[1] - a[1]).slice(0, 10);
-    const tendenciaSorted = Object.entries(tendencia).sort((a, b) => a[0].localeCompare(b[0]));
-    const ultimas = [...historial].reverse().slice(0, 10).map((cot) => {
-        const meses = Number(cot?.meses || 1);
-        const valor = (cot?.resultados || []).reduce((acc, r) => acc + Number(r?.tarifa_mes || 0) * Number(r?.cantidad || 1) * meses, 0);
-        return {
-            id: cot?.id,
-            fecha: cot?.fecha || '',
-            cliente: cot?.cliente || '',
-            comercial: cot?.comercial || 'N/A',
-            perfiles: Array.isArray(cot?.resultados) ? cot.resultados.length : 0,
-            valor: round2(valor)
-        };
-    });
-
-    return {
-        empty: false,
-        total_cot: historial.length,
-        total_valor: round2(totalValor),
-        promedio: historial.length ? round2(totalValor / historial.length) : 0,
-        total_perfiles: totalPerfiles,
-        por_comercial_count: porComercialCount,
-        por_comercial_valor: Object.fromEntries(Object.entries(porComercialValor).map(([k, v]) => [k, round2(v)])),
-        top_cargos: topCargos,
-        tendencia: tendenciaSorted,
-        modo_stats: modoStats,
-        ultimas
-    };
-}
-
-module.exports = {
-    calcularSsDinamico,
-    calcularPrestacionesDinamico,
-    calcularCotizacion,
-    generarDashboardData
-};
-

@@ -23,6 +23,10 @@ function createCotizadorStore(deps) {
             moneda: r.moneda,
             tasa_conversion: r.tasa_conversion === null ? null : Number(r.tasa_conversion),
             nombre_moneda: r.nombre_moneda,
+            titulo: r.titulo || '',
+            estado: r.estado || 'Borrador',
+            notas: r.notas || '',
+            terminos: r.terminos || '',
             factores_he: r.factores_he || {},
             resultados: Array.isArray(r.resultados) ? r.resultados : [],
             fecha_generacion_iso: new Date(r.created_at).toISOString(),
@@ -93,6 +97,22 @@ function createCotizadorStore(deps) {
                 resumen JSONB NOT NULL DEFAULT '{}'::jsonb,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
+        `);
+        await pool.query(`
+            ALTER TABLE cotizador_cotizaciones
+            ADD COLUMN IF NOT EXISTS titulo TEXT DEFAULT ''
+        `);
+        await pool.query(`
+            ALTER TABLE cotizador_cotizaciones
+            ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'Borrador'
+        `);
+        await pool.query(`
+            ALTER TABLE cotizador_cotizaciones
+            ADD COLUMN IF NOT EXISTS notas TEXT DEFAULT ''
+        `);
+        await pool.query(`
+            ALTER TABLE cotizador_cotizaciones
+            ADD COLUMN IF NOT EXISTS terminos TEXT DEFAULT ''
         `);
         await pool.query(`
             CREATE TABLE IF NOT EXISTS cotizador_cotizacion_items (
@@ -193,6 +213,7 @@ function createCotizadorStore(deps) {
         const q = await pool.query(`
             SELECT c.id, c.codigo, c.cliente, c.nit, c.comercial, c.plazo, c.margen, c.meses, c.moneda,
                    c.tasa_conversion, c.nombre_moneda, c.factores_he, c.resumen, c.created_at,
+                   c.titulo, c.estado, c.notas, c.terminos,
                    COALESCE(
                      json_agg(i.payload ORDER BY i.idx) FILTER (WHERE i.id IS NOT NULL),
                      '[]'::json
@@ -213,6 +234,7 @@ function createCotizadorStore(deps) {
             `
             SELECT c.id, c.codigo, c.cliente, c.nit, c.comercial, c.plazo, c.margen, c.meses, c.moneda,
                    c.tasa_conversion, c.nombre_moneda, c.factores_he, c.resumen, c.created_at,
+                   c.titulo, c.estado, c.notas, c.terminos,
                    COALESCE(
                      json_agg(i.payload ORDER BY i.idx) FILTER (WHERE i.id IS NOT NULL),
                      '[]'::json
@@ -233,6 +255,9 @@ function createCotizadorStore(deps) {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
+            const isUpdate = cotizacion?.id && Number.isFinite(Number(cotizacion.id));
+            const id = isUpdate ? Number(cotizacion.id) : null;
+
             const summary = {
                 cliente: cotizacion?.cliente || '',
                 nit: cotizacion?.nit || '',
@@ -242,46 +267,97 @@ function createCotizadorStore(deps) {
                 meses: cotizacion?.meses ?? 1,
                 moneda: cotizacion?.moneda || 'COP',
                 tasa_conversion: cotizacion?.tasa_conversion ?? null,
-                nombre_moneda: cotizacion?.nombre_moneda || ''
+                nombre_moneda: cotizacion?.nombre_moneda || '',
+                titulo: cotizacion?.titulo || '',
+                estado: cotizacion?.estado || 'Borrador',
+                notas: cotizacion?.notas || '',
+                terminos: cotizacion?.terminos || ''
             };
-            const codeRow = await client.query(
-                `SELECT ('COT-' || LPAD(nextval('cotizador_public_code_seq')::text, 3, '0')) AS codigo`
-            );
-            const codigo = codeRow.rows[0].codigo;
-            const inserted = await client.query(
-                `INSERT INTO cotizador_cotizaciones
-                (codigo, cliente, nit, comercial, plazo, margen, meses, moneda, tasa_conversion, nombre_moneda, factores_he, resumen)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb)
-                RETURNING id, created_at, codigo`,
-                [
-                    codigo,
-                    summary.cliente,
-                    summary.nit,
-                    summary.comercial,
-                    String(summary.plazo),
-                    Number(summary.margen || 0),
-                    Number(summary.meses || 1),
-                    summary.moneda,
-                    summary.tasa_conversion === null ? null : Number(summary.tasa_conversion),
-                    summary.nombre_moneda,
-                    JSON.stringify(cotizacion?.factores_he || {}),
-                    JSON.stringify(summary)
-                ]
-            );
-            const id = Number(inserted.rows[0].id);
-            const codGuardado = inserted.rows[0].codigo || codigo;
+
+            let inserted;
+            if (isUpdate) {
+                const currentRes = await client.query('SELECT codigo FROM cotizador_cotizaciones WHERE id = $1', [id]);
+                let codigo = currentRes.rows[0]?.codigo;
+                if (!codigo) {
+                    const codeRow = await client.query(
+                        `SELECT ('COT-' || LPAD(nextval('cotizador_public_code_seq')::text, 3, '0')) AS codigo`
+                    );
+                    codigo = codeRow.rows[0].codigo;
+                }
+                
+                inserted = await client.query(
+                    `UPDATE cotizador_cotizaciones
+                     SET cliente = $1, nit = $2, comercial = $3, plazo = $4, margen = $5, meses = $6,
+                         moneda = $7, tasa_conversion = $8, nombre_moneda = $9, factores_he = $10::jsonb,
+                         resumen = $11::jsonb, titulo = $12, estado = $13, notas = $14, terminos = $15
+                     WHERE id = $16
+                     RETURNING id, created_at, codigo`,
+                    [
+                        summary.cliente,
+                        summary.nit,
+                        summary.comercial,
+                        String(summary.plazo),
+                        Number(summary.margen || 0),
+                        Number(summary.meses || 1),
+                        summary.moneda,
+                        summary.tasa_conversion === null ? null : Number(summary.tasa_conversion),
+                        summary.nombre_moneda,
+                        JSON.stringify(cotizacion?.factores_he || {}),
+                        JSON.stringify(summary),
+                        summary.titulo,
+                        summary.estado,
+                        summary.notas,
+                        summary.terminos,
+                        id
+                    ]
+                );
+                
+                await client.query('DELETE FROM cotizador_cotizacion_items WHERE cotizacion_id = $1', [id]);
+            } else {
+                const codeRow = await client.query(
+                    `SELECT ('COT-' || LPAD(nextval('cotizador_public_code_seq')::text, 3, '0')) AS codigo`
+                );
+                const codigo = codeRow.rows[0].codigo;
+                inserted = await client.query(
+                    `INSERT INTO cotizador_cotizaciones
+                    (codigo, cliente, nit, comercial, plazo, margen, meses, moneda, tasa_conversion, nombre_moneda, factores_he, resumen, titulo, estado, notas, terminos)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15,$16)
+                    RETURNING id, created_at, codigo`,
+                    [
+                        codigo,
+                        summary.cliente,
+                        summary.nit,
+                        summary.comercial,
+                        String(summary.plazo),
+                        Number(summary.margen || 0),
+                        Number(summary.meses || 1),
+                        summary.moneda,
+                        summary.tasa_conversion === null ? null : Number(summary.tasa_conversion),
+                        summary.nombre_moneda,
+                        JSON.stringify(cotizacion?.factores_he || {}),
+                        JSON.stringify(summary),
+                        summary.titulo,
+                        summary.estado,
+                        summary.notas,
+                        summary.terminos
+                    ]
+                );
+            }
+
+            const activeId = Number(inserted.rows[0].id);
+            const codGuardado = inserted.rows[0].codigo;
             const rows = Array.isArray(cotizacion?.resultados) ? cotizacion.resultados : [];
             for (let idx = 0; idx < rows.length; idx += 1) {
                 await client.query(
                     `INSERT INTO cotizador_cotizacion_items (cotizacion_id, idx, payload)
                      VALUES ($1, $2, $3::jsonb)`,
-                    [id, idx, JSON.stringify(rows[idx])]
+                    [activeId, idx, JSON.stringify(rows[idx])]
                 );
             }
             await client.query('COMMIT');
             const createdAt = inserted.rows[0].created_at;
             return {
-                id,
+                id: activeId,
                 codigo: codGuardado,
                 fecha_generacion_iso: new Date(createdAt).toISOString(),
                 fecha: formatDateTimeBogota(createdAt)
@@ -302,6 +378,20 @@ function createCotizadorStore(deps) {
         return { ok: q.rowCount > 0, deleted: q.rowCount > 0 };
     }
 
+    async function updateCotizacionEstado(id, estado) {
+        await ensureReady();
+        const targetId = Number(id);
+        if (!Number.isFinite(targetId)) return { ok: false };
+        const q = await pool.query(
+            `UPDATE cotizador_cotizaciones 
+             SET estado = $1, 
+                 resumen = jsonb_set(resumen, '{estado}', to_jsonb($1::text))
+             WHERE id = $2 RETURNING id`,
+            [estado, targetId]
+        );
+        return { ok: q.rowCount > 0 };
+    }
+
     return {
         ensureReady,
         getCatalogos,
@@ -309,7 +399,8 @@ function createCotizadorStore(deps) {
         getHistorial,
         getCotizacionById,
         saveCotizacion,
-        deleteCotizacion
+        deleteCotizacion,
+        updateCotizacionEstado
     };
 }
 

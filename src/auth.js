@@ -146,12 +146,14 @@ function createAuthHelpers(deps) {
     }
 
     function requireEntraConsultor(req, res, next) {
-        if (req.user?.authProvider === 'entra_consultor' && normalizeRoleOrNull(req.user?.role) === 'consultor') {
+        const ap = req.user?.authProvider;
+        const isEntraOrCognito = ap === 'entra_consultor' || ap === 'cognito';
+        if (isEntraOrCognito && normalizeRoleOrNull(req.user?.role) === 'consultor') {
             return next();
         }
         return res.status(403).json({
             ok: false,
-            error: 'Debes iniciar sesión con Microsoft como consultor para esta acción.'
+            error: 'Debes iniciar sesión con Microsoft (Entra ID) como consultor para esta acción.'
         });
     }
 

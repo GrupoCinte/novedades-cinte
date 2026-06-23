@@ -8,12 +8,12 @@ import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
 const VISTAS = [
-    { id: 'nueva', label: 'Nueva Cotización', icon: Calculator },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'cotizaciones', label: 'Mis Cotizaciones', icon: FileText },
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }
+    { id: 'nueva', label: 'Nueva Cotización', icon: Calculator }
 ];
 
-const VISTA_IDS = VISTAS.map((v) => v.id);
+const VISTA_IDS = [...VISTAS.map((v) => v.id), 'detalle'];
 
 export default function ComercialModule({ token, auth, onLogout }) {
     const navigate = useNavigate();
@@ -24,7 +24,7 @@ export default function ComercialModule({ token, auth, onLogout }) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
     const rawVista = String(searchParams.get('v') || '').toLowerCase();
-    const vista = VISTA_IDS.includes(rawVista) ? rawVista : 'nueva';
+    const vista = VISTA_IDS.includes(rawVista) ? rawVista : 'dashboard';
 
     const goVista = (id) => {
         setSearchParams({ v: id });

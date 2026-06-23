@@ -147,6 +147,26 @@ function registerCotizadorRoutes(deps) {
         }
     });
 
+    app.patch('/api/cotizador/historial/:id/estado', ...guard, adminActionLimiter, async (req, res) => {
+        try {
+            const id = Number(req.params.id);
+            const { estado } = req.body || {};
+            if (!estado) {
+                return res.status(400).json({ ok: false, error: 'Estado es requerido' });
+            }
+            const allowed = ['Borrador', 'Enviada', 'Aceptada'];
+            if (!allowed.includes(estado)) {
+                return res.status(400).json({ ok: false, error: 'Estado inválido' });
+            }
+            const out = await cotizadorStore.updateCotizacionEstado(id, estado);
+            if (!out.ok) return res.status(404).json({ ok: false, error: 'Cotización no encontrada' });
+            return res.json({ ok: true });
+        } catch (error) {
+            console.error('Error cotizador/estado:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo cambiar el estado de la cotización' });
+        }
+    });
+
     app.get('/api/cotizador/dashboard', ...guard, catalogLimiter, async (req, res) => {
         try {
             const rows = await cotizadorStore.getHistorial();
@@ -178,7 +198,8 @@ function registerCotizadorRoutes(deps) {
                 codigo: row.codigo || '',
                 resultados: row.resultados,
                 fecha: row.fecha,
-                fecha_generacion_iso: row.fecha_generacion_iso
+                fecha_generacion_iso: row.fecha_generacion_iso,
+                titulo: row.titulo || ''
             };
             const pdfBuffer = await buildCotizacionPdfBuffer(payload);
             const baseName = row.codigo ? `${String(row.codigo).replace(/[^\w\-]+/g, '_')}.pdf` : `cotizacion_${id}.pdf`;
