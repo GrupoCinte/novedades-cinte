@@ -144,9 +144,7 @@ export default function ConciliacionDetalleServicioModal({
             baseHours: billingMode === 'HOURS' ? Number(baseHours) : null
         };
 
-        const payloadAsociacion = {
-            collabs: Object.keys(selectedConsultores)
-        };
+        const payloadAsociacion = Object.keys(selectedConsultores);
 
         try {
             await updateServicio(token, servicio.id, payloadServicio);

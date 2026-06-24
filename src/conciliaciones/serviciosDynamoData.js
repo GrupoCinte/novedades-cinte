@@ -391,7 +391,7 @@ async function upsertServicioConsultores(deps, scope, servicioId, consultoresAso
     }
 
     // Actualizamos el array embebido en el servicio
-    oldService.collabs = consultoresAsociados.collabs || [];
+    oldService.collabs = Array.isArray(consultoresAsociados) ? consultoresAsociados : (consultoresAsociados?.collabs || []);
     if ('consultores_asociados' in oldService) delete oldService.consultores_asociados;
     if ('id' in oldService) delete oldService.id;
     if ('entityType' in oldService) delete oldService.entityType;
