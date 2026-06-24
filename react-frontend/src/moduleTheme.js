@@ -51,12 +51,12 @@ export function useModuleTheme() {
         borderSubtle: L ? 'border-slate-200' : 'border-slate-700/50',
         /** inputs / selects en formularios de módulo */
         field: L
-            ? 'rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500/40'
-            : 'rounded border border-[#1a3a56] bg-transparent px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-[#2F7BB8] focus:outline-none focus:ring-1 focus:ring-[#2F7BB8]/40',
+            ? 'rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500/40 [&>option]:bg-white'
+            : 'rounded border border-[#1a3a56] bg-transparent px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:border-[#2F7BB8] focus:outline-none focus:ring-1 focus:ring-[#2F7BB8]/40 [&>option]:bg-[#0b1e30]',
         /** Campo en modo manual (cotizador) */
         fieldManual: L
-            ? 'w-full rounded border border-amber-500/50 bg-amber-50/40 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500/30'
-            : 'w-full rounded border border-amber-500/40 bg-transparent px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500/25',
+            ? 'w-full rounded border border-amber-500/50 bg-amber-50/40 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500/30 [&>option]:bg-white'
+            : 'w-full rounded border border-amber-500/40 bg-transparent px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-500/25 [&>option]:bg-[#0b1e30]',
         labelMuted: L ? 'text-slate-500' : 'text-[#9fb3c8]',
         headingAccent: L ? 'text-sky-700' : 'text-[#65BCF7]',
         /** Nav tipo Directorio (acento cyan) */

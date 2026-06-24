@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import { formatSalarioMoneda, parseSalarioLoose, formatMoney } from './salarioFormat';
 import { mergeCotizadorClienteRows } from './cotizadorClientesMerge.js';
 import { useModuleTheme } from '../moduleTheme.js';
@@ -13,7 +13,10 @@ export default function CotizadorForm({
     setForm,
     loading,
     onSave,
-    onCancel
+    onCancel,
+    onDelete,
+    isDeleting,
+    deleteDisabled
 }) {
     const {
         cardPanel,
@@ -45,6 +48,7 @@ export default function CotizadorForm({
     const [salarioFocusedIdx, setSalarioFocusedIdx] = useState(null);
     const [formError, setFormError] = useState('');
     const [expandedItems, setExpandedItems] = useState({});
+    const isClientSelected = Boolean(form.cliente);
 
     const toggleExpand = (idx) => {
         setExpandedItems((prev) => ({ ...prev, [idx]: !prev[idx] }));
@@ -143,6 +147,9 @@ export default function CotizadorForm({
             estado: form.estado || 'Borrador',
             tasa_conversion: Number(monedas[form.moneda]?.tasa || 1),
             nombre_moneda: monedas[form.moneda]?.nombre || form.moneda,
+            contacto_nombre: form.contacto_nombre || '',
+            contacto_correo: form.contacto_correo || '',
+            contacto_cargo: form.contacto_cargo || '',
             perfiles: form.perfiles.map((p) => {
                 if (String(p?.modo || 'AUTO').toUpperCase() === 'MANUAL') {
                     return { ...p, salario_manual: parseSalarioLoose(p.salario_manual) };
@@ -260,13 +267,50 @@ export default function CotizadorForm({
                     <div>
                         <label className={`text-xs ${labelMuted}`}>Comercial</label>
                         <select
-                            className={`w-full ${field}`}
+                            className={`w-full ${field} disabled:opacity-50`}
                             value={form.comercial}
                             onChange={(e) => setForm((p) => ({ ...p, comercial: e.target.value }))}
+                            disabled={!isClientSelected}
                         >
                             <option value="">Selecciona comercial</option>
                             {comerciales.map((c) => <option key={c} value={c}>{c}</option>)}
                         </select>
+                    </div>
+
+                    <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                            <label className={`text-xs ${labelMuted}`}>Nombre Contacto</label>
+                            <input
+                                type="text"
+                                placeholder="Nombre completo"
+                                className={`w-full ${field} disabled:opacity-50`}
+                                value={form.contacto_nombre || ''}
+                                onChange={(e) => setForm((p) => ({ ...p, contacto_nombre: e.target.value }))}
+                                disabled={!isClientSelected}
+                            />
+                        </div>
+                        <div>
+                            <label className={`text-xs ${labelMuted}`}>Correo Contacto</label>
+                            <input
+                                type="email"
+                                placeholder="correo@empresa.com"
+                                className={`w-full ${field} disabled:opacity-50`}
+                                value={form.contacto_correo || ''}
+                                onChange={(e) => setForm((p) => ({ ...p, contacto_correo: e.target.value }))}
+                                disabled={!isClientSelected}
+                            />
+                        </div>
+                        <div>
+                            <label className={`text-xs ${labelMuted}`}>Cargo Contacto</label>
+                            <input
+                                type="text"
+                                placeholder="Ej. Gerente de TI"
+                                className={`w-full ${field} disabled:opacity-50`}
+                                value={form.contacto_cargo || ''}
+                                onChange={(e) => setForm((p) => ({ ...p, contacto_cargo: e.target.value }))}
+                                disabled={!isClientSelected}
+                            />
+                        </div>
                     </div>
 
                     <div className="md:col-span-4">
@@ -274,9 +318,10 @@ export default function CotizadorForm({
                         <input
                             type="text"
                             placeholder="Ej. Propuesta Desarrollo Software CINTE"
-                            className={`w-full ${field}`}
+                            className={`w-full ${field} disabled:opacity-50`}
                             value={form.titulo || ''}
                             onChange={(e) => setForm((p) => ({ ...p, titulo: e.target.value }))}
+                            disabled={!isClientSelected}
                         />
                     </div>
 
@@ -287,8 +332,9 @@ export default function CotizadorForm({
                                 <button
                                     key={pl}
                                     type="button"
-                                    className={segmentBtn(form.plazo === pl)}
+                                    className={`${segmentBtn(form.plazo === pl)} disabled:opacity-50 disabled:cursor-not-allowed`}
                                     onClick={() => setForm((p) => ({ ...p, plazo: pl }))}
+                                    disabled={!isClientSelected}
                                 >
                                     {pl} días
                                 </button>
@@ -300,25 +346,43 @@ export default function CotizadorForm({
                         <input
                             type="number"
                             min={Math.round(margenMin * 100)}
-                            className={`w-full ${field}`}
-                            value={form.margenPct}
-                            onChange={(e) => setForm((p) => ({ ...p, margenPct: e.target.value }))}
+                            className={`w-full ${field} disabled:opacity-50`}
+                            value={form.margenPct || ''}
+                            onChange={(e) => setForm((p) => ({ ...p, margenPct: Number(e.target.value || 0) }))}
+                            disabled={!isClientSelected}
                         />
                     </div>
                     <div>
                         <label className={`text-xs ${labelMuted}`}>Meses</label>
-                        <input type="number" min="1" className={`w-full ${field}`} value={form.meses} onChange={(e) => setForm((p) => ({ ...p, meses: e.target.value }))} />
+                        <input
+                            type="number"
+                            min="1"
+                            className={`w-full ${field} disabled:opacity-50`}
+                            value={form.meses || 1}
+                            onChange={(e) => setForm((p) => ({ ...p, meses: Number(e.target.value || 1) }))}
+                            disabled={!isClientSelected}
+                        />
                     </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3">
                     <div>
                         <label className={`text-xs ${labelMuted}`}>Moneda</label>
-                        <select className={`w-full ${field}`} value={form.moneda} onChange={(e) => setForm((p) => ({ ...p, moneda: e.target.value }))}>
-                            {Object.keys(monedas).map((m) => <option key={m} value={m}>{m}</option>)}
+                        <select
+                            className={`w-full ${field} disabled:opacity-50`}
+                            value={form.moneda || 'COP'}
+                            onChange={(e) => setForm((p) => ({ ...p, moneda: e.target.value }))}
+                            disabled={!isClientSelected}
+                        >
+                            {Object.entries(monedas).map(([k, m]) => (
+                                <option key={k} value={k}>{m.nombre || k}</option>
+                            ))}
                         </select>
                     </div>
-                    <div className={`md:col-span-4 text-xs flex gap-4 ${labelMuted}`}>
-                        <span>Tasa financiera: {(tasaFin * 100).toFixed(2)}%</span>
-                        <span>Tasa conversión: {form.moneda === 'COP' ? 'N/A' : tasaConv.toLocaleString('es-CO')}</span>
-                    </div>
+                </div>
+                <div className={`mt-2 md:col-span-4 text-xs flex gap-4 ${labelMuted}`}>
+                    <span>Tasa financiera: {(tasaFin * 100).toFixed(2)}%</span>
+                    <span>Tasa conversión: {form.moneda === 'COP' ? 'N/A' : tasaConv.toLocaleString('es-CO')}</span>
                 </div>
             </div>
 
@@ -350,9 +414,10 @@ export default function CotizadorForm({
                                 <div>
                                     <label className={`text-xs ${labelMuted}`}>Modo</label>
                                     <select
-                                        className={`w-full ${field}`}
+                                        className={`w-full ${field} disabled:opacity-50`}
                                         value={p.modo}
                                         onChange={(e) => onModoChange(idx, e.target.value, p)}
+                                        disabled={!isClientSelected}
                                     >
                                         <option value="AUTO">AUTO</option>
                                         <option value="MANUAL">MANUAL</option>
@@ -363,15 +428,16 @@ export default function CotizadorForm({
                                     {esManual ? (
                                         <input
                                             type="text"
-                                            className={fieldManual}
+                                            className={`${fieldManual} disabled:opacity-50`}
                                             placeholder="Escriba el nombre del cargo"
                                             value={p.cargo_manual || ''}
                                             onChange={(e) => updatePerfil(idx, { cargo_manual: e.target.value })}
+                                            disabled={!isClientSelected}
                                         />
                                     ) : (
                                         <select
                                             className={`w-full ${field} disabled:opacity-60`}
-                                            disabled={cargos.length === 0}
+                                            disabled={cargos.length === 0 || !isClientSelected}
                                             value={cargos.length === 0 ? '' : String(ix)}
                                             onChange={(e) => updatePerfil(idx, { indice: Number(e.target.value) })}
                                         >
@@ -395,16 +461,16 @@ export default function CotizadorForm({
                                 </div>
                                 <div>
                                     <label className={`text-xs ${labelMuted}`}>Cantidad</label>
-                                    <input type="number" min="1" className={`w-full ${field}`} value={p.cantidad} onChange={(e) => updatePerfil(idx, { cantidad: Number(e.target.value || 1) })} />
+                                    <input type="number" min="1" className={`w-full ${field} disabled:opacity-50`} value={p.cantidad} onChange={(e) => updatePerfil(idx, { cantidad: Number(e.target.value || 1) })} disabled={!isClientSelected} />
                                 </div>
                                 <div>
-                                    <label className={`text-xs ${labelMuted}`}>Salario</label>
+                                    <label className={`text-xs ${labelMuted}`}>{esManual ? 'Salario Mes' : 'Salario'}</label>
                                     {esManual ? (
                                         <input
                                             type="text"
                                             inputMode="decimal"
                                             autoComplete="off"
-                                            className={`${fieldManual} text-right tabular-nums tracking-tight`}
+                                            className={`${fieldManual} text-right tabular-nums tracking-tight disabled:opacity-50`}
                                             value={
                                                 salarioFocusedIdx === idx
                                                     ? (p.salario_manual ?? '')
@@ -419,6 +485,7 @@ export default function CotizadorForm({
                                             }}
                                             onChange={(e) => updatePerfil(idx, { salario_manual: e.target.value })}
                                             placeholder="$ 0"
+                                            disabled={!isClientSelected}
                                         />
                                     ) : (
                                         <div
@@ -429,8 +496,36 @@ export default function CotizadorForm({
                                         </div>
                                     )}
                                 </div>
+                                {esManual ? (
+                                    <div>
+                                        <label className={`text-xs ${labelMuted}`}>Valor Hora</label>
+                                        <input
+                                            type="text"
+                                            inputMode="decimal"
+                                            autoComplete="off"
+                                            className={`${fieldManual} text-right tabular-nums tracking-tight disabled:opacity-50`}
+                                            value={
+                                                horaFocusedIdx === idx
+                                                    ? (p.valor_hora_manual ?? '')
+                                                    : p.valor_hora_manual === '' || p.valor_hora_manual === undefined
+                                                      ? ''
+                                                      : formatSalarioMoneda(Number(p.valor_hora_manual))
+                                            }
+                                            onFocus={() => setHoraFocusedIdx(idx)}
+                                            onBlur={() => {
+                                                setHoraFocusedIdx(null);
+                                                updatePerfil(idx, { valor_hora_manual: parseSalarioLoose(p.valor_hora_manual) });
+                                            }}
+                                            onChange={(e) => updatePerfil(idx, { valor_hora_manual: e.target.value })}
+                                            placeholder="$ 0"
+                                            disabled={!isClientSelected}
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="hidden md:block"></div>
+                                )}
                                 <div className="flex items-end pb-0.5">
-                                    <button type="button" onClick={() => removePerfil(idx)} className={dangerSoftBtn}>
+                                    <button type="button" onClick={() => removePerfil(idx)} className={`${dangerSoftBtn} disabled:opacity-50`} disabled={!isClientSelected}>
                                         Quitar
                                     </button>
                                 </div>
@@ -498,7 +593,7 @@ export default function CotizadorForm({
                         </div>
                     );
                 })}
-                <button type="button" onClick={addPerfil} className={ghostBtn}>+ Agregar item</button>
+                <button type="button" onClick={addPerfil} className={`${ghostBtn} disabled:opacity-50`} disabled={!isClientSelected}>+ Agregar item</button>
                 </div>
             </div>
 
@@ -513,9 +608,10 @@ export default function CotizadorForm({
                         <textarea
                             rows={3}
                             placeholder="Notas de aclaración generales..."
-                            className={`w-full ${field} mt-1`}
+                            className={`w-full ${field} mt-1 disabled:opacity-50`}
                             value={form.notas || ''}
                             onChange={(e) => setForm((p) => ({ ...p, notas: e.target.value }))}
+                            disabled={!isClientSelected}
                         />
                     </div>
                     <div>
@@ -523,9 +619,10 @@ export default function CotizadorForm({
                         <textarea
                             rows={3}
                             placeholder="Condiciones específicas, cobro de servicios, etc..."
-                            className={`w-full ${field} mt-1`}
+                            className={`w-full ${field} mt-1 disabled:opacity-50`}
                             value={form.terminos || ''}
                             onChange={(e) => setForm((p) => ({ ...p, terminos: e.target.value }))}
+                            disabled={!isClientSelected}
                         />
                     </div>
                 </div>
@@ -601,24 +698,43 @@ export default function CotizadorForm({
 
                 {formError && <div className={formErrorBox}>{formError}</div>}
 
-                <div className="mt-6 flex justify-end gap-3 border-t pt-4 border-slate-700/20">
-                    {onCancel && (
+                <div className="mt-6 flex items-center justify-between border-t pt-4 border-slate-700/20">
+                    <div>
+                        {onDelete && (
+                            <button
+                                type="button"
+                                onClick={onDelete}
+                                disabled={isDeleting || deleteDisabled}
+                                title={deleteDisabled ? 'Solo las cotizaciones en Borrador pueden ser eliminadas' : ''}
+                                className={
+                                    isLight
+                                        ? 'inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50'
+                                        : 'inline-flex items-center gap-1.5 rounded-lg border border-rose-500/50 bg-slate-800 px-3 py-2 text-sm font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50'
+                                }
+                            >
+                                <Trash2 size={16} /> <span className="hidden sm:inline">Eliminar</span>
+                            </button>
+                        )}
+                    </div>
+                    <div className="flex justify-end gap-3">
+                        {onCancel && (
+                            <button
+                                type="button"
+                                onClick={onCancel}
+                                className={ghostBtn}
+                            >
+                                Cancelar
+                            </button>
+                        )}
                         <button
                             type="button"
-                            onClick={onCancel}
-                            className={ghostBtn}
+                            disabled={loading || !isClientSelected}
+                            onClick={handleSaveClick}
+                            className={`${primaryBtn} disabled:opacity-50`}
                         >
-                            Cancelar
+                            {loading ? 'Guardando…' : 'Guardar Cotización'}
                         </button>
-                    )}
-                    <button
-                        type="button"
-                        disabled={loading}
-                        onClick={handleSaveClick}
-                        className={primaryBtn}
-                    >
-                        {loading ? 'Guardando…' : 'Guardar Cotización'}
-                    </button>
+                    </div>
                 </div>
             </div>
         </div>

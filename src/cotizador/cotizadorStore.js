@@ -29,6 +29,9 @@ function createCotizadorStore(deps) {
             terminos: r.terminos || '',
             factores_he: r.factores_he || {},
             resultados: Array.isArray(r.resultados) ? r.resultados : [],
+            contacto_nombre: r.contacto_nombre || '',
+            contacto_cargo: r.contacto_cargo || '',
+            contacto_correo: r.contacto_correo || '',
             fecha_generacion_iso: new Date(r.created_at).toISOString(),
             fecha: formatDateTimeBogota(r.created_at)
         };
@@ -113,6 +116,18 @@ function createCotizadorStore(deps) {
         await pool.query(`
             ALTER TABLE cotizador_cotizaciones
             ADD COLUMN IF NOT EXISTS terminos TEXT DEFAULT ''
+        `);
+        await pool.query(`
+            ALTER TABLE cotizador_cotizaciones
+            ADD COLUMN IF NOT EXISTS contacto_nombre TEXT DEFAULT ''
+        `);
+        await pool.query(`
+            ALTER TABLE cotizador_cotizaciones
+            ADD COLUMN IF NOT EXISTS contacto_cargo TEXT DEFAULT ''
+        `);
+        await pool.query(`
+            ALTER TABLE cotizador_cotizaciones
+            ADD COLUMN IF NOT EXISTS contacto_correo TEXT DEFAULT ''
         `);
         await pool.query(`
             CREATE TABLE IF NOT EXISTS cotizador_cotizacion_items (
@@ -213,7 +228,7 @@ function createCotizadorStore(deps) {
         const q = await pool.query(`
             SELECT c.id, c.codigo, c.cliente, c.nit, c.comercial, c.plazo, c.margen, c.meses, c.moneda,
                    c.tasa_conversion, c.nombre_moneda, c.factores_he, c.resumen, c.created_at,
-                   c.titulo, c.estado, c.notas, c.terminos,
+                   c.titulo, c.estado, c.notas, c.terminos, c.contacto_nombre, c.contacto_cargo, c.contacto_correo,
                    COALESCE(
                      json_agg(i.payload ORDER BY i.idx) FILTER (WHERE i.id IS NOT NULL),
                      '[]'::json
@@ -234,7 +249,7 @@ function createCotizadorStore(deps) {
             `
             SELECT c.id, c.codigo, c.cliente, c.nit, c.comercial, c.plazo, c.margen, c.meses, c.moneda,
                    c.tasa_conversion, c.nombre_moneda, c.factores_he, c.resumen, c.created_at,
-                   c.titulo, c.estado, c.notas, c.terminos,
+                   c.titulo, c.estado, c.notas, c.terminos, c.contacto_nombre, c.contacto_cargo, c.contacto_correo,
                    COALESCE(
                      json_agg(i.payload ORDER BY i.idx) FILTER (WHERE i.id IS NOT NULL),
                      '[]'::json
@@ -271,7 +286,10 @@ function createCotizadorStore(deps) {
                 titulo: cotizacion?.titulo || '',
                 estado: cotizacion?.estado || 'Borrador',
                 notas: cotizacion?.notas || '',
-                terminos: cotizacion?.terminos || ''
+                terminos: cotizacion?.terminos || '',
+                contacto_nombre: cotizacion?.contacto_nombre || '',
+                contacto_cargo: cotizacion?.contacto_cargo || '',
+                contacto_correo: cotizacion?.contacto_correo || ''
             };
 
             let inserted;
@@ -289,8 +307,9 @@ function createCotizadorStore(deps) {
                     `UPDATE cotizador_cotizaciones
                      SET cliente = $1, nit = $2, comercial = $3, plazo = $4, margen = $5, meses = $6,
                          moneda = $7, tasa_conversion = $8, nombre_moneda = $9, factores_he = $10::jsonb,
-                         resumen = $11::jsonb, titulo = $12, estado = $13, notas = $14, terminos = $15
-                     WHERE id = $16
+                         resumen = $11::jsonb, titulo = $12, estado = $13, notas = $14, terminos = $15,
+                         contacto_nombre = $16, contacto_cargo = $17, contacto_correo = $18
+                     WHERE id = $19
                      RETURNING id, created_at, codigo`,
                     [
                         summary.cliente,
@@ -308,6 +327,9 @@ function createCotizadorStore(deps) {
                         summary.estado,
                         summary.notas,
                         summary.terminos,
+                        summary.contacto_nombre,
+                        summary.contacto_cargo,
+                        summary.contacto_correo,
                         id
                     ]
                 );
@@ -320,8 +342,8 @@ function createCotizadorStore(deps) {
                 const codigo = codeRow.rows[0].codigo;
                 inserted = await client.query(
                     `INSERT INTO cotizador_cotizaciones
-                    (codigo, cliente, nit, comercial, plazo, margen, meses, moneda, tasa_conversion, nombre_moneda, factores_he, resumen, titulo, estado, notas, terminos)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15,$16)
+                    (codigo, cliente, nit, comercial, plazo, margen, meses, moneda, tasa_conversion, nombre_moneda, factores_he, resumen, titulo, estado, notas, terminos, contacto_nombre, contacto_cargo, contacto_correo)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12::jsonb,$13,$14,$15,$16,$17,$18,$19)
                     RETURNING id, created_at, codigo`,
                     [
                         codigo,
@@ -339,7 +361,10 @@ function createCotizadorStore(deps) {
                         summary.titulo,
                         summary.estado,
                         summary.notas,
-                        summary.terminos
+                        summary.terminos,
+                        summary.contacto_nombre,
+                        summary.contacto_cargo,
+                        summary.contacto_correo
                     ]
                 );
             }
@@ -374,6 +399,11 @@ function createCotizadorStore(deps) {
         await ensureReady();
         const targetId = Number(id);
         if (!Number.isFinite(targetId)) return { ok: false, deleted: false };
+        
+        const estadoCheck = await pool.query('SELECT estado FROM cotizador_cotizaciones WHERE id = $1', [targetId]);
+        if (estadoCheck.rows.length === 0) return { ok: false, deleted: false, error: 'Cotización no encontrada' };
+        if (estadoCheck.rows[0].estado !== 'Borrador') return { ok: false, deleted: false, error: 'Solo se pueden eliminar cotizaciones en estado Borrador' };
+
         const q = await pool.query('DELETE FROM cotizador_cotizaciones WHERE id = $1 RETURNING id', [targetId]);
         return { ok: q.rowCount > 0, deleted: q.rowCount > 0 };
     }

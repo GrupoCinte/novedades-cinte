@@ -96,6 +96,12 @@ export default function CotizadorPage({ token, vista = 'dashboard', onVistaChang
     const [error, setError] = useState('');
     
     const [selectedCotizacionId, setSelectedCotizacionId] = useState(null);
+    const [navFilters, setNavFilters] = useState({});
+
+    const handleNavigateWithFilters = (targetVista, filters) => {
+        setNavFilters(filters || {});
+        goVista(targetVista);
+    };
 
     const [form, setForm] = useState({
         id: undefined,
@@ -108,6 +114,9 @@ export default function CotizadorPage({ token, vista = 'dashboard', onVistaChang
         titulo: '',
         notas: '',
         terminos: '',
+        contacto_nombre: '',
+        contacto_cargo: '',
+        contacto_correo: '',
         perfiles: [{ indice: 0, cantidad: 1, modo: 'AUTO', salario_manual: '', cargo_manual: '' }]
     });
     const prevClienteRef = useRef(form.cliente);
@@ -177,6 +186,20 @@ export default function CotizadorPage({ token, vista = 'dashboard', onVistaChang
         }
     };
 
+    const fetchDashboardFiltered = async (clienteStr) => {
+        try {
+            const dash = await api(`/api/cotizador/dashboard?cliente=${encodeURIComponent(clienteStr)}`, token);
+            if (dash && typeof dash === 'object') {
+                const { ok: _o, ...dashRest } = dash;
+                setDashboard(dashRest);
+            } else {
+                setDashboard({});
+            }
+        } catch (error) {
+            console.error('[Cotizador] Error dashboard filtrado:', error);
+        }
+    };
+
     useEffect(() => {
         loadAll().catch((e) => setError(e.message));
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -222,6 +245,9 @@ export default function CotizadorPage({ token, vista = 'dashboard', onVistaChang
                 titulo: '',
                 notas: '',
                 terminos: '',
+                contacto_nombre: '',
+                contacto_cargo: '',
+                contacto_correo: '',
                 perfiles: [{ indice: 0, cantidad: 1, modo: 'AUTO', salario_manual: '', cargo_manual: '' }]
             });
             await loadAll();
@@ -282,6 +308,9 @@ export default function CotizadorPage({ token, vista = 'dashboard', onVistaChang
             titulo: cot.titulo || '',
             notas: cot.notas || '',
             terminos: cot.terminos || '',
+            contacto_nombre: cot.contacto_nombre || '',
+            contacto_cargo: cot.contacto_cargo || '',
+            contacto_correo: cot.contacto_correo || '',
             perfiles: perfiles.length > 0 ? perfiles : [{ indice: 0, cantidad: 1, modo: 'AUTO', salario_manual: '', cargo_manual: '' }]
         });
 
@@ -290,14 +319,11 @@ export default function CotizadorPage({ token, vista = 'dashboard', onVistaChang
 
     return (
         <div className={cotizadorCanvas}>
-            <div className="flex flex-col gap-1 mb-5">
-                <h2 className={sectionTitle}>{seccion.titulo}</h2>
-                <p className={sectionSubtitle}>{seccion.subtitulo}</p>
-            </div>
+
             {error && <div className={pageErrorBanner}>{error}</div>}
 
             {vista === 'nueva' && (
-                <div className="space-y-3 max-w-5xl">
+                <div className="space-y-3 w-full flex-1">
                     <CotizadorForm
                         catalogos={catalogos || {}}
                         cargosResueltos={cargosResueltos}
@@ -318,6 +344,9 @@ export default function CotizadorPage({ token, vista = 'dashboard', onVistaChang
                                 titulo: '',
                                 notas: '',
                                 terminos: '',
+                                contacto_nombre: '',
+                                contacto_cargo: '',
+                                contacto_correo: '',
                                 perfiles: [{ indice: 0, cantidad: 1, modo: 'AUTO', salario_manual: '', cargo_manual: '' }]
                             });
                             goVista('cotizaciones');
@@ -331,6 +360,7 @@ export default function CotizadorPage({ token, vista = 'dashboard', onVistaChang
                     {vista === 'cotizaciones' && (
                         <CotizadorHistorial
                             historial={historial}
+                            initialFilters={navFilters}
                             onDelete={onDeleteDirecto}
                             deletingId={deletingId}
                             onSelect={(it) => {
@@ -348,6 +378,9 @@ export default function CotizadorPage({ token, vista = 'dashboard', onVistaChang
                                     titulo: '',
                                     notas: '',
                                     terminos: '',
+                                    contacto_nombre: '',
+                                    contacto_cargo: '',
+                                    contacto_correo: '',
                                     perfiles: [{ indice: 0, cantidad: 1, modo: 'AUTO', salario_manual: '', cargo_manual: '' }]
                                 });
                                 goVista('nueva');
@@ -355,7 +388,7 @@ export default function CotizadorPage({ token, vista = 'dashboard', onVistaChang
                         />
                     )}
 
-                    {vista === 'dashboard' && <CotizadorDashboard dashboard={dashboard} />}
+                    {vista === 'dashboard' && <CotizadorDashboard dashboard={dashboard} onSelectCotizacion={(id) => setSelectedCotizacionId(id)} onFilterChange={fetchDashboardFiltered} onNavigateWithFilters={handleNavigateWithFilters} />}
 
                     {selectedCotizacionId && (
                         <CotizadorDetalle

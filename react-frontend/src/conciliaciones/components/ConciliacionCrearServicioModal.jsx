@@ -156,7 +156,8 @@ export default function ConciliacionCrearServicioModal({
                                     required
                                     value={client}
                                     onChange={(e) => setClient(e.target.value)}
-                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
+                                    disabled={!!servicio}
+                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg} ${!!servicio ? 'opacity-60 cursor-not-allowed' : ''}`}
                                 >
                                     <option value="">Seleccione un cliente</option>
                                     {clientes.map(c => (
@@ -174,8 +175,9 @@ export default function ConciliacionCrearServicioModal({
                                     required
                                     value={serviceName}
                                     onChange={(e) => setServiceName(e.target.value)}
+                                    disabled={!!servicio}
                                     placeholder="Ej. Soporte Nivel 2"
-                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
+                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg} ${!!servicio ? 'opacity-60 cursor-not-allowed' : ''}`}
                                 />
                             </div>
 

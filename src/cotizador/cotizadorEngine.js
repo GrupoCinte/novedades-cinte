@@ -49,7 +49,8 @@ function calcularTarifa({
     margen = 0.3,
     moneda = 'COP',
     modo = 'AUTO',
-    salarioManual = null
+    salarioManual = null,
+    valorHoraManual = null
 }) {
     const smmlv = safeNumber(parametros?.smmlv);
     const auxTransporteLegal = safeNumber(parametros?.aux_transporte_legal, 0);
@@ -95,7 +96,22 @@ function calcularTarifa({
     const diasMes = safeNumber(parametros?.dias_mes, 20);
     const horasDia = safeNumber(parametros?.horas_dia, 9);
     const tarifaDia = diasMes > 0 ? tarifaMes / diasMes : 0;
-    const tarifaHora = horasDia > 0 ? tarifaDia / horasDia : 0;
+    let tarifaHora = horasDia > 0 ? tarifaDia / horasDia : 0;
+
+    if (String(modo).toUpperCase() === 'MANUAL' && safeNumber(valorHoraManual) > 0) {
+        const vHora = safeNumber(valorHoraManual);
+        // Costo base hora (incluyendo provisión indemnización similar a la mensual)
+        const costoTotalHora = vHora + (vHora * 0.013);
+        const costoFinHora = costoTotalHora * (1 + tasa);
+        const tarifaHoraCop = costoFinHora * (1 + safeNumber(margen));
+        
+        let tHora = tarifaHoraCop;
+        if (moneda === 'USD') tHora = tasaMoneda ? tarifaHoraCop / tasaMoneda : tarifaHoraCop;
+        else if (moneda === 'CLP') tHora = tarifaHoraCop * tasaMoneda;
+        else if (moneda !== 'COP') tHora = tasaMoneda ? tarifaHoraCop / tasaMoneda : tarifaHoraCop;
+        
+        tarifaHora = tHora;
+    }
 
     return {
         cargo: String(cargoData?.cargo || ''),
@@ -175,7 +191,8 @@ function calcularCotizacion(payload, catalogos) {
             margen,
             moneda: String(payload?.moneda || 'COP'),
             modo: modoPerfil === 'MANUAL' ? 'MANUAL' : 'AUTO',
-            salarioManual: p?.salario_manual
+            salarioManual: p?.salario_manual,
+            valorHoraManual: p?.valor_hora_manual
         });
         item.cantidad = cantidad;
         resultados.push(item);
@@ -207,8 +224,17 @@ function calcularCotizacion(payload, catalogos) {
     };
 }
 
-function generarDashboardData(historial = []) {
-    if (!Array.isArray(historial) || historial.length === 0) {
+function generarDashboardData(historialOriginal = [], clienteFiltro = '') {
+    let historial = Array.isArray(historialOriginal) ? historialOriginal : [];
+    
+    const clientes_disponibles = [...new Set(historial.map(c => String(c?.cliente || '').trim()).filter(Boolean))].sort();
+    
+    if (clienteFiltro) {
+        const f = String(clienteFiltro).trim().toLowerCase();
+        historial = historial.filter(c => String(c?.cliente || '').trim().toLowerCase() === f);
+    }
+
+    if (historial.length === 0) {
         return {
             empty: true,
             total_cot: 0,
@@ -220,7 +246,8 @@ function generarDashboardData(historial = []) {
             top_cargos: [],
             tendencia: [],
             modo_stats: { AUTO: 0, MANUAL: 0 },
-            ultimas: []
+            ultimas: [],
+            clientes_disponibles
         };
     }
 
@@ -230,6 +257,7 @@ function generarDashboardData(historial = []) {
     const porComercialValor = {};
     const cargoCount = {};
     const modoStats = { AUTO: 0, MANUAL: 0 };
+    const estadoStats = { enviadas: 0, rechazadas: 0 };
     const tendencia = {};
 
     for (const cot of historial) {
@@ -251,6 +279,11 @@ function generarDashboardData(historial = []) {
 
         totalValor += cotValor;
         porComercialValor[comercial] = (porComercialValor[comercial] || 0) + cotValor;
+
+        const est = String(cot?.estado || 'Borrador').toLowerCase();
+        if (est === 'enviada') estadoStats.enviadas++;
+        if (est === 'rechazada') estadoStats.rechazadas++;
+
         const iso = String(cot?.fecha_generacion_iso || '');
         const legacyFecha = String(cot?.fecha || '');
         const fechaKey =
@@ -269,8 +302,9 @@ function generarDashboardData(historial = []) {
         const valor = (cot?.resultados || []).reduce((acc, r) => acc + Number(r?.tarifa_mes || 0) * Number(r?.cantidad || 1) * meses, 0);
         return {
             id: cot?.id,
-            fecha: cot?.fecha || '',
+            fecha: String(cot?.fecha || '').split(',')[0],
             cliente: cot?.cliente || '',
+            titulo: cot?.titulo || '',
             comercial: cot?.comercial || 'N/A',
             perfiles: Array.isArray(cot?.resultados) ? cot.resultados.length : 0,
             valor: round2(valor)
@@ -288,7 +322,9 @@ function generarDashboardData(historial = []) {
         top_cargos: topCargos,
         tendencia: tendenciaSorted,
         modo_stats: modoStats,
-        ultimas
+        estado_stats: estadoStats,
+        ultimas,
+        clientes_disponibles
     };
 }
 

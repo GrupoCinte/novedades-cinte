@@ -230,6 +230,9 @@ app.use(cors({
             if (corsAllowTryCloudflare && parsed.hostname.endsWith('.trycloudflare.com')) {
                 return callback(null, true);
             }
+            if (parsed.hostname.endsWith('.amplifyapp.com') || parsed.hostname.endsWith('.loca.lt')) {
+                return callback(null, true);
+            }
         } catch {
             // Ignorar origen malformado y rechazar.
         }
@@ -237,7 +240,7 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-cinte-xsrf', 'X-Request-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-cinte-xsrf', 'X-Request-Id', 'Bypass-Tunnel-Reminder'],
     exposedHeaders: ['X-Request-Id']
 }));
 

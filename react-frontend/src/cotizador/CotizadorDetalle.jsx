@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from 'react';
-import { ChevronLeft, Download, Trash2, Edit3, CheckCircle2, Send, FileText, X } from 'lucide-react';
+import { ChevronLeft, Download, Trash2, Edit3, CheckCircle2, Send, FileText, X, Eye } from 'lucide-react';
 import { formatMoney } from './salarioFormat';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildCsrfHeaders } from '../cognitoAuth.js';
@@ -50,6 +50,7 @@ export default function CotizadorDetalle({
     const [editMode, setEditMode] = useState(false);
     const [editForm, setEditForm] = useState(null);
     const [saving, setSaving] = useState(false);
+    const [showPdfModal, setShowPdfModal] = useState(false);
 
     const cargosResueltosEdit = useMemo(() => {
         const c = editMode ? editForm?.cliente : cotizacion?.cliente;
@@ -294,6 +295,9 @@ export default function CotizadorDetalle({
             titulo: cotizacion.titulo || '',
             notas: cotizacion.notas || '',
             terminos: cotizacion.terminos || '',
+            contacto_nombre: cotizacion.contacto_nombre || '',
+            contacto_correo: cotizacion.contacto_correo || '',
+            contacto_cargo: cotizacion.contacto_cargo || '',
             estado: cotizacion.estado || 'Borrador',
             perfiles: perfiles.length > 0 ? perfiles : [{ indice: 0, cantidad: 1, modo: 'AUTO', salario_manual: '', cargo_manual: '' }]
         });
@@ -349,27 +353,27 @@ export default function CotizadorDetalle({
                         </button>
                         <button
                             type="button"
-                            onClick={handleDownload}
-                            disabled={descargando}
+                            onClick={() => setShowPdfModal(true)}
                             className={
                                 isLight
                                     ? 'inline-flex items-center gap-1.5 rounded-lg border border-transparent bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50'
                                     : 'inline-flex items-center gap-1.5 rounded-lg border border-transparent bg-[#088DC6] px-3 py-2 text-sm font-semibold text-white hover:bg-[#088DC6]/80 disabled:opacity-50'
                             }
                         >
-                            <Download size={16} /> <span className="hidden sm:inline">{descargando ? 'Generando...' : 'Descargar PDF'}</span>
+                            <Eye size={16} /> <span className="hidden sm:inline">Visualizar PDF</span>
                         </button>
                         <button
                             type="button"
-                            onClick={() => onDelete(cotizacion.id)}
-                            disabled={deletingId === cotizacion.id}
+                            onClick={() => changeStatus('Aceptada')}
+                            disabled={statusChanging || estado === 'Aceptada' || estado === 'Rechazada'}
+                            title={estado === 'Aceptada' || estado === 'Rechazada' ? 'La cotización ya fue gestionada' : ''}
                             className={
                                 isLight
-                                    ? 'inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50'
-                                    : 'inline-flex items-center gap-1.5 rounded-lg border border-rose-500/50 bg-slate-800 px-3 py-2 text-sm font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50'
+                                    ? 'inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50'
+                                    : 'inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/50 bg-slate-800 px-3 py-2 text-sm font-semibold text-emerald-300 hover:bg-emerald-500/10 disabled:opacity-50'
                             }
                         >
-                            <Trash2 size={16} /> <span className="hidden sm:inline">Eliminar</span>
+                            <CheckCircle2 size={16} /> <span className="hidden sm:inline">Aprobar</span>
                         </button>
                         <button type="button" onClick={onClose} className={modalClose}>
                             <X size={20} strokeWidth={2.5} />
@@ -382,28 +386,33 @@ export default function CotizadorDetalle({
                 <div className="p-6 overflow-y-auto max-h-[80vh] custom-scrollbar">
                     {editMode ? (
                         <div className="space-y-4">
-                            <CotizadorForm
-                                catalogos={catalogos || {}}
-                                cargosResueltos={cargosResueltosEdit}
-                                clientesLista={clientesLista}
-                                form={editForm}
-                                setForm={setEditForm}
-                                loading={saving}
-                                onSave={handleSaveEdit}
-                                onCancel={() => setEditMode(false)}
-                            />
+                                <CotizadorForm
+                                    catalogos={catalogos || {}}
+                                    cargosResueltos={cargosResueltosEdit}
+                                    clientesLista={clientesLista}
+                                    form={editForm}
+                                    setForm={setEditForm}
+                                    loading={saving}
+                                    onSave={handleSaveEdit}
+                                    onCancel={() => setEditMode(false)}
+                                    onDelete={() => onDelete(cotizacion.id)}
+                                    isDeleting={deletingId === cotizacion.id}
+                                    deleteDisabled={estado !== 'Borrador'}
+                                />
                         </div>
                     ) : (
-                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                
-                        {/* Columna Izquierda: Información de la Cotización */}
-                        <div className="lg:col-span-7 space-y-6">
+                        <div className="space-y-6 max-w-5xl mx-auto">
                             
                             {/* Información General */}
                             <div className={modalGrid}>
                                 <div><span className={labelMuted}>Cliente:</span> <span className="font-medium ml-1">{cotizacion.cliente || '—'}</span></div>
                                 <div><span className={labelMuted}>NIT:</span> <span className="font-medium ml-1">{cotizacion.nit || '—'}</span></div>
                                 <div><span className={labelMuted}>Comercial:</span> <span className="font-medium ml-1">{cotizacion.comercial || '—'}</span></div>
+                                
+                                <div><span className={labelMuted}>Contacto:</span> <span className="font-medium ml-1">{cotizacion.contacto_nombre || '—'}</span></div>
+                                <div><span className={labelMuted}>Correo:</span> <span className="font-medium ml-1">{cotizacion.contacto_correo || '—'}</span></div>
+                                <div><span className={labelMuted}>Cargo:</span> <span className="font-medium ml-1">{cotizacion.contacto_cargo || '—'}</span></div>
+
                                 <div><span className={labelMuted}>Plazo de pago:</span> <span className="font-medium ml-1">{cotizacion.plazo ? `${cotizacion.plazo} días` : '—'}</span></div>
                                 <div><span className={labelMuted}>Moneda:</span> <span className="font-medium ml-1">{cotizacion.moneda || 'COP'}</span></div>
                                 <div><span className={labelMuted}>Margen:</span> <span className="font-medium ml-1">{cotizacion.margen ? `${(Number(cotizacion.margen) * 100).toFixed(1)}%` : '0%'}</span></div>
@@ -478,38 +487,58 @@ export default function CotizadorDetalle({
                         </div>
                     )}
                 </div>
+                )}
+            </div>
+            </div>
 
-                        {/* Columna Derecha: Vista Previa PDF */}
-                        <div className="lg:col-span-5 space-y-4">
-                            <div className={`flex flex-col h-full rounded-xl overflow-hidden shadow-sm ${isLight ? 'border border-slate-200' : 'border border-[#1a3a56]'}`}>
-                                <div className={`flex items-center gap-2 px-4 py-3 border-b ${isLight ? 'bg-slate-100 border-slate-200' : 'bg-[#0b1e30] border-[#1a3a56]'}`}>
-                                    <FileText size={16} className={labelMuted} />
-                                    <h3 className={`font-semibold text-sm ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>Documento PDF</h3>
-                                </div>
-                                <div className={`flex-1 min-h-[400px] lg:min-h-[600px] relative ${isLight ? 'bg-slate-200' : 'bg-[#04141E]'}`}>
-                                    {previewLoading && (
-                                        <div className="absolute inset-0 bg-[#04141E]/40 flex items-center justify-center text-sm font-medium text-white z-10">
-                                            Generando vista previa...
-                                        </div>
-                                    )}
-                                    {pdfPreviewUrl ? (
-                                        <iframe
-                                            title="Vista previa cotización"
-                                            src={pdfPreviewUrl}
-                                            className="absolute inset-0 w-full h-full border-0"
-                                        />
-                                    ) : (
-                                        <div className="h-full flex items-center justify-center text-sm text-slate-500">
-                                            Vista previa no disponible
-                                        </div>
-                                    )}
-                                </div>
+            {/* Modal de PDF */}
+            {showPdfModal && (
+                <div className={`${modalBackdrop} z-[60]`} onClick={() => setShowPdfModal(false)}>
+                    <div className={`${modalCardWide} w-full max-w-5xl h-[90vh] flex flex-col`} onClick={(e) => e.stopPropagation()}>
+                        <div className={`${modalHeadBorder} flex items-center justify-between`}>
+                            <div className="flex items-center gap-2">
+                                <FileText size={20} className={labelMuted} />
+                                <h3 className={`font-semibold text-lg ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Vista Previa del Documento</h3>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleDownload}
+                                    disabled={descargando}
+                                    className={
+                                        isLight
+                                            ? 'inline-flex items-center gap-1.5 rounded-lg border border-transparent bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-50'
+                                            : 'inline-flex items-center gap-1.5 rounded-lg border border-transparent bg-[#088DC6] px-3 py-2 text-sm font-semibold text-white hover:bg-[#088DC6]/80 disabled:opacity-50'
+                                    }
+                                >
+                                    <Download size={16} /> <span className="hidden sm:inline">{descargando ? 'Descargando...' : 'Descargar PDF'}</span>
+                                </button>
+                                <button type="button" onClick={() => setShowPdfModal(false)} className={modalClose}>
+                                    <X size={20} strokeWidth={2.5} />
+                                </button>
                             </div>
                         </div>
+                        <div className="flex-1 relative bg-[#525659] overflow-hidden rounded-b-xl">
+                            {previewLoading && (
+                                <div className="absolute inset-0 bg-[#04141E]/40 flex items-center justify-center text-sm font-medium text-white z-10">
+                                    Generando vista previa...
+                                </div>
+                            )}
+                            {pdfPreviewUrl ? (
+                                <iframe
+                                    title="Vista previa cotización"
+                                    src={pdfPreviewUrl}
+                                    className="absolute inset-0 w-full h-full border-0"
+                                />
+                            ) : (
+                                <div className="h-full flex items-center justify-center text-sm text-slate-300">
+                                    Vista previa no disponible
+                                </div>
+                            )}
+                        </div>
                     </div>
-                    )}
                 </div>
-            </div>
+            )}
         </div>
     );
 }

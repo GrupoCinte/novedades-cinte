@@ -49,7 +49,8 @@ export function calcularTarifa({
     margen = 0.3,
     moneda = 'COP',
     modo = 'AUTO',
-    salarioManual = null
+    salarioManual = null,
+    valorHoraManual = null
 }) {
     const smmlv = safeNumber(parametros?.smmlv);
     const auxTransporteLegal = safeNumber(parametros?.aux_transporte_legal, 0);
@@ -95,7 +96,22 @@ export function calcularTarifa({
     const diasMes = safeNumber(parametros?.dias_mes, 20);
     const horasDia = safeNumber(parametros?.horas_dia, 9);
     const tarifaDia = diasMes > 0 ? tarifaMes / diasMes : 0;
-    const tarifaHora = horasDia > 0 ? tarifaDia / horasDia : 0;
+    let tarifaHora = horasDia > 0 ? tarifaDia / horasDia : 0;
+
+    if (String(modo).toUpperCase() === 'MANUAL' && safeNumber(valorHoraManual) > 0) {
+        const vHora = safeNumber(valorHoraManual);
+        // Costo base hora (incluyendo provisión indemnización similar a la mensual)
+        const costoTotalHora = vHora + (vHora * 0.013);
+        const costoFinHora = costoTotalHora * (1 + tasa);
+        const tarifaHoraCop = costoFinHora * (1 + safeNumber(margen));
+        
+        let tHora = tarifaHoraCop;
+        if (moneda === 'USD') tHora = tasaMoneda ? tarifaHoraCop / tasaMoneda : tarifaHoraCop;
+        else if (moneda === 'CLP') tHora = tarifaHoraCop * tasaMoneda;
+        else if (moneda !== 'COP') tHora = tasaMoneda ? tarifaHoraCop / tasaMoneda : tarifaHoraCop;
+        
+        tarifaHora = tHora;
+    }
 
     return {
         cargo: String(cargoData?.cargo || ''),
@@ -169,7 +185,8 @@ export function calcularCotizacionFront(payload, catalogos) {
             margen,
             moneda: String(payload?.moneda || 'COP'),
             modo: modoPerfil === 'MANUAL' ? 'MANUAL' : 'AUTO',
-            salarioManual: p?.salario_manual
+            salarioManual: p?.salario_manual,
+            valorHoraManual: p?.valor_hora_manual
         });
         item.cantidad = cantidad;
         resultados.push(item);

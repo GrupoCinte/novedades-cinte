@@ -349,8 +349,8 @@ function registerRoutes(deps) {
     const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
     const exposeInternalErrors = String(process.env.EXPOSE_INTERNAL_ERRORS || '').toLowerCase() === 'true';
     const isDeployedEnv = isProduction || String(process.env.NODE_ENV || '').toLowerCase() === 'staging';
-    const secureCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
-    const sameSite = isProduction ? 'strict' : 'lax';
+    const secureCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'true')).toLowerCase() === 'true';
+    const sameSite = 'none';
     const exportMaxRows = Math.max(1, Number(process.env.EXPORT_MAX_ROWS || 5000));
 
     /** Solo no-producción: ayuda a diagnosticar «en prod hay datos y en local no». */

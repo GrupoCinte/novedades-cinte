@@ -107,6 +107,18 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
 
         doc.fontSize(11).fillColor('#111827').text(`Cliente: ${cliente}`);
         doc.text(`NIT: ${nit}`);
+        
+        const contactoNombre = String(cotizacion?.contacto_nombre || '').trim();
+        const contactoCargo = String(cotizacion?.contacto_cargo || '').trim();
+        const contactoCorreo = String(cotizacion?.contacto_correo || '').trim();
+
+        if (contactoNombre) {
+            doc.text(`Contacto: ${contactoNombre}${contactoCargo ? ` - ${contactoCargo}` : ''}`);
+        }
+        if (contactoCorreo) {
+            doc.text(`Correo Contacto: ${contactoCorreo}`);
+        }
+
         doc.text(`Comercial: ${comercial}`);
         doc.text(`Plazo de pago: ${plazo} dias`);
         doc.text(`Margen aplicado: ${margenPct.toFixed(2)}%`);
