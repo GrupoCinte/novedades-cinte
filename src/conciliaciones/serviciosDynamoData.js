@@ -37,8 +37,8 @@ async function callAppSyncPutService(payloadData) {
     }
 
     const query = `
-        mutation PutService($client: String!, $serviceName: String!, $initDate: AWSDate!, $closingDay: Int!, $billingMode: BillingMode!, $baseHours: Int!, $billingType: BillingType!, $collabs: [String!]) {
-            putService(client: $client, serviceName: $serviceName, initDate: $initDate, closingDay: $closingDay, billingMode: $billingMode, baseHours: $baseHours, billingType: $billingType, collabs: $collabs) {
+        mutation PutService($client: String!, $serviceName: String!, $initDate: AWSDate!, $closingDay: Int!, $billingMode: BillingMode!, $baseHours: Int!, $billingType: BillingType!) {
+            putService(client: $client, serviceName: $serviceName, initDate: $initDate, closingDay: $closingDay, billingMode: $billingMode, baseHours: $baseHours, billingType: $billingType) {
                 success
             }
         }
@@ -51,8 +51,7 @@ async function callAppSyncPutService(payloadData) {
         closingDay: Number(payloadData.closingDay),
         billingMode: payloadData.billingMode,
         baseHours: Number(payloadData.baseHours),
-        billingType: payloadData.billingType,
-        collabs: payloadData.collabs || []
+        billingType: payloadData.billingType
     };
 
     console.log('Enviando mutación a AppSync:', variables);

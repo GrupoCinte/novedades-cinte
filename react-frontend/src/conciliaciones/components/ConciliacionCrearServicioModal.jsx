@@ -111,6 +111,8 @@ export default function ConciliacionCrearServicioModal({
         }
     };
 
+    const todayStr = new Date().toISOString().split('T')[0];
+
     const inputBg = isLight ? 'field-control bg-white text-slate-900' : 'field-control';
 
     return (
@@ -188,6 +190,7 @@ export default function ConciliacionCrearServicioModal({
                                 <input
                                     type="date"
                                     required
+                                    min={!servicio ? todayStr : undefined}
                                     value={initDate}
                                     onChange={(e) => setInitDate(e.target.value)}
                                     className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
