@@ -6,6 +6,7 @@ const {
     getConciliacionResumenPorClienteMes,
     getConciliacionResumenTodosClientesMes,
     upsertConciliacionFacturacion,
+    deleteConciliacionFacturacion,
     listConciliacionesFacturacion,
     listServicios,
     createServicio,
@@ -21,8 +22,30 @@ test('getConciliacionResumenPorClienteMes agrega solo novedades visibles y calcu
             if (String(sql).includes('FROM novedades')) {
                 return {
                     rows: [
-                        { cedula: '12.345.678', tipo_novedad: 'Incapacidad', monto_cop: '100' },
-                        { cedula: '12.345.678', tipo_novedad: 'Incapacidad', monto_cop: '50.25' }
+                        {
+                            cedula: '12.345.678',
+                            tipo_novedad: 'Incapacidad',
+                            monto_cop: '100',
+                            cantidad_horas: 1,
+                            unidad: null,
+                            modalidad: null,
+                            hora_inicio: null,
+                            hora_fin: null,
+                            fecha_inicio: '2026-05-06',
+                            fecha_fin: '2026-05-06'
+                        },
+                        {
+                            cedula: '12.345.678',
+                            tipo_novedad: 'Incapacidad',
+                            monto_cop: '50.25',
+                            cantidad_horas: 1,
+                            unidad: null,
+                            modalidad: null,
+                            hora_inicio: null,
+                            hora_fin: null,
+                            fecha_inicio: '2026-05-07',
+                            fecha_fin: '2026-05-07'
+                        }
                     ]
                 };
             }
@@ -46,14 +69,68 @@ test('getConciliacionResumenPorClienteMes agrega solo novedades visibles y calcu
     const deps = { pool, normalizeCedula, canRoleViewType };
     const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
     const { rows, totales } = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 5);
+    const deduccionDia = Math.round(5000 / 30);
+    const deduccionEsperada = deduccionDia * 2;
     assert.equal(rows.length, 1);
     assert.equal(rows[0].novedadesCount, 2);
-    assert.equal(rows[0].novedadesSumCop, 150.25);
-    assert.equal(rows[0].facturaCop, 5000 - 150.25);
+    assert.equal(rows[0].novedadesSumCop, deduccionEsperada);
+    assert.equal(rows[0].facturaCop, 5000 - deduccionEsperada);
     assert.equal(totales.tarifaSum, 5000);
-    assert.equal(totales.deduccionSum, 150.25);
+    assert.equal(totales.deduccionSum, deduccionEsperada);
     assert.equal(totales.colaboradores, 1);
     assert.equal(totales.conNovedad, 1);
+});
+
+test('getConciliacionResumenPorClienteMes EXPIRED_MONTH consulta novedades del mes anterior', async () => {
+    let novRange = null;
+    let factMes = null;
+    const pool = {
+        query: async (sql, params) => {
+            if (String(sql).includes('FROM novedades')) {
+                novRange = [params[1], params[2]];
+                return {
+                    rows: [{
+                        cedula: '12345678',
+                        tipo_novedad: 'Bonos',
+                        monto_cop: '100',
+                        cantidad_horas: 0,
+                        unidad: null,
+                        modalidad: null,
+                        hora_inicio: null,
+                        hora_fin: null,
+                        fecha_inicio: '2026-05-12',
+                        fecha_fin: '2026-05-12'
+                    }]
+                };
+            }
+            if (String(sql).includes('FROM colaboradores')) {
+                factMes = [params[1], params[2]];
+                return {
+                    rows: [
+                        {
+                            cedula: '12345678',
+                            nombre: 'Test User',
+                            cliente: 'Cliente X',
+                            tarifa_cliente: '5000',
+                            moneda: 'COP',
+                            profesion: 'Dev'
+                        }
+                    ]
+                };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = { pool, normalizeCedula, canRoleViewType };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+    const { rows } = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 6, {
+        billingType: 'EXPIRED_MONTH'
+    });
+    assert.deepEqual(novRange, ['2026-05-01', '2026-05-31']);
+    assert.deepEqual(factMes, [2026, 6]);
+    assert.equal(rows[0].novedadesCount, 1);
+    assert.equal(rows[0].novedadesSumaCop, 100);
+    assert.equal(rows[0].facturaCop, 5100);
 });
 
 test('getConciliacionResumenTodosClientesMes sin clientes en alcance devuelve vacío', async () => {
@@ -192,7 +269,7 @@ test('upsertConciliacionFacturacionMasiva actualiza multiples registros', async 
         cliente: 'Cliente X',
         anio: 2026,
         mes: 5,
-        estado: 'RADICADA',
+        estado: 'APROBADO_FINANZAS',
         facturaFv: 'FV-999',
         fechaRadicacion: '2026-05-21'
     };
@@ -206,8 +283,43 @@ test('upsertConciliacionFacturacionMasiva actualiza multiples registros', async 
     assert.equal(upserts.length, 2);
     assert.equal(upserts[0].params[0], '111');
     assert.equal(upserts[1].params[0], '222');
-    assert.equal(upserts[0].params[3], 'RADICADA');
+    assert.equal(upserts[0].params[3], 'APROBADO_FINANZAS');
     assert.equal(upserts[0].params[4], 'FV-999');
+});
+
+test('deleteConciliacionFacturacion valida cliente permitido y elimina por cedula/anio/mes', async () => {
+    const queryArgs = [];
+    const pool = {
+        query: async (sql, params) => {
+            queryArgs.push({ sql, params });
+            if (String(sql).includes('SELECT cliente FROM colaboradores')) {
+                return { rows: [{ cliente: 'Cliente X' }] };
+            }
+            if (String(sql).includes('DELETE FROM conciliaciones_facturacion')) {
+                return { rowCount: 1, rows: [{ id: 'fact-id' }] };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = {
+        pool,
+        normalizeCedula,
+        getClientesList: async () => ['Cliente X'],
+        listScopedDistinctClientes: async () => ['Cliente X'],
+        listAssignedClientesForGpUserId: async () => [],
+        resolveGpInternalUserIdForScope: async () => null,
+        normalizeCatalogValue: (v) => v
+    };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+
+    const out = await deleteConciliacionFacturacion(deps, scope, { cedula: '12.345.678', anio: 2026, mes: 5 });
+    assert.equal(out.deleted, 1);
+
+    const del = queryArgs.find(q => String(q.sql).includes('DELETE FROM conciliaciones_facturacion'));
+    assert.ok(del);
+    assert.equal(del.params[0], '12345678');
+    assert.equal(del.params[1], 2026);
+    assert.equal(del.params[2], 5);
 });
 
 test('upsertConciliacionFacturacionMasiva respeta cedulas opcionales del payload', async () => {
@@ -431,4 +543,112 @@ test('deleteServicio elimina servicio y consultores asociados', async () => {
     assert.equal(deletes.length, 2);
     assert.ok(deletes[0].sql.includes('servicio_consultores'));
     assert.ok(deletes[1].sql.includes('servicios'));
+});
+
+test('getColaCierresPorMes agrega por servicio con consultores asociados', async () => {
+    const pool = {
+        query: async (sql) => {
+            if (String(sql).includes('FROM novedades')) {
+                return { rows: [{ cedula: '12345678', tipo_novedad: 'Incapacidad', monto_cop: '50' }] };
+            }
+            if (String(sql).includes('FROM colaboradores')) {
+                return {
+                    rows: [
+                        {
+                            cedula: '12345678',
+                            nombre: 'Ana',
+                            cliente: 'Cliente X',
+                            tarifa_cliente: '1000',
+                            moneda: 'COP',
+                            profesion: 'Dev',
+                            estado: 'PENDIENTE',
+                            cerrado: false
+                        },
+                        {
+                            cedula: '87654321',
+                            nombre: 'Bob',
+                            cliente: 'Cliente X',
+                            tarifa_cliente: '2000',
+                            moneda: 'COP',
+                            profesion: 'Dev',
+                            estado: 'PENDIENTE',
+                            cerrado: false
+                        }
+                    ]
+                };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = { pool, normalizeCedula, canRoleViewType, getClientesList: async () => ['Cliente X'], normalizeCatalogValue: (v) => String(v || '').trim() };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+    const { getColaCierresPorMes } = require('../src/conciliaciones/conciliacionesQueries');
+
+    const servicios = [
+        {
+            id: 'srv-1',
+            client: 'Cliente X',
+            serviceName: 'ORBIT',
+            closingDay: 25,
+            billingType: 'ADVANCE_MONTH',
+            consultoresCedulas: ['12345678']
+        }
+    ];
+
+    const { items, count } = await getColaCierresPorMes(deps, scope, 2026, 5, '', servicios);
+    assert.equal(count, 1);
+    assert.equal(items[0].serviceName, 'ORBIT');
+    assert.equal(items[0].consultoresTotal, 1);
+    assert.equal(items[0].totales.tarifaSum, 1000);
+    assert.equal(items[0].estadoCola, 'PENDIENTE');
+});
+
+test('getConciliacionesDashboardResumen usa cola de servicios (no todos los colaboradores)', async () => {
+    const pool = {
+        query: async (sql) => {
+            if (String(sql).includes('FROM novedades')) {
+                return { rows: [] };
+            }
+            if (String(sql).includes('FROM colaboradores')) {
+                return {
+                    rows: [
+                        {
+                            cedula: '111',
+                            nombre: 'En servicio',
+                            cliente: 'Cliente X',
+                            tarifa_cliente: '1000',
+                            moneda: 'COP',
+                            cerrado: false
+                        },
+                        {
+                            cedula: '222',
+                            nombre: 'Sin servicio',
+                            cliente: 'Cliente X',
+                            tarifa_cliente: '9000',
+                            moneda: 'COP',
+                            cerrado: false
+                        }
+                    ]
+                };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = { pool, normalizeCedula, canRoleViewType, getClientesList: async () => ['Cliente X'], normalizeCatalogValue: (v) => String(v || '').trim() };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+    const { getConciliacionesDashboardResumen } = require('../src/conciliaciones/conciliacionesQueries');
+    const servicios = [
+        {
+            id: 'srv-1',
+            client: 'Cliente X',
+            serviceName: 'ORBIT',
+            billingType: 'ADVANCE_MONTH',
+            consultoresCedulas: ['111']
+        }
+    ];
+    const out = await getConciliacionesDashboardResumen(deps, scope, 2026, 5, servicios);
+    assert.equal(out.clientesCount, 1);
+    assert.equal(out.serviciosCount, 1);
+    assert.equal(out.rows[0].totales.tarifaSum, 1000);
+    assert.equal(out.globalTotales.facturaSum, 1000);
 });

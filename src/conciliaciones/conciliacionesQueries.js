@@ -5,6 +5,25 @@
  */
 
 const { buildFoldToCanonicoMap, matchExcelClienteABd, foldForMatch } = require('../cotizador/clienteNombreMatch');
+const {
+    aggregateServicioCierre,
+    deriveEstadoCola,
+    sortColaCierresItems,
+    resolveNovedadesBucket,
+    aggregateDashboardFromColaItems
+} = require('./facturacionAggregate');
+const {
+    validateRevisionRequest,
+    canBypassEstadoChange,
+    normalizeEstado
+} = require('./facturacionRevision');
+const {
+    computeNovedadImpactoMonto,
+    aggregateNovedadesImpacto
+} = require('./conciliacionNovedadImpacto');
+
+const NOVEDADES_IMPACTO_SELECT = `nov.cedula, nov.tipo_novedad, nov.monto_cop, nov.cantidad_horas, nov.unidad,
+                nov.modalidad, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin`;
 
 /** @param {string} alias */
 function effectiveNovedadDateSql(alias = 'nov') {
@@ -113,14 +132,21 @@ function novedadesAreaClause(scope) {
 /**
  * @returns {Promise<{ rows: object[], totales: object }>}
  */
-async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, year, month) {
+async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, year, month, options = {}) {
     const { pool, normalizeCedula, canRoleViewType } = deps;
-    const mr = monthRangeDates(year, month);
-    if (!mr) return { rows: [], totales: { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0 } };
+    const factY = Number(year);
+    const factM = Number(month);
+    const novBucket =
+        options.novedadesYear != null && options.novedadesMonth != null
+            ? { year: Number(options.novedadesYear), month: Number(options.novedadesMonth) }
+            : resolveNovedadesBucket(factY, factM, options.billingType);
+
+    const mrNov = monthRangeDates(novBucket.year, novBucket.month);
+    if (!mrNov) return { rows: [], totales: { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0 } };
 
     const areaPart = novedadesAreaClause(scope);
     let areaSql = areaPart.sql;
-    const params = [clienteCanon, mr.start, mr.end];
+    const params = [clienteCanon, mrNov.start, mrNov.end];
     if (areaPart.params.length) {
         params.push(areaPart.params[0]);
         areaSql = areaSql.replace('$IDX', `$${params.length}`);
@@ -128,7 +154,7 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
 
     const dateExpr = effectiveNovedadDateSql('nov');
     const qNov = await pool.query(
-        `SELECT nov.cedula, nov.tipo_novedad, nov.monto_cop
+        `SELECT ${NOVEDADES_IMPACTO_SELECT}
          FROM novedades nov
          WHERE nov.estado = 'Aprobado'::novedad_estado
            AND lower(btrim(COALESCE(nov.cliente, ''))) = lower(btrim($1::text))
@@ -138,16 +164,16 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
         params
     );
 
-    /** @type {Map<string, { count: number, sumMonto: number }>} */
+    /** @type {Map<string, { count: number, rows: object[] }>} */
     const agg = new Map();
     const role = String(scope?.role || '');
     for (const row of qNov.rows || []) {
         if (!canRoleViewType(role, row.tipo_novedad)) continue;
         const cedDigits = normalizeCedula(String(row.cedula || ''));
         if (!cedDigits) continue;
-        const cur = agg.get(cedDigits) || { count: 0, sumMonto: 0 };
+        const cur = agg.get(cedDigits) || { count: 0, rows: [] };
         cur.count += 1;
-        cur.sumMonto += Number(row.monto_cop || 0) || 0;
+        cur.rows.push(row);
         agg.set(cedDigits, cur);
     }
 
@@ -183,7 +209,7 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
          WHERE c.activo IS NOT FALSE
            AND lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
          ORDER BY c.nombre ASC`,
-        [clienteCanon, Number(year), Number(month)]
+        [clienteCanon, factY, factM]
     );
 
     let tarifaSum = 0;
@@ -195,8 +221,10 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
         const tarifa = Number(c.tarifa_cliente || 0) || 0;
         const a = cedDigits ? agg.get(cedDigits) : null;
         const cnt = a?.count ?? 0;
-        const sumMonto = a?.sumMonto ?? 0;
-        const factura = tarifa - sumMonto;
+        const impacto = aggregateNovedadesImpacto(tarifa, a?.rows || []);
+        const sumMonto = impacto.novedadesSumCop;
+        const sumSuma = impacto.novedadesSumaCop;
+        const factura = impacto.facturaCop;
         tarifaSum += tarifa;
         deduccionSum += sumMonto;
         facturaSum += factura;
@@ -213,6 +241,7 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
             perfil: c.profesion != null ? String(c.profesion).trim() : '',
             novedadesCount: cnt,
             novedadesSumCop: sumMonto,
+            novedadesSumaCop: sumSuma,
             facturaCop: factura,
             fechaIngreso: fIngreso,
             tipoContrato: c.tipo_contrato != null ? String(c.tipo_contrato) : '',
@@ -301,9 +330,10 @@ async function getConciliacionResumenTodosClientesMes(deps, scope, year, month) 
     };
 }
 
-async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedulaRaw, year, month) {
+async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedulaRaw, year, month, options = {}) {
     const { pool, normalizeCedula, canRoleViewType } = deps;
-    const mr = monthRangeDates(year, month);
+    const novBucket = resolveNovedadesBucket(Number(year), Number(month), options.billingType);
+    const mr = monthRangeDates(novBucket.year, novBucket.month);
     if (!mr) return [];
     const cedDigits = normalizeCedula(cedulaRaw);
     if (!cedDigits) return [];
@@ -317,9 +347,21 @@ async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedul
     }
 
     const dateExpr = effectiveNovedadDateSql('nov');
+    const qTarifa = await pool.query(
+        `SELECT c.tarifa_cliente
+         FROM colaboradores c
+         WHERE c.activo IS NOT FALSE
+           AND lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
+           AND regexp_replace(COALESCE(c.cedula, ''), '\\D', '', 'g') = $2
+         LIMIT 1`,
+        [clienteCanon, cedDigits]
+    );
+    const tarifaCliente = Number(qTarifa.rows[0]?.tarifa_cliente) || 0;
+
     const q = await pool.query(
         `SELECT nov.id, nov.nombre, nov.cedula, nov.tipo_novedad, nov.monto_cop, nov.estado,
                 nov.fecha, nov.fecha_inicio, nov.fecha_fin, nov.creado_en,
+                nov.cantidad_horas, nov.unidad, nov.modalidad, nov.hora_inicio, nov.hora_fin,
                 COALESCE(ua.full_name, nov.aprobado_por_email, 'Aprobador CINTE') AS aprobador
          FROM novedades nov
          LEFT JOIN users ua ON nov.aprobado_por_user_id = ua.id
@@ -334,46 +376,37 @@ async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedul
     );
 
     const role = String(scope?.role || '');
-    return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad)).map((row) => ({
-        id: row.id,
-        nombre: String(row.nombre || '').trim(),
-        cedula: String(row.cedula || '').trim(),
-        tipoNovedad: String(row.tipo_novedad || '').trim(),
-        montoCop: row.monto_cop != null ? Number(row.monto_cop) : null,
-        estado: String(row.estado || ''),
-        fecha: row.fecha ? row.fecha.toISOString().slice(0, 10) : null,
-        fechaInicio: row.fecha_inicio ? row.fecha_inicio.toISOString().slice(0, 10) : null,
-        fechaFin: row.fecha_fin ? row.fecha_fin.toISOString().slice(0, 10) : null,
-        creadoEn: row.creado_en ? row.creado_en.toISOString() : null,
-        aprobador: String(row.aprobador || 'Aprobador CINTE').trim()
-    }));
+    return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad)).map((row) => {
+        const impact = computeNovedadImpactoMonto(tarifaCliente, row);
+        return {
+            id: row.id,
+            nombre: String(row.nombre || '').trim(),
+            cedula: String(row.cedula || '').trim(),
+            tipoNovedad: String(row.tipo_novedad || '').trim(),
+            montoCop: impact.montoCop,
+            impacto: impact.impacto,
+            medida: impact.medida,
+            cantidad: impact.cantidad,
+            montoCalculado: impact.montoCalculado,
+            estado: String(row.estado || ''),
+            fecha: row.fecha ? row.fecha.toISOString().slice(0, 10) : null,
+            fechaInicio: row.fecha_inicio ? row.fecha_inicio.toISOString().slice(0, 10) : null,
+            fechaFin: row.fecha_fin ? row.fecha_fin.toISOString().slice(0, 10) : null,
+            creadoEn: row.creado_en ? row.creado_en.toISOString() : null,
+            aprobador: String(row.aprobador || 'Aprobador CINTE').trim()
+        };
+    });
 }
 
 /**
- * Resumen multi-cliente para el dashboard (un request por cliente; lista acotada por alcance).
- * @returns {Promise<{ rows: { cliente: string, totales: object }[], globalTotales: object, clientesCount: number }>}
+ * Resumen multi-cliente para el dashboard: agrega la cola de cierres (servicios + consultores asociados).
+ * Misma fuente en tiempo real que Facturación → cola de cierres.
+ * @param {object[]} servicios - servicios del catálogo (Dynamo) con consultoresCedulas
+ * @returns {Promise<{ rows: object[], globalTotales: object, clientesCount: number, serviciosCount: number }>}
  */
-async function getConciliacionesDashboardResumen(deps, scope, year, month) {
-    const clientes = await listConciliacionesClientes(deps, scope);
-    const rows = [];
-    for (const cliente of clientes) {
-        const payload = await getConciliacionResumenPorClienteMes(deps, scope, cliente, year, month);
-        rows.push({
-            cliente,
-            totales: payload.totales
-        });
-    }
-    const globalTotales = rows.reduce(
-        (acc, r) => ({
-            tarifaSum: acc.tarifaSum + (Number(r.totales?.tarifaSum) || 0),
-            deduccionSum: acc.deduccionSum + (Number(r.totales?.deduccionSum) || 0),
-            facturaSum: acc.facturaSum + (Number(r.totales?.facturaSum) || 0),
-            colaboradores: acc.colaboradores + (Number(r.totales?.colaboradores) || 0),
-            conNovedad: acc.conNovedad + (Number(r.totales?.conNovedad) || 0)
-        }),
-        { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 }
-    );
-    return { rows, globalTotales, clientesCount: clientes.length };
+async function getConciliacionesDashboardResumen(deps, scope, year, month, servicios) {
+    const { items } = await getColaCierresPorMes(deps, scope, year, month, undefined, servicios);
+    return aggregateDashboardFromColaItems(items);
 }
 
 async function upsertConciliacionFacturacion(deps, scope, payload) {
@@ -421,6 +454,26 @@ async function upsertConciliacionFacturacion(deps, scope, payload) {
         throw error;
     }
 
+    const existingQ = await pool.query(
+        'SELECT id, estado FROM conciliaciones_facturacion WHERE cedula = $1 AND anio = $2::integer AND mes = $3::integer LIMIT 1',
+        [ced, y, m]
+    );
+    const prevEst = existingQ.rows[0]?.estado ?? null;
+    const requestedEst = normalizeEstado(est);
+    const role = String(scope?.role || '').trim().toLowerCase();
+    if (!canBypassEstadoChange(role)) {
+        if (prevEst !== null && requestedEst !== normalizeEstado(prevEst)) {
+            const error = new Error('El estado solo puede cambiarse mediante revisión de aprobación');
+            error.status = 403;
+            throw error;
+        }
+        if (prevEst === null && requestedEst !== 'PENDIENTE') {
+            const error = new Error('El estado inicial debe ser PENDIENTE');
+            error.status = 403;
+            throw error;
+        }
+    }
+
     const q = await pool.query(
         `INSERT INTO conciliaciones_facturacion (cedula, anio, mes, proyecto, observaciones, horas_facturadas, estado, factura_fv, fecha_radicacion, motivo_devolucion, fecha_cierre, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::date, $10, CURRENT_DATE, NOW())
@@ -440,6 +493,294 @@ async function upsertConciliacionFacturacion(deps, scope, payload) {
     );
 
     return q.rows[0];
+}
+
+function buildRevisionActor(actor, scope) {
+    const role = String(actor?.role || scope?.role || '').trim().toLowerCase();
+    const email = String(actor?.email || '').trim().toLowerCase();
+    const nombre = String(actor?.full_name || actor?.fullName || actor?.name || email || 'Usuario').trim();
+    const userId = actor?.id || actor?.sub || null;
+    return { role, email: email || 'sin-correo@local', nombre: nombre || 'Usuario', userId };
+}
+
+async function applyConciliacionFacturacionRevision(deps, scope, payload, actor) {
+    const { pool, normalizeCedula } = deps;
+    const { cedula, anio, mes, accion, observacion } = payload || {};
+    const ced = normalizeCedula(cedula);
+    if (!ced) {
+        const error = new Error('Cédula inválida');
+        error.status = 400;
+        throw error;
+    }
+
+    const y = Number(anio);
+    const m = Number(mes);
+    if (!Number.isFinite(y) || y < 2000 || y > 2100) {
+        const error = new Error('Año inválido');
+        error.status = 400;
+        throw error;
+    }
+    if (!Number.isFinite(m) || m < 1 || m > 12) {
+        const error = new Error('Mes inválido');
+        error.status = 400;
+        throw error;
+    }
+
+    const colQ = await pool.query('SELECT cliente FROM colaboradores WHERE cedula = $1 LIMIT 1', [ced]);
+    if (!colQ.rows[0]) {
+        const error = new Error('Colaborador no encontrado');
+        error.status = 404;
+        throw error;
+    }
+    const chk = await assertClienteConciliacionPermitido(deps, scope, colQ.rows[0].cliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    const revActor = buildRevisionActor(actor, scope);
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        let rowQ = await client.query(
+            `SELECT id, estado, observaciones, motivo_devolucion
+             FROM conciliaciones_facturacion
+             WHERE cedula = $1 AND anio = $2::integer AND mes = $3::integer
+             FOR UPDATE`,
+            [ced, y, m]
+        );
+        let row = rowQ.rows[0];
+        let estadoActual = row ? normalizeEstado(row.estado) : 'PENDIENTE';
+
+        let validation = validateRevisionRequest({
+            role: revActor.role,
+            estadoActual,
+            accion,
+            observacion
+        });
+        if (!validation.ok) {
+            const error = new Error(validation.error || 'Revisión inválida');
+            error.status = validation.status || 400;
+            throw error;
+        }
+
+        if (!row) {
+            const insertQ = await client.query(
+                `INSERT INTO conciliaciones_facturacion (cedula, anio, mes, estado, fecha_cierre, updated_at)
+                 VALUES ($1, $2, $3, 'PENDIENTE', CURRENT_DATE, NOW())
+                 RETURNING id, estado, observaciones, motivo_devolucion`,
+                [ced, y, m]
+            );
+            row = insertQ.rows[0];
+            estadoActual = 'PENDIENTE';
+            validation = validateRevisionRequest({
+                role: revActor.role,
+                estadoActual,
+                accion,
+                observacion
+            });
+            if (!validation.ok) {
+                const error = new Error(validation.error || 'Revisión inválida');
+                error.status = validation.status || 400;
+                throw error;
+            }
+        }
+
+        const motivoDevolucion = validation.accion === 'RECHAZAR' ? validation.observacion : null;
+        const updateQ = await client.query(
+            `UPDATE conciliaciones_facturacion
+             SET estado = $1,
+                 observaciones = $2,
+                 motivo_devolucion = $3,
+                 fecha_cierre = CURRENT_DATE,
+                 updated_at = NOW()
+             WHERE id = $4
+             RETURNING id, cedula, anio, mes, proyecto, observaciones, horas_facturadas, estado,
+                       factura_fv, fecha_radicacion, motivo_devolucion, fecha_cierre, created_at, updated_at`,
+            [validation.estado, validation.observacion, motivoDevolucion, row.id]
+        );
+
+        await client.query(
+            `INSERT INTO conciliaciones_facturacion_historial
+                (facturacion_id, cedula, anio, mes, accion, etapa, estado_anterior, estado_nuevo,
+                 observacion, actor_user_id, actor_email, actor_nombre, actor_role)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::uuid, $11, $12, $13::user_role)`,
+            [
+                row.id,
+                ced,
+                y,
+                m,
+                validation.accion,
+                validation.etapa,
+                estadoActual,
+                validation.estado,
+                validation.observacion,
+                revActor.userId,
+                revActor.email,
+                revActor.nombre,
+                revActor.role
+            ]
+        );
+
+        await client.query('COMMIT');
+        return updateQ.rows[0];
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+async function applyConciliacionFacturacionRevisionMasiva(deps, scope, payload, actor) {
+    const { pool, normalizeCedula } = deps;
+    const { cliente, cedulas: cedulasPayload, anio, mes, accion, observacion } = payload || {};
+
+    const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    const colQ = await pool.query(
+        `SELECT cedula FROM colaboradores WHERE activo IS NOT FALSE AND lower(btrim(COALESCE(cliente, ''))) = lower(btrim($1::text))`,
+        [chk.canon]
+    );
+    const allCedulas = colQ.rows.map((r) => String(r.cedula || '').trim()).filter(Boolean);
+    let cedulas = allCedulas;
+    if (Array.isArray(cedulasPayload) && cedulasPayload.length > 0) {
+        const allowed = new Set(allCedulas);
+        cedulas = cedulasPayload.map((c) => normalizeCedula(c)).filter((c) => allowed.has(c));
+    }
+    if (!cedulas.length) return { updated: 0, errors: [], skipped: 0 };
+
+    let updated = 0;
+    const errors = [];
+    for (const ced of cedulas) {
+        try {
+            await applyConciliacionFacturacionRevision(
+                deps,
+                scope,
+                { cedula: ced, anio, mes, accion, observacion },
+                actor
+            );
+            updated += 1;
+        } catch (e) {
+            errors.push({ cedula: ced, error: e.message || 'Error' });
+        }
+    }
+    return { updated, errors, skipped: errors.length };
+}
+
+async function listConciliacionFacturacionHistorial(deps, scope, query) {
+    const { pool, normalizeCedula } = deps;
+    const { cedula, anio, mes } = query || {};
+    const ced = normalizeCedula(cedula);
+    if (!ced) {
+        const error = new Error('Cédula inválida');
+        error.status = 400;
+        throw error;
+    }
+    const y = Number(anio);
+    const m = Number(mes);
+    if (!Number.isFinite(y) || y < 2000 || y > 2100 || !Number.isFinite(m) || m < 1 || m > 12) {
+        const error = new Error('Año o mes inválido');
+        error.status = 400;
+        throw error;
+    }
+
+    const colQ = await pool.query(
+        `SELECT cliente, cedula
+         FROM colaboradores
+         WHERE regexp_replace(COALESCE(cedula, ''), '\\D', '', 'g') = $1
+         LIMIT 1`,
+        [ced]
+    );
+    if (!colQ.rows[0]) {
+        const error = new Error('Colaborador no encontrado');
+        error.status = 404;
+        throw error;
+    }
+    const chk = await assertClienteConciliacionPermitido(deps, scope, colQ.rows[0].cliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    const q = await pool.query(
+        `SELECT id, facturacion_id, cedula, anio, mes, accion, etapa, estado_anterior, estado_nuevo,
+                observacion, actor_user_id, actor_email, actor_nombre, actor_role, created_at
+         FROM conciliaciones_facturacion_historial
+         WHERE regexp_replace(COALESCE(cedula, ''), '\\D', '', 'g') = $1 AND anio = $2::integer AND mes = $3::integer
+         ORDER BY created_at ASC`,
+        [ced, y, m]
+    );
+
+    return (q.rows || []).map((r) => ({
+        id: r.id,
+        facturacionId: r.facturacion_id,
+        cedula: r.cedula,
+        anio: r.anio,
+        mes: r.mes,
+        accion: r.accion,
+        etapa: r.etapa,
+        estadoAnterior: r.estado_anterior,
+        estadoNuevo: r.estado_nuevo,
+        observacion: r.observacion,
+        actorUserId: r.actor_user_id,
+        actorEmail: r.actor_email,
+        actorNombre: r.actor_nombre,
+        actorRole: r.actor_role,
+        createdAt: r.created_at
+    }));
+}
+
+async function deleteConciliacionFacturacion(deps, scope, payload) {
+    const { pool, normalizeCedula } = deps;
+    const { cedula, anio, mes } = payload || {};
+    const ced = normalizeCedula(cedula);
+    if (!ced) {
+        const error = new Error('Cédula inválida');
+        error.status = 400;
+        throw error;
+    }
+
+    const y = Number(anio);
+    const m = Number(mes);
+    if (!Number.isFinite(y) || y < 2000 || y > 2100) {
+        const error = new Error('Año inválido');
+        error.status = 400;
+        throw error;
+    }
+    if (!Number.isFinite(m) || m < 1 || m > 12) {
+        const error = new Error('Mes inválido');
+        error.status = 400;
+        throw error;
+    }
+
+    const colQ = await pool.query('SELECT cliente FROM colaboradores WHERE cedula = $1 LIMIT 1', [ced]);
+    if (!colQ.rows[0]) {
+        const error = new Error('Colaborador no encontrado');
+        error.status = 404;
+        throw error;
+    }
+    const chk = await assertClienteConciliacionPermitido(deps, scope, colQ.rows[0].cliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    const q = await pool.query(
+        'DELETE FROM conciliaciones_facturacion WHERE cedula = $1 AND anio = $2::integer AND mes = $3::integer RETURNING id',
+        [ced, y, m]
+    );
+
+    return { deleted: q.rowCount || 0 };
 }
 
 async function listConciliacionesFacturacion(deps, scope, year, month) {
@@ -481,6 +822,12 @@ async function listConciliacionesFacturacion(deps, scope, year, month) {
 
 async function upsertConciliacionFacturacionMasiva(deps, scope, payload) {
     const { pool } = deps;
+    const role = String(scope?.role || '').trim().toLowerCase();
+    if (!canBypassEstadoChange(role)) {
+        const error = new Error('La acción masiva de estado debe hacerse mediante revisión de aprobación');
+        error.status = 403;
+        throw error;
+    }
     const { cliente, anio, mes, estado, facturaFv, fechaRadicacion, motivoDevolucion, observaciones, cedulas: cedulasPayload } = payload;
     
     const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
@@ -823,6 +1170,77 @@ async function upsertServicioConsultores(deps, scope, servicioId, consultoresAso
     }
 }
 
+/**
+ * Cola de cierres del mes: agrega por servicio intersectando consultores asociados con filas del mes.
+ * @param {object[]} servicios - lista de servicios (p. ej. Dynamo) con consultoresCedulas
+ * @returns {Promise<{ items: object[], count: number }>}
+ */
+async function getColaCierresPorMes(deps, scope, year, month, clienteOpcional, servicios) {
+    let serviciosList = Array.isArray(servicios) ? servicios : [];
+    const clienteFilter = String(clienteOpcional || '').trim();
+
+    if (clienteFilter) {
+        const canon = await resolveClienteCanon(deps, clienteFilter);
+        if (canon) {
+            const foldCanon = foldForMatch(canon);
+            serviciosList = serviciosList.filter((s) => foldForMatch(String(s.client || '')) === foldCanon);
+        } else {
+            serviciosList = [];
+        }
+    }
+
+    /** @type {Map<string, object[]>} */
+    const byClient = new Map();
+    for (const s of serviciosList) {
+        const cl = String(s.client || '').trim();
+        if (!cl) continue;
+        if (!byClient.has(cl)) byClient.set(cl, []);
+        byClient.get(cl).push(s);
+    }
+
+    const items = [];
+    for (const [clienteCanon, servs] of byClient) {
+        /** @type {Map<string, { rows: object[], totales: object }>} */
+        const resumenCache = new Map();
+
+        for (const serv of servs) {
+            const novBucket = resolveNovedadesBucket(year, month, serv.billingType);
+            const cacheKey = `${novBucket.year}-${novBucket.month}|${year}-${month}`;
+            if (!resumenCache.has(cacheKey)) {
+                resumenCache.set(
+                    cacheKey,
+                    await getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, year, month, {
+                        novedadesYear: novBucket.year,
+                        novedadesMonth: novBucket.month
+                    })
+                );
+            }
+            const payload = resumenCache.get(cacheKey);
+            const rows = payload.rows || [];
+            const cedulas = Array.isArray(serv.consultoresCedulas) ? serv.consultoresCedulas : [];
+            const agg = aggregateServicioCierre(rows, cedulas);
+            items.push({
+                servicioId: serv.id,
+                client: serv.client,
+                serviceName: serv.serviceName,
+                closingDay: serv.closingDay,
+                billingMode: serv.billingMode,
+                billingType: serv.billingType,
+                initDate: serv.initDate || '',
+                consultoresTotal: agg.consultoresTotal,
+                consultoresCerrados: agg.consultoresCerrados,
+                consultoresConNovedad: agg.consultoresConNovedad,
+                estados: agg.estados,
+                totales: agg.totales,
+                estadoCola: deriveEstadoCola(agg)
+            });
+        }
+    }
+
+    const sorted = sortColaCierresItems(items);
+    return { items: sorted, count: sorted.length };
+}
+
 module.exports = {
     effectiveNovedadDateSql,
     monthRangeDates,
@@ -834,8 +1252,13 @@ module.exports = {
     listConciliacionNovedadesDetalle,
     getConciliacionesDashboardResumen,
     upsertConciliacionFacturacion,
+    applyConciliacionFacturacionRevision,
+    applyConciliacionFacturacionRevisionMasiva,
+    listConciliacionFacturacionHistorial,
     upsertConciliacionFacturacionMasiva,
+    deleteConciliacionFacturacion,
     listConciliacionesFacturacion,
+    getColaCierresPorMes,
     listServicios,
     createServicio,
     updateServicio,

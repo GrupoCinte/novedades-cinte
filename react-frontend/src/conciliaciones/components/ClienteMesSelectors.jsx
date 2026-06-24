@@ -2,14 +2,13 @@ import { useMemo, useState } from 'react';
 import { Filter, ChevronDown, ChevronUp, X, RefreshCw } from 'lucide-react';
 import { useModuleTheme } from '../../moduleTheme.js';
 import { buildGestionTableDash, GESTION_SEARCH_FIELD_WIDTH } from '../../gestionTableDashTheme.js';
-import { buildConciliacionesFiltrosResumen } from '../conciliacionesFiltrosResumen.js';
 
 const fieldCompact = (field) => `${field} min-w-[10rem] max-w-[22rem] cursor-pointer text-sm`;
 
 /**
  * @param {'default' | 'gestion' | 'embedded'} variant
  * - default: tarjeta filterBar independiente
- * - gestion: fila compacta dentro de ConciliacionesGestionShell (como Dashboard Gestión)
+ * - gestion: fila compacta en cabecera de facturación (como Dashboard Gestión)
  * - embedded: separador dentro de panel legacy
  */
 export default function ClienteMesSelectors({
@@ -23,6 +22,16 @@ export default function ClienteMesSelectors({
     variant = 'default',
     /** Menos padding y etiquetas (facturación compacta). */
     dense = false,
+    /** Mostrar la opción "Todos / seleccionar" en el select de cliente. */
+    allowTodos = true,
+    /** Ocultar selector de cliente (p. ej. workspace con servicio ya elegido). */
+    hideClienteSelector = false,
+    /** Mes visible en la barra principal (sin abrir drawer). */
+    showMonthInline = false,
+    /** Ocultar filtro de estado en drawer (cuando las pills ya filtran). */
+    omitEstadoFilter = false,
+    /** Contenido a la izquierda del mes (p. ej. título workspace + volver). */
+    leadingContent = null,
     trailingActions = null,
 
     isFacturacion = false,
@@ -45,48 +54,26 @@ export default function ClienteMesSelectors({
     /** Búsqueda y filtros avanzados en toda la vista de facturación (todos o un cliente). */
     const facturacionFiltersOn = Boolean(isFacturacion);
 
-    const { chipLabel } = useMemo(
-        () =>
-            buildConciliacionesFiltrosResumen({
-                clienteValue,
-                monthValue,
-                isFacturacion: facturacionFiltersOn,
-                fSearch,
-                fEstado,
-                fCerrado,
-                fProyecto,
-                fNovedades
-            }),
-        [clienteValue, monthValue, facturacionFiltersOn, fSearch, fEstado, fCerrado, fProyecto, fNovedades]
-    );
-
     const drawerExtrasCount = useMemo(() => {
         if (!facturacionFiltersOn) return 0;
         let c = 0;
-        if (fEstado) c += 1;
+        if (!omitEstadoFilter && fEstado) c += 1;
         if (fCerrado !== 'TODOS') c += 1;
         if (fProyecto) c += 1;
         if (fNovedades !== 'TODOS') c += 1;
         return c;
-    }, [facturacionFiltersOn, fEstado, fCerrado, fProyecto, fNovedades]);
+    }, [facturacionFiltersOn, omitEstadoFilter, fEstado, fCerrado, fProyecto, fNovedades]);
 
     const filtrosBtnClass = dense
         ? isLight
-            ? 'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-600/35 bg-cyan-50 px-2 py-1 text-xs font-semibold text-cyan-900 shadow-sm hover:bg-cyan-100'
-            : 'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-xs font-semibold text-cyan-100 shadow-sm hover:bg-cyan-500/20'
+            ? 'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#2F7BB8]/35 bg-[#2F7BB8]/10 px-2 py-1 text-xs font-semibold text-[#004D87] shadow-sm hover:bg-[#2F7BB8]/15'
+            : 'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#65BCF7]/40 bg-[#2F7BB8]/15 px-2 py-1 text-xs font-semibold text-[#65BCF7] shadow-sm hover:bg-[#2F7BB8]/25'
         : dash.filtrosAvanzadosBtn;
-
-    const chipClass = dense
-        ? isLight
-            ? 'inline-flex max-w-[min(100%,12rem)] items-center truncate rounded-md border border-slate-300 bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700'
-            : 'inline-flex max-w-[min(100%,12rem)] items-center truncate rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-300'
-        : dash.filtrosChip;
 
     const filterRow = (
         <div className="flex flex-wrap items-center gap-2">
-            <span className={chipClass} title={chipLabel}>
-                {chipLabel}
-            </span>
+            {leadingContent}
+
             {facturacionFiltersOn ? (
                 <button
                     type="button"
@@ -100,7 +87,7 @@ export default function ClienteMesSelectors({
                     <Filter size={dense ? 14 : 16} className="shrink-0 opacity-90" aria-hidden />
                     <span className={dense ? 'sr-only sm:not-sr-only sm:inline' : ''}>{dense ? 'Filtros' : 'Filtros avanzados'}</span>
                     {drawerExtrasCount > 0 ? (
-                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-cyan-600 text-[10px] font-bold text-white">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#2F7BB8] text-[10px] font-bold text-white">
                             {drawerExtrasCount}
                         </span>
                     ) : null}
@@ -112,27 +99,49 @@ export default function ClienteMesSelectors({
                 </button>
             ) : null}
 
-            <div className="flex items-center gap-1.5">
-                {!dense ? (
-                    <label htmlFor="conciliaciones-page-cliente" className={`${dash.labelFilter} whitespace-nowrap`}>
-                        Cliente
-                    </label>
-                ) : null}
-                <select
-                    id="conciliaciones-page-cliente"
-                    className={fieldCompact(field)}
-                    value={clienteValue}
-                    onChange={(e) => onClienteChange(e.target.value)}
-                    aria-label="Cliente"
-                >
-                    <option value="">{dense ? 'Todos…' : 'Todos / seleccionar'}</option>
-                    {clientes.map((c) => (
-                        <option key={c} value={c}>
-                            {c}
-                        </option>
-                    ))}
-                </select>
-            </div>
+            {showMonthInline ? (
+                <div className="flex items-center gap-1.5">
+                    {!dense ? (
+                        <label htmlFor="conciliaciones-page-mes" className={`${dash.labelFilter} whitespace-nowrap`}>
+                            Mes
+                        </label>
+                    ) : null}
+                    <input
+                        id="conciliaciones-page-mes"
+                        type="month"
+                        className={`${fieldCompact(field)} cinte-month-picker`}
+                        value={monthValue}
+                        onChange={(e) => onMonthChange(e.target.value)}
+                        aria-label="Mes de facturación"
+                    />
+                </div>
+            ) : null}
+
+            {!hideClienteSelector ? (
+                <div className="flex items-center gap-1.5">
+                    {!dense ? (
+                        <label htmlFor="conciliaciones-page-cliente" className={`${dash.labelFilter} whitespace-nowrap`}>
+                            Cliente
+                        </label>
+                    ) : null}
+                    <select
+                        id="conciliaciones-page-cliente"
+                        className={fieldCompact(field)}
+                        value={clienteValue}
+                        onChange={(e) => onClienteChange(e.target.value)}
+                        aria-label="Cliente"
+                    >
+                        {allowTodos ? (
+                            <option value="">{dense ? 'Todos…' : 'Todos / seleccionar'}</option>
+                        ) : null}
+                        {clientes.map((c) => (
+                            <option key={c} value={c}>
+                                {c}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            ) : null}
 
             {facturacionFiltersOn ? (
                 <input
@@ -213,24 +222,26 @@ export default function ClienteMesSelectors({
                                     <option value="CERRADO">Cerrado (listo para facturar)</option>
                                 </select>
                             </div>
-                            <div className="flex flex-col gap-1.5">
-                                <label htmlFor="conciliaciones-drawer-estado" className={dash.filtrosDrawerLabel}>
-                                    Estado de envío / radicación
-                                </label>
-                                <select
-                                    id="conciliaciones-drawer-estado"
-                                    className={`${field} w-full text-sm`}
-                                    value={fEstado}
-                                    onChange={(e) => onEstadoChange(e.target.value)}
-                                >
-                                    <option value="">Todos los estados</option>
-                                    <option value="PENDIENTE">Pendiente</option>
-                                    <option value="ENVIADA">Enviada</option>
-                                    <option value="DEVUELTA">Devuelta</option>
-                                    <option value="CONCILIADA">Conciliada</option>
-                                    <option value="RADICADA">Radicada</option>
-                                </select>
-                            </div>
+                            {!omitEstadoFilter ? (
+                                <div className="flex flex-col gap-1.5">
+                                    <label htmlFor="conciliaciones-drawer-estado" className={dash.filtrosDrawerLabel}>
+                                        Estado de conciliación
+                                    </label>
+                                    <select
+                                        id="conciliaciones-drawer-estado"
+                                        className={`${field} w-full text-sm`}
+                                        value={fEstado}
+                                        onChange={(e) => onEstadoChange(e.target.value)}
+                                    >
+                                        <option value="">Todos los estados</option>
+                                        <option value="PENDIENTE">Pendiente</option>
+                                        <option value="APROBADO_ANALISTA">Aprobado Analista</option>
+                                        <option value="APROBADO_FINANZAS">Aprobado Finanzas</option>
+                                        <option value="DEVUELTA">Devuelta</option>
+                                        <option value="CONCILIADA">Conciliada</option>
+                                    </select>
+                                </div>
+                            ) : null}
                             <div className="flex flex-col gap-1.5">
                                 <label htmlFor="conciliaciones-drawer-novedades" className={dash.filtrosDrawerLabel}>
                                     Deducciones por novedades

@@ -45,10 +45,12 @@ export async function fetchConciliacionesDashboardResumen(token, { year, month }
     return data;
 }
 
-export async function fetchConciliacionPorCliente(token, { cliente, year, month }) {
+export async function fetchConciliacionPorCliente(token, { cliente, year, month, billingType }) {
     const q = new URLSearchParams({ year: String(year), month: String(month) });
     const clienteTrim = String(cliente || '').trim();
     if (clienteTrim) q.set('cliente', clienteTrim);
+    const bt = String(billingType || '').trim();
+    if (bt) q.set('billingType', bt);
     const res = await fetch(`/api/conciliaciones/por-cliente?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
@@ -58,13 +60,15 @@ export async function fetchConciliacionPorCliente(token, { cliente, year, month 
     return data;
 }
 
-export async function fetchConciliacionNovedadesDetalle(token, { cliente, cedula, year, month }) {
+export async function fetchConciliacionNovedadesDetalle(token, { cliente, cedula, year, month, billingType }) {
     const q = new URLSearchParams({
         cliente: String(cliente || ''),
         cedula: String(cedula || ''),
         year: String(year),
         month: String(month)
     });
+    const bt = String(billingType || '').trim();
+    if (bt) q.set('billingType', bt);
     const res = await fetch(`/api/conciliaciones/novedades-detalle?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
@@ -86,6 +90,45 @@ export async function saveConciliacionFacturacion(token, payload) {
     return data.data;
 }
 
+export async function postFacturacionRevision(token, payload) {
+    const res = await fetch('/api/conciliaciones/facturacion/revision', {
+        method: 'POST',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify(payload),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al registrar revisión'));
+    return data.data;
+}
+
+export async function postFacturacionRevisionMasiva(token, payload) {
+    const res = await fetch('/api/conciliaciones/facturacion/revision/masiva', {
+        method: 'POST',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify(payload),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al procesar revisión masiva'));
+    return data.data;
+}
+
+export async function fetchFacturacionHistorial(token, { cedula, anio, mes }) {
+    const q = new URLSearchParams({
+        cedula: String(cedula || ''),
+        anio: String(anio),
+        mes: String(mes)
+    });
+    const res = await fetch(`/api/conciliaciones/facturacion/historial?${q}`, {
+        headers: conciliacionesAuthHeaders(token),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar historial'));
+    return Array.isArray(data.items) ? data.items : [];
+}
+
 export async function saveConciliacionFacturacionMasiva(token, payload) {
     const res = await fetch('/api/conciliaciones/facturacion/masiva', {
         method: 'POST',
@@ -96,6 +139,31 @@ export async function saveConciliacionFacturacionMasiva(token, payload) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al procesar acción masiva'));
     return data.data;
+}
+
+export async function deleteConciliacionFacturacion(token, { cedula, anio, mes }) {
+    const res = await fetch('/api/conciliaciones/facturacion', {
+        method: 'DELETE',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify({ cedula, anio, mes }),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al eliminar la facturación'));
+    return data;
+}
+
+export async function fetchColaCierres(token, { year, month, cliente }) {
+    const q = new URLSearchParams({ year: String(year), month: String(month) });
+    const clienteTrim = String(cliente || '').trim();
+    if (clienteTrim) q.set('cliente', clienteTrim);
+    const res = await fetch(`/api/conciliaciones/facturacion/cola-cierres?${q}`, {
+        headers: conciliacionesAuthHeaders(token),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar cola de cierres'));
+    return data;
 }
 
 export async function fetchConciliacionesFacturacionList(token, { year, month }) {

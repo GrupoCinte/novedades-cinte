@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Eye } from 'lucide-react';
+import { Eye, Trash2 } from 'lucide-react';
 import { useModuleTheme } from '../../moduleTheme.js';
 import { buildGestionTableDash } from '../../gestionTableDashTheme.js';
 
@@ -12,6 +12,9 @@ export default function ConciliacionesTabla({
     rows,
     onVerDetalle,
     onFacturar,
+    onEliminar,
+    /** Clic en la fila abre detalle; oculta columna Acciones. */
+    onRowClick = null,
     headingAccent,
     labelMuted,
     /** Columna Cliente (vista «Todos / seleccionar»). */
@@ -38,7 +41,9 @@ export default function ConciliacionesTabla({
     const tdMutedCell = dense ? `p-2.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}` : dash.tdMuted;
     const tdActions = dense ? 'p-2.5 pr-4' : 'p-4 pr-6';
     const emptyPad = dense ? 'p-8' : 'p-12';
-    const colCount = showClienteColumn ? 9 : 8;
+    const showEliminar = typeof onEliminar === 'function' && !onRowClick;
+    const showActionsColumn = !onRowClick && (typeof onFacturar === 'function' || typeof onVerDetalle === 'function');
+    const colCount = 6 + (showClienteColumn ? 1 : 0) + (showEliminar ? 1 : 0) + (showActionsColumn ? 1 : 0);
 
     const tableEl = (
         <table className={`w-full border-collapse text-left whitespace-nowrap ${dense ? 'min-w-[820px] text-xs' : 'min-w-[900px] md:min-w-full text-sm'}`}>
@@ -46,13 +51,13 @@ export default function ConciliacionesTabla({
                 <tr className={dash.thead}>
                     <th className={thFirst}>Colaborador</th>
                     {showClienteColumn ? <th className={th}>Cliente</th> : null}
-                    <th className={th}>Perfil</th>
                     <th className={th}>Tarifa Cliente</th>
                     <th className={th}>Novedades</th>
-                    <th className={th}>Monto</th>
+                    <th className={th}>Incremento/Deducción</th>
                     <th className={th}>Factura</th>
                     <th className={th}>Estado</th>
-                    <th className={thLast}>Acciones</th>
+                    {showEliminar ? <th className={th}>Eliminar</th> : null}
+                    {showActionsColumn ? <th className={thLast}>Acciones</th> : null}
                 </tr>
             </thead>
             <tbody className={dash.tbody}>
@@ -72,7 +77,8 @@ export default function ConciliacionesTabla({
                     rows.map((r) => (
                         <tr
                             key={showClienteColumn ? `${r.cliente || ''}::${r.cedula}` : r.cedula}
-                            className={dash.trHover}
+                            className={`${dash.trHover}${onRowClick ? ' cursor-pointer' : ''}`}
+                            onClick={onRowClick ? () => onRowClick(r) : undefined}
                         >
                             <td className={tdFirst}>
                                 <div>{r.nombre}</div>
@@ -83,9 +89,6 @@ export default function ConciliacionesTabla({
                                     {r.cliente || '—'}
                                 </td>
                             ) : null}
-                            <td className={`${tdRest} ${isLight ? 'text-slate-500' : 'text-slate-400'}`} title={r.perfil || ''}>
-                                {r.perfil || '—'}
-                            </td>
                             <td className={`${tdRest} tabular-nums`}>
                                 {formatCop(r.tarifaCliente)}
                                 {r.moneda ? <span className={`ml-1 text-xs ${labelMuted}`}>{r.moneda}</span> : null}
@@ -94,7 +97,10 @@ export default function ConciliacionesTabla({
                                 {r.novedadesCount > 0 ? (
                                     <button
                                         type="button"
-                                        onClick={() => onVerDetalle(r)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onVerDetalle(r);
+                                        }}
                                         className="text-sm font-semibold text-[#65BCF7] underline-offset-2 hover:underline"
                                     >
                                         {r.novedadesCount} aprobadas
@@ -104,19 +110,8 @@ export default function ConciliacionesTabla({
                                 )}
                             </td>
                             <td className={`${tdRest} tabular-nums`}>{formatCop(r.novedadesSumCop)}</td>
-                            <td className={`${tdRest} tabular-nums`}>
-                                {onFacturar ? (
-                                    <button
-                                        type="button"
-                                        onClick={() => onFacturar(r)}
-                                        className="flex items-center gap-1.5 font-semibold text-[#1fc76a] underline-offset-2 hover:underline"
-                                        title={r.cerrado ? 'Editar facturación' : 'Cerrar facturación'}
-                                    >
-                                        {formatCop(r.facturaCop)}
-                                    </button>
-                                ) : (
-                                    <span className={`font-semibold ${headingAccent}`}>{formatCop(r.facturaCop)}</span>
-                                )}
+                            <td className={`${tdRest} tabular-nums font-semibold ${headingAccent}`}>
+                                {formatCop(r.facturaCop)}
                             </td>
                             <td className={tdPad || 'p-4'}>
                                 {(() => {
@@ -127,25 +122,25 @@ export default function ConciliacionesTabla({
                                         PENDIENTE: isLight
                                             ? 'border-amber-300 bg-amber-100 text-amber-900'
                                             : 'border-amber-500/20 bg-amber-500/10 text-amber-400',
-                                        ENVIADA: isLight
-                                            ? 'border-blue-300 bg-blue-100 text-blue-900'
-                                            : 'border-blue-500/20 bg-blue-500/10 text-blue-400',
+                                        APROBADO_ANALISTA: isLight
+                                            ? 'border-[#65BCF7]/40 bg-[#2F7BB8]/10 text-[#004D87]'
+                                            : 'border-[#65BCF7]/30 bg-[#2F7BB8]/15 text-[#65BCF7]',
+                                        APROBADO_FINANZAS: isLight
+                                            ? 'border-violet-300 bg-violet-100 text-violet-900'
+                                            : 'border-violet-500/20 bg-violet-500/10 text-violet-400',
                                         DEVUELTA: isLight
                                             ? 'border-rose-300 bg-rose-100 text-rose-900'
                                             : 'border-rose-500/20 bg-rose-500/10 text-rose-400',
                                         CONCILIADA: isLight
-                                            ? 'border-cyan-300 bg-cyan-100 text-cyan-900'
-                                            : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-300',
-                                        RADICADA: isLight
                                             ? 'border-emerald-300 bg-emerald-100 text-emerald-900'
                                             : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
                                     };
                                     const labels = {
                                         PENDIENTE: 'Pendiente',
-                                        ENVIADA: 'Enviada',
+                                        APROBADO_ANALISTA: 'Aprobado Analista',
+                                        APROBADO_FINANZAS: 'Aprobado Finanzas',
                                         DEVUELTA: 'Devuelta',
-                                        CONCILIADA: 'Conciliada',
-                                        RADICADA: 'Radicada'
+                                        CONCILIADA: 'Conciliada'
                                     };
                                     return (
                                         <span className={`${badgeBase} ${styles[est] || styles.PENDIENTE}`}>
@@ -154,23 +149,57 @@ export default function ConciliacionesTabla({
                                     );
                                 })()}
                             </td>
-                            <td className={tdActions}>
-                                <div className="flex items-center justify-end gap-2">
-                                    {onFacturar ? (
-                                        <button type="button" onClick={() => onFacturar(r)} className={dash.actionBtn}>
-                                            {r.cerrado ? 'Editar' : 'Facturar'}
+                            {showEliminar ? (
+                                <td className={tdPad || 'p-4'}>
+                                    {r.cerrado ? (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onEliminar(r);
+                                            }}
+                                            className="inline-flex items-center gap-1.5 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-xs font-semibold text-rose-500 transition hover:bg-rose-500/20"
+                                            title="Eliminar registro de facturación"
+                                        >
+                                            <Trash2 size={14} aria-hidden />
+                                            Eliminar
                                         </button>
-                                    ) : null}
-                                    <button
-                                        type="button"
-                                        onClick={() => onVerDetalle(r)}
-                                        className={dash.actionBtn}
-                                    >
-                                        <Eye size={14} aria-hidden />
-                                        Ver detalle
-                                    </button>
-                                </div>
-                            </td>
+                                    ) : (
+                                        <span className={dash.tdMuted}>—</span>
+                                    )}
+                                </td>
+                            ) : null}
+                            {showActionsColumn ? (
+                                <td className={tdActions}>
+                                    <div className="flex items-center justify-end gap-2">
+                                        {onFacturar ? (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onFacturar(r);
+                                                }}
+                                                className={dash.actionBtn}
+                                            >
+                                                {r.cerrado ? 'Editar' : 'Revisión'}
+                                            </button>
+                                        ) : null}
+                                        {onVerDetalle ? (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onVerDetalle(r);
+                                                }}
+                                                className={dash.actionBtn}
+                                            >
+                                                <Eye size={14} aria-hidden />
+                                                Ver detalle
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                </td>
+                            ) : null}
                         </tr>
                     ))
                 )}

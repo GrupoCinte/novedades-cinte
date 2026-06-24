@@ -17,14 +17,13 @@ import CapitalHumanoModule from './CapitalHumanoModule';
 import DirectorioClienteColaboradorModule from './DirectorioClienteColaboradorModule';
 import ConciliacionesModule from './conciliaciones/ConciliacionesModule.jsx';
 import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboardPage.jsx';
-import ConciliacionesPage from './conciliaciones/ConciliacionesPage.jsx';
 import ConciliacionesFacturacionPage from './conciliaciones/ConciliacionesFacturacionPage.jsx';
 import ConciliacionesServiciosPage from './conciliaciones/ConciliacionesServiciosPage.jsx';
 import AdminPortalHome from './AdminPortalHome';
 import AdminAccountSettingsPage from './AdminAccountSettingsPage.jsx';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
-import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
+import { userHasNovedadesAdminAccess, userHasCotizadorAccess, userHasConciliacionesAccess } from './comercialAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
 import { cognitoSignOut } from './cognitoAuth';
 import { useUiTheme } from './UiThemeContext.jsx';
@@ -59,10 +58,8 @@ function AdminPortalSinModulos({ onLogout }) {
 
 function adminPortalModuleCount(auth) {
   let n = 0;
-  if (userHasNovedadesAdminAccess(auth)) {
-    n += 1;
-    n += 1;
-  }
+  if (userHasNovedadesAdminAccess(auth)) n += 1;
+  if (CONCILIACIONES_MODULE_ENABLED && userHasConciliacionesAccess(auth)) n += 1;
   if (userHasCotizadorAccess(auth)) n += 1;
   if (userHasContratacionPanel(auth) || userHasOnboardingPanel(auth)) n += 1;
   if (userHasDirectorioPanel(auth)) n += 1;
@@ -78,6 +75,12 @@ function ProtectedRoute({ children, auth }) {
     return <Navigate to="/admin" replace />;
   }
   return children;
+}
+
+/** Enlaces antiguos a /resumen → facturación (conserva ?cliente=). */
+function ConciliacionesResumenRedirect() {
+  const location = useLocation();
+  return <Navigate to={`/admin/conciliaciones/facturacion${location.search}`} replace />;
 }
 
 function App() {
@@ -316,7 +319,7 @@ function App() {
               path="/admin/conciliaciones"
               element={(
                 <ProtectedRoute auth={auth}>
-                  {userHasNovedadesAdminAccess(auth) ? (
+                  {userHasConciliacionesAccess(auth) ? (
                     <ConciliacionesModule auth={auth} onLogout={handleLogout} />
                   ) : (
                     <Navigate to="/admin" replace />
@@ -329,8 +332,8 @@ function App() {
                 path="dashboard"
                 element={<ConciliacionesDashboardPage token={auth?.token || ''} />}
               />
-              <Route path="resumen" element={<ConciliacionesPage token={auth?.token || ''} />} />
-              <Route path="facturacion" element={<ConciliacionesFacturacionPage token={auth?.token || ''} />} />
+              <Route path="resumen" element={<ConciliacionesResumenRedirect />} />
+              <Route path="facturacion" element={<ConciliacionesFacturacionPage token={auth?.token || ''} auth={auth} />} />
               <Route path="servicios" element={<ConciliacionesServiciosPage token={auth?.token || ''} />} />
             </Route>
           ) : (

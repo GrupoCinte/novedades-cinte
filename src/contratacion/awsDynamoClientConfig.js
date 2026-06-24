@@ -1,8 +1,13 @@
 'use strict';
 
+const https = require('https');
+const { NodeHttpHandler } = require('@smithy/node-http-handler');
+
 /**
  * Configuración compartida para DynamoDBClient / Streams (región, credenciales opcionales, endpoint opcional).
  * Endpoint: LocalStack / DynamoDB Local vía `DYNAMODB_ENDPOINT` o `AWS_ENDPOINT_URL_DYNAMODB`.
+ *
+ * TLS: en Windows/red corporativa con proxy MITM, usar `AWS_DYNAMODB_TLS_INSECURE=true` solo en local.
  */
 function buildDynamoLowLevelClientConfig(overrides = {}) {
     const awsRegion = String(overrides.region || process.env.AWS_REGION || 'us-east-1').trim() || 'us-east-1';
@@ -28,6 +33,16 @@ function buildDynamoLowLevelClientConfig(overrides = {}) {
     if (creds) {
         clientConfig.credentials = creds;
     }
+
+    const tlsInsecure =
+        String(process.env.AWS_DYNAMODB_TLS_INSECURE || '').trim() === '1' ||
+        String(process.env.AWS_DYNAMODB_TLS_INSECURE || '').trim().toLowerCase() === 'true';
+    if (tlsInsecure) {
+        clientConfig.requestHandler = new NodeHttpHandler({
+            httpsAgent: new https.Agent({ rejectUnauthorized: false })
+        });
+    }
+
     return clientConfig;
 }
 

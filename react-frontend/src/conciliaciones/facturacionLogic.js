@@ -1,20 +1,39 @@
 /** Estados de conciliación / facturación (alineado con backend Zod). */
-export const ESTADOS_FACTURACION = ['PENDIENTE', 'ENVIADA', 'DEVUELTA', 'CONCILIADA', 'RADICADA'];
+import { countEstadosFromRows as countEstadosFromRowsShared, aggregateServicioCierre } from './facturacionAggregate.js';
+
+export const ESTADOS_FACTURACION = ['PENDIENTE', 'APROBADO_ANALISTA', 'APROBADO_FINANZAS', 'DEVUELTA', 'CONCILIADA'];
 
 export const ESTADOS_FACTURACION_META = [
-    { key: 'PENDIENTE', label: 'Pendiente', pill: 'text-amber-500 border-amber-500/30 bg-amber-500/10' },
-    { key: 'ENVIADA', label: 'Enviada', pill: 'text-blue-500 border-blue-500/30 bg-blue-500/10' },
-    { key: 'DEVUELTA', label: 'Devuelta', pill: 'text-red-500 border-red-500/30 bg-red-500/10' },
-    { key: 'CONCILIADA', label: 'Conciliada', pill: 'text-[#65BCF7] border-[#2F7BB8]/30 bg-[#2F7BB8]/10' },
-    { key: 'RADICADA', label: 'Radicada', pill: 'text-emerald-500 border-emerald-500/30 bg-emerald-500/10' }
+    { key: 'PENDIENTE', label: 'Pendiente', shortLabel: 'Pend.', pill: 'text-amber-500 border-amber-500/30 bg-amber-500/10' },
+    { key: 'APROBADO_ANALISTA', label: 'Aprobado Analista', shortLabel: 'Anal.', pill: 'text-[#2F7BB8] border-[#2F7BB8]/30 bg-[#2F7BB8]/10' },
+    { key: 'APROBADO_FINANZAS', label: 'Aprobado Finanzas', shortLabel: 'Fin.', pill: 'text-violet-500 border-violet-500/30 bg-violet-500/10' },
+    { key: 'DEVUELTA', label: 'Devuelta', shortLabel: 'Dev.', pill: 'text-red-500 border-red-500/30 bg-red-500/10' },
+    { key: 'CONCILIADA', label: 'Conciliada', shortLabel: 'Conc.', pill: 'text-emerald-500 border-emerald-500/30 bg-emerald-500/10' }
 ];
 
 const SEGMENT_DOT = {
     PENDIENTE: 'bg-amber-500',
-    ENVIADA: 'bg-blue-500',
+    APROBADO_ANALISTA: 'bg-[#2F7BB8]',
+    APROBADO_FINANZAS: 'bg-violet-500',
     DEVUELTA: 'bg-red-500',
-    CONCILIADA: 'bg-[#65BCF7]',
-    RADICADA: 'bg-emerald-500'
+    CONCILIADA: 'bg-emerald-500'
+};
+
+/** Tono pill alineado con Capital Humano / onboarding (light, dark). */
+const ESTADO_TONE = {
+    PENDIENTE: ['border-amber-300 bg-amber-50 text-amber-900', 'border-amber-500/30 bg-amber-500/10 text-amber-200'],
+    APROBADO_ANALISTA: ['border-[#65BCF7]/40 bg-[#2F7BB8]/10 text-[#004D87]', 'border-[#65BCF7]/30 bg-[#2F7BB8]/15 text-[#65BCF7]'],
+    APROBADO_FINANZAS: ['border-violet-300 bg-violet-50 text-violet-900', 'border-violet-500/30 bg-violet-500/10 text-violet-200'],
+    DEVUELTA: ['border-rose-300 bg-rose-50 text-rose-900', 'border-rose-500/30 bg-rose-500/10 text-rose-200'],
+    CONCILIADA: ['border-emerald-300 bg-emerald-50 text-emerald-900', 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200']
+};
+
+const ESTADO_DOT_COLOR = {
+    PENDIENTE: '#f59e0b',
+    APROBADO_ANALISTA: '#2F7BB8',
+    APROBADO_FINANZAS: '#8b5cf6',
+    DEVUELTA: '#ef4444',
+    CONCILIADA: '#10b981'
 };
 
 /**
@@ -70,14 +89,14 @@ export function filterFacturacionRows(rows, filters) {
     });
 }
 
-/** Pills de resumen (Pendiente, Enviada, …): solo en vista «Todos / seleccionar». */
-export function shouldShowFacturacionEstadosResumen(isTodosClientes) {
-    return Boolean(isTodosClientes);
+/** Pills de resumen en workspace de servicio (nivel 2). */
+export function shouldShowFacturacionEstadosResumen(inWorkspace) {
+    return Boolean(inWorkspace);
 }
 
-/** Acción grupal: solo con un cliente concreto seleccionado. */
-export function shouldShowFacturacionAccionGrupal(isTodosClientes) {
-    return !Boolean(isTodosClientes);
+/** Acción grupal: en workspace de servicio. */
+export function shouldShowFacturacionAccionGrupal(inWorkspace) {
+    return Boolean(inWorkspace);
 }
 
 /** Indicador de conciliación del cliente: solo con cliente concreto. */
@@ -95,14 +114,7 @@ function buildClienteConciliacionEstadoSlots(estados) {
 }
 
 function countEstadosFromRows(rows) {
-    return (Array.isArray(rows) ? rows : []).reduce(
-        (acc, r) => {
-            const est = r.estado || 'PENDIENTE';
-            if (ESTADOS_FACTURACION.includes(est)) acc[est] = (acc[est] || 0) + 1;
-            return acc;
-        },
-        { PENDIENTE: 0, ENVIADA: 0, DEVUELTA: 0, CONCILIADA: 0, RADICADA: 0 }
-    );
+    return countEstadosFromRowsShared(rows);
 }
 
 /**
@@ -142,6 +154,24 @@ export function conciliacionEstadoDotClass(estadoKey) {
     return SEGMENT_DOT[estadoKey] || 'bg-slate-500';
 }
 
+/** Color sólido del dot (chips estilo Capital Humano). */
+export function conciliacionEstadoDotColor(estadoKey) {
+    return ESTADO_DOT_COLOR[estadoKey] || '#64748b';
+}
+
+/** Tono pill por estado (mismo patrón que En ingreso / onboarding). */
+export function conciliacionEstadoTone(estadoKey, isLight = false) {
+    const pair = ESTADO_TONE[estadoKey];
+    if (!pair) {
+        return isLight ? 'border-slate-300 bg-slate-100 text-slate-700' : 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+    }
+    return isLight ? pair[0] : pair[1];
+}
+
+export function conciliacionEstadoTodosTone(isLight = false) {
+    return isLight ? 'border-slate-300 bg-slate-100 text-slate-700' : 'border-slate-500/30 bg-slate-500/10 text-slate-300';
+}
+
 /** Chip de estado (mismas medidas que pills de Gestión / resumen de estados). */
 export function conciliacionEstadoChipClass(active, pill, isLight = false) {
     const base = 'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-body text-xs font-medium transition-all';
@@ -165,23 +195,21 @@ export function toggleFacturacionEstadoFilter(currentEstado, clickedEstado) {
  * Agrega conteos por estado a totales del mes.
  */
 export function buildFacturacionTotales(rows, totales) {
-    if (!Array.isArray(rows) || !rows.length || !totales) return totales;
+    if (!Array.isArray(rows) || !rows.length) return totales || null;
 
-    const cerradosCount = rows.filter((r) => r.cerrado).length;
-    const estados = rows.reduce(
-        (acc, r) => {
-            const est = r.estado || 'PENDIENTE';
-            acc[est] = (acc[est] || 0) + 1;
-            return acc;
-        },
-        { PENDIENTE: 0, ENVIADA: 0, DEVUELTA: 0, CONCILIADA: 0, RADICADA: 0 }
-    );
+    const cedulas = rows.map((r) => r.cedula);
+    const agg = aggregateServicioCierre(rows, cedulas);
 
     return {
-        ...totales,
-        cerradosCount,
-        pendientesCount: rows.length - cerradosCount,
-        estados
+        ...(totales || {}),
+        tarifaSum: agg.totales.tarifaSum,
+        deduccionSum: agg.totales.deduccionSum,
+        facturaSum: agg.totales.facturaSum,
+        colaboradores: agg.consultoresTotal,
+        conNovedad: agg.consultoresConNovedad,
+        cerradosCount: agg.consultoresCerrados,
+        pendientesCount: agg.consultoresTotal - agg.consultoresCerrados,
+        estados: agg.estados
     };
 }
 
@@ -194,7 +222,7 @@ function trimOrNull(v) {
  * Valida formulario individual antes de POST /facturacion.
  * @returns {{ ok: true, data: object } | { ok: false, error: string }}
  */
-export function validateFacturacionForm({ proyecto, estado, facturaFv, fechaRadicacion, motivoDevolucion, requireProyecto = true }) {
+export function validateFacturacionForm({ proyecto, estado, fechaRadicacion, motivoDevolucion, requireProyecto = true }) {
     const est = String(estado || 'PENDIENTE').trim();
     if (!ESTADOS_FACTURACION.includes(est)) {
         return { ok: false, error: 'Estado de conciliación inválido' };
@@ -202,16 +230,8 @@ export function validateFacturacionForm({ proyecto, estado, facturaFv, fechaRadi
     if (requireProyecto && !String(proyecto || '').trim()) {
         return { ok: false, error: 'El proyecto es obligatorio' };
     }
-    if (est === 'RADICADA' || est === 'ENVIADA') {
-        if (!String(facturaFv || '').trim()) {
-            return { ok: false, error: 'El número de factura (FV) es obligatorio para este estado' };
-        }
-        if (!String(fechaRadicacion || '').trim()) {
-            return { ok: false, error: 'La fecha de radicación es obligatoria para este estado' };
-        }
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fechaRadicacion).trim())) {
-            return { ok: false, error: 'La fecha de radicación debe tener formato AAAA-MM-DD' };
-        }
+    if (String(fechaRadicacion || '').trim() && !/^\d{4}-\d{2}-\d{2}$/.test(String(fechaRadicacion).trim())) {
+        return { ok: false, error: 'La fecha de radicación debe tener formato AAAA-MM-DD' };
     }
     if (est === 'DEVUELTA' && !String(motivoDevolucion || '').trim()) {
         return { ok: false, error: 'El motivo de devolución es obligatorio' };
@@ -224,7 +244,6 @@ export function validateFacturacionForm({ proyecto, estado, facturaFv, fechaRadi
  */
 export function buildFacturacionSavePayload(form, { cedula, anio, mes }) {
     const est = String(form.estado || 'PENDIENTE').trim();
-    const needsRadicacion = est === 'RADICADA' || est === 'ENVIADA';
     return {
         cedula: String(cedula || '').trim(),
         anio,
@@ -232,35 +251,240 @@ export function buildFacturacionSavePayload(form, { cedula, anio, mes }) {
         proyecto: trimOrNull(form.proyecto),
         observaciones: trimOrNull(form.observaciones),
         estado: est,
-        facturaFv: needsRadicacion ? trimOrNull(form.facturaFv) : null,
-        fechaRadicacion: needsRadicacion ? trimOrNull(form.fechaRadicacion) : null,
+        facturaFv: trimOrNull(form.facturaFv),
+        fechaRadicacion: trimOrNull(form.fechaRadicacion),
         motivoDevolucion: est === 'DEVUELTA' ? trimOrNull(form.motivoDevolucion) : null
     };
 }
 
+/** Valida observación obligatoria al aprobar o rechazar revisión. */
+export function validateRevisionObservacion(observaciones) {
+    if (!String(observaciones || '').trim()) {
+        return { ok: false, error: 'La observación es obligatoria' };
+    }
+    return { ok: true };
+}
+
+const ELEVATED_ROLES = new Set(['super_admin', 'cac']);
+
+function normalizeRole(role) {
+    return String(role || '').trim().toLowerCase();
+}
+
+function normalizeEstado(estado) {
+    const e = String(estado || 'PENDIENTE').trim();
+    return ESTADOS_FACTURACION.includes(e) ? e : 'PENDIENTE';
+}
+
+function resolveEffectiveEtapa(role, estadoActual) {
+    const r = normalizeRole(role);
+    if (ELEVATED_ROLES.has(r)) {
+        const est = normalizeEstado(estadoActual);
+        if (est === 'APROBADO_ANALISTA') return 'NOMINA';
+        if (est === 'PENDIENTE' || est === 'DEVUELTA') return 'ANALISTA';
+        return null;
+    }
+    if (r === 'analista_conciliaciones') return 'ANALISTA';
+    if (r === 'nomina') return 'NOMINA';
+    return null;
+}
+
+function canActOnEstado(role, estadoActual, accion) {
+    const act = String(accion || '').trim().toLowerCase();
+    if (act !== 'aprobar' && act !== 'rechazar') return false;
+    const est = normalizeEstado(estadoActual);
+    const etapa = resolveEffectiveEtapa(role, est);
+    if (!etapa) return false;
+    if (etapa === 'ANALISTA') {
+        if (act === 'rechazar') return false;
+        return est === 'PENDIENTE' || est === 'DEVUELTA';
+    }
+    if (etapa === 'NOMINA') {
+        return est === 'APROBADO_ANALISTA';
+    }
+    return false;
+}
+
+/** Roles que pueden usar aprobación masiva de revisión. */
+export function canUserPerformMasivaRevision(role) {
+    const r = normalizeRole(role);
+    return r === 'analista_conciliaciones' || r === 'nomina' || ELEVATED_ROLES.has(r);
+}
+
+/** Filas sobre las que el rol puede ejecutar la acción masiva indicada. */
+export function filterMasivaEligibleRows(role, rows, accion = 'aprobar') {
+    return (Array.isArray(rows) ? rows : []).filter((row) => canActOnEstado(role, row?.estado, accion));
+}
+
+/** Acciones de revisión visibles según rol y estado del cierre. */
+export function getRevisionActionsForUser(role, estado) {
+    const est = normalizeEstado(estado);
+    const etapa = resolveEffectiveEtapa(role, est);
+    if (!etapa) {
+        return { canAprobar: false, canRechazar: false, etapaLabel: null, aprobarLabel: 'Aprobar' };
+    }
+    if (etapa === 'ANALISTA') {
+        const canAprobar = est === 'PENDIENTE' || est === 'DEVUELTA';
+        return {
+            canAprobar,
+            canRechazar: false,
+            etapaLabel: 'Analista',
+            aprobarLabel: 'Enviar a Nómina'
+        };
+    }
+    if (etapa === 'NOMINA' && est === 'APROBADO_ANALISTA') {
+        return {
+            canAprobar: true,
+            canRechazar: true,
+            etapaLabel: 'Nómina',
+            aprobarLabel: 'Aprobar cierre'
+        };
+    }
+    return { canAprobar: false, canRechazar: false, etapaLabel: etapa, aprobarLabel: 'Aprobar' };
+}
+
 /**
- * Valida y arma payload acción masiva.
+ * Arma payload para POST /facturacion/revision (sin calcular estado en cliente).
+ * @param {'aprobar'|'rechazar'} accion
+ */
+export function buildFacturacionRevisionPayload({ accion, observaciones }, { cedula, anio, mes }) {
+    const obs = String(observaciones || '').trim();
+    const validation = validateRevisionObservacion(obs);
+    if (!validation.ok) return validation;
+
+    const act = String(accion || '').trim().toLowerCase();
+    if (act !== 'aprobar' && act !== 'rechazar') {
+        return { ok: false, error: 'Acción inválida' };
+    }
+
+    return {
+        ok: true,
+        data: {
+            cedula: String(cedula || '').trim(),
+            anio,
+            mes,
+            accion: act,
+            observacion: obs
+        }
+    };
+}
+
+/**
+ * Valida y arma payload acción masiva de revisión.
+ */
+export function buildFacturacionRevisionMasivaPayload(form, { cliente, anio, mes, cedulas }) {
+    const obs = String(form.observacion || form.observaciones || '').trim();
+    const validation = validateRevisionObservacion(obs);
+    if (!validation.ok) return validation;
+
+    const act = String(form.accion || 'aprobar').trim().toLowerCase();
+    if (act !== 'aprobar' && act !== 'rechazar') {
+        return { ok: false, error: 'Acción inválida' };
+    }
+
+    const payload = {
+        cliente: String(cliente || '').trim(),
+        anio,
+        mes,
+        accion: act,
+        observacion: obs
+    };
+
+    if (Array.isArray(cedulas) && cedulas.length > 0) {
+        payload.cedulas = cedulas.map((c) => String(c || '').trim()).filter(Boolean);
+    }
+
+    return { ok: true, data: payload };
+}
+
+/** Etapa de revisión masiva según rol y filas elegibles para la acción. */
+export function resolveMasivaEtapaForRows(role, rows, accion = 'aprobar') {
+    const eligible = filterMasivaEligibleRows(role, rows, accion);
+    if (!eligible.length) return null;
+
+    const r = normalizeRole(role);
+    if (r === 'analista_conciliaciones') return 'ANALISTA';
+    if (r === 'nomina') return 'NOMINA';
+    if (ELEVATED_ROLES.has(r)) {
+        const estados = eligible.map((row) => normalizeEstado(row?.estado));
+        const allNomina = estados.every((e) => e === 'APROBADO_ANALISTA');
+        const allAnalista = estados.every((e) => e === 'PENDIENTE' || e === 'DEVUELTA');
+        if (allNomina) return 'NOMINA';
+        if (allAnalista) return 'ANALISTA';
+        return 'MIXED';
+    }
+    return null;
+}
+
+export function getMasivaRevisionDefaults(role, rows, accion = 'aprobar') {
+    const eligible = filterMasivaEligibleRows(role, rows, accion);
+    const etapa = resolveMasivaEtapaForRows(role, rows, accion);
+    if (etapa === 'NOMINA') {
+        const canRechazar = filterMasivaEligibleRows(role, rows, 'rechazar').length > 0;
+        return {
+            accionDefault: 'aprobar',
+            canRechazar,
+            aprobarLabel: 'Aprobar cierres',
+            rechazarLabel: 'Rechazar cierres',
+            title: 'Aprobación masiva — Nómina',
+            etapa,
+            eligibleCount: eligible.length
+        };
+    }
+    if (etapa === 'ANALISTA') {
+        return {
+            accionDefault: 'aprobar',
+            canRechazar: false,
+            aprobarLabel: 'Enviar a Nómina',
+            rechazarLabel: null,
+            title: 'Aprobación masiva — Analista',
+            etapa,
+            eligibleCount: eligible.length
+        };
+    }
+    if (etapa === 'MIXED') {
+        return {
+            accionDefault: 'aprobar',
+            canRechazar: false,
+            aprobarLabel: 'Aprobar elegibles',
+            rechazarLabel: null,
+            title: 'Aprobación masiva',
+            etapa,
+            eligibleCount: eligible.length
+        };
+    }
+    return {
+        accionDefault: 'aprobar',
+        canRechazar: false,
+        aprobarLabel: 'Aprobar',
+        rechazarLabel: null,
+        title: 'Aprobación masiva',
+        etapa: null,
+        eligibleCount: 0
+    };
+}
+
+/**
+ * Valida y arma payload acción masiva (legacy; solo super_admin/cac vía API directa).
  * @param {string[]|undefined} cedulas - si se envía, solo esas cédulas (p. ej. filtro activo).
  */
 export function buildFacturacionMasivaPayload(form, { cliente, anio, mes, cedulas }) {
     const est = String(form.estado || 'PENDIENTE').trim();
     const validation = validateFacturacionForm({
         estado: est,
-        facturaFv: form.facturaFv,
         fechaRadicacion: form.fechaRadicacion,
         motivoDevolucion: form.motivoDevolucion,
         requireProyecto: false
     });
     if (!validation.ok) return validation;
 
-    const needsRadicacion = est === 'RADICADA' || est === 'ENVIADA';
     const payload = {
         cliente: String(cliente || '').trim(),
         anio,
         mes,
         estado: est,
-        facturaFv: needsRadicacion ? trimOrNull(form.facturaFv) : null,
-        fechaRadicacion: needsRadicacion ? trimOrNull(form.fechaRadicacion) : null,
+        facturaFv: trimOrNull(form.facturaFv),
+        fechaRadicacion: trimOrNull(form.fechaRadicacion),
         motivoDevolucion: est === 'DEVUELTA' ? trimOrNull(form.motivoDevolucion) : null,
         observaciones: trimOrNull(form.observaciones)
     };
@@ -287,13 +511,48 @@ export function planSuccessBannerDismiss(onDismiss, ms = FACTURACION_SUCCESS_BAN
     return () => clearTimeout(id);
 }
 
+/** Tipos que incrementan la factura neta (bonificaciones / horas extra / disponibilidad). */
+const NOVEDAD_TIPOS_SUMA = new Set(['Bonos', 'Hora Extra', 'Disponibilidad']);
+
+/**
+ * Impacto de una novedad sobre la tarifa del consultor en conciliación.
+ * @returns {'suma' | 'resta'}
+ */
+export function getNovedadImpactoFacturacion(tipoNovedad, row = null) {
+    if (row?.impacto === 'suma' || row?.impacto === 'resta') return row.impacto;
+    const tipo = String(tipoNovedad || '').trim();
+    return NOVEDAD_TIPOS_SUMA.has(tipo) ? 'suma' : 'resta';
+}
+
+/** Total neto del desglose; con items cargados recalcula desde la lista (coherente con filas visibles). */
+export function computeFacturaLedgerTotal(tarifaCliente, items, facturaCop = null) {
+    let total = Number(tarifaCliente) || 0;
+    if (Array.isArray(items)) {
+        for (const row of items) {
+            const monto = Number(row.montoCop);
+            if (!Number.isFinite(monto) || monto === 0) continue;
+            const impacto = getNovedadImpactoFacturacion(row.tipoNovedad, row);
+            total += impacto === 'suma' ? monto : -monto;
+        }
+        return total;
+    }
+    if (facturaCop != null && facturaCop !== '') return Number(facturaCop) || 0;
+    return total;
+}
+
 /** Mensaje de éxito tras guardar. */
 export function facturacionSuccessMessage(kind, meta = {}) {
     if (kind === 'individual') {
         return `Facturación guardada para ${meta.nombre || meta.cedula || 'colaborador'}.`;
     }
+    if (kind === 'revision_aprobada') {
+        return `Cierre aprobado para ${meta.nombre || meta.cedula || 'colaborador'}.`;
+    }
+    if (kind === 'revision_rechazada') {
+        return `Cierre rechazado para ${meta.nombre || meta.cedula || 'colaborador'}.`;
+    }
     if (kind === 'masiva') {
-        return `Acción grupal aplicada a ${meta.updated ?? 0} colaborador(es).`;
+        return `Aprobación aplicada a ${meta.updated ?? 0} consultor(es).`;
     }
     return 'Cambios guardados correctamente.';
 }

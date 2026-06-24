@@ -1,20 +1,9 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { buildDynamoLowLevelClientConfig } = require('../contratacion/awsDynamoClientConfig');
 
 function getDynamoClient() {
-    const region = process.env.AWS_REGION || 'us-east-1';
-    const config = { region };
-    if (process.env.AWS_ENDPOINT_URL_DYNAMODB || process.env.DYNAMODB_ENDPOINT) {
-        config.endpoint = process.env.AWS_ENDPOINT_URL_DYNAMODB || process.env.DYNAMODB_ENDPOINT;
-    }
-    if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-        config.credentials = {
-            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-            ...(process.env.AWS_SESSION_TOKEN ? { sessionToken: process.env.AWS_SESSION_TOKEN } : {})
-        };
-    }
-    const client = new DynamoDBClient(config);
+    const client = new DynamoDBClient(buildDynamoLowLevelClientConfig());
     return DynamoDBDocumentClient.from(client);
 }
 
@@ -124,18 +113,22 @@ async function listServicios(deps, scope) {
         return tB - tA;
     });
 
-    return filtered.map(r => ({
-        id: r.id,
-        client: String(r.client || '').trim(),
-        serviceName: String(r.serviceName || '').trim(),
-        initDate: r.initDate || '',
-        closingDay: Number(r.closingDay),
-        billingMode: String(r.billingMode || '').trim(),
-        billingType: r.billingType ? String(r.billingType).trim() : '',
-        baseHours: r.baseHours != null ? Number(r.baseHours) : null,
-        consultoresCount: Array.isArray(r.consultores_asociados) ? r.consultores_asociados.length : 0,
-        createdAt: r.created_at ? new Date(r.created_at) : new Date()
-    }));
+    return filtered.map(r => {
+        const asociados = Array.isArray(r.consultores_asociados) ? r.consultores_asociados : [];
+        return {
+            id: r.id,
+            client: String(r.client || '').trim(),
+            serviceName: String(r.serviceName || '').trim(),
+            initDate: r.initDate || '',
+            closingDay: Number(r.closingDay),
+            billingMode: String(r.billingMode || '').trim(),
+            billingType: r.billingType ? String(r.billingType).trim() : '',
+            baseHours: r.baseHours != null ? Number(r.baseHours) : null,
+            consultoresCount: asociados.length,
+            consultoresCedulas: asociados.map((a) => String(a.cedula || '').trim()).filter(Boolean),
+            createdAt: r.created_at ? new Date(r.created_at) : new Date()
+        };
+    });
 }
 
 async function createServicio(deps, scope, payload) {

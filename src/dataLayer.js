@@ -32,7 +32,8 @@ function createDataLayer(deps) {
         const enumStatements = [
             { role: 'nomina', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'nomina'` },
             { role: 'sst', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'sst'` },
-            { role: 'cac', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'cac'` }
+            { role: 'cac', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'cac'` },
+            { role: 'analista_conciliaciones', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'analista_conciliaciones'` }
         ];
         for (const item of enumStatements) {
             try {
@@ -711,6 +712,39 @@ function createDataLayer(deps) {
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Conciliaciones] Permisos insuficientes para crear/alterar conciliaciones_facturacion.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesFacturacionHistorialTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_facturacion_historial (
+                    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    facturacion_id    UUID NOT NULL REFERENCES conciliaciones_facturacion(id) ON DELETE CASCADE,
+                    cedula            TEXT NOT NULL,
+                    anio              INTEGER NOT NULL,
+                    mes               INTEGER NOT NULL,
+                    accion            VARCHAR(20) NOT NULL,
+                    etapa             VARCHAR(20) NOT NULL,
+                    estado_anterior   VARCHAR(50) NOT NULL,
+                    estado_nuevo      VARCHAR(50) NOT NULL,
+                    observacion       TEXT NOT NULL,
+                    actor_user_id     UUID NULL,
+                    actor_email       TEXT NOT NULL,
+                    actor_nombre      TEXT NOT NULL,
+                    actor_role        user_role NOT NULL,
+                    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(
+                'CREATE INDEX IF NOT EXISTS idx_conc_fact_hist_colab_mes ON conciliaciones_facturacion_historial(cedula, anio, mes)'
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para crear conciliaciones_facturacion_historial.');
                 return;
             }
             throw error;
@@ -2394,15 +2428,17 @@ function createDataLayer(deps) {
         return conciliacionesQueries.listConciliacionesClientes(conciliacionesDeps, scope);
     }
 
-    async function getConciliacionResumenPorClienteMesForScope(scope, clienteRaw, year, month) {
+    async function getConciliacionResumenPorClienteMesForScope(scope, clienteRaw, year, month, billingType) {
         const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
         if (!chk.ok) return chk;
+        const opts = billingType ? { billingType: String(billingType).trim() } : {};
         const payload = await conciliacionesQueries.getConciliacionResumenPorClienteMes(
             conciliacionesDeps,
             scope,
             chk.canon,
             year,
-            month
+            month,
+            opts
         );
         return { ok: true, clienteCanon: chk.canon, ...payload };
     }
@@ -2417,28 +2453,44 @@ function createDataLayer(deps) {
         return { ok: true, allClients: true, ...payload };
     }
 
-    async function listConciliacionNovedadesDetalleForScope(scope, clienteRaw, cedulaRaw, year, month) {
+    async function listConciliacionNovedadesDetalleForScope(scope, clienteRaw, cedulaRaw, year, month, billingType) {
         const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
         if (!chk.ok) return chk;
+        const opts = billingType ? { billingType: String(billingType).trim() } : {};
         const items = await conciliacionesQueries.listConciliacionNovedadesDetalle(
             conciliacionesDeps,
             scope,
             chk.canon,
             cedulaRaw,
             year,
-            month
+            month,
+            opts
         );
         return { ok: true, clienteCanon: chk.canon, items };
     }
 
     async function getConciliacionesDashboardResumenForScope(scope, year, month) {
+        const servicios = await serviciosDynamoData.listServicios(conciliacionesDeps, scope);
         const payload = await conciliacionesQueries.getConciliacionesDashboardResumen(
             conciliacionesDeps,
             scope,
             year,
-            month
+            month,
+            servicios
         );
         return { ok: true, ...payload };
+    }
+
+    async function applyConciliacionFacturacionRevisionForScope(scope, payload, actor) {
+        return conciliacionesQueries.applyConciliacionFacturacionRevision(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function applyConciliacionFacturacionRevisionMasivaForScope(scope, payload, actor) {
+        return conciliacionesQueries.applyConciliacionFacturacionRevisionMasiva(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function listConciliacionFacturacionHistorialForScope(scope, query) {
+        return conciliacionesQueries.listConciliacionFacturacionHistorial(conciliacionesDeps, scope, query);
     }
 
     async function upsertConciliacionFacturacionForScope(scope, payload) {
@@ -2449,8 +2501,25 @@ function createDataLayer(deps) {
         return conciliacionesQueries.upsertConciliacionFacturacionMasiva(conciliacionesDeps, scope, payload);
     }
 
+    async function deleteConciliacionFacturacionForScope(scope, payload) {
+        return conciliacionesQueries.deleteConciliacionFacturacion(conciliacionesDeps, scope, payload);
+    }
+
     async function listConciliacionesFacturacionForScope(scope, year, month) {
         return conciliacionesQueries.listConciliacionesFacturacion(conciliacionesDeps, scope, year, month);
+    }
+
+    async function getColaCierresPorMesForScope(scope, year, month, clienteOpcional) {
+        const servicios = await serviciosDynamoData.listServicios(conciliacionesDeps, scope);
+        const payload = await conciliacionesQueries.getColaCierresPorMes(
+            conciliacionesDeps,
+            scope,
+            year,
+            month,
+            clienteOpcional,
+            servicios
+        );
+        return { ok: true, ...payload };
     }
 
     const serviciosDynamoData = require('./conciliaciones/serviciosDynamoData');
@@ -2513,6 +2582,7 @@ function createDataLayer(deps) {
         getMallaNocturnoConfig,
         upsertMallaNocturnoConfig,
         ensureConciliacionesFacturacionTable,
+        ensureConciliacionesFacturacionHistorialTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         getColaboradorByCedula,
@@ -2546,8 +2616,13 @@ function createDataLayer(deps) {
         listConciliacionNovedadesDetalleForScope,
         getConciliacionesDashboardResumenForScope,
         upsertConciliacionFacturacionForScope,
+        applyConciliacionFacturacionRevisionForScope,
+        applyConciliacionFacturacionRevisionMasivaForScope,
+        listConciliacionFacturacionHistorialForScope,
         upsertConciliacionFacturacionMasivaForScope,
+        deleteConciliacionFacturacionForScope,
         listConciliacionesFacturacionForScope,
+        getColaCierresPorMesForScope,
         listServiciosForScope,
         createServicioForScope,
         updateServicioForScope,

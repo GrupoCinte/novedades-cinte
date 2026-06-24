@@ -26,8 +26,15 @@ function buildApp(deps = {}) {
             deps.getConciliacionesDashboardResumenForScope
             ?? (async () => ({ ok: true, clientesCount: 0, globalTotales: {}, rows: [] })),
         upsertConciliacionFacturacionForScope: deps.upsertConciliacionFacturacionForScope ?? stubAsync,
+        applyConciliacionFacturacionRevisionForScope: deps.applyConciliacionFacturacionRevisionForScope ?? stubAsync,
+        applyConciliacionFacturacionRevisionMasivaForScope: deps.applyConciliacionFacturacionRevisionMasivaForScope ?? stubAsync,
+        listConciliacionFacturacionHistorialForScope: deps.listConciliacionFacturacionHistorialForScope ?? (async () => []),
         upsertConciliacionFacturacionMasivaForScope: deps.upsertConciliacionFacturacionMasivaForScope ?? stubAsync,
+        deleteConciliacionFacturacionForScope: deps.deleteConciliacionFacturacionForScope ?? (async () => ({ deleted: 0 })),
         listConciliacionesFacturacionForScope: deps.listConciliacionesFacturacionForScope ?? (async () => []),
+        getColaCierresPorMesForScope:
+            deps.getColaCierresPorMesForScope
+            ?? (async () => ({ ok: true, items: [], count: 0 })),
         listServiciosForScope: deps.listServiciosForScope ?? (async () => []),
         createServicioForScope: deps.createServicioForScope ?? stubAsync,
         updateServicioForScope: deps.updateServicioForScope ?? stubAsync,
@@ -257,13 +264,50 @@ test('POST /api/conciliaciones/facturacion/masiva valida Zod y responde exitoso'
         cliente: 'Cliente X',
         anio: 2026,
         mes: 5,
-        estado: 'RADICADA',
+        estado: 'APROBADO_FINANZAS',
         facturaFv: 'FV-999',
         fechaRadicacion: '2026-05-21'
     });
     assert.equal(goodRes.status, 200);
     assert.equal(goodRes.body.ok, true);
     assert.equal(goodRes.body.data.updated, 5);
+});
+
+test('DELETE /api/conciliaciones/facturacion valida Zod y elimina', async () => {
+    const noAuth = (req, _res, next) => {
+        req.user = { role: 'super_admin', sub: 'x', email: 'qa@example.com' };
+        next();
+    };
+    const applyScope = (req, _res, next) => {
+        req.scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+        next();
+    };
+    let received = null;
+    const app = buildApp({
+        verificarToken: noAuth,
+        allowAnyPanel: () => (_r, _res, next) => next(),
+        applyScope,
+        deleteConciliacionFacturacionForScope: async (_scope, payload) => {
+            received = payload;
+            return { deleted: 1 };
+        }
+    });
+
+    // Caso inválido (falta cédula/año/mes)
+    const badRes = await request(app).delete('/api/conciliaciones/facturacion').send({});
+    assert.equal(badRes.status, 400);
+    assert.equal(badRes.body.ok, false);
+
+    // Caso feliz
+    const goodRes = await request(app).delete('/api/conciliaciones/facturacion').send({
+        cedula: '12345678',
+        anio: 2026,
+        mes: 5
+    });
+    assert.equal(goodRes.status, 200);
+    assert.equal(goodRes.body.ok, true);
+    assert.equal(goodRes.body.data.deleted, 1);
+    assert.equal(received.cedula, '12345678');
 });
 
 test('POST /api/conciliaciones/facturacion/masiva acepta cedulas opcionales', async () => {
@@ -331,6 +375,61 @@ test('GET /api/conciliaciones/facturacion devuelve lista', async () => {
     assert.equal(res.body.ok, true);
     assert.equal(res.body.items.length, 1);
     assert.equal(res.body.items[0].proyecto, 'X');
+});
+
+test('GET /api/conciliaciones/facturacion/cola-cierres devuelve items agregados', async () => {
+    const noAuth = (req, _res, next) => {
+        req.user = { role: 'super_admin', sub: 'x', email: 'qa@example.com' };
+        next();
+    };
+    const applyScope = (req, _res, next) => {
+        req.scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+        next();
+    };
+    const app = buildApp({
+        verificarToken: noAuth,
+        allowAnyPanel: () => (_r, _res, next) => next(),
+        applyScope,
+        getColaCierresPorMesForScope: async (_scope, year, month, cliente) => ({
+            ok: true,
+            count: 1,
+            items: [
+                {
+                    servicioId: 'srv-1',
+                    client: cliente || 'Cliente X',
+                    serviceName: 'ORBIT',
+                    closingDay: 25,
+                    consultoresTotal: 3,
+                    consultoresCerrados: 1,
+                    estadoCola: 'PENDIENTE',
+                    totales: { tarifaSum: 1000, deduccionSum: 100, facturaSum: 900 }
+                }
+            ]
+        })
+    });
+
+    const res = await request(app)
+        .get('/api/conciliaciones/facturacion/cola-cierres')
+        .query({ year: 2026, month: 5, cliente: 'Cliente X' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.count, 1);
+    assert.equal(res.body.items[0].serviceName, 'ORBIT');
+    assert.equal(res.body.items[0].estadoCola, 'PENDIENTE');
+});
+
+test('GET /api/conciliaciones/facturacion/cola-cierres 400 sin year/month', async () => {
+    const noAuth = (req, _res, next) => {
+        req.user = { role: 'super_admin', sub: 'x', email: 'qa@example.com' };
+        next();
+    };
+    const applyScope = (req, _res, next) => {
+        req.scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+        next();
+    };
+    const app = buildApp({ verificarToken: noAuth, allowAnyPanel: () => (_r, _res, next) => next(), applyScope });
+    const res = await request(app).get('/api/conciliaciones/facturacion/cola-cierres');
+    assert.equal(res.status, 400);
 });
 
 test('GET /api/conciliaciones/servicios devuelve lista', async () => {

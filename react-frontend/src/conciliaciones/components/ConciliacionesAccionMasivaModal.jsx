@@ -1,38 +1,54 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Save, ShieldAlert, Users } from 'lucide-react';
+import { X, ShieldAlert, CheckCircle2, XCircle } from 'lucide-react';
 import { buildGestionTableDash } from '../../gestionTableDashTheme.js';
-import { validateFacturacionForm } from '../facturacionLogic.js';
+import { getMasivaRevisionDefaults, validateRevisionObservacion } from '../facturacionLogic.js';
 
 export default function ConciliacionesAccionMasivaModal({
     open,
     onClose,
     onSave,
+    userRole = '',
+    serviceRows = [],
+    filteredRows = [],
     cliente,
-    totalCount = 0,
-    filteredCount = 0,
     hasActiveFilters = false,
     saving,
     isLight
 }) {
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
-    const [estado, setEstado] = useState('PENDIENTE');
-    const [facturaFv, setFacturaFv] = useState('');
-    const [fechaRadicacion, setFechaRadicacion] = useState('');
-    const [motivoDevolucion, setMotivoDevolucion] = useState('');
+    const [accion, setAccion] = useState('aprobar');
     const [observaciones, setObservaciones] = useState('');
     const [applyToFiltered, setApplyToFiltered] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
 
     const closeBtnRef = useRef(null);
+    const totalCount = serviceRows.length;
+    const filteredCount = filteredRows.length;
 
-    const targetCount = applyToFiltered && hasActiveFilters ? filteredCount : totalCount;
+    const scopeRows = useMemo(
+        () => (applyToFiltered && hasActiveFilters ? filteredRows : serviceRows),
+        [applyToFiltered, hasActiveFilters, filteredRows, serviceRows]
+    );
+
+    const aprobarDefaults = useMemo(
+        () => getMasivaRevisionDefaults(userRole, scopeRows, 'aprobar'),
+        [userRole, scopeRows]
+    );
+    const rechazarDefaults = useMemo(
+        () => getMasivaRevisionDefaults(userRole, scopeRows, 'rechazar'),
+        [userRole, scopeRows]
+    );
+    const masivaDefaults = useMemo(
+        () => getMasivaRevisionDefaults(userRole, scopeRows, accion),
+        [userRole, scopeRows, accion]
+    );
+
+    const targetCount = masivaDefaults.eligibleCount;
+    const skippedCount = Math.max(0, scopeRows.length - targetCount);
 
     useEffect(() => {
         if (open) {
-            setEstado('PENDIENTE');
-            setFacturaFv('');
-            setFechaRadicacion('');
-            setMotivoDevolucion('');
+            setAccion(aprobarDefaults.accionDefault || 'aprobar');
             setObservaciones('');
             setApplyToFiltered(hasActiveFilters);
             setErrorMsg('');
@@ -40,7 +56,7 @@ export default function ConciliacionesAccionMasivaModal({
                 if (closeBtnRef.current) closeBtnRef.current.focus();
             }, 50);
         }
-    }, [open, hasActiveFilters]);
+    }, [open, hasActiveFilters, aprobarDefaults.accionDefault]);
 
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -57,13 +73,7 @@ export default function ConciliacionesAccionMasivaModal({
         e.preventDefault();
         setErrorMsg('');
 
-        const validation = validateFacturacionForm({
-            estado,
-            facturaFv,
-            fechaRadicacion,
-            motivoDevolucion,
-            requireProyecto: false
-        });
+        const validation = validateRevisionObservacion(observaciones);
         if (!validation.ok) {
             setErrorMsg(validation.error);
             return;
@@ -71,11 +81,8 @@ export default function ConciliacionesAccionMasivaModal({
 
         try {
             await onSave({
-                estado,
-                facturaFv: estado === 'RADICADA' || estado === 'ENVIADA' ? facturaFv : null,
-                fechaRadicacion: estado === 'RADICADA' || estado === 'ENVIADA' ? fechaRadicacion : null,
-                motivoDevolucion: estado === 'DEVUELTA' ? motivoDevolucion : null,
-                observaciones: observaciones.trim() || null,
+                accion,
+                observaciones: observaciones.trim(),
                 applyToFiltered: Boolean(applyToFiltered && hasActiveFilters)
             });
             onClose();
@@ -85,6 +92,7 @@ export default function ConciliacionesAccionMasivaModal({
     };
 
     const inputBg = isLight ? 'field-control bg-white text-slate-900' : 'field-control';
+    const esAprobar = accion === 'aprobar';
 
     return (
         <div className={dash.modalBackdrop} role="dialog" aria-modal="true" aria-labelledby="modal-masiva-title">
@@ -94,12 +102,15 @@ export default function ConciliacionesAccionMasivaModal({
                 <div className={dash.modalHeadBorder}>
                     <div className="min-w-0">
                         <h2 id="modal-masiva-title" className={`font-heading ${dash.title2xl} flex items-center gap-2`}>
-                            <Users size={20} className="text-[#65BCF7]" />
-                            Acción grupal: {cliente}
+                            <CheckCircle2 size={20} className="text-[#65BCF7]" />
+                            {masivaDefaults.title}: {cliente}
                         </h2>
                         <p className={`mt-0.5 text-xs font-semibold ${dash.modalMuted}`}>
-                            Se actualizarán {targetCount} colaborador(es)
-                            {applyToFiltered && hasActiveFilters ? ' (filtro activo)' : ' del cliente en el mes'}
+                            Se procesarán {targetCount} consultor(es) elegibles
+                            {applyToFiltered && hasActiveFilters
+                                ? ` (filtro activo: ${filteredCount} de ${totalCount})`
+                                : ` del servicio en el mes (${totalCount} en total)`}
+                            {skippedCount > 0 ? ` · ${skippedCount} omitido(s) por estado o rol` : ''}
                         </p>
                     </div>
                     <button ref={closeBtnRef} type="button" onClick={onClose} className={dash.modalClose} aria-label="Cerrar modal">
@@ -109,109 +120,84 @@ export default function ConciliacionesAccionMasivaModal({
 
                 <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
                     <div className={`${dash.modalBodyScroll} space-y-4 px-1 pb-1`}>
-                    {errorMsg ? (
-                        <div className="flex items-center gap-2 rounded-lg border border-red-800 bg-red-900/30 p-3 text-sm text-red-400">
-                            <ShieldAlert size={16} className="shrink-0" />
-                            <span>{errorMsg}</span>
-                        </div>
-                    ) : null}
+                        {errorMsg ? (
+                            <div className="flex items-center gap-2 rounded-lg border border-red-800 bg-red-900/30 p-3 text-sm text-red-400">
+                                <ShieldAlert size={16} className="shrink-0" />
+                                <span>{errorMsg}</span>
+                            </div>
+                        ) : null}
 
-                    <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-400">
-                        El estado (y datos de radicación o devolución) se aplicará a los colaboradores seleccionados. Proyecto
-                        individual no se modifica; las observaciones opcionales se aplican a todos si las indicas.
-                    </div>
-
-                    {hasActiveFilters ? (
-                        <label className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700/50 bg-slate-800/40'}`}>
-                            <input
-                                type="checkbox"
-                                className="mt-1"
-                                checked={applyToFiltered}
-                                onChange={(e) => setApplyToFiltered(e.target.checked)}
-                            />
-                            <span>
-                                Aplicar solo a colaboradores visibles con filtro ({filteredCount} de {totalCount})
-                            </span>
-                        </label>
-                    ) : null}
-
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        <div className="flex flex-col gap-1.5 sm:col-span-2">
-                            <label htmlFor="masiva-estado" className={`text-xs font-bold ${dash.titleLg}`}>
-                                Nuevo estado <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                id="masiva-estado"
-                                required
-                                value={estado}
-                                onChange={(e) => setEstado(e.target.value)}
-                                className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
-                            >
-                                <option value="PENDIENTE">Pendiente</option>
-                                <option value="CONCILIADA">Conciliada</option>
-                                <option value="ENVIADA">Enviada a Cliente</option>
-                                <option value="RADICADA">Radicada</option>
-                                <option value="DEVUELTA">Devuelta</option>
-                            </select>
-                        </div>
-
-                        {(estado === 'RADICADA' || estado === 'ENVIADA') && (
-                            <>
-                                <div className="flex flex-col gap-1.5">
-                                    <label htmlFor="masiva-fv" className={`text-xs font-bold ${dash.titleLg}`}>
-                                        Número de factura (FV) <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        id="masiva-fv"
-                                        type="text"
-                                        required
-                                        placeholder="Ej. FV-1234"
-                                        value={facturaFv}
-                                        onChange={(e) => setFacturaFv(e.target.value)}
-                                        className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
-                                    />
-                                </div>
-                                <div className="flex flex-col gap-1.5">
-                                    <label htmlFor="masiva-fecha-rad" className={`text-xs font-bold ${dash.titleLg}`}>
-                                        Fecha de radicación <span className="text-red-500">*</span>
-                                    </label>
-                                    <input
-                                        id="masiva-fecha-rad"
-                                        type="date"
-                                        required
-                                        value={fechaRadicacion}
-                                        onChange={(e) => setFechaRadicacion(e.target.value)}
-                                        className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
-                                    />
-                                </div>
-                            </>
-                        )}
-
-                        {estado === 'DEVUELTA' && (
-                            <div className="flex flex-col gap-1.5 sm:col-span-2">
-                                <label htmlFor="masiva-motivo" className={`text-xs font-bold ${dash.titleLg}`}>
-                                    Motivo de devolución <span className="text-red-500">*</span>
-                                </label>
-                                <textarea
-                                    id="masiva-motivo"
-                                    required
-                                    rows="2"
-                                    placeholder="Especifique el motivo de la devolución"
-                                    value={motivoDevolucion}
-                                    onChange={(e) => setMotivoDevolucion(e.target.value)}
-                                    className={`rounded-lg border px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
-                                />
+                        {!masivaDefaults.etapa ? (
+                            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-200">
+                                No hay consultores elegibles para esta acción con tu rol en la selección actual.
+                            </div>
+                        ) : masivaDefaults.etapa === 'MIXED' ? (
+                            <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-400">
+                                Hay consultores en distintas etapas; solo se actualizarán los elegibles según el estado de
+                                cada uno (analista o nómina).
+                            </div>
+                        ) : (
+                            <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-400">
+                                La observación quedará registrada en el historial de cada consultor procesado.
                             </div>
                         )}
 
-                        <div className="flex flex-col gap-1.5 sm:col-span-2">
+                        {hasActiveFilters ? (
+                            <label className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700/50 bg-slate-800/40'}`}>
+                                <input
+                                    type="checkbox"
+                                    className="mt-1"
+                                    checked={applyToFiltered}
+                                    onChange={(e) => setApplyToFiltered(e.target.checked)}
+                                />
+                                <span>
+                                    Aplicar solo a colaboradores visibles con filtro ({filteredCount} de {totalCount})
+                                </span>
+                            </label>
+                        ) : null}
+
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setAccion('aprobar')}
+                                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                                    esAprobar
+                                        ? `${dash.btnPrimaryCinte}`
+                                        : isLight
+                                          ? 'border-slate-200 text-slate-700'
+                                          : 'border-slate-600/50 text-slate-300'
+                                }`}
+                            >
+                                <CheckCircle2 size={16} aria-hidden />
+                                {aprobarDefaults.aprobarLabel}
+                            </button>
+                            {rechazarDefaults.eligibleCount > 0 ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setAccion('rechazar')}
+                                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                                        !esAprobar
+                                            ? 'border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                                            : isLight
+                                              ? 'border-slate-200 text-slate-700'
+                                              : 'border-slate-600/50 text-slate-300'
+                                    }`}
+                                >
+                                    <XCircle size={16} aria-hidden />
+                                    {rechazarDefaults.rechazarLabel || 'Rechazar cierres'}
+                                </button>
+                            ) : null}
+                        </div>
+
+                        <div className="flex flex-col gap-1.5">
                             <label htmlFor="masiva-observaciones" className={`text-xs font-bold ${dash.titleLg}`}>
-                                Observaciones <span className="font-normal text-slate-500">(Opcional)</span>
+                                Observación <span className="text-red-500">*</span>
                             </label>
                             <textarea
                                 id="masiva-observaciones"
-                                rows="3"
-                                placeholder="Notas que se aplicarán a todos los colaboradores seleccionados"
+                                required
+                                rows="4"
+                                placeholder={esAprobar ? 'Motivo o comentario de la aprobación…' : 'Motivo del rechazo…'}
                                 value={observaciones}
                                 onChange={(e) => setObservaciones(e.target.value)}
                                 maxLength={1000}
@@ -220,18 +206,15 @@ export default function ConciliacionesAccionMasivaModal({
                         </div>
                     </div>
 
-                    </div>
-
                     <div className={`${dash.modalFooter} px-1`}>
                         <button type="button" onClick={onClose} className={dash.borrarFiltros}>
                             Cancelar
                         </button>
                         <button
                             type="submit"
-                            disabled={saving || targetCount === 0}
+                            disabled={saving || targetCount === 0 || !masivaDefaults.etapa}
                             className={`${dash.btnPrimaryCinte} inline-flex items-center gap-1.5 disabled:opacity-50`}
                         >
-                            <Save size={14} />
                             {saving ? 'Procesando…' : `Aplicar a ${targetCount}`}
                         </button>
                     </div>

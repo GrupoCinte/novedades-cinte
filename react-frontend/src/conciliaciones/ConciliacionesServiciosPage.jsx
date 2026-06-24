@@ -158,7 +158,7 @@ export default function ConciliacionesServiciosPage({ token }) {
                             <Filter size={16} className="shrink-0 opacity-90" aria-hidden />
                             <span className="sr-only sm:not-sr-only sm:inline">Filtros de búsqueda</span>
                             {drawerExtrasCount > 0 ? (
-                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-cyan-600 text-[10px] font-bold text-white">
+                                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#2F7BB8] text-[10px] font-bold text-white">
                                     {drawerExtrasCount}
                                 </span>
                             ) : null}
