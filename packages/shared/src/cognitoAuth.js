@@ -58,6 +58,25 @@ export async function cognitoSignIn(emailOrUsername, password, roleRequested = '
         
         throw new Error('No se recibió confirmación de sesión.');
     } catch (e) {
+        if (e.name === 'UserAlreadyAuthenticatedException' || String(e.message || '').includes('already a signed in user')) {
+            try {
+                await signOut();
+                const retry = await signIn({ username: emailOrUsername, password });
+                if (retry.nextStep.signInStep === 'CONFIRM_SIGN_IN_WITH_NEW_PASSWORD_REQUIRED') {
+                    const err = new Error('NEW_PASSWORD_REQUIRED');
+                    err.status = 409;
+                    err.payload = { challenge: 'NEW_PASSWORD_REQUIRED', session: 'amplify_internal' };
+                    throw err;
+                }
+                if (retry.isSignedIn) {
+                    const user = await getAuthUser();
+                    return { ok: true, user };
+                }
+            } catch (retryErr) {
+                if (retryErr.status === 409) throw retryErr;
+                throw new Error(String(retryErr.message || 'Error en red'));
+            }
+        }
         if (e.status === 409) throw e;
         const msg = String(e.message || 'Error en red');
         throw new Error(msg);
