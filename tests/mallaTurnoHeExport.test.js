@@ -80,6 +80,20 @@ test('computeMallaRecargoPayload 22_06 día hábil genera 8h recargo nocturno', 
     assert.equal(payload.cantidadHoras, 8);
 });
 
+test('computeMallaRecargoPayload domingo 06:00-22:00 separa 7,33 recargo y resto como HE', () => {
+    const startMs = toUtcMsFromDateAndTime('2026-06-14', '06:00');
+    const endMs = toUtcMsFromDateAndTime('2026-06-14', '22:00');
+    const payload = computeMallaRecargoPayload(startMs, endMs, new Set());
+    assert.equal(payload.skip, false);
+    assert.equal(payload.horasRecargoDomingoDiurnas, 7.33);
+    assert.equal(payload.horasRecargoDomingoNocturnas, 0);
+    assert.equal(payload.horasDiurnas, 5.67);
+    assert.equal(payload.horasNocturnas, 3);
+    assert.equal(payload.horasRecargoNocturno, 0);
+    assert.equal(payload.cantidadHoras, 16);
+    assert.equal(payload.tipoHoraExtra, 'Mixta');
+});
+
 test('split 06_14 produce 8h diurnas en día hábil (HE manual sin cambios)', () => {
     const range = franjaToDateTimeRange('2026-06-10', '06_14');
     const startMs = toUtcMsFromDateAndTime(range.fechaInicio, range.horaInicio);

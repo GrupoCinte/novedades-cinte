@@ -1,6 +1,6 @@
 'use strict';
 
-const { computeHoraExtraSplitBogota } = require('./heBogotaSplit');
+const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
 
 function round2(n) {
     return Number(Number(n || 0).toFixed(2));
@@ -60,37 +60,46 @@ function computeMallaRecargoPayload(startMs, endMs, festivosSet) {
     let horasRecargoDomingoDiurnas = 0;
     let horasRecargoDomingoNocturnas = 0;
     let horasRecargoNocturno = 0;
+    let horasDiurnas = 0;
+    let horasNocturnas = 0;
+    let tipoHoraExtra = null;
 
     if (hasRecargoDom) {
-        horasRecargoDomingoDiurnas = round2(split.horasRecargoDomingoDiurnas + split.diurnas);
+        // Domingo/festivo: primeras 7,33 h = recargo dominical; el resto = hora extra tipificada estándar.
+        horasRecargoDomingoDiurnas = round2(split.horasRecargoDomingoDiurnas);
         horasRecargoDomingoNocturnas = round2(split.horasRecargoDomingoNocturnas);
-        horasRecargoNocturno = round2(split.nocturnas);
+        horasDiurnas = round2(split.diurnas);
+        horasNocturnas = round2(split.nocturnas);
+        tipoHoraExtra = resolveHoraExtraLabel(
+            horasDiurnas,
+            horasNocturnas,
+            horasRecargoDomingoDiurnas,
+            horasRecargoDomingoNocturnas
+        );
     } else {
+        // Día hábil: solo recargo nocturno (las diurnas planificadas no se pagan).
         horasRecargoNocturno = round2(split.nocturnas);
+        tipoHoraExtra = resolveMallaRecargoLabel({
+            horasRecargoNocturno,
+            horasRecargoDomingoDiurnas,
+            horasRecargoDomingoNocturnas
+        });
     }
 
     const horasRecargoDomingo = round2(horasRecargoDomingoDiurnas + horasRecargoDomingoNocturnas);
-    const cantidadHoras = round2(horasRecargoNocturno + horasRecargoDomingo);
+    const cantidadHoras = round2(horasDiurnas + horasNocturnas + horasRecargoDomingo + horasRecargoNocturno);
     const skip = cantidadHoras <= 0;
-
-    const tipoHoraExtra = skip
-        ? null
-        : resolveMallaRecargoLabel({
-              horasRecargoNocturno,
-              horasRecargoDomingoDiurnas,
-              horasRecargoDomingoNocturnas
-          });
 
     return {
         skip,
         cantidadHoras,
-        horasDiurnas: 0,
-        horasNocturnas: 0,
+        horasDiurnas,
+        horasNocturnas,
         horasRecargoDomingo,
         horasRecargoDomingoDiurnas,
         horasRecargoDomingoNocturnas,
         horasRecargoNocturno,
-        tipoHoraExtra
+        tipoHoraExtra: skip ? null : tipoHoraExtra
     };
 }
 
