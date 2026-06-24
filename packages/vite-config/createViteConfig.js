@@ -81,13 +81,13 @@ export function createShellConfig(env, options = {}) {
   const prodRemoteDefaults =
     mode === 'production'
       ? {
-          radicacion: '/mf/radicacion/remoteEntry.js',
-          consultor: '/mf/consultor/remoteEntry.js',
-          novedades: '/mf/novedades/remoteEntry.js',
-          conciliaciones: '/mf/conciliaciones/remoteEntry.js',
-          comercial: '/mf/comercial/remoteEntry.js',
-          capitalHumano: '/mf/capital-humano/remoteEntry.js',
-          directorio: '/mf/directorio/remoteEntry.js',
+          radicacion: 'https://feature-aut-525-desplegar-mfes-separado.d3cnr0btgo56p3.amplifyapp.com/remoteEntry.js',
+          consultor: 'https://feature-aut-525-desplegar-mfes-separado.d2252k1313wzx5.amplifyapp.com/remoteEntry.js',
+          novedades: 'https://feature-aut-525-desplegar-mfes-separado.dgtr4xj62tx0x.amplifyapp.com/remoteEntry.js',
+          conciliaciones: 'https://feature-aut-525-desplegar-mfes-separado.d7s8bipg5wrjr.amplifyapp.com/remoteEntry.js',
+          comercial: 'https://feature-aut-525-desplegar-mfes-separado.d1tq8dxouo1dqj.amplifyapp.com/remoteEntry.js',
+          capitalHumano: 'https://feature-aut-525-desplegar-mfes-separado.d3pab9yz97nfmw.amplifyapp.com/remoteEntry.js',
+          directorio: 'https://feature-aut-525-desplegar-mfes-separado.d1rcg6wcg8o65d.amplifyapp.com/remoteEntry.js',
         }
       : {};
 

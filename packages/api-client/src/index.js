@@ -9,8 +9,8 @@ import { buildCsrfHeaders } from '@cinte/shared/cognitoAuth.js';
 Amplify.configure({
   Auth: {
     Cognito: {
-      userPoolId: import.meta.env.VITE_COGNITO_USER_POOL_ID || '',
-      userPoolClientId: import.meta.env.VITE_COGNITO_CLIENT_ID || '',
+      userPoolId: import.meta.env.VITE_COGNITO_USER_POOL_ID || 'us-east-1_F4XM1LUlf',
+      userPoolClientId: import.meta.env.VITE_COGNITO_CLIENT_ID || '6rp314ha30sfibmveie4d0d10f',
     }
   }
 });
@@ -32,6 +32,7 @@ export async function apiFetch(path, options = {}) {
 
   const headers = buildCsrfHeaders({
     'Content-Type': 'application/json',
+    'Bypass-Tunnel-Reminder': 'true',
     ...(options.headers || {}),
   });
 
@@ -40,7 +41,7 @@ export async function apiFetch(path, options = {}) {
   }
 
   // Prepend API URL si el path es relativo
-  const baseUrl = import.meta.env.VITE_API_URL || '';
+  const baseUrl = import.meta.env.VITE_API_URL || 'https://floppy-clocks-warn.loca.lt';
   const fullPath = path.startsWith('http') ? path : `${baseUrl}${path}`;
 
   return fetch(fullPath, {
