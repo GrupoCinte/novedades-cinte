@@ -46,6 +46,7 @@ export default function CotizadorForm({
     const cargos = Array.isArray(cargosResueltos) ? cargosResueltos : [];
     const prevClienteRef = useRef(form.cliente);
     const [salarioFocusedIdx, setSalarioFocusedIdx] = useState(null);
+    const [horaFocusedIdx, setHoraFocusedIdx] = useState(null);
     const [formError, setFormError] = useState('');
     const [expandedItems, setExpandedItems] = useState({});
     const isClientSelected = Boolean(form.cliente);
@@ -107,6 +108,7 @@ export default function CotizadorForm({
 
     const removePerfil = (idx) => {
         setSalarioFocusedIdx(null);
+        setHoraFocusedIdx(null);
         setForm((prev) => ({
             ...prev,
             perfiles: prev.perfiles.filter((_, i) => i !== idx)
@@ -115,6 +117,7 @@ export default function CotizadorForm({
 
     const onModoChange = (idx, modoNuevo, p) => {
         setSalarioFocusedIdx(null);
+        setHoraFocusedIdx(null);
         const modo = String(modoNuevo || 'AUTO').toUpperCase();
         if (modo === 'MANUAL') {
             const sel = cargos.length > 0 ? cargos[p.indice] : null;
