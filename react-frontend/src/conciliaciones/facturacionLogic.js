@@ -947,6 +947,14 @@ export function computeNovedadesImpactoNetCop(novedadesSumaCop, novedadesSumCop)
     return computeNovedadesIncrementoCop(novedadesSumaCop) - computeNovedadesDeduccionCop(novedadesSumCop);
 }
 
+/** Neto de saldo anticipo: valor explícito si existe, si no incrementos − deducciones del ajuste. */
+export function resolveSaldoAnticipoNetCop(saldoNetRaw, ajusteSuma, ajusteResta) {
+    if (saldoNetRaw != null && saldoNetRaw !== '') {
+        return Math.round(Number(saldoNetRaw));
+    }
+    return Math.round(Number(ajusteSuma) || 0) - Math.round(Number(ajusteResta) || 0);
+}
+
 /** Etiqueta de saldo anticipo para UI. */
 export function formatSaldoAnticipoLabel(tipo, mesLabel) {
     const mes = mesLabel ? ` (${mesLabel})` : '';
@@ -959,7 +967,7 @@ export function formatSaldoAnticipoLabel(tipo, mesLabel) {
 export function computeAdvanceDisplayTotals(source = {}) {
     const ajusteSuma = Math.round(Number(source.ajusteAnticipoSumaCop) || 0);
     const ajusteResta = Math.round(Number(source.ajusteAnticipoSumCop) || 0);
-    const net = Math.round(Number(source.saldoAnticipoNetCop) ?? ajusteSuma - ajusteResta);
+    const net = resolveSaldoAnticipoNetCop(source.saldoAnticipoNetCop, ajusteSuma, ajusteResta);
     return {
         ajusteAnticipoSumaCop: ajusteSuma,
         ajusteAnticipoSumCop: ajusteResta,

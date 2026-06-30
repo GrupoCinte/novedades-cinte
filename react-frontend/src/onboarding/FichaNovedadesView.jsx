@@ -536,9 +536,7 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
 
     const tabCls = (active) =>
         active
-            ? isLight
-                ? 'bg-[#2F7BB8] text-white'
-                : 'bg-[#2F7BB8] text-white'
+            ? 'bg-[#2F7BB8] text-white'
             : isLight
               ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
               : 'bg-white/5 text-slate-300 hover:bg-white/10';

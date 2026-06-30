@@ -132,9 +132,7 @@ export default function ConciliacionesFacturacionEstadosResumen({
                                             ? isLight
                                                 ? 'text-[#2F7BB8]'
                                                 : 'text-[#65BCF7]'
-                                            : isLight
-                                              ? 'text-slate-500'
-                                              : 'text-slate-500'
+                                            : 'text-slate-500'
                                     }`}
                                     title={ESTADOS_FACTURACION_META[index].label}
                                 >

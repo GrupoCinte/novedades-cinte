@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ChevronRight } from 'lucide-react';
 import ConciliacionesAjusteAnticipoModal from './ConciliacionesAjusteAnticipoModal.jsx';
-import { formatSaldoAnticipoLabel } from '../facturacionLogic.js';
+import { formatSaldoAnticipoLabel, resolveSaldoAnticipoNetCop } from '../facturacionLogic.js';
 
 function formatCop(n) {
     const x = Number(n) || 0;
@@ -26,7 +26,7 @@ export default function ConciliacionesMetricCards({
     const aFavor = Math.round(Number(t.ajusteAnticipoSuma) || 0);
     const enContra = Math.round(Number(t.ajusteAnticipoSum) || 0);
     const hasAdvanceAjuste = aFavor > 0 || enContra > 0;
-    const neto = Math.round(Number(t.saldoAnticipoNetCop) ?? aFavor - enContra);
+    const neto = resolveSaldoAnticipoNetCop(t.saldoAnticipoNetCop, aFavor, enContra);
     const saldoTipo = t.saldoAnticipoTipo ?? (neto > 0 ? 'contra' : neto < 0 ? 'favor' : null);
 
     const saldoHintCls =

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { X, TrendingDown, TrendingUp } from 'lucide-react';
 import { buildGestionTableDash } from '../../gestionTableDashTheme.js';
 import { CINTE_HEADING } from '../conciliacionesLayout.js';
-import { formatSaldoAnticipoLabel } from '../facturacionLogic.js';
+import { formatSaldoAnticipoLabel, resolveSaldoAnticipoNetCop } from '../facturacionLogic.js';
 
 function formatCop(n) {
     const x = Number(n) || 0;
@@ -26,7 +26,7 @@ export default function ConciliacionesAjusteAnticipoModal({
     const t = totales || {};
     const aFavor = Math.round(Number(t.ajusteAnticipoSuma) || 0);
     const enContra = Math.round(Number(t.ajusteAnticipoSum) || 0);
-    const neto = Math.round(Number(t.saldoAnticipoNetCop) ?? aFavor - enContra);
+    const neto = resolveSaldoAnticipoNetCop(t.saldoAnticipoNetCop, aFavor, enContra);
     const tipo = t.saldoAnticipoTipo ?? (neto > 0 ? 'contra' : neto < 0 ? 'favor' : null);
     const mesLabel = t.ajusteAnticipoMesLabel || null;
 

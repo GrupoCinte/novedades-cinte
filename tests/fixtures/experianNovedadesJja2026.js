@@ -324,11 +324,11 @@ const EXPERIAN_JJA_ELEGIBLE_FACT_MESES = Object.fromEntries(
 );
 
 function approvedExperianJjaRows() {
-    return EXPERIAN_JJA_NOVEDADES.filter((n) => n.estado === 'Aprobado').map(toElegibilityRow);
+    return EXPERIAN_JJA_NOVEDADES.filter((n) => n.estado === 'Aprobado').map((n) => toElegibilityRow(n));
 }
 
 function pendienteExperianJjaRows() {
-    return EXPERIAN_JJA_NOVEDADES.filter((n) => n.estado === 'Pendiente').map(toElegibilityRow);
+    return EXPERIAN_JJA_NOVEDADES.filter((n) => n.estado === 'Pendiente').map((n) => toElegibilityRow(n));
 }
 
 function isExperianJjaEligibleInFactMes(caso, factMes) {

@@ -667,7 +667,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 );
             }
             const val = normalizeEditValue(key, edits[key]);
-            if (val === null || val === undefined || val === '') {
+            if (val === null || val === '') {
                 delete normalized[key];
             } else {
                 normalized[key] = val;
