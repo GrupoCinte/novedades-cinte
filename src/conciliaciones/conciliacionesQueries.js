@@ -34,8 +34,11 @@ const {
 const { resolveDiasBaseMes } = require('./conciliacionDiasBaseMes');
 const { tryNotifyServiciosCompletos } = require('./conciliacionServicioNotify');
 const {
+    isFacturacionEstadoConCorteNovedades,
     listNovedadesElegiblesParaCierre,
-    listNovedadesParaFacturacionResumen,
+    listNovedadesConsumidasParaCierre,
+    groupNovedadRowsByCedula,
+    listNovedadesForFacturacionByEstado,
     consumirNovedadesParaCierreAnalista,
     liberarNovedadesConsumidas
 } = require('./conciliacionNovedadElegibilidad');
@@ -274,25 +277,21 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
     const mrNov = monthRangeDates(novBucket.year, novBucket.month);
     if (!mrNov) return { rows: [], totales: { tarifaSum: 0, incrementoSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0 } };
 
-    const novRows = await listNovedadesParaFacturacionResumen(deps, scope, {
+    const novOpts = {
         clienteCanon,
         factAnio: factY,
         factMes: factM,
         billingType: options.billingType,
         novedadesYear: novBucket.year,
         novedadesMonth: novBucket.month
-    });
+    };
 
-    /** @type {Map<string, { count: number, rows: object[] }>} */
-    const agg = new Map();
-    for (const row of novRows) {
-        const cedDigits = normalizeCedula(String(row.cedula || ''));
-        if (!cedDigits) continue;
-        const cur = agg.get(cedDigits) || { count: 0, rows: [] };
-        cur.count += 1;
-        cur.rows.push(row);
-        agg.set(cedDigits, cur);
-    }
+    const [elegiblesAll, consumidasAll] = await Promise.all([
+        listNovedadesElegiblesParaCierre(deps, scope, novOpts),
+        listNovedadesConsumidasParaCierre(deps, scope, novOpts)
+    ]);
+    const elegiblesByCed = groupNovedadRowsByCedula(elegiblesAll, normalizeCedula);
+    const consumidasByCed = groupNovedadRowsByCedula(consumidasAll, normalizeCedula);
 
     const qCol = await pool.query(
         `SELECT 
@@ -346,10 +345,15 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
         const cedDigits = normalizeCedula(String(c.cedula || ''));
         const tarifaMaestro = Number(c.tarifa_cliente || 0) || 0;
         const ajustes = parseAjustesFromFacturacionRow(c);
-        const a = cedDigits ? agg.get(cedDigits) : null;
-        const cnt = a?.count ?? 0;
+        const estadoFact = c.estado != null ? String(c.estado) : 'PENDIENTE';
+        const novRowsForCol = cedDigits
+            ? isFacturacionEstadoConCorteNovedades(estadoFact)
+                ? consumidasByCed.get(cedDigits) || []
+                : elegiblesByCed.get(cedDigits) || []
+            : [];
+        const cnt = novRowsForCol.length;
         const impactOpts = { ...options, factAnio: factY, factMes: factM };
-        const impacto = computeFacturacionImpacto(tarifaMaestro, a?.rows || [], ajustes, impactOpts);
+        const impacto = computeFacturacionImpacto(tarifaMaestro, novRowsForCol, ajustes, impactOpts);
         const tarifa = impacto.tarifaCliente;
         const sumMonto = impacto.novedadesSumCop;
         const sumSuma = impacto.novedadesSumaCop;
@@ -357,7 +361,7 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
         const advanceFields = buildAdvanceRowFields(impacto);
         const novedadesTipos = [
             ...new Set(
-                (a?.rows || [])
+                novRowsForCol
                     .map((r) => String(r.tipo_novedad || '').trim())
                     .filter(Boolean)
             )
@@ -524,15 +528,29 @@ async function fetchConciliacionNovedadRowsForCierre(deps, scope, clienteCanon, 
     );
     const tarifaMaestro = Number(qTarifa.rows[0]?.tarifa_cliente) || 0;
 
-    const novedadRows = await listNovedadesParaFacturacionResumen(deps, scope, {
-        clienteCanon,
-        cedulaRaw,
-        factAnio: factY,
-        factMes: factM,
-        billingType: options.billingType,
-        novedadesYear: novBucket.year,
-        novedadesMonth: novBucket.month
-    });
+    const qEst = await pool.query(
+        `SELECT estado FROM conciliaciones_facturacion
+         WHERE regexp_replace(COALESCE(cedula, ''), '\\D', '', 'g') = $1
+           AND anio = $2::integer AND mes = $3::integer
+         LIMIT 1`,
+        [cedDigits, factY, factM]
+    );
+    const estadoFact = qEst.rows[0]?.estado != null ? String(qEst.rows[0].estado) : 'PENDIENTE';
+
+    const novedadRows = await listNovedadesForFacturacionByEstado(
+        deps,
+        scope,
+        {
+            clienteCanon,
+            cedulaRaw,
+            factAnio: factY,
+            factMes: factM,
+            billingType: options.billingType,
+            novedadesYear: novBucket.year,
+            novedadesMonth: novBucket.month
+        },
+        estadoFact
+    );
 
     const ids = novedadRows.map((r) => r.id).filter(Boolean);
     if (!ids.length) {
@@ -872,6 +890,10 @@ async function applyConciliacionFacturacionRevision(deps, scope, payload, actor)
                        factura_fv, fecha_radicacion, motivo_devolucion, fecha_cierre, created_at, updated_at`,
             [validation.estado, validation.observacion, motivoDevolucion, row.id]
         );
+
+        if (validation.estado === 'DEVUELTA') {
+            await liberarNovedadesConsumidas(client, row.id);
+        }
 
         let historialDetalle = null;
         if (validation.estado === 'APROBADO_ANALISTA') {

@@ -98,11 +98,17 @@ test('novedad consumida no aparece en otro cierre', async () => {
     assert.ok(sqlText.includes('conciliaciones_novedad_consumo'));
 });
 
-test('novedad consumida sigue visible en resumen del mismo cierre', async () => {
+test('listNovedadesForFacturacionByEstado: corte activo solo consumidas, pendiente solo elegibles', async () => {
     const {
-        listNovedadesConsumidasParaCierre,
-        listNovedadesParaFacturacionResumen
+        isFacturacionEstadoConCorteNovedades,
+        listNovedadesForFacturacionByEstado
     } = require('../src/conciliaciones/conciliacionNovedadElegibilidad');
+
+    assert.equal(isFacturacionEstadoConCorteNovedades('APROBADO_ANALISTA'), true);
+    assert.equal(isFacturacionEstadoConCorteNovedades('APROBADO_FINANZAS'), true);
+    assert.equal(isFacturacionEstadoConCorteNovedades('CONCILIADA'), true);
+    assert.equal(isFacturacionEstadoConCorteNovedades('PENDIENTE'), false);
+    assert.equal(isFacturacionEstadoConCorteNovedades('DEVUELTA'), false);
 
     const consumedRow = {
         id: '55555555-5555-5555-5555-555555555555',
@@ -118,15 +124,29 @@ test('novedad consumida sigue visible en resumen del mismo cierre', async () => 
         fecha_fin: '2026-06-01',
         aprobado_en: new Date('2026-06-02T12:00:00Z')
     };
+    const lateRow = {
+        id: '66666666-6666-6666-6666-666666666666',
+        cedula: '12345678',
+        tipo_novedad: 'Incapacidad',
+        monto_cop: '80',
+        cantidad_horas: 1,
+        unidad: null,
+        modalidad: null,
+        hora_inicio: null,
+        hora_fin: null,
+        fecha_inicio: '2026-06-25',
+        fecha_fin: '2026-06-25',
+        aprobado_en: new Date('2026-06-28T12:00:00Z')
+    };
 
     const pool = {
         query: async (sql) => {
             const s = String(sql);
-            if (s.includes('conciliaciones_novedad_consumo')) {
+            if (s.includes('INNER JOIN novedades nov ON nov.id = cnc.novedad_id')) {
                 return { rows: [consumedRow] };
             }
-            if (s.includes('FROM novedades')) {
-                return { rows: [] };
+            if (s.includes('FROM novedades nov')) {
+                return { rows: [consumedRow, lateRow] };
             }
             return { rows: [] };
         }
@@ -135,13 +155,12 @@ test('novedad consumida sigue visible en resumen del mismo cierre', async () => 
     const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
     const opts = { clienteCanon: 'Cliente X', factAnio: 2026, factMes: 6 };
 
-    const consumidas = await listNovedadesConsumidasParaCierre(deps, scope, opts);
-    assert.equal(consumidas.length, 1);
-    assert.equal(String(consumidas[0].id), consumedRow.id);
+    const conCorte = await listNovedadesForFacturacionByEstado(deps, scope, opts, 'APROBADO_ANALISTA');
+    assert.equal(conCorte.length, 1);
+    assert.equal(String(conCorte[0].id), consumedRow.id);
 
-    const merged = await listNovedadesParaFacturacionResumen(deps, scope, opts);
-    assert.equal(merged.length, 1);
-    assert.equal(String(merged[0].id), consumedRow.id);
+    const sinCorte = await listNovedadesForFacturacionByEstado(deps, scope, opts, 'PENDIENTE');
+    assert.equal(sinCorte.length, 2);
 });
 
 test('revert libera novedades consumidas', async () => {

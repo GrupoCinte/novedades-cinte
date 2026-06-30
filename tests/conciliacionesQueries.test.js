@@ -830,3 +830,183 @@ test('getConciliacionResumenPorClienteMes ADVANCE julio: incluye ajuste de junio
     assert.equal(rows[0].facturaCop, 10_000_000 - rows[0].ajusteAnticipoSumCop);
     assert.equal(rows[0].ajusteAnticipoMesLabel, 'Jun 2026');
 });
+
+test('getConciliacionResumenPorClienteMes APROBADO_ANALISTA solo cuenta consumidas', async () => {
+    const consumed = {
+        id: 'aaaa1111-1111-1111-1111-111111111111',
+        cedula: '12345678',
+        tipo_novedad: 'Bonos',
+        monto_cop: '100',
+        cantidad_horas: 0,
+        unidad: null,
+        modalidad: null,
+        hora_inicio: null,
+        hora_fin: null,
+        fecha_inicio: '2026-06-01',
+        fecha_fin: '2026-06-01'
+    };
+    const lateElegible = {
+        id: 'bbbb2222-2222-2222-2222-222222222222',
+        cedula: '12345678',
+        tipo_novedad: 'Incapacidad',
+        monto_cop: '50',
+        cantidad_horas: 1,
+        unidad: null,
+        modalidad: null,
+        hora_inicio: null,
+        hora_fin: null,
+        fecha_inicio: '2026-06-20',
+        fecha_fin: '2026-06-20'
+    };
+    const pool = {
+        query: async (sql) => {
+            const s = String(sql);
+            if (s.includes('INNER JOIN novedades nov ON nov.id = cnc.novedad_id')) {
+                return { rows: [consumed] };
+            }
+            if (s.includes('FROM novedades nov')) {
+                return { rows: [consumed, lateElegible] };
+            }
+            if (s.includes('FROM colaboradores')) {
+                return {
+                    rows: [
+                        {
+                            cedula: '12345678',
+                            nombre: 'Test User',
+                            cliente: 'Cliente X',
+                            tarifa_cliente: '3000',
+                            moneda: 'COP',
+                            estado: 'APROBADO_ANALISTA',
+                            facturacion_id: 'fact-id'
+                        }
+                    ]
+                };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = { pool, normalizeCedula, canRoleViewType };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+    const { rows } = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 6);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].novedadesCount, 1);
+    assert.equal(rows[0].estado, 'APROBADO_ANALISTA');
+});
+
+test('getConciliacionResumenPorClienteMes julio PENDIENTE incluye novedad junio no consumida', async () => {
+    const backlogJun = {
+        id: 'cccc3333-3333-3333-3333-333333333333',
+        cedula: '12345678',
+        tipo_novedad: 'Permiso remunerado',
+        monto_cop: null,
+        cantidad_horas: 1,
+        unidad: 'dias',
+        modalidad: null,
+        hora_inicio: null,
+        hora_fin: null,
+        fecha_inicio: '2026-06-25',
+        fecha_fin: '2026-06-25',
+        aprobado_en: new Date('2026-06-28T12:00:00Z')
+    };
+    const pool = {
+        query: async (sql) => {
+            const s = String(sql);
+            if (s.includes('INNER JOIN novedades nov ON nov.id = cnc.novedad_id')) {
+                return { rows: [] };
+            }
+            if (s.includes('FROM novedades nov')) {
+                return { rows: [backlogJun] };
+            }
+            if (s.includes('FROM colaboradores')) {
+                return {
+                    rows: [
+                        {
+                            cedula: '12345678',
+                            nombre: 'Test User',
+                            cliente: 'Cliente X',
+                            tarifa_cliente: '3000',
+                            moneda: 'COP',
+                            estado: 'PENDIENTE'
+                        }
+                    ]
+                };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = { pool, normalizeCedula, canRoleViewType };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+    const { rows } = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 7);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].novedadesCount, 1);
+    assert.equal(rows[0].estado, 'PENDIENTE');
+});
+
+test('applyConciliacionFacturacionRevision DEVUELTA libera novedades consumidas', async () => {
+    const clientQueries = [];
+    const pool = {
+        query: async (sql) => {
+            if (String(sql).includes('SELECT cliente FROM colaboradores')) {
+                return { rows: [{ cliente: 'Cliente X' }] };
+            }
+            return { rows: [] };
+        },
+        connect: async () => ({
+            query: async (sql) => {
+                clientQueries.push(String(sql));
+                if (sql === 'BEGIN' || sql === 'COMMIT') return { rows: [] };
+                if (String(sql).includes('FROM conciliaciones_facturacion') && String(sql).includes('FOR UPDATE')) {
+                    return {
+                        rows: [
+                            {
+                                id: '44444444-4444-4444-4444-444444444444',
+                                estado: 'APROBADO_ANALISTA',
+                                observaciones: '',
+                                motivo_devolucion: null
+                            }
+                        ]
+                    };
+                }
+                if (String(sql).includes('UPDATE conciliaciones_facturacion')) {
+                    return {
+                        rows: [
+                            {
+                                id: '44444444-4444-4444-4444-444444444444',
+                                estado: 'DEVUELTA',
+                                cedula: '12345678',
+                                anio: 2026,
+                                mes: 6
+                            }
+                        ]
+                    };
+                }
+                return { rows: [] };
+            },
+            release: () => {}
+        })
+    };
+    const deps = {
+        pool,
+        normalizeCedula,
+        getClientesList: async () => ['Cliente X'],
+        listScopedDistinctClientes: async () => ['Cliente X'],
+        listAssignedClientesForGpUserId: async () => [],
+        resolveGpInternalUserIdForScope: async () => null,
+        normalizeCatalogValue: (v) => v
+    };
+    const { applyConciliacionFacturacionRevision } = require('../src/conciliaciones/conciliacionesQueries');
+    await applyConciliacionFacturacionRevision(
+        deps,
+        { role: 'nomina', canViewAllAreas: true, areas: [] },
+        {
+            cedula: '12345678',
+            anio: 2026,
+            mes: 6,
+            accion: 'rechazar',
+            observacion: 'Corregir montos',
+            etapaObjetivo: 'NOMINA'
+        },
+        { role: 'nomina', email: 'nom@t.com' }
+    );
+    assert.ok(clientQueries.some((q) => q.includes('DELETE FROM conciliaciones_novedad_consumo')));
+});

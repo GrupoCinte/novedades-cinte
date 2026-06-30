@@ -10,6 +10,14 @@ const {
 const NOVEDADES_ELEGIBLES_SELECT = `nov.id, nov.cedula, nov.tipo_novedad, nov.monto_cop, nov.cantidad_horas, nov.unidad,
                 nov.modalidad, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.aprobado_en`;
 
+const ESTADOS_FACTURACION_CORTE = new Set(['APROBADO_ANALISTA', 'APROBADO_FINANZAS', 'CONCILIADA']);
+
+/** Tras aprobación analista el cierre queda congelado: solo snapshot consumido. */
+function isFacturacionEstadoConCorteNovedades(estado) {
+    const e = String(estado || 'PENDIENTE').trim();
+    return ESTADOS_FACTURACION_CORTE.has(e);
+}
+
 /** @param {string} alias */
 function effectiveNovedadDateSql(alias = 'nov') {
     return `COALESCE(${alias}.fecha_inicio::date, ${alias}.fecha::date, (${alias}.creado_en AT TIME ZONE 'America/Bogota')::date)`;
@@ -246,30 +254,32 @@ async function listNovedadesConsumidasParaCierre(deps, scope, opts) {
     return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad));
 }
 
-/** @param {object[]} rows */
-function mergeNovedadRowsById(rows) {
-    const byId = new Map();
+/** @param {object[]} rows @param {(v: string) => string} normalizeCedula */
+function groupNovedadRowsByCedula(rows, normalizeCedula) {
+    /** @type {Map<string, object[]>} */
+    const map = new Map();
     for (const row of rows || []) {
-        const key = row?.id
-            ? String(row.id)
-            : `${row?.cedula}-${row?.fecha_inicio}-${row?.tipo_novedad}-${byId.size}`;
-        byId.set(key, row);
+        const ced = normalizeCedula(String(row.cedula || ''));
+        if (!ced) continue;
+        const cur = map.get(ced) || [];
+        cur.push(row);
+        map.set(ced, cur);
     }
-    return Array.from(byId.values());
+    return map;
 }
 
 /**
- * Elegibles + consumidas del cierre (sin duplicar por id).
+ * Elegibles (vivo) o consumidas (snapshot) según estado del cierre.
  * @param {object} deps
  * @param {object} scope
  * @param {object} opts
+ * @param {string} [estadoFacturacion]
  */
-async function listNovedadesParaFacturacionResumen(deps, scope, opts) {
-    const [elegibles, consumidas] = await Promise.all([
-        listNovedadesElegiblesParaCierre(deps, scope, opts),
-        listNovedadesConsumidasParaCierre(deps, scope, opts)
-    ]);
-    return mergeNovedadRowsById([...elegibles, ...consumidas]);
+async function listNovedadesForFacturacionByEstado(deps, scope, opts, estadoFacturacion) {
+    if (isFacturacionEstadoConCorteNovedades(estadoFacturacion)) {
+        return listNovedadesConsumidasParaCierre(deps, scope, opts);
+    }
+    return listNovedadesElegiblesParaCierre(deps, scope, opts);
 }
 
 /**
@@ -336,10 +346,11 @@ module.exports = {
     isNovedadElegibleParaCierreRow,
     novedadElegibleWhereSql,
     novedadAjusteAnticipoWhereSql,
+    isFacturacionEstadoConCorteNovedades,
     listNovedadesElegiblesParaCierre,
     listNovedadesConsumidasParaCierre,
-    mergeNovedadRowsById,
-    listNovedadesParaFacturacionResumen,
+    groupNovedadRowsByCedula,
+    listNovedadesForFacturacionByEstado,
     consumirNovedadesParaCierreAnalista,
     liberarNovedadesConsumidas
 };
