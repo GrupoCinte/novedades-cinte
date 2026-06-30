@@ -45,12 +45,18 @@ export async function fetchConciliacionesDashboardResumen(token, { year, month }
     return data;
 }
 
-export async function fetchConciliacionPorCliente(token, { cliente, year, month, billingType }) {
+export async function fetchConciliacionPorCliente(token, { cliente, year, month, billingType, billingMode, baseHours }) {
     const q = new URLSearchParams({ year: String(year), month: String(month) });
     const clienteTrim = String(cliente || '').trim();
     if (clienteTrim) q.set('cliente', clienteTrim);
     const bt = String(billingType || '').trim();
     if (bt) q.set('billingType', bt);
+    const bm = String(billingMode || '').trim();
+    if (bm) q.set('billingMode', bm);
+    if (baseHours != null && baseHours !== '') {
+        const bh = Number(baseHours);
+        if (Number.isFinite(bh) && bh > 0) q.set('baseHours', String(bh));
+    }
     const res = await fetch(`/api/conciliaciones/por-cliente?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
@@ -60,7 +66,7 @@ export async function fetchConciliacionPorCliente(token, { cliente, year, month,
     return data;
 }
 
-export async function fetchConciliacionNovedadesDetalle(token, { cliente, cedula, year, month, billingType }) {
+export async function fetchConciliacionNovedadesDetalle(token, { cliente, cedula, year, month, billingType, billingMode, baseHours }) {
     const q = new URLSearchParams({
         cliente: String(cliente || ''),
         cedula: String(cedula || ''),
@@ -69,13 +75,41 @@ export async function fetchConciliacionNovedadesDetalle(token, { cliente, cedula
     });
     const bt = String(billingType || '').trim();
     if (bt) q.set('billingType', bt);
+    const bm = String(billingMode || '').trim();
+    if (bm) q.set('billingMode', bm);
+    if (baseHours != null && baseHours !== '') {
+        const bh = Number(baseHours);
+        if (Number.isFinite(bh) && bh > 0) q.set('baseHours', String(bh));
+    }
     const res = await fetch(`/api/conciliaciones/novedades-detalle?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar detalle'));
-    return Array.isArray(data.items) ? data.items : [];
+    return {
+        items: Array.isArray(data.items) ? data.items : [],
+        billingMode: data.billingMode ?? null,
+        baseHours: data.baseHours ?? null,
+        horasBaseMes: data.horasBaseMes ?? null,
+        tarifaValorHora: data.tarifaValorHora ?? null,
+        tarifaCliente: data.tarifaCliente ?? null,
+        tarifaMaestro: data.tarifaMaestro ?? null,
+        tarifaAjustada: Boolean(data.tarifaAjustada),
+        facturaCop: data.facturaCop ?? null
+    };
+}
+
+export async function postFacturacionAjustes(token, payload) {
+    const res = await fetch('/api/conciliaciones/facturacion/ajustes', {
+        method: 'POST',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify(payload),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al guardar ajustes'));
+    return data.data;
 }
 
 export async function saveConciliacionFacturacion(token, payload) {
@@ -141,15 +175,71 @@ export async function saveConciliacionFacturacionMasiva(token, payload) {
     return data.data;
 }
 
-export async function deleteConciliacionFacturacion(token, { cedula, anio, mes }) {
+export async function deleteConciliacionFacturacion(token, { cedula, anio, mes, observacion }) {
     const res = await fetch('/api/conciliaciones/facturacion', {
         method: 'DELETE',
         headers: conciliacionesAuthHeaders(token),
-        body: JSON.stringify({ cedula, anio, mes }),
+        body: JSON.stringify({ cedula, anio, mes, observacion }),
         credentials: 'include'
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al eliminar la facturación'));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al revertir el cierre'));
+    return data;
+}
+
+export async function fetchDashboardLiderCliente(token, { year, month }) {
+    const q = new URLSearchParams({ year: String(year), month: String(month) });
+    const res = await fetch(`/api/conciliaciones/facturacion/dashboard-lider-cliente?${q}`, {
+        headers: conciliacionesAuthHeaders(token),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar datos líder × cliente'));
+    return data;
+}
+
+export function conciliacionExportExcelUrl({ servicioId, year, month }) {
+    const q = new URLSearchParams({
+        servicioId: String(servicioId),
+        year: String(year),
+        month: String(month)
+    });
+    return `/api/conciliaciones/facturacion/export-excel?${q}`;
+}
+
+export async function downloadConciliacionExportExcel(token, { servicioId, year, month }) {
+    const url = conciliacionExportExcelUrl({ servicioId, year, month });
+    const res = await fetch(url, {
+        headers: conciliacionesAuthHeaders(token),
+        credentials: 'include'
+    });
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al descargar Excel'));
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('Content-Disposition') || '';
+    const match = /filename="([^"]+)"/.exec(disposition);
+    const filename = match?.[1] || `conciliacion_${year}-${month}.xlsx`;
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(objectUrl);
+}
+
+export async function postMarcarServicioConciliada(token, { servicioId, anio, mes }) {
+    const res = await fetch('/api/conciliaciones/facturacion/servicio-cierre/conciliar', {
+        method: 'POST',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify({ servicioId, anio, mes }),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al marcar conciliada'));
     return data;
 }
 

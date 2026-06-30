@@ -37,6 +37,37 @@ test('permiso remunerado 4 horas resta tarifa/176 × 4', () => {
     assert.equal(r.montoCop, 80_000);
 });
 
+test('permiso remunerado 4 horas usa baseHours del servicio en modo HOURS', () => {
+    const r = computeNovedadImpactoMonto(
+        3_520_000,
+        {
+            tipo_novedad: 'Permiso remunerado',
+            cantidad_horas: 4,
+            unidad: 'horas',
+            hora_inicio: '09:00',
+            hora_fin: '13:00',
+            monto_cop: null
+        },
+        { billingMode: 'HOURS', baseHours: 160 }
+    );
+    assert.equal(r.montoCop, 88_000);
+    assert.equal(r.valorHora, 22_000);
+    assert.equal(r.horasBaseMes, 160);
+});
+
+test('sin options en modo CALENDAR_DAYS sigue usando 176 para horas', () => {
+    const r = computeNovedadImpactoMonto(
+        3_520_000,
+        {
+            tipo_novedad: 'Permiso remunerado',
+            cantidad_horas: 4,
+            unidad: 'horas'
+        },
+        { billingMode: 'CALENDAR_DAYS', baseHours: 160 }
+    );
+    assert.equal(r.montoCop, 80_000);
+});
+
 test('bono suma monto_cop explícito', () => {
     const r = computeNovedadImpactoMonto(3_000_000, {
         tipo_novedad: 'Bonos',
@@ -94,6 +125,25 @@ test('aggregateNovedadesImpacto combina suma y resta', () => {
     assert.equal(agg.sumResta, Math.round(5_000_000 / 30));
     assert.equal(agg.facturaCop, 5_000_000 + 100_000 - Math.round(5_000_000 / 30));
     assert.equal(agg.count, 2);
+});
+
+test('incapacidad 3 días en modo HOURS expone valorHora y monto vía baseHours del servicio', () => {
+    const tarifa = 17_291_052;
+    const r = computeNovedadImpactoMonto(
+        tarifa,
+        {
+            tipo_novedad: 'Incapacidad',
+            fecha_inicio: '2026-05-02',
+            fecha_fin: '2026-05-04',
+            monto_cop: 100
+        },
+        { billingMode: 'HOURS', baseHours: 160 }
+    );
+    assert.equal(r.medida, 'days');
+    assert.equal(r.cantidad, 3);
+    assert.equal(r.valorHora, 108_069);
+    assert.equal(r.horasBaseMes, 160);
+    assert.equal(r.montoCop, 1_729_105);
 });
 
 test('getNovedadImpactoFacturacion clasifica hora extra como suma', () => {

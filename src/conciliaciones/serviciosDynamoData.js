@@ -82,6 +82,72 @@ async function _getServiceById(id) {
     return (Items || []).find(i => i.id === id) || null;
 }
 
+async function _listAllServicioItems() {
+    const docClient = getDynamoClient();
+    const cmd = new QueryCommand({
+        TableName: TABLE_NAME,
+        IndexName: 'TipoEntidad',
+        KeyConditionExpression: 'entityType = :entityType',
+        ExpressionAttributeValues: {
+            ':entityType': 'SERVICIO'
+        }
+    });
+    const { Items } = await docClient.send(cmd);
+    return Items || [];
+}
+
+function _normalizeCedulaKey(cedula) {
+    return String(cedula || '').replace(/\D/g, '');
+}
+
+function _serviciosMismoCliente(items, clienteCanon) {
+    const canon = String(clienteCanon || '').trim().toLowerCase();
+    return (items || []).filter(
+        (i) =>
+            String(i.entityType || '') === 'SERVICIO' &&
+            String(i.client || '').trim().toLowerCase() === canon
+    );
+}
+
+function _cedulasAsociadasServicio(service) {
+    const set = new Set();
+    for (const a of service?.consultores_asociados || []) {
+        const k = _normalizeCedulaKey(a?.cedula);
+        if (k) set.add(k);
+    }
+    return set;
+}
+
+/** Cédulas ya asignadas a otro servicio del mismo cliente (excluye servicioId). */
+function _cedulasOcupadasEnOtrosServicios(serviciosCliente, servicioId) {
+    const ocupadas = new Set();
+    for (const svc of serviciosCliente || []) {
+        if (svc.id === servicioId) continue;
+        for (const k of _cedulasAsociadasServicio(svc)) ocupadas.add(k);
+    }
+    return ocupadas;
+}
+
+async function _desasociarCedulasDeOtrosServicios(docClient, serviciosCliente, servicioId, cedulaKeys) {
+    const keys = cedulaKeys instanceof Set ? cedulaKeys : new Set(cedulaKeys || []);
+    if (!keys.size) return;
+
+    for (const svc of serviciosCliente || []) {
+        if (svc.id === servicioId) continue;
+        const antes = Array.isArray(svc.consultores_asociados) ? svc.consultores_asociados : [];
+        const despues = antes.filter((a) => !keys.has(_normalizeCedulaKey(a?.cedula)));
+        if (despues.length === antes.length) continue;
+        svc.consultores_asociados = despues;
+        svc.updated_at = new Date().toISOString();
+        await docClient.send(
+            new PutCommand({
+                TableName: TABLE_NAME,
+                Item: svc
+            })
+        );
+    }
+}
+
 async function listServicios(deps, scope) {
     const allowedClients = await _getAllowedClients(deps, scope);
     if (!allowedClients.length) return [];
@@ -312,7 +378,8 @@ async function listServicioConsultores(deps, scope, servicioId) {
     const { pool } = deps;
     const { assertClienteConciliacionPermitido } = require('./conciliacionesQueries');
 
-    const service = await _getServiceById(servicioId);
+    const allServicios = await _listAllServicioItems();
+    const service = allServicios.find((i) => i.id === servicioId) || null;
     if (!service) {
         const err = new Error('Servicio no encontrado');
         err.status = 404;
@@ -337,11 +404,20 @@ async function listServicioConsultores(deps, scope, servicioId) {
     );
 
     const asociadosMap = {};
-    for (const asc of (service.consultores_asociados || [])) {
+    for (const asc of service.consultores_asociados || []) {
         asociadosMap[String(asc.cedula).trim()] = asc;
     }
 
-    return q.rows.map(r => {
+    const serviciosCliente = _serviciosMismoCliente(allServicios, chk.canon);
+    const ocupadasEnOtros = _cedulasOcupadasEnOtrosServicios(serviciosCliente, servicioId);
+
+    return q.rows
+        .filter((r) => {
+            const cedStr = String(r.cedula).trim();
+            if (asociadosMap[cedStr]) return true;
+            return !ocupadasEnOtros.has(_normalizeCedulaKey(r.cedula));
+        })
+        .map((r) => {
         const cedStr = String(r.cedula).trim();
         const asoc = asociadosMap[cedStr];
         return {
@@ -375,6 +451,18 @@ async function upsertServicioConsultores(deps, scope, servicioId, consultoresAso
         throw error;
     }
 
+    const docClient = getDynamoClient();
+
+    const nuevasCedulas = new Set(
+        (consultoresAsociados || []).map((c) => _normalizeCedulaKey(c?.cedula)).filter(Boolean)
+    );
+
+    const allServicios = await _listAllServicioItems();
+    const serviciosCliente = _serviciosMismoCliente(allServicios, oldService.client);
+
+    // Un consultor solo puede pertenecer a un servicio por cliente: quitar de los demás.
+    await _desasociarCedulasDeOtrosServicios(docClient, serviciosCliente, servicioId, nuevasCedulas);
+
     // Actualizamos el array embebido en el servicio
     oldService.consultores_asociados = consultoresAsociados.map(c => ({
         cedula: c.cedula,
@@ -384,7 +472,6 @@ async function upsertServicioConsultores(deps, scope, servicioId, consultoresAso
     }));
     oldService.updated_at = new Date().toISOString();
 
-    const docClient = getDynamoClient();
     const putCmd = new PutCommand({
         TableName: TABLE_NAME,
         Item: oldService
@@ -400,5 +487,10 @@ module.exports = {
     updateServicio,
     deleteServicio,
     listServicioConsultores,
-    upsertServicioConsultores
+    upsertServicioConsultores,
+    // Helpers expuestos para tests de exclusividad
+    _normalizeCedulaKey,
+    _serviciosMismoCliente,
+    _cedulasAsociadasServicio,
+    _cedulasOcupadasEnOtrosServicios
 };

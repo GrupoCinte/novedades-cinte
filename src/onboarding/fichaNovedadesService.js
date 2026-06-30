@@ -128,6 +128,29 @@ function buildPatchFromNormalized(tipoNovedad, normalized) {
     return patch;
 }
 
+function normalizeEditValue(field, value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === 'boolean' || typeof value === 'number') return value;
+    const s = String(value).trim();
+    if (!s || s === 'nada') return null;
+    if (field === 'activo') {
+        if (s === 'true' || s === '1') return true;
+        if (s === 'false' || s === '0') return false;
+    }
+    const numericFields = new Set(['venta_total', 'costo_empresa', 'duracion_servicio', 'sueldo_nomina']);
+    if (numericFields.has(field)) {
+        const n = Number(s);
+        if (!Number.isNaN(n)) return n;
+    }
+    return s.length > 2000 ? s.slice(0, 2000) : s;
+}
+
+function isFieldEditableForTipo(tipoNovedad, field) {
+    const whitelist = getAllowedFieldsForTipo(tipoNovedad);
+    if (whitelist === null) return true;
+    return whitelist.includes(field);
+}
+
 function mapDynamoZohoPayload(rawItem) {
     const r = rawItem || {};
     const extractorRaw = r.extractor_output ?? r.extractorOutput ?? r.payload_extractor;
@@ -608,6 +631,69 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         return { ok: true, status: 'pendiente', cedula, diff: diffJson, match_strategy: 'manual' };
     }
 
+    async function updateNovedadPayload(id, edits = {}, reviewer = {}) {
+        const row = await getNovedadById(id);
+        if (!row) throw Object.assign(new Error('Novedad no encontrada'), { status: 404 });
+        if (row.status !== 'pendiente') {
+            throw Object.assign(new Error(`Estado no editable: ${row.status}`), { status: 409 });
+        }
+        const cedula = row.colaborador_cedula_match;
+        if (!cedula) {
+            throw Object.assign(new Error('Vincule un colaborador antes de editar'), { status: 400 });
+        }
+        if (!edits || typeof edits !== 'object' || Array.isArray(edits)) {
+            throw Object.assign(new Error('Edits inválidos'), { status: 400 });
+        }
+        const editKeys = Object.keys(edits).filter((k) => !k.startsWith('_'));
+        if (editKeys.length === 0) {
+            throw Object.assign(new Error('Sin campos para editar'), { status: 400 });
+        }
+        if (editKeys.length > 30) {
+            throw Object.assign(new Error('Demasiados campos en una sola edición'), { status: 400 });
+        }
+
+        const diffRows = Array.isArray(row.diff_json) ? row.diff_json : parseJsonField(row.diff_json) || [];
+        const diffFields = new Set(diffRows.map((d) => d.field).filter(Boolean));
+        const normalized = { ...(row.payload_normalizado || {}) };
+
+        for (const key of editKeys) {
+            if (!diffFields.has(key)) {
+                throw Object.assign(new Error(`Campo no editable: ${key}`), { status: 400 });
+            }
+            if (!isFieldEditableForTipo(row.tipo_novedad, key)) {
+                throw Object.assign(
+                    new Error(`Campo no permitido para tipo ${row.tipo_novedad}: ${key}`),
+                    { status: 400 }
+                );
+            }
+            const val = normalizeEditValue(key, edits[key]);
+            if (val === null || val === undefined || val === '') {
+                delete normalized[key];
+            } else {
+                normalized[key] = val;
+            }
+        }
+
+        const colab = await loadColaboradorFull(pool, cedula);
+        if (!colab) throw Object.assign(new Error('Colaborador no encontrado'), { status: 404 });
+
+        const diffJson = buildDiff(colab, normalized);
+        const reviewedBy = trimOrNull(reviewer.sub || reviewer.email || reviewer.displayName, 320);
+
+        await pool.query(
+            `UPDATE ficha_novedades_staging
+             SET payload_normalizado = $2::jsonb,
+                 diff_json = $3::jsonb,
+                 reviewed_by = $4,
+                 reviewed_at = NOW(),
+                 error = NULL
+             WHERE id = $1::uuid`,
+            [id, JSON.stringify(normalized), JSON.stringify(diffJson), reviewedBy]
+        );
+
+        return getNovedadById(id);
+    }
+
     /**
      * Backfill / reconciliación: scan Dynamo zoho_novedad → ingest faltantes en Postgres.
      * Idempotente por external_id (ingestZohoPayload dedupe).
@@ -758,6 +844,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         approveNovedad,
         rejectNovedad,
         linkNovedad,
+        updateNovedadPayload,
         matchColaborador,
         buildDiff,
         buildPatchFromNormalized,

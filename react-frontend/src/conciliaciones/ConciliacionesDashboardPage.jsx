@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
@@ -9,6 +9,7 @@ import ConciliacionesDashboardGapCierre from './components/dashboard/Conciliacio
 import ConciliacionesDashboardPareto from './components/dashboard/ConciliacionesDashboardPareto.jsx';
 import ConciliacionesDashboardSaludCola from './components/dashboard/ConciliacionesDashboardSaludCola.jsx';
 import ConciliacionesDashboardTarifaStacked from './components/dashboard/ConciliacionesDashboardTarifaStacked.jsx';
+import ConciliacionesDashboardLiderClienteStacked from './components/dashboard/ConciliacionesDashboardLiderClienteStacked.jsx';
 import {
     CONCILIACIONES_PAGE_MAIN,
     conciliacionesErrorBannerClass,
@@ -21,9 +22,16 @@ import {
     buildColaSaludChartData,
     buildDashboardAlertas,
     buildGapCierreChartData,
-    buildParetoIngresosChartData
+    buildLiderClienteStackedChartData,
+    buildParetoIngresosChartData,
+    liderClienteChartSeriesKeys
 } from './facturacionAggregate.js';
-import { fetchColaCierres } from './conciliacionesApi.js';
+import { fetchColaCierres, fetchDashboardLiderCliente } from './conciliacionesApi.js';
+import { formatCopCached } from './facturacionLogic.js';
+
+function formatCop(n) {
+    return formatCopCached(n);
+}
 
 function currentMonthValue() {
     const d = new Date();
@@ -37,11 +45,6 @@ function parseMonthValue(v) {
     const m = /^(\d{4})-(\d{2})$/.exec(s);
     if (!m) return { year: null, month: null };
     return { year: Number(m[1]), month: Number(m[2]) };
-}
-
-function formatCop(n) {
-    const x = Number(n) || 0;
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(x);
 }
 
 function shortCliente(label) {
@@ -59,9 +62,12 @@ export default function ConciliacionesDashboardPage({ token }) {
 
     const [monthValue, setMonthValue] = useState(currentMonthValue);
     const [loading, setLoading] = useState(true);
+    const [liderLoading, setLiderLoading] = useState(true);
     const [error, setError] = useState('');
     const [payload, setPayload] = useState(null);
     const [colaItems, setColaItems] = useState([]);
+    const [liderRows, setLiderRows] = useState([]);
+    const monthCacheRef = useRef(new Map());
 
     const ym = useMemo(() => parseMonthValue(monthValue), [monthValue]);
 
@@ -77,21 +83,71 @@ export default function ConciliacionesDashboardPage({ token }) {
         [navigate]
     );
 
-    const load = useCallback(async () => {
+    const load = useCallback(async (options = {}) => {
+        const { force = false } = options;
         if (!ym.year || !ym.month) return;
+        const cacheKey = `${ym.year}-${ym.month}`;
+        if (!force && monthCacheRef.current.has(cacheKey)) {
+            const cached = monthCacheRef.current.get(cacheKey);
+            setColaItems(cached.colaItems);
+            setPayload(cached.payload);
+            setLiderRows(cached.liderRows);
+            setLoading(false);
+            setLiderLoading(false);
+            setError('');
+            return;
+        }
         setLoading(true);
+        setLiderLoading(true);
         setError('');
         try {
-            const data = await fetchColaCierres(token, { year: ym.year, month: ym.month });
-            const items = Array.isArray(data?.items) ? data.items : [];
-            setColaItems(items);
-            setPayload(aggregateDashboardFromColaItems(items));
+            const [colaResult, liderResult] = await Promise.allSettled([
+                fetchColaCierres(token, { year: ym.year, month: ym.month }),
+                fetchDashboardLiderCliente(token, { year: ym.year, month: ym.month })
+            ]);
+
+            if (colaResult.status === 'fulfilled') {
+                const items = Array.isArray(colaResult.value?.items) ? colaResult.value.items : [];
+                setColaItems(items);
+                setPayload(aggregateDashboardFromColaItems(items));
+            } else {
+                throw colaResult.reason;
+            }
+
+            if (liderResult.status === 'fulfilled') {
+                setLiderRows(Array.isArray(liderResult.value?.items) ? liderResult.value.items : []);
+            } else {
+                setLiderRows([]);
+            }
+
+            monthCacheRef.current.set(cacheKey, {
+                colaItems:
+                    colaResult.status === 'fulfilled'
+                        ? Array.isArray(colaResult.value?.items)
+                            ? colaResult.value.items
+                            : []
+                        : [],
+                payload:
+                    colaResult.status === 'fulfilled'
+                        ? aggregateDashboardFromColaItems(
+                              Array.isArray(colaResult.value?.items) ? colaResult.value.items : []
+                          )
+                        : null,
+                liderRows:
+                    liderResult.status === 'fulfilled'
+                        ? Array.isArray(liderResult.value?.items)
+                            ? liderResult.value.items
+                            : []
+                        : []
+            });
         } catch (e) {
             setError(e.message || 'No se pudo cargar el dashboard');
             setPayload(null);
             setColaItems([]);
+            setLiderRows([]);
         } finally {
             setLoading(false);
+            setLiderLoading(false);
         }
     }, [token, ym.year, ym.month]);
 
@@ -127,6 +183,12 @@ export default function ConciliacionesDashboardPage({ token }) {
         () => buildClienteCierreHeatmapData(colaItems, { maxClientes: 10 }, shortCliente),
         [colaItems]
     );
+
+    const liderChartData = useMemo(
+        () => buildLiderClienteStackedChartData(liderRows, 10, shortCliente),
+        [liderRows]
+    );
+    const liderSeriesKeys = useMemo(() => liderClienteChartSeriesKeys(liderChartData), [liderChartData]);
 
     const gt = payload?.globalTotales;
     const hasServicios = (payload?.serviciosCount ?? 0) > 0;
@@ -221,6 +283,20 @@ export default function ConciliacionesDashboardPage({ token }) {
                 />
             ) : null}
 
+            {!loading && hasServicios && liderLoading ? (
+                <p className={`text-sm ${labelMuted}`}>Cargando gráfico por líder…</p>
+            ) : null}
+
+            {!loading && hasServicios && !liderLoading && liderChartData.length ? (
+                <ConciliacionesDashboardLiderClienteStacked
+                    data={liderChartData}
+                    seriesKeys={liderSeriesKeys}
+                    dash={dash}
+                    isLight={isLight}
+                    labelMuted={labelMuted}
+                />
+            ) : null}
+
             {!loading && hasServicios ? (
                 <ConciliacionesDashboardCierreHeatmap
                     heatmap={heatmap}
@@ -239,8 +315,6 @@ export default function ConciliacionesDashboardPage({ token }) {
                             <thead className={dash.thead}>
                                 <tr>
                                     <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Cliente</th>
-                                    <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Colaboradores</th>
-                                    <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Con novedad</th>
                                     <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Tarifas</th>
                                     <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Deducción</th>
                                     <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Factura</th>
@@ -251,8 +325,6 @@ export default function ConciliacionesDashboardPage({ token }) {
                                 {payload.rows.map((r) => (
                                     <tr key={r.cliente} className={dash.trHover}>
                                         <td className={dash.tdName}>{r.cliente}</td>
-                                        <td className={`${dash.tdCell} tabular-nums`}>{r.totales?.colaboradores ?? 0}</td>
-                                        <td className={`${dash.tdCell} tabular-nums`}>{r.totales?.conNovedad ?? 0}</td>
                                         <td className={`${dash.tdCell} tabular-nums`}>{formatCop(r.totales?.tarifaSum)}</td>
                                         <td className={`${dash.tdCell} tabular-nums`}>{formatCop(r.totales?.deduccionSum)}</td>
                                         <td className={`${dash.tdCell} tabular-nums font-semibold ${CINTE_HEADING}`}>{formatCop(r.totales?.facturaSum)}</td>

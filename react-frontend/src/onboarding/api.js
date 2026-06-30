@@ -87,7 +87,8 @@ export const onboardingApi = {
     getFichaNovedad: (token, id) => get(token, `/ficha-novedades/${encodeURIComponent(id)}`),
     aprobarFichaNovedad: (token, id) => post(token, `/ficha-novedades/${encodeURIComponent(id)}/aprobar`, {}),
     rechazarFichaNovedad: (token, id, body) => post(token, `/ficha-novedades/${encodeURIComponent(id)}/rechazar`, body || {}),
-    vincularFichaNovedad: (token, id, body) => post(token, `/ficha-novedades/${encodeURIComponent(id)}/vincular`, body || {})
+    vincularFichaNovedad: (token, id, body) => post(token, `/ficha-novedades/${encodeURIComponent(id)}/vincular`, body || {}),
+    editarFichaNovedad: (token, id, body) => patch(token, `/ficha-novedades/${encodeURIComponent(id)}`, body || {})
 };
 
 export default onboardingApi;

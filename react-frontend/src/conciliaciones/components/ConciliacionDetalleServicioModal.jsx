@@ -149,11 +149,11 @@ export default function ConciliacionDetalleServicioModal({
         }));
 
         try {
-            await updateServicio(token, servicio.id, payloadServicio);
+            const saved = await updateServicio(token, servicio.id, payloadServicio);
             if (isAssociating) {
                 await associateConsultoresToServicio(token, servicio.id, payloadAsociacion);
             }
-            onSuccess();
+            onSuccess(saved || { ...payloadServicio, id: servicio.id });
             onClose();
         } catch (err) {
             setErrorMsg(err.message || 'Error al guardar los cambios');
@@ -472,7 +472,9 @@ export default function ConciliacionDetalleServicioModal({
                         </div>
                     ) : consultoresAMostrar.length === 0 ? (
                         <div className="p-4 text-center text-sm opacity-70">
-                            {mode === 'edit' ? 'No hay consultores disponibles para este cliente.' : 'No hay consultores asociados a este servicio.'}
+                            {mode === 'edit' && isAssociating
+                                ? 'No hay consultores disponibles. Los que no aparecen pueden estar asociados a otro servicio del mismo cliente.'
+                                : 'No hay consultores asociados a este servicio.'}
                         </div>
                     ) : (
                         <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">

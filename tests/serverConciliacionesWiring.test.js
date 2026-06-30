@@ -28,6 +28,7 @@ test('createDataLayer expone handlers ForScope de facturación conciliaciones', 
     assert.equal(typeof dl.upsertConciliacionFacturacionForScope, 'function');
     assert.equal(typeof dl.upsertConciliacionFacturacionMasivaForScope, 'function');
     assert.equal(typeof dl.applyConciliacionFacturacionRevisionForScope, 'function');
+    assert.equal(typeof dl.applyConciliacionFacturacionAjustesForScope, 'function');
     assert.equal(typeof dl.listConciliacionFacturacionHistorialForScope, 'function');
 });
 
@@ -48,6 +49,7 @@ test('assertConciliacionesRouteDeps rechaza upsertConciliacionFacturacionMasivaF
                 upsertConciliacionFacturacionForScope: dl.upsertConciliacionFacturacionForScope,
                 applyConciliacionFacturacionRevisionForScope: dl.applyConciliacionFacturacionRevisionForScope,
                 applyConciliacionFacturacionRevisionMasivaForScope: dl.applyConciliacionFacturacionRevisionMasivaForScope,
+                applyConciliacionFacturacionAjustesForScope: dl.applyConciliacionFacturacionAjustesForScope,
                 listConciliacionFacturacionHistorialForScope: dl.listConciliacionFacturacionHistorialForScope,
                 upsertConciliacionFacturacionMasivaForScope: undefined,
                 listConciliacionesFacturacionForScope: dl.listConciliacionesFacturacionForScope

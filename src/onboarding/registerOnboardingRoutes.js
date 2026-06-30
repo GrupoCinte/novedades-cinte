@@ -1414,6 +1414,14 @@ function registerOnboardingRoutes(deps) {
         cedula: z.string().min(5).max(20)
     });
 
+    const fichaNovedadesEditSchema = z.object({
+        edits: z
+            .record(z.union([z.string(), z.number(), z.boolean(), z.null()]))
+            .refine((obj) => Object.keys(obj).length >= 1 && Object.keys(obj).length <= 30, {
+                message: 'edits debe tener entre 1 y 30 campos'
+            })
+    });
+
     const fichaNovedadesIntakeSchema = z.object({
         source: z.enum(['n8n_webhook', 'dynamo_stream_zoho', 'manual']).optional(),
         payload: z.record(z.any())
@@ -1491,6 +1499,36 @@ function registerOnboardingRoutes(deps) {
             return res.json({ ok: true, item: row });
         } catch (e) {
             return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    app.patch('/api/onboarding/ficha-novedades/:id', ...writeGuard, async (req, res) => {
+        const idParsed = fichaNovedadesIdSchema.safeParse(req.params);
+        if (!idParsed.success) {
+            return res.status(400).json({ ok: false, error: 'Id inválido' });
+        }
+        const bodyParsed = fichaNovedadesEditSchema.safeParse(req.body || {});
+        if (!bodyParsed.success) {
+            return res.status(400).json({ ok: false, error: 'Body inválido', detail: bodyParsed.error.errors });
+        }
+        try {
+            const item = await fichaNovedades.updateNovedadPayload(
+                idParsed.data.id,
+                bodyParsed.data.edits,
+                req.user || {}
+            );
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user && req.user.sub),
+                actorRole: req.user && req.user.role,
+                action: 'ficha_novedad_editar',
+                entityType: 'ficha_novedades_staging',
+                entityId: idParsed.data.id,
+                metadata: { fields: Object.keys(bodyParsed.data.edits) }
+            });
+            return res.json({ ok: true, item });
+        } catch (e) {
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message });
         }
     });
 

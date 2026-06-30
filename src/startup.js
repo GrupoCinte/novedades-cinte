@@ -38,6 +38,9 @@ async function startServer(deps) {
         ensureNovedadesMallaOrigenRefColumn,
         ensureConciliacionesFacturacionTable,
         ensureConciliacionesFacturacionHistorialTable,
+        ensureConciliacionesServicioNotificacionesTable,
+        ensureConciliacionesServicioCierreTable,
+        ensureConciliacionesNovedadConsumoTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
@@ -81,6 +84,9 @@ async function startServer(deps) {
     await ensureNovedadesMallaOrigenRefColumn();
     await ensureConciliacionesFacturacionTable();
     await ensureConciliacionesFacturacionHistorialTable();
+    await ensureConciliacionesServicioNotificacionesTable();
+    await ensureConciliacionesServicioCierreTable();
+    await ensureConciliacionesNovedadConsumoTable();
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
     /**

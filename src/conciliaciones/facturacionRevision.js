@@ -88,7 +88,41 @@ function resolveNextEstado(estadoActual, accion, etapa) {
     return { ok: false, error: 'Etapa de revisión no reconocida' };
 }
 
-function validateRevisionRequest({ role, estadoActual, accion, observacion }) {
+function normalizeEtapaObjetivo(etapaObjetivo) {
+    const etapa = String(etapaObjetivo || '').trim().toUpperCase();
+    return etapa === 'ANALISTA' || etapa === 'NOMINA' ? etapa : null;
+}
+
+/** Rol autorizado para actuar en la etapa fija (masiva). */
+function canRoleActAtEtapa(role, etapaObjetivo) {
+    const etapa = normalizeEtapaObjetivo(etapaObjetivo);
+    if (!etapa) return false;
+    const r = normalizeRole(role);
+    if (ELEVATED_ROLES.has(r)) return true;
+    if (etapa === 'ANALISTA') return r === 'analista_conciliaciones';
+    if (etapa === 'NOMINA') return r === 'nomina';
+    return false;
+}
+
+/** Elegibilidad por etapa fija (masiva), sin adaptar etapa por fila en roles elevados. */
+function canActOnEstadoForEtapa(role, estadoActual, accion, etapaObjetivo) {
+    const act = normalizeAccion(accion);
+    if (!act) return false;
+    const etapa = normalizeEtapaObjetivo(etapaObjetivo);
+    if (!etapa || !canRoleActAtEtapa(role, etapa)) return false;
+
+    const est = normalizeEstado(estadoActual);
+    if (etapa === 'ANALISTA') {
+        if (act === 'rechazar') return false;
+        return est === 'PENDIENTE' || est === 'DEVUELTA';
+    }
+    if (etapa === 'NOMINA') {
+        return est === 'APROBADO_ANALISTA';
+    }
+    return false;
+}
+
+function validateRevisionRequest({ role, estadoActual, accion, observacion, etapaObjetivo }) {
     const obs = String(observacion || '').trim();
     if (!obs) {
         return { ok: false, error: 'La observación es obligatoria', status: 400 };
@@ -97,6 +131,24 @@ function validateRevisionRequest({ role, estadoActual, accion, observacion }) {
     if (!act) {
         return { ok: false, error: 'Acción inválida', status: 400 };
     }
+
+    const etapaFija = normalizeEtapaObjetivo(etapaObjetivo);
+    if (etapaFija) {
+        if (!canActOnEstadoForEtapa(role, estadoActual, act, etapaFija)) {
+            return {
+                ok: false,
+                error: 'No autorizado para esta acción en el estado actual',
+                status: 403,
+                skip: true
+            };
+        }
+        const next = resolveNextEstado(estadoActual, act, etapaFija);
+        if (!next.ok) {
+            return { ok: false, error: next.error, status: 400, skip: true };
+        }
+        return { ok: true, ...next, observacion: obs };
+    }
+
     if (!canActOnEstado(role, estadoActual, act)) {
         return { ok: false, error: 'No autorizado para esta acción en el estado actual', status: 403 };
     }
@@ -106,6 +158,11 @@ function validateRevisionRequest({ role, estadoActual, accion, observacion }) {
         return { ok: false, error: next.error, status: 400 };
     }
     return { ok: true, ...next, observacion: obs };
+}
+
+/** Alias explícito para revisión masiva con etapa fija. */
+function validateRevisionRequestMasiva(params) {
+    return validateRevisionRequest(params);
 }
 
 function canBypassEstadoChange(role) {
@@ -122,7 +179,11 @@ module.exports = {
     resolveRevisionEtapa,
     resolveEffectiveEtapa,
     canActOnEstado,
+    canActOnEstadoForEtapa,
+    canRoleActAtEtapa,
+    normalizeEtapaObjetivo,
     resolveNextEstado,
     validateRevisionRequest,
+    validateRevisionRequestMasiva,
     canBypassEstadoChange
 };

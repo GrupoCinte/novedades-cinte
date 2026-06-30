@@ -59,6 +59,7 @@ function aggregateServicioCierre(rows, cedulas) {
     const filtered = set.size ? (Array.isArray(rows) ? rows : []).filter((r) => set.has(normalizeCedula(r.cedula))) : [];
 
     let tarifaSum = 0;
+    let incrementoSum = 0;
     let deduccionSum = 0;
     let facturaSum = 0;
     let consultoresConNovedad = 0;
@@ -66,6 +67,7 @@ function aggregateServicioCierre(rows, cedulas) {
 
     for (const r of filtered) {
         tarifaSum += Number(r.tarifaCliente) || 0;
+        incrementoSum += Number(r.novedadesSumaCop) || 0;
         deduccionSum += Number(r.novedadesSumCop) || 0;
         facturaSum += Number(r.facturaCop) || 0;
         if ((r.novedadesCount || 0) > 0) consultoresConNovedad += 1;
@@ -80,7 +82,7 @@ function aggregateServicioCierre(rows, cedulas) {
         consultoresCerrados,
         consultoresConNovedad,
         estados,
-        totales: { tarifaSum, deduccionSum, facturaSum }
+        totales: { tarifaSum, incrementoSum, deduccionSum, facturaSum }
     };
 }
 
@@ -157,11 +159,12 @@ function aggregateDashboardFromColaItems(items) {
         if (!cl) continue;
         const cur = byClient.get(cl) || {
             cliente: cl,
-            totales: { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 },
+            totales: { tarifaSum: 0, incrementoSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 },
             serviciosCount: 0
         };
         const t = item.totales || {};
         cur.totales.tarifaSum += Number(t.tarifaSum) || 0;
+        cur.totales.incrementoSum += Number(t.incrementoSum) || 0;
         cur.totales.deduccionSum += Number(t.deduccionSum) || 0;
         cur.totales.facturaSum += Number(t.facturaSum) || 0;
         cur.totales.colaboradores += Number(item.consultoresTotal) || 0;
@@ -177,12 +180,13 @@ function aggregateDashboardFromColaItems(items) {
     const globalTotales = rows.reduce(
         (acc, r) => ({
             tarifaSum: acc.tarifaSum + (Number(r.totales.tarifaSum) || 0),
+            incrementoSum: acc.incrementoSum + (Number(r.totales.incrementoSum) || 0),
             deduccionSum: acc.deduccionSum + (Number(r.totales.deduccionSum) || 0),
             facturaSum: acc.facturaSum + (Number(r.totales.facturaSum) || 0),
             colaboradores: acc.colaboradores + (Number(r.totales.colaboradores) || 0),
             conNovedad: acc.conNovedad + (Number(r.totales.conNovedad) || 0)
         }),
-        { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 }
+        { tarifaSum: 0, incrementoSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 }
     );
 
     return {

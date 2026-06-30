@@ -7,6 +7,7 @@ import ConciliacionesServiciosList from './components/ConciliacionesServiciosLis
 import ConciliacionCrearServicioModal from './components/ConciliacionCrearServicioModal.jsx';
 import ConciliacionDetalleServicioModal from './components/ConciliacionDetalleServicioModal.jsx';
 import { fetchServicios, fetchConciliacionesClientes, deleteServicio } from './conciliacionesApi.js';
+import { mergeServicioInList } from './facturacionLogic.js';
 
 export default function ConciliacionesServiciosPage({ token }) {
     const mt = useModuleTheme();
@@ -20,6 +21,7 @@ export default function ConciliacionesServiciosPage({ token }) {
     const [clientes, setClientes] = useState([]);
     const [servicios, setServicios] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
 
@@ -37,8 +39,14 @@ export default function ConciliacionesServiciosPage({ token }) {
     const [detalleOpen, setDetalleOpen] = useState(false);
     const [servicioToDetalle, setServicioToDetalle] = useState(null);
 
-    const loadData = useCallback(async () => {
-        setLoading(true);
+    const loadData = useCallback(async (options = {}) => {
+        const { silent = false } = options;
+        const hasRows = servicios.length > 0;
+        if (silent && hasRows) {
+            setRefreshing(true);
+        } else {
+            setLoading(true);
+        }
         setError('');
         try {
             const [clientesList, serviciosList] = await Promise.all([
@@ -48,11 +56,17 @@ export default function ConciliacionesServiciosPage({ token }) {
             setClientes(clientesList || []);
             setServicios(serviciosList || []);
         } catch (e) {
-            setError(e.message || 'Error al cargar los datos');
+            if (!silent || !hasRows) {
+                setError(e.message || 'Error al cargar los datos');
+            }
         } finally {
-            setLoading(false);
+            if (silent && hasRows) {
+                setRefreshing(false);
+            } else {
+                setLoading(false);
+            }
         }
-    }, [token]);
+    }, [token, servicios.length]);
 
     useEffect(() => {
         loadData();
@@ -76,11 +90,11 @@ export default function ConciliacionesServiciosPage({ token }) {
             await deleteServicio(token, servicio.id);
             setSuccess(`Servicio "${servicio.serviceName}" eliminado correctamente`);
             setConfirmDeleteServicio(null);
-            loadData();
+            setServicios((prev) => mergeServicioInList(prev, null, { removedId: servicio.id }));
         } catch (e) {
             setError(e.message || 'Error al eliminar el servicio');
         }
-    }, [token, loadData]);
+    }, [token]);
 
     const filteredServicios = useMemo(() => {
         return servicios.filter(s => {
@@ -191,7 +205,7 @@ export default function ConciliacionesServiciosPage({ token }) {
                         <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
                             <ConciliacionesServiciosList
                                 rows={filteredServicios}
-                                loading={loading}
+                                loading={loading && servicios.length === 0}
                                 onVerDetalles={handleVerDetalles}
                                 headingAccent={headingAccent}
                                 labelMuted={labelMuted}
@@ -202,6 +216,7 @@ export default function ConciliacionesServiciosPage({ token }) {
                             <div className={dash.footerBar}>
                                 <span>
                                     Mostrando {filteredServicios.length} de {servicios.length} servicios
+                                    {refreshing ? ' · actualizando…' : ''}
                                 </span>
                             </div>
                         ) : null}
@@ -219,11 +234,15 @@ export default function ConciliacionesServiciosPage({ token }) {
                 clientes={clientes}
                 isLight={isLight}
                 servicio={servicioToEdit}
-                onSuccess={() => {
+                onSuccess={(saved) => {
                     setCrearOpen(false);
                     setSuccess(servicioToEdit ? 'Servicio actualizado correctamente' : 'Servicio creado correctamente');
+                    if (saved) {
+                        setServicios((prev) => mergeServicioInList(prev, saved));
+                    } else {
+                        void loadData({ silent: true });
+                    }
                     setServicioToEdit(null);
-                    loadData();
                 }}
             />
 
@@ -235,9 +254,16 @@ export default function ConciliacionesServiciosPage({ token }) {
                 }}
                 servicio={servicioToDetalle}
                 onDelete={setConfirmDeleteServicio}
-                onSuccess={() => {
+                onSuccess={(saved) => {
                     setSuccess('Servicio actualizado correctamente');
-                    loadData();
+                    if (saved) {
+                        setServicios((prev) => mergeServicioInList(prev, saved));
+                        setServicioToDetalle((prev) =>
+                            prev && saved?.id && prev.id === saved.id ? { ...prev, ...saved } : prev
+                        );
+                    } else {
+                        void loadData({ silent: true });
+                    }
                 }}
                 clientes={clientes}
                 isLight={isLight}

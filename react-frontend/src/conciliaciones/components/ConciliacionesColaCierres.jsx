@@ -8,11 +8,18 @@ export default function ConciliacionesColaCierres({
     items,
     loading,
     monthLabel,
+    year,
+    month,
+    userRole,
     fEstadoCola,
     onEstadoColaChange,
     filtrosColaOpen,
     onToggleFiltrosCola,
     onAbrirCierre,
+    onExportExcel,
+    onMarcarConciliada,
+    exportandoId = '',
+    conciliandoId = '',
     headingAccent,
     labelMuted,
     isLight,
@@ -130,7 +137,14 @@ export default function ConciliacionesColaCierres({
                         <ConciliacionesColaCierresCard
                             key={item.servicioId}
                             item={item}
+                            year={year}
+                            month={month}
+                            userRole={userRole}
                             onAbrirCierre={onAbrirCierre}
+                            onExportExcel={onExportExcel}
+                            onMarcarConciliada={onMarcarConciliada}
+                            exportandoId={exportandoId}
+                            conciliandoId={conciliandoId}
                             headingAccent={headingAccent}
                             labelMuted={labelMuted}
                             isLight={isLight}

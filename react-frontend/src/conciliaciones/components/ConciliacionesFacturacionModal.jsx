@@ -1,7 +1,20 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { X, ShieldAlert, Trash2, CheckCircle2, XCircle } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { X, ShieldAlert, Trash2, CheckCircle2, XCircle, Pencil, Save } from 'lucide-react';
 import { buildGestionTableDash } from '../../gestionTableDashTheme.js';
-import { buildFacturacionRevisionPayload, getRevisionActionsForUser } from '../facturacionLogic.js';
+import {
+    buildFacturacionRevisionPayload,
+    buildFacturacionAjustesPayload,
+    getRevisionActionsForUser,
+    canEditConciliacionAjustes,
+    resolveHorasBaseMes,
+    computeTarifaMesFromValorHora,
+    computeValorHoraFromTarifa,
+    computeMontoFromValorHoraCop,
+    computeMontoNovedadPreview,
+    isNovedadCalculadaValorHora,
+    showHorasDesgloseColumn,
+    formatDiasBaseMesLine
+} from '../facturacionLogic.js';
 import ConciliacionesNovedadesAprobadasPanel from './ConciliacionesNovedadesAprobadasPanel.jsx';
 import ConciliacionesFacturacionHistorialPanel from './ConciliacionesFacturacionHistorialPanel.jsx';
 
@@ -9,11 +22,24 @@ export default function ConciliacionesFacturacionModal({
     open,
     onClose,
     onSave,
+    onSaveAjustes = null,
     onEliminar = null,
+    servicioNombre = '',
+    servicioId = '',
     colaborador,
     auth = null,
+    servicioCompleto = false,
     novedadesItems = [],
     novedadesLoading = false,
+    tarifaDetalle = null,
+    billingMode = null,
+    baseHours = null,
+    horasBaseMes = null,
+    tarifaValorHora = null,
+    diasBaseMes = null,
+    diasBaseLabel = null,
+    festivosAplicados = false,
+    monthLabel = '',
     historial = [],
     historialLoading = false,
     saving,
@@ -24,6 +50,13 @@ export default function ConciliacionesFacturacionModal({
     const [accionPendiente, setAccionPendiente] = useState(null);
     const [observaciones, setObservaciones] = useState('');
     const [obsError, setObsError] = useState('');
+    const [editMode, setEditMode] = useState(false);
+    const [draftTarifa, setDraftTarifa] = useState('');
+    const [draftValorHora, setDraftValorHora] = useState('');
+    const [draftValorHorasNovedad, setDraftValorHorasNovedad] = useState({});
+    const [valorHoraNovedadTouched, setValorHoraNovedadTouched] = useState(() => new Set());
+    const [draftMontos, setDraftMontos] = useState({});
+    const [ajustesPendiente, setAjustesPendiente] = useState(false);
 
     const modalRef = useRef(null);
     const closeBtnRef = useRef(null);
@@ -34,26 +67,151 @@ export default function ConciliacionesFacturacionModal({
         () => getRevisionActionsForUser(userRole, colaborador?.estado || 'PENDIENTE'),
         [userRole, colaborador?.estado]
     );
+    const canEditAjustes = useMemo(
+        () => !servicioCompleto && canEditConciliacionAjustes(userRole, colaborador?.estado || 'PENDIENTE'),
+        [servicioCompleto, userRole, colaborador?.estado]
+    );
+
+    const diasBaseLine = useMemo(
+        () =>
+            formatDiasBaseMesLine({
+                diasBaseMes,
+                diasBaseLabel,
+                monthLabel,
+                festivosAplicados,
+                billingMode
+            }),
+        [diasBaseMes, diasBaseLabel, monthLabel, festivosAplicados, billingMode]
+    );
+
+    const tarifaCliente = tarifaDetalle?.tarifaCliente ?? colaborador?.tarifaCliente ?? null;
+    const tarifaMaestro = tarifaDetalle?.tarifaMaestro ?? colaborador?.tarifaMaestro ?? colaborador?.tarifaCliente ?? null;
+    const tarifaAjustada = tarifaDetalle?.tarifaAjustada ?? colaborador?.tarifaAjustada ?? false;
+    const facturaCop = tarifaDetalle?.facturaCop ?? colaborador?.facturaCop ?? null;
+    const billingAdvanceMode = Boolean(
+        tarifaDetalle?.billingAdvanceMode ?? colaborador?.billingAdvanceMode
+    );
+
+    const horasBase = useMemo(
+        () => resolveHorasBaseMes({ billingMode, baseHours, horasBaseMes }),
+        [billingMode, baseHours, horasBaseMes]
+    );
+    const showValorHoraCol = showHorasDesgloseColumn({ billingMode, baseHours, horasBaseMes });
+
+    const syncMontosFromDrafts = useCallback(
+        (tarifaStr, valorHoraStr, valorHorasNov = {}, touched = new Set()) => {
+            const tarifa = Math.round(Number(tarifaStr) || 0);
+            const vhTarifa = Math.round(Number(valorHoraStr) || computeValorHoraFromTarifa(tarifa, horasBase));
+            const montos = {};
+            const vhNov = { ...valorHorasNov };
+            for (const item of novedadesItems || []) {
+                const id = String(item?.id || '');
+                if (!id) continue;
+                if (showValorHoraCol && isNovedadCalculadaValorHora(item)) {
+                    const vh = touched.has(id)
+                        ? Math.round(Number(vhNov[id]) || 0)
+                        : vhTarifa;
+                    vhNov[id] = String(vh);
+                    montos[id] = String(
+                        computeMontoNovedadPreview(item, {
+                            tarifa,
+                            horasBaseMes: horasBase,
+                            valorHora: vh,
+                            hoursMode: true
+                        })
+                    );
+                } else {
+                    montos[id] = String(item.montoCop ?? '');
+                }
+            }
+            return { montos, vhNov };
+        },
+        [novedadesItems, horasBase, showValorHoraCol]
+    );
+
+    const resetEditDraft = useCallback(() => {
+        const tarifa = Math.round(Number(tarifaCliente) || 0);
+        const vh = computeValorHoraFromTarifa(tarifa, horasBase);
+        setDraftTarifa(String(tarifa));
+        setDraftValorHora(String(vh));
+        setValorHoraNovedadTouched(new Set());
+        const { montos, vhNov } = syncMontosFromDrafts(String(tarifa), String(vh), {}, new Set());
+        setDraftValorHorasNovedad(vhNov);
+        setDraftMontos(montos);
+    }, [tarifaCliente, horasBase, syncMontosFromDrafts]);
+
+    const handleValorHoraChange = useCallback(
+        (raw) => {
+            const vh = Math.round(Number(raw) || 0);
+            const tarifa = computeTarifaMesFromValorHora(vh, horasBase);
+            setDraftValorHora(String(vh));
+            setDraftTarifa(String(tarifa));
+            const { montos, vhNov } = syncMontosFromDrafts(
+                String(tarifa),
+                String(vh),
+                draftValorHorasNovedad,
+                valorHoraNovedadTouched
+            );
+            setDraftValorHorasNovedad(vhNov);
+            setDraftMontos((prev) => ({ ...prev, ...montos }));
+        },
+        [horasBase, syncMontosFromDrafts, draftValorHorasNovedad, valorHoraNovedadTouched]
+    );
+
+    const handleValorHoraNovedadChange = useCallback(
+        (novedadId, raw) => {
+            const id = String(novedadId || '');
+            if (!id) return;
+            const vh = Math.round(Number(raw) || 0);
+            const item = (novedadesItems || []).find((n) => String(n.id) === id);
+            if (!item) return;
+            setValorHoraNovedadTouched((prev) => new Set(prev).add(id));
+            setDraftValorHorasNovedad((prev) => ({ ...prev, [id]: String(vh) }));
+            setDraftMontos((prev) => ({
+                ...prev,
+                [id]: String(
+                    computeMontoNovedadPreview(item, {
+                        tarifa: draftTarifa,
+                        horasBaseMes: horasBase,
+                        valorHora: vh,
+                        hoursMode: showValorHoraCol
+                    })
+                )
+            }));
+        },
+        [novedadesItems, horasBase, showValorHoraCol, draftTarifa]
+    );
 
     useEffect(() => {
         if (open && colaborador) {
             setErrorMsg('');
             setAccionPendiente(null);
+            setAjustesPendiente(false);
             setObservaciones('');
             setObsError('');
+            setEditMode(false);
+            resetEditDraft();
             setTimeout(() => {
                 if (closeBtnRef.current) closeBtnRef.current.focus();
             }, 50);
         }
-    }, [open, colaborador]);
+    }, [open, colaborador, resetEditDraft]);
+
+    useEffect(() => {
+        if (open && !novedadesLoading) resetEditDraft();
+    }, [open, novedadesLoading, novedadesItems, tarifaCliente, resetEditDraft]);
 
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (!open) return;
             if (e.key === 'Escape') {
-                if (accionPendiente) {
+                if (accionPendiente || ajustesPendiente) {
                     setAccionPendiente(null);
+                    setAjustesPendiente(false);
                     setObsError('');
+                } else if (editMode) {
+                    setEditMode(false);
+                    resetEditDraft();
                 } else {
                     onClose();
                 }
@@ -61,13 +219,13 @@ export default function ConciliacionesFacturacionModal({
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [open, onClose, accionPendiente]);
+    }, [open, onClose, accionPendiente, ajustesPendiente, editMode, resetEditDraft]);
 
     useEffect(() => {
-        if (accionPendiente && obsInputRef.current) {
+        if ((accionPendiente || ajustesPendiente) && obsInputRef.current) {
             setTimeout(() => obsInputRef.current?.focus(), 50);
         }
-    }, [accionPendiente]);
+    }, [accionPendiente, ajustesPendiente]);
 
     if (!open || !colaborador) return null;
 
@@ -81,6 +239,7 @@ export default function ConciliacionesFacturacionModal({
     const cerrarConfirmacion = () => {
         if (saving) return;
         setAccionPendiente(null);
+        setAjustesPendiente(false);
         setObsError('');
     };
 
@@ -90,7 +249,7 @@ export default function ConciliacionesFacturacionModal({
 
         const built = buildFacturacionRevisionPayload(
             { accion: accionPendiente, observaciones },
-            { cedula: colaborador.cedula, anio: null, mes: null }
+            { cedula: colaborador.cedula, anio: null, mes: null, servicioId }
         );
         if (!built.ok) {
             setObsError(built.error);
@@ -107,13 +266,55 @@ export default function ConciliacionesFacturacionModal({
         }
     };
 
+    const iniciarGuardarAjustes = () => {
+        setErrorMsg('');
+        setObsError('');
+        setObservaciones('');
+        setAjustesPendiente(true);
+    };
+
+    const confirmarAjustes = async () => {
+        if (!onSaveAjustes) return;
+        setObsError('');
+        setErrorMsg('');
+
+        const built = buildFacturacionAjustesPayload(
+            { observaciones, cedula: colaborador.cedula, anio: null, mes: null },
+            {
+                tarifaDraft: draftTarifa,
+                tarifaEffective: tarifaCliente,
+                tarifaMaestro,
+                montosDraft: draftMontos,
+                items: novedadesItems
+            }
+        );
+        if (!built.ok) {
+            setObsError(built.error);
+            return;
+        }
+
+        try {
+            await onSaveAjustes(built.data);
+            setAjustesPendiente(false);
+            setEditMode(false);
+        } catch (err) {
+            setErrorMsg(err.message || 'Error al guardar ajustes');
+            setAjustesPendiente(false);
+        }
+    };
+
     const blockBg = isLight ? 'bg-slate-50 border-slate-200' : 'bg-[#0f172a]/50 border-slate-700/50';
     const textMain = isLight ? 'text-slate-800' : 'text-slate-200';
     const inputBg = isLight ? 'field-control bg-white text-slate-900' : 'field-control';
 
     const esAprobar = accionPendiente === 'aprobar';
-    const tituloConfirmacion = esAprobar ? revisionActions.aprobarLabel : 'Rechazar cierre';
-    const showActions = revisionActions.canAprobar || revisionActions.canRechazar;
+    const tituloConfirmacion = ajustesPendiente
+        ? 'Guardar ajustes de montos'
+        : esAprobar
+          ? revisionActions.aprobarLabel
+          : 'Rechazar cierre';
+    const showActions = !servicioCompleto && (revisionActions.canAprobar || revisionActions.canRechazar);
+    const confirmOpen = Boolean(accionPendiente || ajustesPendiente);
 
     return (
         <div ref={modalRef} className={dash.modalBackdrop} role="dialog" aria-modal="true" aria-labelledby="modal-facturacion-title">
@@ -165,8 +366,16 @@ export default function ConciliacionesFacturacionModal({
                                     <span className={`font-body font-medium ${textMain}`}>{colaborador.nombre || '—'}</span>
                                 </div>
                                 <div>
-                                    <span className={`block font-semibold ${dash.modalMuted}`}>Servicio / Rol</span>
-                                    <span className={`font-body font-medium ${textMain}`}>{colaborador.perfil || '—'}</span>
+                                    <span className={`block font-semibold ${dash.modalMuted}`}>Servicio</span>
+                                    <span className={`font-body font-medium ${textMain}`}>{servicioNombre || colaborador.proyecto || '—'}</span>
+                                </div>
+                                <div>
+                                    <span className={`block font-semibold ${dash.modalMuted}`}>Puesto / cargo</span>
+                                    <span className={`font-body font-medium ${textMain}`}>{colaborador.puesto || colaborador.perfil || '—'}</span>
+                                </div>
+                                <div>
+                                    <span className={`block font-semibold ${dash.modalMuted}`}>Líder</span>
+                                    <span className={`font-body font-medium ${textMain}`}>{colaborador.lider || '—'}</span>
                                 </div>
                                 <div>
                                     <span className={`block font-semibold ${dash.modalMuted}`}>Fecha Ingreso</span>
@@ -183,14 +392,93 @@ export default function ConciliacionesFacturacionModal({
                             </div>
                         </div>
 
+                        {diasBaseLine ? (
+                            <p className={`text-xs ${dash.modalMuted}`}>
+                                <span className="font-semibold">Días base del mes: </span>
+                                <span className={textMain}>{diasBaseLine}</span>
+                            </p>
+                        ) : null}
+
                         <div className="border-t border-dashed border-slate-300/40 pt-4 dark:border-slate-600/40">
+                            <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+                                {canEditAjustes && onSaveAjustes ? (
+                                    editMode ? (
+                                        <>
+                                            <button
+                                                type="button"
+                                                disabled={saving}
+                                                onClick={() => {
+                                                    setEditMode(false);
+                                                    resetEditDraft();
+                                                }}
+                                                className={dash.borrarFiltros}
+                                            >
+                                                Cancelar edición
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={saving}
+                                                onClick={iniciarGuardarAjustes}
+                                                className={`${dash.btnPrimaryCinte} inline-flex items-center gap-1.5 disabled:opacity-50`}
+                                            >
+                                                <Save size={16} aria-hidden />
+                                                Guardar ajustes
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            disabled={saving || novedadesLoading}
+                                            onClick={() => setEditMode(true)}
+                                            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-400/40 px-3 py-1.5 text-xs font-semibold transition hover:bg-slate-500/10 disabled:opacity-50"
+                                        >
+                                            <Pencil size={14} aria-hidden />
+                                            Editar montos
+                                        </button>
+                                    )
+                                ) : null}
+                            </div>
                             <ConciliacionesNovedadesAprobadasPanel
                                 embedded
                                 items={novedadesItems}
                                 loading={novedadesLoading}
                                 isLight={isLight}
-                                tarifaCliente={colaborador.tarifaCliente}
-                                facturaCop={colaborador.facturaCop}
+                                tarifaCliente={tarifaCliente}
+                                tarifaMaestro={tarifaMaestro}
+                                tarifaAjustada={tarifaAjustada}
+                                facturaCop={facturaCop}
+                                billingAdvanceMode={billingAdvanceMode}
+                                ajusteAnticipoMesLabel={
+                                    tarifaDetalle?.ajusteAnticipoMesLabel ?? colaborador?.ajusteAnticipoMesLabel
+                                }
+                                saldoAnticipoTipo={
+                                    tarifaDetalle?.saldoAnticipoTipo ?? colaborador?.saldoAnticipoTipo
+                                }
+                                ajusteAnticipoSumCop={
+                                    tarifaDetalle?.ajusteAnticipoSumCop ?? colaborador?.ajusteAnticipoSumCop
+                                }
+                                ajusteAnticipoSumaCop={
+                                    tarifaDetalle?.ajusteAnticipoSumaCop ?? colaborador?.ajusteAnticipoSumaCop
+                                }
+                                billingMode={billingMode}
+                                baseHours={baseHours}
+                                horasBaseMes={horasBaseMes}
+                                tarifaValorHora={tarifaValorHora}
+                                editMode={editMode}
+                                draftTarifa={draftTarifa}
+                                draftValorHora={draftValorHora}
+                                draftValorHorasNovedad={draftValorHorasNovedad}
+                                draftMontos={draftMontos}
+                                onTarifaChange={editMode && !showValorHoraCol ? setDraftTarifa : null}
+                                onValorHoraChange={editMode && showValorHoraCol ? handleValorHoraChange : null}
+                                onValorHoraNovedadChange={
+                                    editMode && showValorHoraCol ? handleValorHoraNovedadChange : null
+                                }
+                                onMontoChange={
+                                    editMode
+                                        ? (id, val) => setDraftMontos((prev) => ({ ...prev, [id]: val }))
+                                        : null
+                                }
                             />
                         </div>
 
@@ -211,7 +499,7 @@ export default function ConciliacionesFacturacionModal({
                                 className="mr-auto inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-500 transition hover:bg-rose-500/20"
                             >
                                 <Trash2 size={16} aria-hidden />
-                                Eliminar cierre
+                                Revertir cierre
                             </button>
                         ) : null}
                         <button type="button" onClick={onClose} className={dash.borrarFiltros} disabled={saving}>
@@ -220,7 +508,7 @@ export default function ConciliacionesFacturacionModal({
                         {revisionActions.canRechazar ? (
                             <button
                                 type="button"
-                                disabled={saving}
+                                disabled={saving || editMode}
                                 onClick={() => abrirConfirmacion('rechazar')}
                                 className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-500/20 disabled:opacity-50 dark:text-rose-400"
                             >
@@ -231,7 +519,7 @@ export default function ConciliacionesFacturacionModal({
                         {revisionActions.canAprobar ? (
                             <button
                                 type="button"
-                                disabled={saving}
+                                disabled={saving || editMode}
                                 onClick={() => abrirConfirmacion('aprobar')}
                                 className={`${dash.btnPrimaryCinte} inline-flex items-center gap-1.5 disabled:opacity-50`}
                             >
@@ -240,13 +528,17 @@ export default function ConciliacionesFacturacionModal({
                             </button>
                         ) : null}
                         {!showActions ? (
-                            <span className={`text-xs ${dash.modalMuted}`}>Sin acciones disponibles para tu rol en este estado.</span>
+                            <span className={`text-xs ${dash.modalMuted}`}>
+                                {servicioCompleto
+                                    ? 'Servicio conciliado — solo lectura.'
+                                    : 'Sin acciones disponibles para tu rol en este estado.'}
+                            </span>
                         ) : null}
                     </div>
                 </div>
             </div>
 
-            {accionPendiente ? (
+            {confirmOpen ? (
                 <div
                     className="fixed inset-0 z-[60] flex items-center justify-center p-4"
                     role="dialog"
@@ -268,7 +560,7 @@ export default function ConciliacionesFacturacionModal({
                             {tituloConfirmacion}
                         </h3>
                         <p className={`mt-1 text-sm ${dash.modalMuted}`}>
-                            Indica la observación de la revisión (obligatoria).
+                            Indica la observación {ajustesPendiente ? 'del ajuste' : 'de la revisión'} (obligatoria).
                         </p>
 
                         {obsError ? (
@@ -286,7 +578,13 @@ export default function ConciliacionesFacturacionModal({
                                 id="revision-observaciones"
                                 required
                                 rows="4"
-                                placeholder={esAprobar ? 'Motivo o comentario de la aprobación…' : 'Motivo del rechazo…'}
+                                placeholder={
+                                    ajustesPendiente
+                                        ? 'Motivo del ajuste de tarifa o montos…'
+                                        : esAprobar
+                                          ? 'Motivo o comentario de la aprobación…'
+                                          : 'Motivo del rechazo…'
+                                }
                                 value={observaciones}
                                 onChange={(e) => setObservaciones(e.target.value)}
                                 className={`resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
@@ -300,14 +598,14 @@ export default function ConciliacionesFacturacionModal({
                             <button
                                 type="button"
                                 disabled={saving}
-                                onClick={confirmarAccion}
+                                onClick={ajustesPendiente ? confirmarAjustes : confirmarAccion}
                                 className={
-                                    esAprobar
-                                        ? `${dash.btnPrimaryCinte} inline-flex items-center gap-1.5 disabled:opacity-50`
-                                        : 'inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-50'
+                                    !ajustesPendiente && !esAprobar
+                                        ? 'inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-50'
+                                        : `${dash.btnPrimaryCinte} inline-flex items-center gap-1.5 disabled:opacity-50`
                                 }
                             >
-                                {saving ? 'Guardando…' : esAprobar ? 'Confirmar' : 'Confirmar rechazo'}
+                                {saving ? 'Guardando…' : 'Confirmar'}
                             </button>
                         </div>
                     </div>

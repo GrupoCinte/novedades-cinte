@@ -2,8 +2,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     canActOnEstado,
+    canActOnEstadoForEtapa,
     resolveNextEstado,
     validateRevisionRequest,
+    validateRevisionRequestMasiva,
     resolveEffectiveEtapa
 } = require('../src/conciliaciones/facturacionRevision');
 
@@ -56,4 +58,40 @@ test('validateRevisionRequest exige observación', () => {
 test('super_admin usa etapa según estado actual', () => {
     assert.equal(resolveEffectiveEtapa('super_admin', 'PENDIENTE'), 'ANALISTA');
     assert.equal(resolveEffectiveEtapa('super_admin', 'APROBADO_ANALISTA'), 'NOMINA');
+});
+
+test('masiva con etapaObjetivo fija no promueve APROBADO_ANALISTA en etapa ANALISTA', () => {
+    assert.equal(canActOnEstadoForEtapa('super_admin', 'PENDIENTE', 'aprobar', 'ANALISTA'), true);
+    assert.equal(canActOnEstadoForEtapa('super_admin', 'APROBADO_ANALISTA', 'aprobar', 'ANALISTA'), false);
+    assert.equal(canActOnEstadoForEtapa('super_admin', 'APROBADO_ANALISTA', 'aprobar', 'NOMINA'), true);
+
+    const skipAnalista = validateRevisionRequestMasiva({
+        role: 'super_admin',
+        estadoActual: 'APROBADO_ANALISTA',
+        accion: 'aprobar',
+        observacion: 'Masivo',
+        etapaObjetivo: 'ANALISTA'
+    });
+    assert.equal(skipAnalista.ok, false);
+    assert.equal(skipAnalista.skip, true);
+
+    const okAnalista = validateRevisionRequestMasiva({
+        role: 'super_admin',
+        estadoActual: 'PENDIENTE',
+        accion: 'aprobar',
+        observacion: 'Masivo',
+        etapaObjetivo: 'ANALISTA'
+    });
+    assert.equal(okAnalista.ok, true);
+    assert.equal(okAnalista.estado, 'APROBADO_ANALISTA');
+
+    const okNomina = validateRevisionRequestMasiva({
+        role: 'super_admin',
+        estadoActual: 'APROBADO_ANALISTA',
+        accion: 'aprobar',
+        observacion: 'Masivo',
+        etapaObjetivo: 'NOMINA'
+    });
+    assert.equal(okNomina.ok, true);
+    assert.equal(okNomina.estado, 'APROBADO_FINANZAS');
 });

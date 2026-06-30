@@ -103,23 +103,85 @@ function StatusBadgeZoho({ value, isLight }) {
     );
 }
 
-function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated }) {
+const FIELD_LABELS = {
+    fecha_termino: 'Fecha de término',
+    fecha_notificacion_termino: 'Fecha notificación término',
+    fecha_ingreso: 'Fecha de ingreso',
+    termino: 'Término',
+    duracion_servicio: 'Duración servicio',
+    venta_total: 'Venta total',
+    costo_empresa: 'Costo empresa',
+    onboarding_status: 'Estado onboarding',
+    codigo: 'Código Zoho',
+    activo: 'Activo',
+    nombre: 'Nombre',
+    cliente: 'Cliente',
+    puesto: 'Puesto'
+};
+
+function fieldLabel(field) {
+    return FIELD_LABELS[field] || field;
+}
+
+function isDateField(field) {
+    return (
+        field === 'fecha_ingreso' ||
+        field.endsWith('_termino') ||
+        field.startsWith('fecha_')
+    );
+}
+
+function draftFromDiff(diffRows) {
+    const draft = {};
+    for (const row of diffRows) {
+        if (row?.field != null) {
+            draft[row.field] = row.after == null ? '' : String(row.after);
+        }
+    }
+    return draft;
+}
+
+function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, onItemChange }) {
     const G = buildMonitorGlassModalTheme(isLight);
     const token = auth?.token || '';
+    const [localItem, setLocalItem] = useState(item);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
     const [linkCedula, setLinkCedula] = useState('');
     const [rejectReason, setRejectReason] = useState('');
+    const [editMode, setEditMode] = useState(false);
+    const [draftEdits, setDraftEdits] = useState({});
+
+    useEffect(() => {
+        setLocalItem(item);
+        setEditMode(false);
+        setDraftEdits({});
+        setError('');
+    }, [item]);
 
     const diff = useMemo(() => {
-        const raw = item?.diff_json;
+        const raw = localItem?.diff_json;
         if (Array.isArray(raw)) return raw;
         try {
             return typeof raw === 'string' ? JSON.parse(raw) : [];
         } catch {
             return [];
         }
-    }, [item]);
+    }, [localItem]);
+
+    const hasUnsavedEdits = useMemo(() => {
+        if (!editMode) return false;
+        return diff.some((row) => {
+            const draftVal = draftEdits[row.field] ?? '';
+            const currentVal = row.after == null ? '' : String(row.after);
+            return draftVal !== currentVal;
+        });
+    }, [editMode, draftEdits, diff]);
+
+    const canEdit = !readOnly && localItem?.status === 'pendiente' && diff.length > 0;
+    const decisionBlocked = editMode || hasUnsavedEdits;
+
+    const inputCls = `w-full min-w-[8rem] rounded border px-2 py-1 text-xs ${isLight ? 'border-slate-300 bg-white text-slate-900' : 'border-white/10 bg-black/20 text-slate-100'}`;
 
     const run = async (fn) => {
         setBusy(true);
@@ -135,18 +197,60 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated }
         }
     };
 
+    const startEdit = () => {
+        setDraftEdits(draftFromDiff(diff));
+        setEditMode(true);
+        setError('');
+    };
+
+    const cancelEdit = () => {
+        setEditMode(false);
+        setDraftEdits({});
+        setError('');
+    };
+
+    const saveEdits = async () => {
+        const edits = {};
+        for (const row of diff) {
+            const draftVal = draftEdits[row.field] ?? '';
+            const currentVal = row.after == null ? '' : String(row.after);
+            if (draftVal !== currentVal) {
+                edits[row.field] = draftVal.trim() === '' ? null : draftVal.trim();
+            }
+        }
+        if (Object.keys(edits).length === 0) {
+            setEditMode(false);
+            return;
+        }
+        setBusy(true);
+        setError('');
+        try {
+            const data = await onboardingApi.editarFichaNovedad(token, localItem.id, { edits });
+            const updated = data?.item || localItem;
+            setLocalItem(updated);
+            if (typeof onItemChange === 'function') onItemChange(updated);
+            onUpdated();
+            setEditMode(false);
+            setDraftEdits({});
+        } catch (e) {
+            setError(e?.response?.data?.error || e?.message || 'Error al guardar');
+        } finally {
+            setBusy(false);
+        }
+    };
+
     return (
         <div className={`fixed inset-0 z-[80] flex items-center justify-center p-4 ${G.overlayCls}`} role="dialog" aria-modal="true">
             <div className={`w-full ${monitorGlassModalSizeCls('lg')} flex max-h-[90vh] flex-col overflow-hidden rounded-2xl ${G.modalCls}`}>
                 <header className={`flex items-start justify-between gap-3 px-5 py-4 ${G.headerCls}`}>
                     <div>
                         <p className={G.labelUpperCls}>Novedad Zoho</p>
-                        <h3 className={`text-lg font-semibold ${G.textCls}`}>{item?.subject || 'Sin asunto'}</h3>
+                        <h3 className={`text-lg font-semibold ${G.textCls}`}>{localItem?.subject || 'Sin asunto'}</h3>
                         <p className={`mt-1 flex flex-wrap items-center gap-2 text-xs ${G.textMuted}`}>
-                            <TipoBadge value={item?.tipo_novedad} isLight={isLight} />
-                            <span>ID {item?.id_registro || '—'}</span>
-                            <MatchStrategyBadge value={item?.match_strategy} isLight={isLight} />
-                            <StatusBadgeZoho value={item?.status} isLight={isLight} />
+                            <TipoBadge value={localItem?.tipo_novedad} isLight={isLight} />
+                            <span>ID {localItem?.id_registro || '—'}</span>
+                            <MatchStrategyBadge value={localItem?.match_strategy} isLight={isLight} />
+                            <StatusBadgeZoho value={localItem?.status} isLight={isLight} />
                         </p>
                     </div>
                     <button type="button" onClick={onClose} className={G.closeBtnCls} aria-label="Cerrar">
@@ -158,31 +262,31 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated }
                     <div className={`mb-4 grid gap-2 text-sm sm:grid-cols-2 ${G.textCls}`}>
                         <div>
                             <span className={G.textMuted}>Colaborador: </span>
-                            {item?.colaborador_nombre_snap || '—'} ({item?.colaborador_cedula_match || 'sin vincular'})
+                            {localItem?.colaborador_nombre_snap || '—'} ({localItem?.colaborador_cedula_match || 'sin vincular'})
                         </div>
                         <div>
                             <span className={G.textMuted}>Recibido: </span>
-                            {fmtFecha(item?.received_at || item?.created_at)}
+                            {fmtFecha(localItem?.received_at || localItem?.created_at)}
                         </div>
-                        {item?.reviewed_at ? (
+                        {localItem?.reviewed_at ? (
                             <>
                                 <div>
                                     <span className={G.textMuted}>Revisado: </span>
-                                    {fmtFecha(item.reviewed_at)}
+                                    {fmtFecha(localItem.reviewed_at)}
                                 </div>
                                 <div>
                                     <span className={G.textMuted}>Por: </span>
-                                    {item.reviewed_by || '—'}
+                                    {localItem.reviewed_by || '—'}
                                 </div>
                             </>
                         ) : null}
                     </div>
 
-                    {!readOnly && item?.status === 'sin_match' ? (
+                    {!readOnly && localItem?.status === 'sin_match' ? (
                         <div className={`mb-4 rounded-xl border p-3 ${G.cardCls}`}>
                             <p className={`mb-2 text-sm font-semibold ${G.textCls}`}>Datos detectados en el correo</p>
                             {(() => {
-                                const hints = extractHintsFromItem(item);
+                                const hints = extractHintsFromItem(localItem);
                                 return (
                                     <ul className={`mb-3 list-inside list-disc text-xs ${G.textMuted}`}>
                                         <li>ID Zoho: {hints.id_registro}</li>
@@ -204,7 +308,9 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated }
                                 type="button"
                                 disabled={busy || !linkCedula.trim()}
                                 onClick={() =>
-                                    run(() => onboardingApi.vincularFichaNovedad(token, item.id, { cedula: linkCedula.trim() }))
+                                    run(() =>
+                                        onboardingApi.vincularFichaNovedad(token, localItem.id, { cedula: linkCedula.trim() })
+                                    )
                                 }
                                 className="mt-2 rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                             >
@@ -213,7 +319,23 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated }
                         </div>
                     ) : null}
 
-                    <p className={`mb-2 text-xs font-bold uppercase tracking-widest ${G.textMuted}`}>Cambios propuestos</p>
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <p className={`text-xs font-bold uppercase tracking-widest ${G.textMuted}`}>Cambios propuestos</p>
+                        {canEdit && !editMode ? (
+                            <button
+                                type="button"
+                                onClick={startEdit}
+                                disabled={busy}
+                                className="rounded-lg border border-[#2F7BB8]/50 px-3 py-1 text-xs font-semibold text-[#2F7BB8]"
+                            >
+                                Editar
+                            </button>
+                        ) : null}
+                        {editMode ? (
+                            <span className={`text-xs font-semibold ${G.textMuted}`}>Modo edición</span>
+                        ) : null}
+                    </div>
+
                     {diff.length === 0 ? (
                         <p className={`text-sm ${G.textMuted}`}>Sin diferencias detectadas o pendiente de vinculación.</p>
                     ) : (
@@ -229,9 +351,29 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated }
                                 <tbody>
                                     {diff.map((row) => (
                                         <tr key={row.field} className="border-t border-white/5">
-                                            <td className="px-3 py-2 font-mono">{row.field}</td>
+                                            <td className="px-3 py-2">
+                                                <span className="block font-mono text-[10px] text-slate-400">{row.field}</span>
+                                                <span className="font-medium">{fieldLabel(row.field)}</span>
+                                            </td>
                                             <td className="px-3 py-2 text-rose-400">{String(row.before ?? '—')}</td>
-                                            <td className="px-3 py-2 text-emerald-400">{String(row.after ?? '—')}</td>
+                                            <td className="px-3 py-2">
+                                                {editMode ? (
+                                                    <input
+                                                        type={isDateField(row.field) ? 'date' : 'text'}
+                                                        value={draftEdits[row.field] ?? ''}
+                                                        onChange={(e) =>
+                                                            setDraftEdits((prev) => ({
+                                                                ...prev,
+                                                                [row.field]: e.target.value
+                                                            }))
+                                                        }
+                                                        className={inputCls}
+                                                        aria-label={`Valor propuesto ${fieldLabel(row.field)}`}
+                                                    />
+                                                ) : (
+                                                    <span className="text-emerald-400">{String(row.after ?? '—')}</span>
+                                                )}
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -239,13 +381,14 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated }
                         </div>
                     )}
 
-                    {!readOnly && ['pendiente', 'sin_match'].includes(item?.status) ? (
+                    {!readOnly && ['pendiente', 'sin_match'].includes(localItem?.status) ? (
                         <div className="mt-4">
                             <textarea
                                 value={rejectReason}
                                 onChange={(e) => setRejectReason(e.target.value)}
                                 placeholder="Motivo de rechazo (opcional)"
                                 rows={2}
+                                disabled={editMode}
                                 className={`w-full rounded-lg border px-3 py-2 text-sm ${isLight ? 'border-slate-300' : 'border-white/10 bg-black/20'}`}
                             />
                         </div>
@@ -255,35 +398,63 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated }
                 </div>
 
                 <footer className={`flex flex-wrap justify-end gap-2 px-5 py-4 ${G.footerCls}`}>
-                    <button type="button" onClick={onClose} className={G.cancelBtnCls} disabled={busy}>
-                        Cerrar
-                    </button>
-                    {!readOnly && item?.status === 'pendiente' ? (
+                    {editMode ? (
                         <>
-                            <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() =>
-                                    run(() =>
-                                        onboardingApi.rechazarFichaNovedad(token, item.id, {
-                                            reason: rejectReason || null
-                                        })
-                                    )
-                                }
-                                className="rounded-xl border border-rose-400/50 px-4 py-2 text-sm font-semibold text-rose-500"
-                            >
-                                Rechazar
+                            <button type="button" onClick={cancelEdit} className={G.cancelBtnCls} disabled={busy}>
+                                Cancelar
                             </button>
                             <button
                                 type="button"
-                                disabled={busy}
-                                onClick={() => run(() => onboardingApi.aprobarFichaNovedad(token, item.id))}
-                                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                                onClick={saveEdits}
+                                disabled={busy || !hasUnsavedEdits}
+                                className="rounded-xl bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                             >
-                                Aprobar
+                                {busy ? 'Guardando…' : 'Guardar cambios'}
                             </button>
                         </>
-                    ) : null}
+                    ) : (
+                        <>
+                            <button type="button" onClick={onClose} className={G.cancelBtnCls} disabled={busy}>
+                                Cerrar
+                            </button>
+                            {!readOnly && localItem?.status === 'pendiente' ? (
+                                <>
+                                    {canEdit ? (
+                                        <button
+                                            type="button"
+                                            disabled={busy || decisionBlocked}
+                                            onClick={startEdit}
+                                            className="rounded-xl border border-[#2F7BB8]/50 px-4 py-2 text-sm font-semibold text-[#2F7BB8] disabled:opacity-50"
+                                        >
+                                            Editar
+                                        </button>
+                                    ) : null}
+                                    <button
+                                        type="button"
+                                        disabled={busy || decisionBlocked}
+                                        onClick={() =>
+                                            run(() =>
+                                                onboardingApi.rechazarFichaNovedad(token, localItem.id, {
+                                                    reason: rejectReason || null
+                                                })
+                                            )
+                                        }
+                                        className="rounded-xl border border-rose-400/50 px-4 py-2 text-sm font-semibold text-rose-500 disabled:opacity-50"
+                                    >
+                                        Rechazar
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={busy || decisionBlocked}
+                                        onClick={() => run(() => onboardingApi.aprobarFichaNovedad(token, localItem.id))}
+                                        className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                                    >
+                                        Aprobar
+                                    </button>
+                                </>
+                            ) : null}
+                        </>
+                    )}
                 </footer>
             </div>
         </div>
@@ -457,6 +628,7 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
                     readOnly={viewMode === 'historico'}
                     onClose={() => setSelected(null)}
                     onUpdated={load}
+                    onItemChange={setSelected}
                 />
             ) : null}
         </div>

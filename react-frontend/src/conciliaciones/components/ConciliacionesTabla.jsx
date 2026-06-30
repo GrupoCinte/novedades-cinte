@@ -2,10 +2,78 @@ import { useMemo } from 'react';
 import { Eye, Trash2 } from 'lucide-react';
 import { useModuleTheme } from '../../moduleTheme.js';
 import { buildGestionTableDash } from '../../gestionTableDashTheme.js';
+import {
+    computeNovedadesDeduccionCop,
+    computeNovedadesIncrementoCop,
+    resolveFilaEstadoDisplay,
+    formatCopCached,
+    computeAdvanceDisplayTotals,
+    formatSaldoAnticipoLabel
+} from '../facturacionLogic.js';
 
 function formatCop(n) {
-    const x = Number(n) || 0;
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(x);
+    return formatCopCached(n);
+}
+
+function NovedadesImpactoCell({ row, isLight }) {
+    const advance = computeAdvanceDisplayTotals(row);
+    const incremento = computeNovedadesIncrementoCop(row.novedadesSumaCop);
+    const deduccion = computeNovedadesDeduccionCop(row.novedadesSumCop);
+    const hasAdvance =
+        advance.billingAdvanceMode &&
+        (advance.ajusteAnticipoSumaCop > 0 || advance.ajusteAnticipoSumCop > 0);
+    const hasCurrent = incremento > 0 || deduccion > 0;
+    const pendingInfo =
+        advance.billingAdvanceMode && (row.pendingAdjustmentCount > 0 || row.novedadesInfoCount > 0);
+
+    if (!hasAdvance && !hasCurrent && !pendingInfo) {
+        return <span className={isLight ? 'text-slate-400' : 'text-slate-500'}>—</span>;
+    }
+
+    return (
+        <div className="flex flex-col gap-0.5 whitespace-nowrap">
+            {hasCurrent ? (
+                <>
+                    {incremento > 0 ? (
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">+ {formatCop(incremento)}</span>
+                    ) : null}
+                    {deduccion > 0 ? (
+                        <span className="font-semibold text-rose-600 dark:text-rose-400">− {formatCop(deduccion)}</span>
+                    ) : null}
+                </>
+            ) : null}
+            {hasAdvance ? (
+                <>
+                    {advance.ajusteAnticipoSumaCop > 0 ? (
+                        <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                            + {formatCop(advance.ajusteAnticipoSumaCop)} adj.
+                        </span>
+                    ) : null}
+                    {advance.ajusteAnticipoSumCop > 0 ? (
+                        <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">
+                            − {formatCop(advance.ajusteAnticipoSumCop)} adj.
+                        </span>
+                    ) : null}
+                    {advance.saldoAnticipoTipo ? (
+                        <span
+                            className={`text-[10px] font-bold uppercase tracking-wide ${
+                                advance.saldoAnticipoTipo === 'favor'
+                                    ? 'text-emerald-600 dark:text-emerald-400'
+                                    : 'text-amber-600 dark:text-amber-400'
+                            }`}
+                        >
+                            {formatSaldoAnticipoLabel(advance.saldoAnticipoTipo, advance.ajusteAnticipoMesLabel)}
+                        </span>
+                    ) : null}
+                </>
+            ) : null}
+            {pendingInfo && !hasAdvance ? (
+                <span className={`text-[10px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                    Liquidación mes sig.
+                </span>
+            ) : null}
+        </div>
+    );
 }
 
 export default function ConciliacionesTabla({
@@ -23,7 +91,10 @@ export default function ConciliacionesTabla({
     embedded = false,
     dense = false,
     loading = false,
-    loadingMessage = 'Cargando base de datos…'
+    refreshing = false,
+    loadingMessage = 'Cargando base de datos…',
+    /** Estado del servicio/mes (Enviada, Conciliada) para reflejar en filas en finanzas. */
+    estadoServicio = null
 }) {
     const { isLight } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
@@ -46,7 +117,7 @@ export default function ConciliacionesTabla({
     const colCount = 6 + (showClienteColumn ? 1 : 0) + (showEliminar ? 1 : 0) + (showActionsColumn ? 1 : 0);
 
     const tableEl = (
-        <table className={`w-full border-collapse text-left whitespace-nowrap ${dense ? 'min-w-[820px] text-xs' : 'min-w-[900px] md:min-w-full text-sm'}`}>
+        <table className={`w-full border-collapse text-left whitespace-nowrap ${dense ? 'min-w-[820px] text-xs' : 'min-w-[900px] md:min-w-full text-sm'} ${refreshing ? 'opacity-80 transition-opacity' : ''}`}>
             <thead>
                 <tr className={dash.thead}>
                     <th className={thFirst}>Colaborador</th>
@@ -101,7 +172,7 @@ export default function ConciliacionesTabla({
                                             e.stopPropagation();
                                             onVerDetalle(r);
                                         }}
-                                        className="text-sm font-semibold text-[#65BCF7] underline-offset-2 hover:underline"
+                                        className="text-left text-sm font-semibold text-[#65BCF7] underline-offset-2 hover:underline"
                                     >
                                         {r.novedadesCount} aprobadas
                                     </button>
@@ -109,13 +180,18 @@ export default function ConciliacionesTabla({
                                     <span className={dash.tdMuted}>0</span>
                                 )}
                             </td>
-                            <td className={`${tdRest} tabular-nums`}>{formatCop(r.novedadesSumCop)}</td>
+                            <td className={tdRest}>
+                                <NovedadesImpactoCell row={r} isLight={isLight} />
+                            </td>
                             <td className={`${tdRest} tabular-nums font-semibold ${headingAccent}`}>
                                 {formatCop(r.facturaCop)}
                             </td>
                             <td className={tdPad || 'p-4'}>
                                 {(() => {
-                                    const est = r.estado || 'PENDIENTE';
+                                    const { displayKey, label } = resolveFilaEstadoDisplay(
+                                        r.estado,
+                                        estadoServicio
+                                    );
                                     const badgeBase =
                                         'inline-flex w-fit rounded-md border px-2 py-1 text-[11px] font-bold uppercase tracking-wider';
                                     const styles = {
@@ -133,18 +209,17 @@ export default function ConciliacionesTabla({
                                             : 'border-rose-500/20 bg-rose-500/10 text-rose-400',
                                         CONCILIADA: isLight
                                             ? 'border-emerald-300 bg-emerald-100 text-emerald-900'
-                                            : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
-                                    };
-                                    const labels = {
-                                        PENDIENTE: 'Pendiente',
-                                        APROBADO_ANALISTA: 'Aprobado Analista',
-                                        APROBADO_FINANZAS: 'Aprobado Finanzas',
-                                        DEVUELTA: 'Devuelta',
-                                        CONCILIADA: 'Conciliada'
+                                            : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400',
+                                        SERVICIO_LISTO_EXPORT: isLight
+                                            ? 'border-violet-300 bg-violet-100 text-violet-900'
+                                            : 'border-violet-500/20 bg-violet-500/10 text-violet-400',
+                                        SERVICIO_ENVIADA: isLight
+                                            ? 'border-[#65BCF7]/40 bg-[#2F7BB8]/10 text-[#004D87]'
+                                            : 'border-[#65BCF7]/30 bg-[#2F7BB8]/15 text-[#65BCF7]'
                                     };
                                     return (
-                                        <span className={`${badgeBase} ${styles[est] || styles.PENDIENTE}`}>
-                                            {labels[est] || est}
+                                        <span className={`${badgeBase} ${styles[displayKey] || styles.PENDIENTE}`}>
+                                            {label}
                                         </span>
                                     );
                                 })()}

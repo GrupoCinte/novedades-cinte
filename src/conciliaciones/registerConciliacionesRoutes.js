@@ -6,6 +6,12 @@
 const NOVEDADES_ADMIN_PANELS = ['dashboard', 'calendar', 'gestion', 'admin'];
 const CONCILIACIONES_ACCESS_PANELS = ['conciliaciones', ...NOVEDADES_ADMIN_PANELS];
 
+const {
+    isWideConciliacionRole,
+    mergeConciliacionClientesLists,
+    parseNovedadesImpactOptions
+} = require('./conciliacionesQueries');
+
 function buildRevisionActorFromReq(req) {
     const user = req.user || {};
     return {
@@ -39,6 +45,7 @@ function assertConciliacionesRouteDeps(deps) {
         'upsertConciliacionFacturacionForScope',
         'applyConciliacionFacturacionRevisionForScope',
         'applyConciliacionFacturacionRevisionMasivaForScope',
+        'applyConciliacionFacturacionAjustesForScope',
         'listConciliacionFacturacionHistorialForScope',
         'upsertConciliacionFacturacionMasivaForScope',
         'deleteConciliacionFacturacionForScope',
@@ -49,7 +56,11 @@ function assertConciliacionesRouteDeps(deps) {
         'updateServicioForScope',
         'deleteServicioForScope',
         'listServicioConsultoresForScope',
-        'upsertServicioConsultoresForScope'
+        'upsertServicioConsultoresForScope',
+        'listDashboardLiderClienteRowsForScope',
+        'exportConciliacionServicioExcelForScope',
+        'markConciliacionServicioEnviadaForScope',
+        'markConciliacionServicioConciliadaForScope'
     ];
     for (const key of required) {
         if (deps == null || deps[key] == null) {
@@ -76,6 +87,7 @@ function registerConciliacionesRoutes(deps) {
         upsertConciliacionFacturacionForScope,
         applyConciliacionFacturacionRevisionForScope,
         applyConciliacionFacturacionRevisionMasivaForScope,
+        applyConciliacionFacturacionAjustesForScope,
         listConciliacionFacturacionHistorialForScope,
         upsertConciliacionFacturacionMasivaForScope,
         deleteConciliacionFacturacionForScope,
@@ -86,14 +98,28 @@ function registerConciliacionesRoutes(deps) {
         updateServicioForScope,
         deleteServicioForScope,
         listServicioConsultoresForScope,
-        upsertServicioConsultoresForScope
+        upsertServicioConsultoresForScope,
+        listDashboardLiderClienteRowsForScope,
+        exportConciliacionServicioExcelForScope,
+        markConciliacionServicioEnviadaForScope,
+        markConciliacionServicioConciliadaForScope
     } = deps;
 
     const guardChain = [verificarToken, allowAnyPanel(CONCILIACIONES_ACCESS_PANELS), applyScope];
 
     app.get('/api/conciliaciones/clientes', ...guardChain, async (req, res) => {
         try {
-            const clientes = await listConciliacionesClientesForScope(req.scope);
+            const clientesPg = await listConciliacionesClientesForScope(req.scope);
+            let clientes = clientesPg;
+            if (isWideConciliacionRole(req.scope?.role)) {
+                const servicios = await listServiciosForScope(req.scope);
+                const fromDynamo = (servicios || [])
+                    .map((s) => String(s?.client || '').trim())
+                    .filter(Boolean);
+                if (fromDynamo.length) {
+                    clientes = mergeConciliacionClientesLists(clientesPg, fromDynamo);
+                }
+            }
             return res.json({ ok: true, clientes });
         } catch (e) {
             console.error('[conciliaciones/clientes]', e);
@@ -140,13 +166,13 @@ function registerConciliacionesRoutes(deps) {
                     clientesCount: out.clientesCount
                 });
             }
-            const billingType = String(req.query.billingType || req.query.billing_type || '').trim() || undefined;
+            const impactOpts = parseNovedadesImpactOptions(req.query);
             const out = await getConciliacionResumenPorClienteMesForScope(
                 req.scope,
                 cliente,
                 ym.year,
                 ym.month,
-                billingType
+                impactOpts
             );
             if (!out.ok) return res.status(out.status || 400).json({ ok: false, error: out.error || 'Error' });
             return res.json({
@@ -171,17 +197,32 @@ function registerConciliacionesRoutes(deps) {
         if (!cedula) return res.status(400).json({ ok: false, error: 'Parámetro cedula requerido' });
         if (!ym) return res.status(400).json({ ok: false, error: 'year y month válidos requeridos (1-12)' });
         try {
-            const billingType = String(req.query.billingType || req.query.billing_type || '').trim() || undefined;
+            const impactOpts = parseNovedadesImpactOptions(req.query);
             const out = await listConciliacionNovedadesDetalleForScope(
                 req.scope,
                 cliente,
                 cedula,
                 ym.year,
                 ym.month,
-                billingType
+                impactOpts
             );
             if (!out.ok) return res.status(out.status || 400).json({ ok: false, error: out.error || 'Error' });
-            return res.json({ ok: true, clienteCanon: out.clienteCanon, items: out.items });
+            return res.json({
+                ok: true,
+                clienteCanon: out.clienteCanon,
+                items: out.items,
+                billingMode: out.billingMode ?? null,
+                baseHours: out.baseHours ?? null,
+                horasBaseMes: out.horasBaseMes ?? null,
+                tarifaValorHora: out.tarifaValorHora ?? null,
+                tarifaCliente: out.tarifaCliente,
+                tarifaMaestro: out.tarifaMaestro,
+                tarifaAjustada: out.tarifaAjustada,
+                facturaCop: out.facturaCop,
+                diasBaseMes: out.diasBaseMes ?? null,
+                diasBaseLabel: out.diasBaseLabel ?? null,
+                festivosAplicados: out.festivosAplicados ?? false
+            });
         } catch (e) {
             console.error('[conciliaciones/novedades-detalle]', e);
             return res.status(500).json({ ok: false, error: 'Error al listar detalle' });
@@ -233,6 +274,30 @@ function registerConciliacionesRoutes(deps) {
             console.error('[conciliaciones/facturacion/revision/masiva POST]', e);
             const status = e.status || 500;
             return res.status(status).json({ ok: false, error: e.message || 'Error al procesar revisión masiva' });
+        }
+    });
+
+    app.post('/api/conciliaciones/facturacion/ajustes', ...guardChain, async (req, res) => {
+        const { facturacionAjustesSchema } = require('./schemas/facturacion');
+        const parseResult = facturacionAjustesSchema.safeParse(req.body);
+        if (!parseResult.success) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Datos de entrada inválidos',
+                errors: parseResult.error.errors.map((e) => ({ field: e.path.join('.'), message: e.message }))
+            });
+        }
+        try {
+            const out = await applyConciliacionFacturacionAjustesForScope(
+                req.scope,
+                parseResult.data,
+                buildRevisionActorFromReq(req)
+            );
+            return res.json({ ok: true, data: out });
+        } catch (e) {
+            console.error('[conciliaciones/facturacion/ajustes POST]', e);
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al guardar ajustes' });
         }
     });
 
@@ -311,12 +376,79 @@ function registerConciliacionesRoutes(deps) {
             });
         }
         try {
-            const out = await deleteConciliacionFacturacionForScope(req.scope, parseResult.data);
+            const out = await deleteConciliacionFacturacionForScope(
+                req.scope,
+                parseResult.data,
+                buildRevisionActorFromReq(req)
+            );
             return res.json({ ok: true, data: out });
         } catch (e) {
             console.error('[conciliaciones/facturacion DELETE]', e);
             const status = e.status || 500;
-            return res.status(status).json({ ok: false, error: e.message || 'Error al eliminar facturación' });
+            return res.status(status).json({ ok: false, error: e.message || 'Error al revertir cierre' });
+        }
+    });
+
+    app.get('/api/conciliaciones/facturacion/dashboard-lider-cliente', ...guardChain, async (req, res) => {
+        const ym = parseYearMonth(req.query);
+        if (!ym) return res.status(400).json({ ok: false, error: 'year y month válidos requeridos (1-12)' });
+        try {
+            const items = await listDashboardLiderClienteRowsForScope(req.scope, ym.year, ym.month);
+            return res.json({ ok: true, year: ym.year, month: ym.month, items });
+        } catch (e) {
+            console.error('[conciliaciones/facturacion/dashboard-lider-cliente]', e);
+            return res.status(500).json({ ok: false, error: 'Error al cargar datos líder × cliente' });
+        }
+    });
+
+    app.get('/api/conciliaciones/facturacion/export-excel', ...guardChain, async (req, res) => {
+        const servicioId = String(req.query.servicioId || '').trim();
+        const ym = parseYearMonth(req.query);
+        if (!servicioId) return res.status(400).json({ ok: false, error: 'servicioId requerido' });
+        if (!ym) return res.status(400).json({ ok: false, error: 'year y month válidos requeridos (1-12)' });
+        try {
+            const { workbook, filename, servicioId: sid, year, month } = await exportConciliacionServicioExcelForScope(req.scope, {
+                servicioId,
+                year: ym.year,
+                month: ym.month
+            });
+            await markConciliacionServicioEnviadaForScope(
+                req.scope,
+                { servicioId: sid, year, month },
+                buildRevisionActorFromReq(req)
+            );
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            await workbook.xlsx.write(res);
+            res.end();
+        } catch (e) {
+            console.error('[conciliaciones/facturacion/export-excel]', e);
+            const status = e.status || 500;
+            if (!res.headersSent) {
+                return res.status(status).json({ ok: false, error: e.message || 'Error al exportar Excel' });
+            }
+        }
+    });
+
+    app.post('/api/conciliaciones/facturacion/servicio-cierre/conciliar', ...guardChain, async (req, res) => {
+        const servicioId = String(req.body?.servicioId || '').trim();
+        const anio = Number(req.body?.anio ?? req.body?.year);
+        const mes = Number(req.body?.mes ?? req.body?.month);
+        if (!servicioId) return res.status(400).json({ ok: false, error: 'servicioId requerido' });
+        if (!Number.isFinite(anio) || !Number.isFinite(mes)) {
+            return res.status(400).json({ ok: false, error: 'anio y mes válidos requeridos' });
+        }
+        try {
+            const out = await markConciliacionServicioConciliadaForScope(
+                req.scope,
+                { servicioId, anio, mes },
+                buildRevisionActorFromReq(req)
+            );
+            return res.json({ ok: true, ...out });
+        } catch (e) {
+            console.error('[conciliaciones/facturacion/servicio-cierre/conciliar]', e);
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al marcar conciliada' });
         }
     });
 

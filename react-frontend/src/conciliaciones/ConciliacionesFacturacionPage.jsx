@@ -1,24 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { X, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { X, ArrowLeft, CheckCircle2, Download } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash, withNovedadesTabShellAliases, GESTION_TOOLBAR_PRIMARY_BTN } from '../gestionTableDashTheme.js';
 import { CONCILIACIONES_FACTURACION_PAGE, CONCILIACIONES_FACTURACION_SHELL } from './conciliacionesLayout.js';
 import ClienteMesSelectors from './components/ClienteMesSelectors.jsx';
 import ConciliacionesColaCierres from './components/ConciliacionesColaCierres.jsx';
-import ConciliacionesMetricCards from './components/ConciliacionesMetricCards.jsx';
 import ConciliacionesAccionMasivaModal from './components/ConciliacionesAccionMasivaModal.jsx';
 import { formatConciliacionesMonthLabel } from './conciliacionesFiltrosResumen.js';
 import ConciliacionesTabla from './components/ConciliacionesTabla.jsx';
 import ConciliacionesFacturacionModal from './components/ConciliacionesFacturacionModal.jsx';
+import ConciliacionesServicioResumenCard from './components/ConciliacionesServicioResumenCard.jsx';
 import {
     fetchConciliacionesClientes,
     fetchConciliacionPorCliente,
     fetchConciliacionNovedadesDetalle,
     postFacturacionRevision,
     postFacturacionRevisionMasiva,
+    postFacturacionAjustes,
     fetchFacturacionHistorial,
     deleteConciliacionFacturacion,
+    downloadConciliacionExportExcel,
+    postMarcarServicioConciliada,
     fetchColaCierres,
     fetchServicioConsultores
 } from './conciliacionesApi.js';
@@ -29,7 +32,19 @@ import {
     facturacionSuccessMessage,
     planSuccessBannerDismiss,
     canUserPerformMasivaRevision,
-    filterMasivaEligibleRows
+    filterMasivaEligibleRows,
+    isServicioCompletoFinanzas,
+    canRevertConciliacionCierre,
+    canExportServicioCompleto,
+    canMarcarServicioConciliada,
+    isServicioCierreReadonly,
+    resolveDiasBaseMesDisplay,
+    patchColaItemEstadoServicio,
+    patchFacturacionRowEstado,
+    patchFacturacionRowsMasivaAprobar,
+    resolveRefreshTargets,
+    resolveEstadoTrasRevisionIndividual,
+    shouldShowTablaInitialLoading
 } from './facturacionLogic.js';
 
 function currentMonthValue() {
@@ -50,6 +65,12 @@ function normalizeCedula(value) {
     return String(value || '').replace(/\D/g, '');
 }
 
+function cedulasFromColaItem(colaItem) {
+    const raw = colaItem?.consultoresCedulas;
+    if (!Array.isArray(raw)) return [];
+    return raw.map((c) => String(c || '').trim()).filter(Boolean);
+}
+
 function colaItemToServicio(item) {
     if (!item?.servicioId) return null;
     return {
@@ -59,7 +80,28 @@ function colaItemToServicio(item) {
         initDate: item.initDate,
         closingDay: item.closingDay,
         billingMode: item.billingMode,
-        billingType: item.billingType
+        billingType: item.billingType,
+        baseHours: item.baseHours,
+        estadoServicio: item.estadoServicio,
+        enviadaAt: item.enviadaAt,
+        conciliadaAt: item.conciliadaAt
+    };
+}
+
+function novedadesDetalleFromApi(value) {
+    if (!value) return null;
+    return {
+        tarifaCliente: value.tarifaCliente,
+        tarifaMaestro: value.tarifaMaestro,
+        tarifaAjustada: value.tarifaAjustada,
+        facturaCop: value.facturaCop,
+        billingMode: value.billingMode ?? null,
+        baseHours: value.baseHours ?? null,
+        horasBaseMes: value.horasBaseMes ?? null,
+        tarifaValorHora: value.tarifaValorHora ?? null,
+        diasBaseMes: value.diasBaseMes ?? null,
+        diasBaseLabel: value.diasBaseLabel ?? null,
+        festivosAplicados: value.festivosAplicados ?? false
     };
 }
 
@@ -82,6 +124,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     const [totales, setTotales] = useState(null);
     const [loadingList, setLoadingList] = useState(true);
     const [loadingResumen, setLoadingResumen] = useState(false);
+    const [refreshingResumen, setRefreshingResumen] = useState(false);
     const [savingFacturacion, setSavingFacturacion] = useState(false);
     const [savingMasiva, setSavingMasiva] = useState(false);
     const [error, setError] = useState('');
@@ -99,7 +142,14 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     const [fEstado, setFEstado] = useState('');
 
     const [confirmEliminar, setConfirmEliminar] = useState(null);
+    const [revertObservacion, setRevertObservacion] = useState('');
     const [eliminando, setEliminando] = useState(false);
+    const [exportandoExcel, setExportandoExcel] = useState(false);
+    const [exportandoColaId, setExportandoColaId] = useState('');
+    const [conciliandoColaId, setConciliandoColaId] = useState('');
+    const [conciliandoServicio, setConciliandoServicio] = useState(false);
+    const [festivosSet, setFestivosSet] = useState(() => new Set());
+    const [festivosLoaded, setFestivosLoaded] = useState(false);
     const [masivaOpen, setMasivaOpen] = useState(false);
 
     const facturacionFilters = useMemo(() => ({ fEstado }), [fEstado]);
@@ -116,6 +166,25 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     }, [success]);
 
     const ym = useMemo(() => parseMonthValue(monthValue), [monthValue]);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetch('/api/festivos', { credentials: 'include' })
+            .then((r) => r.json())
+            .then((data) => {
+                if (cancelled) return;
+                if (data?.ok && Array.isArray(data.festivos)) {
+                    setFestivosSet(new Set(data.festivos));
+                }
+                setFestivosLoaded(true);
+            })
+            .catch(() => {
+                if (!cancelled) setFestivosLoaded(true);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -145,12 +214,13 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         }
     }, [clientes, clienteQuery]);
 
-    const loadCola = useCallback(async () => {
+    const loadCola = useCallback(async (options = {}) => {
+        const { background = false } = options;
         if (!ym.year || !ym.month) {
             setColaItems([]);
             return;
         }
-        setLoadingCola(true);
+        if (!background) setLoadingCola(true);
         try {
             const data = await fetchColaCierres(token, {
                 year: ym.year,
@@ -159,10 +229,12 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
             });
             setColaItems(Array.isArray(data.items) ? data.items : []);
         } catch (e) {
-            setError((prev) => prev || e.message || 'No se pudo cargar la cola de cierres');
-            setColaItems([]);
+            if (!background) {
+                setError((prev) => prev || e.message || 'No se pudo cargar la cola de cierres');
+                setColaItems([]);
+            }
         } finally {
-            setLoadingCola(false);
+            if (!background) setLoadingCola(false);
         }
     }, [token, ym.year, ym.month, cliente]);
 
@@ -170,6 +242,28 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         if (servicioSel) return;
         loadCola();
     }, [loadCola, servicioSel]);
+
+    useEffect(() => {
+        if (!servicioSel?.id || !colaItems.length) return;
+        const match = colaItems.find((i) => i.servicioId === servicioSel.id);
+        if (!match) return;
+        if (
+            match.estadoServicio !== servicioSel.estadoServicio ||
+            match.enviadaAt !== servicioSel.enviadaAt ||
+            match.conciliadaAt !== servicioSel.conciliadaAt
+        ) {
+            setServicioSel((prev) =>
+                prev
+                    ? {
+                          ...prev,
+                          estadoServicio: match.estadoServicio,
+                          enviadaAt: match.enviadaAt,
+                          conciliadaAt: match.conciliadaAt
+                      }
+                    : prev
+            );
+        }
+    }, [colaItems, servicioSel?.id, servicioSel?.estadoServicio, servicioSel?.enviadaAt, servicioSel?.conciliadaAt]);
 
     const handleClienteChange = useCallback(
         (nextCliente) => {
@@ -184,32 +278,56 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
 
     const clienteServicio = servicioSel ? String(servicioSel.client || '').trim() : '';
     const billingTypeServicio = servicioSel ? String(servicioSel.billingType || '').trim() : '';
+    const billingModeServicio = servicioSel ? String(servicioSel.billingMode || '').trim() : '';
+    const baseHoursServicio = servicioSel?.baseHours;
 
-    const loadResumen = useCallback(async () => {
+    const billingQueryParams = useMemo(
+        () => ({
+            billingType: billingTypeServicio || undefined,
+            billingMode: billingModeServicio || undefined,
+            baseHours: baseHoursServicio ?? undefined
+        }),
+        [billingTypeServicio, billingModeServicio, baseHoursServicio]
+    );
+
+    const loadResumen = useCallback(async (options = {}) => {
+        const { silent = false } = options;
         if (!clienteServicio || !ym.year || !ym.month) {
             setRows([]);
             setTotales(null);
-            return;
+            return null;
         }
-        setLoadingResumen(true);
+        if (silent) {
+            setRefreshingResumen(true);
+        } else {
+            setLoadingResumen(true);
+        }
         setError('');
         try {
             const data = await fetchConciliacionPorCliente(token, {
                 cliente: clienteServicio,
                 year: ym.year,
                 month: ym.month,
-                billingType: billingTypeServicio || undefined
+                ...billingQueryParams
             });
             setRows(Array.isArray(data.rows) ? data.rows : []);
             setTotales(data.totales || null);
+            return data;
         } catch (e) {
-            setError(e.message || 'Error al cargar el resumen');
-            setRows([]);
-            setTotales(null);
+            if (!silent) {
+                setError(e.message || 'Error al cargar el resumen');
+                setRows([]);
+                setTotales(null);
+            }
+            return null;
         } finally {
-            setLoadingResumen(false);
+            if (silent) {
+                setRefreshingResumen(false);
+            } else {
+                setLoadingResumen(false);
+            }
         }
-    }, [token, clienteServicio, billingTypeServicio, ym.year, ym.month]);
+    }, [token, clienteServicio, billingQueryParams, ym.year, ym.month]);
 
     useEffect(() => {
         loadResumen();
@@ -219,9 +337,17 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         async (colaItem) => {
             const servicio = colaItemToServicio(colaItem);
             if (!servicio?.id) return;
+
+            const cedulasCola = cedulasFromColaItem(colaItem);
             setServicioSel(servicio);
-            setServicioCedulas([]);
             handleResetFilters();
+
+            if (cedulasCola.length) {
+                setServicioCedulas(cedulasCola);
+                return;
+            }
+
+            setServicioCedulas([]);
             setLoadingCedulas(true);
             try {
                 const consultores = await fetchServicioConsultores(token, servicio.id);
@@ -259,11 +385,55 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     const [facturacionOpen, setFacturacionOpen] = useState(false);
     const [facturacionRow, setFacturacionRow] = useState(null);
     const [novedadesItems, setNovedadesItems] = useState([]);
+    const [novedadesDetalle, setNovedadesDetalle] = useState(null);
     const [novedadesLoading, setNovedadesLoading] = useState(false);
     const [historialItems, setHistorialItems] = useState([]);
     const [historialLoading, setHistorialLoading] = useState(false);
 
     const userRole = auth?.user?.role || auth?.claims?.role || '';
+
+    const servicioCompleto = useMemo(
+        () => isServicioCompletoFinanzas(rowsDelServicio, servicioCedulas),
+        [rowsDelServicio, servicioCedulas]
+    );
+
+    const servicioCierreReadonly = useMemo(
+        () => isServicioCierreReadonly(servicioSel?.estadoServicio),
+        [servicioSel?.estadoServicio]
+    );
+
+    const workspaceReadonly = servicioCompleto || servicioCierreReadonly;
+
+    const diasBaseServicio = useMemo(
+        () =>
+            resolveDiasBaseMesDisplay({
+                billingMode: billingModeServicio,
+                year: ym.year,
+                month: ym.month,
+                festivosSet,
+                festivosLoaded
+            }),
+        [billingModeServicio, ym.year, ym.month, festivosSet, festivosLoaded]
+    );
+
+    const canRevertCurrentRow = useMemo(() => {
+        if (!facturacionRow || workspaceReadonly) return false;
+        return canRevertConciliacionCierre(userRole, facturacionRow.estado, facturacionRow.cerrado);
+    }, [facturacionRow, workspaceReadonly, userRole]);
+
+    const showExportExcelBtn =
+        Boolean(servicioSel) &&
+        servicioCompleto &&
+        canExportServicioCompleto(userRole) &&
+        !servicioCierreReadonly &&
+        ym.year &&
+        ym.month;
+
+    const showMarcarConciliadaBtn =
+        Boolean(servicioSel) &&
+        canMarcarServicioConciliada(userRole, servicioSel?.estadoServicio) &&
+        ym.year &&
+        ym.month;
 
     const openRevision = useCallback(
         async (row) => {
@@ -274,6 +444,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
             setNovedadesLoading(true);
             setHistorialLoading(true);
             setNovedadesItems([]);
+            setNovedadesDetalle(null);
             setHistorialItems([]);
             try {
                 const novedadesPromise = fetchConciliacionNovedadesDetalle(token, {
@@ -281,7 +452,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                     cedula: row.cedula,
                     year: ym.year,
                     month: ym.month,
-                    billingType: billingTypeServicio || undefined
+                    ...billingQueryParams
                 });
                 const historialPromise = fetchFacturacionHistorial(token, {
                     cedula: row.cedula,
@@ -294,9 +465,11 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 ]);
                 const partialErrors = [];
                 if (novedadesResult.status === 'fulfilled') {
-                    setNovedadesItems(novedadesResult.value);
+                    setNovedadesItems(novedadesResult.value.items || []);
+                    setNovedadesDetalle(novedadesDetalleFromApi(novedadesResult.value));
                 } else {
                     setNovedadesItems([]);
+                    setNovedadesDetalle(null);
                     partialErrors.push(novedadesResult.reason?.message || 'Error al cargar novedades');
                 }
                 if (historialResult.status === 'fulfilled') {
@@ -313,18 +486,106 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 setHistorialLoading(false);
             }
         },
-        [token, clienteServicio, billingTypeServicio, ym.year, ym.month]
+        [token, clienteServicio, billingQueryParams, ym.year, ym.month]
     );
 
     const handleEliminarFromRevision = useCallback((row) => {
         setFacturacionOpen(false);
+        setRevertObservacion('');
         setConfirmEliminar(row);
     }, []);
 
-    const refreshAfterMutation = useCallback(async () => {
-        await loadResumen();
-        await loadCola();
-    }, [loadResumen, loadCola]);
+    const refreshAfterMutation = useCallback(
+        async (mutationKind) => {
+            const targets = resolveRefreshTargets({
+                hasServicioSel: Boolean(servicioSel),
+                mutationKind
+            });
+            let resumen = null;
+            const tasks = [];
+            if (targets.resumen) {
+                tasks.push(
+                    loadResumen({ silent: targets.resumenSilent }).then((data) => {
+                        resumen = data;
+                    })
+                );
+            }
+            if (targets.cola) {
+                tasks.push(loadCola({ background: targets.colaBackground }));
+            }
+            if (tasks.length) await Promise.all(tasks);
+            return resumen;
+        },
+        [loadResumen, loadCola, servicioSel]
+    );
+
+    const reloadRevisionData = useCallback(
+        async (row) => {
+            const clienteRow = String(row?.cliente || clienteServicio || '').trim();
+            if (!clienteRow || !row?.cedula) return;
+            setNovedadesLoading(true);
+            setHistorialLoading(true);
+            try {
+                const [novedadesResult, historialResult] = await Promise.allSettled([
+                    fetchConciliacionNovedadesDetalle(token, {
+                        cliente: clienteRow,
+                        cedula: row.cedula,
+                        year: ym.year,
+                        month: ym.month,
+                        ...billingQueryParams
+                    }),
+                    fetchFacturacionHistorial(token, {
+                        cedula: row.cedula,
+                        anio: ym.year,
+                        mes: ym.month
+                    })
+                ]);
+                if (novedadesResult.status === 'fulfilled') {
+                    setNovedadesItems(novedadesResult.value.items || []);
+                    setNovedadesDetalle(novedadesDetalleFromApi(novedadesResult.value));
+                }
+                if (historialResult.status === 'fulfilled') {
+                    setHistorialItems(historialResult.value);
+                }
+            } finally {
+                setNovedadesLoading(false);
+                setHistorialLoading(false);
+            }
+        },
+        [token, clienteServicio, billingQueryParams, ym.year, ym.month]
+    );
+
+    const handleSaveAjustes = useCallback(
+        async (data) => {
+            setSavingFacturacion(true);
+            setError('');
+            setSuccess('');
+            try {
+                await postFacturacionAjustes(token, {
+                    ...data,
+                    anio: ym.year,
+                    mes: ym.month,
+                    ...billingQueryParams
+                });
+                const resumen = await refreshAfterMutation('ajustes');
+                const cedNorm = normalizeCedula(data.cedula);
+                const freshRow = (resumen?.rows || []).find((r) => normalizeCedula(r.cedula) === cedNorm);
+                if (freshRow) setFacturacionRow(freshRow);
+                await reloadRevisionData(freshRow || facturacionRow);
+                setSuccess(
+                    facturacionSuccessMessage('ajustes', {
+                        nombre: facturacionRow?.nombre,
+                        cedula: data.cedula
+                    })
+                );
+            } catch (e) {
+                throw new Error(e.message || 'No se pudieron guardar los ajustes');
+            } finally {
+                setSavingFacturacion(false);
+            }
+        },
+        [token, ym.year, ym.month, refreshAfterMutation, reloadRevisionData, facturacionRow, billingQueryParams]
+    );
 
     const handleSaveFacturacion = useCallback(
         async (data) => {
@@ -334,13 +595,19 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
             const revisionAccion = data._revisionAccion;
             const payload = { ...data };
             delete payload._revisionAccion;
+            const prevEst = facturacionRow?.estado || 'PENDIENTE';
             try {
                 await postFacturacionRevision(token, {
                     ...payload,
                     anio: ym.year,
-                    mes: ym.month
+                    mes: ym.month,
+                    servicioId: servicioSel?.id || undefined
                 });
-                await refreshAfterMutation();
+                const nextEst = resolveEstadoTrasRevisionIndividual(prevEst, revisionAccion);
+                setRows((prev) => patchFacturacionRowEstado(prev, payload.cedula, nextEst));
+                if (facturacionRow && normalizeCedula(facturacionRow.cedula) === normalizeCedula(payload.cedula)) {
+                    setFacturacionRow((prev) => (prev ? { ...prev, estado: nextEst } : prev));
+                }
                 const msgKind =
                     revisionAccion === 'aprobar'
                         ? 'revision_aprobada'
@@ -359,7 +626,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 setSavingFacturacion(false);
             }
         },
-        [token, ym.year, ym.month, refreshAfterMutation, facturacionRow]
+        [token, ym.year, ym.month, facturacionRow, servicioSel?.id]
     );
 
     const handleSaveMasiva = useCallback(
@@ -369,9 +636,10 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
             setSuccess('');
             try {
                 const scopeRows = form.applyToFiltered && hasEstadoFilter ? filteredRows : rowsDelServicio;
-                const eligibleRows = filterMasivaEligibleRows(userRole, scopeRows, form.accion);
+                const etapaObjetivo = form.etapaObjetivo;
+                const eligibleRows = filterMasivaEligibleRows(userRole, scopeRows, form.accion, etapaObjetivo);
                 if (!eligibleRows.length) {
-                    throw new Error('No hay consultores elegibles para esta acción');
+                    throw new Error('No hay consultores elegibles para esta etapa');
                 }
                 const built = buildFacturacionRevisionMasivaPayload(
                     {
@@ -382,15 +650,24 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                         cliente: clienteServicio,
                         anio: ym.year,
                         mes: ym.month,
-                        cedulas: eligibleRows.map((r) => r.cedula)
+                        cedulas: eligibleRows.map((r) => r.cedula),
+                        servicioId: servicioSel?.id,
+                        etapaObjetivo
                     }
                 );
                 if (!built.ok) throw new Error(built.error);
                 const result = await postFacturacionRevisionMasiva(token, built.data);
-                await refreshAfterMutation();
+                setRows((prev) =>
+                    patchFacturacionRowsMasivaAprobar(
+                        prev,
+                        eligibleRows.map((r) => r.cedula),
+                        etapaObjetivo
+                    )
+                );
                 setSuccess(
                     facturacionSuccessMessage('masiva', {
-                        updated: result?.updated ?? eligibleRows.length
+                        updated: result?.updated ?? eligibleRows.length,
+                        skipped: result?.skipped ?? 0
                     })
                 );
             } catch (e) {
@@ -399,11 +676,20 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 setSavingMasiva(false);
             }
         },
-        [token, ym.year, ym.month, clienteServicio, filteredRows, rowsDelServicio, hasEstadoFilter, refreshAfterMutation, userRole]
+        [token, ym.year, ym.month, clienteServicio, filteredRows, rowsDelServicio, hasEstadoFilter, userRole, servicioSel?.id]
     );
+
+    const handleOpenMasiva = useCallback(() => {
+        setMasivaOpen(true);
+    }, []);
 
     const handleConfirmEliminar = useCallback(async () => {
         if (!confirmEliminar?.cedula || !ym.year || !ym.month) return;
+        const obs = String(revertObservacion || '').trim();
+        if (!obs) {
+            setError('La observación es obligatoria para revertir el cierre.');
+            return;
+        }
         setEliminando(true);
         setError('');
         setSuccess('');
@@ -411,17 +697,94 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
             await deleteConciliacionFacturacion(token, {
                 cedula: confirmEliminar.cedula,
                 anio: ym.year,
-                mes: ym.month
+                mes: ym.month,
+                observacion: obs
             });
-            await refreshAfterMutation();
-            setSuccess(`Facturación de ${confirmEliminar.nombre || confirmEliminar.cedula} eliminada. Vuelve a estado Pendiente.`);
+            setRows((prev) => patchFacturacionRowEstado(prev, confirmEliminar.cedula, 'PENDIENTE'));
+            await refreshAfterMutation('revert');
+            setSuccess(
+                `Cierre de ${confirmEliminar.nombre || confirmEliminar.cedula} revertido. Vuelve a estado Pendiente.`
+            );
             setConfirmEliminar(null);
+            setRevertObservacion('');
         } catch (e) {
-            setError(e.message || 'No se pudo eliminar la facturación');
+            setError(e.message || 'No se pudo revertir el cierre');
         } finally {
             setEliminando(false);
         }
-    }, [token, confirmEliminar, ym.year, ym.month, refreshAfterMutation]);
+    }, [token, confirmEliminar, revertObservacion, ym.year, ym.month, refreshAfterMutation]);
+
+    const handleExportExcel = useCallback(async () => {
+        if (!servicioSel?.id || !ym.year || !ym.month) return;
+        setExportandoExcel(true);
+        setError('');
+        try {
+            await downloadConciliacionExportExcel(token, {
+                servicioId: servicioSel.id,
+                year: ym.year,
+                month: ym.month
+            });
+            setColaItems((prev) => patchColaItemEstadoServicio(prev, servicioSel.id, 'ENVIADA'));
+            setServicioSel((prev) => (prev ? { ...prev, estadoServicio: 'ENVIADA' } : prev));
+            void loadCola({ background: true });
+            setSuccess('Excel descargado. El servicio quedó marcado como Enviada.');
+        } catch (e) {
+            setError(e.message || 'No se pudo descargar el Excel');
+        } finally {
+            setExportandoExcel(false);
+        }
+    }, [token, servicioSel?.id, ym.year, ym.month, loadCola]);
+
+    const handleColaExportExcel = useCallback(
+        async (item) => {
+            if (!item?.servicioId || !ym.year || !ym.month) return;
+            setExportandoColaId(item.servicioId);
+            setError('');
+            try {
+                await downloadConciliacionExportExcel(token, {
+                    servicioId: item.servicioId,
+                    year: ym.year,
+                    month: ym.month
+                });
+                setColaItems((prev) => patchColaItemEstadoServicio(prev, item.servicioId, 'ENVIADA'));
+                if (servicioSel?.id === item.servicioId) {
+                    setServicioSel((prev) => (prev ? { ...prev, estadoServicio: 'ENVIADA' } : prev));
+                }
+                void loadCola({ background: true });
+                setSuccess('Excel descargado. El servicio quedó marcado como Enviada.');
+            } catch (e) {
+                setError(e.message || 'No se pudo descargar el Excel');
+            } finally {
+                setExportandoColaId('');
+            }
+        },
+        [token, ym.year, ym.month, loadCola, servicioSel?.id]
+    );
+
+    const handleMarcarConciliada = useCallback(
+        async (servicioId) => {
+            const sid = String(servicioId || servicioSel?.id || '').trim();
+            if (!sid || !ym.year || !ym.month) return;
+            setConciliandoServicio(true);
+            setConciliandoColaId(sid);
+            setError('');
+            try {
+                await postMarcarServicioConciliada(token, { servicioId: sid, anio: ym.year, mes: ym.month });
+                setColaItems((prev) => patchColaItemEstadoServicio(prev, sid, 'CONCILIADA'));
+                void loadCola({ background: true });
+                if (servicioSel?.id === sid) {
+                    setServicioSel((prev) => (prev ? { ...prev, estadoServicio: 'CONCILIADA' } : prev));
+                }
+                setSuccess('Servicio marcado como Conciliada.');
+            } catch (e) {
+                setError(e.message || 'No se pudo marcar como conciliada');
+            } finally {
+                setConciliandoServicio(false);
+                setConciliandoColaId('');
+            }
+        },
+        [token, ym.year, ym.month, loadCola, servicioSel?.id]
+    );
 
     const masivaEligibleCount = useMemo(() => {
         const scope = hasEstadoFilter ? filteredRows : rowsDelServicio;
@@ -430,6 +793,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
 
     const showMasivaBtn =
         Boolean(servicioSel) &&
+        !workspaceReadonly &&
         canUserPerformMasivaRevision(userRole) &&
         rowsDelServicio.length > 0 &&
         masivaEligibleCount > 0;
@@ -441,7 +805,12 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
 
     const monthLabel = useMemo(() => formatConciliacionesMonthLabel(monthValue), [monthValue]);
 
-    const detalleLoading = loadingResumen || loadingCedulas;
+    const tablaInitialLoading = shouldShowTablaInitialLoading({
+        loadingResumen,
+        refreshingResumen,
+        rowCount: rowsDelServicio.length
+    });
+    const detalleLoading = loadingCedulas || tablaInitialLoading;
     const defaultProyecto = servicioSel?.serviceName || '';
     const workspaceToolbarLabel = servicioSel
         ? `${String(servicioSel.client || '').trim()}-${String(servicioSel.serviceName || '').trim()}`.toUpperCase()
@@ -524,16 +893,44 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                         ) : null
                     }
                     trailingActions={
-                        showMasivaBtn ? (
-                            <button
-                                type="button"
-                                onClick={() => setMasivaOpen(true)}
-                                className={`${GESTION_TOOLBAR_PRIMARY_BTN} inline-flex items-center gap-2`}
-                                title={`Aprobación masiva (${masivaEligibleCount} consultor(es) elegibles)`}
-                            >
-                                <CheckCircle2 size={16} aria-hidden />
-                                Aprobación masiva
-                            </button>
+                        showMasivaBtn || showExportExcelBtn || showMarcarConciliadaBtn ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                                {showExportExcelBtn ? (
+                                    <button
+                                        type="button"
+                                        onClick={handleExportExcel}
+                                        disabled={exportandoExcel}
+                                        className={`${GESTION_TOOLBAR_PRIMARY_BTN} inline-flex items-center gap-2`}
+                                        title="Descargar Excel desagregado a facturar"
+                                    >
+                                        <Download size={16} aria-hidden />
+                                        {exportandoExcel ? 'Generando Excel…' : 'Descargar Excel a facturar'}
+                                    </button>
+                                ) : null}
+                                {showMarcarConciliadaBtn ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleMarcarConciliada(servicioSel.id)}
+                                        disabled={conciliandoServicio}
+                                        className={`${GESTION_TOOLBAR_PRIMARY_BTN} inline-flex items-center gap-2`}
+                                        title="Confirmar cierre definitivo del servicio"
+                                    >
+                                        <CheckCircle2 size={16} aria-hidden />
+                                        {conciliandoServicio ? 'Marcando…' : 'Marcar conciliada'}
+                                    </button>
+                                ) : null}
+                                {showMasivaBtn ? (
+                                    <button
+                                        type="button"
+                                        onClick={handleOpenMasiva}
+                                        className={`${GESTION_TOOLBAR_PRIMARY_BTN} inline-flex items-center gap-2`}
+                                        title={`Aprobación masiva (${masivaEligibleCount} consultor(es) elegibles)`}
+                                    >
+                                        <CheckCircle2 size={16} aria-hidden />
+                                        Aprobación masiva
+                                    </button>
+                                ) : null}
+                            </div>
                         ) : null
                     }
                 />
@@ -543,11 +940,18 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                         items={colaItems}
                         loading={loadingCola || loadingList}
                         monthLabel={monthLabel}
+                        year={ym.year}
+                        month={ym.month}
+                        userRole={userRole}
                         fEstadoCola={fEstadoCola}
                         onEstadoColaChange={setFEstadoCola}
                         filtrosColaOpen={filtrosColaOpen}
                         onToggleFiltrosCola={() => setFiltrosColaOpen((o) => !o)}
                         onAbrirCierre={handleSelectServicio}
+                        onExportExcel={handleColaExportExcel}
+                        onMarcarConciliada={(item) => handleMarcarConciliada(item.servicioId)}
+                        exportandoId={exportandoColaId}
+                        conciliandoId={conciliandoColaId}
                         headingAccent={headingAccent}
                         labelMuted={labelMuted}
                         isLight={isLight}
@@ -556,18 +960,24 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                     />
                 ) : (
                     <>
-                        {facturacionTotales && !detalleLoading ? (
-                            <div className="mb-3">
-                                <ConciliacionesMetricCards
-                                    totales={facturacionTotales}
-                                    cardClass={dash.card}
-                                    headingAccent={headingAccent}
-                                    labelMuted={labelMuted}
-                                    isLight={isLight}
-                                    compact
-                                />
-                            </div>
-                        ) : null}
+                        <ConciliacionesServicioResumenCard
+                            servicio={servicioSel}
+                            monthLabel={monthLabel}
+                            consultoresCount={rowsDelServicio.length}
+                            servicioCompleto={workspaceReadonly}
+                            estadoServicio={servicioSel?.estadoServicio}
+                            diasBaseMes={diasBaseServicio.diasBaseMes}
+                            diasBaseLabel={diasBaseServicio.diasBaseLabel}
+                            festivosAplicados={diasBaseServicio.festivosAplicados}
+                            cardClass={dash.card}
+                            headingAccent={headingAccent}
+                            labelMuted={labelMuted}
+                            isLight={isLight}
+                            facturacionTotales={
+                                facturacionTotales && !tablaInitialLoading && !loadingCedulas ? facturacionTotales : null
+                            }
+                            metricDetailRows={rowsDelServicio}
+                        />
 
                         <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                             <div className={dash.tableWrap}>
@@ -575,21 +985,24 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                                     <ConciliacionesTabla
                                         embedded
                                         rows={filteredRows}
+                                        estadoServicio={servicioSel?.estadoServicio}
                                         showClienteColumn={false}
                                         onVerDetalle={openRevision}
                                         onRowClick={openRevision}
                                         headingAccent={headingAccent}
                                         labelMuted={labelMuted}
-                                        loading={detalleLoading}
+                                        loading={tablaInitialLoading || loadingCedulas}
                                         loadingMessage={
                                             loadingCedulas ? 'Cargando consultores del servicio…' : 'Cargando datos del mes…'
                                         }
+                                        refreshing={refreshingResumen}
                                     />
                                 </div>
                                 {filteredRows.length > 0 || rowsDelServicio.length > 0 ? (
                                     <div className={dash.footerBar}>
                                         <span>
                                             Mostrando {filteredRows.length} de {rowsDelServicio.length} consultores
+                                            {refreshingResumen ? ' · actualizando…' : ''}
                                         </span>
                                     </div>
                                 ) : null}
@@ -599,55 +1012,101 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 )}
             </div>
 
-            <ConciliacionesFacturacionModal
-                open={facturacionOpen}
-                onClose={() => setFacturacionOpen(false)}
-                onSave={handleSaveFacturacion}
-                onEliminar={handleEliminarFromRevision}
-                colaborador={facturacionRow}
-                auth={auth}
-                novedadesItems={novedadesItems}
-                novedadesLoading={novedadesLoading}
-                historial={historialItems}
-                historialLoading={historialLoading}
-                saving={savingFacturacion}
-                isLight={isLight}
-            />
+            {facturacionOpen ? (
+                <ConciliacionesFacturacionModal
+                    open={facturacionOpen}
+                    onClose={() => setFacturacionOpen(false)}
+                    onSave={handleSaveFacturacion}
+                    onSaveAjustes={workspaceReadonly ? null : handleSaveAjustes}
+                    onEliminar={canRevertCurrentRow ? handleEliminarFromRevision : null}
+                    colaborador={facturacionRow}
+                    servicioNombre={servicioSel?.serviceName || ''}
+                    servicioId={servicioSel?.id || ''}
+                    auth={auth}
+                    servicioCompleto={workspaceReadonly}
+                    novedadesItems={novedadesItems}
+                    novedadesLoading={novedadesLoading}
+                    tarifaDetalle={novedadesDetalle}
+                    billingMode={novedadesDetalle?.billingMode ?? billingModeServicio ?? null}
+                    baseHours={novedadesDetalle?.baseHours ?? baseHoursServicio ?? null}
+                    horasBaseMes={novedadesDetalle?.horasBaseMes ?? null}
+                    tarifaValorHora={novedadesDetalle?.tarifaValorHora ?? null}
+                    diasBaseMes={novedadesDetalle?.diasBaseMes ?? diasBaseServicio.diasBaseMes}
+                    diasBaseLabel={novedadesDetalle?.diasBaseLabel ?? diasBaseServicio.diasBaseLabel}
+                    festivosAplicados={novedadesDetalle?.festivosAplicados ?? diasBaseServicio.festivosAplicados}
+                    monthLabel={monthLabel}
+                    historial={historialItems}
+                    historialLoading={historialLoading}
+                    saving={savingFacturacion}
+                    isLight={isLight}
+                />
+            ) : null}
 
-            <ConciliacionesAccionMasivaModal
-                open={masivaOpen}
-                onClose={() => setMasivaOpen(false)}
-                onSave={handleSaveMasiva}
-                userRole={userRole}
-                serviceRows={rowsDelServicio}
-                filteredRows={filteredRows}
-                cliente={servicioSel?.serviceName || clienteServicio}
-                hasActiveFilters={hasEstadoFilter}
-                saving={savingMasiva}
-                isLight={isLight}
-            />
+            {masivaOpen ? (
+                <ConciliacionesAccionMasivaModal
+                    open={masivaOpen}
+                    onClose={() => setMasivaOpen(false)}
+                    onSave={handleSaveMasiva}
+                    userRole={userRole}
+                    serviceRows={rowsDelServicio}
+                    filteredRows={filteredRows}
+                    cliente={servicioSel?.serviceName || clienteServicio}
+                    hasActiveFilters={hasEstadoFilter}
+                    saving={savingMasiva}
+                    isLight={isLight}
+                />
+            ) : null}
 
             {confirmEliminar ? (
                 <>
-                    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm" onClick={() => setConfirmEliminar(null)} aria-hidden="true" />
-                    <div role="dialog" aria-modal="true" className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-6 shadow-xl dark:bg-slate-800">
-                        <h3 className="mb-2 text-lg font-bold text-slate-900 dark:text-white">¿Eliminar facturación?</h3>
-                        <p className="mb-6 text-sm text-slate-600 dark:text-slate-400">
-                            Se eliminará el registro de facturación de <strong>{confirmEliminar.nombre || confirmEliminar.cedula}</strong> para {monthLabel}.
-                            <br /><br />
-                            <span className="font-medium text-rose-600 dark:text-rose-400">El consultor volverá al estado Pendiente.</span>
+                    <div
+                        className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm"
+                        onClick={() => {
+                            setConfirmEliminar(null);
+                            setRevertObservacion('');
+                        }}
+                        aria-hidden="true"
+                    />
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-xl bg-white p-6 shadow-xl dark:bg-slate-800"
+                    >
+                        <h3 className="mb-2 text-lg font-bold text-slate-900 dark:text-white">¿Revertir cierre?</h3>
+                        <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+                            Se revertirá el cierre de <strong>{confirmEliminar.nombre || confirmEliminar.cedula}</strong> para{' '}
+                            {monthLabel}. El consultor volverá a <strong>Pendiente</strong> y se conservará el historial.
                         </p>
+                        <label className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            Observación (obligatoria)
+                        </label>
+                        <textarea
+                            value={revertObservacion}
+                            onChange={(e) => setRevertObservacion(e.target.value)}
+                            rows={3}
+                            maxLength={1000}
+                            className="mb-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white"
+                            placeholder="Motivo de la reversión…"
+                        />
                         <div className="flex justify-end gap-3">
-                            <button type="button" onClick={() => setConfirmEliminar(null)} className={dash.compactBtn} disabled={eliminando}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setConfirmEliminar(null);
+                                    setRevertObservacion('');
+                                }}
+                                className={dash.compactBtn}
+                                disabled={eliminando}
+                            >
                                 Cancelar
                             </button>
                             <button
                                 type="button"
                                 onClick={handleConfirmEliminar}
-                                disabled={eliminando}
+                                disabled={eliminando || !String(revertObservacion || '').trim()}
                                 className="inline-flex items-center rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-500 disabled:opacity-50"
                             >
-                                {eliminando ? 'Eliminando…' : 'Sí, eliminar'}
+                                {eliminando ? 'Revirtiendo…' : 'Sí, revertir cierre'}
                             </button>
                         </div>
                     </div>

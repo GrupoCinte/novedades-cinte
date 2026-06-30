@@ -1,7 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { X, ShieldAlert, CheckCircle2, XCircle } from 'lucide-react';
 import { buildGestionTableDash } from '../../gestionTableDashTheme.js';
-import { getMasivaRevisionDefaults, validateRevisionObservacion } from '../facturacionLogic.js';
+import {
+    defaultMasivaEtapaObjetivo,
+    getMasivaRevisionDefaults,
+    listMasivaEtapaOptions,
+    validateRevisionObservacion
+} from '../facturacionLogic.js';
 
 export default function ConciliacionesAccionMasivaModal({
     open,
@@ -19,6 +24,7 @@ export default function ConciliacionesAccionMasivaModal({
     const [accion, setAccion] = useState('aprobar');
     const [observaciones, setObservaciones] = useState('');
     const [applyToFiltered, setApplyToFiltered] = useState(false);
+    const [etapaObjetivo, setEtapaObjetivo] = useState('ANALISTA');
     const [errorMsg, setErrorMsg] = useState('');
 
     const closeBtnRef = useRef(null);
@@ -30,24 +36,46 @@ export default function ConciliacionesAccionMasivaModal({
         [applyToFiltered, hasActiveFilters, filteredRows, serviceRows]
     );
 
-    const aprobarDefaults = useMemo(
-        () => getMasivaRevisionDefaults(userRole, scopeRows, 'aprobar'),
-        [userRole, scopeRows]
-    );
-    const rechazarDefaults = useMemo(
-        () => getMasivaRevisionDefaults(userRole, scopeRows, 'rechazar'),
-        [userRole, scopeRows]
-    );
-    const masivaDefaults = useMemo(
-        () => getMasivaRevisionDefaults(userRole, scopeRows, accion),
+    const etapaOptions = useMemo(
+        () => listMasivaEtapaOptions(userRole, scopeRows, accion),
         [userRole, scopeRows, accion]
+    );
+
+    const masivaDefaults = useMemo(
+        () => getMasivaRevisionDefaults(userRole, scopeRows, accion, etapaObjetivo),
+        [userRole, scopeRows, accion, etapaObjetivo]
+    );
+
+    const aprobarDefaults = useMemo(
+        () => getMasivaRevisionDefaults(userRole, scopeRows, 'aprobar', etapaObjetivo),
+        [userRole, scopeRows, etapaObjetivo]
+    );
+
+    const rechazarDefaults = useMemo(
+        () => getMasivaRevisionDefaults(userRole, scopeRows, 'rechazar', etapaObjetivo),
+        [userRole, scopeRows, etapaObjetivo]
     );
 
     const targetCount = masivaDefaults.eligibleCount;
     const skippedCount = Math.max(0, scopeRows.length - targetCount);
+    const esAprobar = accion === 'aprobar';
+    const showAccionToggles = rechazarDefaults.eligibleCount > 0 && etapaObjetivo === 'NOMINA';
+    const showEtapaSelector = etapaOptions.length > 1;
+
+    const submitLabel = useMemo(() => {
+        if (saving) return 'Procesando…';
+        const n = targetCount;
+        if (!esAprobar) return `Rechazar cierres (${n})`;
+        if (etapaObjetivo === 'ANALISTA') return `Enviar a Nómina (${n})`;
+        if (etapaObjetivo === 'NOMINA') return `Aprobar cierres (${n})`;
+        return `Aplicar a ${n}`;
+    }, [saving, esAprobar, etapaObjetivo, targetCount]);
 
     useEffect(() => {
         if (open) {
+            const scope = applyToFiltered && hasActiveFilters ? filteredRows : serviceRows;
+            const defaultEtapa = defaultMasivaEtapaObjetivo(userRole, scope, 'aprobar') || 'ANALISTA';
+            setEtapaObjetivo(defaultEtapa);
             setAccion(aprobarDefaults.accionDefault || 'aprobar');
             setObservaciones('');
             setApplyToFiltered(hasActiveFilters);
@@ -56,7 +84,15 @@ export default function ConciliacionesAccionMasivaModal({
                 if (closeBtnRef.current) closeBtnRef.current.focus();
             }, 50);
         }
-    }, [open, hasActiveFilters, aprobarDefaults.accionDefault]);
+    }, [open, hasActiveFilters, userRole, serviceRows, filteredRows, applyToFiltered, aprobarDefaults.accionDefault]);
+
+    useEffect(() => {
+        if (!open || !etapaOptions.length) return;
+        const valid = etapaOptions.some((o) => o.etapaObjetivo === etapaObjetivo);
+        if (!valid) {
+            setEtapaObjetivo(etapaOptions[0].etapaObjetivo);
+        }
+    }, [open, etapaOptions, etapaObjetivo]);
 
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -79,11 +115,17 @@ export default function ConciliacionesAccionMasivaModal({
             return;
         }
 
+        if (!etapaObjetivo || targetCount === 0) {
+            setErrorMsg('No hay consultores elegibles para esta etapa');
+            return;
+        }
+
         try {
             await onSave({
                 accion,
                 observaciones: observaciones.trim(),
-                applyToFiltered: Boolean(applyToFiltered && hasActiveFilters)
+                applyToFiltered: Boolean(applyToFiltered && hasActiveFilters),
+                etapaObjetivo
             });
             onClose();
         } catch (err) {
@@ -92,7 +134,6 @@ export default function ConciliacionesAccionMasivaModal({
     };
 
     const inputBg = isLight ? 'field-control bg-white text-slate-900' : 'field-control';
-    const esAprobar = accion === 'aprobar';
 
     return (
         <div className={dash.modalBackdrop} role="dialog" aria-modal="true" aria-labelledby="modal-masiva-title">
@@ -110,7 +151,9 @@ export default function ConciliacionesAccionMasivaModal({
                             {applyToFiltered && hasActiveFilters
                                 ? ` (filtro activo: ${filteredCount} de ${totalCount})`
                                 : ` del servicio en el mes (${totalCount} en total)`}
-                            {skippedCount > 0 ? ` · ${skippedCount} omitido(s) por estado o rol` : ''}
+                            {skippedCount > 0
+                                ? ` · ${skippedCount} omitido(s) (otra etapa o estado no aplicable)`
+                                : ''}
                         </p>
                     </div>
                     <button ref={closeBtnRef} type="button" onClick={onClose} className={dash.modalClose} aria-label="Cerrar modal">
@@ -131,16 +174,42 @@ export default function ConciliacionesAccionMasivaModal({
                             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-200">
                                 No hay consultores elegibles para esta acción con tu rol en la selección actual.
                             </div>
-                        ) : masivaDefaults.etapa === 'MIXED' ? (
-                            <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-400">
-                                Hay consultores en distintas etapas; solo se actualizarán los elegibles según el estado de
-                                cada uno (analista o nómina).
-                            </div>
                         ) : (
                             <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-400">
-                                La observación quedará registrada en el historial de cada consultor procesado.
+                                Solo se actualizarán los consultores pendientes de la etapa seleccionada. Los que ya
+                                avanzaron a otra etapa no se modificarán.
                             </div>
                         )}
+
+                        {showEtapaSelector ? (
+                            <div className="flex flex-col gap-2">
+                                <span className={`text-xs font-bold ${dash.titleLg}`}>Etapa de la acción masiva</span>
+                                <div className="flex flex-wrap gap-2">
+                                    {etapaOptions.map((opt) => {
+                                        const selected = etapaObjetivo === opt.etapaObjetivo;
+                                        return (
+                                            <button
+                                                key={opt.etapaObjetivo}
+                                                type="button"
+                                                onClick={() => {
+                                                    setEtapaObjetivo(opt.etapaObjetivo);
+                                                    if (opt.etapaObjetivo === 'ANALISTA') setAccion('aprobar');
+                                                }}
+                                                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                                                    selected
+                                                        ? `${dash.btnPrimaryCinte}`
+                                                        : isLight
+                                                          ? 'border-slate-200 text-slate-700'
+                                                          : 'border-slate-600/50 text-slate-300'
+                                                }`}
+                                            >
+                                                {opt.aprobarLabel} ({opt.eligibleCount})
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ) : null}
 
                         {hasActiveFilters ? (
                             <label className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700/50 bg-slate-800/40'}`}>
@@ -156,22 +225,22 @@ export default function ConciliacionesAccionMasivaModal({
                             </label>
                         ) : null}
 
-                        <div className="flex flex-wrap gap-2">
-                            <button
-                                type="button"
-                                onClick={() => setAccion('aprobar')}
-                                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
-                                    esAprobar
-                                        ? `${dash.btnPrimaryCinte}`
-                                        : isLight
-                                          ? 'border-slate-200 text-slate-700'
-                                          : 'border-slate-600/50 text-slate-300'
-                                }`}
-                            >
-                                <CheckCircle2 size={16} aria-hidden />
-                                {aprobarDefaults.aprobarLabel}
-                            </button>
-                            {rechazarDefaults.eligibleCount > 0 ? (
+                        {showAccionToggles ? (
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setAccion('aprobar')}
+                                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition ${
+                                        esAprobar
+                                            ? `${dash.btnPrimaryCinte}`
+                                            : isLight
+                                              ? 'border-slate-200 text-slate-700'
+                                              : 'border-slate-600/50 text-slate-300'
+                                    }`}
+                                >
+                                    <CheckCircle2 size={16} aria-hidden />
+                                    {aprobarDefaults.aprobarLabel}
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => setAccion('rechazar')}
@@ -186,8 +255,8 @@ export default function ConciliacionesAccionMasivaModal({
                                     <XCircle size={16} aria-hidden />
                                     {rechazarDefaults.rechazarLabel || 'Rechazar cierres'}
                                 </button>
-                            ) : null}
-                        </div>
+                            </div>
+                        ) : null}
 
                         <div className="flex flex-col gap-1.5">
                             <label htmlFor="masiva-observaciones" className={`text-xs font-bold ${dash.titleLg}`}>
@@ -215,7 +284,7 @@ export default function ConciliacionesAccionMasivaModal({
                             disabled={saving || targetCount === 0 || !masivaDefaults.etapa}
                             className={`${dash.btnPrimaryCinte} inline-flex items-center gap-1.5 disabled:opacity-50`}
                         >
-                            {saving ? 'Procesando…' : `Aplicar a ${targetCount}`}
+                            {submitLabel}
                         </button>
                     </div>
                 </form>

@@ -335,3 +335,128 @@ describe('createFichaNovedadesService.listNovedades scope', () => {
         assert.ok(sqlLog.some((q) => q.sql.includes("status IN ('pendiente', 'sin_match')")));
     });
 });
+
+const NOVEDAD_EDIT_ID = '00000000-0000-4000-8000-000000000010';
+const EDIT_CEDULA = '1024598286';
+
+function createUpdateNovedadMockPool(rowOverrides = {}) {
+    let storedRow = {
+        id: NOVEDAD_EDIT_ID,
+        status: 'pendiente',
+        tipo_novedad: 'salida',
+        colaborador_cedula_match: EDIT_CEDULA,
+        payload_normalizado: { fecha_termino: '2026-06-12' },
+        diff_json: [{ field: 'fecha_termino', before: null, after: '2026-06-12' }],
+        ...rowOverrides
+    };
+
+    const pool = {
+        query: async (sql, params) => {
+            if (sql.includes('SELECT * FROM ficha_novedades_staging WHERE id')) {
+                return { rows: [{ ...storedRow }] };
+            }
+            if (sql.includes('SELECT * FROM colaboradores WHERE cedula')) {
+                return {
+                    rows: [
+                        {
+                            cedula: EDIT_CEDULA,
+                            nombre: 'TEST USER',
+                            fecha_termino: null,
+                            activo: true
+                        }
+                    ]
+                };
+            }
+            if (sql.includes('UPDATE ficha_novedades_staging') && sql.includes('payload_normalizado')) {
+                storedRow = {
+                    ...storedRow,
+                    payload_normalizado: JSON.parse(params[1]),
+                    diff_json: JSON.parse(params[2]),
+                    reviewed_by: params[3]
+                };
+                return { rows: [] };
+            }
+            if (sql.includes("status = 'aplicado'")) {
+                storedRow = { ...storedRow, status: 'aplicado' };
+                return { rows: [] };
+            }
+            return { rows: [] };
+        }
+    };
+
+    return {
+        pool,
+        getStored: () => storedRow
+    };
+}
+
+describe('createFichaNovedadesService.updateNovedadPayload', () => {
+    it('merge + recalcula diff en pendiente', async () => {
+        const { pool, getStored } = createUpdateNovedadMockPool();
+        const svc = createFichaNovedadesService({ pool });
+        const updated = await svc.updateNovedadPayload(
+            NOVEDAD_EDIT_ID,
+            { fecha_termino: '2026-07-01' },
+            { email: 'ch@test.com' }
+        );
+
+        assert.equal(updated.payload_normalizado.fecha_termino, '2026-07-01');
+        assert.ok(Array.isArray(updated.diff_json));
+        assert.equal(updated.diff_json[0].after, '2026-07-01');
+        assert.equal(getStored().reviewed_by, 'ch@test.com');
+    });
+
+    it('rechaza campo fuera de whitelist para salida', async () => {
+        const { pool } = createUpdateNovedadMockPool({
+            diff_json: [{ field: 'nombre', before: 'A', after: 'B' }],
+            payload_normalizado: { nombre: 'B', fecha_termino: '2026-06-12' }
+        });
+        const svc = createFichaNovedadesService({ pool });
+        await assert.rejects(
+            () => svc.updateNovedadPayload(NOVEDAD_EDIT_ID, { nombre: 'C' }),
+            (err) => err.status === 400 && /no permitido/i.test(err.message)
+        );
+    });
+
+    it('rechaza campo que no está en diff_json', async () => {
+        const { pool } = createUpdateNovedadMockPool();
+        const svc = createFichaNovedadesService({ pool });
+        await assert.rejects(
+            () => svc.updateNovedadPayload(NOVEDAD_EDIT_ID, { cliente: 'X' }),
+            (err) => err.status === 400 && /no editable/i.test(err.message)
+        );
+    });
+
+    it('409 si estado no es pendiente', async () => {
+        const { pool } = createUpdateNovedadMockPool({ status: 'aplicado' });
+        const svc = createFichaNovedadesService({ pool });
+        await assert.rejects(
+            () => svc.updateNovedadPayload(NOVEDAD_EDIT_ID, { fecha_termino: '2026-07-01' }),
+            (err) => err.status === 409
+        );
+    });
+});
+
+describe('createFichaNovedadesService.approveNovedad tras edición', () => {
+    it('aplica payload editado en colaborador', async () => {
+        const { pool } = createUpdateNovedadMockPool();
+        let appliedPatch = null;
+        const svc = createFichaNovedadesService({
+            pool,
+            updateColaboradorByCedula: async (cedula, patch) => {
+                appliedPatch = { cedula, patch };
+                return { cedula };
+            }
+        });
+
+        await svc.updateNovedadPayload(NOVEDAD_EDIT_ID, { fecha_termino: '2026-08-15' });
+        const result = await svc.approveNovedad(NOVEDAD_EDIT_ID, { email: 'reviewer@test.com' });
+
+        assert.equal(result.ok, true);
+        assert.equal(result.status, 'aplicado');
+        assert.deepEqual(appliedPatch, {
+            cedula: EDIT_CEDULA,
+            patch: { fecha_termino: '2026-08-15' }
+        });
+    });
+});

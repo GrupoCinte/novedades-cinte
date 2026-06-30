@@ -647,6 +647,9 @@ const {
     upsertMallaNocturnoConfig,
     ensureConciliacionesFacturacionTable,
     ensureConciliacionesFacturacionHistorialTable,
+    ensureConciliacionesServicioNotificacionesTable,
+    ensureConciliacionesServicioCierreTable,
+    ensureConciliacionesNovedadConsumoTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     getColaboradorByCedula,
@@ -682,6 +685,7 @@ const {
     upsertConciliacionFacturacionForScope,
     applyConciliacionFacturacionRevisionForScope,
     applyConciliacionFacturacionRevisionMasivaForScope,
+    applyConciliacionFacturacionAjustesForScope,
     listConciliacionFacturacionHistorialForScope,
     upsertConciliacionFacturacionMasivaForScope,
     deleteConciliacionFacturacionForScope,
@@ -692,7 +696,11 @@ const {
     updateServicioForScope,
     deleteServicioForScope,
     listServicioConsultoresForScope,
-    upsertServicioConsultoresForScope
+    upsertServicioConsultoresForScope,
+    listDashboardLiderClienteRowsForScope,
+    exportConciliacionServicioExcelForScope,
+    markConciliacionServicioEnviadaForScope,
+    markConciliacionServicioConciliadaForScope
 } = createDataLayer({
     pool,
     fs,
@@ -701,7 +709,9 @@ const {
     normalizeCatalogValue,
     normalizeCedula,
     canRoleViewType,
-    getAreaFromRole
+    getAreaFromRole,
+    emailNotificationsPublisher,
+    frontendUrl: FRONTEND_URL
 });
 
 const { registerRoutes } = require('./src/registerRoutes');
@@ -845,6 +855,7 @@ if (conciliacionesModuleEnabled) {
         upsertConciliacionFacturacionForScope,
         applyConciliacionFacturacionRevisionForScope,
         applyConciliacionFacturacionRevisionMasivaForScope,
+        applyConciliacionFacturacionAjustesForScope,
         listConciliacionFacturacionHistorialForScope,
         upsertConciliacionFacturacionMasivaForScope,
         deleteConciliacionFacturacionForScope,
@@ -855,7 +866,11 @@ if (conciliacionesModuleEnabled) {
         updateServicioForScope,
         deleteServicioForScope,
         listServicioConsultoresForScope,
-        upsertServicioConsultoresForScope
+        upsertServicioConsultoresForScope,
+        listDashboardLiderClienteRowsForScope,
+        exportConciliacionServicioExcelForScope,
+        markConciliacionServicioEnviadaForScope,
+        markConciliacionServicioConciliadaForScope
     });
 }
 
@@ -940,6 +955,9 @@ startServer({
     ensureNovedadesMallaOrigenRefColumn,
     ensureConciliacionesFacturacionTable,
     ensureConciliacionesFacturacionHistorialTable,
+    ensureConciliacionesServicioNotificacionesTable,
+    ensureConciliacionesServicioCierreTable,
+    ensureConciliacionesNovedadConsumoTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     PORT,

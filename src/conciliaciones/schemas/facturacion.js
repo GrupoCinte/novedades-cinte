@@ -30,7 +30,8 @@ const upsertFacturacionMasivaSchema = z.object({
 const deleteFacturacionSchema = z.object({
     cedula: z.string({ required_error: 'La cédula es requerida' }).min(1, 'La cédula no puede estar vacía'),
     anio: z.coerce.number({ required_error: 'El año es requerido' }).int().min(2000, 'El año debe ser mayor o igual a 2000').max(2100, 'El año debe ser menor o igual a 2100'),
-    mes: z.coerce.number({ required_error: 'El mes es requerido' }).int().min(1, 'El mes debe estar entre 1 y 12').max(12, 'El mes debe estar entre 1 y 12')
+    mes: z.coerce.number({ required_error: 'El mes es requerido' }).int().min(1, 'El mes debe estar entre 1 y 12').max(12, 'El mes debe estar entre 1 y 12'),
+    observacion: z.string({ required_error: 'La observación es obligatoria' }).min(1, 'La observación es obligatoria').max(1000)
 });
 
 const facturacionRevisionSchema = z.object({
@@ -47,7 +48,9 @@ const facturacionRevisionMasivaSchema = z.object({
     mes: z.coerce.number({ required_error: 'El mes es requerido' }).int().min(1).max(12),
     accion: z.enum(['aprobar', 'rechazar'], { required_error: 'La acción es requerida' }),
     observacion: z.string({ required_error: 'La observación es obligatoria' }).min(1, 'La observación es obligatoria').max(1000),
-    cedulas: z.array(z.string().min(1, 'Cédula vacía')).optional()
+    etapaObjetivo: z.enum(['ANALISTA', 'NOMINA'], { required_error: 'La etapa objetivo es requerida' }),
+    cedulas: z.array(z.string().min(1, 'Cédula vacía')).min(1, 'Debe indicar al menos una cédula'),
+    servicioId: z.string().trim().optional()
 });
 
 const facturacionHistorialQuerySchema = z.object({
@@ -56,11 +59,29 @@ const facturacionHistorialQuerySchema = z.object({
     mes: z.coerce.number().int().min(1).max(12)
 });
 
+const montoNovedadAjusteSchema = z.object({
+    novedadId: z.string({ required_error: 'novedadId requerido' }).uuid('novedadId debe ser UUID'),
+    montoCop: z.coerce.number().int().min(0).nullable()
+});
+
+const facturacionAjustesSchema = z.object({
+    cedula: z.string({ required_error: 'La cédula es requerida' }).min(1),
+    anio: z.coerce.number({ required_error: 'El año es requerido' }).int().min(2000).max(2100),
+    mes: z.coerce.number({ required_error: 'El mes es requerido' }).int().min(1).max(12),
+    observacion: z.string({ required_error: 'La observación es obligatoria' }).min(1).max(1000),
+    tarifaOverride: z.coerce.number().int().min(0).nullable().optional(),
+    montosNovedad: z.array(montoNovedadAjusteSchema).optional(),
+    billingType: z.string().trim().optional(),
+    billingMode: z.string().trim().optional(),
+    baseHours: z.coerce.number().positive().optional()
+});
+
 module.exports = {
     upsertFacturacionSchema,
     upsertFacturacionMasivaSchema,
     deleteFacturacionSchema,
     facturacionRevisionSchema,
     facturacionRevisionMasivaSchema,
-    facturacionHistorialQuerySchema
+    facturacionHistorialQuerySchema,
+    facturacionAjustesSchema
 };

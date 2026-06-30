@@ -1,6 +1,10 @@
 import { Clock, ArrowRight, AlertCircle } from 'lucide-react';
-import { COLA_ESTADO_LABELS, colaCierreProgress } from '../facturacionAggregate.js';
+import { colaCierreProgress } from '../facturacionAggregate.js';
+import { resolveTarjetaCierreBadge } from '../facturacionLogic.js';
 import ConciliacionesFacturacionEstadosResumen from './ConciliacionesFacturacionEstadosResumen.jsx';
+import ConciliacionesServicioCierreEstados, {
+    ConciliacionesServicioCierreAcciones
+} from './ConciliacionesServicioCierreEstados.jsx';
 import { CINTE_BTN_PRIMARY, CINTE_PROGRESS_FILL, CINTE_CHIP_BLUE } from '../conciliacionesLayout.js';
 
 function formatCop(n) {
@@ -13,20 +17,32 @@ const COLA_CHIP = {
     EN_REVISION: CINTE_CHIP_BLUE,
     CONCILIADA: 'text-emerald-500 border-emerald-500/30 bg-emerald-500/10',
     DEVUELTA: 'text-red-500 border-red-500/30 bg-red-500/10',
-    SIN_CONSULTORES: 'text-slate-500 border-slate-500/30 bg-slate-500/10'
+    SIN_CONSULTORES: 'text-slate-500 border-slate-500/30 bg-slate-500/10',
+    SERVICIO_LISTO_EXPORT: 'text-violet-500 border-violet-500/30 bg-violet-500/10',
+    SERVICIO_ENVIADA: 'text-[#2F7BB8] border-[#2F7BB8]/30 bg-[#2F7BB8]/10',
+    SERVICIO_CONCILIADA: 'text-emerald-500 border-emerald-500/30 bg-emerald-500/10'
 };
 
 export default function ConciliacionesColaCierresCard({
     item,
     onAbrirCierre,
+    onExportExcel,
+    onMarcarConciliada,
+    exportandoId = '',
+    conciliandoId = '',
+    userRole = '',
+    year,
+    month,
     headingAccent,
     labelMuted,
     isLight
 }) {
     const progress = colaCierreProgress(item);
     const disabled = item.estadoCola === 'SIN_CONSULTORES';
+    const servicioConciliada = String(item.estadoServicio || '').toUpperCase() === 'CONCILIADA';
     const estados = item.estados || {};
     const totales = item.totales || {};
+    const tarjetaBadge = resolveTarjetaCierreBadge(item);
 
     const cardBorder = isLight
         ? 'border-slate-200 bg-white hover:border-[#2F7BB8]/35 hover:shadow-md'
@@ -42,9 +58,9 @@ export default function ConciliacionesColaCierresCard({
                     <h3 className={`mt-0.5 truncate font-heading text-base font-bold ${headingAccent}`}>{item.serviceName}</h3>
                 </div>
                 <span
-                    className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${COLA_CHIP[item.estadoCola] || COLA_CHIP.PENDIENTE}`}
+                    className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${COLA_CHIP[tarjetaBadge.chipKey] || COLA_CHIP.PENDIENTE}`}
                 >
-                    {COLA_ESTADO_LABELS[item.estadoCola] || item.estadoCola}
+                    {tarjetaBadge.label}
                 </span>
             </div>
 
@@ -85,6 +101,31 @@ export default function ConciliacionesColaCierresCard({
                 />
             </div>
 
+            <div className="mb-3 space-y-1">
+                <p className={`text-[10px] font-bold uppercase tracking-wider ${labelMuted}`}>Estado servicio</p>
+                <ConciliacionesServicioCierreEstados
+                    estadoServicio={item.estadoServicio}
+                    servicioCompletoFinanzas={
+                        item.estadoCola === 'CONCILIADA' ||
+                        ['LISTO_EXPORT', 'ENVIADA', 'CONCILIADA'].includes(String(item.estadoServicio || '').toUpperCase())
+                    }
+                    isLight={isLight}
+                    compact
+                />
+            </div>
+
+            <ConciliacionesServicioCierreAcciones
+                item={item}
+                year={year}
+                month={month}
+                userRole={userRole}
+                isLight={isLight}
+                exportando={exportandoId === item.servicioId}
+                conciliando={conciliandoId === item.servicioId}
+                onExportExcel={onExportExcel}
+                onMarcarConciliada={onMarcarConciliada}
+            />
+
             <div className={`mb-4 grid grid-cols-3 gap-2 rounded-lg border p-2 text-center text-xs ${isLight ? 'border-slate-100 bg-slate-50/80' : 'border-slate-700/40 bg-slate-900/30'}`}>
                 <div>
                     <p className={`text-[10px] font-bold uppercase tracking-wider ${labelMuted}`}>Tarifa</p>
@@ -109,11 +150,11 @@ export default function ConciliacionesColaCierresCard({
 
             <button
                 type="button"
-                disabled={disabled}
+                disabled={disabled || servicioConciliada}
                 onClick={() => onAbrirCierre(item)}
                 className={`${CINTE_BTN_PRIMARY} mt-auto w-full`}
             >
-                Abrir conciliación
+                {servicioConciliada ? 'Conciliada (solo lectura)' : 'Abrir conciliación'}
                 <ArrowRight size={16} aria-hidden />
             </button>
         </article>

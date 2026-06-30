@@ -1,6 +1,17 @@
 import { useMemo } from 'react';
 import { buildGestionTableDash } from '../../gestionTableDashTheme.js';
-import { getNovedadImpactoFacturacion, computeFacturaLedgerTotal } from '../facturacionLogic.js';
+import {
+    getNovedadImpactoFacturacion,
+    computeFacturaLedgerTotal,
+    resolveHorasBaseMes,
+    computeValorHoraCop,
+    computeMontoNovedadPreview,
+    isNovedadCalculadaValorHora,
+    showHorasDesgloseColumn,
+    formatValorDesgloseCell,
+    computeAdvanceDisplayTotals,
+    formatSaldoAnticipoLabel
+} from '../facturacionLogic.js';
 
 function formatCop(n) {
     const x = Number(n) || 0;
@@ -30,6 +41,57 @@ function formatCantidadImpacto(row) {
     return null;
 }
 
+function origenLabel(row) {
+    if (row.montoAjustado) return 'ajustado';
+    if (row.montoOrigen === 'calculado' || row.montoCalculado) return 'calculado';
+    if (row.montoOrigen === 'novedad') return 'desde novedad';
+    return null;
+}
+
+function recalcMontoPreview(row, tarifa, horasBaseMes, valorHora, hoursMode) {
+    return computeMontoNovedadPreview(row, { tarifa, horasBaseMes, valorHora, hoursMode });
+}
+
+function resolveValorHoraNovedad(row, id, { draftValorHorasNovedad, displayValorHora }) {
+    if (!isNovedadCalculadaValorHora(row)) return null;
+    const draft = draftValorHorasNovedad?.[id];
+    if (draft != null && draft !== '') return Number(draft) || 0;
+    if (row.valorHora != null && Number(row.valorHora) > 0) return Number(row.valorHora);
+    return displayValorHora;
+}
+
+function enrichItemValorHora(row, valorHoraTarifa, horasBase, hoursMode) {
+    if (!hoursMode || !isNovedadCalculadaValorHora(row)) return row;
+    const vh = row.valorHora != null && Number(row.valorHora) > 0 ? Number(row.valorHora) : valorHoraTarifa;
+    return { ...row, valorHora: vh };
+}
+
+function ValorHoraCell({ valor, dash, tdClass, inputCls, editable, onChange, ariaLabel }) {
+    if (editable && onChange) {
+        return (
+            <td className={`${tdClass} tabular-nums text-right`}>
+                <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    className={inputCls}
+                    value={valor ?? ''}
+                    onChange={(e) => onChange(e.target.value)}
+                    aria-label={ariaLabel || 'Valor hora'}
+                />
+            </td>
+        );
+    }
+    if (valor == null || !Number.isFinite(Number(valor)) || Number(valor) <= 0) {
+        return <td className={`${tdClass} ${dash.tdMuted}`}>—</td>;
+    }
+    return (
+        <td className={`${tdClass} tabular-nums text-right text-sm font-medium ${dash.tdLead}`}>
+            {formatCop(valor)}
+        </td>
+    );
+}
+
 /** Tabla de novedades aprobadas (reutilizable embebida en revisión). */
 export default function ConciliacionesNovedadesAprobadasPanel({
     items,
@@ -37,17 +99,225 @@ export default function ConciliacionesNovedadesAprobadasPanel({
     isLight,
     embedded = false,
     tarifaCliente = null,
-    facturaCop = null
+    tarifaMaestro = null,
+    tarifaAjustada = false,
+    facturaCop = null,
+    billingAdvanceMode = false,
+    ajusteAnticipoMesLabel = null,
+    saldoAnticipoTipo = null,
+    ajusteAnticipoSumCop = 0,
+    ajusteAnticipoSumaCop = 0,
+    billingMode = null,
+    baseHours = null,
+    horasBaseMes = null,
+    tarifaValorHora = null,
+    editMode = false,
+    draftTarifa = null,
+    draftValorHora = null,
+    draftValorHorasNovedad = {},
+    draftMontos = {},
+    onTarifaChange = null,
+    onValorHoraChange = null,
+    onValorHoraNovedadChange = null,
+    onMontoChange = null
 }) {
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const ledgerMode = tarifaCliente != null;
+
+    const showHorasCol = showHorasDesgloseColumn({ billingMode, baseHours, horasBaseMes });
+    const horasBase = resolveHorasBaseMes({ billingMode, baseHours, horasBaseMes });
+    const editTarifaViaValorHora = showHorasCol && editMode && onValorHoraChange;
+
+    const displayTarifa = editMode && draftTarifa != null ? Number(draftTarifa) : Number(tarifaCliente) || 0;
+    const displayValorHora = useMemo(() => {
+        if (editMode && draftValorHora != null && draftValorHora !== '') {
+            return Number(draftValorHora);
+        }
+        if (tarifaValorHora != null && !editMode) return Number(tarifaValorHora);
+        return computeValorHoraCop(displayTarifa, horasBase);
+    }, [tarifaValorHora, displayTarifa, horasBase, editMode, draftValorHora]);
+
+    const displayItems = useMemo(() => {
+        const baseList = items || [];
+        if (!editMode) {
+            if (!showHorasCol) return baseList;
+            return baseList.map((row) =>
+                enrichItemValorHora(row, displayValorHora, horasBase, true)
+            );
+        }
+        return baseList.map((row) => {
+            const id = String(row.id || '');
+            const valorHoraRow = resolveValorHoraNovedad(row, id, {
+                draftValorHorasNovedad,
+                displayValorHora
+            });
+            const usesValorHora = showHorasCol && isNovedadCalculadaValorHora(row);
+            if (id && draftMontos[id] != null && draftMontos[id] !== '' && !usesValorHora) {
+                return { ...row, montoCop: Number(draftMontos[id]) };
+            }
+            const recalc = recalcMontoPreview(
+                row,
+                displayTarifa,
+                horasBase,
+                valorHoraRow,
+                showHorasCol
+            );
+            if (recalc !== row.montoCop || valorHoraRow != null) {
+                return { ...row, montoCop: recalc, valorHora: valorHoraRow ?? row.valorHora };
+            }
+            return row;
+        });
+    }, [
+        items,
+        editMode,
+        draftMontos,
+        draftValorHorasNovedad,
+        displayTarifa,
+        displayValorHora,
+        horasBase,
+        showHorasCol
+    ]);
+
     const ledgerTotal = useMemo(() => {
         if (!ledgerMode) return null;
-        return computeFacturaLedgerTotal(tarifaCliente, items, facturaCop);
-    }, [ledgerMode, tarifaCliente, facturaCop, items]);
+        return computeFacturaLedgerTotal(displayTarifa, displayItems, facturaCop, { billingAdvanceMode });
+    }, [ledgerMode, displayTarifa, displayItems, facturaCop, billingAdvanceMode]);
 
+    const advanceTotals = useMemo(
+        () =>
+            computeAdvanceDisplayTotals({
+                billingAdvanceMode,
+                ajusteAnticipoSumCop,
+                ajusteAnticipoSumaCop,
+                saldoAnticipoTipo,
+                ajusteAnticipoMesLabel
+            }),
+        [
+            billingAdvanceMode,
+            ajusteAnticipoSumCop,
+            ajusteAnticipoSumaCop,
+            saldoAnticipoTipo,
+            ajusteAnticipoMesLabel
+        ]
+    );
+
+    const { currentItems, adjustmentItems } = useMemo(() => {
+        if (!billingAdvanceMode) {
+            return { currentItems: displayItems || [], adjustmentItems: [] };
+        }
+        const current = [];
+        const adjustment = [];
+        for (const row of displayItems || []) {
+            if (row.scope === 'ajuste_anticipo') adjustment.push(row);
+            else current.push(row);
+        }
+        return { currentItems: current, adjustmentItems: adjustment };
+    }, [displayItems, billingAdvanceMode]);
+
+    const renderNovedadRow = (row) => {
+        const impacto = getNovedadImpactoFacturacion(row.tipoNovedad, row);
+        const id = String(row.id || '');
+        const usesValorHoraCalculo = showHorasCol && isNovedadCalculadaValorHora(row);
+        const valorHoraRow = resolveValorHoraNovedad(row, id, {
+            draftValorHorasNovedad,
+            displayValorHora
+        });
+        const montoDisplay =
+            editMode && !usesValorHoraCalculo && draftMontos[id] != null
+                ? Number(draftMontos[id])
+                : row.montoCop != null
+                  ? Number(row.montoCop)
+                  : null;
+        const cantidadLabel = formatCantidadImpacto(row);
+        const origen = origenLabel(row);
+        const montoLabel =
+            montoDisplay != null && Number.isFinite(montoDisplay) && montoDisplay !== 0
+                ? `${impacto === 'suma' ? '+' : '−'} ${formatCop(Math.abs(montoDisplay))}`
+                : '—';
+        const valorHoraCell = showHorasCol
+            ? formatValorDesgloseCell({
+                  medida: row.medida,
+                  valorHora: valorHoraRow ?? row.valorHora ?? displayValorHora,
+                  tarifaValorHora: displayValorHora
+              })
+            : null;
+        const editValorHoraNovedad = editMode && usesValorHoraCalculo && onValorHoraNovedadChange;
+        const infoOnly = billingAdvanceMode && row.scope === 'periodo_actual';
+
+        return (
+            <tr key={row.id} className={dash.trHover}>
+                <td className="p-1.5">
+                    <div
+                        className={`rounded-md border-l-4 px-2.5 py-2 ${impactRowClasses(impacto, isLight)}`}
+                    >
+                        <span className={`text-sm font-medium ${dash.tdLead}`}>{row.tipoNovedad}</span>
+                        {(cantidadLabel || origen || infoOnly) ? (
+                            <span className={`mt-0.5 block text-[10px] ${dash.modalMuted}`}>
+                                {[cantidadLabel, origen, infoOnly ? 'liquidación mes siguiente' : null]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                            </span>
+                        ) : null}
+                    </div>
+                </td>
+                <td className={`${dash.tdMuted} align-middle text-xs`}>
+                    {row.fechaInicio || row.fecha || '—'}
+                    {row.fechaFin && row.fechaFin !== row.fechaInicio ? ` → ${row.fechaFin}` : ''}
+                </td>
+                <td className={`${dash.tdCell} align-middle text-xs`}>
+                    {row.aprobador || 'Aprobador CINTE'}
+                </td>
+                {showHorasCol ? (
+                    <ValorHoraCell
+                        valor={valorHoraCell}
+                        dash={dash}
+                        tdClass={tdValorHora}
+                        inputCls={inputCls}
+                        editable={editValorHoraNovedad}
+                        onChange={(val) => onValorHoraNovedadChange(id, val)}
+                        ariaLabel={`Valor hora ${row.tipoNovedad}`}
+                    />
+                ) : null}
+                <td
+                    className={`${tdMonto} align-middle ${
+                        infoOnly ? dash.tdMuted : impactMontoClasses(impacto)
+                    }`}
+                >
+                    {editMode && onMontoChange && !usesValorHoraCalculo && !infoOnly ? (
+                        <input
+                            type="number"
+                            min="0"
+                            step="1"
+                            className={inputCls}
+                            value={montoDisplay ?? ''}
+                            onChange={(e) => onMontoChange(id, e.target.value)}
+                            aria-label={`Monto ${row.tipoNovedad}`}
+                        />
+                    ) : infoOnly ? (
+                        <span className="text-xs">{montoLabel} (info)</span>
+                    ) : (
+                        montoLabel
+                    )}
+                </td>
+            </tr>
+        );
+    };
+
+    const thValorHora = 'px-3 py-2 text-right font-heading text-[10px] font-bold uppercase tracking-wide w-[7.5rem] min-w-[7.5rem]';
+    const tdValorHora = `${dash.tdCell} align-middle w-[7.5rem] min-w-[7.5rem]`;
     const thMonto = 'px-3 py-2 text-right font-heading text-[10px] font-bold uppercase tracking-wide w-[9.5rem] min-w-[9.5rem]';
     const tdMonto = `${dash.tdCell} tabular-nums text-right font-semibold w-[9.5rem] min-w-[9.5rem]`;
+    const inputCls = isLight
+        ? 'w-full max-w-[8.5rem] rounded border border-slate-300 bg-white px-2 py-1 text-right text-sm tabular-nums'
+        : 'w-full max-w-[8.5rem] rounded border border-slate-600 bg-slate-900 px-2 py-1 text-right text-sm tabular-nums text-slate-100';
+
+    const colSpanEmpty = showHorasCol ? 5 : 4;
+    const tableMinW = showHorasCol ? 'min-w-[780px]' : 'min-w-[640px]';
+
+    const tarifaValorHoraCell = formatValorDesgloseCell({
+        medida: 'tarifa',
+        tarifaValorHora: displayValorHora
+    });
 
     return (
         <div className={embedded ? 'space-y-2' : 'space-y-3'}>
@@ -61,7 +331,7 @@ export default function ConciliacionesNovedadesAprobadasPanel({
             ) : (
                 <div className={`${dash.card} min-h-0 overflow-hidden`}>
                     <div className={`${dash.tableWrap} max-h-[min(44vh,18rem)] overflow-auto`}>
-                        <table className="w-full min-w-[640px] text-left text-sm">
+                        <table className={`w-full ${tableMinW} text-left text-sm`}>
                             <thead className={dash.thead}>
                                 <tr>
                                     <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">
@@ -73,60 +343,107 @@ export default function ConciliacionesNovedadesAprobadasPanel({
                                     <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">
                                         Aprobador
                                     </th>
-                                    <th className={thMonto}>Monto</th>
+                                    {showHorasCol ? (
+                                        <th className={thValorHora}>Valor hora</th>
+                                    ) : null}
+                                    <th className={thMonto}>{ledgerMode ? 'Monto (mes)' : 'Monto'}</th>
                                 </tr>
                             </thead>
                             <tbody className={dash.tbody}>
                                 {ledgerMode ? (
                                     <tr className={isLight ? 'bg-slate-50/90' : 'bg-slate-800/40'}>
-                                        <td className={`${dash.tdCell} font-semibold`}>Tarifa Cliente</td>
+                                        <td className={`${dash.tdCell} font-semibold`}>
+                                            Tarifa Cliente
+                                            {tarifaAjustada && !editMode ? (
+                                                <span className={`mt-0.5 block text-[10px] font-normal ${dash.modalMuted}`}>
+                                                    ajustado · maestro {formatCop(tarifaMaestro)}
+                                                </span>
+                                            ) : null}
+                                        </td>
                                         <td className={dash.tdMuted}>—</td>
                                         <td className={dash.tdMuted}>—</td>
-                                        <td className={`${tdMonto} ${dash.titleLg}`}>{formatCop(tarifaCliente)}</td>
+                                        {showHorasCol ? (
+                                            <ValorHoraCell
+                                                valor={tarifaValorHoraCell ?? displayValorHora}
+                                                dash={dash}
+                                                tdClass={tdValorHora}
+                                                inputCls={inputCls}
+                                                editable={editTarifaViaValorHora}
+                                                onChange={onValorHoraChange}
+                                                ariaLabel="Valor hora tarifa cliente"
+                                            />
+                                        ) : null}
+                                        <td className={`${tdMonto} ${dash.titleLg}`}>
+                                            {editMode && onTarifaChange && !editTarifaViaValorHora ? (
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    step="1"
+                                                    className={inputCls}
+                                                    value={displayTarifa}
+                                                    onChange={(e) => onTarifaChange(e.target.value)}
+                                                    aria-label="Tarifa cliente"
+                                                />
+                                            ) : (
+                                                formatCop(displayTarifa)
+                                            )}
+                                        </td>
                                     </tr>
                                 ) : null}
 
-                                {(items || []).map((row) => {
-                                    const impacto = getNovedadImpactoFacturacion(row.tipoNovedad, row);
-                                    const monto = row.montoCop != null ? Number(row.montoCop) : null;
-                                    const cantidadLabel = formatCantidadImpacto(row);
-                                    const montoLabel =
-                                        monto != null && Number.isFinite(monto) && monto !== 0
-                                            ? `${impacto === 'suma' ? '+' : '−'} ${formatCop(Math.abs(monto))}`
-                                            : '—';
-
-                                    return (
-                                        <tr key={row.id} className={dash.trHover}>
-                                            <td className="p-1.5">
-                                                <div
-                                                    className={`rounded-md border-l-4 px-2.5 py-2 ${impactRowClasses(impacto, isLight)}`}
-                                                >
-                                                    <span className={`text-sm font-medium ${dash.tdLead}`}>{row.tipoNovedad}</span>
-                                                    {cantidadLabel ? (
-                                                        <span className={`mt-0.5 block text-[10px] ${dash.modalMuted}`}>
-                                                            {cantidadLabel}
-                                                            {row.montoCalculado ? ' · calculado' : ''}
-                                                        </span>
-                                                    ) : null}
-                                                </div>
-                                            </td>
-                                            <td className={`${dash.tdMuted} align-middle text-xs`}>
-                                                {row.fechaInicio || row.fecha || '—'}
-                                                {row.fechaFin && row.fechaFin !== row.fechaInicio ? ` → ${row.fechaFin}` : ''}
-                                            </td>
-                                            <td className={`${dash.tdCell} align-middle text-xs`}>
-                                                {row.aprobador || 'Aprobador CINTE'}
-                                            </td>
-                                            <td className={`${tdMonto} align-middle ${impactMontoClasses(impacto)}`}>
-                                                {montoLabel}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
+                                {billingAdvanceMode ? (
+                                    <>
+                                        {adjustmentItems.length ? (
+                                            <>
+                                                <tr className={isLight ? 'bg-slate-50/90' : 'bg-slate-800/40'}>
+                                                    <td
+                                                        colSpan={colSpanEmpty}
+                                                        className={`px-3 py-2 text-xs font-semibold ${dash.titleLg}`}
+                                                    >
+                                                        Ajuste mes anticipado
+                                                        {advanceTotals.ajusteAnticipoMesLabel
+                                                            ? ` (${advanceTotals.ajusteAnticipoMesLabel})`
+                                                            : ''}
+                                                        {advanceTotals.saldoAnticipoTipo ? (
+                                                            <span
+                                                                className={`ml-2 font-bold uppercase ${
+                                                                    advanceTotals.saldoAnticipoTipo === 'favor'
+                                                                        ? 'text-emerald-600 dark:text-emerald-400'
+                                                                        : 'text-amber-600 dark:text-amber-400'
+                                                                }`}
+                                                            >
+                                                                {formatSaldoAnticipoLabel(
+                                                                    advanceTotals.saldoAnticipoTipo,
+                                                                    null
+                                                                )}
+                                                            </span>
+                                                        ) : null}
+                                                    </td>
+                                                </tr>
+                                                {adjustmentItems.map(renderNovedadRow)}
+                                            </>
+                                        ) : null}
+                                        {currentItems.length ? (
+                                            <>
+                                                <tr className={isLight ? 'bg-slate-50/90' : 'bg-slate-800/40'}>
+                                                    <td
+                                                        colSpan={colSpanEmpty}
+                                                        className={`px-3 py-2 text-xs font-semibold ${dash.titleLg}`}
+                                                    >
+                                                        Novedades del mes (liquidación mes siguiente)
+                                                    </td>
+                                                </tr>
+                                                {currentItems.map(renderNovedadRow)}
+                                            </>
+                                        ) : null}
+                                    </>
+                                ) : (
+                                    (displayItems || []).map(renderNovedadRow)
+                                )}
 
                                 {ledgerMode && !items?.length ? (
                                     <tr>
-                                        <td colSpan={4} className={`px-3 py-2 text-xs ${dash.modalMuted}`}>
+                                        <td colSpan={colSpanEmpty} className={`px-3 py-2 text-xs ${dash.modalMuted}`}>
                                             Sin novedades en el periodo.
                                         </td>
                                     </tr>
@@ -139,6 +456,7 @@ export default function ConciliacionesNovedadesAprobadasPanel({
                                         </td>
                                         <td className={dash.tdMuted}>—</td>
                                         <td className={dash.tdMuted}>—</td>
+                                        {showHorasCol ? <td className={`${tdValorHora} ${dash.tdMuted}`}>—</td> : null}
                                         <td className={`${tdMonto} text-base font-extrabold ${dash.titleLg}`}>
                                             {formatCop(ledgerTotal)}
                                         </td>

@@ -61,6 +61,7 @@ export function aggregateServicioCierre(rows, cedulas) {
     const filtered = set.size ? (Array.isArray(rows) ? rows : []).filter((r) => set.has(normalizeCedula(r.cedula))) : [];
 
     let tarifaSum = 0;
+    let incrementoSum = 0;
     let deduccionSum = 0;
     let facturaSum = 0;
     let consultoresConNovedad = 0;
@@ -68,6 +69,7 @@ export function aggregateServicioCierre(rows, cedulas) {
 
     for (const r of filtered) {
         tarifaSum += Number(r.tarifaCliente) || 0;
+        incrementoSum += Number(r.novedadesSumaCop) || 0;
         deduccionSum += Number(r.novedadesSumCop) || 0;
         facturaSum += Number(r.facturaCop) || 0;
         if ((r.novedadesCount || 0) > 0) consultoresConNovedad += 1;
@@ -82,7 +84,7 @@ export function aggregateServicioCierre(rows, cedulas) {
         consultoresCerrados,
         consultoresConNovedad,
         estados,
-        totales: { tarifaSum, deduccionSum, facturaSum }
+        totales: { tarifaSum, incrementoSum, deduccionSum, facturaSum }
     };
 }
 
@@ -136,11 +138,12 @@ export function aggregateDashboardFromColaItems(items) {
         if (!cl) continue;
         const cur = byClient.get(cl) || {
             cliente: cl,
-            totales: { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 },
+            totales: { tarifaSum: 0, incrementoSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 },
             serviciosCount: 0
         };
         const t = item.totales || {};
         cur.totales.tarifaSum += Number(t.tarifaSum) || 0;
+        cur.totales.incrementoSum += Number(t.incrementoSum) || 0;
         cur.totales.deduccionSum += Number(t.deduccionSum) || 0;
         cur.totales.facturaSum += Number(t.facturaSum) || 0;
         cur.totales.colaboradores += Number(item.consultoresTotal) || 0;
@@ -154,12 +157,13 @@ export function aggregateDashboardFromColaItems(items) {
     const globalTotales = rows.reduce(
         (acc, r) => ({
             tarifaSum: acc.tarifaSum + (Number(r.totales.tarifaSum) || 0),
+            incrementoSum: acc.incrementoSum + (Number(r.totales.incrementoSum) || 0),
             deduccionSum: acc.deduccionSum + (Number(r.totales.deduccionSum) || 0),
             facturaSum: acc.facturaSum + (Number(r.totales.facturaSum) || 0),
             colaboradores: acc.colaboradores + (Number(r.totales.colaboradores) || 0),
             conNovedad: acc.conNovedad + (Number(r.totales.conNovedad) || 0)
         }),
-        { tarifaSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 }
+        { tarifaSum: 0, incrementoSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0, conNovedad: 0 }
     );
     return {
         rows: rows.map(({ cliente, totales, serviciosCount }) => ({ cliente, totales, serviciosCount })),
@@ -388,4 +392,99 @@ export function buildClienteCierreHeatmapData(items, { maxClientes = 10, maxDay 
     });
 
     return { days, rows, maxValue };
+}
+
+const LIDER_CHART_COLORS = [
+    '#2F7BB8',
+    '#65BCF7',
+    '#10b981',
+    '#f59e0b',
+    '#8b5cf6',
+    '#ec4899',
+    '#64748b',
+    '#ef4444'
+];
+
+/**
+ * Barras apiladas: factura neta por cliente, segmentos por líder.
+ * @param {object[]} flatRows - { cliente, lider, facturaCop }
+ */
+export function buildLiderClienteStackedChartData(flatRows, { limitClientes = 10, limitLideres = 8 } = {}, shortLabelFn = null) {
+    const short =
+        shortLabelFn ||
+        ((label) => {
+            const s = String(label || '').trim();
+            if (s.length <= 14) return s;
+            return `${s.slice(0, 12)}…`;
+        });
+
+    /** @type {Map<string, Map<string, number>>} */
+    const byClientLider = new Map();
+    for (const r of Array.isArray(flatRows) ? flatRows : []) {
+        const cliente = String(r.cliente || '').trim();
+        const lider = String(r.lider || '').trim() || 'Sin líder';
+        const factura = Number(r.facturaCop) || 0;
+        if (!cliente) continue;
+        if (!byClientLider.has(cliente)) byClientLider.set(cliente, new Map());
+        const lm = byClientLider.get(cliente);
+        lm.set(lider, (lm.get(lider) || 0) + factura);
+    }
+
+    const clientTotals = [...byClientLider.entries()]
+        .map(([cliente, lm]) => ({
+            cliente,
+            total: [...lm.values()].reduce((a, b) => a + b, 0)
+        }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, limitClientes);
+
+    const liderTotals = new Map();
+    for (const { cliente } of clientTotals) {
+        for (const [lider, v] of byClientLider.get(cliente)) {
+            liderTotals.set(lider, (liderTotals.get(lider) || 0) + v);
+        }
+    }
+    const topLideres = [...liderTotals.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limitLideres)
+        .map(([l]) => l);
+
+    const seriesKeys = topLideres.length ? [...topLideres, 'Otros'] : ['Sin líder'];
+
+    return clientTotals.map(({ cliente }) => {
+        const lm = byClientLider.get(cliente) || new Map();
+        const row = {
+            cliente,
+            clienteShort: short(cliente),
+            total: [...lm.values()].reduce((a, b) => a + b, 0)
+        };
+        let otros = 0;
+        for (const [lider, v] of lm) {
+            if (topLideres.includes(lider)) {
+                row[lider] = v;
+            } else {
+                otros += v;
+            }
+        }
+        if (seriesKeys.includes('Otros') && otros > 0) row.Otros = otros;
+        for (const k of seriesKeys) {
+            if (row[k] == null) row[k] = 0;
+        }
+        return row;
+    });
+}
+
+export function liderClienteChartSeriesKeys(chartData) {
+    if (!Array.isArray(chartData) || !chartData.length) return [];
+    const keys = new Set();
+    for (const row of chartData) {
+        for (const k of Object.keys(row)) {
+            if (k !== 'cliente' && k !== 'clienteShort' && k !== 'total') keys.add(k);
+        }
+    }
+    return [...keys];
+}
+
+export function liderClienteChartColor(index) {
+    return LIDER_CHART_COLORS[index % LIDER_CHART_COLORS.length];
 }

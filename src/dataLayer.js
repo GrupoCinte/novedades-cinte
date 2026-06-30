@@ -15,6 +15,8 @@ const {
     isSundayBogotaYmd
 } = require('./heDomingoBogota');
 const conciliacionesQueries = require('./conciliaciones/conciliacionesQueries');
+const serviciosDynamoData = require('./conciliaciones/serviciosDynamoData');
+const festivosService = require('./festivosService');
 
 function createDataLayer(deps) {
     const {
@@ -25,7 +27,9 @@ function createDataLayer(deps) {
         normalizeCatalogValue,
         normalizeCedula,
         canRoleViewType,
-        getAreaFromRole
+        getAreaFromRole,
+        emailNotificationsPublisher = null,
+        frontendUrl = ''
     } = deps;
 
     async function ensureUserRoleEnumValues() {
@@ -677,6 +681,10 @@ function createDataLayer(deps) {
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS factura_fv VARCHAR(100) NULL`);
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS fecha_radicacion DATE NULL`);
             await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS motivo_devolucion TEXT NULL`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS tarifa_override NUMERIC(14,2) NULL`);
+            await pool.query(
+                `ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS montos_novedad_override JSONB NOT NULL DEFAULT '{}'`
+            );
 
             // Tablas de servicios (facturacion): crearlas antes de alterarlas para no romper el arranque
             await pool.query(`
@@ -742,9 +750,95 @@ function createDataLayer(deps) {
             await pool.query(
                 'CREATE INDEX IF NOT EXISTS idx_conc_fact_hist_colab_mes ON conciliaciones_facturacion_historial(cedula, anio, mes)'
             );
+            await pool.query(
+                `ALTER TABLE conciliaciones_facturacion_historial ADD COLUMN IF NOT EXISTS detalle JSONB NULL`
+            );
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Conciliaciones] Permisos insuficientes para crear conciliaciones_facturacion_historial.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesServicioNotificacionesTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_servicio_notificaciones (
+                    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    servicio_id TEXT NOT NULL,
+                    anio        INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+                    mes         INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+                    tipo        VARCHAR(50) NOT NULL DEFAULT 'SERVICIO_FINALIZADO',
+                    event_id    TEXT NOT NULL,
+                    sent_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_conc_serv_notif UNIQUE (servicio_id, anio, mes, tipo)
+                )
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para conciliaciones_servicio_notificaciones.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesServicioCierreTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_servicio_cierre (
+                    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    servicio_id             TEXT NOT NULL,
+                    anio                    INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+                    mes                     INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+                    estado_servicio         VARCHAR(30) NOT NULL DEFAULT 'EN_REVISION',
+                    enviada_at              TIMESTAMPTZ NULL,
+                    enviada_por_user_id     UUID NULL,
+                    enviada_por_email       TEXT NULL,
+                    conciliada_at           TIMESTAMPTZ NULL,
+                    conciliada_por_user_id  UUID NULL,
+                    conciliada_por_email    TEXT NULL,
+                    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_conc_servicio_cierre UNIQUE (servicio_id, anio, mes)
+                )
+            `);
+            await pool.query(
+                `CREATE INDEX IF NOT EXISTS idx_conc_servicio_cierre_mes ON conciliaciones_servicio_cierre(anio, mes)`
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para conciliaciones_servicio_cierre.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesNovedadConsumoTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_novedad_consumo (
+                    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    novedad_id              UUID NOT NULL,
+                    facturacion_id          UUID NOT NULL REFERENCES conciliaciones_facturacion(id) ON DELETE CASCADE,
+                    cedula                  TEXT NOT NULL,
+                    anio                    INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+                    mes                     INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+                    servicio_id             TEXT NULL,
+                    consumido_en            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    consumido_por_user_id   UUID NULL,
+                    CONSTRAINT uq_conc_novedad_consumo UNIQUE (novedad_id)
+                )
+            `);
+            await pool.query(
+                `CREATE INDEX IF NOT EXISTS idx_conc_novedad_consumo_fact ON conciliaciones_novedad_consumo(facturacion_id)`
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para conciliaciones_novedad_consumo.');
                 return;
             }
             throw error;
@@ -2421,17 +2515,23 @@ function createDataLayer(deps) {
         listAssignedClientesForGpUserId,
         resolveGpInternalUserIdForScope,
         normalizeCedula,
-        canRoleViewType
+        canRoleViewType,
+        getFestivosSet: () => festivosService.getFestivosSet(),
+        emailNotificationsPublisher,
+        frontendUrl: String(frontendUrl || '').trim(),
+        listServicios: (scope) => serviciosDynamoData.listServicios(conciliacionesDeps, scope),
+        getConciliacionResumenPorClienteMes: (...args) =>
+            conciliacionesQueries.getConciliacionResumenPorClienteMes(...args)
     };
 
     async function listConciliacionesClientesForScope(scope) {
         return conciliacionesQueries.listConciliacionesClientes(conciliacionesDeps, scope);
     }
 
-    async function getConciliacionResumenPorClienteMesForScope(scope, clienteRaw, year, month, billingType) {
+    async function getConciliacionResumenPorClienteMesForScope(scope, clienteRaw, year, month, impactOpts) {
         const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
         if (!chk.ok) return chk;
-        const opts = billingType ? { billingType: String(billingType).trim() } : {};
+        const opts = conciliacionesQueries.novedadesImpactOptionsFromBillingType(impactOpts);
         const payload = await conciliacionesQueries.getConciliacionResumenPorClienteMes(
             conciliacionesDeps,
             scope,
@@ -2453,10 +2553,10 @@ function createDataLayer(deps) {
         return { ok: true, allClients: true, ...payload };
     }
 
-    async function listConciliacionNovedadesDetalleForScope(scope, clienteRaw, cedulaRaw, year, month, billingType) {
+    async function listConciliacionNovedadesDetalleForScope(scope, clienteRaw, cedulaRaw, year, month, impactOpts) {
         const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
         if (!chk.ok) return chk;
-        const opts = billingType ? { billingType: String(billingType).trim() } : {};
+        const opts = conciliacionesQueries.novedadesImpactOptionsFromBillingType(impactOpts);
         const items = await conciliacionesQueries.listConciliacionNovedadesDetalle(
             conciliacionesDeps,
             scope,
@@ -2466,7 +2566,11 @@ function createDataLayer(deps) {
             month,
             opts
         );
-        return { ok: true, clienteCanon: chk.canon, items };
+        return { ok: true, clienteCanon: chk.canon, ...items };
+    }
+
+    async function applyConciliacionFacturacionAjustesForScope(scope, payload, actor) {
+        return conciliacionesQueries.applyConciliacionFacturacionAjustes(conciliacionesDeps, scope, payload, actor);
     }
 
     async function getConciliacionesDashboardResumenForScope(scope, year, month) {
@@ -2501,16 +2605,66 @@ function createDataLayer(deps) {
         return conciliacionesQueries.upsertConciliacionFacturacionMasiva(conciliacionesDeps, scope, payload);
     }
 
-    async function deleteConciliacionFacturacionForScope(scope, payload) {
-        return conciliacionesQueries.deleteConciliacionFacturacion(conciliacionesDeps, scope, payload);
+    async function deleteConciliacionFacturacionForScope(scope, payload, actor) {
+        return conciliacionesQueries.revertConciliacionFacturacion(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function listDashboardLiderClienteRowsForScope(scope, year, month) {
+        return conciliacionesQueries.listDashboardLiderClienteRows(conciliacionesDeps, scope, year, month);
+    }
+
+    async function exportConciliacionServicioExcelForScope(scope, query) {
+        const { buildConciliacionServicioExcelWorkbook } = require('./conciliaciones/conciliacionExportExcel');
+        return buildConciliacionServicioExcelWorkbook(conciliacionesDeps, scope, query);
+    }
+
+    async function markConciliacionServicioEnviadaForScope(scope, payload, actor) {
+        const { markServicioEnviada } = require('./conciliaciones/conciliacionServicioCierre');
+        const servicioId = String(payload?.servicioId || '').trim();
+        const year = Number(payload?.year ?? payload?.anio);
+        const month = Number(payload?.month ?? payload?.mes);
+        const revActor = {
+            userId: actor?.id || actor?.sub || null,
+            email: actor?.email || ''
+        };
+        return markServicioEnviada(pool, { servicioId, year, month, actor: revActor });
+    }
+
+    async function markConciliacionServicioConciliadaForScope(scope, payload, actor) {
+        return conciliacionesQueries.markConciliacionServicioConciliada(conciliacionesDeps, scope, payload, actor);
     }
 
     async function listConciliacionesFacturacionForScope(scope, year, month) {
         return conciliacionesQueries.listConciliacionesFacturacion(conciliacionesDeps, scope, year, month);
     }
 
+    const serviciosListCache = new Map();
+    const SERVICIOS_LIST_CACHE_TTL_MS = 20_000;
+
+    function serviciosScopeCacheKey(scope) {
+        const role = String(scope?.role || '');
+        const gp = String(scope?.gpUserId || scope?.internalUserId || '');
+        const areas = (Array.isArray(scope?.areas) ? scope.areas : []).join('\u0001');
+        return `${role}|${gp}|${areas}`;
+    }
+
+    function invalidateServiciosListCache() {
+        serviciosListCache.clear();
+    }
+
+    async function listServiciosForScope(scope) {
+        const key = serviciosScopeCacheKey(scope);
+        const hit = serviciosListCache.get(key);
+        if (hit && Date.now() - hit.at < SERVICIOS_LIST_CACHE_TTL_MS) {
+            return hit.data;
+        }
+        const data = await serviciosDynamoData.listServicios(conciliacionesDeps, scope);
+        serviciosListCache.set(key, { at: Date.now(), data });
+        return data;
+    }
+
     async function getColaCierresPorMesForScope(scope, year, month, clienteOpcional) {
-        const servicios = await serviciosDynamoData.listServicios(conciliacionesDeps, scope);
+        const servicios = await listServiciosForScope(scope);
         const payload = await conciliacionesQueries.getColaCierresPorMes(
             conciliacionesDeps,
             scope,
@@ -2522,21 +2676,18 @@ function createDataLayer(deps) {
         return { ok: true, ...payload };
     }
 
-    const serviciosDynamoData = require('./conciliaciones/serviciosDynamoData');
-
-    async function listServiciosForScope(scope) {
-        return serviciosDynamoData.listServicios(conciliacionesDeps, scope);
-    }
-
     async function createServicioForScope(scope, payload) {
+        invalidateServiciosListCache();
         return serviciosDynamoData.createServicio(conciliacionesDeps, scope, payload);
     }
 
     async function updateServicioForScope(scope, idServicio, payload) {
+        invalidateServiciosListCache();
         return serviciosDynamoData.updateServicio(conciliacionesDeps, scope, idServicio, payload);
     }
 
     async function deleteServicioForScope(scope, idServicio) {
+        invalidateServiciosListCache();
         return serviciosDynamoData.deleteServicio(conciliacionesDeps, scope, idServicio);
     }
 
@@ -2545,6 +2696,7 @@ function createDataLayer(deps) {
     }
 
     async function upsertServicioConsultoresForScope(scope, idServicio, cedulas) {
+        invalidateServiciosListCache();
         return serviciosDynamoData.upsertServicioConsultores(conciliacionesDeps, scope, idServicio, cedulas);
     }
 
@@ -2583,6 +2735,9 @@ function createDataLayer(deps) {
         upsertMallaNocturnoConfig,
         ensureConciliacionesFacturacionTable,
         ensureConciliacionesFacturacionHistorialTable,
+        ensureConciliacionesServicioNotificacionesTable,
+        ensureConciliacionesServicioCierreTable,
+        ensureConciliacionesNovedadConsumoTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         getColaboradorByCedula,
@@ -2618,9 +2773,14 @@ function createDataLayer(deps) {
         upsertConciliacionFacturacionForScope,
         applyConciliacionFacturacionRevisionForScope,
         applyConciliacionFacturacionRevisionMasivaForScope,
+        applyConciliacionFacturacionAjustesForScope,
         listConciliacionFacturacionHistorialForScope,
         upsertConciliacionFacturacionMasivaForScope,
         deleteConciliacionFacturacionForScope,
+        listDashboardLiderClienteRowsForScope,
+        exportConciliacionServicioExcelForScope,
+        markConciliacionServicioEnviadaForScope,
+        markConciliacionServicioConciliadaForScope,
         listConciliacionesFacturacionForScope,
         getColaCierresPorMesForScope,
         listServiciosForScope,

@@ -9,17 +9,18 @@ const {
 
 test('aggregateServicioCierre filtra por cédulas y suma totales', () => {
     const rows = [
-        { cedula: '123', tarifaCliente: 1000, novedadesSumCop: 100, facturaCop: 900, novedadesCount: 1, cerrado: true, estado: 'CONCILIADA' },
-        { cedula: '456', tarifaCliente: 2000, novedadesSumCop: 0, facturaCop: 2000, novedadesCount: 0, cerrado: false, estado: 'PENDIENTE' },
-        { cedula: '789', tarifaCliente: 500, novedadesSumCop: 50, facturaCop: 450, novedadesCount: 1, cerrado: false, estado: 'PENDIENTE' }
+        { cedula: '123', tarifaCliente: 1000, novedadesSumCop: 100, novedadesSumaCop: 200, facturaCop: 1100, novedadesCount: 1, cerrado: true, estado: 'CONCILIADA' },
+        { cedula: '456', tarifaCliente: 2000, novedadesSumCop: 0, novedadesSumaCop: 0, facturaCop: 2000, novedadesCount: 0, cerrado: false, estado: 'PENDIENTE' },
+        { cedula: '789', tarifaCliente: 500, novedadesSumCop: 50, novedadesSumaCop: 0, facturaCop: 450, novedadesCount: 1, cerrado: false, estado: 'PENDIENTE' }
     ];
     const agg = aggregateServicioCierre(rows, ['123', '456']);
     assert.equal(agg.consultoresTotal, 2);
     assert.equal(agg.consultoresCerrados, 1);
     assert.equal(agg.consultoresConNovedad, 1);
     assert.equal(agg.totales.tarifaSum, 3000);
+    assert.equal(agg.totales.incrementoSum, 200);
     assert.equal(agg.totales.deduccionSum, 100);
-    assert.equal(agg.totales.facturaSum, 2900);
+    assert.equal(agg.totales.facturaSum, 3100);
     assert.equal(agg.estados.PENDIENTE, 1);
     assert.equal(agg.estados.CONCILIADA, 1);
 });

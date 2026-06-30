@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, Pencil } from 'lucide-react';
 import { buildGestionTableDash } from '../../gestionTableDashTheme.js';
 
 function formatHistorialFecha(value) {
@@ -15,10 +15,30 @@ function formatHistorialFecha(value) {
     });
 }
 
+function formatCop(n) {
+    const x = Math.round(Number(n) || 0);
+    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(x);
+}
+
 function etapaLabel(etapa) {
     if (etapa === 'ANALISTA') return 'Analista de conciliaciones';
     if (etapa === 'NOMINA') return 'Nómina';
     return etapa || '—';
+}
+
+function ajusteDiffLabel(detalle) {
+    if (!detalle || typeof detalle !== 'object') return null;
+    const prev = detalle.valorAnterior;
+    const next = detalle.valorNuevo;
+    if (prev == null && next == null) return null;
+    if (detalle.campo === 'tarifa') {
+        return `${formatCop(prev)} → ${formatCop(next)}`;
+    }
+    if (detalle.campo === 'monto_novedad') {
+        const tipo = detalle.tipoNovedad ? ` (${detalle.tipoNovedad})` : '';
+        return `${formatCop(prev)} → ${formatCop(next)}${tipo}`;
+    }
+    return null;
 }
 
 export default function ConciliacionesFacturacionHistorialPanel({ items = [], loading = false, isLight }) {
@@ -38,9 +58,12 @@ export default function ConciliacionesFacturacionHistorialPanel({ items = [], lo
                 ) : list.length === 0 ? (
                     <p className={`text-sm ${dash.modalMuted}`}>Sin revisiones registradas.</p>
                 ) : (
-                    <ul className="space-y-3" aria-label="Historial de aprobaciones y rechazos">
+                    <ul className="space-y-3" aria-label="Historial de aprobaciones, rechazos y ajustes">
                         {list.map((entry) => {
                             const esAprobar = entry.accion === 'APROBAR';
+                            const esRechazar = entry.accion === 'RECHAZAR';
+                            const esAjuste = entry.accion === 'AJUSTE';
+                            const diff = esAjuste ? ajusteDiffLabel(entry.detalle) : null;
                             return (
                                 <li
                                     key={entry.id}
@@ -52,11 +75,18 @@ export default function ConciliacionesFacturacionHistorialPanel({ items = [], lo
                                         <div className="flex items-center gap-2">
                                             {esAprobar ? (
                                                 <CheckCircle2 size={16} className="shrink-0 text-emerald-500" aria-hidden />
-                                            ) : (
+                                            ) : esRechazar ? (
                                                 <XCircle size={16} className="shrink-0 text-rose-500" aria-hidden />
+                                            ) : (
+                                                <Pencil size={16} className="shrink-0 text-amber-500" aria-hidden />
                                             )}
                                             <span className={`font-semibold ${textMain}`}>
-                                                {esAprobar ? 'Aprobación' : 'Rechazo'} — {etapaLabel(entry.etapa)}
+                                                {esAprobar
+                                                    ? 'Aprobación'
+                                                    : esRechazar
+                                                      ? 'Rechazo'
+                                                      : 'Ajuste de montos'}{' '}
+                                                — {etapaLabel(entry.etapa)}
                                             </span>
                                         </div>
                                         <span className={`inline-flex items-center gap-1 ${dash.modalMuted}`}>
@@ -64,6 +94,9 @@ export default function ConciliacionesFacturacionHistorialPanel({ items = [], lo
                                             {formatHistorialFecha(entry.createdAt)}
                                         </span>
                                     </div>
+                                    {diff ? (
+                                        <p className={`mt-1.5 font-medium tabular-nums ${textMain}`}>{diff}</p>
+                                    ) : null}
                                     <p className={`mt-1.5 ${dash.modalMuted}`}>
                                         <span className="font-medium text-inherit">{entry.actorNombre || '—'}</span>
                                         {entry.actorEmail ? (

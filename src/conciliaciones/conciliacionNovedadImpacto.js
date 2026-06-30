@@ -6,7 +6,9 @@ const {
     getCantidadMedidaKind,
     getDiasEfectivosNovedad,
     countCalendarDaysInclusive,
-    resolveCanonicalNovedadTipo
+    countBusinessDaysInclusive,
+    resolveCanonicalNovedadTipo,
+    getNovedadRule
 } = require('../novedadCantidadFormat');
 
 const DIAS_MES_FACTURACION = 30;
@@ -68,7 +70,41 @@ function isSuspension(tipoNovedad) {
 
 function resolveMedidaConciliacion(tipoNovedad, ctx) {
     if (isSuspension(tipoNovedad)) return 'days';
-    return getCantidadMedidaKind(tipoNovedad, ctx);
+    const kind = getCantidadMedidaKind(tipoNovedad, ctx);
+    if (kind !== 'neutral') return kind;
+    const fi = ctx.fechaInicio;
+    const ff = ctx.fechaFin || fi;
+    if (!fi || !ff) return kind;
+    const ch = Number(ctx.cantidadHoras);
+    if (ch > 0) return 'days';
+    if (fi !== ff) return 'days';
+    return kind;
+}
+
+function buildImpactoHorasMode(tarifa, horas, horasBaseMes, impacto) {
+    const valorHora = computeValorHoraCop(tarifa, horasBaseMes);
+    return {
+        impacto,
+        medida: 'hours',
+        cantidad: horas,
+        montoCop: montoPorHoras(tarifa, horas, horasBaseMes),
+        montoCalculado: true,
+        valorHora,
+        horasBaseMes
+    };
+}
+
+function buildImpactoDiasHorasMode(tarifa, dias, horasBaseMes) {
+    const { montoCop, valorHora } = montoPorDiasHorasMode(tarifa, dias, horasBaseMes);
+    return {
+        impacto: 'resta',
+        medida: 'days',
+        cantidad: dias,
+        montoCop,
+        montoCalculado: true,
+        valorHora,
+        horasBaseMes
+    };
 }
 
 function getDiasConciliacion(tipoNovedad, ctx) {
@@ -77,6 +113,15 @@ function getDiasConciliacion(tipoNovedad, ctx) {
         const ff = ctx.fechaFin || fi;
         if (!fi || !ff) return 0;
         return countCalendarDaysInclusive(fi, ff);
+    }
+    const n = Number(ctx.cantidadHoras);
+    if (n > 0) return n;
+    const fi = ctx.fechaInicio;
+    const ff = ctx.fechaFin || fi;
+    if (fi && ff) {
+        const rule = getNovedadRule(tipoNovedad);
+        if (rule.autoCalendarDays) return countCalendarDaysInclusive(fi, ff);
+        return countBusinessDaysInclusive(fi, ff);
     }
     return getDiasEfectivosNovedad(
         tipoNovedad,
@@ -97,10 +142,53 @@ function montoPorDias(tarifaCliente, dias) {
     return roundCop((Number(tarifaCliente) / DIAS_MES_FACTURACION) * d);
 }
 
-function montoPorHoras(tarifaCliente, horas) {
+/** Horas base del mes: baseHours del servicio en modo HOURS, si no 176. */
+function resolveHorasBaseMes(options = {}) {
+    const mode = String(options.billingMode || '').trim().toUpperCase();
+    const bh = Number(options.baseHours);
+    if (mode === 'HOURS' && Number.isFinite(bh) && bh > 0) return bh;
+    return HORAS_MES_LABORALES;
+}
+
+function computeValorHoraCop(tarifa, horasBaseMes) {
+    const base = Number(horasBaseMes) || HORAS_MES_LABORALES;
+    const t = Number(tarifa) || 0;
+    if (base <= 0) return 0;
+    return roundCop(t / base);
+}
+
+function montoPorHoras(tarifaCliente, horas, horasBaseMes = HORAS_MES_LABORALES) {
     const h = Number(horas) || 0;
     if (h <= 0) return 0;
-    return roundCop((Number(tarifaCliente) / HORAS_MES_LABORALES) * h);
+    const base = Number(horasBaseMes) || HORAS_MES_LABORALES;
+    return roundCop((Number(tarifaCliente) / base) * h);
+}
+
+function isHoursBillingMode(options = {}) {
+    const mode = String(options.billingMode || '').trim().toUpperCase();
+    const bh = Number(options.baseHours);
+    return mode === 'HOURS' && Number.isFinite(bh) && bh > 0;
+}
+
+/** Modo HOURS: expone valorHora; monto días sigue siendo tarifa/30 × días (sin deriva de redondeo). */
+function montoPorDiasHorasMode(tarifa, dias, horasBaseMes) {
+    return {
+        montoCop: montoPorDias(tarifa, dias),
+        valorHora: computeValorHoraCop(tarifa, horasBaseMes)
+    };
+}
+
+/** Contexto de facturación por horas para respuestas API / UI. */
+function buildHorasBillingContext(options = {}, tarifa = 0) {
+    const mode = String(options.billingMode || '').trim().toUpperCase();
+    const bh = Number(options.baseHours);
+    const useHoursMode = mode === 'HOURS' && Number.isFinite(bh) && bh > 0;
+    return {
+        billingMode: mode || null,
+        baseHours: useHoursMode ? bh : null,
+        horasBaseMes: useHoursMode ? bh : null,
+        tarifaValorHora: useHoursMode ? computeValorHoraCop(tarifa, bh) : null
+    };
 }
 
 function getNovedadImpactoFacturacion(tipoNovedad) {
@@ -112,13 +200,21 @@ function getNovedadImpactoFacturacion(tipoNovedad) {
  * @param {number} tarifaCliente
  * @param {object} novedadRow - fila BD o detalle API
  */
-function computeNovedadImpactoMonto(tarifaCliente, novedadRow) {
+function computeNovedadImpactoMonto(tarifaCliente, novedadRow, options = {}) {
     const ctx = novedadRowToContext(novedadRow);
     const tipo = ctx.tipoNovedad;
     const impacto = getNovedadImpactoFacturacion(tipo);
     const tarifa = Number(tarifaCliente) || 0;
 
     if (impacto === 'suma') {
+        const canon = resolveCanonicalNovedadTipo(tipo);
+        if (isHoursBillingMode(options) && canon === 'Hora Extra') {
+            const horasBaseMes = resolveHorasBaseMes(options);
+            const horas = getHorasEfectivasNovedad(tipo, novedadRow, ctx);
+            if (horas > 0) {
+                return buildImpactoHorasMode(tarifa, horas, horasBaseMes, 'suma');
+            }
+        }
         const monto = roundCop(ctx.montoCop);
         return {
             impacto: 'suma',
@@ -130,10 +226,15 @@ function computeNovedadImpactoMonto(tarifaCliente, novedadRow) {
     }
 
     const medida = resolveMedidaConciliacion(tipo, ctx);
+    const horasBaseMes = resolveHorasBaseMes(options);
+    const hoursMode = isHoursBillingMode(options);
 
     if (medida === 'hours') {
         const horas = getHorasEfectivasNovedad(tipo, novedadRow, ctx);
-        const monto = montoPorHoras(tarifa, horas);
+        if (hoursMode) {
+            return buildImpactoHorasMode(tarifa, horas, horasBaseMes, 'resta');
+        }
+        const monto = montoPorHoras(tarifa, horas, horasBaseMes);
         return {
             impacto: 'resta',
             medida: 'hours',
@@ -145,6 +246,9 @@ function computeNovedadImpactoMonto(tarifaCliente, novedadRow) {
 
     if (medida === 'days') {
         const dias = getDiasConciliacion(tipo, ctx);
+        if (hoursMode) {
+            return buildImpactoDiasHorasMode(tarifa, dias, horasBaseMes);
+        }
         const monto = montoPorDias(tarifa, dias);
         return {
             impacto: 'resta',
@@ -165,13 +269,13 @@ function computeNovedadImpactoMonto(tarifaCliente, novedadRow) {
 }
 
 /** Agrega impactos de una lista de novedades para un colaborador. */
-function aggregateNovedadesImpacto(tarifaCliente, novedadRows) {
+function aggregateNovedadesImpacto(tarifaCliente, novedadRows, options = {}) {
     let sumSuma = 0;
     let sumResta = 0;
     let count = 0;
 
     for (const row of novedadRows || []) {
-        const r = computeNovedadImpactoMonto(tarifaCliente, row);
+        const r = computeNovedadImpactoMonto(tarifaCliente, row, options);
         count += 1;
         if (r.impacto === 'suma') sumSuma += r.montoCop;
         else sumResta += r.montoCop;
@@ -198,7 +302,14 @@ module.exports = {
     HORAS_MES_LABORALES,
     NOVEDAD_TIPOS_SUMA,
     getNovedadImpactoFacturacion,
+    resolveHorasBaseMes,
+    computeValorHoraCop,
+    buildHorasBillingContext,
+    montoPorHoras,
+    montoPorDiasHorasMode,
+    isHoursBillingMode,
     computeNovedadImpactoMonto,
+    resolveMedidaConciliacion,
     aggregateNovedadesImpacto,
     computeFacturaLedgerTotal,
     novedadRowToContext
