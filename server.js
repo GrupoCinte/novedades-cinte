@@ -554,11 +554,6 @@ const cognitoIdpClient = new CognitoIdentityProviderClient({
         }
     } : {})
 });
-const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
-    cognitoClient: cognitoIdpClient,
-    userPoolId: COGNITO_USER_POOL_ID,
-    getNovedadRuleByType
-});
 const emailNotificationsPublisher = createEmailNotificationsPublisher({
     lambdaClient,
     functionName: EMAIL_LAMBDA_FUNCTION_NAME,
@@ -625,6 +620,7 @@ const {
     ensureNovedadesHoraExtraAlertColumns,
     ensureNovedadesHeDomingoObservacionColumn,
     ensureNovedadesNominaVerificacionColumns,
+    ensureNovedadesNominaProcesadoColumns,
     ensureNovedadesHorasRecargoDomingoColumn,
     ensureNovedadesModalidadVotacionUnidadColumns,
     ensureNovedadesObservacionesColumn,
@@ -656,6 +652,7 @@ const {
     getColaboradorByEmail,
     getClientesList,
     getLideresByCliente,
+    listGpEmailsForCliente,
     listClientesLideresPaged,
     listClientesLideresByClienteSummaryPaged,
     getClientesNitMapFromLideres,
@@ -674,6 +671,7 @@ const {
     linkGpCognitoSubByEmail,
     migrateExcelIfNeeded,
     getScopedNovedades,
+    buildScopedNovedadesWhere,
     listScopedDistinctClientes,
     getHoraExtraAlerts,
     listHoraExtraByCedulaForDomingoPolicy,
@@ -712,6 +710,13 @@ const {
     getAreaFromRole,
     emailNotificationsPublisher,
     frontendUrl: FRONTEND_URL
+});
+
+const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
+    cognitoClient: cognitoIdpClient,
+    userPoolId: COGNITO_USER_POOL_ID,
+    getNovedadRuleByType,
+    resolveGpEmailsForCliente: listGpEmailsForCliente
 });
 
 const { registerRoutes } = require('./src/registerRoutes');
@@ -768,6 +773,7 @@ registerRoutes({
     allowPanel,
     applyScope,
     getScopedNovedades,
+    buildScopedNovedadesWhere,
     listScopedDistinctClientes,
     getHoraExtraAlerts,
     listHoraExtraByCedulaForDomingoPolicy,
@@ -938,6 +944,7 @@ startServer({
     ensureNovedadesHoraExtraAlertColumns,
     ensureNovedadesHeDomingoObservacionColumn,
     ensureNovedadesNominaVerificacionColumns,
+    ensureNovedadesNominaProcesadoColumns,
     ensureNovedadesHorasRecargoDomingoColumn,
     ensureNovedadesModalidadVotacionUnidadColumns,
     ensureNovedadesObservacionesColumn,

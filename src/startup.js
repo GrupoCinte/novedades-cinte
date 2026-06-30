@@ -21,6 +21,7 @@ async function startServer(deps) {
         ensureNovedadesHoraExtraAlertColumns,
         ensureNovedadesHeDomingoObservacionColumn,
         ensureNovedadesNominaVerificacionColumns,
+        ensureNovedadesNominaProcesadoColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         ensureNovedadesModalidadVotacionUnidadColumns,
         ensureNovedadesObservacionesColumn,
@@ -67,6 +68,7 @@ async function startServer(deps) {
     await ensureNovedadesHoraExtraAlertColumns();
     await ensureNovedadesHeDomingoObservacionColumn();
     await ensureNovedadesNominaVerificacionColumns();
+    await ensureNovedadesNominaProcesadoColumns();
     await ensureNovedadesHorasRecargoDomingoColumn();
     await ensureNovedadesModalidadVotacionUnidadColumns();
     await ensureNovedadesObservacionesColumn();

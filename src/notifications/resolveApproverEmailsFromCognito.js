@@ -53,9 +53,16 @@ async function resolveEmailViaAdminGetUser(cognitoClient, userPoolId, username) 
  * @param {import('@aws-sdk/client-cognito-identity-provider').CognitoIdentityProviderClient} opts.cognitoClient
  * @param {string} opts.userPoolId
  * @param {(typeName: string) => object|null} opts.getNovedadRuleByType
+ * @param {(cliente: string) => Promise<string[]>} [opts.resolveGpEmailsForCliente]
  * @param {{ error?: Function, warn?: Function }} [opts.logger]
  */
-function createResolveApproverEmailsFromCognito({ cognitoClient, userPoolId, getNovedadRuleByType, logger = console }) {
+function createResolveApproverEmailsFromCognito({
+    cognitoClient,
+    userPoolId,
+    getNovedadRuleByType,
+    resolveGpEmailsForCliente,
+    logger = console
+}) {
     const pool = String(userPoolId || '').trim();
     const log = logger && typeof logger.error === 'function' ? logger : console;
     const warn = logger && typeof logger.warn === 'function' ? logger.warn.bind(logger) : console.warn.bind(console);
@@ -98,9 +105,10 @@ function createResolveApproverEmailsFromCognito({ cognitoClient, userPoolId, get
 
     /**
      * @param {string} tipoNovedad
+     * @param {{ cliente?: string }} [options]
      * @returns {Promise<{ emails: string[], reason: string, insights?: object[] }>}
      */
-    async function resolveApproverEmailsForNovedad(tipoNovedad) {
+    async function resolveApproverEmailsForNovedad(tipoNovedad, options = {}) {
         const emptyInsight = (reason, extra = {}) => ({ emails: [], reason, insights: [], ...extra });
 
         if (!cognitoClient || !pool) {
@@ -124,6 +132,61 @@ function createResolveApproverEmailsFromCognito({ cognitoClient, userPoolId, get
         for (const groupName of approvers) {
             const gn = String(groupName || '').trim();
             if (!gn) continue;
+
+            if (
+                normalizeGroupKey(gn) === 'gp'
+                && rule.gpNotifyByCliente === true
+            ) {
+                const clienteNorm = String(options?.cliente || '').trim();
+                let emailsFromGroup = 0;
+                let gpError = null;
+                if (!clienteNorm) {
+                    warn('[approver-emails] gpNotifyByCliente sin cliente; se omite GP', { tipoNovedad });
+                    insights.push({
+                        rbacGroup: gn,
+                        source: 'catalogo_cliente',
+                        skipped: 'missing_cliente',
+                        emailsFromGroup: 0
+                    });
+                    continue;
+                }
+                if (typeof resolveGpEmailsForCliente !== 'function') {
+                    warn('[approver-emails] gpNotifyByCliente sin resolver GP en BD', { tipoNovedad });
+                    insights.push({
+                        rbacGroup: gn,
+                        source: 'catalogo_cliente',
+                        skipped: 'no_resolver',
+                        emailsFromGroup: 0
+                    });
+                    continue;
+                }
+                try {
+                    const gpEmails = await resolveGpEmailsForCliente(clienteNorm);
+                    for (const emailRaw of gpEmails) {
+                        const email = String(emailRaw || '').trim().toLowerCase();
+                        if (!email.includes('@') || seen.has(email)) continue;
+                        seen.add(email);
+                        emails.push(email);
+                        emailsFromGroup += 1;
+                    }
+                } catch (err) {
+                    gpError = err?.message || String(err);
+                    log.error('[approver-emails] resolveGpEmailsForCliente failed', {
+                        tipoNovedad,
+                        cliente: clienteNorm,
+                        message: gpError
+                    });
+                }
+                insights.push({
+                    rbacGroup: gn,
+                    source: 'catalogo_cliente',
+                    cliente: clienteNorm,
+                    emailsFromGroup,
+                    listError: gpError
+                });
+                continue;
+            }
+
             const actualGn = nameMap.get(normalizeGroupKey(gn)) || gn;
             let usersSeen = 0;
             let emailsFromGroup = 0;

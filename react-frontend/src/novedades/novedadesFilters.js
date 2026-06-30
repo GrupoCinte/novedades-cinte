@@ -61,7 +61,10 @@ export const EMPTY_NOVEDADES_FILTERS = {
     fCreadoDesde: '',
     fCreadoHasta: '',
     fGpUserId: '',
-    fLeadTimeBucket: ''
+    fLeadTimeBucket: '',
+    fNominaProcesado: '',
+    fFechaInicioDesde: '',
+    fFechaInicioHasta: ''
 };
 
 /** Resumen para el chip de filtros activos. */
@@ -69,7 +72,8 @@ export function buildFiltrosResumen(filters) {
     const parts = [];
     let n = 0;
     const {
-        fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket
+        fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket,
+        fNominaProcesado, fFechaInicioDesde, fFechaInicioHasta
     } = filters || {};
 
     if (String(fTipo || '').trim()) {
@@ -103,6 +107,17 @@ export function buildFiltrosResumen(filters) {
         n += 1;
         parts.push(`Tiempo decisión: ${leadLabels[Number(fLeadTimeBucket)] || fLeadTimeBucket}`);
     }
+    if (String(fNominaProcesado || '').trim() === 'si') {
+        n += 1;
+        parts.push('Procesado nómina');
+    } else if (String(fNominaProcesado || '').trim() === 'no') {
+        n += 1;
+        parts.push('Pendiente nómina');
+    }
+    if (String(fFechaInicioDesde || '').trim() || String(fFechaInicioHasta || '').trim()) {
+        n += 1;
+        parts.push('F. inicio');
+    }
 
     const head = parts.slice(0, 2).join(', ');
     const more = parts.length > 2 ? '…' : '';
@@ -118,7 +133,8 @@ export function buildFiltrosResumen(filters) {
 export function applyClientSideFilters(items, filters) {
     const list = Array.isArray(items) ? items : [];
     const {
-        fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fLeadTimeBucket
+        fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fLeadTimeBucket,
+        fNominaProcesado, fFechaInicioDesde, fFechaInicioHasta
     } = { ...EMPTY_NOVEDADES_FILTERS, ...filters };
 
     return list.filter((it) => {
@@ -141,6 +157,14 @@ export function applyClientSideFilters(items, filters) {
             if (fCreadoHasta && creado > fCreadoHasta) return false;
         }
         if (fLeadTimeBucket && !matchesLeadTimeBucket(it, fLeadTimeBucket)) return false;
+        if (fNominaProcesado === 'si' && !it.nominaProcesado) return false;
+        if (fNominaProcesado === 'no' && it.nominaProcesado) return false;
+        if (fFechaInicioDesde || fFechaInicioHasta) {
+            const fi = toIsoDate(it.fechaInicio);
+            if (!fi) return false;
+            if (fFechaInicioDesde && fi < fFechaInicioDesde) return false;
+            if (fFechaInicioHasta && fi > fFechaInicioHasta) return false;
+        }
         return true;
     });
 }
@@ -148,7 +172,8 @@ export function applyClientSideFilters(items, filters) {
 /** Query params para API paginada de Gestión y export Excel. */
 export function filtersToGestionParams(filters, { page, limit } = {}) {
     const {
-        fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket
+        fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket,
+        fNominaProcesado, fFechaInicioDesde, fFechaInicioHasta
     } = { ...EMPTY_NOVEDADES_FILTERS, ...filters };
 
     const params = {};
@@ -162,5 +187,26 @@ export function filtersToGestionParams(filters, { page, limit } = {}) {
     if (fCreadoHasta) params.createdTo = fCreadoHasta;
     if (fGpUserId) params.gpUserId = fGpUserId;
     if (fLeadTimeBucket && /^[0-3]$/.test(fLeadTimeBucket)) params.leadTimeBucket = fLeadTimeBucket;
+    if (fNominaProcesado === 'si' || fNominaProcesado === 'no') params.nominaProcesado = fNominaProcesado;
+    if (fFechaInicioDesde) params.fechaInicioDesde = fFechaInicioDesde;
+    if (fFechaInicioHasta) params.fechaInicioHasta = fFechaInicioHasta;
     return params;
+}
+
+/** Body `filters` para POST /api/novedades/nomina-procesar (snake/query style). */
+export function filtersToNominaProcesarBody(filters) {
+    const params = filtersToGestionParams(filters);
+    return {
+        tipo: params.tipo || '',
+        estado: params.estado || '',
+        nombre: params.nombre || '',
+        cliente: params.cliente || '',
+        createdFrom: params.createdFrom || '',
+        createdTo: params.createdTo || '',
+        gpUserId: params.gpUserId || '',
+        leadTimeBucket: params.leadTimeBucket || '',
+        nominaProcesado: params.nominaProcesado || '',
+        fechaInicioDesde: params.fechaInicioDesde || '',
+        fechaInicioHasta: params.fechaInicioHasta || ''
+    };
 }

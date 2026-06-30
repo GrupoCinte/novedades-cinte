@@ -33,12 +33,46 @@ const {
 } = require('./heDomingoCompensacion');
 const { isMallaOrigenNovedad } = require('./mallaRecargoSplit');
 const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
+const { markNominaProcesado } = require('./nominaProcesadoService');
 const festivosService = require('./festivosService');
 const { decodePossiblyMisencodedText } = require('./novedadesMapper');
 const { validateObservacionesRechazo } = require('./novedadPersistValidation');
 
 // Inicializar festivos en background al arrancar el servidor
 festivosService.initFestivosCache();
+
+/**
+ * Compensatorio por votación/jurado: jornadas electorales habilitadas (2026).
+ * Solo se permite radicar contra una de estas fechas de votación.
+ * Ventana de disfrute por modalidad: 45 días calendario para jurado, 30 para votación (medio día).
+ */
+const FECHAS_VOTACION_HABILITADAS = new Set(['2026-05-31', '2026-06-21']);
+const DIAS_DISFRUTE_JURADO = 45;
+const DIAS_DISFRUTE_VOTO = 30;
+
+/** Normaliza un valor de hora a HH:MM:SS para comparación lexicográfica del mismo día. */
+function toHmsForCompare(value) {
+    return String(value || '').trim().slice(0, 8);
+}
+
+/**
+ * Detecta si una nueva franja [nuevoIni, nuevoFin) se solapa con alguna de las franjas
+ * existentes (cada una con { hora_inicio, hora_fin }). Los bordes que se tocan
+ * (fin == inicio) NO cuentan como solape. Devuelve la franja existente que choca o null.
+ */
+function findVotacionFranjaSolapada(nuevoIniRaw, nuevoFinRaw, existentes = []) {
+    const nuevoIni = toHmsForCompare(nuevoIniRaw);
+    const nuevoFin = toHmsForCompare(nuevoFinRaw);
+    if (!nuevoIni || !nuevoFin) return null;
+    return (
+        (existentes || []).find((r) => {
+            const exIni = toHmsForCompare(r && r.hora_inicio);
+            const exFin = toHmsForCompare(r && r.hora_fin);
+            if (!exIni || !exFin) return false;
+            return nuevoIni < exFin && exIni < nuevoFin;
+        }) || null
+    );
+}
 
 /** HH:MM para Excel; tolera hora de un dígito desde BD. */
 function formatHoraMinutaParaExcel(value) {
@@ -112,6 +146,51 @@ function formatTipoNovedadParaExportExcel(it) {
     return suf ? base + suf : base;
 }
 
+/** Columnas Excel de procesado nómina (post-aprobación). */
+function appendNominaProcesadoExcelFields(baseRow, it) {
+    return {
+        ...baseRow,
+        nominaProcesado: it.nominaProcesado ? 'Sí' : 'No',
+        nominaProcesadoEn: it.nominaProcesadoEn
+            ? new Date(it.nominaProcesadoEn).toLocaleString('es-ES')
+            : '',
+        nominaProcesadoPorCorreo: it.nominaProcesadoPorCorreo || '',
+        nominaProcesadoLote: it.nominaProcesadoLote || ''
+    };
+}
+
+/** Query params compartidos entre listado y export Excel de novedades. */
+function parseNovedadesListQuery(query) {
+    const tipo = String(query?.tipo || '').trim();
+    const estado = String(query?.estado || '').trim();
+    const nombre = String(query?.nombre || '').trim();
+    const cliente = String(query?.cliente || '').trim();
+    const createdFrom = String(query?.createdFrom || '').trim();
+    const createdTo = String(query?.createdTo || '').trim();
+    const gpUserId = String(query?.gpUserId || '').trim();
+    const leadTimeBucketRaw = String(query?.leadTimeBucket || '').trim();
+    const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
+    const nominaProcesadoRaw = String(query?.nominaProcesado || '').trim().toLowerCase();
+    const nominaProcesado = nominaProcesadoRaw === 'si' || nominaProcesadoRaw === 'no' ? nominaProcesadoRaw : '';
+    const fechaInicioDesdeRaw = String(query?.fechaInicioDesde || '').trim();
+    const fechaInicioHastaRaw = String(query?.fechaInicioHasta || '').trim();
+    const fechaInicioDesde = /^\d{4}-\d{2}-\d{2}$/.test(fechaInicioDesdeRaw) ? fechaInicioDesdeRaw : '';
+    const fechaInicioHasta = /^\d{4}-\d{2}-\d{2}$/.test(fechaInicioHastaRaw) ? fechaInicioHastaRaw : '';
+    return {
+        tipo,
+        estado,
+        nombre,
+        cliente,
+        createdFrom,
+        createdTo,
+        ...(gpUserId ? { gpUserId } : {}),
+        ...(leadTimeBucket ? { leadTimeBucket } : {}),
+        ...(nominaProcesado ? { nominaProcesado } : {}),
+        ...(fechaInicioDesde ? { fechaInicioDesde } : {}),
+        ...(fechaInicioHasta ? { fechaInicioHasta } : {})
+    };
+}
+
 /**
  * Fila Excel HE desagregada (una tipología) o fila legacy sin breakdown.
  * @param {object} opts
@@ -131,7 +210,7 @@ function buildExcelRowHoraExtraSlice(opts) {
     const ck = slice.columnKey;
     const h = Number(slice.hours || 0);
     const cantidad = formatCantidadNovedad(it.tipoNovedad, h, it);
-    return {
+    return appendNominaProcesadoExcelFields({
         novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
         nombre: it.nombre || '',
@@ -157,7 +236,7 @@ function buildExcelRowHoraExtraSlice(opts) {
         estado: it.estado || '',
         asignadoRoles: it.asignacionRolesEtiqueta || '—',
         aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
-    };
+    }, it);
 }
 
 /** HE sin componentes >0: una fila como antes + columnas compensación / id. */
@@ -170,7 +249,7 @@ function buildExcelRowHoraExtraLegacy(opts) {
     const recargoAny = rdd > 0 || rdn > 0 || rTot > 0 || Number(it.horasRecargoNocturno || 0) > 0;
     const sliceKeyForComp = recargoAny ? 'recargo_diurno' : 'diurna';
     const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, sliceKeyForComp);
-    return {
+    return appendNominaProcesadoExcelFields({
         novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
         nombre: it.nombre || '',
@@ -198,12 +277,12 @@ function buildExcelRowHoraExtraLegacy(opts) {
         estado: it.estado || '',
         asignadoRoles: it.asignacionRolesEtiqueta || '—',
         aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
-    };
+    }, it);
 }
 
 function buildExcelRowOtroTipo(opts) {
     const { it, observacionHeDomingo, correoActor, esPorHoras } = opts;
-    return {
+    return appendNominaProcesadoExcelFields({
         novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
         nombre: it.nombre || '',
@@ -229,7 +308,7 @@ function buildExcelRowOtroTipo(opts) {
         estado: it.estado || '',
         asignadoRoles: it.asignacionRolesEtiqueta || '—',
         aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
-    };
+    }, it);
 }
 
 const { randomUUID } = require('node:crypto');
@@ -305,6 +384,7 @@ function registerRoutes(deps) {
         allowPanel,
         applyScope,
         getScopedNovedades,
+        buildScopedNovedadesWhere,
         listScopedDistinctClientes,
         getHoraExtraAlerts,
         listHoraExtraByCedulaForDomingoPolicy,
@@ -938,25 +1018,8 @@ function registerRoutes(deps) {
 
     app.get('/api/novedades', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
         try {
-            const tipo = String(req.query.tipo || '').trim();
-            const estado = String(req.query.estado || '').trim();
-            const nombre = String(req.query.nombre || '').trim();
-            const cliente = String(req.query.cliente || '').trim();
-            const createdFrom = String(req.query.createdFrom || '').trim();
-            const createdTo = String(req.query.createdTo || '').trim();
-            const gpUserId = String(req.query.gpUserId || '').trim();
-            const leadTimeBucketRaw = String(req.query.leadTimeBucket || '').trim();
-            const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
-            const rows = await getScopedNovedades(req.scope, {
-                tipo,
-                estado,
-                nombre,
-                cliente,
-                createdFrom,
-                createdTo,
-                ...(gpUserId ? { gpUserId } : {}),
-                ...(leadTimeBucket ? { leadTimeBucket } : {})
-            });
+            const listOpts = parseNovedadesListQuery(req.query);
+            const rows = await getScopedNovedades(req.scope, listOpts);
             const page = Math.max(1, Number(req.query.page || 1));
             const limitRaw = Number(req.query.limit || 0);
             const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 0;
@@ -986,25 +1049,8 @@ function registerRoutes(deps) {
     app.get('/api/novedades/export-excel', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
         try {
             const ExcelJS = require('exceljs');
-            const tipo = String(req.query.tipo || '').trim();
-            const estado = String(req.query.estado || '').trim();
-            const nombre = String(req.query.nombre || '').trim();
-            const cliente = String(req.query.cliente || '').trim();
-            const createdFrom = String(req.query.createdFrom || '').trim();
-            const createdTo = String(req.query.createdTo || '').trim();
-            const gpUserId = String(req.query.gpUserId || '').trim();
-            const leadTimeBucketRaw = String(req.query.leadTimeBucket || '').trim();
-            const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
-            const rows = await getScopedNovedades(req.scope, {
-                tipo,
-                estado,
-                nombre,
-                cliente,
-                createdFrom,
-                createdTo,
-                ...(gpUserId ? { gpUserId } : {}),
-                ...(leadTimeBucket ? { leadTimeBucket } : {})
-            });
+            const listOpts = parseNovedadesListQuery(req.query);
+            const rows = await getScopedNovedades(req.scope, listOpts);
             if (rows.length > exportMaxRows) {
                 return res.status(413).json({
                     ok: false,
@@ -1043,6 +1089,10 @@ function registerRoutes(deps) {
                 { header: 'Observaciones', key: 'observaciones', width: 48 },
                 { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
                 { header: 'Estado', key: 'estado', width: 14 },
+                { header: 'Procesado nómina', key: 'nominaProcesado', width: 16 },
+                { header: 'Procesado nómina (fecha)', key: 'nominaProcesadoEn', width: 22 },
+                { header: 'Procesado nómina (correo)', key: 'nominaProcesadoPorCorreo', width: 28 },
+                { header: 'Procesado nómina (lote)', key: 'nominaProcesadoLote', width: 22 },
                 { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 },
                 { header: 'Aprobado / rechazado por (correo)', key: 'aprobadoPorCorreo', width: 32 }
             ];
@@ -1598,27 +1648,26 @@ function registerRoutes(deps) {
                 if (!fd) {
                     return res.status(422).json({ ok: false, error: 'La fecha de disfrute es obligatoria.' });
                 }
-                const fvYm = fv.slice(0, 7);
-                const mesEnCursoYm = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }).slice(0, 7);
-                if (fvYm !== mesEnCursoYm) {
+                if (!FECHAS_VOTACION_HABILITADAS.has(fv)) {
                     return res.status(422).json({
                         ok: false,
-                        error: 'La fecha de la jornada electoral debe pertenecer al mes calendario en curso (cualquier día de ese mes).'
+                        error: 'La fecha de la jornada electoral no está habilitada. Selecciona una de las jornadas válidas.'
                     });
                 }
-                const maxVentana = ymdAddCalendarDaysUTC(fv, 30);
+                const diasVentana = modalidadKey === 'solo_jurado' ? DIAS_DISFRUTE_JURADO : DIAS_DISFRUTE_VOTO;
+                const maxVentana = ymdAddCalendarDaysUTC(fv, diasVentana);
                 const hoyBogotaYmd = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
                 if (!maxVentana || ymdCompareStrings(hoyBogotaYmd, maxVentana) > 0) {
                     return res.status(422).json({
                         ok: false,
                         error:
-                            'Plazo vencido: el compensatorio debe solicitarse dentro de los 30 días calendario posteriores a la votación'
+                            `Plazo vencido: el compensatorio debe solicitarse dentro de los ${diasVentana} días calendario posteriores a la votación`
                     });
                 }
                 if (ymdCompareStrings(fd, fv) < 0 || ymdCompareStrings(fd, maxVentana) > 0) {
                     return res.status(422).json({
                         ok: false,
-                        error: 'La fecha de disfrute debe estar dentro de los 30 días calendario siguientes a la votación'
+                        error: `La fecha de disfrute debe estar dentro de los ${diasVentana} días calendario siguientes a la votación`
                     });
                 }
 
@@ -1683,6 +1732,37 @@ function registerRoutes(deps) {
                         ok: false,
                         error: 'Ya existe una solicitud de esta misma modalidad para esta jornada electoral'
                     });
+                }
+
+                /**
+                 * Votación (medio día): si ya existe otra radicación de votación para la MISMA
+                 * fecha de disfrute (p. ej. una por la jornada del 31-may y otra por la del 21-jun),
+                 * sus franjas horarias no pueden solaparse. Los bordes que se tocan (fin == inicio)
+                 * no cuentan como solape. Comparación lexicográfica de HH:MM:SS sobre el mismo día.
+                 */
+                if (modalidadKey === 'solo_voto' && horaInicio && horaFin) {
+                    const solapeQ = await pool.query(
+                        `SELECT hora_inicio, hora_fin, fecha_votacion FROM novedades
+                         WHERE cedula = $1
+                           AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                               = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                           AND coalesce(modalidad, '') = 'solo_voto'
+                           AND fecha_inicio = $3::date
+                           AND fecha_votacion IS DISTINCT FROM $4::date
+                           AND hora_inicio IS NOT NULL AND hora_fin IS NOT NULL
+                           AND estado IN ('Pendiente'::novedad_estado, 'Aprobado'::novedad_estado)`,
+                        [cedulaNorm, tipoCanonInsert, fd, fv]
+                    );
+                    const solapada = findVotacionFranjaSolapada(horaInicio, horaFin, solapeQ.rows);
+                    if (solapada) {
+                        const exIni = toHmsForCompare(solapada.hora_inicio).slice(0, 5);
+                        const exFin = toHmsForCompare(solapada.hora_fin).slice(0, 5);
+                        return res.status(409).json({
+                            ok: false,
+                            error:
+                                `Ya tienes una solicitud de votación para ese mismo día de disfrute en un horario que se cruza (${exIni}–${exFin}). Elige una franja que no se solape.`
+                        });
+                    }
                 }
                 insertModalidad = modalidadKey;
                 insertFechaVotacion = fv;
@@ -2098,7 +2178,9 @@ function registerRoutes(deps) {
                 });
                 try {
                     if (typeof resolveApproverEmailsForNovedad === 'function') {
-                        const { emails, reason, insights } = await resolveApproverEmailsForNovedad(tipoNovedad);
+                        const { emails, reason, insights } = await resolveApproverEmailsForNovedad(tipoNovedad, {
+                            cliente
+                        });
                         emailPayload.admin.notifyTo = emails;
                         if (emails.length === 0) {
                             console.warn(
@@ -2372,6 +2454,21 @@ function registerRoutes(deps) {
         }
     });
 
+    app.post('/api/novedades/nomina-procesar', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
+        try {
+            const result = await markNominaProcesado({
+                pool,
+                req,
+                buildScopedNovedadesWhere,
+                body: req.body
+            });
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('Error nomina-procesar:', error);
+            return res.status(500).json({ ok: false, error: 'Error al marcar procesado nómina' });
+        }
+    });
+
     app.delete('/api/novedades/:id', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
         try {
             const result = await adminDeleteNovedad({ pool, req, idParam: req.params.id });
@@ -2622,4 +2719,10 @@ function registerRoutes(deps) {
     });
 }
 
-module.exports = { registerRoutes };
+module.exports = {
+    registerRoutes,
+    findVotacionFranjaSolapada,
+    FECHAS_VOTACION_HABILITADAS,
+    DIAS_DISFRUTE_JURADO,
+    DIAS_DISFRUTE_VOTO
+};
