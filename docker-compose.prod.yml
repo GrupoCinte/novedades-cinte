@@ -35,6 +35,8 @@ services:
     build:
       context: .
       dockerfile: react-frontend/Dockerfile.frontend
+      args:
+        VITE_CONCILIACIONES_ENABLED: ${VITE_CONCILIACIONES_ENABLED:-false}
     restart: unless-stopped
     networks: [nc_net]
 
