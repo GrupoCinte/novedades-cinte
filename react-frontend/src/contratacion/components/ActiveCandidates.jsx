@@ -45,6 +45,15 @@ function buildSearchHaystack(ex) {
     return parts.join(' ').toLowerCase();
 }
 
+/** Excluye ítems Zoho del monitor (defensa si el API aún no filtró). */
+function isOnboardingExecution(ex) {
+    const id = String(ex?.executionId || '').trim().toLowerCase();
+    if (id.startsWith('zoho_novedad#')) return false;
+    const rt = String(ex?.fullData?.record_type || ex?.fullData?.recordType || '').toLowerCase();
+    if (rt === 'zoho_novedad') return false;
+    return true;
+}
+
 /** Fecha de ingreso al flujo (más reciente = último en llegar). */
 function resolveIngresoMs(ex) {
     const raw =
@@ -449,7 +458,10 @@ export default function ActiveCandidates({
     }
 
     const preparedExecutions = useMemo(
-        () => executions.map((ex) => ({ ...ex, _searchHaystack: buildSearchHaystack(ex) })),
+        () =>
+            executions
+                .filter(isOnboardingExecution)
+                .map((ex) => ({ ...ex, _searchHaystack: buildSearchHaystack(ex) })),
         [executions]
     );
 

@@ -24,6 +24,7 @@ const {
     createOnboardingPromotionService,
     mapDynamoItemForPromotion
 } = require('./onboardingPromotionService');
+const { createFichaNovedadesService, getLastZohoDynamoSyncSummary } = require('./fichaNovedadesService');
 const { normalizeRoleOrNull } = require('../rbac');
 const { buildColaboradorExtendedZodShape } = require('../colaboradores/colaboradoresExtendedZod');
 const {
@@ -147,6 +148,7 @@ function registerOnboardingRoutes(deps) {
     }
 
     const promotion = createOnboardingPromotionService({ pool });
+    const fichaNovedades = createFichaNovedadesService({ pool, updateColaboradorByCedula });
 
     /** Lecturas (panel onboarding). */
     const readGuard = [verificarToken, allowPanel('onboarding')];
@@ -1389,17 +1391,247 @@ function registerOnboardingRoutes(deps) {
     });
 
     /* =========================================================================
+     * Novedades Zoho — buzón de revisión (Capital Humano).
+     * ========================================================================= */
+    const fichaNovedadesQuerySchema = z.object({
+        status: z.enum(['pendiente', 'aplicado', 'rechazado', 'sin_match']).optional(),
+        scope: z.enum(['inbox', 'historico']).optional(),
+        tipo_novedad: z.string().max(80).optional(),
+        cedula: z.string().max(20).optional(),
+        limit: z.coerce.number().int().min(1).max(500).optional(),
+        offset: z.coerce.number().int().min(0).optional()
+    });
+
+    const fichaNovedadesIdSchema = z.object({
+        id: z.string().uuid()
+    });
+
+    const fichaNovedadesRejectSchema = z.object({
+        reason: z.string().max(2000).optional().nullable()
+    });
+
+    const fichaNovedadesLinkSchema = z.object({
+        cedula: z.string().min(5).max(20)
+    });
+
+    const fichaNovedadesEditSchema = z.object({
+        edits: z
+            .record(z.union([z.string(), z.number(), z.boolean(), z.null()]))
+            .refine((obj) => Object.keys(obj).length >= 1 && Object.keys(obj).length <= 30, {
+                message: 'edits debe tener entre 1 y 30 campos'
+            })
+    });
+
+    const fichaNovedadesIntakeSchema = z.object({
+        source: z.enum(['n8n_webhook', 'dynamo_stream_zoho', 'manual']).optional(),
+        payload: z.record(z.any())
+    });
+
+    const fichaNovedadesSyncSchema = z.object({
+        dryRun: z.boolean().optional()
+    });
+
+    app.post('/api/onboarding/ficha-novedades/sync-dynamo', async (req, res) => {
+        if (!checkIntakeAuth(req, res)) return;
+        let body = {};
+        try {
+            body = fichaNovedadesSyncSchema.parse(req.body || {});
+        } catch (e) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: e.errors || e.message });
+        }
+        try {
+            const summary = await fichaNovedades.syncMissingFromDynamo({
+                dryRun: Boolean(body.dryRun)
+            });
+            const status = summary.ok ? 200 : 500;
+            return res.status(status).json(summary);
+        } catch (e) {
+            console.error('[Ficha novedades sync-dynamo]', e.message);
+            return res.status(500).json({ ok: false, error: 'Error interno', message: e.message });
+        }
+    });
+
+    app.post('/api/onboarding/ficha-novedades/intake', async (req, res) => {
+        if (!checkIntakeAuth(req, res)) return;
+        let body;
+        try {
+            body = fichaNovedadesIntakeSchema.parse(req.body || {});
+        } catch (e) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: e.errors || e.message });
+        }
+        try {
+            const result = await fichaNovedades.ingestFromHttp(body.payload, {
+                source: body.source || 'n8n_webhook',
+                eventType: 'INSERT'
+            });
+            if (!result.ok) {
+                const status = result.error ? 422 : 400;
+                return res.status(status).json(result);
+            }
+            return res.status(200).json(result);
+        } catch (e) {
+            console.error('[Ficha novedades intake]', e.message);
+            return res.status(500).json({ ok: false, error: 'Error interno', message: e.message });
+        }
+    });
+
+    app.get('/api/onboarding/ficha-novedades', ...readGuard, async (req, res) => {
+        const parsed = fichaNovedadesQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        try {
+            const data = await fichaNovedades.listNovedades(parsed.data);
+            return res.json({ ok: true, ...data });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    app.get('/api/onboarding/ficha-novedades/:id', ...readGuard, async (req, res) => {
+        const parsed = fichaNovedadesIdSchema.safeParse(req.params);
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Id inválido' });
+        }
+        try {
+            const row = await fichaNovedades.getNovedadById(parsed.data.id);
+            if (!row) return res.status(404).json({ ok: false, error: 'No encontrado' });
+            return res.json({ ok: true, item: row });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    app.patch('/api/onboarding/ficha-novedades/:id', ...writeGuard, async (req, res) => {
+        const idParsed = fichaNovedadesIdSchema.safeParse(req.params);
+        if (!idParsed.success) {
+            return res.status(400).json({ ok: false, error: 'Id inválido' });
+        }
+        const bodyParsed = fichaNovedadesEditSchema.safeParse(req.body || {});
+        if (!bodyParsed.success) {
+            return res.status(400).json({ ok: false, error: 'Body inválido', detail: bodyParsed.error.errors });
+        }
+        try {
+            const item = await fichaNovedades.updateNovedadPayload(
+                idParsed.data.id,
+                bodyParsed.data.edits,
+                req.user || {}
+            );
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user && req.user.sub),
+                actorRole: req.user && req.user.role,
+                action: 'ficha_novedad_editar',
+                entityType: 'ficha_novedades_staging',
+                entityId: idParsed.data.id,
+                metadata: { fields: Object.keys(bodyParsed.data.edits) }
+            });
+            return res.json({ ok: true, item });
+        } catch (e) {
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message });
+        }
+    });
+
+    app.post('/api/onboarding/ficha-novedades/:id/aprobar', ...writeGuard, async (req, res) => {
+        const parsed = fichaNovedadesIdSchema.safeParse(req.params);
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Id inválido' });
+        }
+        try {
+            const result = await fichaNovedades.approveNovedad(parsed.data.id, req.user || {});
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user && req.user.sub),
+                actorRole: req.user && req.user.role,
+                action: 'ficha_novedad_aprobar',
+                entityType: 'ficha_novedades_staging',
+                entityId: parsed.data.id,
+                metadata: { cedula: result.cedula }
+            });
+            return res.json(result);
+        } catch (e) {
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message });
+        }
+    });
+
+    app.post('/api/onboarding/ficha-novedades/:id/rechazar', ...writeGuard, async (req, res) => {
+        const idParsed = fichaNovedadesIdSchema.safeParse(req.params);
+        if (!idParsed.success) {
+            return res.status(400).json({ ok: false, error: 'Id inválido' });
+        }
+        const bodyParsed = fichaNovedadesRejectSchema.safeParse(req.body || {});
+        if (!bodyParsed.success) {
+            return res.status(400).json({ ok: false, error: 'Body inválido', detail: bodyParsed.error.errors });
+        }
+        try {
+            const result = await fichaNovedades.rejectNovedad(
+                idParsed.data.id,
+                req.user || {},
+                bodyParsed.data.reason
+            );
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user && req.user.sub),
+                actorRole: req.user && req.user.role,
+                action: 'ficha_novedad_rechazar',
+                entityType: 'ficha_novedades_staging',
+                entityId: idParsed.data.id,
+                metadata: { reason: bodyParsed.data.reason || null }
+            });
+            return res.json(result);
+        } catch (e) {
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message });
+        }
+    });
+
+    app.post('/api/onboarding/ficha-novedades/:id/vincular', ...writeGuard, async (req, res) => {
+        const idParsed = fichaNovedadesIdSchema.safeParse(req.params);
+        if (!idParsed.success) {
+            return res.status(400).json({ ok: false, error: 'Id inválido' });
+        }
+        const bodyParsed = fichaNovedadesLinkSchema.safeParse(req.body || {});
+        if (!bodyParsed.success) {
+            return res.status(400).json({ ok: false, error: 'Body inválido', detail: bodyParsed.error.errors });
+        }
+        try {
+            const result = await fichaNovedades.linkNovedad(
+                idParsed.data.id,
+                bodyParsed.data.cedula,
+                req.user || {}
+            );
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user && req.user.sub),
+                actorRole: req.user && req.user.role,
+                action: 'ficha_novedad_vincular',
+                entityType: 'ficha_novedades_staging',
+                entityId: idParsed.data.id,
+                metadata: { cedula: result.cedula }
+            });
+            return res.json(result);
+        } catch (e) {
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message });
+        }
+    });
+
+    /* =========================================================================
      * Health del módulo.
      * ========================================================================= */
     app.get('/api/onboarding/health', ...readGuard, async (_req, res) => {
         const intakeReady = Boolean((process.env.ONBOARDING_INGEST_KEY || '').trim());
         const autopromote = String(process.env.ONBOARDING_AUTOPROMOTE || '').toLowerCase() === 'true';
         const streamPoller = String(process.env.CONTRATACION_STREAM_POLLER_ENABLED || '').toLowerCase() === 'true';
+        const dynamoSyncOnStart =
+            String(process.env.FICHA_NOVEDADES_DYNAMO_SYNC_ON_START || '').toLowerCase() === 'true';
+        const dynamoSyncIntervalMs = Number(process.env.FICHA_NOVEDADES_DYNAMO_SYNC_INTERVAL_MS || 0) || 0;
         return res.json({
             ok: true,
             intake_endpoint: intakeReady ? 'configured' : 'missing-key',
             autopromote_flag: autopromote,
             stream_poller: streamPoller,
+            dynamo_sync_on_start: dynamoSyncOnStart,
+            dynamo_sync_interval_ms: dynamoSyncIntervalMs,
+            last_sync_summary: getLastZohoDynamoSyncSummary(),
             ready: intakeReady && (autopromote ? streamPoller : true)
         });
     });

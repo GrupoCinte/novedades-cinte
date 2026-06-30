@@ -13,6 +13,7 @@
     "test:all": "npm run test && npm run test:frontend",
     "test:new": "node --test tests/cotizadorEngine.test.js tests/utils.extended.test.js tests/wsTicket.test.js",
     "test:ci": "npm run test && npm run test:frontend",
+    "sync:zoho-novedades": "node scripts/sync-zoho-novedades-dynamo.js",
     "audit:runtime": "node src/runtimeAuditCli.js",
     "migrate:pipeline-swat": "node scripts/migrate-pipeline-swat-colaboradores.js",
     "migrate:pipeline-swat:apply": "node scripts/migrate-pipeline-swat-colaboradores.js --apply",

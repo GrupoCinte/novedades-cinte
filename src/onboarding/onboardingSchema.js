@@ -60,6 +60,7 @@ async function ensureOnboardingSchema({ pool, logger } = {}) {
     await ensureCatCiudadesTable({ pool, logger });
     await ensureCatAfiliacionesTables({ pool, logger });
     await ensureOnboardingStagingTable({ pool, logger });
+    await ensureFichaNovedadesStagingTable({ pool, logger });
     await ensureEtlExcelLogTable({ pool, logger });
     await ensureColaboradorCalculoSalarialTable({ pool, logger });
     await ensureColaboradorLicenciasMaternidadTable({ pool, logger });
@@ -313,6 +314,84 @@ async function ensureOnboardingStagingTable({ pool, logger }) {
     } catch (error) {
         if (isIgnorableDdlError(error)) {
             logWarn(logger, 'Permisos insuficientes para onboarding_staging.');
+            return;
+        }
+        throw error;
+    }
+}
+
+/**
+ * Buzón de revisión para novedades Zoho (parches a colaboradores ya ingresados).
+ * Separado de `onboarding_staging` — semántica distinta (diff + aprobación CH).
+ */
+async function ensureFichaNovedadesStagingTable({ pool, logger }) {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS ficha_novedades_staging (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                source TEXT NOT NULL DEFAULT 'dynamo_stream_zoho',
+                external_id TEXT NOT NULL,
+                event_type TEXT NOT NULL DEFAULT 'INSERT',
+                tipo_novedad TEXT NOT NULL,
+                id_registro TEXT NULL,
+                subject TEXT NULL,
+                received_at TIMESTAMPTZ NULL,
+                payload_raw JSONB NOT NULL DEFAULT '{}'::jsonb,
+                payload_normalizado JSONB NOT NULL DEFAULT '{}'::jsonb,
+                diff_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                status TEXT NOT NULL DEFAULT 'pendiente',
+                cedula_detectada TEXT NULL,
+                colaborador_cedula_match TEXT NULL,
+                colaborador_nombre_snap TEXT NULL,
+                reviewed_by TEXT NULL,
+                reviewed_at TIMESTAMPTZ NULL,
+                error TEXT NULL,
+                sequence_number TEXT NULL,
+                shard_id TEXT NULL,
+                n8n_execution_id TEXT NULL,
+                match_strategy TEXT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                processed_at TIMESTAMPTZ NULL,
+                CONSTRAINT chk_ficha_novedades_source CHECK (
+                    source IN ('dynamo_stream_zoho', 'n8n_webhook', 'manual')
+                ),
+                CONSTRAINT chk_ficha_novedades_status CHECK (
+                    status IN ('pendiente', 'aplicado', 'rechazado', 'sin_match')
+                )
+            )
+        `);
+        await pool.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_ficha_novedades_external
+            ON ficha_novedades_staging (external_id)
+        `);
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_ficha_novedades_status ON ficha_novedades_staging(status)');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_ficha_novedades_tipo ON ficha_novedades_staging(tipo_novedad)');
+        await pool.query('CREATE INDEX IF NOT EXISTS idx_ficha_novedades_created ON ficha_novedades_staging(created_at DESC)');
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_ficha_novedades_cedula_match
+            ON ficha_novedades_staging(colaborador_cedula_match)
+            WHERE colaborador_cedula_match IS NOT NULL
+        `);
+        await pool.query(`
+            ALTER TABLE ficha_novedades_staging
+            ADD COLUMN IF NOT EXISTS match_strategy TEXT NULL
+        `);
+        try {
+            await pool.query(`
+                ALTER TABLE ficha_novedades_staging
+                DROP CONSTRAINT IF EXISTS chk_ficha_novedades_source
+            `);
+            await pool.query(`
+                ALTER TABLE ficha_novedades_staging
+                ADD CONSTRAINT chk_ficha_novedades_source
+                CHECK (source IN ('dynamo_stream_zoho', 'n8n_webhook', 'manual'))
+            `);
+        } catch (constraintErr) {
+            logWarn(logger, 'No se pudo actualizar chk_ficha_novedades_source (puede requerir permisos DDL).');
+        }
+    } catch (error) {
+        if (isIgnorableDdlError(error)) {
+            logWarn(logger, 'Permisos insuficientes para ficha_novedades_staging.');
             return;
         }
         throw error;
@@ -643,6 +722,7 @@ module.exports = {
     ensureCatCiudadesTable,
     ensureCatAfiliacionesTables,
     ensureOnboardingStagingTable,
+    ensureFichaNovedadesStagingTable,
     ensureEtlExcelLogTable,
     ensureColaboradorCalculoSalarialTable,
     ensureColaboradorLicenciasMaternidadTable,

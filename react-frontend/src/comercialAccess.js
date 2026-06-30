@@ -5,6 +5,8 @@
 
 const NOVEDADES_PANELS = new Set(['dashboard', 'calendar', 'gestion', 'admin']);
 
+const CONCILIACIONES_PANELS = new Set(['conciliaciones']);
+
 /** Solo el panel JWT `comercial` habilita el módulo cotizador (evita acceso vía dashboard/gestión sin comercial). */
 const COTIZADOR_PANELS = new Set(['comercial']);
 
@@ -17,7 +19,8 @@ const POLICY_PANELS_BY_ROLE = {
     team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion'],
     comercial: ['comercial'],
     gp: ['gestion'],
-    nomina: ['dashboard', 'calendar', 'gestion'],
+    nomina: ['dashboard', 'calendar', 'gestion', 'conciliaciones'],
+    analista_conciliaciones: ['conciliaciones'],
     /** Entra consultor: sin paneles admin (docs/RBAC_MATRIX.md). */
     consultor: []
 };
@@ -63,6 +66,16 @@ export function getPanelsFromToken(authOrToken) {
 /** Puede usar el área admin de novedades (Dashboard / calendario / gestión). */
 export function userHasNovedadesAdminAccess(authOrToken) {
     const panels = getPanelsFromToken(authOrToken);
+    return panels.some((p) => NOVEDADES_PANELS.has(p));
+}
+
+/** Puede usar el módulo Conciliaciones (panel dedicado, nómina o novedades admin). */
+export function userHasConciliacionesAccess(authOrToken) {
+    const payload = normalizePayload(authOrToken);
+    const role = String(payload?.role || '').trim().toLowerCase();
+    if (role === 'nomina' || role === 'analista_conciliaciones') return true;
+    const panels = getPanelsFromToken(authOrToken);
+    if (panels.some((p) => CONCILIACIONES_PANELS.has(p))) return true;
     return panels.some((p) => NOVEDADES_PANELS.has(p));
 }
 

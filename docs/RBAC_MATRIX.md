@@ -26,7 +26,8 @@
 | **Equipo Capital Humano** | Operativo CH | Sí | Misma **visibilidad** amplia que Admin CH (todas las áreas y tipos). Las **aprobaciones** dependen del tipo (ver sección 4) | **No** | Sí | Sí (lectura + edición ficha; **NO** tramita bajas) | **No** |
 | **Comercial** | Fuerza comercial | Solo si la ruta lo permite | Normalmente **no** entra al shell clásico de novedades | **Sí** (es su módulo principal) | No | No | No |
 | **GP** (Gestión de proyectos) | Coordinación operativa | Sí | Solo **Gestión de novedades** (sin tablero ni calendario como menú principal). Ve solicitudes de sus **clientes asignados**. Aprueba tipos operativos (Hora extra, disponibilidad, etc.) | No | No | Sí (**solo lectura** de sus clientes asignados) | No |
-| **Nómina** | Área financiera / nómina | Sí | Tablero, calendario y gestión. Ve **todas las áreas**. **No** aprueba solicitudes: solo **verifica** información en tipos que lo requieren antes de que CH apruebe | No | No | Sí (lectura: calculadora y bajas, reporte de rotación) | No |
+| **Analista de conciliaciones** | Conciliaciones / facturación | Sí | **No** (solo módulo Conciliaciones) | No | No | No | No |
+| **Nómina** | Área financiera / nómina | Sí | Tablero, calendario y gestión. Ve **todas las áreas**. **No** aprueba solicitudes de novedades: solo **verifica** donde aplique; en **Conciliaciones** aprueba o rechaza cierres en etapa nómina | No | No | Sí (lectura: calculadora y bajas, reporte de rotación) | No |
 | **Consultor** (Microsoft) | Externo | Redirige a **`/consultor`**, no al admin staff | Radicación y seguimiento en portal consultor | No | No | No | No |
 
 ---
@@ -71,7 +72,7 @@ Pueden **aprobar o rechazar cualquier tipo** según las validaciones del sistema
 Al entrar a **`/admin`** con sesión válida, según el rol aparecen tarjetas como:
 
 - **Gestión de Novedades** — quien tenga permiso de novedades.
-- **Conciliaciones** — misma condición de acceso que Gestión de Novedades; en la versión actual es **solo lectura** (resumen por cliente y mes con novedades **aprobadas**).
+- **Conciliaciones** — roles con panel `conciliaciones`, **Nómina**, **Analista de conciliaciones**, o acceso admin de novedades (super_admin, CAC, Admin CH, etc.). Flujo de cierre: **Analista** envía a nómina → **Nómina** aprueba (`APROBADO_FINANZAS`) o devuelve para ajuste. En revisión de cierre, **Analista de conciliaciones** ve **todas** las novedades aprobadas que impactan la factura del periodo (misma visibilidad que nómina en ese desglose).
 - **Módulo Comercial** — cotizador; **no** aplica a **CAC**, **GP**, **Nómina**, ni a **Admin CH** ni **Equipo CH** (solo quienes tienen rol pensado para comercial o super administrador).
 - **Capital Humano Onboarding (monitor n8n)** — contratación en tiempo real desde DynamoDB; **sí** aplica a **Admin CH** y **Equipo CH**; **no** aplica a **CAC**.
 - **Onboarding (maestro de personal)** — módulo madre con personal activo, bajas, SENA, staff, licencias, calculadora, extranjeros, pólizas y capacitaciones. Aplica a **Super administrador**, **CAC**, **Admin CH**, **Equipo CH**; **GP** y **Nómina** ven el módulo en modo lectura con su alcance.
@@ -106,7 +107,7 @@ Al entrar a **`/admin`** con sesión válida, según el rol aparecen tarjetas co
 
 Si un usuario pertenece a más de un grupo, el rol efectivo es **uno solo**, elegido por esta prioridad (de mayor a menor):
 
-**Super administrador → CAC → Admin Capital Humano → Equipo Capital Humano → GP → Nómina → Comercial → Consultor**
+**Super administrador → CAC → Admin Capital Humano → Equipo Capital Humano → Analista de conciliaciones → GP → Nómina → Comercial → Consultor**
 
 **Recomendación operativa:** asignar **un solo grupo** por usuario en Cognito cuando el puesto tenga un solo rol en la plataforma; así no hay ambigüedad. Si hay varios grupos, solo cuenta la prioridad anterior (no se puede elegir otro rol desde la pantalla de login).
 

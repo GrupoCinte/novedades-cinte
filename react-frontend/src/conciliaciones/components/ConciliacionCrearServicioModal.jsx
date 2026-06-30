@@ -98,12 +98,13 @@ export default function ConciliacionCrearServicioModal({
         };
 
         try {
+            let saved;
             if (servicio && servicio.id) {
-                await updateServicio(token, servicio.id, payload);
+                saved = await updateServicio(token, servicio.id, payload);
             } else {
-                await createServicio(token, payload);
+                saved = await createServicio(token, payload);
             }
-            onSuccess();
+            onSuccess(saved || { ...payload, id: servicio?.id });
         } catch (err) {
             setErrorMsg(err.message || 'Error al guardar el servicio');
         } finally {

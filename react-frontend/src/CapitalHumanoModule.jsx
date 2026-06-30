@@ -16,7 +16,8 @@ import {
     Radio,
     LineChart,
     CalendarPlus,
-    Ban
+    Ban,
+    Mail
 } from 'lucide-react';
 import { onboardingApi } from './onboarding/api.js';
 import { userHasOnboardingPanel } from './onboarding/onboardingAccess.js';
@@ -27,6 +28,7 @@ import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import OnboardingListView from './onboarding/OnboardingListView.jsx';
 import CancelacionesView from './onboarding/CancelacionesView.jsx';
+import FichaNovedadesView, { fetchFichaNovedadesPendingCount } from './onboarding/FichaNovedadesView.jsx';
 import { EXTRANJEROS_DEFAULT_SORT, LICENCIAS_DEFAULT_SORT } from './onboarding/onboardingSortDefaults.js';
 import {
     PersonalView,
@@ -73,6 +75,7 @@ const NAV_GROUPS = [
             { id: 'licencias', label: 'Licencias', icon: Baby },
             { id: 'calculadora', label: 'Calculadora', icon: Calculator },
             { id: 'extranjeros', label: 'Extranjeros', icon: Globe },
+            { id: 'novedades-zoho', label: 'Novedades Zoho', icon: Mail },
             { id: 'cancelaciones', label: 'Cancelaciones / eliminaciones', icon: Ban }
         ]
     }
@@ -119,6 +122,7 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
 
     // Ingresos reales mensuales (Postgres, fecha_ingreso) para el card del Dashboard General.
     const [monitorIngresos, setMonitorIngresos] = useState(null);
+    const [zohoPendingCount, setZohoPendingCount] = useState(0);
     useEffect(() => {
         if (!canOnboarding) return undefined;
         let alive = true;
@@ -128,6 +132,9 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                 if (alive && Array.isArray(r?.ingresos_by_month)) setMonitorIngresos(r.ingresos_by_month);
             })
             .catch(() => {});
+        fetchFichaNovedadesPendingCount(auth?.token || '').then((n) => {
+            if (alive) setZohoPendingCount(n);
+        });
         return () => {
             alive = false;
         };
@@ -348,6 +355,14 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                 );
             case 'cancelaciones':
                 return <CancelacionesView auth={auth} isLight={isLight} />;
+            case 'novedades-zoho':
+                return (
+                    <FichaNovedadesView
+                        auth={auth}
+                        isLight={isLight}
+                        onPendingCount={setZohoPendingCount}
+                    />
+                );
             default:
                 return null;
         }
@@ -433,7 +448,14 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                                     }`}
                                 >
                                     <Icon size={17} />
-                                    <span>{label}</span>
+                                    <span className="flex flex-1 items-center justify-between gap-2">
+                                        <span>{label}</span>
+                                        {id === 'novedades-zoho' && zohoPendingCount > 0 ? (
+                                            <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                                {zohoPendingCount}
+                                            </span>
+                                        ) : null}
+                                    </span>
                                 </button>
                             ))}
                         </div>
@@ -499,7 +521,16 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                                     } ${navView === id ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.35)]' : mt.navInactive}`}
                                 >
                                     <Icon size={18} className="flex-shrink-0" />
-                                    {sidebarOpen ? <span className="truncate">{label}</span> : null}
+                                    {sidebarOpen ? (
+                                        <span className="flex flex-1 items-center justify-between gap-2 truncate">
+                                            <span className="truncate">{label}</span>
+                                            {id === 'novedades-zoho' && zohoPendingCount > 0 ? (
+                                                <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                                    {zohoPendingCount}
+                                                </span>
+                                            ) : null}
+                                        </span>
+                                    ) : null}
                                 </button>
                             ))}
                         </div>

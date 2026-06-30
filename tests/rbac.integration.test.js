@@ -12,7 +12,7 @@ const {
   isNovedadTipoRetiradoDelFormulario
 } = require('../src/rbac');
 
-const EXPECTED_ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial', 'consultor'];
+const EXPECTED_ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'analista_conciliaciones', 'gp', 'nomina', 'comercial', 'consultor'];
 const allRoles = Object.keys(POLICY).sort();
 
 describe('RBAC - prioridad de roles', () => {
@@ -178,6 +178,7 @@ describe('RBAC - matriz roles en POLICY x tipos', () => {
           role === 'cac' ||
           role === 'admin_ch' ||
           role === 'team_ch' ||
+          role === 'analista_conciliaciones' ||
           (rule.viewers || []).includes(role);
         const expectedApprove = role === 'super_admin' || role === 'cac' || (rule.approvers || []).includes(role);
         assert.equal(

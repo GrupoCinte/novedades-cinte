@@ -1,7 +1,7 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { buildDynamoLowLevelClientConfig } = require('./awsDynamoClientConfig');
-const { mapDynamoItemToExecution } = require('./utils/mappers');
+const { isOnboardingMonitorItem, mapDynamoItemToExecution } = require('./utils/mappers');
 const { scanAllItems, queryAllItems, DEFAULT_MAX } = require('./utils/dynamoPaged');
 const { validate, validateQuery } = require('./middleware/validate');
 const { emailQuerySchema } = require('./schemas/users');
@@ -59,14 +59,16 @@ function registerContratacionRoutes(deps) {
         if (!configured || !docClient) return notConfigured(res);
         try {
             const items = await scanAllItems(docClient, tableName, { maxItems });
-            const executions = items.map(mapDynamoItemToExecution);
+            const onboardingItems = items.filter(isOnboardingMonitorItem);
+            const executions = onboardingItems.map(mapDynamoItemToExecution);
             return res.json({
                 success: true,
                 count: executions.length,
                 executions,
                 meta: {
                     region: process.env.AWS_REGION || 'us-east-1',
-                    dynamoScanItemCount: items.length
+                    dynamoScanItemCount: items.length,
+                    zohoNovedadFilteredCount: items.length - onboardingItems.length
                 }
             });
         } catch (error) {
