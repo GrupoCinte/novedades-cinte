@@ -608,6 +608,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 if (facturacionRow && normalizeCedula(facturacionRow.cedula) === normalizeCedula(payload.cedula)) {
                     setFacturacionRow((prev) => (prev ? { ...prev, estado: nextEst } : prev));
                 }
+                await refreshAfterMutation('revision');
                 const msgKind =
                     revisionAccion === 'aprobar'
                         ? 'revision_aprobada'
@@ -626,7 +627,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 setSavingFacturacion(false);
             }
         },
-        [token, ym.year, ym.month, facturacionRow, servicioSel?.id]
+        [token, ym.year, ym.month, facturacionRow, servicioSel?.id, refreshAfterMutation]
     );
 
     const handleSaveMasiva = useCallback(
@@ -664,6 +665,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                         etapaObjetivo
                     )
                 );
+                await refreshAfterMutation('masiva');
                 setSuccess(
                     facturacionSuccessMessage('masiva', {
                         updated: result?.updated ?? eligibleRows.length,
@@ -676,7 +678,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 setSavingMasiva(false);
             }
         },
-        [token, ym.year, ym.month, clienteServicio, filteredRows, rowsDelServicio, hasEstadoFilter, userRole, servicioSel?.id]
+        [token, ym.year, ym.month, clienteServicio, filteredRows, rowsDelServicio, hasEstadoFilter, userRole, servicioSel?.id, refreshAfterMutation]
     );
 
     const handleOpenMasiva = useCallback(() => {

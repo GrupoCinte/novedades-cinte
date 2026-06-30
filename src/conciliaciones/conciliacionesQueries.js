@@ -33,7 +33,12 @@ const {
 } = require('./conciliacionAjustes');
 const { resolveDiasBaseMes } = require('./conciliacionDiasBaseMes');
 const { tryNotifyServiciosCompletos } = require('./conciliacionServicioNotify');
-const { listNovedadesElegiblesParaCierre, consumirNovedadesParaCierreAnalista, liberarNovedadesConsumidas } = require('./conciliacionNovedadElegibilidad');
+const {
+    listNovedadesElegiblesParaCierre,
+    listNovedadesParaFacturacionResumen,
+    consumirNovedadesParaCierreAnalista,
+    liberarNovedadesConsumidas
+} = require('./conciliacionNovedadElegibilidad');
 const {
     isAdvanceMonthBilling,
     aggregateAdvanceFactura,
@@ -269,7 +274,7 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
     const mrNov = monthRangeDates(novBucket.year, novBucket.month);
     if (!mrNov) return { rows: [], totales: { tarifaSum: 0, incrementoSum: 0, deduccionSum: 0, facturaSum: 0, colaboradores: 0 } };
 
-    const novRows = await listNovedadesElegiblesParaCierre(deps, scope, {
+    const novRows = await listNovedadesParaFacturacionResumen(deps, scope, {
         clienteCanon,
         factAnio: factY,
         factMes: factM,
@@ -519,7 +524,7 @@ async function fetchConciliacionNovedadRowsForCierre(deps, scope, clienteCanon, 
     );
     const tarifaMaestro = Number(qTarifa.rows[0]?.tarifa_cliente) || 0;
 
-    const elegibles = await listNovedadesElegiblesParaCierre(deps, scope, {
+    const novedadRows = await listNovedadesParaFacturacionResumen(deps, scope, {
         clienteCanon,
         cedulaRaw,
         factAnio: factY,
@@ -529,7 +534,7 @@ async function fetchConciliacionNovedadRowsForCierre(deps, scope, clienteCanon, 
         novedadesMonth: novBucket.month
     });
 
-    const ids = elegibles.map((r) => r.id).filter(Boolean);
+    const ids = novedadRows.map((r) => r.id).filter(Boolean);
     if (!ids.length) {
         return { tarifaMaestro, filteredRows: [], factY, factM, cedDigits };
     }

@@ -1,19 +1,19 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-test('resolveRefreshTargets: workspace sin refetch en revisión/masiva', async () => {
+test('resolveRefreshTargets: workspace refresca resumen silencioso en revisión/masiva', async () => {
     const { resolveRefreshTargets } = await import('../react-frontend/src/conciliaciones/facturacionLogic.js');
 
     assert.deepEqual(resolveRefreshTargets({ hasServicioSel: true, mutationKind: 'revision' }), {
-        resumen: false,
+        resumen: true,
         cola: false,
-        resumenSilent: false,
+        resumenSilent: true,
         colaBackground: false
     });
     assert.deepEqual(resolveRefreshTargets({ hasServicioSel: true, mutationKind: 'masiva' }), {
-        resumen: false,
+        resumen: true,
         cola: false,
-        resumenSilent: false,
+        resumenSilent: true,
         colaBackground: false
     });
 });

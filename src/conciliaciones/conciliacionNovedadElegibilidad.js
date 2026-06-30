@@ -203,6 +203,76 @@ async function listNovedadesElegiblesParaCierre(deps, scope, opts) {
 }
 
 /**
+ * Novedades ya consumidas en un cierre (siguen visibles en resumen/detalle tras aprobar analista).
+ * @param {object} deps
+ * @param {object} scope
+ * @param {{ clienteCanon: string, cedulaRaw?: string, factAnio: number, factMes: number }} opts
+ * @returns {Promise<object[]>}
+ */
+async function listNovedadesConsumidasParaCierre(deps, scope, opts) {
+    const { pool, normalizeCedula, canRoleViewType } = deps;
+    const factY = Number(opts.factAnio);
+    const factM = Number(opts.factMes);
+    if (!Number.isFinite(factY) || !Number.isFinite(factM) || factM < 1 || factM > 12) return [];
+
+    const areaPart = novedadesAreaClause(scope);
+    const params = [opts.clienteCanon, factY, factM];
+    let areaSql = areaPart.sql;
+    if (areaPart.params.length) {
+        params.push(areaPart.params[0]);
+        areaSql = areaSql.replace('$IDX', `$${params.length}`);
+    }
+
+    let cedulaSql = '';
+    const cedDigits = opts.cedulaRaw != null ? normalizeCedula(opts.cedulaRaw) : '';
+    if (cedDigits) {
+        params.push(cedDigits);
+        cedulaSql = ` AND regexp_replace(COALESCE(cnc.cedula, ''), '\\D', '', 'g') = $${params.length}`;
+    }
+
+    const q = await pool.query(
+        `SELECT ${NOVEDADES_ELEGIBLES_SELECT}
+         FROM conciliaciones_novedad_consumo cnc
+         INNER JOIN novedades nov ON nov.id = cnc.novedad_id
+         WHERE cnc.anio = $2::integer
+           AND cnc.mes = $3::integer
+           AND lower(btrim(COALESCE(nov.cliente, ''))) = lower(btrim($1::text))
+         ${cedulaSql}
+         ${areaSql}`,
+        params
+    );
+
+    const role = String(scope?.role || '');
+    return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad));
+}
+
+/** @param {object[]} rows */
+function mergeNovedadRowsById(rows) {
+    const byId = new Map();
+    for (const row of rows || []) {
+        const key = row?.id
+            ? String(row.id)
+            : `${row?.cedula}-${row?.fecha_inicio}-${row?.tipo_novedad}-${byId.size}`;
+        byId.set(key, row);
+    }
+    return Array.from(byId.values());
+}
+
+/**
+ * Elegibles + consumidas del cierre (sin duplicar por id).
+ * @param {object} deps
+ * @param {object} scope
+ * @param {object} opts
+ */
+async function listNovedadesParaFacturacionResumen(deps, scope, opts) {
+    const [elegibles, consumidas] = await Promise.all([
+        listNovedadesElegiblesParaCierre(deps, scope, opts),
+        listNovedadesConsumidasParaCierre(deps, scope, opts)
+    ]);
+    return mergeNovedadRowsById([...elegibles, ...consumidas]);
+}
+
+/**
  * @param {import('pg').PoolClient} client
  * @param {object} deps
  * @param {object} scope
@@ -267,6 +337,9 @@ module.exports = {
     novedadElegibleWhereSql,
     novedadAjusteAnticipoWhereSql,
     listNovedadesElegiblesParaCierre,
+    listNovedadesConsumidasParaCierre,
+    mergeNovedadRowsById,
+    listNovedadesParaFacturacionResumen,
     consumirNovedadesParaCierreAnalista,
     liberarNovedadesConsumidas
 };

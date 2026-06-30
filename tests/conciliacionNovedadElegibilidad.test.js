@@ -98,6 +98,52 @@ test('novedad consumida no aparece en otro cierre', async () => {
     assert.ok(sqlText.includes('conciliaciones_novedad_consumo'));
 });
 
+test('novedad consumida sigue visible en resumen del mismo cierre', async () => {
+    const {
+        listNovedadesConsumidasParaCierre,
+        listNovedadesParaFacturacionResumen
+    } = require('../src/conciliaciones/conciliacionNovedadElegibilidad');
+
+    const consumedRow = {
+        id: '55555555-5555-5555-5555-555555555555',
+        cedula: '12345678',
+        tipo_novedad: 'Bonos',
+        monto_cop: '50',
+        cantidad_horas: 0,
+        unidad: null,
+        modalidad: null,
+        hora_inicio: null,
+        hora_fin: null,
+        fecha_inicio: '2026-06-01',
+        fecha_fin: '2026-06-01',
+        aprobado_en: new Date('2026-06-02T12:00:00Z')
+    };
+
+    const pool = {
+        query: async (sql) => {
+            const s = String(sql);
+            if (s.includes('conciliaciones_novedad_consumo')) {
+                return { rows: [consumedRow] };
+            }
+            if (s.includes('FROM novedades')) {
+                return { rows: [] };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = { pool, normalizeCedula, canRoleViewType };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+    const opts = { clienteCanon: 'Cliente X', factAnio: 2026, factMes: 6 };
+
+    const consumidas = await listNovedadesConsumidasParaCierre(deps, scope, opts);
+    assert.equal(consumidas.length, 1);
+    assert.equal(String(consumidas[0].id), consumedRow.id);
+
+    const merged = await listNovedadesParaFacturacionResumen(deps, scope, opts);
+    assert.equal(merged.length, 1);
+    assert.equal(String(merged[0].id), consumedRow.id);
+});
+
 test('revert libera novedades consumidas', async () => {
     const calls = [];
     const client = {

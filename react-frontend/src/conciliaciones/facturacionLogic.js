@@ -696,7 +696,12 @@ export function resolveRefreshTargets({ hasServicioSel, mutationKind } = {}) {
         return { resumen: false, cola: true, resumenSilent: false, colaBackground: true };
     }
     if (kind === 'revision' || kind === 'masiva') {
-        return { resumen: false, cola: false, resumenSilent: false, colaBackground: false };
+        return {
+            resumen: inWorkspace,
+            cola: false,
+            resumenSilent: inWorkspace,
+            colaBackground: false
+        };
     }
     if (kind === 'ajustes' || kind === 'revert') {
         return {
