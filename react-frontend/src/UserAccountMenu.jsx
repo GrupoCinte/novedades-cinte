@@ -261,48 +261,6 @@ export default function UserAccountMenu({
                     {ini}
                 </button>
 
-                {open ? (
-                    <div
-                        className={`absolute ${isSidebar ? 'left-0 bottom-full mb-2' : 'right-0 top-full'} z-[80] w-64 overflow-hidden rounded-xl py-1.5 ${panelClass}`}
-                        role="menu"
-                    >
-                        <button type="button" role="menuitem" className={itemClass} onClick={() => go('/admin')}>
-                            <User size={18} className="opacity-80" />
-                            Mi perfil
-                        </button>
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={itemClass}
-                            onClick={() => go(ACCOUNT_SETTINGS_PATH)}
-                        >
-                            <Settings size={18} className="opacity-80" />
-                            Configuración
-                        </button>
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={itemClass}
-                            onClick={() => go('/perfil/cambiar-clave')}
-                        >
-                            <KeyRound size={18} className="opacity-80" />
-                            Cambiar contraseña
-                        </button>
-                        <div className={`my-1.5 h-px ${bannerLight ? 'bg-slate-200' : isBanner ? 'bg-white/10' : isLight ? 'bg-slate-200' : 'bg-[#1a3a56]'}`} />
-                        <button
-                            type="button"
-                            role="menuitem"
-                            className={itemDanger}
-                            onClick={() => {
-                                setOpen(false);
-                                onLogout?.();
-                            }}
-                        >
-                            <LogOut size={18} />
-                            Cerrar sesión
-                        </button>
-                    </div>
-                ) : null}
                 {accountMenuPanel}
             </div>
 
