@@ -17,9 +17,12 @@ function CheckIcon() {
 
 function resolveStepState(index, key, estados) {
     const count = estados[key] ?? 0;
-    const laterHas = ESTADOS_FACTURACION_META.slice(index + 1).some((s) => (estados[s.key] ?? 0) > 0);
-    const done = count === 0 && laterHas;
+    const maxActiveIndex = ESTADOS_FACTURACION_META.reduce(
+        (max, step, stepIndex) => ((estados[step.key] ?? 0) > 0 ? stepIndex : max),
+        -1
+    );
     const current = count > 0;
+    const done = maxActiveIndex >= 0 && index < maxActiveIndex && count === 0;
     return { count, done, current, pending: !done && !current };
 }
 

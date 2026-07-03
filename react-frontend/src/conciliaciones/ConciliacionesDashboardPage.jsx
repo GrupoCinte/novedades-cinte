@@ -202,6 +202,7 @@ export default function ConciliacionesDashboardPage({ token }) {
                 onClienteChange={() => {}}
                 monthValue={monthValue}
                 onMonthChange={setMonthValue}
+                minMonthValue={currentMonthValue()}
                 field={field}
                 labelMuted={labelMuted}
                 hideClienteSelector

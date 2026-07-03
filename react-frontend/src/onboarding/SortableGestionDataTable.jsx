@@ -55,13 +55,18 @@ export default function SortableGestionDataTable({
                                                 className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 font-semibold text-inherit hover:text-[#65BCF7]"
                                             >
                                                 {c.label}
-                                                {active ? (
-                                                    sort.dir === 'asc' ? (
-                                                        <ArrowUp size={14} className="shrink-0 text-[#65BCF7]" />
-                                                    ) : (
-                                                        <ArrowDown size={14} className="shrink-0 text-[#65BCF7]" />
-                                                    )
-                                                ) : null}
+                                                <span
+                                                    className="inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center"
+                                                    aria-hidden
+                                                >
+                                                    {active ? (
+                                                        sort.dir === 'asc' ? (
+                                                            <ArrowUp size={14} className="text-[#65BCF7]" />
+                                                        ) : (
+                                                            <ArrowDown size={14} className="text-[#65BCF7]" />
+                                                        )
+                                                    ) : null}
+                                                </span>
                                             </button>
                                         ) : (
                                             c.label

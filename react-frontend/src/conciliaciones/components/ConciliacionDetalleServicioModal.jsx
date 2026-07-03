@@ -29,7 +29,9 @@ export default function ConciliacionDetalleServicioModal({
     onSuccess,
     clientes = [],
     isLight,
-    token
+    token,
+    /** Abrir directamente en edición + asociar consultores (AUT-551). */
+    initialAssociating = false
 }) {
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     
@@ -50,11 +52,13 @@ export default function ConciliacionDetalleServicioModal({
     
     const [saving, setSaving] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
+    const [consultorSearch, setConsultorSearch] = useState('');
 
     useEffect(() => {
         if (open && servicio) {
-            setMode('view');
-            setIsAssociating(false);
+            setMode(initialAssociating ? 'edit' : 'view');
+            setIsAssociating(Boolean(initialAssociating));
+            setConsultorSearch('');
             setErrorMsg('');
             setLoading(true);
             
@@ -86,7 +90,7 @@ export default function ConciliacionDetalleServicioModal({
             setMode('view');
             setIsAssociating(false);
         }
-    }, [open, servicio, token]);
+    }, [open, servicio, token, initialAssociating]);
 
     if (!open || !servicio) return null;
 
@@ -150,10 +154,15 @@ export default function ConciliacionDetalleServicioModal({
 
         try {
             const saved = await updateServicio(token, servicio.id, payloadServicio);
+            let consultoresCount = consultores.filter((c) => selectedConsultores[c.cedula]).length;
             if (isAssociating) {
                 await associateConsultoresToServicio(token, servicio.id, payloadAsociacion);
+                consultoresCount = payloadAsociacion.length;
             }
-            onSuccess(saved || { ...payloadServicio, id: servicio.id });
+            onSuccess({
+                ...(saved || { ...payloadServicio, id: servicio.id }),
+                consultoresCount
+            });
             onClose();
         } catch (err) {
             setErrorMsg(err.message || 'Error al guardar los cambios');
@@ -163,7 +172,16 @@ export default function ConciliacionDetalleServicioModal({
     };
 
     const inputBg = isLight ? 'field-control bg-white text-slate-900' : 'field-control';
-    const consultoresAMostrar = (mode === 'edit' && isAssociating) ? consultores : consultores.filter(c => selectedConsultores[c.cedula]);
+    const consultoresBase =
+        mode === 'edit' && isAssociating ? consultores : consultores.filter((c) => selectedConsultores[c.cedula]);
+    const consultorQuery = consultorSearch.trim().toLowerCase();
+    const consultoresAMostrar = consultorQuery
+        ? consultoresBase.filter((c) => {
+              const nombre = String(c.nombre || '').toLowerCase();
+              const cedula = String(c.cedula || '').toLowerCase();
+              return nombre.includes(consultorQuery) || cedula.includes(consultorQuery);
+          })
+        : consultoresBase;
 
     const titleElement = (
         <div className="flex items-center gap-3">
@@ -465,6 +483,19 @@ export default function ConciliacionDetalleServicioModal({
                             </div>
                         )}
                     </div>
+
+                    {mode === 'edit' && isAssociating ? (
+                        <div className="mb-3">
+                            <input
+                                type="search"
+                                value={consultorSearch}
+                                onChange={(e) => setConsultorSearch(e.target.value)}
+                                placeholder="Buscar por nombre o cédula…"
+                                className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
+                                aria-label="Buscar consultor"
+                            />
+                        </div>
+                    ) : null}
                     
                     {loading ? (
                         <div className="p-4 text-center text-sm opacity-70 animate-pulse">

@@ -259,7 +259,8 @@ async function createServicio(deps, scope, payload) {
         closingDay: item.closingDay,
         billingMode: item.billingMode,
         billingType: item.billingType ? String(item.billingType).trim() : '',
-        baseHours: item.baseHours != null ? Number(item.baseHours) : null
+        baseHours: item.baseHours != null ? Number(item.baseHours) : null,
+        consultoresCount: 0
     };
 }
 
