@@ -384,6 +384,11 @@ function registerOnboardingRoutes(deps) {
         if (filters._motivo_baja_present) {
             where.push(`c.motivo_baja IS NOT NULL`);
         }
+        if (filters._es_baja) {
+            where.push(
+                `(c.activo = FALSE OR c.motivo_baja IS NOT NULL OR c.fecha_baja_efectiva IS NOT NULL)`
+            );
+        }
 
         // Scope GP
         const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
@@ -432,7 +437,7 @@ function registerOnboardingRoutes(deps) {
         listColaboradoresOnboarding(req, res, { _fecha_ingreso_no_futura: true })
     );
     app.get('/api/onboarding/bajas', ...readGuard, (req, res) =>
-        listColaboradoresOnboarding(req, res, { activo: 'all', _motivo_baja_present: true })
+        listColaboradoresOnboarding(req, res, { activo: 'all', _es_baja: true })
     );
     app.get('/api/onboarding/sena', ...readGuard, (req, res) =>
         listColaboradoresOnboarding(req, res, { tipo_personal: 'sena', _fecha_ingreso_no_futura: true })

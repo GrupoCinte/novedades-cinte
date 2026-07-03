@@ -5,6 +5,10 @@
 const { flattenExtractorOutput } = require('../contratacion/extractorToFichaMap');
 const { COLABORADORES_EXTENDED_KEYS } = require('../colaboradores/colaboradoresExtendedColumns');
 const { normalizeChListText } = require('./chTextNormalize');
+const { insertTarifaHistorial } = require('../conciliaciones/conciliacionTarifaHistorial');
+const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAsignaciones');
+const { foldForMatch } = require('../cotizador/clienteNombreMatch');
+const { applyRegistroBajaColaborador } = require('./bajaColaborador');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
@@ -20,7 +24,7 @@ const VALID_SOURCES = new Set(['dynamo_stream_zoho', 'n8n_webhook', 'manual']);
 const WHITELIST_BY_TIPO = {
     integracion: null,
     modificacion_id: null,
-    salida: ['fecha_termino', 'fecha_notificacion_termino', 'termino'],
+    salida: ['fecha_termino', 'fecha_notificacion_termino', 'termino', 'fecha_baja_efectiva', 'activo'],
     extension: ['fecha_termino', 'duracion_servicio', 'venta_total', 'costo_empresa'],
     cancelacion_ingreso: ['onboarding_status', 'fecha_ingreso', 'codigo'],
     cancelacion_salida: ['fecha_termino', 'fecha_notificacion_termino', 'termino', 'activo']
@@ -183,7 +187,7 @@ function mapDynamoZohoPayload(rawItem) {
     };
 }
 
-function normalizeExtractorPayload(extractorOutput) {
+function normalizeExtractorPayload(extractorOutput, tipoNovedad) {
     if (!extractorOutput || typeof extractorOutput !== 'object') return {};
     const flat = flattenExtractorOutput(extractorOutput);
     const out = {};
@@ -194,6 +198,11 @@ function normalizeExtractorPayload(extractorOutput) {
         } else {
             out[k] = v;
         }
+    }
+    const tipo = String(tipoNovedad || '').trim().toLowerCase();
+    if (tipo === 'modificacion_id' && out.fecha_ingreso) {
+        out.vigente_desde = out.fecha_ingreso;
+        delete out.fecha_ingreso;
     }
     return out;
 }
@@ -347,7 +356,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             };
         }
 
-        const normalized = normalizeExtractorPayload(mapped.extractor_output);
+        const normalized = normalizeExtractorPayload(mapped.extractor_output, mapped.tipo_novedad);
         if (mapped.tipo_novedad === 'cancelacion_ingreso') {
             normalized.onboarding_status = 'cancelado_ingreso';
         }
@@ -560,13 +569,69 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             throw Object.assign(new Error('Vincule un colaborador antes de aprobar'), { status: 400 });
         }
 
+        const tipo = String(row.tipo_novedad || '').trim().toLowerCase();
         const normalized = row.payload_normalizado || {};
         const patch = buildPatchFromNormalized(row.tipo_novedad, normalized);
-        if (Object.keys(patch).length === 0) {
+        if (Object.keys(patch).length === 0 && tipo !== 'salida') {
             throw Object.assign(new Error('Payload sin campos aplicables'), { status: 400 });
         }
+        if (tipo === 'salida' && !patch.fecha_termino && !normalized.fecha_termino) {
+            throw Object.assign(new Error('Salida sin fecha_termino'), { status: 400 });
+        }
 
-        await applyPatchToColaborador(cedula, patch);
+        const current = await loadColaboradorFull(pool, cedula);
+
+        if (tipo === 'salida') {
+            await applyRegistroBajaColaborador(pool, cedula, {
+                fecha_termino: patch.fecha_termino || normalized.fecha_termino,
+                termino: patch.termino || normalized.termino
+            });
+            delete patch.fecha_termino;
+            delete patch.fecha_notificacion_termino;
+            delete patch.termino;
+            delete patch.fecha_baja_efectiva;
+            delete patch.activo;
+        }
+
+        const clienteNuevo = normalized.cliente ? String(normalized.cliente).trim() : '';
+        const clienteActual = current?.cliente ? String(current.cliente).trim() : '';
+        const esClienteDistinto =
+            clienteNuevo &&
+            clienteActual &&
+            foldForMatch(clienteNuevo) !== foldForMatch(clienteActual);
+
+        if (esClienteDistinto && (tipo === 'modificacion_id' || tipo === 'integracion')) {
+            await upsertColaboradorAsignacion(pool, {
+                cedula,
+                cliente: clienteNuevo,
+                tarifa: normalized.tarifa_cliente ?? patch.tarifa_cliente,
+                fechaInicio: normalized.vigente_desde || normalized.fecha_ingreso || patch.fecha_ingreso,
+                codigoZoho: normalized.codigo || patch.codigo
+            });
+            delete patch.cliente;
+            if (patch.tarifa_cliente != null) delete patch.tarifa_cliente;
+        }
+
+        if (tipo === 'modificacion_id') {
+            const vigenteDesde = normalized.vigente_desde || patch.vigente_desde;
+            const nuevaTarifa = normalized.tarifa_cliente ?? patch.tarifa_cliente;
+            const clienteHist = esClienteDistinto ? clienteNuevo : clienteActual || clienteNuevo;
+            if (vigenteDesde && nuevaTarifa != null && clienteHist) {
+                await insertTarifaHistorial(pool, cedula, clienteHist, nuevaTarifa, vigenteDesde, {
+                    source: 'ficha_modificacion',
+                    stagingId: id
+                });
+                const hoy = new Date().toISOString().slice(0, 10);
+                if (String(vigenteDesde) > hoy) {
+                    delete patch.tarifa_cliente;
+                }
+            }
+            delete patch.vigente_desde;
+        }
+
+        if (Object.keys(patch).length > 0) {
+            await applyPatchToColaborador(cedula, patch);
+        }
 
         const reviewedBy = trimOrNull(reviewer.sub || reviewer.email || reviewer.displayName, 320);
         await pool.query(

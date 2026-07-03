@@ -94,8 +94,8 @@ function buildImpactoHorasMode(tarifa, horas, horasBaseMes, impacto) {
     };
 }
 
-function buildImpactoDiasHorasMode(tarifa, dias, horasBaseMes) {
-    const { montoCop, valorHora } = montoPorDiasHorasMode(tarifa, dias, horasBaseMes);
+function buildImpactoDiasHorasMode(tarifa, dias, horasBaseMes, options = {}) {
+    const { montoCop, valorHora } = montoPorDiasHorasMode(tarifa, dias, horasBaseMes, options);
     return {
         impacto: 'resta',
         medida: 'days',
@@ -136,10 +136,22 @@ function roundCop(n) {
     return Math.round(Number(n) || 0);
 }
 
-function montoPorDias(tarifaCliente, dias) {
+function montoPorDias(tarifaCliente, dias, options = {}) {
     const d = Number(dias) || 0;
     if (d <= 0) return 0;
-    return roundCop((Number(tarifaCliente) / DIAS_MES_FACTURACION) * d);
+    const denom = resolveDiasDenominadorMes(options);
+    return roundCop((Number(tarifaCliente) / denom) * d);
+}
+
+function resolveDiasDenominadorMes(options = {}) {
+    const custom = Number(options.diasDenominadorMes);
+    if (Number.isFinite(custom) && custom > 0) return custom;
+    const y = Number(options.factAnio ?? options.factYear ?? options.anio);
+    const m = Number(options.factMes ?? options.factMonth ?? options.mes);
+    if (Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12) {
+        return new Date(y, m, 0).getDate();
+    }
+    return DIAS_MES_FACTURACION;
 }
 
 /** Horas base del mes: baseHours del servicio en modo HOURS, si no 176. */
@@ -171,9 +183,9 @@ function isHoursBillingMode(options = {}) {
 }
 
 /** Modo HOURS: expone valorHora; monto días sigue siendo tarifa/30 × días (sin deriva de redondeo). */
-function montoPorDiasHorasMode(tarifa, dias, horasBaseMes) {
+function montoPorDiasHorasMode(tarifa, dias, horasBaseMes, options = {}) {
     return {
-        montoCop: montoPorDias(tarifa, dias),
+        montoCop: montoPorDias(tarifa, dias, options),
         valorHora: computeValorHoraCop(tarifa, horasBaseMes)
     };
 }
@@ -247,9 +259,9 @@ function computeNovedadImpactoMonto(tarifaCliente, novedadRow, options = {}) {
     if (medida === 'days') {
         const dias = getDiasConciliacion(tipo, ctx);
         if (hoursMode) {
-            return buildImpactoDiasHorasMode(tarifa, dias, horasBaseMes);
+            return buildImpactoDiasHorasMode(tarifa, dias, horasBaseMes, options);
         }
-        const monto = montoPorDias(tarifa, dias);
+        const monto = montoPorDias(tarifa, dias, options);
         return {
             impacto: 'resta',
             medida: 'days',
@@ -306,6 +318,8 @@ module.exports = {
     computeValorHoraCop,
     buildHorasBillingContext,
     montoPorHoras,
+    montoPorDias,
+    resolveDiasDenominadorMes,
     montoPorDiasHorasMode,
     isHoursBillingMode,
     computeNovedadImpactoMonto,

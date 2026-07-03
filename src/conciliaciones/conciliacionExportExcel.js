@@ -1,7 +1,7 @@
 'use strict';
 
 const { resolveNovedadesBucket } = require('./facturacionAggregate');
-const { aggregateServicioCierre, deriveEstadoCola } = require('./facturacionAggregate');
+const { aggregateServicioCierre, deriveEstadoCola, mergeConciliacionServicioRows } = require('./facturacionAggregate');
 const { resolveDiasBaseMes } = require('./conciliacionDiasBaseMes');
 
 function normalizeCedulaLocal(value) {
@@ -57,8 +57,9 @@ async function buildConciliacionServicioExcelWorkbook(deps, scope, query) {
     const cedulas = (Array.isArray(serv.consultoresCedulas) ? serv.consultoresCedulas : [])
         .map(normalizeCedulaLocal)
         .filter(Boolean);
-    const rows = (resumen.rows || []).filter((r) => cedulas.includes(normalizeCedulaLocal(r.cedula)));
-    const agg = aggregateServicioCierre(resumen.rows || [], cedulas);
+    const allRows = resumen.rows || [];
+    const rows = mergeConciliacionServicioRows(allRows, cedulas);
+    const agg = aggregateServicioCierre(allRows, cedulas);
 
     const { assertServicioListoExport } = require('./conciliacionServicioCierre');
     await assertServicioListoExport(deps, scope, {
@@ -131,7 +132,9 @@ async function buildConciliacionServicioExcelWorkbook(deps, scope, query) {
         { header: 'Cédula', key: 'cedula', width: 14 },
         { header: 'Nombre', key: 'nombre', width: 28 },
         { header: 'Líder', key: 'lider', width: 22 },
-        { header: 'Tarifa', key: 'tarifaCliente', width: 14 },
+        { header: 'Tarifa catálogo', key: 'tarifaMaestro', width: 14 },
+        { header: 'Días fact.', key: 'diasFacturables', width: 10 },
+        { header: 'Tarifa prorrateada', key: 'tarifaCliente', width: 16 },
         { header: 'Deducción', key: 'novedadesSumCop', width: 14 },
         { header: 'Incremento', key: 'novedadesSumaCop', width: 14 },
         { header: 'Factura neta', key: 'facturaCop', width: 14 },
@@ -143,6 +146,8 @@ async function buildConciliacionServicioExcelWorkbook(deps, scope, query) {
             cedula: r.cedula,
             nombre: r.nombre,
             lider: r.lider || '',
+            tarifaMaestro: r.tarifaMaestro,
+            diasFacturables: r.prorrateoAplicado ? `${r.diasFacturables}/${r.diasMes}` : r.diasMes || '',
             tarifaCliente: r.tarifaCliente,
             novedadesSumCop: r.novedadesSumCop,
             novedadesSumaCop: r.novedadesSumaCop,

@@ -24,10 +24,16 @@ function countBusinessDaysInMonth(year, month, festivosSet) {
  */
 function resolveDiasBaseMes({ billingMode, year, month, festivosSet = null }) {
     const mode = String(billingMode || '').trim().toUpperCase();
+    const y = Number(year);
+    const m = Number(month);
+    const calendarDaysInMonth =
+        Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12
+            ? new Date(y, m, 0).getDate()
+            : DIAS_MES_FACTURACION;
     if (mode === 'CALENDAR_DAYS') {
         return {
-            diasBaseMes: DIAS_MES_FACTURACION,
-            diasBaseLabel: 'Días calendario (estándar)',
+            diasBaseMes: calendarDaysInMonth,
+            diasBaseLabel: 'Días calendario del mes',
             festivosAplicados: false
         };
     }

@@ -25,6 +25,37 @@ test('aggregateServicioCierre filtra por cédulas y suma totales', () => {
     assert.equal(agg.estados.CONCILIADA, 1);
 });
 
+test('aggregateServicioCierre incluye salidas del mes no asociadas en Dynamo', () => {
+    const rows = [
+        {
+            cedula: '123',
+            activo: true,
+            tarifaCliente: 1000,
+            novedadesSumCop: 0,
+            novedadesSumaCop: 0,
+            facturaCop: 1000,
+            novedadesCount: 0,
+            cerrado: true,
+            estado: 'APROBADO_FINANZAS'
+        },
+        {
+            cedula: '5617956',
+            activoColaborador: false,
+            tarifaCliente: 500,
+            novedadesSumCop: 50,
+            novedadesSumaCop: 0,
+            facturaCop: 450,
+            novedadesCount: 1,
+            cerrado: true,
+            estado: 'APROBADO_FINANZAS'
+        }
+    ];
+    const agg = aggregateServicioCierre(rows, ['123']);
+    assert.equal(agg.consultoresTotal, 2);
+    assert.equal(agg.totales.tarifaSum, 1500);
+    assert.equal(agg.totales.facturaSum, 1450);
+});
+
 test('deriveEstadoCola prioriza sin consultores, devuelta, conciliada y pendiente', () => {
     assert.equal(deriveEstadoCola({ consultoresTotal: 0, consultoresCerrados: 0, estados: {} }), 'SIN_CONSULTORES');
     assert.equal(

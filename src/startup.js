@@ -42,6 +42,8 @@ async function startServer(deps) {
         ensureConciliacionesServicioNotificacionesTable,
         ensureConciliacionesServicioCierreTable,
         ensureConciliacionesNovedadConsumoTable,
+        ensureColaboradorAsignacionesTable,
+        ensureColaboradorTarifaHistorialTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
@@ -89,6 +91,14 @@ async function startServer(deps) {
     await ensureConciliacionesServicioNotificacionesTable();
     await ensureConciliacionesServicioCierreTable();
     await ensureConciliacionesNovedadConsumoTable();
+    await ensureColaboradorAsignacionesTable();
+    await ensureColaboradorTarifaHistorialTable();
+    try {
+        const { migrateColaboradoresToAsignaciones } = require('./conciliaciones/colaboradorAsignaciones');
+        await migrateColaboradoresToAsignaciones(pool);
+    } catch (e) {
+        logger.warn({ error: e?.message }, 'Migración colaborador_asignaciones omitida');
+    }
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
     /**
