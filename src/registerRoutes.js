@@ -1973,7 +1973,7 @@ function registerRoutes(deps) {
                         if (!isYmdEnVentanaCompensatorio(prevHeDom.domingoTrabajadoYmd, rawDiaComp)) {
                             return res.status(400).json({
                                 ok: false,
-                                error: `Indica un día compensatorio entre ${prevHeDom.compensatorioTiempoMinYmd} y ${prevHeDom.compensatorioTiempoMaxYmd} (15 días calendario posteriores al domingo trabajado).`
+                                error: `Indica un día compensatorio entre ${prevHeDom.compensatorioTiempoMinYmd} y ${prevHeDom.compensatorioTiempoMaxYmd} (lunes a sábado de la semana siguiente al domingo trabajado).`
                             });
                         }
                         heDomingoObservacionInsert = buildHeDomingoCompObservacionLine({
