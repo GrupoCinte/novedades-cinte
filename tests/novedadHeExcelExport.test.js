@@ -8,7 +8,8 @@ const {
     buildHoraExtraExportSlices,
     compensacionDominicalExcelEtiqueta,
     formatTipoNovedadHeSlice,
-    buildHeLaboralDomingoSlices
+    buildHeLaboralDomingoSlices,
+    msRangeToExcelHoraFields
 } = require('../src/novedadHeExcelExport');
 
 describe('novedadHeExcelExport', () => {
@@ -185,5 +186,75 @@ describe('novedadHeExcelExport', () => {
         assert.equal(slices.length, 1);
         assert.equal(slices[0].sliceKey, 'diurna_dominical');
         assert.equal(slices[0].tipoLabel, `${HE_TIPO_CANONICO.HE_DIURNA_DOM} — sin compensatorio`);
+    });
+
+    it('msRangeToExcelHoraFields respeta frontera exclusiva en fin', () => {
+        const dep = { toUtcMsFromDateAndTime };
+        const startMs = toUtcMsFromDateAndTime('2026-03-01', '06:00');
+        const endMs = toUtcMsFromDateAndTime('2026-03-01', '19:00');
+        const fields = msRangeToExcelHoraFields(startMs, endMs);
+        assert.equal(fields.fechaInicio, '2026-03-01');
+        assert.equal(fields.fechaFin, '2026-03-01');
+        assert.equal(fields.horaInicial, '06:00');
+        assert.equal(fields.horaFinal, '18:59');
+    });
+
+    it('con dep: cada slice HE tiene franja horaria distinta al rango global', () => {
+        const dep = { toUtcMsFromDateAndTime, festivosSet: new Set() };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            fechaInicio: '2026-03-01',
+            fechaFin: '2026-03-01',
+            horaInicio: '09:00',
+            horaFin: '22:00',
+            horasDiurnas: 2.67,
+            horasNocturnas: 3,
+            horasRecargoDomingoDiurnas: 7.33,
+            horasRecargoDomingoNocturnas: 0,
+            horasRecargoDomingo: 7.33,
+            heDomingoObservacion: ''
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        assert.ok(slices.length >= 3);
+        for (const slice of slices) {
+            assert.ok(slice.startMs != null && slice.endMs != null, `slice ${slice.sliceKey} sin rango`);
+        }
+        const signatures = slices.map((s) => {
+            const r = msRangeToExcelHoraFields(s.startMs, s.endMs);
+            return `${r.fechaInicio} ${r.horaInicial}–${r.fechaFin} ${r.horaFinal}`;
+        });
+        assert.equal(new Set(signatures).size, signatures.length, 'franjas repetidas: ' + signatures.join(' | '));
+        const allGlobal = slices.every((s) => {
+            const r = msRangeToExcelHoraFields(s.startMs, s.endMs);
+            return r.horaInicial === '09:00' && r.horaFinal === '22:00';
+        });
+        assert.equal(allGlobal, false);
+    });
+
+    it('con dep: HE sábado→domingo asigna franjas laboral y dominical consecutivas', () => {
+        const dep = { toUtcMsFromDateAndTime, festivosSet: new Set() };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            fechaInicio: '2026-03-07',
+            fechaFin: '2026-03-08',
+            horaInicio: '18:00',
+            horaFin: '10:00',
+            horasDiurnas: 5,
+            horasNocturnas: 4,
+            horasRecargoDomingoDiurnas: 0,
+            horasRecargoDomingoNocturnas: 0,
+            horasRecargoDomingo: 0,
+            heDomingoObservacion: ''
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        const diLaboral = slices.find((s) => s.sliceKey === 'diurna_laboral');
+        const diDom = slices.find((s) => s.sliceKey === 'diurna_dominical');
+        assert.ok(diLaboral?.startMs != null);
+        assert.ok(diDom?.startMs != null);
+        const rLab = msRangeToExcelHoraFields(diLaboral.startMs, diLaboral.endMs);
+        const rDom = msRangeToExcelHoraFields(diDom.startMs, diDom.endMs);
+        assert.equal(rLab.fechaInicio, '2026-03-07');
+        assert.equal(rDom.fechaInicio, '2026-03-08');
+        assert.notEqual(`${rLab.horaInicial}-${rLab.horaFinal}`, `${rDom.horaInicial}-${rDom.horaFinal}`);
     });
 });

@@ -1,8 +1,17 @@
 'use strict';
 
 const { parseHeDomingoCompFromObservacion } = require('./heDomingoCompensacion');
-const { splitHoursByBogotaDay, isSundayBogotaYmd } = require('./heDomingoBogota');
-const { collectHeDiurnaNocturnaSegmentsBogota } = require('./heBogotaSplit');
+const {
+    splitHoursByBogotaDay,
+    isSundayBogotaYmd,
+    bogotaDateKeyFromMs,
+    bogotaMidnightUtcMsFromYmd,
+    isDiaRecargoDominicalBogotaYmd
+} = require('./heDomingoBogota');
+const {
+    collectHeDiurnaNocturnaSegmentsBogota,
+    collectRecargoDomingoDiurnaNocturnaSegmentsBogota
+} = require('./heBogotaSplit');
 const {
     HE_TIPO_CANONICO,
     formatHeTipoFromSliceKey,
@@ -11,10 +20,147 @@ const {
 } = require('./novedadHeTipoCatalog');
 
 /**
- * @typedef {{ sliceKey: string, tipoLabel: string, hours: number, columnKey: string }} HeExcelSlice
+ * @typedef {{ sliceKey: string, tipoLabel: string, hours: number, columnKey: string, startMs?: number, endMs?: number }} HeExcelSlice
  */
 
 const EPS_H = 0.06;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+const dtfHmBogota = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Bogota',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23'
+});
+
+/**
+ * Convierte [startMs, endMs) a campos Excel de fecha/hora en calendario Bogotá.
+ * @param {number} startMs
+ * @param {number} endMs
+ * @returns {{ fechaInicio: string, fechaFin: string, horaInicial: string, horaFinal: string }}
+ */
+function msRangeToExcelHoraFields(startMs, endMs) {
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+        return { fechaInicio: '', fechaFin: '', horaInicial: '', horaFinal: '' };
+    }
+    const inclusiveEndMs = Math.max(startMs, endMs - 1);
+    return {
+        fechaInicio: bogotaDateKeyFromMs(startMs),
+        fechaFin: bogotaDateKeyFromMs(inclusiveEndMs),
+        horaInicial: dtfHmBogota.format(new Date(startMs)),
+        horaFinal: dtfHmBogota.format(new Date(inclusiveEndMs))
+    };
+}
+
+/**
+ * @param {number} startMs
+ * @param {number} endMs
+ * @param {(dayKey: string, s: number, e: number) => void} fn
+ */
+function iterateDayPortions(startMs, endMs, fn) {
+    let cursor = startMs;
+    while (cursor < endMs) {
+        const dayKey = bogotaDateKeyFromMs(cursor);
+        const dayStart = bogotaMidnightUtcMsFromYmd(dayKey);
+        if (dayStart == null) break;
+        const dayEnd = dayStart + DAY_MS;
+        const s = cursor;
+        const e = Math.min(endMs, dayEnd);
+        if (e > s) fn(dayKey, s, e);
+        cursor = e;
+    }
+}
+
+/**
+ * @param {number} startMs
+ * @param {number} endMs
+ * @param {Set<string>} [festivosSet]
+ * @returns {Map<string, Array<{ startMs: number, endMs: number, hours: number }>>}
+ */
+function collectTimedRangesBySliceKey(startMs, endMs, festivosSet) {
+    /** @type {Map<string, Array<{ startMs: number, endMs: number, hours: number }>>} */
+    const map = new Map();
+
+    const addPortion = (sliceKey, s, e) => {
+        const hours = (e - s) / HOUR_MS;
+        if (hours <= EPS_H) return;
+        if (!map.has(sliceKey)) map.set(sliceKey, []);
+        map.get(sliceKey).push({ startMs: s, endMs: e, hours });
+    };
+
+    const he = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs, festivosSet);
+    const rec = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs, festivosSet);
+
+    for (const seg of he.diurna) {
+        iterateDayPortions(seg.startMs, seg.endMs, (dayKey, s, e) => {
+            const key = isSundayBogotaYmd(dayKey) ? 'diurna_dominical' : 'diurna_laboral';
+            addPortion(key, s, e);
+        });
+    }
+    for (const seg of he.nocturna) {
+        iterateDayPortions(seg.startMs, seg.endMs, (dayKey, s, e) => {
+            const key = isSundayBogotaYmd(dayKey) ? 'nocturna_dominical' : 'nocturna_laboral';
+            addPortion(key, s, e);
+            if (!isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) {
+                addPortion('recargo_nocturno_ordinario', s, e);
+            }
+        });
+    }
+    for (const seg of rec.diurna) addPortion('recargo_diurno', seg.startMs, seg.endMs);
+    for (const seg of rec.nocturna) addPortion('recargo_nocturno', seg.startMs, seg.endMs);
+
+    return map;
+}
+
+/**
+ * @param {string} sliceKey
+ * @param {Map<string, Array<{ startMs: number, endMs: number, hours: number }>>} timedByKey
+ * @param {number} sliceHours
+ * @returns {{ startMs: number, endMs: number }|null}
+ */
+function pickTimeRangeForSlice(sliceKey, timedByKey, sliceHours) {
+    const list = timedByKey.get(sliceKey) || [];
+    if (!list.length) return null;
+    if (list.length === 1) return { startMs: list[0].startMs, endMs: list[0].endMs };
+    let best = list[0];
+    let bestDiff = Math.abs(best.hours - sliceHours);
+    for (const seg of list) {
+        const diff = Math.abs(seg.hours - sliceHours);
+        if (diff < bestDiff) {
+            best = seg;
+            bestDiff = diff;
+        }
+    }
+    return { startMs: best.startMs, endMs: best.endMs };
+}
+
+/**
+ * @param {object} it
+ * @param {HeExcelSlice[]} slices
+ * @param {{ toUtcMsFromDateAndTime?: (d: unknown, t: unknown) => number|null, festivosSet?: Set<string> }} dep
+ */
+function enrichSlicesWithTimeRanges(it, slices, dep) {
+    const toUtc = dep?.toUtcMsFromDateAndTime;
+    if (typeof toUtc !== 'function' || !slices?.length) return;
+    const fi = String(it?.fechaInicio || '').trim().slice(0, 10);
+    const ff = String(it?.fechaFin || '').trim().slice(0, 10);
+    const hi = String(it?.horaInicio || '').trim();
+    const hf = String(it?.horaFin || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fi) || !/^\d{4}-\d{2}-\d{2}$/.test(ff) || !hi || !hf) return;
+    const startMs = toUtc(fi, hi);
+    const endMs = toUtc(ff, hf);
+    if (startMs == null || endMs == null || !Number.isFinite(endMs - startMs) || endMs <= startMs) return;
+
+    const timedByKey = collectTimedRangesBySliceKey(startMs, endMs, dep?.festivosSet);
+    for (const slice of slices) {
+        const range = pickTimeRangeForSlice(slice.sliceKey, timedByKey, Number(slice.hours || 0));
+        if (range) {
+            slice.startMs = range.startMs;
+            slice.endMs = range.endMs;
+        }
+    }
+}
 
 /**
  * Horas de HE «laboral» (exceso tras recargo dominical) en tramos diurno/nocturno que caen en domingo calendario Bogotá.
@@ -203,6 +349,7 @@ function buildHoraExtraExportSlices(it, dep) {
             columnKey: 'horasRecargoDomingo'
         });
     }
+    if (out.length) enrichSlicesWithTimeRanges(it, out, dep || {});
     return out.length ? out : null;
 }
 
@@ -226,5 +373,8 @@ module.exports = {
     formatTipoNovedadHeSlice,
     formatTipoNovedadHeLegacy,
     heDiurnaNocturnaSundayHoursBogota,
-    buildHeLaboralDomingoSlices
+    buildHeLaboralDomingoSlices,
+    msRangeToExcelHoraFields,
+    enrichSlicesWithTimeRanges,
+    collectTimedRangesBySliceKey
 };

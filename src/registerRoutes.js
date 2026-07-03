@@ -23,7 +23,8 @@ const {
     buildHoraExtraExportSlices,
     compensacionDominicalExcelEtiqueta,
     formatTipoNovedadHeSlice,
-    formatTipoNovedadHeLegacy
+    formatTipoNovedadHeLegacy,
+    msRangeToExcelHoraFields
 } = require('./novedadHeExcelExport');
 const { parseTimeOrNull: parseTimeOrNullForExport } = require('./utils');
 const {
@@ -174,6 +175,10 @@ function buildExcelRowHoraExtraSlice(opts) {
     const ck = slice.columnKey;
     const h = Number(slice.hours || 0);
     const cantidad = formatCantidadNovedad(it.tipoNovedad, h, it);
+    const timeExcel =
+        slice.startMs != null && slice.endMs != null
+            ? msRangeToExcelHoraFields(slice.startMs, slice.endMs)
+            : null;
     return appendNominaProcesadoExcelFields({
         novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
@@ -182,11 +187,11 @@ function buildExcelRowHoraExtraSlice(opts) {
         correo: it.correoSolicitante || '',
         cliente: it.cliente || '',
         tipoNovedad,
-        fechaInicio: it.fechaInicio || '',
-        fechaFin: it.fechaFin || '',
+        fechaInicio: timeExcel?.fechaInicio || it.fechaInicio || '',
+        fechaFin: timeExcel?.fechaFin || it.fechaFin || '',
         cantidad,
-        horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
-        horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
+        horaInicial: esPorHoras ? (timeExcel?.horaInicial || formatHoraMinutaParaExcel(it.horaInicio)) : '',
+        horaFinal: esPorHoras ? (timeExcel?.horaFinal || formatHoraMinutaParaExcel(it.horaFin)) : '',
         horasDiurnas: ck === 'horasDiurnas' && h > 0 ? h : '',
         horasNocturnas: ck === 'horasNocturnas' && h > 0 ? h : '',
         horasRecargoDomingo: ck === 'horasRecargoDomingo' && h > 0 ? h : '',
@@ -1022,7 +1027,11 @@ function registerRoutes(deps) {
                 });
             }
             const items = rows.map(toClientNovedad);
-            const heDomingoDep = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow };
+            const heDomingoDep = {
+                toUtcMsFromDateAndTime,
+                resolveFallbackDateKeyFromRow,
+                festivosSet: await festivosService.getFestivosSet()
+            };
             const sundaySetsExport = buildSundayReportedSetsFromHeRows(
                 rows.filter(rowIsHoraExtraTipo),
                 buildConsultantKeyHeDomingo,
