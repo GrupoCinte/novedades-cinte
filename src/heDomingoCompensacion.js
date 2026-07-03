@@ -26,7 +26,7 @@ function addCalendarDaysBogotaYmd(ymd, deltaDays) {
 }
 
 /**
- * Ventana de compensatorio en tiempo: cualquier día calendario Bogotá en D+1 … D+15 (D = domingo trabajado).
+ * Ventana de compensatorio en tiempo: lunes a sábado de la semana siguiente (D+1 … D+6; D = domingo trabajado).
  * @param {string} workedSundayYmd YYYY-MM-DD domingo con HE
  * @returns {{ compensatorioTiempoMinYmd: string, compensatorioTiempoMaxYmd: string }|null}
  */
@@ -34,7 +34,7 @@ function getVentanaCompensatorioTiempo(workedSundayYmd) {
     const d = String(workedSundayYmd || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
     const compensatorioTiempoMinYmd = addCalendarDaysBogotaYmd(d, 1);
-    const compensatorioTiempoMaxYmd = addCalendarDaysBogotaYmd(d, 15);
+    const compensatorioTiempoMaxYmd = addCalendarDaysBogotaYmd(d, 6);
     if (!compensatorioTiempoMinYmd || !compensatorioTiempoMaxYmd) return null;
     return { compensatorioTiempoMinYmd, compensatorioTiempoMaxYmd };
 }
