@@ -32,6 +32,8 @@ export default function ClienteMesSelectors({
     omitEstadoFilter = false,
     /** Contenido a la izquierda del mes (p. ej. título workspace + volver). */
     leadingContent = null,
+    /** Mes mínimo seleccionable (YYYY-MM); p. ej. mes actual para bloquear anteriores (AUT-554). */
+    minMonthValue = null,
     trailingActions = null,
 
     isFacturacion = false,
@@ -111,6 +113,7 @@ export default function ClienteMesSelectors({
                         type="month"
                         className={`${fieldCompact(field)} cinte-month-picker`}
                         value={monthValue}
+                        min={minMonthValue || undefined}
                         onChange={(e) => onMonthChange(e.target.value)}
                         aria-label="Mes de facturación"
                     />
@@ -188,6 +191,7 @@ export default function ClienteMesSelectors({
                             type="month"
                             className={`${field} cinte-month-picker w-full text-sm`}
                             value={monthValue}
+                            min={minMonthValue || undefined}
                             onChange={(e) => onMonthChange(e.target.value)}
                         />
                     </div>

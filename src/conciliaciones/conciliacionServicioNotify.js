@@ -108,6 +108,13 @@ async function tryNotifyServiciosCompletos(deps, scope, { clienteCanon, anio, me
         const agg = aggregateServicioCierre(resumen.rows || [], cedulas);
         if (!isServicioCompletoFinanzas(agg)) continue;
 
+        try {
+            const { ensureListoExportIfCompleto } = require('./conciliacionServicioCierre');
+            await ensureListoExportIfCompleto(pool, serv.id, anio, mes, agg);
+        } catch (e) {
+            console.error('[conciliaciones] ensureListoExportIfCompleto', { servicioId: serv.id, anio, mes, error: e.message });
+        }
+
         const already = await wasServicioNotificacionSent(pool, serv.id, anio, mes);
         if (already) continue;
 

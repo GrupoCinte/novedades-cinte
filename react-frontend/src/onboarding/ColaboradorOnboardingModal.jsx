@@ -382,7 +382,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             {bajaOpen ? (
                 <BajaModal
                     auth={auth}
-                    cedula={String(cedula || '').replace(/\D+/g, '')}
+                    cedula={String(form.cedula || cedula || '').replace(/\D+/g, '')}
                     nombre={form.nombre}
                     onClose={() => setBajaOpen(false)}
                     onConfirmed={handleBajaConfirmada}
@@ -423,6 +423,11 @@ function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
 
     const handleConfirm = async () => {
         if (saving) return;
+        const cedNorm = String(cedula || '').replace(/\D+/g, '');
+        if (!cedNorm) {
+            setError('No se pudo identificar la cédula del colaborador. Cierra y vuelve a abrir la ficha.');
+            return;
+        }
         if (!motivo) {
             setError('Selecciona un motivo de baja.');
             return;
@@ -433,7 +438,7 @@ function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
             const body = { motivo_baja: motivo };
             if (fecha) body.fecha_termino = fecha;
             if (observaciones.trim()) body.observaciones = observaciones.trim();
-            const r = await onboardingApi.marcarBaja(token, cedula, body);
+            const r = await onboardingApi.marcarBaja(token, cedNorm, body);
             if (typeof onConfirmed === 'function') onConfirmed(r?.item || null);
         } catch (ex) {
             const msg = ex?.response?.data?.error || ex.message;

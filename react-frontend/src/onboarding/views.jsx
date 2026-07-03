@@ -56,6 +56,28 @@ export function fmtFecha(v) {
     return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
+/** Fecha y hora legible Colombia (AUT-560): día/mes/año hora:minuto:segundo */
+export function fmtFechaHora(v) {
+    if (!v) return '';
+    const d = v instanceof Date ? v : new Date(v);
+    if (Number.isNaN(d.getTime())) {
+        const s = String(v);
+        return s.length >= 10 ? s.slice(0, 10) : s;
+    }
+    const date = d.toLocaleDateString('es-CO', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    });
+    const time = d.toLocaleTimeString('es-CO', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+    return `${date}, ${time}`;
+}
+
 export function fmtMoney(v) {
     if (v == null || v === '') return '';
     const n = Number(v);

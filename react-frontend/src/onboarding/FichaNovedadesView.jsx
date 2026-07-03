@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { onboardingApi } from './api.js';
 import SortableGestionDataTable from './SortableGestionDataTable.jsx';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
-import { fmtFecha } from './views.jsx';
+import { fmtFecha, fmtFechaHora } from './views.jsx';
 import { buildMonitorGlassModalTheme, monitorGlassModalSizeCls } from '../shared/modals/monitorGlassModalTheme.js';
 
 const TIPO_LABELS = {
@@ -232,6 +232,7 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
             onUpdated();
             setEditMode(false);
             setDraftEdits({});
+            onClose();
         } catch (e) {
             setError(e?.response?.data?.error || e?.message || 'Error al guardar');
         } finally {
@@ -419,16 +420,6 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                             </button>
                             {!readOnly && localItem?.status === 'pendiente' ? (
                                 <>
-                                    {canEdit ? (
-                                        <button
-                                            type="button"
-                                            disabled={busy || decisionBlocked}
-                                            onClick={startEdit}
-                                            className="rounded-xl border border-[#2F7BB8]/50 px-4 py-2 text-sm font-semibold text-[#2F7BB8] disabled:opacity-50"
-                                        >
-                                            Editar
-                                        </button>
-                                    ) : null}
                                     <button
                                         type="button"
                                         disabled={busy || decisionBlocked}
@@ -471,10 +462,12 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
     const [statusFilter, setStatusFilter] = useState('');
     const [historicoCount, setHistoricoCount] = useState(0);
     const [selected, setSelected] = useState(null);
+    const [refreshNotice, setRefreshNotice] = useState('');
 
     const load = useCallback(async () => {
         setLoading(true);
         setError('');
+        setRefreshNotice('');
         try {
             const params = { limit: 200, scope: viewMode };
             if (viewMode === 'inbox' && statusFilter) params.status = statusFilter;
@@ -484,6 +477,7 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
             if (typeof onPendingCount === 'function') {
                 onPendingCount(data?.pendingCount ?? 0);
             }
+            setRefreshNotice(`Lista actualizada (${new Date().toLocaleTimeString('es-CO')})`);
         } catch (e) {
             setError(e?.response?.data?.error || e?.message || 'No se pudo cargar el buzón');
         } finally {
@@ -505,7 +499,7 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
                 key: viewMode === 'historico' ? 'reviewed_at' : 'created_at',
                 label: viewMode === 'historico' ? 'Revisado' : 'Fecha',
                 render: (r) =>
-                    fmtFecha(viewMode === 'historico' ? r.reviewed_at || r.created_at : r.received_at || r.created_at)
+                    fmtFechaHora(viewMode === 'historico' ? r.reviewed_at || r.created_at : r.received_at || r.created_at)
             },
             {
                 key: 'tipo_novedad',
@@ -586,15 +580,25 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
                     <button
                         type="button"
                         onClick={load}
-                        className="rounded-lg bg-[#2F7BB8] px-3 py-1.5 text-xs font-semibold text-white"
+                        disabled={loading}
+                        className="rounded-lg bg-[#2F7BB8] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
                     >
-                        Actualizar
+                        {loading ? 'Actualizando…' : 'Actualizar'}
                     </button>
                 </div>
             </header>
 
             {error ? (
                 <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>
+            ) : null}
+            {refreshNotice && !error ? (
+                <div
+                    className={`rounded-lg border px-3 py-2 text-xs ${
+                        isLight ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-emerald-700/40 bg-emerald-900/20 text-emerald-200'
+                    }`}
+                >
+                    {refreshNotice}
+                </div>
             ) : null}
 
             <SortableGestionDataTable

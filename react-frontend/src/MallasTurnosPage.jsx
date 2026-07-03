@@ -420,7 +420,13 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
             setDraft(emptyFranjasRecord(FRANJAS_MALLAS));
         }
         setSelected(new Set());
-    }, [clienteSeleccionado, isNocturnos, pickerFranja?.id]);
+    }, [clienteSeleccionado, isNocturnos]);
+
+    useEffect(() => {
+        if (isNocturnos && pickerFranja) {
+            setDraft({ [pickerFranja.id]: [] });
+        }
+    }, [isNocturnos, pickerFranja?.id]);
 
     useEffect(() => {
         if (hasCliente) setAsignacionOpen(true);
