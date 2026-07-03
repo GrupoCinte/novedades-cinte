@@ -152,7 +152,31 @@ export default function ConciliacionesTabla({
                             onClick={onRowClick ? () => onRowClick(r) : undefined}
                         >
                             <td className={tdFirst}>
-                                <div>{r.nombre}</div>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <span>{r.nombre}</span>
+                                    {r.salidaMes ? (
+                                        <span
+                                            className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                                isLight
+                                                    ? 'border border-amber-300 bg-amber-50 text-amber-900'
+                                                    : 'border border-amber-500/30 bg-amber-500/10 text-amber-200'
+                                            }`}
+                                        >
+                                            Salida mes
+                                        </span>
+                                    ) : null}
+                                    {r.sinServicioAsignado ? (
+                                        <span
+                                            className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                                isLight
+                                                    ? 'border border-slate-300 bg-slate-50 text-slate-700'
+                                                    : 'border border-slate-500/30 bg-slate-500/10 text-slate-300'
+                                            }`}
+                                        >
+                                            Sin servicio
+                                        </span>
+                                    ) : null}
+                                </div>
                                 <div className={dash.tdSmall}>{r.cedula}</div>
                             </td>
                             {showClienteColumn ? (
@@ -162,6 +186,11 @@ export default function ConciliacionesTabla({
                             ) : null}
                             <td className={`${tdRest} tabular-nums`}>
                                 {formatCop(r.tarifaCliente)}
+                                {r.prorrateoAplicado ? (
+                                    <span className={`mt-0.5 block text-[10px] font-medium ${labelMuted}`}>
+                                        Prorrateo {r.diasFacturables}/{r.diasMes} d.
+                                    </span>
+                                ) : null}
                                 {r.moneda ? <span className={`ml-1 text-xs ${labelMuted}`}>{r.moneda}</span> : null}
                             </td>
                             <td className={tdRest}>

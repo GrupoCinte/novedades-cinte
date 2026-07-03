@@ -8,10 +8,10 @@ const {
 } = require('../src/conciliaciones/conciliacionDiasBaseMes');
 
 describe('conciliacionDiasBaseMes', () => {
-    it('CALENDAR_DAYS devuelve 30 fijo', () => {
+    it('CALENDAR_DAYS devuelve días del mes calendario', () => {
         const out = resolveDiasBaseMes({ billingMode: 'CALENDAR_DAYS', year: 2026, month: 2 });
-        assert.equal(out.diasBaseMes, 30);
-        assert.equal(out.diasBaseLabel, 'Días calendario (estándar)');
+        assert.equal(out.diasBaseMes, 28);
+        assert.equal(out.diasBaseLabel, 'Días calendario del mes');
     });
 
     it('countBusinessDaysInMonth excluye sáb/dom y festivo', () => {

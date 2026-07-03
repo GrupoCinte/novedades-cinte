@@ -867,6 +867,63 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureColaboradorAsignacionesTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS colaborador_asignaciones (
+                    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cedula          TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    cliente         TEXT NOT NULL,
+                    codigo_zoho     TEXT NULL,
+                    tarifa          NUMERIC(14,2) NOT NULL DEFAULT 0,
+                    fecha_inicio    DATE NULL,
+                    fecha_fin       DATE NULL,
+                    activo          BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_colaborador_asignacion_cliente UNIQUE (cedula, cliente)
+                )
+            `);
+            await pool.query(
+                `CREATE INDEX IF NOT EXISTS idx_colaborador_asignaciones_cedula ON colaborador_asignaciones(cedula)`
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para colaborador_asignaciones.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureColaboradorTarifaHistorialTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS colaborador_tarifa_historial (
+                    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cedula          TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    cliente         TEXT NOT NULL,
+                    tarifa          NUMERIC(14,2) NOT NULL,
+                    vigente_desde   DATE NOT NULL,
+                    vigente_hasta   DATE NULL,
+                    source          TEXT NULL,
+                    staging_id      UUID NULL,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(
+                `CREATE INDEX IF NOT EXISTS idx_tarifa_historial_cedula_cliente
+                 ON colaborador_tarifa_historial(cedula, cliente, vigente_desde)`
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para colaborador_tarifa_historial.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** Varias personas por franja/día, acotadas por cliente del directorio. */
     async function ensureMallaTurnoAsignacionTable() {
         try {
@@ -2806,6 +2863,8 @@ function createDataLayer(deps) {
         ensureConciliacionesServicioNotificacionesTable,
         ensureConciliacionesServicioCierreTable,
         ensureConciliacionesNovedadConsumoTable,
+        ensureColaboradorAsignacionesTable,
+        ensureColaboradorTarifaHistorialTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         getColaboradorByCedula,

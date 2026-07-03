@@ -32,6 +32,13 @@ const {
     buildAjusteHistorialObservacion
 } = require('./conciliacionAjustes');
 const { resolveDiasBaseMes } = require('./conciliacionDiasBaseMes');
+const {
+    resolveTarifaBaseMes,
+    colaboradorVisibleEnMesSql,
+    isoDate
+} = require('./conciliacionTarifaProrrateo');
+const { fetchTarifaHistorialTramosMes, fetchTarifaHistorialTramosMesBatch } = require('./conciliacionTarifaHistorial');
+const { fetchTarifasAsignacionBatch } = require('./colaboradorAsignaciones');
 const { tryNotifyServiciosCompletos } = require('./conciliacionServicioNotify');
 const {
     isFacturacionEstadoConCorteNovedades,
@@ -293,6 +300,8 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
     const elegiblesByCed = groupNovedadRowsByCedula(elegiblesAll, normalizeCedula);
     const consumidasByCed = groupNovedadRowsByCedula(consumidasAll, normalizeCedula);
 
+    const visibilidadSql = colaboradorVisibleEnMesSql('c', 2, 3);
+
     const qCol = await pool.query(
         `SELECT 
             c.cedula, 
@@ -302,7 +311,10 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
             c.puesto,
             c.perfil_cargo,
             c.descriptivo_puesto_sig,
-            c.fecha_ingreso, 
+            c.fecha_ingreso,
+            c.fecha_termino,
+            c.fecha_baja_efectiva,
+            c.activo,
             c.tipo_contrato, 
             c.comercial, 
             c.sueldo_nomina, 
@@ -328,11 +340,19 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
             CASE WHEN f.id IS NOT NULL THEN TRUE ELSE FALSE END AS cerrado
          FROM colaboradores c
          LEFT JOIN conciliaciones_facturacion f ON f.cedula = c.cedula AND f.anio = $2::integer AND f.mes = $3::integer
-         WHERE c.activo IS NOT FALSE
-           AND lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
+         WHERE lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
+           AND ${visibilidadSql}
          ORDER BY c.nombre ASC`,
         [clienteCanon, factY, factM]
     );
+
+    const cedulasBatch = (qCol.rows || [])
+        .map((c) => normalizeCedula(String(c.cedula || '')))
+        .filter(Boolean);
+    const [asignacionTarifas, historialMap] = await Promise.all([
+        fetchTarifasAsignacionBatch(pool, cedulasBatch, clienteCanon),
+        fetchTarifaHistorialTramosMesBatch(pool, cedulasBatch, clienteCanon, factY, factM)
+    ]);
 
     let tarifaSum = 0;
     let incrementoSum = 0;
@@ -343,7 +363,10 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
     const rows = [];
     for (const c of qCol.rows || []) {
         const cedDigits = normalizeCedula(String(c.cedula || ''));
-        const tarifaMaestro = Number(c.tarifa_cliente || 0) || 0;
+        const tarifaMaestroCol = Number(c.tarifa_cliente || 0) || 0;
+        const tarifaCatalogo = asignacionTarifas.has(cedDigits)
+            ? asignacionTarifas.get(cedDigits)
+            : tarifaMaestroCol;
         const ajustes = parseAjustesFromFacturacionRow(c);
         const estadoFact = c.estado != null ? String(c.estado) : 'PENDIENTE';
         const novRowsForCol = cedDigits
@@ -352,8 +375,31 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
                 : elegiblesByCed.get(cedDigits) || []
             : [];
         const cnt = novRowsForCol.length;
-        const impactOpts = { ...options, factAnio: factY, factMes: factM };
-        const impacto = computeFacturacionImpacto(tarifaMaestro, novRowsForCol, ajustes, impactOpts);
+
+        const fIngreso = isoDate(c.fecha_ingreso);
+        const fTermino = isoDate(c.fecha_termino);
+        const fBaja = isoDate(c.fecha_baja_efectiva);
+        const tramos = historialMap.get(cedDigits) || [];
+        const prorrateo = resolveTarifaBaseMes({
+            tarifaMaestro: tarifaCatalogo,
+            year: factY,
+            month: factM,
+            fechaIngreso: fIngreso,
+            fechaTermino: fTermino,
+            fechaBajaEfectiva: fBaja,
+            billingMode: options.billingMode,
+            baseHours: options.baseHours,
+            tramos
+        });
+        const tarifaBaseMes = prorrateo.tarifaBase;
+
+        const impactOpts = {
+            ...options,
+            factAnio: factY,
+            factMes: factM,
+            diasDenominadorMes: prorrateo.daysInMonth
+        };
+        const impacto = computeFacturacionImpacto(tarifaBaseMes, novRowsForCol, ajustes, impactOpts);
         const tarifa = impacto.tarifaCliente;
         const sumMonto = impacto.novedadesSumCop;
         const sumSuma = impacto.novedadesSumaCop;
@@ -372,8 +418,7 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
         ajusteAnticipoSum += advanceFields.ajusteAnticipoSumCop || 0;
         ajusteAnticipoSuma += advanceFields.ajusteAnticipoSumaCop || 0;
         facturaSum += factura;
-        
-        const fIngreso = c.fecha_ingreso ? (c.fecha_ingreso instanceof Date ? c.fecha_ingreso.toISOString().slice(0, 10) : String(c.fecha_ingreso).slice(0, 10)) : '';
+
         const fCierre = c.fecha_cierre ? (c.fecha_cierre instanceof Date ? c.fecha_cierre.toISOString().slice(0, 10) : String(c.fecha_cierre).slice(0, 10)) : '';
 
         rows.push({
@@ -381,8 +426,19 @@ async function getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, ye
             nombre: String(c.nombre || '').trim(),
             cliente: String(c.cliente || '').trim(),
             tarifaCliente: tarifa,
-            tarifaMaestro,
+            tarifaMaestro: tarifaCatalogo,
+            tarifaMaestroCol,
+            tarifaProrrateada: prorrateo.tarifaProrrateada,
             tarifaAjustada: impacto.tarifaAjustada,
+            prorrateoAplicado: prorrateo.prorrateoAplicado,
+            diasFacturables: prorrateo.diasFacturables,
+            diasMes: prorrateo.daysInMonth,
+            horasFacturables: prorrateo.horasFacturables,
+            tramosTarifa: prorrateo.tramosAplicados,
+            fechaTermino: fTermino,
+            fechaBajaEfectiva: fBaja,
+            activoColaborador: c.activo,
+            activo: c.activo === false ? false : c.activo !== false ? true : null,
             moneda: c.moneda != null ? String(c.moneda) : '',
             puesto: resolvePuestoColaborador(c),
             perfil: resolvePuestoColaborador(c),
@@ -514,19 +570,37 @@ async function fetchConciliacionNovedadRowsForCierre(deps, scope, clienteCanon, 
     const novBucket = resolveNovedadesBucket(factY, factM, options.billingType);
     const cedDigits = normalizeCedula(cedulaRaw);
     if (!cedDigits) {
-        return { tarifaMaestro: 0, filteredRows: [], factY, factM, cedDigits: '' };
+        return { tarifaMaestro: 0, tarifaCatalogo: 0, tarifaMaestroCol: 0, prorrateo: null, filteredRows: [], factY, factM, cedDigits: '' };
     }
 
     const qTarifa = await pool.query(
-        `SELECT c.tarifa_cliente
+        `SELECT c.tarifa_cliente, c.fecha_ingreso, c.fecha_termino, c.fecha_baja_efectiva, c.activo
          FROM colaboradores c
-         WHERE c.activo IS NOT FALSE
-           AND lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
+         WHERE lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
            AND regexp_replace(COALESCE(c.cedula, ''), '\\D', '', 'g') = $2
+           AND ${colaboradorVisibleEnMesSql('c', 3, 4)}
          LIMIT 1`,
-        [clienteCanon, cedDigits]
+        [clienteCanon, cedDigits, factY, factM]
     );
-    const tarifaMaestro = Number(qTarifa.rows[0]?.tarifa_cliente) || 0;
+    const colRow = qTarifa.rows[0] || {};
+    const tarifaMaestroCol = Number(colRow.tarifa_cliente) || 0;
+    const asignacionTarifas = await fetchTarifasAsignacionBatch(pool, [cedDigits], clienteCanon);
+    const tarifaCatalogo = asignacionTarifas.has(cedDigits)
+        ? asignacionTarifas.get(cedDigits)
+        : tarifaMaestroCol;
+    const tramos = await fetchTarifaHistorialTramosMes(pool, cedDigits, clienteCanon, factY, factM);
+    const prorrateo = resolveTarifaBaseMes({
+        tarifaMaestro: tarifaCatalogo,
+        year: factY,
+        month: factM,
+        fechaIngreso: isoDate(colRow.fecha_ingreso),
+        fechaTermino: isoDate(colRow.fecha_termino),
+        fechaBajaEfectiva: isoDate(colRow.fecha_baja_efectiva),
+        billingMode: options.billingMode,
+        baseHours: options.baseHours,
+        tramos
+    });
+    const tarifaMaestro = prorrateo.tarifaBase;
 
     const qEst = await pool.query(
         `SELECT estado FROM conciliaciones_facturacion
@@ -554,7 +628,7 @@ async function fetchConciliacionNovedadRowsForCierre(deps, scope, clienteCanon, 
 
     const ids = novedadRows.map((r) => r.id).filter(Boolean);
     if (!ids.length) {
-        return { tarifaMaestro, filteredRows: [], factY, factM, cedDigits };
+        return { tarifaMaestro, tarifaCatalogo, tarifaMaestroCol, prorrateo, filteredRows: [], factY, factM, cedDigits };
     }
 
     const q = await pool.query(
@@ -569,7 +643,16 @@ async function fetchConciliacionNovedadRowsForCierre(deps, scope, clienteCanon, 
         [ids]
     );
 
-    return { tarifaMaestro, filteredRows: q.rows || [], factY, factM, cedDigits };
+    return {
+        tarifaMaestro,
+        tarifaCatalogo,
+        tarifaMaestroCol,
+        prorrateo,
+        filteredRows: q.rows || [],
+        factY,
+        factM,
+        cedDigits
+    };
 }
 
 async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedulaRaw, year, month, options = {}) {
@@ -583,7 +666,7 @@ async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedul
         month,
         options
     );
-    const { tarifaMaestro, filteredRows, factY, factM, cedDigits } = fetched;
+    const { tarifaMaestro, tarifaCatalogo, prorrateo, filteredRows, factY, factM, cedDigits } = fetched;
     if (!cedDigits) {
         return {
             items: [],
@@ -603,13 +686,18 @@ async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedul
         [cedDigits, factY, factM]
     );
     const ajustes = parseAjustesFromFacturacionRow(qAjustes.rows[0] || {});
-    const impactOpts = { ...options, factAnio: factY, factMes: factM };
+    const impactOpts = {
+        ...options,
+        factAnio: factY,
+        factMes: factM,
+        diasDenominadorMes: prorrateo?.daysInMonth
+    };
     const advancePeriods = isAdvanceMonthBilling(options.billingType)
         ? resolveAdvancePeriods(factY, factM)
         : null;
 
     const items = filteredRows.map((row) => {
-        const impact = resolveNovedadMontoConAjuste(tarifaMaestro, row, ajustes, options);
+        const impact = resolveNovedadMontoConAjuste(tarifaMaestro, row, ajustes, impactOpts);
         const scope =
             advancePeriods && classifyNovedadAdvanceScope(row, advancePeriods)
                 ? classifyNovedadAdvanceScope(row, advancePeriods)
@@ -665,7 +753,13 @@ async function listConciliacionNovedadesDetalle(deps, scope, clienteCanon, cedul
         ...billingCtx,
         ...diasBase,
         tarifaCliente: agg.tarifaCliente,
-        tarifaMaestro: agg.tarifaMaestro,
+        tarifaMaestro: tarifaCatalogo ?? agg.tarifaMaestro,
+        tarifaProrrateada: prorrateo?.tarifaProrrateada ?? agg.tarifaMaestro,
+        prorrateoAplicado: prorrateo?.prorrateoAplicado ?? false,
+        diasFacturables: prorrateo?.diasFacturables ?? null,
+        diasMes: prorrateo?.daysInMonth ?? null,
+        horasFacturables: prorrateo?.horasFacturables ?? null,
+        tramosTarifa: prorrateo?.tramosAplicados ?? [],
         tarifaAjustada: agg.tarifaAjustada,
         facturaCop: agg.facturaCop,
         ...advanceFields

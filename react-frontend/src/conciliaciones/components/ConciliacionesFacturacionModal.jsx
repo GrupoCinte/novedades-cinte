@@ -18,6 +18,15 @@ import {
 import ConciliacionesNovedadesAprobadasPanel from './ConciliacionesNovedadesAprobadasPanel.jsx';
 import ConciliacionesFacturacionHistorialPanel from './ConciliacionesFacturacionHistorialPanel.jsx';
 
+function formatCop(n) {
+    const x = Math.round(Number(n) || 0);
+    return new Intl.NumberFormat('es-CO', {
+        style: 'currency',
+        currency: 'COP',
+        maximumFractionDigits: 0
+    }).format(x);
+}
+
 export default function ConciliacionesFacturacionModal({
     open,
     onClose,
@@ -381,6 +390,31 @@ export default function ConciliacionesFacturacionModal({
                                     <span className={`block font-semibold ${dash.modalMuted}`}>Fecha Ingreso</span>
                                     <span className={`font-body font-medium ${textMain}`}>{colaborador.fechaIngreso || '—'}</span>
                                 </div>
+                                <div>
+                                    <span className={`block font-semibold ${dash.modalMuted}`}>Fecha salida</span>
+                                    <span className={`font-body font-medium ${textMain}`}>
+                                        {colaborador.fechaTermino || colaborador.fechaBajaEfectiva || tarifaDetalle?.fechaTermino || '—'}
+                                    </span>
+                                </div>
+                                {(colaborador.prorrateoAplicado || tarifaDetalle?.prorrateoAplicado) ? (
+                                    <div className="sm:col-span-2">
+                                        <span className={`block font-semibold ${dash.modalMuted}`}>Tarifa base prorrateada</span>
+                                        <span className={`font-body font-medium ${textMain}`}>
+                                            {formatCop(tarifaDetalle?.tarifaProrrateada ?? colaborador.tarifaProrrateada ?? tarifaCliente)}
+                                            {' · '}
+                                            {tarifaDetalle?.diasFacturables ?? colaborador.diasFacturables}/
+                                            {tarifaDetalle?.diasMes ?? colaborador.diasMes} días
+                                            {(tarifaDetalle?.horasFacturables ?? colaborador.horasFacturables) != null
+                                                ? ` · ${tarifaDetalle?.horasFacturables ?? colaborador.horasFacturables} h`
+                                                : ''}
+                                        </span>
+                                        {tarifaMaestro && tarifaMaestro !== tarifaCliente ? (
+                                            <span className={`mt-0.5 block text-xs ${dash.modalMuted}`}>
+                                                Tarifa catálogo mes: {formatCop(tarifaMaestro)}
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                ) : null}
                                 <div>
                                     <span className={`block font-semibold ${dash.modalMuted}`}>Tipo de Contrato</span>
                                     <span className={`font-body font-medium ${textMain}`}>{colaborador.tipoContrato || '—'}</span>

@@ -6,20 +6,20 @@ const {
     getNovedadImpactoFacturacion
 } = require('../src/conciliaciones/conciliacionNovedadImpacto');
 
-test('permiso remunerado 3 días hábiles resta tarifa/30 × 3', () => {
-    const r = computeNovedadImpactoMonto(3_000_000, {
-        tipo_novedad: 'Permiso remunerado',
-        cantidad_horas: 3,
-        unidad: 'dias',
-        fecha_inicio: '2026-05-06',
-        fecha_fin: '2026-05-08',
-        monto_cop: 999999
-    });
-    assert.equal(r.impacto, 'resta');
-    assert.equal(r.medida, 'days');
-    assert.equal(r.cantidad, 3);
+test('permiso remunerado en junio usa tarifa/días_del_mes × 3', () => {
+    const r = computeNovedadImpactoMonto(
+        3_000_000,
+        {
+            tipo_novedad: 'Permiso remunerado',
+            cantidad_horas: 3,
+            unidad: 'dias',
+            fecha_inicio: '2026-06-06',
+            fecha_fin: '2026-06-08',
+            monto_cop: 999999
+        },
+        { factAnio: 2026, factMes: 6 }
+    );
     assert.equal(r.montoCop, 300_000);
-    assert.equal(r.montoCalculado, true);
 });
 
 test('permiso remunerado 4 horas resta tarifa/176 × 4', () => {

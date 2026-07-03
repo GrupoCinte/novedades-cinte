@@ -1,5 +1,5 @@
 /** Estados de conciliación / facturación (alineado con backend Zod). */
-import { countEstadosFromRows as countEstadosFromRowsShared, aggregateServicioCierre, COLA_ESTADO_LABELS, normalizeCedula } from './facturacionAggregate.js';
+import { countEstadosFromRows as countEstadosFromRowsShared, aggregateServicioCierre, mergeConciliacionServicioRows, COLA_ESTADO_LABELS, normalizeCedula } from './facturacionAggregate.js';
 
 export const ESTADOS_FACTURACION = ['PENDIENTE', 'APROBADO_ANALISTA', 'APROBADO_FINANZAS', 'DEVUELTA', 'CONCILIADA'];
 
@@ -233,14 +233,19 @@ export function aggregateAdvanceTotalesFromRows(rows) {
 }
 
 /**
- * Agrega conteos por estado a totales del mes.
+ * Agrega conteos por estado a totales del mes (asociados + salidas del mes M).
  */
-export function buildFacturacionTotales(rows, totales) {
-    if (!Array.isArray(rows) || !rows.length) return totales || null;
+export function buildFacturacionTotales(allRows, totales, cedulasServicio = null) {
+    const merged =
+        cedulasServicio != null
+            ? mergeConciliacionServicioRows(allRows, cedulasServicio)
+            : Array.isArray(allRows)
+              ? allRows
+              : [];
+    if (!merged.length) return totales || null;
 
-    const cedulas = rows.map((r) => r.cedula);
-    const agg = aggregateServicioCierre(rows, cedulas);
-    const advance = aggregateAdvanceTotalesFromRows(rows);
+    const agg = aggregateServicioCierre(allRows, cedulasServicio ?? merged.map((r) => r.cedula));
+    const advance = aggregateAdvanceTotalesFromRows(merged);
 
     return {
         ...(totales || {}),
@@ -1045,14 +1050,11 @@ export function canRevertConciliacionCierre(role, estado, cerrado = true) {
     return est !== 'PENDIENTE';
 }
 
-/** Servicio completo: todos los consultores en APROBADO_FINANZAS o CONCILIADA. */
-export function isServicioCompletoFinanzas(rows, cedulas) {
-    const set = new Set((cedulas || []).map((c) => String(c || '').replace(/\D/g, '')).filter(Boolean));
-    const filtered = set.size
-        ? (Array.isArray(rows) ? rows : []).filter((r) => set.has(String(r?.cedula || '').replace(/\D/g, '')))
-        : [];
-    if (!filtered.length) return false;
-    return filtered.every((r) => {
+/** Servicio completo: asociados + salidas del mes en APROBADO_FINANZAS o CONCILIADA. */
+export function isServicioCompletoFinanzas(allRows, cedulas) {
+    const merged = mergeConciliacionServicioRows(allRows, cedulas);
+    if (!merged.length) return false;
+    return merged.every((r) => {
         const e = normalizeEstado(r?.estado);
         return e === 'APROBADO_FINANZAS' || e === 'CONCILIADA';
     });
@@ -1221,4 +1223,83 @@ export function formatDiasBaseMesLine({ diasBaseMes, diasBaseLabel, monthLabel, 
         return `${diasBaseLabel}${monthLabel ? ` (${monthLabel})` : ''}: ${diasBaseMes}${note}`;
     }
     return `${diasBaseLabel}: ${diasBaseMes}`;
+}
+
+function foldClienteMatch(a, b) {
+    return String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+}
+
+/** Inactivo en fila de conciliación (API usa activoColaborador). */
+export function isColaboradorInactivoRow(row) {
+    if (!row) return false;
+    if (row.activo === false || row.activoColaborador === false) return true;
+    return false;
+}
+
+/**
+ * Unión de cédulas asociadas a servicios Dynamo del cliente (cola de cierres).
+ * @param {object[]} colaItems
+ * @param {string} cliente
+ * @returns {Set<string>}
+ */
+export function buildCedulasAsignadasCliente(colaItems, cliente) {
+    const set = new Set();
+    for (const item of colaItems || []) {
+        if (!foldClienteMatch(item?.client, cliente)) continue;
+        for (const c of item.consultoresCedulas || []) {
+            const n = normalizeCedula(c);
+            if (n) set.add(n);
+        }
+    }
+    return set;
+}
+
+/**
+ * billingType/Mode cuando no hay servicio seleccionado: consenso entre servicios del cliente en cola.
+ * @param {object[]} colaItems
+ * @param {string} cliente
+ * @returns {{ billingType?: string, billingMode?: string, baseHours?: number }}
+ */
+export function resolveBillingDefaultsForCliente(colaItems, cliente) {
+    const servs = (colaItems || []).filter((i) => foldClienteMatch(i?.client, cliente));
+    const types = [...new Set(servs.map((s) => String(s.billingType || '').trim()).filter(Boolean))];
+    const modes = [...new Set(servs.map((s) => String(s.billingMode || '').trim()).filter(Boolean))];
+    const opts = {};
+    if (types.length === 1) opts.billingType = types[0];
+    if (modes.length === 1) opts.billingMode = modes[0];
+    const hours = servs.map((s) => s.baseHours).filter((h) => h != null && Number(h) > 0);
+    if (hours.length && new Set(hours).size === 1) opts.baseHours = Number(hours[0]);
+    return opts;
+}
+
+/**
+ * Marca filas del workspace por cliente (salida del mes / sin servicio Dynamo).
+ * @param {object[]} rows
+ * @param {Set<string>} cedulasEnServicios
+ */
+export function enrichRowsClienteWorkspace(rows, cedulasEnServicios) {
+    const assigned = cedulasEnServicios instanceof Set ? cedulasEnServicios : new Set();
+    return (Array.isArray(rows) ? rows : []).map((r) => {
+        const sinServicioAsignado = !assigned.has(normalizeCedula(r.cedula));
+        const salidaMes = isColaboradorInactivoRow(r);
+        return { ...r, sinServicioAsignado, salidaMes };
+    });
+}
+
+/** Consultores inactivos (salida en mes M) sin asociación a servicio. */
+export function countSinServicioSalidaMes(rows) {
+    return (Array.isArray(rows) ? rows : []).filter((r) => r.salidaMes && r.sinServicioAsignado).length;
+}
+
+/**
+ * Retiros del mes M del cliente que no están en la grilla principal del servicio.
+ * `allRows` ya viene filtrado por colaboradorVisibleEnMesSql (inactivos solo si salida en M).
+ * @param {object[]} allRows
+ * @param {string[]} cedulasServicio
+ */
+export function extractSalidasMesRows(allRows, cedulasServicio) {
+    const inService = new Set((cedulasServicio || []).map(normalizeCedula).filter(Boolean));
+    return (Array.isArray(allRows) ? allRows : []).filter(
+        (r) => isColaboradorInactivoRow(r) && !inService.has(normalizeCedula(r.cedula))
+    );
 }

@@ -380,6 +380,22 @@ function createUpdateNovedadMockPool(rowOverrides = {}) {
                 storedRow = { ...storedRow, status: 'aplicado' };
                 return { rows: [] };
             }
+            if (sql.includes('FROM cat_motivo_baja')) {
+                return { rows: [{ motivo: 'Termino de Servicio' }] };
+            }
+            if (sql.includes('UPDATE colaboradores SET') && sql.includes('motivo_baja')) {
+                return {
+                    rows: [
+                        {
+                            cedula: params[3],
+                            activo: false,
+                            motivo_baja: params[0],
+                            fecha_termino: params[2],
+                            fecha_baja_efectiva: params[2]
+                        }
+                    ]
+                };
+            }
             return { rows: [] };
         }
     };
@@ -454,9 +470,6 @@ describe('createFichaNovedadesService.approveNovedad tras edición', () => {
 
         assert.equal(result.ok, true);
         assert.equal(result.status, 'aplicado');
-        assert.deepEqual(appliedPatch, {
-            cedula: EDIT_CEDULA,
-            patch: { fecha_termino: '2026-08-15' }
-        });
+        assert.equal(appliedPatch, null);
     });
 });

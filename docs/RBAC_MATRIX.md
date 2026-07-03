@@ -78,6 +78,21 @@ Al entrar a **`/admin`** con sesión válida, según el rol aparecen tarjetas co
 - **Onboarding (maestro de personal)** — módulo madre con personal activo, bajas, SENA, staff, licencias, calculadora, extranjeros, pólizas y capacitaciones. Aplica a **Super administrador**, **CAC**, **Admin CH**, **Equipo CH**; **GP** y **Nómina** ven el módulo en modo lectura con su alcance.
 - **Módulo de administración** (Directorio) — **Super administrador** y **CAC**; **Admin CH** y **Equipo CH** **no** tienen esta tarjeta.
 
+### Grupos Cognito (Conciliaciones)
+
+El rol efectivo sale del **nombre del grupo** en Cognito (debe coincidir con `src/rbac.js` / `rolePriority.json`):
+
+| Negocio / etapa en Conciliaciones | Grupo Cognito | ¿Existe hoy? |
+|-----------------------------------|---------------|--------------|
+| **Finanzas** (aprobar/rechazar `APROBADO_FINANZAS`) | **`nomina`** | Sí — no crear grupo `finanzas`; es el mismo rol |
+| **Analista** (ajustes, enviar a nómina, export, marcar conciliada) | **`analista_conciliaciones`** | **Crear** y asignar usuarios nuevos |
+
+Reglas:
+
+- Un usuario = **un solo grupo** de rol (si tiene `analista_conciliaciones` y `nomina`, gana analista por prioridad).
+- Usuarios actuales de nómina/finanzas: dejarlos en **`nomina`**; no hace falta migración.
+- Script ops (requiere IAM `cognito-idp:CreateGroup`): `node scripts/ensure-cognito-conciliaciones-groups.js`
+
 ---
 
 ## 6. Directorio (catálogo maestro)

@@ -53,13 +53,28 @@ export function countEstadosFromRows(rows) {
     );
 }
 
-/**
- * Agrega métricas de cierre para un servicio intersectando filas del mes con cédulas asociadas.
- */
-export function aggregateServicioCierre(rows, cedulas) {
-    const set = new Set((cedulas || []).map(normalizeCedula).filter(Boolean));
-    const filtered = set.size ? (Array.isArray(rows) ? rows : []).filter((r) => set.has(normalizeCedula(r.cedula))) : [];
+export function isColaboradorInactivoRow(row) {
+    if (!row) return false;
+    return row.activo === false || row.activoColaborador === false;
+}
 
+export function extractSalidasMesRows(allRows, cedulasServicio) {
+    const inService = new Set((cedulasServicio || []).map(normalizeCedula).filter(Boolean));
+    return (Array.isArray(allRows) ? allRows : []).filter(
+        (r) => isColaboradorInactivoRow(r) && !inService.has(normalizeCedula(r.cedula))
+    );
+}
+
+export function mergeConciliacionServicioRows(rows, cedulasServicio) {
+    const set = new Set((cedulasServicio || []).map(normalizeCedula).filter(Boolean));
+    const asociados = set.size
+        ? (Array.isArray(rows) ? rows : []).filter((r) => set.has(normalizeCedula(r.cedula)))
+        : [];
+    const salidas = extractSalidasMesRows(rows, cedulasServicio);
+    return [...asociados, ...salidas];
+}
+
+function aggregateConciliacionRows(filtered) {
     let tarifaSum = 0;
     let incrementoSum = 0;
     let deduccionSum = 0;
@@ -76,16 +91,21 @@ export function aggregateServicioCierre(rows, cedulas) {
         if (r.cerrado) consultoresCerrados += 1;
     }
 
-    const consultoresTotal = filtered.length;
-    const estados = countEstadosFromRows(filtered);
-
     return {
-        consultoresTotal,
+        consultoresTotal: filtered.length,
         consultoresCerrados,
         consultoresConNovedad,
-        estados,
+        estados: countEstadosFromRows(filtered),
         totales: { tarifaSum, incrementoSum, deduccionSum, facturaSum }
     };
+}
+
+/**
+ * Agrega métricas de cierre: asociados Dynamo + salidas del mes M del cliente.
+ */
+export function aggregateServicioCierre(rows, cedulas) {
+    const filtered = mergeConciliacionServicioRows(rows, cedulas);
+    return aggregateConciliacionRows(filtered);
 }
 
 /**

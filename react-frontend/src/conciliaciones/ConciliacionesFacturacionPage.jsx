@@ -44,8 +44,10 @@ import {
     patchFacturacionRowsMasivaAprobar,
     resolveRefreshTargets,
     resolveEstadoTrasRevisionIndividual,
-    shouldShowTablaInitialLoading
+    shouldShowTablaInitialLoading,
+    extractSalidasMesRows
 } from './facturacionLogic.js';
+import { mergeConciliacionServicioRows } from './facturacionAggregate.js';
 
 function currentMonthValue() {
     const d = new Date();
@@ -276,7 +278,8 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         [handleResetFilters]
     );
 
-    const clienteServicio = servicioSel ? String(servicioSel.client || '').trim() : '';
+    const resumenCliente = servicioSel ? String(servicioSel.client || '').trim() : '';
+    const clienteServicio = resumenCliente;
     const billingTypeServicio = servicioSel ? String(servicioSel.billingType || '').trim() : '';
     const billingModeServicio = servicioSel ? String(servicioSel.billingMode || '').trim() : '';
     const baseHoursServicio = servicioSel?.baseHours;
@@ -292,7 +295,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
 
     const loadResumen = useCallback(async (options = {}) => {
         const { silent = false } = options;
-        if (!clienteServicio || !ym.year || !ym.month) {
+        if (!resumenCliente || !ym.year || !ym.month) {
             setRows([]);
             setTotales(null);
             return null;
@@ -327,7 +330,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 setLoadingResumen(false);
             }
         }
-    }, [token, clienteServicio, billingQueryParams, ym.year, ym.month]);
+    }, [token, resumenCliente, billingQueryParams, ym.year, ym.month]);
 
     useEffect(() => {
         loadResumen();
@@ -377,9 +380,30 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         return rows.filter((r) => set.has(normalizeCedula(r.cedula)));
     }, [servicioSel, servicioCedulas, rows]);
 
+    /** Asociados + salidas del mes: base para totales, masiva, cierre y métricas. */
+    const rowsConciliacion = useMemo(() => {
+        if (!servicioSel) return [];
+        return mergeConciliacionServicioRows(rows, servicioCedulas);
+    }, [servicioSel, rows, servicioCedulas]);
+
+    const rowsSalidas = useMemo(() => {
+        if (!servicioSel) return [];
+        return extractSalidasMesRows(rows, servicioCedulas);
+    }, [servicioSel, rows, servicioCedulas]);
+
     const filteredRows = useMemo(
         () => filterFacturacionRows(rowsDelServicio, facturacionFilters),
         [rowsDelServicio, facturacionFilters]
+    );
+
+    const filteredRowsConciliacion = useMemo(
+        () => filterFacturacionRows(rowsConciliacion, facturacionFilters),
+        [rowsConciliacion, facturacionFilters]
+    );
+
+    const filteredSalidasRows = useMemo(
+        () => filterFacturacionRows(rowsSalidas, facturacionFilters),
+        [rowsSalidas, facturacionFilters]
     );
 
     const [facturacionOpen, setFacturacionOpen] = useState(false);
@@ -393,8 +417,8 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     const userRole = auth?.user?.role || auth?.claims?.role || '';
 
     const servicioCompleto = useMemo(
-        () => isServicioCompletoFinanzas(rowsDelServicio, servicioCedulas),
-        [rowsDelServicio, servicioCedulas]
+        () => isServicioCompletoFinanzas(rows, servicioCedulas),
+        [rows, servicioCedulas]
     );
 
     const servicioCierreReadonly = useMemo(
@@ -636,7 +660,8 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
             setError('');
             setSuccess('');
             try {
-                const scopeRows = form.applyToFiltered && hasEstadoFilter ? filteredRows : rowsDelServicio;
+                const scopeRows =
+                    form.applyToFiltered && hasEstadoFilter ? filteredRowsConciliacion : rowsConciliacion;
                 const etapaObjetivo = form.etapaObjetivo;
                 const eligibleRows = filterMasivaEligibleRows(userRole, scopeRows, form.accion, etapaObjetivo);
                 if (!eligibleRows.length) {
@@ -678,7 +703,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 setSavingMasiva(false);
             }
         },
-        [token, ym.year, ym.month, clienteServicio, filteredRows, rowsDelServicio, hasEstadoFilter, userRole, servicioSel?.id, refreshAfterMutation]
+        [token, ym.year, ym.month, clienteServicio, filteredRowsConciliacion, rowsConciliacion, hasEstadoFilter, userRole, servicioSel?.id, refreshAfterMutation]
     );
 
     const handleOpenMasiva = useCallback(() => {
@@ -789,20 +814,20 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     );
 
     const masivaEligibleCount = useMemo(() => {
-        const scope = hasEstadoFilter ? filteredRows : rowsDelServicio;
+        const scope = hasEstadoFilter ? filteredRowsConciliacion : rowsConciliacion;
         return filterMasivaEligibleRows(userRole, scope, 'aprobar').length;
-    }, [userRole, hasEstadoFilter, filteredRows, rowsDelServicio]);
+    }, [userRole, hasEstadoFilter, filteredRowsConciliacion, rowsConciliacion]);
 
     const showMasivaBtn =
         Boolean(servicioSel) &&
         !workspaceReadonly &&
         canUserPerformMasivaRevision(userRole) &&
-        rowsDelServicio.length > 0 &&
+        rowsConciliacion.length > 0 &&
         masivaEligibleCount > 0;
 
     const facturacionTotales = useMemo(
-        () => buildFacturacionTotales(rowsDelServicio, totales),
-        [rowsDelServicio, totales]
+        () => buildFacturacionTotales(rows, totales, servicioCedulas),
+        [rows, totales, servicioCedulas]
     );
 
     const monthLabel = useMemo(() => formatConciliacionesMonthLabel(monthValue), [monthValue]);
@@ -810,7 +835,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     const tablaInitialLoading = shouldShowTablaInitialLoading({
         loadingResumen,
         refreshingResumen,
-        rowCount: rowsDelServicio.length
+        rowCount: rowsConciliacion.length
     });
     const detalleLoading = loadingCedulas || tablaInitialLoading;
     const defaultProyecto = servicioSel?.serviceName || '';
@@ -962,11 +987,11 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                         field={field}
                     />
                 ) : (
-                    <>
+                    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2">
                         <ConciliacionesServicioResumenCard
                             servicio={servicioSel}
                             monthLabel={monthLabel}
-                            consultoresCount={rowsDelServicio.length}
+                            consultoresCount={rowsConciliacion.length}
                             servicioCompleto={workspaceReadonly}
                             estadoServicio={servicioSel?.estadoServicio}
                             diasBaseMes={diasBaseServicio.diasBaseMes}
@@ -979,12 +1004,20 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                             facturacionTotales={
                                 facturacionTotales && !tablaInitialLoading && !loadingCedulas ? facturacionTotales : null
                             }
-                            metricDetailRows={rowsDelServicio}
+                            metricDetailRows={rowsConciliacion}
                         />
 
-                        <div className={`${dash.cardFlex} min-h-0 flex-1`}>
-                            <div className={dash.tableWrap}>
-                                <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
+                        <div className={`shrink-0 overflow-hidden ${dash.card}`}>
+                            <div
+                                className={`border-b px-4 py-3 ${isLight ? 'border-slate-200 bg-slate-50/80' : 'border-slate-700/50 bg-slate-800/40'}`}
+                            >
+                                <p className={`text-sm font-semibold ${headingAccent}`}>Consultores asociados</p>
+                                <p className={`mt-0.5 text-xs ${labelMuted}`}>
+                                    Vinculados a este servicio en Dynamo para {monthLabel}.
+                                </p>
+                            </div>
+                            <div className={isLight ? 'bg-slate-50' : 'bg-[#0f172a]/50'}>
+                                <div className="overflow-x-auto">
                                     <ConciliacionesTabla
                                         embedded
                                         rows={filteredRows}
@@ -996,22 +1029,62 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                                         labelMuted={labelMuted}
                                         loading={tablaInitialLoading || loadingCedulas}
                                         loadingMessage={
-                                            loadingCedulas ? 'Cargando consultores del servicio…' : 'Cargando datos del mes…'
+                                            loadingCedulas
+                                                ? 'Cargando consultores del servicio…'
+                                                : 'Cargando datos del mes…'
                                         }
                                         refreshing={refreshingResumen}
                                     />
                                 </div>
-                                {filteredRows.length > 0 || rowsDelServicio.length > 0 ? (
-                                    <div className={dash.footerBar}>
-                                        <span>
-                                            Mostrando {filteredRows.length} de {rowsDelServicio.length} consultores
-                                            {refreshingResumen ? ' · actualizando…' : ''}
-                                        </span>
-                                    </div>
-                                ) : null}
+                                <div className={dash.footerBar}>
+                                    <span>
+                                        {rowsDelServicio.length === 0 && !tablaInitialLoading && !loadingCedulas
+                                            ? 'Sin consultores asociados a este servicio'
+                                            : `Mostrando ${filteredRows.length} de ${rowsDelServicio.length} consultores`}
+                                        {refreshingResumen ? ' · actualizando…' : ''}
+                                    </span>
+                                </div>
                             </div>
                         </div>
-                    </>
+
+                        <div className={`shrink-0 overflow-hidden ${dash.card}`}>
+                            <div
+                                className={`border-b px-4 py-3 ${isLight ? 'border-slate-200 bg-slate-50/80' : 'border-slate-700/50 bg-slate-800/40'}`}
+                            >
+                                <p className={`text-sm font-semibold ${headingAccent}`}>Salidas</p>
+                                <p className={`mt-0.5 text-xs ${labelMuted}`}>
+                                    Consultores con baja efectiva en {monthLabel} del cliente, fuera de la asociación
+                                    de este servicio.
+                                </p>
+                            </div>
+                            <div className={isLight ? 'bg-slate-50' : 'bg-[#0f172a]/50'}>
+                                <div className="overflow-x-auto">
+                                    <ConciliacionesTabla
+                                        embedded
+                                        dense
+                                        rows={filteredSalidasRows.map((r) => ({ ...r, salidaMes: true }))}
+                                        estadoServicio={servicioSel?.estadoServicio}
+                                        showClienteColumn={false}
+                                        onVerDetalle={openRevision}
+                                        onRowClick={openRevision}
+                                        headingAccent={headingAccent}
+                                        labelMuted={labelMuted}
+                                        loading={tablaInitialLoading}
+                                        loadingMessage="Cargando salidas del mes…"
+                                        refreshing={refreshingResumen}
+                                    />
+                                </div>
+                                <div className={dash.footerBar}>
+                                    <span>
+                                        {filteredSalidasRows.length === 0
+                                            ? `Sin salidas en ${monthLabel} fuera de este servicio`
+                                            : `${filteredSalidasRows.length} salida${filteredSalidasRows.length === 1 ? '' : 's'} en ${monthLabel}`}
+                                        {refreshingResumen ? ' · actualizando…' : ''}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 )}
             </div>
 
@@ -1051,8 +1124,8 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                     onClose={() => setMasivaOpen(false)}
                     onSave={handleSaveMasiva}
                     userRole={userRole}
-                    serviceRows={rowsDelServicio}
-                    filteredRows={filteredRows}
+                    serviceRows={rowsConciliacion}
+                    filteredRows={filteredRowsConciliacion}
                     cliente={servicioSel?.serviceName || clienteServicio}
                     hasActiveFilters={hasEstadoFilter}
                     saving={savingMasiva}

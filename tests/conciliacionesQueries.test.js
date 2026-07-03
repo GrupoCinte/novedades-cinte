@@ -72,7 +72,8 @@ test('getConciliacionResumenPorClienteMes agrega solo novedades visibles y calcu
     const deps = { pool, normalizeCedula, canRoleViewType };
     const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
     const { rows, totales } = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 5);
-    const deduccionDia = Math.round(5000 / 30);
+    const diasMes = 31;
+    const deduccionDia = Math.round(5000 / diasMes);
     const deduccionEsperada = deduccionDia * 2;
     assert.equal(rows.length, 1);
     assert.equal(rows[0].novedadesCount, 2);
@@ -1009,4 +1010,111 @@ test('applyConciliacionFacturacionRevision DEVUELTA libera novedades consumidas'
         { role: 'nomina', email: 'nom@t.com' }
     );
     assert.ok(clientQueries.some((q) => q.includes('DELETE FROM conciliaciones_novedad_consumo')));
+});
+
+function matchesColaboradorVisibleEnMes(col, year, month) {
+    if (col.activo !== false) return true;
+    const salida = col.fecha_baja_efectiva || col.fecha_termino;
+    if (!salida) return false;
+    const d = new Date(String(salida).slice(0, 10));
+    return d.getFullYear() === year && d.getMonth() + 1 === month;
+}
+
+function buildVisibleMesPool(colaboradores) {
+    return {
+        query: async (sql, params) => {
+            const s = String(sql);
+            if (s.includes('FROM novedades')) return { rows: [] };
+            if (s.includes('colaborador_asignaciones') || s.includes('colaborador_tarifa_historial')) {
+                return { rows: [] };
+            }
+            if (s.includes('FROM colaboradores')) {
+                const year = Number(params[1]);
+                const month = Number(params[2]);
+                return {
+                    rows: colaboradores.filter((c) => matchesColaboradorVisibleEnMes(c, year, month))
+                };
+            }
+            return { rows: [] };
+        }
+    };
+}
+
+test('getConciliacionResumenPorClienteMes: inactivo salida junio visible junio no julio', async () => {
+    const colaboradores = [
+        {
+            cedula: '111',
+            nombre: 'Activo',
+            activo: true,
+            cliente: 'Cliente X',
+            tarifa_cliente: '1000',
+            moneda: 'COP'
+        },
+        {
+            cedula: '222',
+            nombre: 'Salida Jun',
+            activo: false,
+            fecha_baja_efectiva: '2026-06-15',
+            cliente: 'Cliente X',
+            tarifa_cliente: '2000',
+            moneda: 'COP'
+        },
+        {
+            cedula: '333',
+            nombre: 'Baja Mar',
+            activo: false,
+            fecha_baja_efectiva: '2026-03-01',
+            cliente: 'Cliente X',
+            tarifa_cliente: '3000',
+            moneda: 'COP'
+        },
+        {
+            cedula: '444',
+            nombre: 'Inactivo sin fecha',
+            activo: false,
+            cliente: 'Cliente X',
+            tarifa_cliente: '4000',
+            moneda: 'COP'
+        }
+    ];
+    const deps = {
+        pool: buildVisibleMesPool(colaboradores),
+        normalizeCedula,
+        canRoleViewType
+    };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+
+    const jun = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 6);
+    assert.deepEqual(
+        jun.rows.map((r) => r.cedula).sort(),
+        ['111', '222']
+    );
+
+    const jul = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 7);
+    assert.deepEqual(jul.rows.map((r) => r.cedula), ['111']);
+});
+
+test('getConciliacionResumenPorClienteMes: activo sin servicio visible en cualquier mes', async () => {
+    const colaboradores = [
+        {
+            cedula: '999',
+            nombre: 'Sin servicio activo',
+            activo: true,
+            cliente: 'Cliente X',
+            tarifa_cliente: '5000',
+            moneda: 'COP'
+        }
+    ];
+    const deps = {
+        pool: buildVisibleMesPool(colaboradores),
+        normalizeCedula,
+        canRoleViewType
+    };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+
+    const may = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 5);
+    const jul = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 7);
+    assert.equal(may.rows.length, 1);
+    assert.equal(jul.rows.length, 1);
+    assert.equal(may.rows[0].cedula, '999');
 });
