@@ -1,7 +1,8 @@
 'use strict';
 
-const { computeHoraExtraSplitBogota } = require('./heBogotaSplit');
+const { collectRecargoDayKeysInInterval } = require('./heBogotaSplit');
 const { computeMallaRecargoPayload } = require('./mallaRecargoSplit');
+const { recomputeAndPersistDomingoRecargoGroup } = require('./heDomingoRecargoGroup');
 const { toUtcMsFromDateAndTime } = require('./novedadHeTime');
 const { resolveNocturnoDateTimeRange } = require('./directorio/mallaNocturnoConfig');
 const { resolvePostedContactFromColaborador } = require('./colaboradorDirectory');
@@ -237,6 +238,8 @@ async function aprobarMallaTurnosMes(deps) {
         let novedadesGeneradas = 0;
         let totalHoras = 0;
         const modStamp = Date.now();
+        /** @type {Map<string, Set<string>>} */
+        const domingoRecomputeQueue = new Map();
 
         for (const item of items) {
             const cedula = String(item.cedula || '').trim();
@@ -339,6 +342,10 @@ async function aprobarMallaTurnosMes(deps) {
             ]);
             novedadesGeneradas += 1;
             totalHoras += Number(recargo.cantidadHoras) || 0;
+            for (const dayKey of collectRecargoDayKeysInInterval(startMs, endMs, festivosSet)) {
+                if (!domingoRecomputeQueue.has(cedula)) domingoRecomputeQueue.set(cedula, new Set());
+                domingoRecomputeQueue.get(cedula).add(dayKey);
+            }
         }
 
         let upd;
@@ -362,6 +369,10 @@ async function aprobarMallaTurnosMes(deps) {
         }
 
         await dbClient.query('COMMIT');
+
+        for (const [cedulaRec, dayKeys] of domingoRecomputeQueue) {
+            await recomputeAndPersistDomingoRecargoGroup(pool, cedulaRec, [...dayKeys], festivosSet);
+        }
 
         const aprobadoEn = upd.rows?.[0]?.aprobado_en;
         return {

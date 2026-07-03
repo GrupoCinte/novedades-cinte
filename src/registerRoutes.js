@@ -5,7 +5,8 @@ const {
 } = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
-const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
+const { computeHoraExtraSplitBogota, resolveHoraExtraLabel, collectRecargoDayKeysInInterval } = require('./heBogotaSplit');
+const { triggerDomingoRecargoRecomputeForInterval, recomputeAndPersistDomingoRecargoGroup } = require('./heDomingoRecargoGroup');
 const {
     formatCantidadNovedad,
     getCantidadMedidaKind,
@@ -2284,6 +2285,26 @@ function registerRoutes(deps) {
                     });
                 }
 
+                if (novedadTypeKey === 'hora_extra') {
+                    const festivosSetHePost = await festivosService.getFestivosSet();
+                    const domingoKeys = new Set();
+                    for (const seg of segmentRows) {
+                        const segStartMs = toUtcMsFromDateAndTime(seg.fechaInicio, horaInicio);
+                        const segEndMs = toUtcMsFromDateAndTime(seg.fechaFin, horaFin);
+                        for (const k of collectRecargoDayKeysInInterval(segStartMs, segEndMs, festivosSetHePost)) {
+                            domingoKeys.add(k);
+                        }
+                    }
+                    if (domingoKeys.size) {
+                        await recomputeAndPersistDomingoRecargoGroup(
+                            pool,
+                            cedulaNorm,
+                            [...domingoKeys],
+                            festivosSetHePost
+                        );
+                    }
+                }
+
                 return res.json({
                     ok: true,
                     success: true,
@@ -2316,6 +2337,18 @@ function registerRoutes(deps) {
                 throw insertError;
             }
             const novedadId = insertResult?.rows?.[0]?.id || '';
+            if (novedadTypeKey === 'hora_extra') {
+                const heStartMs = toUtcMsFromDateAndTime(insertFechaInicio, horaInicio);
+                const heEndMs = toUtcMsFromDateAndTime(insertFechaFin, horaFin);
+                const festivosSetHePost = await festivosService.getFestivosSet();
+                await triggerDomingoRecargoRecomputeForInterval(
+                    pool,
+                    cedulaNorm,
+                    heStartMs,
+                    heEndMs,
+                    festivosSetHePost
+                );
+            }
             await publishFormSubmittedForRow({
                 novedadId,
                 rowFechaInicio: insertFechaInicio,

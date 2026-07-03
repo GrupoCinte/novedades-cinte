@@ -3,6 +3,9 @@
 const { canRoleViewType } = require('./rbac');
 const { validateMergedNovedadForAdmin, toYmd, toHms, nonNegNum } = require('./novedadPersistValidation');
 const { toUtcMsFromDateAndTime } = require('./novedadHeTime');
+const { collectRecargoDayKeysInInterval } = require('./heBogotaSplit');
+const { recomputeAndPersistDomingoRecargoGroup } = require('./heDomingoRecargoGroup');
+const festivosService = require('./festivosService');
 
 const PATCH_CAMEL_TO_SNAKE = {
     nombre: 'nombre',
@@ -344,6 +347,31 @@ async function adminPatchNovedad({ pool, req, idParam, normalizeEstado, parseDat
     const sql = `UPDATE novedades SET ${setParts.join(', ')} WHERE id = $${i}::uuid`;
     vals.push(row.id);
     await pool.query(sql, vals);
+
+    const tipoFold = String(merged.tipo_novedad || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+    const heTimeKeys = new Set(['fechaInicio', 'fechaFin', 'horaInicio', 'horaFin']);
+    const heTimeChanged = appliedKeys.some((k) => heTimeKeys.has(k));
+    if (tipoFold === 'hora extra' && heTimeChanged) {
+        const festivosSet = await festivosService.getFestivosSet();
+        const dayKeys = new Set();
+        const oldStartMs = toUtcMsFromDateAndTime(row.fecha_inicio, row.hora_inicio);
+        const oldEndMs = toUtcMsFromDateAndTime(row.fecha_fin, row.hora_fin);
+        for (const k of collectRecargoDayKeysInInterval(oldStartMs, oldEndMs, festivosSet)) dayKeys.add(k);
+        const newStartMs = toUtcMsFromDateAndTime(merged.fecha_inicio, merged.hora_inicio);
+        const newEndMs = toUtcMsFromDateAndTime(merged.fecha_fin, merged.hora_fin);
+        for (const k of collectRecargoDayKeysInInterval(newStartMs, newEndMs, festivosSet)) dayKeys.add(k);
+        if (dayKeys.size) {
+            await recomputeAndPersistDomingoRecargoGroup(
+                pool,
+                String(merged.cedula || row.cedula || '').trim(),
+                [...dayKeys],
+                festivosSet
+            );
+        }
+    }
 
     return { status: 200, body: { ok: true, success: true } };
 }
