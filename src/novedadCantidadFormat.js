@@ -370,6 +370,45 @@ function formatCantidadNovedad(tipoNovedad, cantidadRaw, context = null) {
     return String(n);
 }
 
+/**
+ * Cantidad numérica plana para export Excel (sin sufijo h / días / COP).
+ * @param {number} cantidadRaw
+ * @param {'hours'|'days'|'money'|'neutral'} kind
+ * @returns {number|string}
+ */
+function formatCantidadNovedadExcelPlain(cantidadRaw, kind) {
+    if (kind === 'money') {
+        const m = Number(cantidadRaw);
+        if (!Number.isFinite(m) || m <= 0) return '';
+        return Math.round(m * 100) / 100;
+    }
+    if (kind === 'days') {
+        const d = Number(cantidadRaw);
+        if (!Number.isFinite(d) || d <= 0) return '';
+        return Math.round(d * 100) / 100;
+    }
+    if (kind === 'hours') {
+        const h = Number(cantidadRaw);
+        if (!Number.isFinite(h) || h === 0) return '';
+        return Math.round(h * 100) / 100;
+    }
+    const n = Number(cantidadRaw);
+    if (!Number.isFinite(n) || n === 0) return '';
+    return Math.round(n * 100) / 100;
+}
+
+/**
+ * Etiqueta de unidad para columna «Unidad» en export Excel.
+ * @param {'hours'|'days'|'money'|'neutral'} kind
+ * @returns {string}
+ */
+function medidaExcelLabel(kind) {
+    if (kind === 'hours') return 'Horas';
+    if (kind === 'days') return 'Días';
+    if (kind === 'money') return 'COP';
+    return '';
+}
+
 function getCantidadDetalleEtiqueta(tipoNovedad, context = null) {
     const kind = getCantidadMedidaKind(tipoNovedad, context);
     if (kind === 'hours') return 'Total horas';
@@ -389,5 +428,7 @@ module.exports = {
     getCantidadMedidaKind,
     formatDiasCount,
     formatCantidadNovedad,
+    formatCantidadNovedadExcelPlain,
+    medidaExcelLabel,
     getCantidadDetalleEtiqueta
 };

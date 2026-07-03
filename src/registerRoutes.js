@@ -9,7 +9,10 @@ const { computeHoraExtraSplitBogota, resolveHoraExtraLabel, collectRecargoDayKey
 const { triggerDomingoRecargoRecomputeForInterval, recomputeAndPersistDomingoRecargoGroup } = require('./heDomingoRecargoGroup');
 const {
     formatCantidadNovedad,
+    formatCantidadNovedadExcelPlain,
+    medidaExcelLabel,
     getCantidadMedidaKind,
+    getDiasEfectivosNovedad,
     countCalendarDaysInclusive,
     countBusinessDaysInclusive: countBusinessDaysInclusiveCantidad
 } = require('./novedadCantidadFormat');
@@ -156,6 +159,22 @@ function parseNovedadesListQuery(query) {
     };
 }
 
+/** Cantidad y unidad para export Excel (numérico plano + columna Unidad). */
+function buildExcelCantidadUnidadFields(tipoNovedad, cantidadRaw, it) {
+    const kind = getCantidadMedidaKind(tipoNovedad, it);
+    let value = cantidadRaw;
+    if (kind === 'days') {
+        value = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, it.fechaInicio, it.fechaFin, it);
+    } else if (kind === 'money') {
+        const m = it.montoCop != null && it.montoCop !== '' ? Number(it.montoCop) : NaN;
+        value = Number.isFinite(m) && m > 0 ? m : Number(cantidadRaw || 0);
+    }
+    return {
+        cantidad: formatCantidadNovedadExcelPlain(value, kind),
+        unidad: medidaExcelLabel(kind)
+    };
+}
+
 /**
  * Fila Excel HE desagregada (una tipología) o fila legacy sin breakdown.
  * @param {object} opts
@@ -174,7 +193,7 @@ function buildExcelRowHoraExtraSlice(opts) {
     const tipoNovedad = formatTipoNovedadHeSlice(it, slice);
     const ck = slice.columnKey;
     const h = Number(slice.hours || 0);
-    const cantidad = formatCantidadNovedad(it.tipoNovedad, h, it);
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, h, it);
     const timeExcel =
         slice.startMs != null && slice.endMs != null
             ? msRangeToExcelHoraFields(slice.startMs, slice.endMs)
@@ -190,6 +209,7 @@ function buildExcelRowHoraExtraSlice(opts) {
         fechaInicio: timeExcel?.fechaInicio || it.fechaInicio || '',
         fechaFin: timeExcel?.fechaFin || it.fechaFin || '',
         cantidad,
+        unidad,
         horaInicial: esPorHoras ? (timeExcel?.horaInicial || formatHoraMinutaParaExcel(it.horaInicio)) : '',
         horaFinal: esPorHoras ? (timeExcel?.horaFinal || formatHoraMinutaParaExcel(it.horaFin)) : '',
         horasDiurnas: ck === 'horasDiurnas' && h > 0 ? h : '',
@@ -218,6 +238,7 @@ function buildExcelRowHoraExtraLegacy(opts) {
     const recargoAny = rdd > 0 || rdn > 0 || rTot > 0 || Number(it.horasRecargoNocturno || 0) > 0;
     const sliceKeyForComp = recargoAny ? 'recargo_diurno' : 'diurna';
     const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, sliceKeyForComp);
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, it.cantidadHoras, it);
     return appendNominaProcesadoExcelFields({
         novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
@@ -228,7 +249,8 @@ function buildExcelRowHoraExtraLegacy(opts) {
         tipoNovedad: formatTipoNovedadParaExportExcel(it),
         fechaInicio: it.fechaInicio || '',
         fechaFin: it.fechaFin || '',
-        cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
+        cantidad,
+        unidad,
         horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
         horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
         horasDiurnas: Number(it.horasDiurnas || 0) > 0 ? Number(it.horasDiurnas) : '',
@@ -251,6 +273,7 @@ function buildExcelRowHoraExtraLegacy(opts) {
 
 function buildExcelRowOtroTipo(opts) {
     const { it, observacionHeDomingo, correoActor, esPorHoras } = opts;
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, it.cantidadHoras, it);
     return appendNominaProcesadoExcelFields({
         novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
@@ -261,7 +284,8 @@ function buildExcelRowOtroTipo(opts) {
         tipoNovedad: String(it.tipoNovedad || '').trim(),
         fechaInicio: it.fechaInicio || '',
         fechaFin: it.fechaFin || '',
-        cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
+        cantidad,
+        unidad,
         horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
         horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
         horasDiurnas: '',
@@ -1049,6 +1073,7 @@ function registerRoutes(deps) {
                 { header: 'Fecha Inicio', key: 'fechaInicio', width: 14 },
                 { header: 'Fecha Fin', key: 'fechaFin', width: 14 },
                 { header: 'Cantidad', key: 'cantidad', width: 18 },
+                { header: 'Unidad', key: 'unidad', width: 10 },
                 { header: 'Hora inicial', key: 'horaInicial', width: 12 },
                 { header: 'Hora final', key: 'horaFinal', width: 12 },
                 { header: 'Horas diurnas', key: 'horasDiurnas', width: 14 },
