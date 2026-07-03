@@ -47,6 +47,21 @@ function isSundayBogotaYmd(ymd) {
 
 /**
  * @param {string} ymd YYYY-MM-DD (fecha Bogotá)
+ * @returns {boolean}
+ */
+function isSaturdayBogotaYmd(ymd) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || '').trim());
+    if (!m) return false;
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    if (!y || mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+    const middayBogotaAsUtc = Date.UTC(y, mo - 1, d, 17, 0, 0, 0);
+    return new Date(middayBogotaAsUtc).getUTCDay() === 6;
+}
+
+/**
+ * @param {string} ymd YYYY-MM-DD (fecha Bogotá)
  * @param {Set<string>} [festivosSet]
  * @returns {boolean}
  */
@@ -250,6 +265,7 @@ module.exports = {
     bogotaDateKeyFromMs,
     bogotaMidnightUtcMsFromYmd,
     isSundayBogotaYmd,
+    isSaturdayBogotaYmd,
     isDomingoOFestivoBogotaYmd,
     isDiaRecargoDominicalBogotaYmd,
     splitHoursByBogotaDay,

@@ -889,6 +889,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                     onClienteChange={handleClienteChange}
                     monthValue={monthValue}
                     onMonthChange={setMonthValue}
+                    minMonthValue={currentMonthValue()}
                     field={field}
                     labelMuted={labelMuted}
                     allowTodos={!servicioSel}

@@ -563,9 +563,10 @@ export default function ConciliacionesFacturacionModal({
                         ) : null}
                         {!showActions ? (
                             <span className={`text-xs ${dash.modalMuted}`}>
-                                {servicioCompleto
-                                    ? 'Servicio conciliado — solo lectura.'
-                                    : 'Sin acciones disponibles para tu rol en este estado.'}
+                                {revisionActions.readOnlyMessage ||
+                                    (servicioCompleto
+                                        ? 'Servicio conciliado — solo lectura.'
+                                        : 'Sin acciones disponibles para tu rol en este estado.')}
                             </span>
                         ) : null}
                     </div>
@@ -621,6 +622,7 @@ export default function ConciliacionesFacturacionModal({
                                 }
                                 value={observaciones}
                                 onChange={(e) => setObservaciones(e.target.value)}
+                                maxLength={1000}
                                 className={`resize-none rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
                             />
                         </div>

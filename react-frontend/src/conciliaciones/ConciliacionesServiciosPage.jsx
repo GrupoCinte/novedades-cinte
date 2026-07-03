@@ -38,6 +38,7 @@ export default function ConciliacionesServiciosPage({ token }) {
 
     const [detalleOpen, setDetalleOpen] = useState(false);
     const [servicioToDetalle, setServicioToDetalle] = useState(null);
+    const [detalleInitialAssociating, setDetalleInitialAssociating] = useState(false);
 
     const loadData = useCallback(async (options = {}) => {
         const { silent = false } = options;
@@ -73,6 +74,7 @@ export default function ConciliacionesServiciosPage({ token }) {
     }, [loadData]);
 
     const handleVerDetalles = useCallback((servicio) => {
+        setDetalleInitialAssociating(false);
         setServicioToDetalle(servicio);
         setDetalleOpen(true);
     }, []);
@@ -236,13 +238,24 @@ export default function ConciliacionesServiciosPage({ token }) {
                 servicio={servicioToEdit}
                 onSuccess={(saved) => {
                     setCrearOpen(false);
+                    const wasCreate = !servicioToEdit;
                     setSuccess(servicioToEdit ? 'Servicio actualizado correctamente' : 'Servicio creado correctamente');
                     if (saved) {
-                        setServicios((prev) => mergeServicioInList(prev, saved));
+                        setServicios((prev) =>
+                            mergeServicioInList(prev, {
+                                ...saved,
+                                consultoresCount: saved.consultoresCount ?? 0
+                            })
+                        );
                     } else {
                         void loadData({ silent: true });
                     }
                     setServicioToEdit(null);
+                    if (wasCreate && saved?.id) {
+                        setDetalleInitialAssociating(true);
+                        setServicioToDetalle(saved);
+                        setDetalleOpen(true);
+                    }
                 }}
             />
 
@@ -251,8 +264,10 @@ export default function ConciliacionesServiciosPage({ token }) {
                 onClose={() => {
                     setDetalleOpen(false);
                     setServicioToDetalle(null);
+                    setDetalleInitialAssociating(false);
                 }}
                 servicio={servicioToDetalle}
+                initialAssociating={detalleInitialAssociating}
                 onDelete={setConfirmDeleteServicio}
                 onSuccess={(saved) => {
                     setSuccess('Servicio actualizado correctamente');

@@ -32,6 +32,49 @@ function resolveMallaRecargoLabel(payload) {
 }
 
 /**
+ * Mapea split estándar HE a columnas persistidas de novedad generada desde malla.
+ * @param {{ total: number, horasRecargoDomingo: number, horasRecargoDomingoDiurnas: number, horasRecargoDomingoNocturnas: number, diurnas: number, nocturnas: number }} split
+ */
+function mapSplitToMallaPersistedFields(split) {
+    const hasRecargoDom =
+        split.horasRecargoDomingo > 0 ||
+        split.horasRecargoDomingoDiurnas > 0 ||
+        split.horasRecargoDomingoNocturnas > 0;
+
+    let horasRecargoDomingoDiurnas = 0;
+    let horasRecargoDomingoNocturnas = 0;
+    let horasRecargoNocturno = 0;
+
+    if (hasRecargoDom) {
+        horasRecargoDomingoDiurnas = round2(split.horasRecargoDomingoDiurnas + split.diurnas);
+        horasRecargoDomingoNocturnas = round2(split.horasRecargoDomingoNocturnas);
+        horasRecargoNocturno = round2(split.nocturnas);
+    } else {
+        horasRecargoNocturno = round2(split.nocturnas);
+    }
+
+    const horasRecargoDomingo = round2(horasRecargoDomingoDiurnas + horasRecargoDomingoNocturnas);
+    const cantidadHoras = round2(horasRecargoNocturno + horasRecargoDomingo);
+
+    return {
+        cantidadHoras,
+        horasDiurnas: 0,
+        horasNocturnas: 0,
+        horasRecargoDomingo,
+        horasRecargoDomingoDiurnas,
+        horasRecargoDomingoNocturnas,
+        horasRecargoNocturno,
+        tipoHoraExtra: cantidadHoras <= 0
+            ? null
+            : resolveMallaRecargoLabel({
+                  horasRecargoNocturno,
+                  horasRecargoDomingoDiurnas,
+                  horasRecargoDomingoNocturnas
+              })
+    };
+}
+
+/**
  * Convierte segmentación temporal HE en payload de recargos para mallas/turnos.
  * Omite horas diurnas planificadas en día hábil; mapea tramo 19:00–06:00 a recargo nocturno.
  *
@@ -97,5 +140,6 @@ function computeMallaRecargoPayload(startMs, endMs, festivosSet) {
 module.exports = {
     computeMallaRecargoPayload,
     resolveMallaRecargoLabel,
+    mapSplitToMallaPersistedFields,
     isMallaOrigenNovedad
 };

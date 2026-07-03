@@ -5,10 +5,14 @@ const {
 } = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
-const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
+const { computeHoraExtraSplitBogota, resolveHoraExtraLabel, collectRecargoDayKeysInInterval } = require('./heBogotaSplit');
+const { triggerDomingoRecargoRecomputeForInterval, recomputeAndPersistDomingoRecargoGroup } = require('./heDomingoRecargoGroup');
 const {
     formatCantidadNovedad,
+    formatCantidadNovedadExcelPlain,
+    medidaExcelLabel,
     getCantidadMedidaKind,
+    getDiasEfectivosNovedad,
     countCalendarDaysInclusive,
     countBusinessDaysInclusive: countBusinessDaysInclusiveCantidad
 } = require('./novedadCantidadFormat');
@@ -21,17 +25,17 @@ const {
 const {
     buildHoraExtraExportSlices,
     compensacionDominicalExcelEtiqueta,
-    formatTipoNovedadHeSlice
+    formatTipoNovedadHeSlice,
+    formatTipoNovedadHeLegacy,
+    msRangeToExcelHoraFields
 } = require('./novedadHeExcelExport');
 const { parseTimeOrNull: parseTimeOrNullForExport } = require('./utils');
 const {
     computeHeDomingoCompensacionPreview,
     buildHeDomingoCompObservacionLine,
-    formatHeDomingoCompTipoSuffix,
     buildSyntheticHoraExtraRow,
     isYmdEnVentanaCompensatorio
 } = require('./heDomingoCompensacion');
-const { isMallaOrigenNovedad } = require('./mallaRecargoSplit');
 const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
 const { markNominaProcesado } = require('./nominaProcesadoService');
 const festivosService = require('./festivosService');
@@ -102,48 +106,12 @@ function itemIsHoraExtraTipo(it) {
 }
 
 /**
- * Solo export Excel: enriquece «Tipo Novedad» para Hora Extra listando tipologías (nunca «Mixta»).
+ * Solo export Excel: etiquetas canónicas HE para fila legacy (sin desglose por componentes).
  */
 function formatTipoNovedadParaExportExcel(it) {
     const tipo = String(it?.tipoNovedad || '').trim();
     if (!itemIsHoraExtraTipo(it)) return tipo;
-    const fromMalla = isMallaOrigenNovedad(it);
-    const partes = [];
-    const hd = Number(it?.horasDiurnas || 0);
-    const hn = Number(it?.horasNocturnas || 0);
-    const rdd = Number(it?.horasRecargoDomingoDiurnas || 0);
-    const rdn = Number(it?.horasRecargoDomingoNocturnas || 0);
-    const rTot = Number(it?.horasRecargoDomingo || 0);
-    const rn = Number(it?.horasRecargoNocturno || 0);
-    if (!fromMalla) {
-        if (hd > 0) partes.push('Hora Diurna');
-        if (hn > 0) partes.push('Hora Nocturna');
-    }
-    if (rn > 0) partes.push('Recargo nocturno');
-    if (rdd > 0) partes.push('Recargo dominical diurno');
-    if (rdn > 0) partes.push('Recargo dominical nocturno');
-    if (rTot > 0 && rdd === 0 && rdn === 0) partes.push('Recargo dominical');
-    if (partes.length === 0) {
-        const raw = String(it?.tipoHoraExtra || '').trim();
-        if (fromMalla) {
-            if (raw) partes.push(raw);
-        } else {
-            const fold = raw
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .toLowerCase();
-            if (fold === 'diurna') partes.push('Hora Diurna');
-            else if (fold === 'nocturna') partes.push('Hora Nocturna');
-            else if (fold === 'mixta') {
-                partes.push('Hora Diurna', 'Hora Nocturna');
-            } else if (raw) partes.push(raw);
-        }
-    }
-    let base;
-    if (partes.length === 0) base = fromMalla ? 'Recargo' : tipo || 'Hora Extra';
-    else base = `${fromMalla ? 'Recargo' : 'Hora Extra'} / ${partes.join(', ')}`;
-    const suf = formatHeDomingoCompTipoSuffix(String(it?.heDomingoObservacion || ''));
-    return suf ? base + suf : base;
+    return formatTipoNovedadHeLegacy(it);
 }
 
 /** Columnas Excel de procesado nómina (post-aprobación). */
@@ -191,6 +159,22 @@ function parseNovedadesListQuery(query) {
     };
 }
 
+/** Cantidad y unidad para export Excel (numérico plano + columna Unidad). */
+function buildExcelCantidadUnidadFields(tipoNovedad, cantidadRaw, it) {
+    const kind = getCantidadMedidaKind(tipoNovedad, it);
+    let value = cantidadRaw;
+    if (kind === 'days') {
+        value = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, it.fechaInicio, it.fechaFin, it);
+    } else if (kind === 'money') {
+        const m = it.montoCop != null && it.montoCop !== '' ? Number(it.montoCop) : NaN;
+        value = Number.isFinite(m) && m > 0 ? m : Number(cantidadRaw || 0);
+    }
+    return {
+        cantidad: formatCantidadNovedadExcelPlain(value, kind),
+        unidad: medidaExcelLabel(kind)
+    };
+}
+
 /**
  * Fila Excel HE desagregada (una tipología) o fila legacy sin breakdown.
  * @param {object} opts
@@ -206,10 +190,14 @@ function buildExcelRowHoraExtraSlice(opts) {
     } = opts;
     const obs = String(it.heDomingoObservacion || '').trim();
     const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, slice.sliceKey);
-    const tipoNovedad = formatTipoNovedadHeSlice(it, slice.tipoLabel);
+    const tipoNovedad = formatTipoNovedadHeSlice(it, slice);
     const ck = slice.columnKey;
     const h = Number(slice.hours || 0);
-    const cantidad = formatCantidadNovedad(it.tipoNovedad, h, it);
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, h, it);
+    const timeExcel =
+        slice.startMs != null && slice.endMs != null
+            ? msRangeToExcelHoraFields(slice.startMs, slice.endMs)
+            : null;
     return appendNominaProcesadoExcelFields({
         novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
@@ -218,11 +206,12 @@ function buildExcelRowHoraExtraSlice(opts) {
         correo: it.correoSolicitante || '',
         cliente: it.cliente || '',
         tipoNovedad,
-        fechaInicio: it.fechaInicio || '',
-        fechaFin: it.fechaFin || '',
+        fechaInicio: timeExcel?.fechaInicio || it.fechaInicio || '',
+        fechaFin: timeExcel?.fechaFin || it.fechaFin || '',
         cantidad,
-        horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
-        horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
+        unidad,
+        horaInicial: esPorHoras ? (timeExcel?.horaInicial || formatHoraMinutaParaExcel(it.horaInicio)) : '',
+        horaFinal: esPorHoras ? (timeExcel?.horaFinal || formatHoraMinutaParaExcel(it.horaFin)) : '',
         horasDiurnas: ck === 'horasDiurnas' && h > 0 ? h : '',
         horasNocturnas: ck === 'horasNocturnas' && h > 0 ? h : '',
         horasRecargoDomingo: ck === 'horasRecargoDomingo' && h > 0 ? h : '',
@@ -249,6 +238,7 @@ function buildExcelRowHoraExtraLegacy(opts) {
     const recargoAny = rdd > 0 || rdn > 0 || rTot > 0 || Number(it.horasRecargoNocturno || 0) > 0;
     const sliceKeyForComp = recargoAny ? 'recargo_diurno' : 'diurna';
     const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, sliceKeyForComp);
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, it.cantidadHoras, it);
     return appendNominaProcesadoExcelFields({
         novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
@@ -259,7 +249,8 @@ function buildExcelRowHoraExtraLegacy(opts) {
         tipoNovedad: formatTipoNovedadParaExportExcel(it),
         fechaInicio: it.fechaInicio || '',
         fechaFin: it.fechaFin || '',
-        cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
+        cantidad,
+        unidad,
         horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
         horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
         horasDiurnas: Number(it.horasDiurnas || 0) > 0 ? Number(it.horasDiurnas) : '',
@@ -282,6 +273,7 @@ function buildExcelRowHoraExtraLegacy(opts) {
 
 function buildExcelRowOtroTipo(opts) {
     const { it, observacionHeDomingo, correoActor, esPorHoras } = opts;
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, it.cantidadHoras, it);
     return appendNominaProcesadoExcelFields({
         novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
@@ -292,7 +284,8 @@ function buildExcelRowOtroTipo(opts) {
         tipoNovedad: String(it.tipoNovedad || '').trim(),
         fechaInicio: it.fechaInicio || '',
         fechaFin: it.fechaFin || '',
-        cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
+        cantidad,
+        unidad,
         horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
         horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
         horasDiurnas: '',
@@ -1058,7 +1051,11 @@ function registerRoutes(deps) {
                 });
             }
             const items = rows.map(toClientNovedad);
-            const heDomingoDep = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow };
+            const heDomingoDep = {
+                toUtcMsFromDateAndTime,
+                resolveFallbackDateKeyFromRow,
+                festivosSet: await festivosService.getFestivosSet()
+            };
             const sundaySetsExport = buildSundayReportedSetsFromHeRows(
                 rows.filter(rowIsHoraExtraTipo),
                 buildConsultantKeyHeDomingo,
@@ -1076,6 +1073,7 @@ function registerRoutes(deps) {
                 { header: 'Fecha Inicio', key: 'fechaInicio', width: 14 },
                 { header: 'Fecha Fin', key: 'fechaFin', width: 14 },
                 { header: 'Cantidad', key: 'cantidad', width: 18 },
+                { header: 'Unidad', key: 'unidad', width: 10 },
                 { header: 'Hora inicial', key: 'horaInicial', width: 12 },
                 { header: 'Hora final', key: 'horaFinal', width: 12 },
                 { header: 'Horas diurnas', key: 'horasDiurnas', width: 14 },
@@ -2009,7 +2007,7 @@ function registerRoutes(deps) {
                         if (!isYmdEnVentanaCompensatorio(prevHeDom.domingoTrabajadoYmd, rawDiaComp)) {
                             return res.status(400).json({
                                 ok: false,
-                                error: `Indica un día compensatorio entre ${prevHeDom.compensatorioTiempoMinYmd} y ${prevHeDom.compensatorioTiempoMaxYmd} (15 días calendario posteriores al domingo trabajado).`
+                                error: `Indica un día compensatorio entre ${prevHeDom.compensatorioTiempoMinYmd} y ${prevHeDom.compensatorioTiempoMaxYmd} (lunes a sábado de la semana siguiente al domingo trabajado).`
                             });
                         }
                         heDomingoObservacionInsert = buildHeDomingoCompObservacionLine({
@@ -2321,6 +2319,26 @@ function registerRoutes(deps) {
                     });
                 }
 
+                if (novedadTypeKey === 'hora_extra') {
+                    const festivosSetHePost = await festivosService.getFestivosSet();
+                    const domingoKeys = new Set();
+                    for (const seg of segmentRows) {
+                        const segStartMs = toUtcMsFromDateAndTime(seg.fechaInicio, horaInicio);
+                        const segEndMs = toUtcMsFromDateAndTime(seg.fechaFin, horaFin);
+                        for (const k of collectRecargoDayKeysInInterval(segStartMs, segEndMs, festivosSetHePost)) {
+                            domingoKeys.add(k);
+                        }
+                    }
+                    if (domingoKeys.size) {
+                        await recomputeAndPersistDomingoRecargoGroup(
+                            pool,
+                            cedulaNorm,
+                            [...domingoKeys],
+                            festivosSetHePost
+                        );
+                    }
+                }
+
                 return res.json({
                     ok: true,
                     success: true,
@@ -2353,6 +2371,18 @@ function registerRoutes(deps) {
                 throw insertError;
             }
             const novedadId = insertResult?.rows?.[0]?.id || '';
+            if (novedadTypeKey === 'hora_extra') {
+                const heStartMs = toUtcMsFromDateAndTime(insertFechaInicio, horaInicio);
+                const heEndMs = toUtcMsFromDateAndTime(insertFechaFin, horaFin);
+                const festivosSetHePost = await festivosService.getFestivosSet();
+                await triggerDomingoRecargoRecomputeForInterval(
+                    pool,
+                    cedulaNorm,
+                    heStartMs,
+                    heEndMs,
+                    festivosSetHePost
+                );
+            }
             await publishFormSubmittedForRow({
                 novedadId,
                 rowFechaInicio: insertFechaInicio,

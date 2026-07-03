@@ -422,6 +422,9 @@ export function listMasivaEtapaOptions(role, rows, accion = 'aprobar') {
             title: 'Aprobación masiva — Nómina'
         });
     }
+    if (ELEVATED_ROLES.has(normalizeRole(role)) && options.length > 1) {
+        return [options.sort((a, b) => b.eligibleCount - a.eligibleCount)[0]];
+    }
     return options;
 }
 
@@ -444,6 +447,18 @@ export function canEditConciliacionAjustes(role, estado) {
 /** Acciones de revisión visibles según rol y estado del cierre. */
 export function getRevisionActionsForUser(role, estado) {
     const est = normalizeEstado(estado);
+    if (est === 'APROBADO_FINANZAS' || est === 'CONCILIADA') {
+        return {
+            canAprobar: false,
+            canRechazar: false,
+            etapaLabel: est === 'CONCILIADA' ? 'Conciliada' : 'Finanzas',
+            aprobarLabel: 'Aprobar',
+            readOnlyMessage:
+                est === 'CONCILIADA'
+                    ? 'Este cierre ya fue conciliado.'
+                    : 'Cierre aprobado en finanzas. Pendiente de exportación o cierre del servicio.'
+        };
+    }
     const etapa = resolveEffectiveEtapa(role, est);
     if (!etapa) {
         return { canAprobar: false, canRechazar: false, etapaLabel: null, aprobarLabel: 'Aprobar' };
