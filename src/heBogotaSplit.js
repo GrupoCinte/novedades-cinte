@@ -4,7 +4,9 @@
 const {
     bogotaDateKeyFromMs,
     isDiaRecargoDominicalBogotaYmd,
-    bogotaMidnightUtcMsFromYmd
+    bogotaMidnightUtcMsFromYmd,
+    isSaturdayBogotaYmd,
+    isSundayBogotaYmd
 } = require('./heDomingoBogota');
 
 /** Máximo horas recargo dominical por cada domingo calendario Bogotá. */
@@ -136,6 +138,19 @@ function createMsBuckets() {
 }
 
 /**
+ * HE que inicia en sábado y cruza al domingo: la porción dominical cuenta como HE, no recargo.
+ * @param {number} intervalStartMs
+ * @param {string} dayKey YYYY-MM-DD del tramo actual
+ * @param {Set<string>} [festivosSet]
+ */
+function isSabadoInicioCruzaDomingoHe(intervalStartMs, dayKey, festivosSet) {
+    if (!Number.isFinite(intervalStartMs) || !dayKey) return false;
+    if (!isSaturdayBogotaYmd(bogotaDateKeyFromMs(intervalStartMs))) return false;
+    if (!isSundayBogotaYmd(dayKey)) return false;
+    return isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet);
+}
+
+/**
  * @param {number} s
  * @param {number} e
  * @param {number} dayStart
@@ -216,7 +231,11 @@ function computeHoraExtraGroupSplitBogota(rows, festivosSet) {
             if (e <= s) continue;
 
             if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) {
-                recargoSegs.push({ dayKey, rowKey, startMs: s, endMs: e, dayStart });
+                if (isSabadoInicioCruzaDomingoHe(startMs, dayKey, festivosSet)) {
+                    processSegmentOnRecargoDay(s, e, dayStart, false, { value: 0 }, bucketsByRow.get(rowKey));
+                } else {
+                    recargoSegs.push({ dayKey, rowKey, startMs: s, endMs: e, dayStart });
+                }
             } else {
                 processSegmentOnRecargoDay(s, e, dayStart, false, { value: 0 }, bucketsByRow.get(rowKey));
             }
@@ -310,9 +329,13 @@ function collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs, festivosSet) {
         }
 
         if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) {
-            const rlen = Math.min(e - s, RECARGO_DOMINGO_MAX_MS);
-            const after = s + rlen;
-            if (e > after) pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, after, e, dayStart);
+            if (isSabadoInicioCruzaDomingoHe(startMs, dayKey, festivosSet)) {
+                pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, s, e, dayStart);
+            } else {
+                const rlen = Math.min(e - s, RECARGO_DOMINGO_MAX_MS);
+                const after = s + rlen;
+                if (e > after) pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, after, e, dayStart);
+            }
         } else {
             pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, s, e, dayStart);
         }
@@ -352,9 +375,11 @@ function collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs, festi
         }
 
         if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) {
-            const rlen = Math.min(e - s, RECARGO_DOMINGO_MAX_MS);
-            const after = s + rlen;
-            pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, s, after, dayStart);
+            if (!isSabadoInicioCruzaDomingoHe(startMs, dayKey, festivosSet)) {
+                const rlen = Math.min(e - s, RECARGO_DOMINGO_MAX_MS);
+                const after = s + rlen;
+                pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, s, after, dayStart);
+            }
         }
         cursor = e;
     }

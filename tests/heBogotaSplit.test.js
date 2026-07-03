@@ -237,3 +237,23 @@ test('computeHoraExtraGroupSplitBogota: fila aislada equivale a computeHoraExtra
     assert.equal(single.diurnas, gx.diurnas);
     assert.equal(single.nocturnas, gx.nocturnas);
 });
+
+test('computeHoraExtraSplitBogota: sábado noche a domingo sin recargo dominical (AUT-568)', () => {
+    const start = toUtcMsFromDateAndTime('2026-03-07', '22:00:00');
+    const end = toUtcMsFromDateAndTime('2026-03-08', '10:00:00');
+    const s = computeHoraExtraSplitBogota(start, end);
+    assert.equal(s.horasRecargoDomingo, 0);
+    assert.equal(s.horasRecargoDomingoDiurnas, 0);
+    assert.equal(s.horasRecargoDomingoNocturnas, 0);
+    assert.ok(s.nocturnas > 7, `nocturnas=${s.nocturnas}`);
+    assert.ok(s.diurnas >= 3.9, `diurnas=${s.diurnas}`);
+    assert.ok(Math.abs(s.total - 12) < 0.05, `total=${s.total}`);
+});
+
+test('computeHoraExtraSplitBogota: HE que inicia domingo mantiene recargo 7,33 h', () => {
+    const start = toUtcMsFromDateAndTime('2026-03-08', '06:00:00');
+    const end = toUtcMsFromDateAndTime('2026-03-08', '14:00:00');
+    const s = computeHoraExtraSplitBogota(start, end);
+    assert.ok(s.horasRecargoDomingo > 0);
+    assert.ok(Math.abs(s.horasRecargoDomingo - 7.33) < 0.05 || s.horasRecargoDomingo === 8);
+});
