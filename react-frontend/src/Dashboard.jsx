@@ -30,6 +30,12 @@ import {
     formatHeSegmentListBogota
 } from './heNovedadBogotaClient.js';
 import { formatHeDomingoCompGestionResumen } from './heDomingoCompDisplay.js';
+import {
+    HE_TIPO_CANONICO,
+    HE_TIPO_CATALOGO_ORDEN,
+    formatHeTiposResumenParaItem,
+    formatHeTipoNovedadDisplay
+} from './novedadHeTipoCatalog.js';
 import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat.js';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
@@ -3269,7 +3275,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                     : 'text-[10px] font-black uppercase leading-tight tracking-widest text-amber-200'
                                                             }
                                                         >
-                                                            Recargo dominical/festivos — diurno
+                                                            {formatHeTipoNovedadDisplay(
+                                                                HE_TIPO_CANONICO.REC_DOM_DIURNO,
+                                                                gestionDetailItem.heDomingoObservacion,
+                                                                'recargo_diurno'
+                                                            )}
                                                         </span>
                                                         <span
                                                             className={
@@ -3304,7 +3314,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                     : 'text-[10px] font-black uppercase leading-tight tracking-widest text-orange-200'
                                                             }
                                                         >
-                                                            Recargo dominical/festivos — nocturno
+                                                            {formatHeTipoNovedadDisplay(
+                                                                HE_TIPO_CANONICO.REC_DOM_NOCTURNO,
+                                                                gestionDetailItem.heDomingoObservacion,
+                                                                'recargo_nocturno'
+                                                            )}
                                                         </span>
                                                         <span
                                                             className={
@@ -3339,7 +3353,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                     : 'text-[10px] font-black uppercase leading-tight tracking-widest text-violet-200'
                                                             }
                                                         >
-                                                            Recargo nocturno
+                                                            {HE_TIPO_CANONICO.REC_NOCTURNO}
                                                         </span>
                                                         <span
                                                             className={
@@ -3368,7 +3382,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                             : 'text-center text-[10px] font-bold uppercase leading-tight tracking-widest text-cyan-200'
                                                     }
                                                 >
-                                                    Hora extra diurna
+                                                    {HE_TIPO_CANONICO.HE_DIURNA}
                                                 </span>
                                                 <span
                                                     className={
@@ -3410,7 +3424,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                             : 'text-center text-[10px] font-bold uppercase leading-tight tracking-widest text-indigo-200'
                                                     }
                                                 >
-                                                    Hora extra nocturna
+                                                    {HE_TIPO_CANONICO.HE_NOCTURNA}
                                                 </span>
                                                 <span
                                                     className={
@@ -3584,7 +3598,18 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.horasRecargoDomingoNocturnas} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horasRecargoDomingoNocturnas: e.target.value }))} />
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Tipo hora extra
-                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.tipoHoraExtra} onChange={(e) => setGestionEditDraft((d) => ({ ...d, tipoHoraExtra: e.target.value }))} />
+                                    <select
+                                        className={`mt-1 w-full ${fieldInput}`}
+                                        value={gestionEditDraft.tipoHoraExtra}
+                                        onChange={(e) => setGestionEditDraft((d) => ({ ...d, tipoHoraExtra: e.target.value }))}
+                                    >
+                                        <option value="">— Sin especificar —</option>
+                                        {HE_TIPO_CATALOGO_ORDEN.map((label) => (
+                                            <option key={label} value={label}>
+                                                {label}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Monto COP
                                     <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.montoCop} onChange={(e) => setGestionEditDraft((d) => ({ ...d, montoCop: e.target.value }))} />
@@ -4004,7 +4029,15 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 return (
                                                     <span className={isLight ? 'text-xs font-bold text-blue-800' : 'text-xs font-bold text-blue-400'}>
                                                         {qtyTxt}
-                                                        {getCantidadMedidaKind(it.tipoNovedad, it) === 'hours' && it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : ''}
+                                                        {getCantidadMedidaKind(it.tipoNovedad, it) === 'hours'
+                                                            ? (() => {
+                                                                  if (resolveCanonicalNovedadTipo(it.tipoNovedad) === 'Hora Extra') {
+                                                                      const tipos = formatHeTiposResumenParaItem(it);
+                                                                      return tipos ? ` (${tipos})` : '';
+                                                                  }
+                                                                  return it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : '';
+                                                              })()
+                                                            : ''}
                                                     </span>
                                                 );
                                             })()}

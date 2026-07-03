@@ -21,17 +21,16 @@ const {
 const {
     buildHoraExtraExportSlices,
     compensacionDominicalExcelEtiqueta,
-    formatTipoNovedadHeSlice
+    formatTipoNovedadHeSlice,
+    formatTipoNovedadHeLegacy
 } = require('./novedadHeExcelExport');
 const { parseTimeOrNull: parseTimeOrNullForExport } = require('./utils');
 const {
     computeHeDomingoCompensacionPreview,
     buildHeDomingoCompObservacionLine,
-    formatHeDomingoCompTipoSuffix,
     buildSyntheticHoraExtraRow,
     isYmdEnVentanaCompensatorio
 } = require('./heDomingoCompensacion');
-const { isMallaOrigenNovedad } = require('./mallaRecargoSplit');
 const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
 const { markNominaProcesado } = require('./nominaProcesadoService');
 const festivosService = require('./festivosService');
@@ -102,48 +101,12 @@ function itemIsHoraExtraTipo(it) {
 }
 
 /**
- * Solo export Excel: enriquece «Tipo Novedad» para Hora Extra listando tipologías (nunca «Mixta»).
+ * Solo export Excel: etiquetas canónicas HE para fila legacy (sin desglose por componentes).
  */
 function formatTipoNovedadParaExportExcel(it) {
     const tipo = String(it?.tipoNovedad || '').trim();
     if (!itemIsHoraExtraTipo(it)) return tipo;
-    const fromMalla = isMallaOrigenNovedad(it);
-    const partes = [];
-    const hd = Number(it?.horasDiurnas || 0);
-    const hn = Number(it?.horasNocturnas || 0);
-    const rdd = Number(it?.horasRecargoDomingoDiurnas || 0);
-    const rdn = Number(it?.horasRecargoDomingoNocturnas || 0);
-    const rTot = Number(it?.horasRecargoDomingo || 0);
-    const rn = Number(it?.horasRecargoNocturno || 0);
-    if (!fromMalla) {
-        if (hd > 0) partes.push('Hora Diurna');
-        if (hn > 0) partes.push('Hora Nocturna');
-    }
-    if (rn > 0) partes.push('Recargo nocturno');
-    if (rdd > 0) partes.push('Recargo dominical diurno');
-    if (rdn > 0) partes.push('Recargo dominical nocturno');
-    if (rTot > 0 && rdd === 0 && rdn === 0) partes.push('Recargo dominical');
-    if (partes.length === 0) {
-        const raw = String(it?.tipoHoraExtra || '').trim();
-        if (fromMalla) {
-            if (raw) partes.push(raw);
-        } else {
-            const fold = raw
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .toLowerCase();
-            if (fold === 'diurna') partes.push('Hora Diurna');
-            else if (fold === 'nocturna') partes.push('Hora Nocturna');
-            else if (fold === 'mixta') {
-                partes.push('Hora Diurna', 'Hora Nocturna');
-            } else if (raw) partes.push(raw);
-        }
-    }
-    let base;
-    if (partes.length === 0) base = fromMalla ? 'Recargo' : tipo || 'Hora Extra';
-    else base = `${fromMalla ? 'Recargo' : 'Hora Extra'} / ${partes.join(', ')}`;
-    const suf = formatHeDomingoCompTipoSuffix(String(it?.heDomingoObservacion || ''));
-    return suf ? base + suf : base;
+    return formatTipoNovedadHeLegacy(it);
 }
 
 /** Columnas Excel de procesado nómina (post-aprobación). */
@@ -206,7 +169,7 @@ function buildExcelRowHoraExtraSlice(opts) {
     } = opts;
     const obs = String(it.heDomingoObservacion || '').trim();
     const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, slice.sliceKey);
-    const tipoNovedad = formatTipoNovedadHeSlice(it, slice.tipoLabel);
+    const tipoNovedad = formatTipoNovedadHeSlice(it, slice);
     const ck = slice.columnKey;
     const h = Number(slice.hours || 0);
     const cantidad = formatCantidadNovedad(it.tipoNovedad, h, it);

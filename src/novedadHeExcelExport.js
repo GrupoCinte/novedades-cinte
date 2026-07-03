@@ -1,9 +1,14 @@
 'use strict';
 
-const { formatHeDomingoCompTipoSuffix, parseHeDomingoCompFromObservacion } = require('./heDomingoCompensacion');
-const { isMallaOrigenNovedad } = require('./mallaRecargoSplit');
+const { parseHeDomingoCompFromObservacion } = require('./heDomingoCompensacion');
 const { splitHoursByBogotaDay, isSundayBogotaYmd } = require('./heDomingoBogota');
 const { collectHeDiurnaNocturnaSegmentsBogota } = require('./heBogotaSplit');
+const {
+    HE_TIPO_CANONICO,
+    formatHeTipoFromSliceKey,
+    resolveHeTiposResumenDesdeHoras,
+    mapLegacyTipoHoraExtraToCanonical
+} = require('./novedadHeTipoCatalog');
 
 /**
  * @typedef {{ sliceKey: string, tipoLabel: string, hours: number, columnKey: string }} HeExcelSlice
@@ -13,7 +18,6 @@ const EPS_H = 0.06;
 
 /**
  * Horas de HE «laboral» (exceso tras recargo dominical) en tramos diurno/nocturno que caen en domingo calendario Bogotá.
- * Sirve para etiquetar el Excel: antes solo «Recargo dominical …» llevaba «dominical».
  * @param {{ fechaInicio?: string, fechaFin?: string, horaInicio?: string, horaFin?: string }} it
  * @param {{ toUtcMsFromDateAndTime: (d: unknown, t: unknown) => number|null }} dep
  * @returns {{ diurnaSun: number, nocturnaSun: number }}
@@ -50,39 +54,70 @@ function heDiurnaNocturnaSundayHoursBogota(it, dep) {
 }
 
 /**
+ * Divide slice diurna/nocturna en filas laboral y/o dominical según horas en domingo Bogotá.
+ * @param {'diurna'|'nocturna'} kind
  * @param {number} sliceH
  * @param {number} sunH
- * @param {'diurna'|'nocturna'} kind
+ * @param {string} columnKey
+ * @param {string} observacion
+ * @returns {HeExcelSlice[]}
  */
-function excelTipoLabelHeLaboralConDomingo(sliceH, sunH, kind) {
-    const base = kind === 'diurna' ? 'Hora Diurna' : 'Hora Nocturna';
-    if (sunH <= EPS_H) return base;
+function buildHeLaboralDomingoSlices(kind, sliceH, sunH, columnKey, observacion) {
+    const obs = String(observacion || '');
+    /** @type {HeExcelSlice[]} */
+    const out = [];
+    const laboralKey = kind === 'diurna' ? 'diurna_laboral' : 'nocturna_laboral';
+    const domKey = kind === 'diurna' ? 'diurna_dominical' : 'nocturna_dominical';
     const laboralPart = Math.max(0, sliceH - sunH);
-    if (laboralPart <= EPS_H) {
-        return kind === 'diurna' ? 'Hora diurna dominical' : 'Hora nocturna dominical';
+    if (sunH <= EPS_H) {
+        out.push({
+            sliceKey: laboralKey,
+            tipoLabel: formatHeTipoFromSliceKey(laboralKey, obs),
+            hours: sliceH,
+            columnKey
+        });
+        return out;
     }
-    return kind === 'diurna' ? 'Hora diurna (dominical y laboral)' : 'Hora nocturna (dominical y laboral)';
+    if (laboralPart <= EPS_H) {
+        out.push({
+            sliceKey: domKey,
+            tipoLabel: formatHeTipoFromSliceKey(domKey, obs),
+            hours: sliceH,
+            columnKey
+        });
+        return out;
+    }
+    out.push({
+        sliceKey: laboralKey,
+        tipoLabel: formatHeTipoFromSliceKey(laboralKey, obs),
+        hours: laboralPart,
+        columnKey
+    });
+    out.push({
+        sliceKey: domKey,
+        tipoLabel: formatHeTipoFromSliceKey(domKey, obs),
+        hours: sunH,
+        columnKey
+    });
+    return out;
 }
 
 const SLICE_SPECS = [
-    { sliceKey: 'diurna', columnKey: 'horasDiurnas', tipoLabel: 'Hora Diurna', getter: (it) => Number(it?.horasDiurnas || 0) },
-    { sliceKey: 'nocturna', columnKey: 'horasNocturnas', tipoLabel: 'Hora Nocturna', getter: (it) => Number(it?.horasNocturnas || 0) },
+    { sliceKey: 'diurna', columnKey: 'horasDiurnas', getter: (it) => Number(it?.horasDiurnas || 0) },
+    { sliceKey: 'nocturna', columnKey: 'horasNocturnas', getter: (it) => Number(it?.horasNocturnas || 0) },
     {
         sliceKey: 'recargo_diurno',
         columnKey: 'horasRecargoDomingoDiurnas',
-        tipoLabel: 'Recargo dominical diurno',
         getter: (it) => Number(it?.horasRecargoDomingoDiurnas || 0)
     },
     {
         sliceKey: 'recargo_nocturno_ordinario',
         columnKey: 'horasRecargoNocturno',
-        tipoLabel: 'Recargo nocturno',
         getter: (it) => Number(it?.horasRecargoNocturno || 0)
     },
     {
         sliceKey: 'recargo_nocturno',
         columnKey: 'horasRecargoDomingoNocturnas',
-        tipoLabel: 'Recargo dominical nocturno',
         getter: (it) => Number(it?.horasRecargoDomingoNocturnas || 0)
     }
 ];
@@ -97,13 +132,17 @@ function hasLegacyRecargoSolo(it) {
 /**
  * Etiqueta legible para columna «Compensación dominical» en export Excel (por fila / slice).
  * @param {string} observacion he_domingo_observacion o equivalente cliente
- * @param {string} sliceKey diurna|nocturna|recargo_diurno|recargo_nocturno|recargo_legacy
+ * @param {string} sliceKey
  * @returns {string}
  */
 function compensacionDominicalExcelEtiqueta(observacion, sliceKey) {
     const p = parseHeDomingoCompFromObservacion(String(observacion || ''));
     const isRecargo =
-        sliceKey === 'recargo_diurno' || sliceKey === 'recargo_nocturno' || sliceKey === 'recargo_legacy';
+        sliceKey === 'recargo_diurno' ||
+        sliceKey === 'recargo_nocturno' ||
+        sliceKey === 'recargo_legacy' ||
+        sliceKey === 'diurna_dominical' ||
+        sliceKey === 'nocturna_dominical';
     if (p) {
         if (p.mode === 'tiempo') return 'Compensado en tiempo';
         if (p.mode === 'dinero') return 'Compensado en dinero';
@@ -114,44 +153,52 @@ function compensacionDominicalExcelEtiqueta(observacion, sliceKey) {
 }
 
 /**
- * Tipo novedad para una sola tipología HE + sufijo dominical si aplica.
+ * Tipo novedad canónico para una fila HE desagregada.
+ * @param {object} it
+ * @param {HeExcelSlice|string} sliceOrLabel slice completo o etiqueta precalculada
+ * @returns {string}
  */
-function formatTipoNovedadHeSlice(it, singleTipoLabel) {
-    const tipo = String(it?.tipoNovedad || '').trim();
-    const fromMalla = isMallaOrigenNovedad(it);
-    const prefix = fromMalla ? 'Recargo' : 'Hora Extra';
-    const base = singleTipoLabel ? `${prefix} / ${singleTipoLabel}` : fromMalla ? 'Recargo' : tipo || 'Hora Extra';
-    const suf = formatHeDomingoCompTipoSuffix(String(it?.heDomingoObservacion || ''));
-    return suf ? base + suf : base;
+function formatTipoNovedadHeSlice(it, sliceOrLabel) {
+    const obs = String(it?.heDomingoObservacion || '');
+    if (sliceOrLabel && typeof sliceOrLabel === 'object') {
+        if (sliceOrLabel.tipoLabel) return sliceOrLabel.tipoLabel;
+        if (sliceOrLabel.sliceKey) return formatHeTipoFromSliceKey(sliceOrLabel.sliceKey, obs);
+    }
+    return String(sliceOrLabel || '').trim();
 }
 
 /**
  * @param {object} it objeto cliente toClientNovedad
- * @param {{ toUtcMsFromDateAndTime?: (d: unknown, t: unknown) => number|null }} [dep] si viene, enriquece etiquetas diurna/nocturna con «dominical» cuando el tramo HE cae en domingo Bogotá
+ * @param {{ toUtcMsFromDateAndTime?: (d: unknown, t: unknown) => number|null }} [dep]
  * @returns {HeExcelSlice[]|null} null = usar fila única legacy (sin componentes > 0)
  */
 function buildHoraExtraExportSlices(it, dep) {
+    const obs = String(it?.heDomingoObservacion || '');
     const { diurnaSun, nocturnaSun } = heDiurnaNocturnaSundayHoursBogota(it, dep || {});
     /** @type {HeExcelSlice[]} */
     const out = [];
     for (const spec of SLICE_SPECS) {
         const h = spec.getter(it);
-        if (h > 0) {
-            let tipoLabel = spec.tipoLabel;
-            if (spec.sliceKey === 'diurna') tipoLabel = excelTipoLabelHeLaboralConDomingo(h, diurnaSun, 'diurna');
-            if (spec.sliceKey === 'nocturna') tipoLabel = excelTipoLabelHeLaboralConDomingo(h, nocturnaSun, 'nocturna');
-            out.push({
-                sliceKey: spec.sliceKey,
-                tipoLabel,
-                hours: h,
-                columnKey: spec.columnKey
-            });
+        if (h <= 0) continue;
+        if (spec.sliceKey === 'diurna') {
+            out.push(...buildHeLaboralDomingoSlices('diurna', h, diurnaSun, spec.columnKey, obs));
+            continue;
         }
+        if (spec.sliceKey === 'nocturna') {
+            out.push(...buildHeLaboralDomingoSlices('nocturna', h, nocturnaSun, spec.columnKey, obs));
+            continue;
+        }
+        out.push({
+            sliceKey: spec.sliceKey,
+            tipoLabel: formatHeTipoFromSliceKey(spec.sliceKey, obs),
+            hours: h,
+            columnKey: spec.columnKey
+        });
     }
     if (hasLegacyRecargoSolo(it)) {
         out.push({
             sliceKey: 'recargo_legacy',
-            tipoLabel: 'Recargo dominical',
+            tipoLabel: formatHeTipoFromSliceKey('recargo_legacy', obs),
             hours: Number(it.horasRecargoDomingo || 0),
             columnKey: 'horasRecargoDomingo'
         });
@@ -159,10 +206,25 @@ function buildHoraExtraExportSlices(it, dep) {
     return out.length ? out : null;
 }
 
+/**
+ * Tipo novedad para fila legacy HE (sin desglose por componentes).
+ * @param {object} it
+ * @returns {string}
+ */
+function formatTipoNovedadHeLegacy(it) {
+    const tipo = String(it?.tipoNovedad || '').trim();
+    const labels = resolveHeTiposResumenDesdeHoras(it);
+    if (labels.length) return labels.join(', ');
+    const legacy = mapLegacyTipoHoraExtraToCanonical(String(it?.tipoHoraExtra || '').trim());
+    if (legacy.length) return legacy.join(', ');
+    return tipo || HE_TIPO_CANONICO.HE_DIURNA;
+}
+
 module.exports = {
     buildHoraExtraExportSlices,
     compensacionDominicalExcelEtiqueta,
     formatTipoNovedadHeSlice,
+    formatTipoNovedadHeLegacy,
     heDiurnaNocturnaSundayHoursBogota,
-    excelTipoLabelHeLaboralConDomingo
+    buildHeLaboralDomingoSlices
 };
