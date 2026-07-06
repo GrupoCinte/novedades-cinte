@@ -64,6 +64,20 @@ const montoNovedadAjusteSchema = z.object({
     montoCop: z.coerce.number().int().min(0).nullable()
 });
 
+const conciliacionNovedadManualSchema = z.object({
+    cliente: z.string({ required_error: 'El cliente es requerido' }).min(1),
+    cedula: z.string({ required_error: 'La cédula es requerida' }).min(1),
+    anio: z.coerce.number({ required_error: 'El año es requerido' }).int().min(2000).max(2100),
+    mes: z.coerce.number({ required_error: 'El mes es requerido' }).int().min(1).max(12),
+    servicioId: z.string().trim().optional(),
+    tipoNovedad: z.literal('Vacaciones en tiempo'),
+    fechaInicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (YYYY-MM-DD)'),
+    fechaFin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato de fecha inválido (YYYY-MM-DD)'),
+    billingType: z.string().trim().optional(),
+    billingMode: z.string().trim().optional(),
+    baseHours: z.coerce.number().positive().optional()
+});
+
 const facturacionAjustesSchema = z.object({
     cedula: z.string({ required_error: 'La cédula es requerida' }).min(1),
     anio: z.coerce.number({ required_error: 'El año es requerido' }).int().min(2000).max(2100),
@@ -83,5 +97,6 @@ module.exports = {
     facturacionRevisionSchema,
     facturacionRevisionMasivaSchema,
     facturacionHistorialQuerySchema,
-    facturacionAjustesSchema
+    facturacionAjustesSchema,
+    conciliacionNovedadManualSchema
 };

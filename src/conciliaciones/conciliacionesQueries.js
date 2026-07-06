@@ -2183,6 +2183,11 @@ async function getColaCierresPorMes(deps, scope, year, month, clienteOpcional, s
     return { items: sorted, count: sorted.length };
 }
 
+async function createConciliacionNovedadManual(deps, scope, payload, actor) {
+    const { createConciliacionNovedadManual: createManual } = require('./conciliacionNovedadManual');
+    return createManual(deps, scope, payload, actor);
+}
+
 module.exports = {
     effectiveNovedadDateSql,
     monthRangeDates,
@@ -2209,6 +2214,7 @@ module.exports = {
     listConciliacionesFacturacion,
     getColaCierresPorMes,
     markConciliacionServicioConciliada,
+    createConciliacionNovedadManual,
     listServicios,
     createServicio,
     updateServicio,

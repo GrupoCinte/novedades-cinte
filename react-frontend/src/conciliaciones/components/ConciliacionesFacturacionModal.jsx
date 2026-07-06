@@ -17,6 +17,9 @@ import {
 } from '../facturacionLogic.js';
 import ConciliacionesNovedadesAprobadasPanel from './ConciliacionesNovedadesAprobadasPanel.jsx';
 import ConciliacionesFacturacionHistorialPanel from './ConciliacionesFacturacionHistorialPanel.jsx';
+import ConciliacionesNovedadVacacionesManualForm, {
+    ConciliacionesVacacionesManualToggleButton
+} from './ConciliacionesNovedadVacacionesManualForm.jsx';
 
 function formatCop(n) {
     const x = Math.round(Number(n) || 0);
@@ -32,6 +35,7 @@ export default function ConciliacionesFacturacionModal({
     onClose,
     onSave,
     onSaveAjustes = null,
+    onNovedadManualCreada = null,
     onEliminar = null,
     servicioNombre = '',
     servicioId = '',
@@ -48,6 +52,11 @@ export default function ConciliacionesFacturacionModal({
     diasBaseMes = null,
     diasBaseLabel = null,
     festivosAplicados = false,
+    festivosSet = null,
+    billingQueryParams = {},
+    revisionAnio = null,
+    revisionMes = null,
+    revisionCliente = '',
     monthLabel = '',
     historial = [],
     historialLoading = false,
@@ -66,6 +75,7 @@ export default function ConciliacionesFacturacionModal({
     const [valorHoraNovedadTouched, setValorHoraNovedadTouched] = useState(() => new Set());
     const [draftMontos, setDraftMontos] = useState({});
     const [ajustesPendiente, setAjustesPendiente] = useState(false);
+    const [vacacionesFormOpen, setVacacionesFormOpen] = useState(false);
 
     const modalRef = useRef(null);
     const closeBtnRef = useRef(null);
@@ -80,6 +90,8 @@ export default function ConciliacionesFacturacionModal({
         () => !servicioCompleto && canEditConciliacionAjustes(userRole, colaborador?.estado || 'PENDIENTE'),
         [servicioCompleto, userRole, colaborador?.estado]
     );
+    const canAddVacacionesManual = canEditAjustes && Boolean(onNovedadManualCreada);
+    const token = auth?.token || auth?.accessToken || '';
 
     const diasBaseLine = useMemo(
         () =>
@@ -199,6 +211,7 @@ export default function ConciliacionesFacturacionModal({
             setObservaciones('');
             setObsError('');
             setEditMode(false);
+            setVacacionesFormOpen(false);
             resetEditDraft();
             setTimeout(() => {
                 if (closeBtnRef.current) closeBtnRef.current.focus();
@@ -435,6 +448,14 @@ export default function ConciliacionesFacturacionModal({
 
                         <div className="border-t border-dashed border-slate-300/40 pt-4 dark:border-slate-600/40">
                             <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+                                {canAddVacacionesManual && !editMode ? (
+                                    vacacionesFormOpen ? null : (
+                                        <ConciliacionesVacacionesManualToggleButton
+                                            disabled={saving || novedadesLoading}
+                                            onClick={() => setVacacionesFormOpen(true)}
+                                        />
+                                    )
+                                ) : null}
                                 {canEditAjustes && onSaveAjustes ? (
                                     editMode ? (
                                         <>
@@ -472,6 +493,32 @@ export default function ConciliacionesFacturacionModal({
                                     )
                                 ) : null}
                             </div>
+                            {canAddVacacionesManual && vacacionesFormOpen ? (
+                                <ConciliacionesNovedadVacacionesManualForm
+                                    token={token}
+                                    cliente={revisionCliente || colaborador?.cliente || ''}
+                                    cedula={colaborador?.cedula || ''}
+                                    anio={revisionAnio}
+                                    mes={revisionMes}
+                                    servicioId={servicioId}
+                                    tarifaCliente={tarifaCliente}
+                                    horasBaseMes={horasBaseMes}
+                                    tarifaValorHora={tarifaValorHora}
+                                    billingMode={billingMode}
+                                    billingQueryParams={billingQueryParams}
+                                    festivosSet={festivosSet}
+                                    isLight={isLight}
+                                    saving={saving}
+                                    onCancel={() => setVacacionesFormOpen(false)}
+                                    onCreated={async (out) => {
+                                        setVacacionesFormOpen(false);
+                                        setErrorMsg('');
+                                        if (onNovedadManualCreada) {
+                                            await onNovedadManualCreada(out);
+                                        }
+                                    }}
+                                />
+                            ) : null}
                             <ConciliacionesNovedadesAprobadasPanel
                                 embedded
                                 items={novedadesItems}

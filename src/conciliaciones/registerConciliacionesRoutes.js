@@ -46,6 +46,7 @@ function assertConciliacionesRouteDeps(deps) {
         'applyConciliacionFacturacionRevisionForScope',
         'applyConciliacionFacturacionRevisionMasivaForScope',
         'applyConciliacionFacturacionAjustesForScope',
+        'createConciliacionNovedadManualForScope',
         'listConciliacionFacturacionHistorialForScope',
         'upsertConciliacionFacturacionMasivaForScope',
         'deleteConciliacionFacturacionForScope',
@@ -88,6 +89,7 @@ function registerConciliacionesRoutes(deps) {
         applyConciliacionFacturacionRevisionForScope,
         applyConciliacionFacturacionRevisionMasivaForScope,
         applyConciliacionFacturacionAjustesForScope,
+        createConciliacionNovedadManualForScope,
         listConciliacionFacturacionHistorialForScope,
         upsertConciliacionFacturacionMasivaForScope,
         deleteConciliacionFacturacionForScope,
@@ -298,6 +300,30 @@ function registerConciliacionesRoutes(deps) {
             console.error('[conciliaciones/facturacion/ajustes POST]', e);
             const status = e.status || 500;
             return res.status(status).json({ ok: false, error: e.message || 'Error al guardar ajustes' });
+        }
+    });
+
+    app.post('/api/conciliaciones/novedades-manuales', ...guardChain, async (req, res) => {
+        const { conciliacionNovedadManualSchema } = require('./schemas/facturacion');
+        const parseResult = conciliacionNovedadManualSchema.safeParse(req.body);
+        if (!parseResult.success) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Datos de entrada inválidos',
+                errors: parseResult.error.errors.map((e) => ({ field: e.path.join('.'), message: e.message }))
+            });
+        }
+        try {
+            const out = await createConciliacionNovedadManualForScope(
+                req.scope,
+                parseResult.data,
+                buildRevisionActorFromReq(req)
+            );
+            return res.json({ ok: true, novedadId: out.novedadId, item: out.item });
+        } catch (e) {
+            console.error('[conciliaciones/novedades-manuales POST]', e);
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al registrar novedad manual' });
         }
     });
 

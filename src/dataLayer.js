@@ -2641,6 +2641,8 @@ function createDataLayer(deps) {
         normalizeCedula,
         canRoleViewType,
         getFestivosSet: () => festivosService.getFestivosSet(),
+        getColaboradorByCedula,
+        getLideresByCliente,
         emailNotificationsPublisher,
         frontendUrl: String(frontendUrl || '').trim(),
         listServicios: (scope) => serviciosDynamoData.listServicios(conciliacionesDeps, scope),
@@ -2695,6 +2697,10 @@ function createDataLayer(deps) {
 
     async function applyConciliacionFacturacionAjustesForScope(scope, payload, actor) {
         return conciliacionesQueries.applyConciliacionFacturacionAjustes(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function createConciliacionNovedadManualForScope(scope, payload, actor) {
+        return conciliacionesQueries.createConciliacionNovedadManual(conciliacionesDeps, scope, payload, actor);
     }
 
     async function getConciliacionesDashboardResumenForScope(scope, year, month) {
@@ -2903,6 +2909,7 @@ function createDataLayer(deps) {
         applyConciliacionFacturacionRevisionForScope,
         applyConciliacionFacturacionRevisionMasivaForScope,
         applyConciliacionFacturacionAjustesForScope,
+        createConciliacionNovedadManualForScope,
         listConciliacionFacturacionHistorialForScope,
         upsertConciliacionFacturacionMasivaForScope,
         deleteConciliacionFacturacionForScope,
