@@ -4,4 +4,4 @@
 @import "@cinte/ui-shell/cinte-global.css";
 @source "../../../packages/ui-shell/src";
 @source "../../../packages/shared/src";
-@source "../src";
+@source "./";

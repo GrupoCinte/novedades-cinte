@@ -5,4 +5,4 @@
 
 @source "../../../packages/ui-shell/src";
 @source "../../../packages/shared/src";
-@source "../src";
+@source "./";

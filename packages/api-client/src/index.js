@@ -27,7 +27,16 @@ export async function apiFetch(path, options = {}) {
       token = session.tokens.idToken.toString();
     }
   } catch (e) {
-    // No hay sesión activa, continuamos sin token
+    // Fallback: si Amplify falla en el MFE (por falta de env vars en el build), leer directamente de localStorage
+    try {
+      const clientId = import.meta.env.VITE_COGNITO_CLIENT_ID || '6rp314ha30sfibmveie4d0d10f';
+      const lastUser = localStorage.getItem(`CognitoIdentityServiceProvider.${clientId}.LastAuthUser`);
+      if (lastUser) {
+        token = localStorage.getItem(`CognitoIdentityServiceProvider.${clientId}.${lastUser}.idToken`);
+      }
+    } catch(err2) {
+      // Ignorar fallos de fallback
+    }
   }
 
   const headers = buildCsrfHeaders({
@@ -41,12 +50,14 @@ export async function apiFetch(path, options = {}) {
   }
 
   // Prepend API URL si el path es relativo
-  const baseUrl = import.meta.env.VITE_API_URL || 'https://floppy-clocks-warn.loca.lt';
+  const baseUrl = import.meta.env.VITE_API_URL || '';
   const fullPath = path.startsWith('http') ? path : `${baseUrl}${path}`;
+
+  const finalCredentials = options.credentials || 'omit';
 
   return fetch(fullPath, {
     ...options,
-    credentials: 'omit', // Ya no necesitamos cookies HttpOnly para la sesión
+    credentials: finalCredentials, // Respetar si el llamador envía 'include'
     headers,
   });
 }

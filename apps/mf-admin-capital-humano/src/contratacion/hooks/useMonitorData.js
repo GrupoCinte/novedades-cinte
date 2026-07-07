@@ -1,5 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
+const baseUrl = import.meta.env.VITE_API_URL || '';
+const apiUrl = `${baseUrl}/api/contratacion/monitor`;
+axios.defaults.baseURL = baseUrl;
+axios.defaults.headers.common['Bypass-Tunnel-Reminder'] = 'true';
 const API_PREFIX = '/api/contratacion';
 const WS_PATH = '/api/contratacion/ws';
 
