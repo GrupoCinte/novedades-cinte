@@ -52,7 +52,6 @@ export function createRemoteConfig({ name, port, exposes }) {
     build: {
       target: 'esnext',
       minify: true,
-      cssCodeSplit: false,
     },
   };
 }
