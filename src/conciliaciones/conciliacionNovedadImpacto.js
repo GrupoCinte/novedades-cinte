@@ -13,6 +13,8 @@ const {
 
 const DIAS_MES_FACTURACION = 30;
 const HORAS_MES_LABORALES = 176;
+/** Horas por día laboral en modo HOURS (Experian: 180 h / 20 días hábiles). */
+const HORAS_LABOR_DIA = 9;
 
 const NOVEDAD_TIPOS_SUMA = new Set(['Bonos', 'Hora Extra', 'Disponibilidad']);
 
@@ -87,6 +89,7 @@ function buildImpactoHorasMode(tarifa, horas, horasBaseMes, impacto) {
         impacto,
         medida: 'hours',
         cantidad: horas,
+        cantidadHoras: horas,
         montoCop: montoPorHoras(tarifa, horas, horasBaseMes),
         montoCalculado: true,
         valorHora,
@@ -94,13 +97,15 @@ function buildImpactoHorasMode(tarifa, horas, horasBaseMes, impacto) {
     };
 }
 
-function buildImpactoDiasHorasMode(tarifa, dias, horasBaseMes, options = {}) {
-    const { montoCop, valorHora } = montoPorDiasHorasMode(tarifa, dias, horasBaseMes, options);
+function buildImpactoDiasHorasMode(tarifa, dias, horasBaseMes) {
+    const valorHora = computeValorHoraCop(tarifa, horasBaseMes);
+    const horas = (Number(dias) || 0) * HORAS_LABOR_DIA;
     return {
         impacto: 'resta',
         medida: 'days',
         cantidad: dias,
-        montoCop,
+        cantidadHoras: horas,
+        montoCop: montoPorHoras(tarifa, horas, horasBaseMes),
         montoCalculado: true,
         valorHora,
         horasBaseMes
@@ -182,12 +187,13 @@ function isHoursBillingMode(options = {}) {
     return mode === 'HOURS' && Number.isFinite(bh) && bh > 0;
 }
 
-/** Modo HOURS: expone valorHora; monto días sigue siendo tarifa/30 × días (sin deriva de redondeo). */
-function montoPorDiasHorasMode(tarifa, dias, horasBaseMes, options = {}) {
-    return {
-        montoCop: montoPorDias(tarifa, dias, options),
-        valorHora: computeValorHoraCop(tarifa, horasBaseMes)
-    };
+/** Horas facturables de una novedad en modo HOURS (días × 9 h laborales o horas directas). */
+function resolveCantidadHorasFacturacion(medida, cantidad, options = {}) {
+    const q = Number(cantidad) || 0;
+    if (q <= 0 || !isHoursBillingMode(options)) return null;
+    if (medida === 'hours') return q;
+    if (medida === 'days') return q * HORAS_LABOR_DIA;
+    return null;
 }
 
 /** Contexto de facturación por horas para respuestas API / UI. */
@@ -259,7 +265,7 @@ function computeNovedadImpactoMonto(tarifaCliente, novedadRow, options = {}) {
     if (medida === 'days') {
         const dias = getDiasConciliacion(tipo, ctx);
         if (hoursMode) {
-            return buildImpactoDiasHorasMode(tarifa, dias, horasBaseMes, options);
+            return buildImpactoDiasHorasMode(tarifa, dias, horasBaseMes);
         }
         const monto = montoPorDias(tarifa, dias, options);
         return {
@@ -309,9 +315,27 @@ function computeFacturaLedgerTotal(tarifaCliente, items) {
     return agg.facturaCop;
 }
 
+/** Monto COP = valor hora × cantidad de horas (modo HOURS). */
+function computeMontoCopFromCantidadHoras(valorHora, cantidadHoras) {
+    const vh = roundCop(Number(valorHora) || 0);
+    const h = Number(cantidadHoras) || 0;
+    if (vh <= 0 || h <= 0) return 0;
+    return roundCop(vh * h);
+}
+
+/** @deprecated use computeMontoCopFromCantidadHoras */
+function computeMontoCopFromValorHoraMedida(impactBase, valorHora, impactOptions = {}) {
+    const horas =
+        impactBase?.cantidadHoras ??
+        resolveCantidadHorasFacturacion(impactBase?.medida, impactBase?.cantidad, impactOptions);
+    if (horas == null || horas <= 0) return roundCop(Number(impactBase?.montoCop) || 0);
+    return computeMontoCopFromCantidadHoras(valorHora, horas);
+}
+
 module.exports = {
     DIAS_MES_FACTURACION,
     HORAS_MES_LABORALES,
+    HORAS_LABOR_DIA,
     NOVEDAD_TIPOS_SUMA,
     getNovedadImpactoFacturacion,
     resolveHorasBaseMes,
@@ -320,11 +344,13 @@ module.exports = {
     montoPorHoras,
     montoPorDias,
     resolveDiasDenominadorMes,
-    montoPorDiasHorasMode,
+    resolveCantidadHorasFacturacion,
     isHoursBillingMode,
     computeNovedadImpactoMonto,
     resolveMedidaConciliacion,
     aggregateNovedadesImpacto,
     computeFacturaLedgerTotal,
+    computeMontoCopFromCantidadHoras,
+    computeMontoCopFromValorHoraMedida,
     novedadRowToContext
 };

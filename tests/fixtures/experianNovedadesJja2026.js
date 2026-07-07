@@ -305,19 +305,23 @@ function toElegibilityRow(seed, index = 0) {
 
 /**
  * Meses de facturación (6–8 / 2026) en los que cada caso aprobado es elegible
- * (bucket = mismo mes calendario; incluye backlog regla C en meses posteriores).
+ * con mes corriente (sin regla C de backlog entre meses distintos al de facturación).
  */
 const EXPERIAN_JJA_ELEGIBLE_FACT_MESES = Object.fromEntries(
     EXPERIAN_JJA_NOVEDADES.filter((n) => n.estado === 'Aprobado').map((seed) => {
         const row = toElegibilityRow(seed);
         const meses = [6, 7, 8].filter((factMes) => {
             const mr = monthRangeDates(2026, factMes);
-            return isNovedadElegibleParaCierreRow(row, {
-                novStart: mr.start,
-                novEnd: mr.end,
-                factStart: mr.start,
-                factEnd: mr.end
-            });
+            return isNovedadElegibleParaCierreRow(
+                row,
+                {
+                    novStart: mr.start,
+                    novEnd: mr.end,
+                    factStart: mr.start,
+                    factEnd: mr.end
+                },
+                { includeRuleC: false }
+            );
         });
         return [seed.caso, meses];
     })

@@ -45,7 +45,7 @@ export async function fetchConciliacionesDashboardResumen(token, { year, month }
     return data;
 }
 
-export async function fetchConciliacionPorCliente(token, { cliente, year, month, billingType, billingMode, baseHours }) {
+export async function fetchConciliacionPorCliente(token, { cliente, year, month, billingType, billingMode, baseHours, servicioId }) {
     const q = new URLSearchParams({ year: String(year), month: String(month) });
     const clienteTrim = String(cliente || '').trim();
     if (clienteTrim) q.set('cliente', clienteTrim);
@@ -57,6 +57,8 @@ export async function fetchConciliacionPorCliente(token, { cliente, year, month,
         const bh = Number(baseHours);
         if (Number.isFinite(bh) && bh > 0) q.set('baseHours', String(bh));
     }
+    const sid = String(servicioId || '').trim();
+    if (sid) q.set('servicioId', sid);
     const res = await fetch(`/api/conciliaciones/por-cliente?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'

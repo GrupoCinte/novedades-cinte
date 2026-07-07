@@ -161,7 +161,8 @@ function shiftCalendarMonth(year, month, delta) {
 
 /**
  * Mes calendario de novedades según tipo de facturación del servicio.
- * EXPIRED_MONTH (mes vencido): facturación junio → novedades mayo.
+ * EXPIRED_MONTH (mes vencido): facturación julio → novedades junio.
+ * CURRENT_MONTH / ADVANCE_MONTH: mismo mes calendario que la facturación.
  */
 function resolveNovedadesBucket(facturacionYear, facturacionMonth, billingType) {
     const type = String(billingType || '').trim().toUpperCase();

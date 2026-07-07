@@ -11,6 +11,54 @@ const {
 const normalizeCedula = (v) => String(v || '').replace(/\D/g, '');
 const canRoleViewType = () => true;
 
+test('CURRENT_MONTH julio no arrastra novedades de junio aprobadas en junio', async () => {
+    const pool = {
+        query: async (sql) => {
+            if (String(sql).includes('FROM novedades')) {
+                return {
+                    rows: [
+                        {
+                            id: '77777777-7777-7777-7777-777777777777',
+                            cedula: '12345678',
+                            tipo_novedad: 'Permiso remunerado',
+                            monto_cop: '100',
+                            cantidad_horas: 1,
+                            unidad: 'dias',
+                            modalidad: null,
+                            hora_inicio: null,
+                            hora_fin: null,
+                            fecha_inicio: '2026-06-15',
+                            fecha_fin: '2026-06-15',
+                            aprobado_en: new Date('2026-06-16T12:00:00Z')
+                        }
+                    ]
+                };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = { pool, normalizeCedula, canRoleViewType };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+
+    const jun = await listNovedadesElegiblesParaCierre(deps, scope, {
+        clienteCanon: 'EXPERIAN',
+        cedulaRaw: '12345678',
+        factAnio: 2026,
+        factMes: 6,
+        billingType: 'CURRENT_MONTH'
+    });
+    assert.equal(jun.length, 1);
+
+    const jul = await listNovedadesElegiblesParaCierre(deps, scope, {
+        clienteCanon: 'EXPERIAN',
+        cedulaRaw: '12345678',
+        factAnio: 2026,
+        factMes: 7,
+        billingType: 'CURRENT_MONTH'
+    });
+    assert.equal(jul.length, 0, 'mes corriente: junio no debe aparecer en julio');
+});
+
 test('novedad mayo aprobada en junio entra en cierre junio (mes aprobación)', async () => {
     const pool = {
         query: async (sql) => {
@@ -161,6 +209,28 @@ test('listNovedadesForFacturacionByEstado: corte activo solo consumidas, pendien
 
     const sinCorte = await listNovedadesForFacturacionByEstado(deps, scope, opts, 'PENDIENTE');
     assert.equal(sinCorte.length, 2);
+
+    const poolSinConsumo = {
+        query: async (sql) => {
+            const s = String(sql);
+            if (s.includes('INNER JOIN novedades nov ON nov.id = cnc.novedad_id')) {
+                return { rows: [] };
+            }
+            if (s.includes('FROM novedades nov')) {
+                return { rows: [lateRow] };
+            }
+            return { rows: [] };
+        }
+    };
+    const depsSinConsumo = { pool: poolSinConsumo, normalizeCedula, canRoleViewType };
+    const corteSinSnapshot = await listNovedadesForFacturacionByEstado(
+        depsSinConsumo,
+        scope,
+        opts,
+        'APROBADO_FINANZAS'
+    );
+    assert.equal(corteSinSnapshot.length, 1);
+    assert.equal(String(corteSinSnapshot[0].id), lateRow.id);
 });
 
 test('revert libera novedades consumidas', async () => {
@@ -421,4 +491,53 @@ test('ADVANCE agosto no repite novedades de junio (sin regla C)', async () => {
         billingType: 'ADVANCE_MONTH'
     });
     assert.equal(ago.length, 0, 'junio no debe repetirse en agosto para ADVANCE');
+});
+
+test('vacaciones manual en historial aparecen en elegibles aunque aprobado_en sea posterior al bucket', async () => {
+    const manualId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+    const pool = {
+        query: async (sql) => {
+            const s = String(sql);
+            if (s.includes('conciliaciones_facturacion_historial')) {
+                return { rows: [{ novedad_id: manualId }] };
+            }
+            if (s.includes('ANY($1::uuid[])')) {
+                return {
+                    rows: [
+                        {
+                            id: manualId,
+                            cedula: '12345678',
+                            tipo_novedad: 'Vacaciones en tiempo',
+                            monto_cop: null,
+                            cantidad_horas: 3,
+                            unidad: null,
+                            modalidad: null,
+                            hora_inicio: null,
+                            hora_fin: null,
+                            fecha_inicio: '2026-06-09',
+                            fecha_fin: '2026-06-11',
+                            aprobado_en: new Date('2026-07-07T15:00:00Z')
+                        }
+                    ]
+                };
+            }
+            if (s.includes('FROM novedades')) {
+                return { rows: [] };
+            }
+            return { rows: [] };
+        }
+    };
+    const deps = { pool, normalizeCedula, canRoleViewType };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
+
+    const rows = await listNovedadesElegiblesParaCierre(deps, scope, {
+        clienteCanon: 'EXPERIAN',
+        cedulaRaw: '12345678',
+        factAnio: 2026,
+        factMes: 6,
+        billingType: 'CURRENT_MONTH'
+    });
+    assert.equal(rows.length, 1);
+    assert.equal(String(rows[0].id), manualId);
+    assert.equal(rows[0].tipo_novedad, 'Vacaciones en tiempo');
 });

@@ -28,7 +28,7 @@ const CASOS = [
     {
         tipo: 'Vacaciones en tiempo',
         row: { tipo_novedad: 'Vacaciones en tiempo', fecha_inicio: '2026-05-18', fecha_fin: '2026-05-20', cantidad_horas: 3 },
-        expect: { medida: 'days', valorHora: VH, montoCalculado: true, montoMin: 1 }
+        expect: { medida: 'days', valorHora: VH, cantidadHoras: 27, montoCalculado: true, monto: 2_917_865 }
     },
     {
         tipo: 'Permiso remunerado 4h',
@@ -73,6 +73,7 @@ for (const caso of CASOS) {
         if (caso.expect.valorHora === null) assert.equal(r.valorHora ?? null, null);
         assert.equal(r.montoCalculado, caso.expect.montoCalculado);
         if (caso.expect.monto != null) assert.equal(r.montoCop, caso.expect.monto);
+        if (caso.expect.cantidadHoras != null) assert.equal(r.cantidadHoras, caso.expect.cantidadHoras);
         if (caso.expect.montoMin != null) assert.ok(r.montoCop >= caso.expect.montoMin);
         if (caso.expect.impacto) assert.equal(r.impacto, caso.expect.impacto);
     });

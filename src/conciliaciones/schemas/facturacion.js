@@ -78,6 +78,11 @@ const conciliacionNovedadManualSchema = z.object({
     baseHours: z.coerce.number().positive().optional()
 });
 
+const cantidadHorasNovedadAjusteSchema = z.object({
+    novedadId: z.string({ required_error: 'novedadId requerido' }).uuid('novedadId debe ser UUID'),
+    cantidadHoras: z.coerce.number().min(0).nullable()
+});
+
 const facturacionAjustesSchema = z.object({
     cedula: z.string({ required_error: 'La cédula es requerida' }).min(1),
     anio: z.coerce.number({ required_error: 'El año es requerido' }).int().min(2000).max(2100),
@@ -85,6 +90,7 @@ const facturacionAjustesSchema = z.object({
     observacion: z.string({ required_error: 'La observación es obligatoria' }).min(1).max(1000),
     tarifaOverride: z.coerce.number().int().min(0).nullable().optional(),
     montosNovedad: z.array(montoNovedadAjusteSchema).optional(),
+    cantidadesHorasNovedad: z.array(cantidadHorasNovedadAjusteSchema).optional(),
     billingType: z.string().trim().optional(),
     billingMode: z.string().trim().optional(),
     baseHours: z.coerce.number().positive().optional()

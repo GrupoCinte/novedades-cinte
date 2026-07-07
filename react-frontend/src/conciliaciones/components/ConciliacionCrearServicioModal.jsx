@@ -252,6 +252,7 @@ export default function ConciliacionCrearServicioModal({
                                     onChange={(e) => setBillingType(e.target.value)}
                                     className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
                                 >
+                                    <option value="CURRENT_MONTH">Mes corriente</option>
                                     <option value="EXPIRED_MONTH">Mes vencido</option>
                                     <option value="ADVANCE_MONTH">Mes anticipado</option>
                                 </select>

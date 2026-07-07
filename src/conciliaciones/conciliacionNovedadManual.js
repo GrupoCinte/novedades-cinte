@@ -8,9 +8,79 @@ const {
 } = require('./conciliacionAjustes');
 const { resolvePostedContactFromColaborador } = require('../colaboradorDirectory');
 const { inferAreaFromNovedad } = require('../rbac');
+const { resolveActorUserIdForSession } = require('../resolveActorUserId');
 
 const TIPO_VACACIONES = 'Vacaciones en tiempo';
 const BLOCKED_ESTADOS = new Set(['APROBADO_ANALISTA', 'APROBADO_FINANZAS', 'CONCILIADA']);
+
+const INSERT_HISTORIAL_NOVEDAD_MANUAL_SQL = `INSERT INTO conciliaciones_facturacion_historial
+    (facturacion_id, cedula, anio, mes, accion, etapa, estado_anterior, estado_nuevo,
+     observacion, detalle, actor_user_id, actor_email, actor_nombre, actor_role)
+ VALUES ($1, $2, $3, $4, 'NOVEDAD_MANUAL', 'ANALISTA', $5, $5, $6, $7::jsonb, $8::uuid, $9, $10, $11::user_role)`;
+
+function buildNovedadManualHistorialObservacion(fechaInicio, fechaFin, diasHabiles) {
+    const dias = Number(diasHabiles) || 0;
+    const suf = dias === 1 ? 'día hábil' : 'días hábiles';
+    return `Vacaciones en tiempo manual: ${fechaInicio} a ${fechaFin} (${dias} ${suf}).`;
+}
+
+async function ensureConciliacionFacturacionRow(pool, ced, anio, mes) {
+    const q = await pool.query(
+        `SELECT id, estado FROM conciliaciones_facturacion
+         WHERE regexp_replace(COALESCE(cedula, ''), '\\D', '', 'g') = $1
+           AND anio = $2::integer AND mes = $3::integer
+         LIMIT 1`,
+        [ced, anio, mes]
+    );
+    if (q.rows[0]?.id) return q.rows[0];
+
+    const ins = await pool.query(
+        `INSERT INTO conciliaciones_facturacion (cedula, anio, mes, estado, fecha_cierre, updated_at)
+         VALUES ($1, $2, $3, 'PENDIENTE', CURRENT_DATE, NOW())
+         RETURNING id, estado`,
+        [ced, anio, mes]
+    );
+    return ins.rows[0];
+}
+
+async function insertNovedadManualHistorial(pool, ctx) {
+    const {
+        facturacionId,
+        ced,
+        anio,
+        mes,
+        estado,
+        revActor,
+        actorUserId,
+        fechaInicio,
+        fechaFin,
+        diasHabiles,
+        novedadId,
+        montoCop
+    } = ctx;
+    const detalle = {
+        campo: 'novedad_manual',
+        tipoNovedad: TIPO_VACACIONES,
+        novedadId: String(novedadId),
+        fechaInicio,
+        fechaFin,
+        diasHabiles: Number(diasHabiles) || 0,
+        montoCop: Math.round(Number(montoCop) || 0)
+    };
+    await pool.query(INSERT_HISTORIAL_NOVEDAD_MANUAL_SQL, [
+        facturacionId,
+        ced,
+        anio,
+        mes,
+        estado,
+        buildNovedadManualHistorialObservacion(fechaInicio, fechaFin, diasHabiles),
+        JSON.stringify(detalle),
+        actorUserId,
+        revActor.email,
+        revActor.nombre,
+        revActor.role
+    ]);
+}
 
 const INSERT_NOVEDAD_MANUAL_SQL = `INSERT INTO novedades (
     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
@@ -21,7 +91,7 @@ const INSERT_NOVEDAD_MANUAL_SQL = `INSERT INTO novedades (
     $1, $2, $3, $4, $5, $6, $7, $8::user_area,
     $9::date, NULL, NULL, $10::date, $11::date,
     $12, $13, 'Aprobado'::novedad_estado,
-    NOW(), $14::user_role, $15::uuid, NULLIF($16::text, '')
+    (($11::date + TIME '23:59:59') AT TIME ZONE 'America/Bogota'), $14::user_role, $15::uuid, NULLIF($16::text, '')
 ) RETURNING id, nombre, cedula, tipo_novedad, cantidad_horas, estado, fecha, fecha_inicio, fecha_fin, creado_en, monto_cop`;
 
 function buildRevisionActor(actor, scope) {
@@ -61,8 +131,13 @@ function mapRowToDetalleItem(row, tarifaMaestro, ajustes, impactOpts, aprobadorL
         impacto: impact.impacto,
         medida: impact.medida,
         cantidad: impact.cantidad,
+        cantidadHoras: impact.cantidadHoras ?? null,
+        cantidadHorasMaestro: impact.cantidadHorasMaestro ?? null,
+        cantidadHorasAjustado: impact.cantidadHorasAjustado ?? false,
         montoCalculado: impact.montoCalculado,
         valorHora: impact.valorHora ?? null,
+        valorHoraMaestro: impact.valorHoraMaestro ?? null,
+        valorHoraAjustado: impact.valorHoraAjustado ?? false,
         estado: String(row.estado || ''),
         fecha: row.fecha ? row.fecha.toISOString().slice(0, 10) : null,
         fechaInicio: row.fecha_inicio ? row.fecha_inicio.toISOString().slice(0, 10) : null,
@@ -199,14 +274,14 @@ async function createConciliacionNovedadManual(deps, scope, payload, actor) {
         }
     }
 
-    const estQ = await pool.query(
-        `SELECT estado FROM conciliaciones_facturacion
+    const factQ = await pool.query(
+        `SELECT id, estado FROM conciliaciones_facturacion
          WHERE regexp_replace(COALESCE(cedula, ''), '\\D', '', 'g') = $1
            AND anio = $2::integer AND mes = $3::integer
          LIMIT 1`,
         [ced, y, m]
     );
-    const estadoFact = normalizeEstado(estQ.rows[0]?.estado || 'PENDIENTE');
+    const estadoFact = normalizeEstado(factQ.rows[0]?.estado || 'PENDIENTE');
     if (BLOCKED_ESTADOS.has(estadoFact)) {
         const error = new Error('No se pueden agregar novedades manuales en el estado actual del cierre');
         error.status = 409;
@@ -243,6 +318,11 @@ async function createConciliacionNovedadManual(deps, scope, payload, actor) {
         ? `[CONCILIACION_MANUAL] servicio=${servicioRef}; mes=${mesYmd}`
         : `[CONCILIACION_MANUAL] mes=${mesYmd}`;
 
+    const aprobadoPorUserId = await resolveActorUserIdForSession(pool, {
+        sub: revActor.userId,
+        email: revActor.email
+    });
+
     const insertQ = await pool.query(INSERT_NOVEDAD_MANUAL_SQL, [
         nombre,
         ced,
@@ -258,7 +338,7 @@ async function createConciliacionNovedadManual(deps, scope, payload, actor) {
         diasHabiles,
         observaciones,
         revActor.role,
-        revActor.userId,
+        aprobadoPorUserId,
         revActor.email
     ]);
     const inserted = insertQ.rows[0];
@@ -288,6 +368,24 @@ async function createConciliacionNovedadManual(deps, scope, payload, actor) {
             revActor.nombre
         );
 
+    const factRow = factQ.rows[0]?.id ? factQ.rows[0] : await ensureConciliacionFacturacionRow(pool, ced, y, m);
+    if (factRow?.id) {
+        await insertNovedadManualHistorial(pool, {
+            facturacionId: factRow.id,
+            ced,
+            anio: y,
+            mes: m,
+            estado: normalizeEstado(factRow.estado || estadoFact),
+            revActor,
+            actorUserId: aprobadoPorUserId,
+            fechaInicio: fi,
+            fechaFin: ff,
+            diasHabiles,
+            novedadId: inserted.id,
+            montoCop: item.montoCop
+        });
+    }
+
     return {
         novedadId: inserted.id,
         item,
@@ -299,5 +397,7 @@ module.exports = {
     TIPO_VACACIONES,
     BLOCKED_ESTADOS,
     countBusinessDaysInclusive,
+    buildNovedadManualHistorialObservacion,
+    insertNovedadManualHistorial,
     createConciliacionNovedadManual
 };

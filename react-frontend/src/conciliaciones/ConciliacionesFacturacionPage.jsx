@@ -241,8 +241,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     }, [token, ym.year, ym.month, cliente]);
 
     useEffect(() => {
-        if (servicioSel) return;
-        loadCola();
+        loadCola({ background: Boolean(servicioSel) });
     }, [loadCola, servicioSel]);
 
     useEffect(() => {
@@ -311,6 +310,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 cliente: clienteServicio,
                 year: ym.year,
                 month: ym.month,
+                servicioId: servicioSel?.id,
                 ...billingQueryParams
             });
             setRows(Array.isArray(data.rows) ? data.rows : []);
@@ -330,7 +330,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 setLoadingResumen(false);
             }
         }
-    }, [token, resumenCliente, billingQueryParams, ym.year, ym.month]);
+    }, [token, resumenCliente, billingQueryParams, ym.year, ym.month, servicioSel?.id]);
 
     useEffect(() => {
         loadResumen();
@@ -910,7 +910,6 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                     onClienteChange={handleClienteChange}
                     monthValue={monthValue}
                     onMonthChange={setMonthValue}
-                    minMonthValue={currentMonthValue()}
                     field={field}
                     labelMuted={labelMuted}
                     allowTodos={!servicioSel}

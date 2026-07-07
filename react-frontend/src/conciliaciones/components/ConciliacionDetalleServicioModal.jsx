@@ -16,6 +16,7 @@ const getModoFacturacionLabel = (val) => {
 const getTipoFacturacionLabel = (val) => {
     switch (val) {
         case 'EXPIRED_MONTH': return 'Mes vencido';
+        case 'CURRENT_MONTH': return 'Mes corriente';
         case 'ADVANCE_MONTH': return 'Mes anticipado';
         default: return val || '';
     }
@@ -395,6 +396,7 @@ export default function ConciliacionDetalleServicioModal({
                                     onChange={(e) => setBillingType(e.target.value)}
                                     className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
                                 >
+                                    <option value="CURRENT_MONTH">Mes corriente</option>
                                     <option value="EXPIRED_MONTH">Mes vencido</option>
                                     <option value="ADVANCE_MONTH">Mes anticipado</option>
                                 </select>

@@ -707,6 +707,12 @@ function createDataLayer(deps) {
             await pool.query(
                 `ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS montos_novedad_override JSONB NOT NULL DEFAULT '{}'`
             );
+            await pool.query(
+                `ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS valor_hora_novedad_override JSONB NOT NULL DEFAULT '{}'`
+            );
+            await pool.query(
+                `ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS cantidad_horas_novedad_override JSONB NOT NULL DEFAULT '{}'`
+            );
 
             // Tablas de servicios (facturacion): crearlas antes de alterarlas para no romper el arranque
             await pool.query(`

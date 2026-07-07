@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const {
     createConciliacionNovedadManual,
     countBusinessDaysInclusive,
+    buildNovedadManualHistorialObservacion,
     TIPO_VACACIONES
 } = require('../src/conciliaciones/conciliacionNovedadManual');
 const { computeNovedadImpactoMonto } = require('../src/conciliaciones/conciliacionNovedadImpacto');
@@ -28,12 +29,26 @@ function basePayload(overrides = {}) {
 
 function buildDeps(poolOverrides = {}) {
     const insertCalls = [];
+    const historialCalls = [];
     const pool = {
         query: async (sql, params) => {
             const s = String(sql);
-            if (poolOverrides.query) return poolOverrides.query(sql, params, insertCalls);
+            if (poolOverrides.query) return poolOverrides.query(sql, params, insertCalls, historialCalls);
             if (s.includes('FROM conciliaciones_facturacion') && s.includes('estado')) {
-                return { rows: [{ estado: poolOverrides.estadoFacturacion ?? 'PENDIENTE' }] };
+                return {
+                    rows: poolOverrides.facturacionRow
+                        ? [poolOverrides.facturacionRow]
+                        : [{ id: 'ffffffff-ffff-ffff-ffff-ffffffffffff', estado: poolOverrides.estadoFacturacion ?? 'PENDIENTE' }]
+                };
+            }
+            if (s.includes('INSERT INTO conciliaciones_facturacion_historial')) {
+                historialCalls.push({ sql: s, params });
+                return { rows: [] };
+            }
+            if (s.includes('INSERT INTO conciliaciones_facturacion')) {
+                return {
+                    rows: [{ id: 'ffffffff-ffff-ffff-ffff-ffffffffffff', estado: 'PENDIENTE' }]
+                };
             }
             if (s.includes('INSERT INTO novedades')) {
                 insertCalls.push({ sql: s, params });
@@ -54,6 +69,10 @@ function buildDeps(poolOverrides = {}) {
                         }
                     ]
                 };
+            }
+            if (s.includes('FROM users')) {
+                const id = poolOverrides.resolvedUserId;
+                return id ? { rows: [{ id: String(id) }] } : { rows: [] };
             }
             if (s.includes('tarifa_override')) {
                 return { rows: [] };
@@ -84,7 +103,8 @@ function buildDeps(poolOverrides = {}) {
             canRoleViewType: () => true,
             listServicios: async () => []
         },
-        insertCalls
+        insertCalls,
+        historialCalls
     };
 }
 
@@ -145,18 +165,52 @@ test('rango sin días hábiles recibe 400', async () => {
 });
 
 test('insert OK deja novedad Aprobada con cantidad_horas = días hábiles', async () => {
-    const { deps, insertCalls } = buildDeps();
+    const { deps, insertCalls, historialCalls } = buildDeps();
     const out = await createConciliacionNovedadManual(deps, analistaScope, basePayload(), analistaActor);
     assert.equal(String(out.novedadId), 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
     assert.equal(out.cantidadHoras, 5);
     assert.equal(insertCalls.length, 1);
+    assert.equal(historialCalls.length, 1);
+    assert.ok(String(historialCalls[0].sql).includes("'NOVEDAD_MANUAL'"));
+    assert.match(String(historialCalls[0].params[5]), /Vacaciones en tiempo manual/);
     assert.ok(String(insertCalls[0].sql).includes("'Aprobado'::novedad_estado"));
+    assert.ok(String(insertCalls[0].sql).includes("AT TIME ZONE 'America/Bogota'"));
+    assert.ok(!String(insertCalls[0].sql).includes('NOW(), $14'));
     assert.equal(insertCalls[0].params[11], 5);
     assert.equal(insertCalls[0].params[6], TIPO_VACACIONES);
     assert.match(String(insertCalls[0].params[12]), /\[CONCILIACION_MANUAL\]/);
     assert.equal(out.item.tipoNovedad, TIPO_VACACIONES);
     assert.equal(out.item.estado, 'Aprobado');
     assert.equal(out.item.cantidad, 5);
+});
+
+test('insert no envía cognito sub si no existe en users (FK segura)', async () => {
+    const cognitoSub = 'e4e89408-e001-70ec-9da2-e19163431819';
+    const { deps, insertCalls } = buildDeps();
+    await createConciliacionNovedadManual(deps, analistaScope, basePayload(), {
+        role: 'analista_conciliaciones',
+        email: 'analista@cinte.com',
+        sub: cognitoSub
+    });
+    assert.equal(insertCalls[0].params[14], null);
+});
+
+test('insert usa users.id cuando el actor se resuelve por email', async () => {
+    const dbUserId = '22222222-2222-2222-2222-222222222222';
+    const { deps, insertCalls } = buildDeps({ resolvedUserId: dbUserId });
+    await createConciliacionNovedadManual(deps, analistaScope, basePayload(), {
+        role: 'analista_conciliaciones',
+        email: 'analista@cinte.com',
+        sub: 'e4e89408-e001-70ec-9da2-e19163431819'
+    });
+    assert.equal(insertCalls[0].params[14], dbUserId);
+});
+
+test('buildNovedadManualHistorialObservacion describe rango y días', () => {
+    assert.match(
+        buildNovedadManualHistorialObservacion('2026-07-06', '2026-07-10', 5),
+        /2026-07-06 a 2026-07-10 \(5 días hábiles\)/
+    );
 });
 
 test('impacto conciliación: medida days, impacto resta, monto coherente', () => {

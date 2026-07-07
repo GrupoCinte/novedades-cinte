@@ -127,7 +127,7 @@ test('aggregateNovedadesImpacto combina suma y resta', () => {
     assert.equal(agg.count, 2);
 });
 
-test('incapacidad 3 días en modo HOURS expone valorHora y monto vía baseHours del servicio', () => {
+test('incapacidad 3 días en modo HOURS usa 9 h/día laboral', () => {
     const tarifa = 17_291_052;
     const r = computeNovedadImpactoMonto(
         tarifa,
@@ -141,9 +141,10 @@ test('incapacidad 3 días en modo HOURS expone valorHora y monto vía baseHours 
     );
     assert.equal(r.medida, 'days');
     assert.equal(r.cantidad, 3);
+    assert.equal(r.cantidadHoras, 27);
     assert.equal(r.valorHora, 108_069);
     assert.equal(r.horasBaseMes, 160);
-    assert.equal(r.montoCop, 1_729_105);
+    assert.equal(r.montoCop, 2_917_865);
 });
 
 test('getNovedadImpactoFacturacion clasifica hora extra como suma', () => {

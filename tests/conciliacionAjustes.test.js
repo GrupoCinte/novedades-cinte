@@ -126,3 +126,42 @@ test('resolveEffectiveTarifa usa override o maestro', () => {
     assert.equal(resolveEffectiveTarifa(3_000_000, { tarifaOverride: null }), 3_000_000);
     assert.equal(resolveEffectiveTarifa(3_000_000, { tarifaOverride: 3_200_000 }), 3_200_000);
 });
+
+test('override cantidad horas recalcula monto en modo HOURS', () => {
+    const row = {
+        id: 'n4',
+        tipo_novedad: 'Vacaciones en tiempo',
+        cantidad_horas: 1,
+        fecha_inicio: '2026-06-30',
+        fecha_fin: '2026-06-30'
+    };
+    const opts = { billingMode: 'HOURS', baseHours: 180 };
+    const sinAdj = resolveNovedadMontoConAjuste(17_291_052, row, {
+        tarifaOverride: null,
+        montosNovedadOverride: {},
+        cantidadHorasNovedadOverride: {}
+    }, opts);
+    assert.equal(sinAdj.valorHora, 96_061);
+    assert.equal(sinAdj.cantidadHoras, 9);
+    assert.equal(sinAdj.cantidadHorasAjustado, false);
+    assert.equal(sinAdj.montoCop, 864_553);
+
+    const conHoras = resolveNovedadMontoConAjuste(17_291_052, row, {
+        tarifaOverride: null,
+        montosNovedadOverride: {},
+        cantidadHorasNovedadOverride: { n4: 7 }
+    }, opts);
+    assert.equal(conHoras.cantidadHoras, 7);
+    assert.equal(conHoras.cantidadHorasAjustado, true);
+    assert.equal(conHoras.montoCop, Math.round((17_291_052 / 180) * 7));
+    assert.equal(conHoras.montoAjustado, true);
+});
+
+test('parseAjustesFromFacturacionRow incluye cantidad horas override', () => {
+    const a = parseAjustesFromFacturacionRow({
+        tarifa_override: null,
+        montos_novedad_override: {},
+        cantidad_horas_novedad_override: { abc: 9 }
+    });
+    assert.deepEqual(a.cantidadHorasNovedadOverride, { abc: 9 });
+});

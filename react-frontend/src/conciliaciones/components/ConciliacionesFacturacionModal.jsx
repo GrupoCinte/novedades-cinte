@@ -11,7 +11,8 @@ import {
     computeValorHoraFromTarifa,
     computeMontoFromValorHoraCop,
     computeMontoNovedadPreview,
-    isNovedadCalculadaValorHora,
+    isNovedadCalculadaHoras,
+    resolveCantidadHorasFacturacionPreview,
     showHorasDesgloseColumn,
     formatDiasBaseMesLine
 } from '../facturacionLogic.js';
@@ -71,8 +72,8 @@ export default function ConciliacionesFacturacionModal({
     const [editMode, setEditMode] = useState(false);
     const [draftTarifa, setDraftTarifa] = useState('');
     const [draftValorHora, setDraftValorHora] = useState('');
-    const [draftValorHorasNovedad, setDraftValorHorasNovedad] = useState({});
-    const [valorHoraNovedadTouched, setValorHoraNovedadTouched] = useState(() => new Set());
+    const [draftCantidadHorasNovedad, setDraftCantidadHorasNovedad] = useState({});
+    const [cantidadHorasNovedadTouched, setCantidadHorasNovedadTouched] = useState(() => new Set());
     const [draftMontos, setDraftMontos] = useState({});
     const [ajustesPendiente, setAjustesPendiente] = useState(false);
     const [vacacionesFormOpen, setVacacionesFormOpen] = useState(false);
@@ -120,24 +121,28 @@ export default function ConciliacionesFacturacionModal({
     const showValorHoraCol = showHorasDesgloseColumn({ billingMode, baseHours, horasBaseMes });
 
     const syncMontosFromDrafts = useCallback(
-        (tarifaStr, valorHoraStr, valorHorasNov = {}, touched = new Set()) => {
+        (tarifaStr, valorHoraStr, cantidadesHorasNov = {}, touched = new Set()) => {
             const tarifa = Math.round(Number(tarifaStr) || 0);
-            const vhTarifa = Math.round(Number(valorHoraStr) || computeValorHoraFromTarifa(tarifa, horasBase));
             const montos = {};
-            const vhNov = { ...valorHorasNov };
+            const chNov = { ...cantidadesHorasNov };
             for (const item of novedadesItems || []) {
                 const id = String(item?.id || '');
                 if (!id) continue;
-                if (showValorHoraCol && isNovedadCalculadaValorHora(item)) {
-                    const vh = touched.has(id)
-                        ? Math.round(Number(vhNov[id]) || 0)
-                        : vhTarifa;
-                    vhNov[id] = String(vh);
+                if (showValorHoraCol && isNovedadCalculadaHoras(item)) {
+                    const horas = touched.has(id)
+                        ? Math.round(Number(chNov[id]) || 0)
+                        : Math.round(
+                              Number(
+                                  item.cantidadHorasMaestro ??
+                                      resolveCantidadHorasFacturacionPreview(item, true)
+                              ) || 0
+                          );
+                    chNov[id] = String(horas);
                     montos[id] = String(
                         computeMontoNovedadPreview(item, {
                             tarifa,
                             horasBaseMes: horasBase,
-                            valorHora: vh,
+                            cantidadHoras: horas,
                             hoursMode: true
                         })
                     );
@@ -145,7 +150,7 @@ export default function ConciliacionesFacturacionModal({
                     montos[id] = String(item.montoCop ?? '');
                 }
             }
-            return { montos, vhNov };
+            return { montos, chNov };
         },
         [novedadesItems, horasBase, showValorHoraCol]
     );
@@ -155,11 +160,28 @@ export default function ConciliacionesFacturacionModal({
         const vh = computeValorHoraFromTarifa(tarifa, horasBase);
         setDraftTarifa(String(tarifa));
         setDraftValorHora(String(vh));
-        setValorHoraNovedadTouched(new Set());
-        const { montos, vhNov } = syncMontosFromDrafts(String(tarifa), String(vh), {}, new Set());
-        setDraftValorHorasNovedad(vhNov);
+        const touched = new Set();
+        const chNovInit = {};
+        for (const item of novedadesItems || []) {
+            const id = String(item?.id || '');
+            if (!id || !showValorHoraCol || !isNovedadCalculadaHoras(item)) continue;
+            const horasBaseItem = Math.round(
+                Number(
+                    item.cantidadHorasMaestro ?? resolveCantidadHorasFacturacionPreview(item, true)
+                ) || 0
+            );
+            if (item.cantidadHorasAjustado && item.cantidadHoras != null) {
+                chNovInit[id] = String(Math.round(Number(item.cantidadHoras)));
+                touched.add(id);
+            } else {
+                chNovInit[id] = String(horasBaseItem);
+            }
+        }
+        setCantidadHorasNovedadTouched(touched);
+        const { montos, chNov } = syncMontosFromDrafts(String(tarifa), String(vh), chNovInit, touched);
+        setDraftCantidadHorasNovedad(chNov);
         setDraftMontos(montos);
-    }, [tarifaCliente, horasBase, syncMontosFromDrafts]);
+    }, [tarifaCliente, horasBase, syncMontosFromDrafts, novedadesItems, showValorHoraCol]);
 
     const handleValorHoraChange = useCallback(
         (raw) => {
@@ -167,34 +189,34 @@ export default function ConciliacionesFacturacionModal({
             const tarifa = computeTarifaMesFromValorHora(vh, horasBase);
             setDraftValorHora(String(vh));
             setDraftTarifa(String(tarifa));
-            const { montos, vhNov } = syncMontosFromDrafts(
+            const { montos, chNov } = syncMontosFromDrafts(
                 String(tarifa),
                 String(vh),
-                draftValorHorasNovedad,
-                valorHoraNovedadTouched
+                draftCantidadHorasNovedad,
+                cantidadHorasNovedadTouched
             );
-            setDraftValorHorasNovedad(vhNov);
+            setDraftCantidadHorasNovedad(chNov);
             setDraftMontos((prev) => ({ ...prev, ...montos }));
         },
-        [horasBase, syncMontosFromDrafts, draftValorHorasNovedad, valorHoraNovedadTouched]
+        [horasBase, syncMontosFromDrafts, draftCantidadHorasNovedad, cantidadHorasNovedadTouched]
     );
 
-    const handleValorHoraNovedadChange = useCallback(
+    const handleCantidadHorasNovedadChange = useCallback(
         (novedadId, raw) => {
             const id = String(novedadId || '');
             if (!id) return;
-            const vh = Math.round(Number(raw) || 0);
+            const horas = Math.round(Number(raw) || 0);
             const item = (novedadesItems || []).find((n) => String(n.id) === id);
             if (!item) return;
-            setValorHoraNovedadTouched((prev) => new Set(prev).add(id));
-            setDraftValorHorasNovedad((prev) => ({ ...prev, [id]: String(vh) }));
+            setCantidadHorasNovedadTouched((prev) => new Set(prev).add(id));
+            setDraftCantidadHorasNovedad((prev) => ({ ...prev, [id]: String(horas) }));
             setDraftMontos((prev) => ({
                 ...prev,
                 [id]: String(
                     computeMontoNovedadPreview(item, {
                         tarifa: draftTarifa,
                         horasBaseMes: horasBase,
-                        valorHora: vh,
+                        cantidadHoras: horas,
                         hoursMode: showValorHoraCol
                     })
                 )
@@ -307,6 +329,11 @@ export default function ConciliacionesFacturacionModal({
                 tarifaEffective: tarifaCliente,
                 tarifaMaestro,
                 montosDraft: draftMontos,
+                cantidadesHorasDraft: draftCantidadHorasNovedad,
+                cantidadesHorasTouched: cantidadHorasNovedadTouched,
+                horasBaseMes: horasBase,
+                billingMode,
+                baseHours,
                 items: novedadesItems
             }
         );
@@ -548,12 +575,12 @@ export default function ConciliacionesFacturacionModal({
                                 editMode={editMode}
                                 draftTarifa={draftTarifa}
                                 draftValorHora={draftValorHora}
-                                draftValorHorasNovedad={draftValorHorasNovedad}
+                                draftCantidadHorasNovedad={draftCantidadHorasNovedad}
                                 draftMontos={draftMontos}
                                 onTarifaChange={editMode && !showValorHoraCol ? setDraftTarifa : null}
                                 onValorHoraChange={editMode && showValorHoraCol ? handleValorHoraChange : null}
-                                onValorHoraNovedadChange={
-                                    editMode && showValorHoraCol ? handleValorHoraNovedadChange : null
+                                onCantidadHorasNovedadChange={
+                                    editMode && showValorHoraCol ? handleCantidadHorasNovedadChange : null
                                 }
                                 onMontoChange={
                                     editMode

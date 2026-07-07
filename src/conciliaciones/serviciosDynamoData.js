@@ -404,35 +404,56 @@ async function listServicioConsultores(deps, scope, servicioId) {
         [chk.canon]
     );
 
-    const asociadosMap = {};
+    const asociadosByNorm = new Map();
     for (const asc of service.consultores_asociados || []) {
-        asociadosMap[String(asc.cedula).trim()] = asc;
+        const k = _normalizeCedulaKey(asc.cedula);
+        if (k) asociadosByNorm.set(k, asc);
     }
 
     const serviciosCliente = _serviciosMismoCliente(allServicios, chk.canon);
     const ocupadasEnOtros = _cedulasOcupadasEnOtrosServicios(serviciosCliente, servicioId);
 
-    return q.rows
+    const rowsByNorm = new Map();
+    for (const row of q.rows) {
+        const k = _normalizeCedulaKey(row.cedula);
+        if (k && !rowsByNorm.has(k)) rowsByNorm.set(k, row);
+    }
+
+    const missingNormKeys = [...asociadosByNorm.keys()].filter((k) => !rowsByNorm.has(k));
+    if (missingNormKeys.length) {
+        const qExtra = await pool.query(
+            `SELECT c.cedula, c.nombre, c.tarifa_cliente, c.costo_empresa, c.moneda
+             FROM colaboradores c
+             WHERE regexp_replace(c.cedula, '[^0-9]', '', 'g') = ANY($1::text[])
+             ORDER BY c.nombre ASC`,
+            [missingNormKeys]
+        );
+        for (const row of qExtra.rows) {
+            const k = _normalizeCedulaKey(row.cedula);
+            if (k && !rowsByNorm.has(k)) rowsByNorm.set(k, row);
+        }
+    }
+
+    return [...rowsByNorm.values()]
         .filter((r) => {
-            const cedStr = String(r.cedula).trim();
-            if (asociadosMap[cedStr]) return true;
-            return !ocupadasEnOtros.has(_normalizeCedulaKey(r.cedula));
+            const k = _normalizeCedulaKey(r.cedula);
+            if (asociadosByNorm.has(k)) return true;
+            return !ocupadasEnOtros.has(k);
         })
         .map((r) => {
-        const cedStr = String(r.cedula).trim();
-        const asoc = asociadosMap[cedStr];
-        return {
-            cedula: r.cedula,
-            nombre: r.nombre,
-            licencias: asoc ? asoc.licencias : '',
-            equipo: asoc ? asoc.equipo : '',
-            otrasDotaciones: asoc ? asoc.otras_dotaciones : '',
-            tarifaCliente: r.tarifa_cliente != null ? Number(r.tarifa_cliente) : null,
-            costoCinte: r.costo_empresa != null ? Number(r.costo_empresa) : null,
-            moneda: r.moneda ? String(r.moneda).trim() : 'COP',
-            asociado: Boolean(asoc)
-        };
-    });
+            const asoc = asociadosByNorm.get(_normalizeCedulaKey(r.cedula));
+            return {
+                cedula: r.cedula,
+                nombre: r.nombre,
+                licencias: asoc ? asoc.licencias : '',
+                equipo: asoc ? asoc.equipo : '',
+                otrasDotaciones: asoc ? asoc.otras_dotaciones : '',
+                tarifaCliente: r.tarifa_cliente != null ? Number(r.tarifa_cliente) : null,
+                costoCinte: r.costo_empresa != null ? Number(r.costo_empresa) : null,
+                moneda: r.moneda ? String(r.moneda).trim() : 'COP',
+                asociado: Boolean(asoc)
+            };
+        });
 }
 
 async function upsertServicioConsultores(deps, scope, servicioId, consultoresAsociados) {

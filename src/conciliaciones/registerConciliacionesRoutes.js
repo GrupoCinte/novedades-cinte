@@ -169,6 +169,14 @@ function registerConciliacionesRoutes(deps) {
                 });
             }
             const impactOpts = parseNovedadesImpactOptions(req.query);
+            const servicioId = String(req.query.servicioId || '').trim();
+            if (servicioId) {
+                const servicios = await listServiciosForScope(req.scope);
+                const svc = (servicios || []).find((s) => String(s.id) === servicioId);
+                if (svc?.consultoresCedulas?.length) {
+                    impactOpts.servicioCedulas = svc.consultoresCedulas;
+                }
+            }
             const out = await getConciliacionResumenPorClienteMesForScope(
                 req.scope,
                 cliente,

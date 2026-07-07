@@ -31,6 +31,10 @@ function rangesForFactMes(factMes) {
     return { novStart: mr.start, novEnd: mr.end, factStart: mr.start, factEnd: mr.end };
 }
 
+function isEligible(row, factMes, opts = {}) {
+    return isNovedadElegibleParaCierreRow(row, rangesForFactMes(factMes), opts);
+}
+
 function mockPoolWithRows(rows) {
     return {
         query: async (sql, params = []) => {
@@ -60,17 +64,17 @@ test('fixture EXPERIAN jja: 21 novedades, 6 pendientes y casos especiales docume
     assert.ok(EXPERIAN_JJA_SEED_TAG.includes('experian'));
 });
 
-test('EXPERIAN jja: novedades normales — regla A en su mes; regla C en meses posteriores si aprob. en mes origen', () => {
+test('EXPERIAN jja: mes corriente — novedades solo en su mes (sin backlog regla C)', () => {
     const normals = [
-        { caso: 'jun-normal-dias', mesOrigen: 6, mesesElegibles: [6, 7, 8] },
-        { caso: 'jul-vacaciones-tiempo', mesOrigen: 7, mesesElegibles: [7, 8] },
-        { caso: 'ago-licencia-remunerada', mesOrigen: 8, mesesElegibles: [8] }
+        { caso: 'jun-normal-dias', mesesElegibles: [6] },
+        { caso: 'jul-vacaciones-tiempo', mesesElegibles: [7] },
+        { caso: 'ago-licencia-remunerada', mesesElegibles: [8] }
     ];
     for (const { caso, mesesElegibles } of normals) {
         const seed = EXPERIAN_JJA_NOVEDADES.find((n) => n.caso === caso);
         const row = toElegibilityRow(seed);
         for (const factMes of [6, 7, 8]) {
-            const eligible = isNovedadElegibleParaCierreRow(row, rangesForFactMes(factMes));
+            const eligible = isEligible(row, factMes, { includeRuleC: false });
             assert.equal(
                 eligible,
                 mesesElegibles.includes(factMes),
@@ -85,22 +89,22 @@ test('EXPERIAN jja: casos tardíos y backlog según reglas B/C', () => {
     const tardiaJul = toElegibilityRow(
         EXPERIAN_JJA_NOVEDADES.find((n) => n.caso === 'jul-tardia-mayo-aprob-jul')
     );
-    assert.equal(isNovedadElegibleParaCierreRow(tardiaJul, rangesForFactMes(5)), false);
-    assert.equal(isNovedadElegibleParaCierreRow(tardiaJul, rangesForFactMes(6)), false);
-    assert.equal(isNovedadElegibleParaCierreRow(tardiaJul, rangesForFactMes(7)), true);
+    assert.equal(isEligible(tardiaJul, 5, { includeRuleC: false }), false);
+    assert.equal(isEligible(tardiaJul, 6, { includeRuleC: false }), false);
+    assert.equal(isEligible(tardiaJul, 7, { includeRuleC: false }), true);
 
     const tardiaAgo = toElegibilityRow(
         EXPERIAN_JJA_NOVEDADES.find((n) => n.caso === 'ago-tardia-jul-aprob-ago')
     );
-    assert.equal(isNovedadElegibleParaCierreRow(tardiaAgo, rangesForFactMes(7)), false);
-    assert.equal(isNovedadElegibleParaCierreRow(tardiaAgo, rangesForFactMes(8)), true);
+    assert.equal(isEligible(tardiaAgo, 7, { includeRuleC: false }), false);
+    assert.equal(isEligible(tardiaAgo, 8, { includeRuleC: false }), true);
 
     const backlog = toElegibilityRow(
         EXPERIAN_JJA_NOVEDADES.find((n) => n.caso === 'ago-backlog-jun-aprob-jul')
     );
-    assert.equal(isNovedadElegibleParaCierreRow(backlog, rangesForFactMes(6)), false);
-    assert.equal(isNovedadElegibleParaCierreRow(backlog, rangesForFactMes(7)), true);
-    assert.equal(isNovedadElegibleParaCierreRow(backlog, rangesForFactMes(8)), true);
+    assert.equal(isEligible(backlog, 6, { includeRuleC: false }), false);
+    assert.equal(isEligible(backlog, 7, { includeRuleC: false }), true);
+    assert.equal(isEligible(backlog, 8, { includeRuleC: false }), false);
 });
 
 test('EXPERIAN jja: matriz de elegibilidad por caso y mes de facturación', () => {
@@ -111,7 +115,7 @@ test('EXPERIAN jja: matriz de elegibilidad por caso y mes de facturación', () =
         for (const factMes of [6, 7, 8]) {
             const expected = meses.includes(factMes);
             assert.equal(
-                isNovedadElegibleParaCierreRow(row, rangesForFactMes(factMes)),
+                isEligible(row, factMes, { includeRuleC: false }),
                 expected,
                 `${caso} @ factMes ${factMes}`
             );
@@ -144,7 +148,7 @@ test('EXPERIAN jja: listNovedadesElegiblesParaCierre respeta cédula y excluye p
     assert.equal(none.length, 0);
 });
 
-test('EXPERIAN jja: cierre julio incluye tardía de mayo y backlog de junio', async () => {
+test('EXPERIAN jja: cierre julio (mes corriente) incluye tardías y backlog aprobado en julio, no junio ya cerrado', async () => {
     const deps = {
         pool: mockPoolWithRows(approvedExperianJjaRows()),
         normalizeCedula,
@@ -153,12 +157,31 @@ test('EXPERIAN jja: cierre julio incluye tardía de mayo y backlog de junio', as
     const jul = await listNovedadesElegiblesParaCierre(deps, scope, {
         clienteCanon: EXPERIAN_CLIENTE,
         factAnio: 2026,
-        factMes: 7
+        factMes: 7,
+        billingType: 'CURRENT_MONTH'
     });
     const casos = new Set(jul.map((r) => r.caso));
     assert.ok(casos.has('jul-tardia-mayo-aprob-jul'));
     assert.ok(casos.has('ago-backlog-jun-aprob-jul'));
-    assert.ok(casos.has('jun-normal-dias'), 'regla C: junio aprobado en junio reaparece en julio');
+    assert.equal(casos.has('jun-normal-dias'), false, 'junio aprobado en junio no debe repetirse en julio (mes corriente)');
+});
+
+test('EXPERIAN jja: mes vencido — regla C arrastra junio a facturación julio', async () => {
+    const deps = {
+        pool: mockPoolWithRows(approvedExperianJjaRows()),
+        normalizeCedula,
+        canRoleViewType
+    };
+    const jul = await listNovedadesElegiblesParaCierre(deps, scope, {
+        clienteCanon: EXPERIAN_CLIENTE,
+        factAnio: 2026,
+        factMes: 7,
+        billingType: 'EXPIRED_MONTH',
+        novedadesYear: 2026,
+        novedadesMonth: 6
+    });
+    const casos = new Set(jul.map((r) => r.caso));
+    assert.ok(casos.has('jun-normal-dias'), 'mes vencido: novedades de junio entran en cierre julio');
 });
 
 test('EXPERIAN jja ADVANCE: junio no liquida novedades; julio ajusta backlog jun-aprob-jul', async () => {

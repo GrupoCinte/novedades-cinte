@@ -527,6 +527,11 @@ export function buildFacturacionAjustesPayload({ observaciones, cedula, anio, me
 
     const tarifaEffective = Math.round(Number(draft?.tarifaEffective) || 0);
     const tarifaMaestro = Math.round(Number(draft?.tarifaMaestro) || 0);
+    const horasBase = resolveHorasBaseMes({
+        billingMode: draft?.billingMode,
+        baseHours: draft?.baseHours,
+        horasBaseMes: draft?.horasBaseMes
+    });
     const tarifaDraft = draft?.tarifaDraft;
     if (tarifaDraft !== undefined && tarifaDraft !== '') {
         const val = Math.round(Number(tarifaDraft) || 0);
@@ -536,13 +541,44 @@ export function buildFacturacionAjustesPayload({ observaciones, cedula, anio, me
     }
 
     const montosNovedad = [];
+    const cantidadesHorasNovedad = [];
     const items = Array.isArray(draft?.items) ? draft.items : [];
     const montosDraft = draft?.montosDraft || {};
+    const cantidadesHorasDraft = draft?.cantidadesHorasDraft || {};
+    const touchedRaw = draft?.cantidadesHorasTouched;
+    const touchedSet =
+        touchedRaw instanceof Set
+            ? touchedRaw
+            : new Set(Array.isArray(touchedRaw) ? touchedRaw : []);
+
     for (const item of items) {
         const id = String(item.id || '');
         if (!id) continue;
+
+        if (touchedSet.has(id) && isNovedadCalculadaHoras(item)) {
+            const nextHoras = Math.round(Number(cantidadesHorasDraft[id]) || 0);
+            const defaultHoras = Math.round(
+                Number(
+                    item.cantidadHorasMaestro ??
+                        resolveCantidadHorasFacturacionPreview(item, true)
+                ) || 0
+            );
+            const currentHoras = item.cantidadHorasAjustado
+                ? Math.round(Number(item.cantidadHoras) || 0)
+                : defaultHoras;
+            if (nextHoras !== currentHoras) {
+                cantidadesHorasNovedad.push({
+                    novedadId: id,
+                    cantidadHoras: nextHoras === defaultHoras ? null : nextHoras
+                });
+            } else if (item.cantidadHorasAjustado && nextHoras === defaultHoras) {
+                cantidadesHorasNovedad.push({ novedadId: id, cantidadHoras: null });
+            }
+        }
+
         const draftVal = montosDraft[id];
         if (draftVal === undefined || draftVal === '') continue;
+        if (touchedSet.has(id) && isNovedadCalculadaHoras(item)) continue;
         const current = Math.round(Number(item.montoCop) || 0);
         const master = Math.round(Number(item.montoMaestro ?? item.montoCop) || 0);
         const next = Math.round(Number(draftVal) || 0);
@@ -553,8 +589,13 @@ export function buildFacturacionAjustesPayload({ observaciones, cedula, anio, me
         }
     }
     if (montosNovedad.length) payload.montosNovedad = montosNovedad;
+    if (cantidadesHorasNovedad.length) payload.cantidadesHorasNovedad = cantidadesHorasNovedad;
 
-    if (payload.tarifaOverride === undefined && !payload.montosNovedad?.length) {
+    if (
+        payload.tarifaOverride === undefined &&
+        !payload.montosNovedad?.length &&
+        !payload.cantidadesHorasNovedad?.length
+    ) {
         return { ok: false, error: 'No hay cambios para guardar' };
     }
 
@@ -820,11 +861,18 @@ const NOVEDAD_TIPOS_SUMA = new Set(['Bonos', 'Hora Extra', 'Disponibilidad']);
 
 export const HORAS_MES_LABORALES = 176;
 export const DIAS_MES_FACTURACION = 30;
+/** Horas por día laboral en modo HOURS (Experian: 180 h / 20 días hábiles). */
+export const HORAS_LABOR_DIA = 9;
 
-/** Novedad calculada que usa valor hora de la tarifa (modo HOURS). Incluye HE en suma. */
-export function isNovedadCalculadaValorHora(row) {
+/** Novedad calculada por horas en modo HOURS (días o horas). Incluye HE en suma. */
+export function isNovedadCalculadaHoras(row) {
     const calculado = Boolean(row?.montoCalculado || row?.montoOrigen === 'calculado');
     return calculado && (row?.medida === 'hours' || row?.medida === 'days');
+}
+
+/** @deprecated use isNovedadCalculadaHoras */
+export function isNovedadCalculadaValorHora(row) {
+    return isNovedadCalculadaHoras(row);
 }
 
 /** Modo HOURS activo según props del servicio / API. */
@@ -872,20 +920,32 @@ export function computeMontoFromValorHoraCop(valorHora, cantidadHoras) {
     return Math.round(vh * q);
 }
 
-/** Modo HOURS: monto días = valorHora × días × (baseHours / 30). */
-export function computeMontoNovedadDiasFromValorHora(valorHora, dias, horasBaseMes) {
+/** Horas facturables de una novedad en modo HOURS. */
+export function resolveCantidadHorasFacturacionPreview(row, hoursMode = false) {
+    if (!hoursMode || !isNovedadCalculadaHoras(row)) return null;
+    if (row?.cantidadHoras != null && Number(row.cantidadHoras) > 0) {
+        return Number(row.cantidadHoras);
+    }
+    const q = Number(row?.cantidad) || 0;
+    if (q <= 0) return null;
+    if (row?.medida === 'hours') return q;
+    if (row?.medida === 'days') return q * HORAS_LABOR_DIA;
+    return null;
+}
+
+/** Modo HOURS: monto = valorHora × cantidadHoras. */
+export function computeMontoNovedadDiasFromValorHora(valorHora, dias) {
     const vh = Number(valorHora) || 0;
     const d = Number(dias) || 0;
-    const base = Number(horasBaseMes) || HORAS_MES_LABORALES;
     if (vh <= 0 || d <= 0) return 0;
-    return Math.round(vh * d * (base / DIAS_MES_FACTURACION));
+    return Math.round(vh * d * HORAS_LABOR_DIA);
 }
 
 /**
  * Recalcula monto de novedad en edición según medida.
- * Modo HOURS: valorHora × cantidad (horas) o valorHora × días × baseHours/30.
+ * Modo HOURS: valorHora × cantidadHoras (días × 9 h laborales).
  */
-export function computeMontoNovedadPreview(row, { tarifa, horasBaseMes, valorHora, hoursMode = false } = {}) {
+export function computeMontoNovedadPreview(row, { tarifa, horasBaseMes, cantidadHoras, hoursMode = false } = {}) {
     const esCalculado = row?.montoOrigen === 'calculado' || row?.montoCalculado;
     if (!hoursMode) {
         if (!esCalculado && row?.medida !== 'hours') {
@@ -894,26 +954,18 @@ export function computeMontoNovedadPreview(row, { tarifa, horasBaseMes, valorHor
     } else if (!esCalculado && row?.medida !== 'hours' && row?.medida !== 'days') {
         return Number(row?.montoMaestro ?? row?.montoCop) || 0;
     }
-    const q = Number(row?.cantidad) || 0;
     const t = Number(tarifa) || 0;
-    const vh =
-        valorHora != null && valorHora !== ''
-            ? Number(valorHora) || 0
-            : computeValorHoraCop(t, horasBaseMes);
-
-    if (row?.medida === 'days') {
-        if (hoursMode) {
-            const vhDefault = computeValorHoraCop(t, horasBaseMes);
-            const vhNum = valorHora != null && valorHora !== '' ? Math.round(Number(valorHora)) : vhDefault;
-            if (vhNum === vhDefault) return Math.round((t / DIAS_MES_FACTURACION) * q);
-            return computeMontoNovedadDiasFromValorHora(vhNum, q, horasBaseMes);
-        }
-        return Math.round((t / DIAS_MES_FACTURACION) * q);
+    const vh = computeValorHoraCop(t, horasBaseMes);
+    const horas =
+        cantidadHoras != null && cantidadHoras !== ''
+            ? Number(cantidadHoras) || 0
+            : resolveCantidadHorasFacturacionPreview(row, hoursMode) || 0;
+    if (hoursMode && (row?.medida === 'hours' || row?.medida === 'days')) {
+        return Math.round((t / horasBaseMes) * horas);
     }
-    if (row?.medida === 'hours') {
-        if (hoursMode) return computeMontoFromValorHoraCop(vh, q);
-        return Math.round((t / horasBaseMes) * q);
-    }
+    const q = Number(row?.cantidad) || 0;
+    if (row?.medida === 'days') return Math.round((t / DIAS_MES_FACTURACION) * q);
+    if (row?.medida === 'hours') return Math.round((t / horasBaseMes) * q);
     return Number(row?.montoMaestro ?? row?.montoCop) || 0;
 }
 

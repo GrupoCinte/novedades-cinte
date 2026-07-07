@@ -5,7 +5,11 @@
 
 const { normalizeEstado } = require('./facturacionRevision');
 const {
-    computeNovedadImpactoMonto
+    computeNovedadImpactoMonto,
+    resolveCantidadHorasFacturacion,
+    isHoursBillingMode,
+    montoPorHoras,
+    resolveHorasBaseMes
 } = require('./conciliacionNovedadImpacto');
 
 const AJUSTES_EDIT_ROLES = new Set(['analista_conciliaciones', 'super_admin']);
@@ -15,7 +19,7 @@ function normalizeRole(role) {
     return String(role || '').trim().toLowerCase();
 }
 
-function parseMontosOverride(raw) {
+function parseJsonOverrideMap(raw) {
     if (!raw) return {};
     if (typeof raw === 'string') {
         try {
@@ -29,6 +33,11 @@ function parseMontosOverride(raw) {
     return {};
 }
 
+/** @deprecated use parseJsonOverrideMap */
+function parseMontosOverride(raw) {
+    return parseJsonOverrideMap(raw);
+}
+
 function parseAjustesFromFacturacionRow(fRow) {
     const tarifaRaw = fRow?.tarifa_override;
     const tarifaOverride =
@@ -37,7 +46,8 @@ function parseAjustesFromFacturacionRow(fRow) {
             : null;
     return {
         tarifaOverride,
-        montosNovedadOverride: parseMontosOverride(fRow?.montos_novedad_override)
+        montosNovedadOverride: parseJsonOverrideMap(fRow?.montos_novedad_override),
+        cantidadHorasNovedadOverride: parseJsonOverrideMap(fRow?.cantidad_horas_novedad_override)
     };
 }
 
@@ -52,22 +62,56 @@ function resolveNovedadMontoConAjuste(tarifaMaestro, novedadRow, ajustes, impact
     const effectiveTarifa = resolveEffectiveTarifa(tarifaMaestro, ajustes);
     const base = computeNovedadImpactoMonto(effectiveTarifa, novedadRow, impactOptions);
     const novedadId = String(novedadRow.id ?? novedadRow.novedad_id ?? '').trim();
-    const overrides = ajustes?.montosNovedadOverride || {};
-    const hasOverride = Boolean(novedadId) && overrides[novedadId] != null && overrides[novedadId] !== '';
-    const overrideVal = hasOverride ? Math.round(Number(overrides[novedadId])) : null;
-    const montoCop =
-        overrideVal != null && Number.isFinite(overrideVal) ? overrideVal : base.montoCop;
+
+    const chOverrides = ajustes?.cantidadHorasNovedadOverride || {};
+    const hasChOverride = Boolean(novedadId) && chOverrides[novedadId] != null && chOverrides[novedadId] !== '';
+    const chOverrideVal = hasChOverride ? Number(chOverrides[novedadId]) : null;
+
+    const montoOverrides = ajustes?.montosNovedadOverride || {};
+    const hasMontoOverride = Boolean(novedadId) && montoOverrides[novedadId] != null && montoOverrides[novedadId] !== '';
+    const montoOverrideVal = hasMontoOverride ? Math.round(Number(montoOverrides[novedadId])) : null;
+
+    const valorHoraMaestro = base.valorHora ?? null;
+    const valorHora = valorHoraMaestro;
+    const cantidadHorasMaestro =
+        base.cantidadHoras ?? resolveCantidadHorasFacturacion(base.medida, base.cantidad, impactOptions);
+    const cantidadHoras =
+        hasChOverride && Number.isFinite(chOverrideVal)
+            ? Math.round(chOverrideVal)
+            : cantidadHorasMaestro;
+
+    let montoCop;
+    if (hasMontoOverride && Number.isFinite(montoOverrideVal)) {
+        montoCop = montoOverrideVal;
+    } else if (
+        hasChOverride &&
+        base.montoCalculado &&
+        isHoursBillingMode(impactOptions) &&
+        (base.medida === 'hours' || base.medida === 'days') &&
+        cantidadHoras > 0
+    ) {
+        montoCop = montoPorHoras(effectiveTarifa, cantidadHoras, resolveHorasBaseMes(impactOptions));
+    } else {
+        montoCop = base.montoCop;
+    }
+
+    const montoAjustado = hasMontoOverride || (hasChOverride && montoCop !== base.montoCop);
 
     return {
         impacto: base.impacto,
         medida: base.medida,
         cantidad: base.cantidad,
+        cantidadHoras,
+        cantidadHorasMaestro,
+        cantidadHorasAjustado: hasChOverride,
         montoCop,
         montoCalculado: base.montoCalculado,
         montoMaestro: base.montoCop,
-        montoAjustado: hasOverride,
+        montoAjustado,
         montoOrigen: base.montoCalculado ? 'calculado' : 'novedad',
-        valorHora: base.valorHora ?? null,
+        valorHora,
+        valorHoraMaestro,
+        valorHoraAjustado: false,
         horasBaseMes: base.horasBaseMes ?? null
     };
 }
@@ -118,6 +162,13 @@ function buildAjusteHistorialObservacion(campo, valorAnterior, valorNuevo, extra
     if (campo === 'tarifa') {
         return `Ajuste tarifa: ${formatCopLabel(valorAnterior)} → ${formatCopLabel(valorNuevo)}`;
     }
+    if (campo === 'cantidad_horas_novedad') {
+        const tipo = extra.tipoNovedad ? ` (${extra.tipoNovedad})` : '';
+        if (valorNuevo == null) {
+            return `Restablecidas horas novedad${tipo}: ${valorAnterior} h → valor base`;
+        }
+        return `Ajuste horas novedad${tipo}: ${valorAnterior} h → ${valorNuevo} h`;
+    }
     const tipo = extra.tipoNovedad ? ` (${extra.tipoNovedad})` : '';
     if (valorNuevo == null) {
         return `Restablecido monto novedad${tipo}: ${formatCopLabel(valorAnterior)} → valor base`;
@@ -129,6 +180,7 @@ module.exports = {
     AJUSTES_EDIT_ROLES,
     AJUSTES_EDIT_ESTADOS,
     parseMontosOverride,
+    parseJsonOverrideMap,
     parseAjustesFromFacturacionRow,
     resolveEffectiveTarifa,
     resolveNovedadMontoConAjuste,
