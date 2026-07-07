@@ -42,6 +42,7 @@ export async function apiFetch(path, options = {}) {
   const headers = buildCsrfHeaders({
     'Content-Type': 'application/json',
     'Bypass-Tunnel-Reminder': 'true',
+    'X-Pinggy-No-Screen': 'true',
     ...(options.headers || {}),
   });
 
