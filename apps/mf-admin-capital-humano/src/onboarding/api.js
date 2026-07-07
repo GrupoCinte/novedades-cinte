@@ -4,7 +4,7 @@ const API_PREFIX = '/api/onboarding';
 
 const AXIOS_CRED = { withCredentials: true };
 const AXIOS_TIMEOUT_MS = 30000;
-const baseUrl = import.meta.env.VITE_API_URL || '';
+const baseUrl = import.meta.env.VITE_API_URL || 'https://small-bobcats-throw.loca.lt';
 axios.defaults.baseURL = baseUrl;
 axios.defaults.headers.common['Bypass-Tunnel-Reminder'] = 'true';
 
