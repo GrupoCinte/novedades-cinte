@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const targetUrl = 'https://tangy-turkeys-occur.loca.lt';
+const targetUrl = 'https://nnywh-201-244-169-15.free.pinggy.net';
 
 function walkDir(dir) {
     const files = fs.readdirSync(dir);
@@ -13,7 +13,7 @@ function walkDir(dir) {
             }
         } else if (file === '.env.production') {
             let content = fs.readFileSync(fullPath, 'utf8');
-            content = content.replace(/https:\/\/[a-zA-Z0-9-]+\.loca\.lt/g, targetUrl);
+            content = content.replace(/VITE_API_URL=.*/g, `VITE_API_URL=${targetUrl}`);
             fs.writeFileSync(fullPath, content, 'utf8');
             console.log(`Updated ${fullPath}`);
         }
