@@ -5,6 +5,7 @@ const {
     shutdownContratacionRealtime
 } = require('./contratacion/initContratacionRealtime');
 const { ensureOnboardingSchema } = require('./onboarding/onboardingSchema');
+const { ensureSourcingSchema } = require('./sourcing/sourcingSchema');
 
 async function startServer(deps) {
     const {
@@ -111,6 +112,12 @@ async function startServer(deps) {
         await ensureOnboardingSchema({ pool, logger });
     } catch (e) {
         logger.error({ error: e && e.message ? e.message : e }, 'Onboarding schema: error de DDL (continúa arranque)');
+    }
+
+    try {
+        await ensureSourcingSchema({ pool, logger });
+    } catch (e) {
+        logger.error({ error: e && e.message ? e.message : e }, 'Sourcing schema: error de DDL (continúa arranque)');
     }
 
     const server = app.listen(PORT, () => {

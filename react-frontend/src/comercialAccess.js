@@ -12,11 +12,11 @@ const COTIZADOR_PANELS = new Set(['comercial']);
 
 /** Debe coincidir con `POLICY` en `src/rbac.js` (fallback si el JWT no trae `panels`). */
 const POLICY_PANELS_BY_ROLE = {
-    super_admin: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial', 'directorio'],
+    super_admin: ['dashboard', 'calendar', 'gestion', 'admin', 'contratacion', 'comercial', 'directorio', 'atraccion'],
     /** Paridad backend `POLICY`: submódulos novedades (dashboard/calendario/gestión) + admin + directorio; sin comercial ni contratación. */
     cac: ['dashboard', 'calendar', 'gestion', 'admin', 'directorio'],
-    admin_ch: ['dashboard', 'calendar', 'gestion', 'contratacion'],
-    team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion'],
+    admin_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'onboarding', 'atraccion'],
+    team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion', 'onboarding', 'atraccion'],
     comercial: ['comercial'],
     gp: ['gestion'],
     nomina: ['dashboard', 'calendar', 'gestion', 'conciliaciones'],
