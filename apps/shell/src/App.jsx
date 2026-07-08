@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useEffect, useState, useCallback } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import { apiFetch } from '@cinte/api-client';
 import UserAccountMenu from '@cinte/ui-shell/UserAccountMenu.jsx';
 import ChatWidget from './ChatWidget';
@@ -116,6 +117,15 @@ function App() {
       try {
         const res = await apiFetch('/api/me');
         const data = await res.json().catch(() => ({}));
+        
+        let sessionToken = '';
+        try {
+          const session = await fetchAuthSession();
+          if (session?.tokens?.idToken) {
+            sessionToken = session.tokens.idToken.toString();
+          }
+        } catch { /* ignore */ }
+
         if (!mounted) return;
         if (res.ok && data?.ok && data?.me) {
           setAuth((prev) =>
@@ -123,6 +133,7 @@ function App() {
               ok: true,
               user: data.me,
               claims: data.me,
+              token: sessionToken,
               ...(data.devDb ? { devDb: data.devDb } : {}),
             }
           );
