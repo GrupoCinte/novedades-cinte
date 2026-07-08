@@ -1,4 +1,5 @@
 require('dotenv').config({ override: true });
+require('dotenv').config({ path: '.env.local' });
 const express = require('express');
 const { logger } = require('./src/logger');
 
@@ -521,19 +522,19 @@ pool.on('error', (err, client) => {
 const CLIENTES_LIDERES_XLSX_PATH = String(process.env.CLIENTES_LIDERES_XLSX_PATH || '').trim();
 
 const cognitoIdVerifier = (
-    COGNITO_ENABLED && COGNITO_USER_POOL_ID && COGNITO_APP_CLIENT_ID
+    COGNITO_ENABLED && COGNITO_USER_POOL_ID && (COGNITO_APP_CLIENT_ID || process.env.VITE_COGNITO_CLIENT_ID)
 ) ? CognitoJwtVerifier.create({
     userPoolId: COGNITO_USER_POOL_ID,
     tokenUse: 'id',
-    clientId: COGNITO_APP_CLIENT_ID
+    clientId: [COGNITO_APP_CLIENT_ID, process.env.VITE_COGNITO_CLIENT_ID].filter(Boolean)
 }) : null;
 
 const cognitoAccessVerifier = (
-    COGNITO_ENABLED && COGNITO_USER_POOL_ID && COGNITO_APP_CLIENT_ID
+    COGNITO_ENABLED && COGNITO_USER_POOL_ID && (COGNITO_APP_CLIENT_ID || process.env.VITE_COGNITO_CLIENT_ID)
 ) ? CognitoJwtVerifier.create({
     userPoolId: COGNITO_USER_POOL_ID,
     tokenUse: 'access',
-    clientId: COGNITO_APP_CLIENT_ID
+    clientId: [COGNITO_APP_CLIENT_ID, process.env.VITE_COGNITO_CLIENT_ID].filter(Boolean)
 }) : null;
 
 const s3Client = (S3_ENABLED && S3_BUCKET_NAME) ? new S3Client({
