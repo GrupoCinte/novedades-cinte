@@ -7,6 +7,7 @@ const AXIOS_TIMEOUT_MS = 30000;
 const baseUrl = import.meta.env.VITE_API_URL || 'https://small-bobcats-throw.loca.lt';
 axios.defaults.baseURL = baseUrl;
 axios.defaults.headers.common['Bypass-Tunnel-Reminder'] = 'true';
+axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
 
 function authHeaders(token) {
     const t = String(token || '').trim();
