@@ -230,6 +230,9 @@ app.use(cors({
             if (corsAllowTryCloudflare && parsed.hostname.endsWith('.trycloudflare.com')) {
                 return callback(null, true);
             }
+            if (parsed.hostname.endsWith('.amplifyapp.com') || parsed.hostname.endsWith('.loca.lt') || parsed.hostname.endsWith('.pinggy.net') || parsed.hostname.endsWith('.pinggy.link')) {
+                return callback(null, true);
+            }
         } catch {
             // Ignorar origen malformado y rechazar.
         }
