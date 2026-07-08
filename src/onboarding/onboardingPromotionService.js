@@ -20,6 +20,7 @@
 const { z } = require('zod');
 const { COLABORADORES_EXTENDED_KEYS } = require('../colaboradores/colaboradoresExtendedColumns');
 const { applyLegacyEmergencyParse } = require('../contratacion/extractorToFichaMap');
+const { normalizeChListText, normalizeColabTextPatch } = require('./chTextNormalize');
 
 /** Estados terminales de n8n que disparan el upsert real a `colaboradores`. */
 const TERMINAL_STATUSES = new Set([
@@ -85,6 +86,21 @@ function trimOrNull(value, maxLen = 1000) {
     const s = String(value).trim();
     if (!s) return null;
     return s.length > maxLen ? s.slice(0, maxLen) : s;
+}
+
+function normalizePromotionTextFields(payload) {
+    if (!payload || typeof payload !== 'object') return payload;
+    const out = { ...payload };
+    for (const key of ['nombre', 'cliente', 'puesto', 'descriptivo_puesto_sig', 'nombres', 'primer_apellido', 'segundo_apellido']) {
+        if (out[key] != null) out[key] = normalizeChListText(out[key]);
+    }
+    if (out.extended && typeof out.extended === 'object') {
+        out.extended = { ...out.extended };
+        for (const key of ['nombre', 'cliente', 'puesto', 'descriptivo_puesto_sig']) {
+            if (out.extended[key] != null) out.extended[key] = normalizeChListText(out.extended[key]);
+        }
+    }
+    return out;
 }
 
 function parseDateOrNull(value) {
@@ -313,7 +329,7 @@ function mapDynamoItemForPromotion(rawItem) {
 
     const merged = applyLegacyEmergencyParse({ ...r, ...extended });
 
-    return {
+    return normalizePromotionTextFields({
         cedula,
         nombre: nombreFull,
         nombres: trimOrNull(merged.nombres) || nombres,
@@ -336,7 +352,7 @@ function mapDynamoItemForPromotion(rawItem) {
         dynamo_external_id: whatsappNumber || trimOrNull(r.id) || trimOrNull(r.execution_id) || null,
         extended,
         __raw: r
-    };
+    });
 }
 
 /**
@@ -425,6 +441,12 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
     async function upsertColaborador(client, payload, { source, tipoPersonal }) {
         const completedAtSql = payload.status && isTerminalStatus(payload.status) ? 'NOW()' : 'NULL';
         const tp = tipoPersonal || payload.tipo_personal || 'consultor';
+        /** n8n/Dynamo es fuente de verdad para fecha_ingreso en promoción automática. */
+        const fechaFromN8n = source === 'dynamo_stream' || source === 'n8n_webhook' || source === 'manual';
+        const insertFechaSql = fechaFromN8n ? '$17::date' : 'COALESCE($17::date, CURRENT_DATE)';
+        const updateFechaSql = fechaFromN8n
+            ? 'fecha_ingreso = COALESCE(EXCLUDED.fecha_ingreso, colaboradores.fecha_ingreso)'
+            : 'fecha_ingreso = COALESCE(colaboradores.fecha_ingreso, EXCLUDED.fecha_ingreso)';
 
         const q = await client.query(
             `INSERT INTO colaboradores (
@@ -442,7 +464,7 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 $12,
                 $13, $14,
                 $15, ${completedAtSql},
-                $16, TRUE, COALESCE($17::date, CURRENT_DATE), NOW(), NOW()
+                $16, TRUE, ${insertFechaSql}, NOW(), NOW()
             )
             ON CONFLICT (cedula) DO UPDATE SET
                 nombre = COALESCE(NULLIF(EXCLUDED.nombre, ''), colaboradores.nombre),
@@ -454,9 +476,8 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 direccion_domicilio = COALESCE(EXCLUDED.direccion_domicilio, colaboradores.direccion_domicilio),
                 puesto = COALESCE(EXCLUDED.puesto, colaboradores.puesto),
                 empleador = COALESCE(EXCLUDED.empleador, colaboradores.empleador),
-                /* salario y fecha_ingreso: solo se fijan la primera vez */
                 sueldo_nomina = COALESCE(colaboradores.sueldo_nomina, EXCLUDED.sueldo_nomina),
-                fecha_ingreso = COALESCE(colaboradores.fecha_ingreso, EXCLUDED.fecha_ingreso),
+                ${updateFechaSql},
                 cliente = COALESCE(EXCLUDED.cliente, colaboradores.cliente),
                 whatsapp_number = COALESCE(EXCLUDED.whatsapp_number, colaboradores.whatsapp_number),
                 dynamo_external_id = COALESCE(EXCLUDED.dynamo_external_id, colaboradores.dynamo_external_id),
@@ -580,15 +601,12 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 return { ok: true, status: 'recibido', stagingId };
             }
 
-            // Requeridos para upsert terminal
+            // Requeridos mínimos para upsert terminal desde n8n/Dynamo.
+            // correo_cinte NO es excluyente: n8n no lo envía; CH lo completa después en la ficha
+            // (login Entra fallará hasta que exista, pero el colaborador debe aparecer en el maestro).
             const missing = [];
             if (!validated.cedula) missing.push('cedula');
             if (!validated.nombre) missing.push('nombre');
-            // correo_cinte es necesario para login Entra; lo exigimos en flujo automático.
-            // Para `manual` lo dejamos opcional (CH puede dar de alta sin correo y completarlo después).
-            if (source !== 'manual' && source !== 'excel_etl' && !validated.correo_cinte) {
-                missing.push('correo_cinte');
-            }
 
             if (missing.length) {
                 const err = `Faltan requeridos: ${missing.join(', ')}`;
@@ -597,19 +615,23 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 return { ok: false, status: 'requiere_revision', stagingId, error: err };
             }
 
-            const cedulaInsertada = await upsertColaborador(client, validated, {
+            const normalizedValidated = normalizePromotionTextFields(validated);
+            const cedulaInsertada = await upsertColaborador(client, normalizedValidated, {
                 source,
                 tipoPersonal: meta.tipoPersonal
             });
 
-            const extPayload = {
+            const extPayload = normalizeColabTextPatch({
                 cedula: cedulaInsertada,
-                ...(validated.extended && typeof validated.extended === 'object' ? validated.extended : {}),
-                email_personal: validated.email_personal,
-                codigo: validated.codigo,
-                tipo_contrato: validated.tipo_contrato,
-                esquema_contrato: validated.esquema_contrato
-            };
+                ...(normalizedValidated.extended && typeof normalizedValidated.extended === 'object' ? normalizedValidated.extended : {}),
+                email_personal: normalizedValidated.email_personal,
+                codigo: normalizedValidated.codigo,
+                tipo_contrato: normalizedValidated.tipo_contrato,
+                esquema_contrato: normalizedValidated.esquema_contrato
+            });
+            if (validated.fecha_ingreso) {
+                extPayload.fecha_ingreso = validated.fecha_ingreso;
+            }
             const updatable = buildExtendedUpdate(extPayload, cedulaInsertada);
             if (updatable.cols.length) {
                 await client.query(
@@ -660,7 +682,7 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 return { ok: false, status: 'requiere_revision', stagingId, error: 'cedula vacía o no numérica' };
             }
 
-            const nombreVal = trimOrNull(extendedPayload.nombre) || 'SIN NOMBRE';
+            const nombreVal = normalizeChListText(trimOrNull(extendedPayload.nombre) || 'SIN NOMBRE');
             const activo = opts.activo !== undefined ? Boolean(opts.activo) : true;
             const tp = opts.tipoPersonal || extendedPayload.tipo_personal || 'consultor';
 

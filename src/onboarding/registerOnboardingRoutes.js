@@ -9,8 +9,6 @@
  * - GET  /api/onboarding/licencias[/:cedula] — licencias maternidad/paternidad/lactancia.
  * - GET  /api/onboarding/calculadora/:cedula | PUT /api/onboarding/calculadora/:cedula
  * - GET  /api/onboarding/documentos-extranjeros[/:cedula] | PUT ./:cedula
- * - GET  /api/onboarding/polizas
- * - GET  /api/onboarding/capacitaciones
  * - GET  /api/onboarding/catalogos/motivo-baja | /ciudades | /eps | /afp | /arl | /ccf
  * - GET  /api/onboarding/reportes/rotacion
  * - GET  /api/onboarding/staging — auditoría del buzón (solo super_admin).
@@ -28,6 +26,15 @@ const {
 } = require('./onboardingPromotionService');
 const { normalizeRoleOrNull } = require('../rbac');
 const { buildColaboradorExtendedZodShape } = require('../colaboradores/colaboradoresExtendedZod');
+const {
+    buildPersonalOrderBy,
+    buildLicenciasOrderBy,
+    buildExtranjerosOrderBy,
+    isAllowedPersonalSort,
+    isAllowedLicenciasSort,
+    isAllowedExtranjerosSort
+} = require('./onboardingListSort');
+const { normalizeColabTextPatch } = require('./chTextNormalize');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -162,10 +169,23 @@ function registerOnboardingRoutes(deps) {
     /** Catálogos (todo el panel onboarding). */
     const catGuard = [verificarToken, allowPanel('onboarding'), catalogLimiter];
 
+    const CINTE_EMAIL_SUFFIX_RE = /@(?:grupocinte\.com)$/i;
+    function zCorreoCinteOptional() {
+        return z
+            .string()
+            .email()
+            .max(320)
+            .optional()
+            .nullable()
+            .refine((v) => !v || CINTE_EMAIL_SUFFIX_RE.test(String(v).trim()), {
+                message: 'El correo Cinte debe ser @grupocinte.com'
+            });
+    }
+
     const colabExtendedShape = buildColaboradorExtendedZodShape();
     const colabPatchSchema = z.object({
         nombre: z.string().min(2).max(400).optional(),
-        correo_cinte: z.string().email().max(320).optional().nullable(),
+        correo_cinte: zCorreoCinteOptional(),
         cliente: z.string().max(500).optional().nullable(),
         lider_catalogo: z.string().max(500).optional().nullable(),
         gp_user_id: z.string().uuid().optional().nullable(),
@@ -174,7 +194,7 @@ function registerOnboardingRoutes(deps) {
     });
     /** Alta de colaborador: cédula y nombre obligatorios; resto opcional (mismo shape extendido). */
     const colabCreateSchema = colabPatchSchema.extend({
-        cedula: z.string().regex(/^\d{4,20}$/, 'cédula debe tener entre 4 y 20 dígitos'),
+        cedula: z.string().regex(/^\d{3,20}$/, 'cédula debe tener entre 3 y 20 dígitos'),
         nombre: z.string().min(2).max(400)
     });
 
@@ -266,6 +286,8 @@ function registerOnboardingRoutes(deps) {
         fecha_baja_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         gp_user_id: z.string().uuid().optional(),
         q: z.string().max(200).optional(),
+        sort: z.string().max(80).optional(),
+        dir: z.enum(['asc', 'desc']).optional(),
         limit: z.coerce.number().int().min(1).max(2000).optional(),
         offset: z.coerce.number().int().min(0).optional()
     });
@@ -277,6 +299,9 @@ function registerOnboardingRoutes(deps) {
         const parsed = personalQuerySchema.safeParse(req.query || {});
         if (!parsed.success) {
             return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        if (!isAllowedPersonalSort(parsed.data.sort)) {
+            return res.status(400).json({ ok: false, error: 'sort no permitido' });
         }
         const filters = { ...parsed.data, ...fixedFilters };
         const limit = Math.min(filters.limit || 100, 2000);
@@ -309,8 +334,8 @@ function registerOnboardingRoutes(deps) {
             where.push(`LOWER(TRIM(COALESCE(c.empleador, ''))) = LOWER($${p++})`);
         }
         if (filters.puesto) {
-            params.push(`%${String(filters.puesto).toLowerCase()}%`);
-            where.push(`LOWER(COALESCE(c.puesto, '')) LIKE $${p++}`);
+            params.push(String(filters.puesto).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.puesto, ''))) = LOWER($${p++})`);
         }
         if (filters.modalidad_trabajo) {
             params.push(String(filters.modalidad_trabajo).trim());
@@ -377,11 +402,7 @@ function registerOnboardingRoutes(deps) {
         );
         const total = countQ.rows[0] ? Number(countQ.rows[0].total) : 0;
 
-        // En el listado de "Próximos a ingresar" mostramos primero la fecha más
-        // cercana al día actual; en el resto mantenemos el orden histórico.
-        const orderBy = filters._fecha_ingreso_futura
-            ? 'c.fecha_ingreso ASC NULLS LAST, c.cedula'
-            : 'c.activo DESC, c.fecha_ingreso DESC NULLS LAST, c.cedula';
+        const orderBy = buildPersonalOrderBy(filters.sort, filters.dir);
 
         params.push(limit, offset);
         const listQ = await pool.query(
@@ -389,6 +410,7 @@ function registerOnboardingRoutes(deps) {
                 c.cedula, c.nombre, c.activo, c.tipo_personal, c.correo_cinte, c.cliente,
                 c.lider_catalogo, c.gp_user_id,
                 c.pais, c.empleador, c.puesto, c.cliente_proyecto,
+                c.tipo_contrato, c.descriptivo_puesto_sig,
                 c.fecha_ingreso, c.fecha_termino, c.fecha_baja_efectiva,
                 c.motivo_baja, c.termino, c.tiempo_permanencia_meses,
                 c.whatsapp_number, c.onboarding_status, c.onboarding_completed_at,
@@ -491,7 +513,8 @@ function registerOnboardingRoutes(deps) {
             });
         }
         try {
-            const updated = await updateColaboradorByCedula(cedula, parsed.data);
+            const patch = normalizeColabTextPatch(parsed.data);
+            const updated = await updateColaboradorByCedula(cedula, patch);
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
@@ -501,7 +524,7 @@ function registerOnboardingRoutes(deps) {
                 action: 'colaboradores.patch_onboarding',
                 entityType: 'colaboradores',
                 entityId: null,
-                metadata: { cedula, patch: parsed.data }
+                metadata: { cedula, patch }
             });
             return res.json({ ok: true, item: updated });
         } catch (e) {
@@ -542,14 +565,15 @@ function registerOnboardingRoutes(deps) {
             if (existsQ.rows.length > 0) {
                 return res.status(409).json({ ok: false, error: 'Ya existe un colaborador con esa cédula.' });
             }
-            const tipoPersonal = parsed.data.tipo_personal || 'consultor';
+            const normalizedCreate = normalizeColabTextPatch(parsed.data);
+            const tipoPersonal = normalizedCreate.tipo_personal || 'consultor';
             await pool.query(
                 `INSERT INTO colaboradores (cedula, nombre, activo, tipo_personal, created_at, updated_at)
                  VALUES ($1, $2, TRUE, $3, NOW(), NOW())`,
-                [cedula, String(parsed.data.nombre).trim(), tipoPersonal]
+                [cedula, normalizedCreate.nombre, tipoPersonal]
             );
             // Resto de campos (cliente, líder, extendidos) vía el mismo helper del PATCH.
-            const { cedula: _omit, ...rest } = parsed.data;
+            const { cedula: _omit, nombre: _n, ...rest } = normalizedCreate;
             const updated = await updateColaboradorByCedula(cedula, rest);
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -754,6 +778,8 @@ function registerOnboardingRoutes(deps) {
         eps: z.string().max(200).optional(),
         inicio_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         inicio_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        sort: z.string().max(80).optional(),
+        dir: z.enum(['asc', 'desc']).optional(),
         limit: z.coerce.number().int().min(1).max(2000).optional(),
         offset: z.coerce.number().int().min(0).optional()
     });
@@ -762,6 +788,9 @@ function registerOnboardingRoutes(deps) {
         const parsed = licenciasQuerySchema.safeParse(req.query || {});
         if (!parsed.success) {
             return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        if (!isAllowedLicenciasSort(parsed.data.sort)) {
+            return res.status(400).json({ ok: false, error: 'sort no permitido' });
         }
         const filters = parsed.data;
         const limit = Math.min(filters.limit || 100, 2000);
@@ -818,13 +847,14 @@ function registerOnboardingRoutes(deps) {
                 params
             );
             const total = countQ.rows[0] ? Number(countQ.rows[0].total) : 0;
+            const orderBy = buildLicenciasOrderBy(filters.sort, filters.dir);
             params.push(limit, offset);
             const listQ = await pool.query(
                 `SELECT l.*, c.nombre, c.cliente, c.tipo_personal
                  FROM colaborador_licencias_maternidad l
                  LEFT JOIN colaboradores c ON c.cedula = l.cedula
                  ${whereSql}
-                 ORDER BY l.inicio_licencia DESC NULLS LAST, l.created_at DESC
+                 ORDER BY ${orderBy}
                  LIMIT $${p++} OFFSET $${p++}`,
                 params
             );
@@ -888,6 +918,8 @@ function registerOnboardingRoutes(deps) {
         registro_rutec: z.enum(['true', 'false']).optional(),
         vence_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         vence_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        sort: z.string().max(80).optional(),
+        dir: z.enum(['asc', 'desc']).optional(),
         limit: z.coerce.number().int().min(1).max(2000).optional(),
         offset: z.coerce.number().int().min(0).optional()
     });
@@ -896,6 +928,9 @@ function registerOnboardingRoutes(deps) {
         const parsed = extranjerosQuerySchema.safeParse(req.query || {});
         if (!parsed.success) {
             return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        if (!isAllowedExtranjerosSort(parsed.data.sort)) {
+            return res.status(400).json({ ok: false, error: 'sort no permitido' });
         }
         const filters = parsed.data;
         const limit = Math.min(filters.limit || 100, 2000);
@@ -960,13 +995,14 @@ function registerOnboardingRoutes(deps) {
                 params
             );
             const total = countQ.rows[0] ? Number(countQ.rows[0].total) : 0;
+            const orderBy = buildExtranjerosOrderBy(filters.sort, filters.dir);
             params.push(limit, offset);
             const listQ = await pool.query(
                 `SELECT d.*, c.nombre, c.cliente, c.tipo_personal, c.activo
                  FROM colaborador_documentos_extranjeros d
                  INNER JOIN colaboradores c ON c.cedula = d.cedula
                  ${whereSql}
-                 ORDER BY d.fecha_vencimiento ASC NULLS LAST
+                 ORDER BY ${orderBy}
                  LIMIT $${p++} OFFSET $${p++}`,
                 params
             );
@@ -1033,252 +1069,6 @@ function registerOnboardingRoutes(deps) {
     });
 
     /* =========================================================================
-     * Pólizas internacionales.
-     * ========================================================================= */
-    const polizasQuerySchema = z.object({
-        q: z.string().max(200).optional(),
-        cliente_proyecto: z.string().max(500).optional(),
-        estado: z.string().max(60).optional(),
-        destino: z.string().max(500).optional(),
-        salida_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        salida_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        limit: z.coerce.number().int().min(1).max(2000).optional(),
-        offset: z.coerce.number().int().min(0).optional()
-    });
-
-    app.get('/api/onboarding/polizas', ...readGuard, async (req, res) => {
-        const parsed = polizasQuerySchema.safeParse(req.query || {});
-        if (!parsed.success) {
-            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
-        }
-        const filters = parsed.data;
-        const limit = Math.min(filters.limit || 100, 2000);
-        const offset = filters.offset || 0;
-        try {
-            const where = [];
-            const params = [];
-            let p = 1;
-            if (filters.q) {
-                params.push(`%${String(filters.q).toLowerCase()}%`);
-                where.push(`(LOWER(p.cedula) LIKE $${p} OR LOWER(COALESCE(c.nombre, '')) LIKE $${p})`);
-                p += 1;
-            }
-            if (filters.cliente_proyecto) {
-                params.push(`%${String(filters.cliente_proyecto).toLowerCase()}%`);
-                where.push(`LOWER(COALESCE(p.cliente_proyecto, '')) LIKE $${p++}`);
-            }
-            if (filters.estado) {
-                params.push(String(filters.estado).trim());
-                where.push(`LOWER(TRIM(COALESCE(p.estado, ''))) = LOWER($${p++})`);
-            }
-            if (filters.destino) {
-                params.push(`%${String(filters.destino).toLowerCase()}%`);
-                where.push(`LOWER(COALESCE(p.ciudad_pais_viaje, '')) LIKE $${p++}`);
-            }
-            if (filters.salida_desde) {
-                params.push(filters.salida_desde);
-                where.push(`p.fecha_salida >= $${p++}::date`);
-            }
-            if (filters.salida_hasta) {
-                params.push(filters.salida_hasta);
-                where.push(`p.fecha_salida <= $${p++}::date`);
-            }
-            const scope = await buildScopeFilter(pool, req.user);
-            const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
-            if (scopeApplied.sql && scopeApplied.sql !== 'TRUE') {
-                where.push(scopeApplied.sql);
-                params.push(...scope.params);
-                p = scopeApplied.idx;
-            }
-            if (scopeApplied.sql === 'FALSE') {
-                return res.json({ ok: true, items: [], total: 0, limit, offset });
-            }
-            const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-            const countQ = await pool.query(
-                `SELECT COUNT(*)::int AS total
-                 FROM colaborador_polizas_internacionales p
-                 LEFT JOIN colaboradores c ON c.cedula = p.cedula
-                 ${whereSql}`,
-                params
-            );
-            const total = countQ.rows[0] ? Number(countQ.rows[0].total) : 0;
-            params.push(limit, offset);
-            const listQ = await pool.query(
-                `SELECT p.*, c.nombre, c.tipo_personal, c.cliente
-                 FROM colaborador_polizas_internacionales p
-                 LEFT JOIN colaboradores c ON c.cedula = p.cedula
-                 ${whereSql}
-                 ORDER BY p.fecha_salida DESC NULLS LAST
-                 LIMIT $${p++} OFFSET $${p++}`,
-                params
-            );
-            return res.json({ ok: true, items: listQ.rows, total, limit, offset });
-        } catch (e) {
-            return res.status(500).json({ ok: false, error: e.message });
-        }
-    });
-
-    const polizaSchema = z.object({
-        cedula: z.string().regex(/^\d+$/).min(5).max(20),
-        cliente_proyecto: z.string().max(500).optional().nullable(),
-        fecha_salida: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-        fecha_retorno: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-        ciudad_pais_viaje: z.string().max(500).optional().nullable(),
-        contacto_emergencia: z.string().max(200).optional().nullable(),
-        telefono: z.string().max(60).optional().nullable(),
-        numero_poliza: z.string().max(120).optional().nullable(),
-        estado: z.string().max(60).optional(),
-        observaciones: z.string().max(2000).optional().nullable()
-    });
-
-    app.post('/api/onboarding/polizas', ...writeGuard, async (req, res) => {
-        const parsed = polizaSchema.safeParse(req.body || {});
-        if (!parsed.success) {
-            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
-        }
-        try {
-            const d = parsed.data;
-            const q = await pool.query(
-                `INSERT INTO colaborador_polizas_internacionales
-                    (cedula, cliente_proyecto, fecha_salida, fecha_retorno, ciudad_pais_viaje,
-                     contacto_emergencia, telefono, numero_poliza, estado, observaciones)
-                 VALUES ($1, $2, $3::date, $4::date, $5, $6, $7, $8, COALESCE($9, 'Activa'), $10)
-                 RETURNING *`,
-                [
-                    d.cedula, d.cliente_proyecto || null, d.fecha_salida || null, d.fecha_retorno || null,
-                    d.ciudad_pais_viaje || null, d.contacto_emergencia || null, d.telefono || null,
-                    d.numero_poliza || null, d.estado || null, d.observaciones || null
-                ]
-            );
-            return res.json({ ok: true, item: q.rows[0] });
-        } catch (e) {
-            return res.status(500).json({ ok: false, error: e.message });
-        }
-    });
-
-    /* =========================================================================
-     * Capacitaciones.
-     * ========================================================================= */
-    const capacitacionesQuerySchema = z.object({
-        q: z.string().max(200).optional(),
-        cliente_proyecto: z.string().max(500).optional(),
-        centro: z.string().max(200).optional(),
-        area_que_financia: z.string().max(60).optional(),
-        fecha_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        fecha_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        limit: z.coerce.number().int().min(1).max(2000).optional(),
-        offset: z.coerce.number().int().min(0).optional()
-    });
-
-    app.get('/api/onboarding/capacitaciones', ...readGuard, async (req, res) => {
-        const parsed = capacitacionesQuerySchema.safeParse(req.query || {});
-        if (!parsed.success) {
-            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
-        }
-        const filters = parsed.data;
-        const limit = Math.min(filters.limit || 100, 2000);
-        const offset = filters.offset || 0;
-        try {
-            const where = [];
-            const params = [];
-            let p = 1;
-            if (filters.q) {
-                params.push(`%${String(filters.q).toLowerCase()}%`);
-                where.push(`(LOWER(cap.cedula) LIKE $${p} OR LOWER(COALESCE(c.nombre, '')) LIKE $${p} OR LOWER(COALESCE(cap.curso, '')) LIKE $${p})`);
-                p += 1;
-            }
-            if (filters.cliente_proyecto) {
-                params.push(`%${String(filters.cliente_proyecto).toLowerCase()}%`);
-                where.push(`LOWER(COALESCE(cap.cliente_proyecto, '')) LIKE $${p++}`);
-            }
-            if (filters.centro) {
-                params.push(`%${String(filters.centro).toLowerCase()}%`);
-                where.push(`LOWER(COALESCE(cap.centro, '')) LIKE $${p++}`);
-            }
-            if (filters.area_que_financia) {
-                params.push(String(filters.area_que_financia).trim());
-                where.push(`LOWER(TRIM(COALESCE(cap.area_que_financia, ''))) = LOWER($${p++})`);
-            }
-            if (filters.fecha_desde) {
-                params.push(filters.fecha_desde);
-                where.push(`cap.fecha >= $${p++}::date`);
-            }
-            if (filters.fecha_hasta) {
-                params.push(filters.fecha_hasta);
-                where.push(`cap.fecha <= $${p++}::date`);
-            }
-            const scope = await buildScopeFilter(pool, req.user);
-            const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
-            if (scopeApplied.sql && scopeApplied.sql !== 'TRUE') {
-                where.push(scopeApplied.sql);
-                params.push(...scope.params);
-                p = scopeApplied.idx;
-            }
-            if (scopeApplied.sql === 'FALSE') {
-                return res.json({ ok: true, items: [], total: 0, limit, offset });
-            }
-            const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-            const countQ = await pool.query(
-                `SELECT COUNT(*)::int AS total
-                 FROM colaborador_capacitaciones cap
-                 LEFT JOIN colaboradores c ON c.cedula = cap.cedula
-                 ${whereSql}`,
-                params
-            );
-            const total = countQ.rows[0] ? Number(countQ.rows[0].total) : 0;
-            params.push(limit, offset);
-            const listQ = await pool.query(
-                `SELECT cap.*, c.nombre, c.tipo_personal, c.cliente
-                 FROM colaborador_capacitaciones cap
-                 LEFT JOIN colaboradores c ON c.cedula = cap.cedula
-                 ${whereSql}
-                 ORDER BY cap.fecha DESC NULLS LAST, cap.created_at DESC
-                 LIMIT $${p++} OFFSET $${p++}`,
-                params
-            );
-            return res.json({ ok: true, items: listQ.rows, total, limit, offset });
-        } catch (e) {
-            return res.status(500).json({ ok: false, error: e.message });
-        }
-    });
-
-    const capacitacionSchema = z.object({
-        cedula: z.string().regex(/^\d+$/).min(5).max(20),
-        cliente_proyecto: z.string().max(500).optional().nullable(),
-        curso: z.string().min(2).max(500),
-        centro: z.string().max(200).optional().nullable(),
-        fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
-        costo: z.number().optional().nullable(),
-        moneda: z.string().max(3).optional(),
-        area_que_financia: z.string().max(60).optional().nullable(),
-        observaciones: z.string().max(2000).optional().nullable()
-    });
-
-    app.post('/api/onboarding/capacitaciones', ...writeGuard, async (req, res) => {
-        const parsed = capacitacionSchema.safeParse(req.body || {});
-        if (!parsed.success) {
-            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
-        }
-        try {
-            const d = parsed.data;
-            const q = await pool.query(
-                `INSERT INTO colaborador_capacitaciones
-                    (cedula, cliente_proyecto, curso, centro, fecha, costo, moneda, area_que_financia, observaciones)
-                 VALUES ($1, $2, $3, $4, $5::date, $6, COALESCE($7, 'COP'), $8, $9)
-                 RETURNING *`,
-                [
-                    d.cedula, d.cliente_proyecto || null, d.curso, d.centro || null,
-                    d.fecha || null, d.costo ?? null, d.moneda || null, d.area_que_financia || null,
-                    d.observaciones || null
-                ]
-            );
-            return res.json({ ok: true, item: q.rows[0] });
-        } catch (e) {
-            return res.status(500).json({ ok: false, error: e.message });
-        }
-    });
-
-    /* =========================================================================
      * Catálogos (lectura).
      * ========================================================================= */
     function catalogoEndpoint(table) {
@@ -1301,6 +1091,19 @@ function registerOnboardingRoutes(deps) {
     app.get('/api/onboarding/catalogos/arl', ...catGuard, catalogoEndpoint('cat_arl'));
     app.get('/api/onboarding/catalogos/ccf', ...catGuard, catalogoEndpoint('cat_ccf'));
     app.get('/api/onboarding/catalogos/cesantias', ...catGuard, catalogoEndpoint('cat_cesantias'));
+    app.get('/api/onboarding/catalogos/puestos', ...catGuard, async (req, res) => {
+        try {
+            const q = await pool.query(
+                `SELECT DISTINCT TRIM(puesto) AS puesto
+                 FROM colaboradores
+                 WHERE puesto IS NOT NULL AND TRIM(puesto) <> ''
+                 ORDER BY 1`
+            );
+            return res.json({ ok: true, items: q.rows });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
 
     /* =========================================================================
      * Reporte de rotación (reemplazo de hoja Excel "Rotación").

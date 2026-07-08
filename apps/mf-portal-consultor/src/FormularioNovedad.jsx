@@ -1965,6 +1965,11 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                         <div className={theme.hintLine}>
                                             Formato militar <strong className={theme.hintStrong}>HH:mm</strong> en reloj <strong className={theme.hintStrong}>America/Bogotá</strong> (civil Colombia). La fecha/hora fin debe ser mayor que la de inicio.
                                         </div>
+                                        {isHoraExtra && detalleFormularioActivo && (
+                                            <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
+                                                Hora Extra: debes adjuntar un pantallazo, documento de aceptación o evidencia de aprobación de la hora extra en la sección de soportes.
+                                            </p>
+                                        )}
                                         {(horaInicioFormatoInvalido || horaFinFormatoInvalido) && (
                                             <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">
                                                 Formato de hora inválido. Usa formato 24H: HH:mm (ejemplo: 20:00).

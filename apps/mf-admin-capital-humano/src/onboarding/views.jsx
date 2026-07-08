@@ -17,7 +17,8 @@ import { Plus } from 'lucide-react';
 import { onboardingApi } from './api.js';
 import { getOnboardingPermissions } from './onboardingAccess.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
-import GestionDataTable from './GestionDataTable.jsx';
+import SortableGestionDataTable from './SortableGestionDataTable.jsx';
+import { PERSONAL_DEFAULT_SORT, toggleSort } from './onboardingSortDefaults.js';
 import OnboardingFiltersBar, { buildChipLabel } from './OnboardingFiltersBar.jsx';
 import OnboardingFiltersDrawer, {
     drawerFieldCls,
@@ -63,6 +64,10 @@ export function fmtMoney(v) {
     return n.toLocaleString('es-CO', { maximumFractionDigits: 2 });
 }
 
+function chUpper(value) {
+    return String(value || '').toUpperCase();
+}
+
 /** Para reusar fuera (filtros de Bajas). */
 export const TIPO_PERSONAL_OPTIONS = [
     { value: 'consultor', label: 'Consultor' },
@@ -106,15 +111,18 @@ export function PersonalView({
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(50);
+    const [sort, setSort] = useState(PERSONAL_DEFAULT_SORT);
     const [selectedCedula, setSelectedCedula] = useState(null);
     const [creando, setCreando] = useState(false);
     const [filters, setFilters] = useState({});
     const [draft, setDraft] = useState({});
     const [panelOpen, setPanelOpen] = useState(false);
     const [clientes, setClientes] = useState([]);
+    const [puestos, setPuestos] = useState([]);
     const [motivosBaja, setMotivosBaja] = useState([]);
     const token = auth?.token || '';
     const isBajas = activo === 'false';
+    const hideEmpleadorFilter = tipoPersonal === 'consultor' && activo === 'true' && !endpointKey;
     const perms = useMemo(() => getOnboardingPermissions(auth), [auth]);
     const canCrear = perms.canEditFicha && !isBajas;
 
@@ -135,6 +143,20 @@ export function PersonalView({
     }, []);
 
     useEffect(() => {
+        if (isBajas) return undefined;
+        let alive = true;
+        onboardingApi
+            .catalogoPuestos(token)
+            .then((r) => {
+                if (alive && Array.isArray(r?.items)) setPuestos(r.items);
+            })
+            .catch(() => {});
+        return () => {
+            alive = false;
+        };
+    }, [isBajas, token]);
+
+    useEffect(() => {
         if (!isBajas) return undefined;
         let alive = true;
         onboardingApi
@@ -148,16 +170,30 @@ export function PersonalView({
         };
     }, [isBajas, token]);
 
+    const isProximos = endpointKey === 'listProximos';
+    const isPersonalActivo = tipoPersonal === 'consultor' && activo === 'true' && !endpointKey;
+
     const params = useMemo(() => {
-        const p = { limit: pageSize, offset: page * pageSize };
+        const p = {
+            limit: pageSize,
+            offset: page * pageSize,
+            sort: sort.key,
+            dir: sort.dir
+        };
         if (tipoPersonal) p.tipo_personal = tipoPersonal;
         if (activo) p.activo = activo;
         if (search) p.q = search;
         for (const [k, v] of Object.entries(filters)) {
+            if (hideEmpleadorFilter && k === 'empleador') continue;
             if (v !== undefined && v !== '' && v !== null) p[k] = v;
         }
         return p;
-    }, [pageSize, page, tipoPersonal, activo, search, filters]);
+    }, [pageSize, page, sort, tipoPersonal, activo, search, filters, hideEmpleadorFilter]);
+
+    const handleSort = useCallback((columnKey) => {
+        setSort((cur) => toggleSort(cur, columnKey));
+        setPage(0);
+    }, []);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -186,20 +222,32 @@ export function PersonalView({
         load();
     }, [load]);
 
-    const isProximos = endpointKey === 'listProximos';
-
     const renderTipoPersonal = (r) => {
         if (tipoPersonal === 'sena') return <TipoPersonalBadge isLight={isLight} fixedLabel="SENA" value="sena" />;
         if (tipoPersonal === 'staff') return <TipoPersonalBadge isLight={isLight} fixedLabel="Staff" value="staff" />;
         return <TipoPersonalBadge value={r.tipo_personal} isLight={isLight} />;
     };
 
-    const columns = [
+    const columns = isPersonalActivo
+        ? [
+              { key: 'cedula', label: 'Cédula' },
+              { key: 'nombre', label: 'Nombre', render: (r) => chUpper(r.nombre) },
+              { key: 'cliente', label: 'Cliente', render: (r) => chUpper(r.cliente) },
+              { key: 'fecha_ingreso', label: 'F. inicio', render: (r) => fmtFecha(r.fecha_ingreso) },
+              { key: 'fecha_termino', label: 'F. término', render: (r) => fmtFecha(r.fecha_termino) },
+              { key: 'tipo_contrato', label: 'Tipo contrato' },
+              {
+                  key: 'descriptivo_puesto_sig',
+                  label: 'Cargo Cinte',
+                  render: (r) => chUpper(r.descriptivo_puesto_sig)
+              }
+          ]
+        : [
         { key: 'cedula', label: 'Cédula' },
-        { key: 'nombre', label: 'Nombre' },
+        { key: 'nombre', label: 'Nombre', render: (r) => chUpper(r.nombre) },
         { key: 'tipo_personal', label: 'Tipo', render: renderTipoPersonal },
-        { key: 'cliente', label: 'Cliente' },
-        { key: 'puesto', label: 'Puesto' },
+        { key: 'cliente', label: 'Cliente', render: (r) => chUpper(r.cliente) },
+        { key: 'puesto', label: 'Puesto', render: (r) => chUpper(r.puesto) },
         { key: 'pais', label: 'País' },
         { key: 'fecha_ingreso', label: 'F. ingreso', render: (r) => fmtFecha(r.fecha_ingreso) },
         ...(isProximos
@@ -207,11 +255,13 @@ export function PersonalView({
                   {
                       key: '_dias_para_ingresar',
                       label: 'Días para ingresar',
+                      sortable: false,
                       render: (r) => <DiasIngresoBadge dias={diasParaIngresar(r.fecha_ingreso)} isLight={isLight} />
                   },
                   {
                       key: 'estado',
                       label: 'Estado',
+                      sortable: false,
                       render: (r) => (
                           <ColaboradorEstadoBadge
                               activo={r.activo}
@@ -240,7 +290,7 @@ export function PersonalView({
         [Boolean(search), search ? `Búsqueda: ${search.length > 18 ? `${search.slice(0, 16)}…` : search}` : ''],
         [Boolean(filters.cliente), filters.cliente ? `Cliente: ${String(filters.cliente).length > 16 ? `${String(filters.cliente).slice(0, 14)}…` : filters.cliente}` : ''],
         [Boolean(filters.pais), filters.pais ? `País: ${filters.pais}` : ''],
-        [Boolean(filters.empleador), filters.empleador ? `Empleador: ${filters.empleador}` : ''],
+        [Boolean(filters.empleador) && !hideEmpleadorFilter, filters.empleador ? `Empleador: ${filters.empleador}` : ''],
         [Boolean(filters.puesto), filters.puesto ? `Puesto: ${filters.puesto}` : ''],
         [Boolean(filters.modalidad_trabajo), filters.modalidad_trabajo ? `Modalidad: ${filters.modalidad_trabajo}` : ''],
         [Boolean(filters.motivo_baja), filters.motivo_baja ? `Motivo: ${filters.motivo_baja.length > 16 ? `${filters.motivo_baja.slice(0, 14)}…` : filters.motivo_baja}` : ''],
@@ -318,10 +368,12 @@ export function PersonalView({
                 </div>
             ) : null}
 
-            <GestionDataTable
+            <SortableGestionDataTable
                 columns={columns}
                 rows={rows}
                 isLight={isLight}
+                sort={sort}
+                onSort={handleSort}
                 emptyText={loading ? 'Cargando…' : 'Sin colaboradores en este filtro.'}
                 onRowClick={(r) => {
                     if (r && r.cedula) setSelectedCedula(String(r.cedula));
@@ -437,13 +489,29 @@ export function PersonalView({
                             <label className={labelCls} htmlFor="pv-pais">País</label>
                             <input id="pv-pais" type="text" value={draft.pais || ''} onChange={(e) => setDraft((s) => ({ ...s, pais: e.target.value }))} className={fieldCls} placeholder="Colombia, México…" />
                         </div>
+                        {!hideEmpleadorFilter ? (
                         <div className="flex flex-col gap-1.5">
                             <label className={labelCls} htmlFor="pv-empleador">Empleador</label>
                             <input id="pv-empleador" type="text" value={draft.empleador || ''} onChange={(e) => setDraft((s) => ({ ...s, empleador: e.target.value }))} className={fieldCls} />
                         </div>
+                        ) : null}
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-puesto">Puesto (contiene)</label>
-                            <input id="pv-puesto" type="text" value={draft.puesto || ''} onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))} className={fieldCls} />
+                            <label className={labelCls} htmlFor="pv-puesto">Puesto</label>
+                            <select
+                                id="pv-puesto"
+                                value={draft.puesto || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todos los puestos</option>
+                                {puestos.map((p) => {
+                                    const label = String(p.puesto || p).trim();
+                                    if (!label) return null;
+                                    return (
+                                        <option key={label} value={label}>{label}</option>
+                                    );
+                                })}
+                            </select>
                         </div>
                         <div className="flex flex-col gap-1.5">
                             <label className={labelCls} htmlFor="pv-modalidad">Modalidad de trabajo</label>

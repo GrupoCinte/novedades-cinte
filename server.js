@@ -641,8 +641,14 @@ const {
     ensureReubicacionesPipelineTable,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
+    ensureMallaTurnoAprobacionTable,
+    ensureMallaNocturnoConfigTable,
+    ensureNovedadesMallaOrigenRefColumn,
     listMallaTurnosCeldasRange,
     upsertMallaTurnosCeldas,
+    getMallaTurnoAprobacionStatus,
+    getMallaNocturnoConfig,
+    upsertMallaNocturnoConfig,
     ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
@@ -655,6 +661,7 @@ const {
     getClientesNitMapFromLideres,
     insertClienteLider,
     updateClienteLiderById,
+    deleteClienteLiderById,
     listColaboradoresPaged,
     insertColaborador,
     updateColaboradorByCedula,
@@ -677,7 +684,13 @@ const {
     getConciliacionesDashboardResumenForScope,
     upsertConciliacionFacturacionForScope,
     upsertConciliacionFacturacionMasivaForScope,
-    listConciliacionesFacturacionForScope
+    listConciliacionesFacturacionForScope,
+    listServiciosForScope,
+    createServicioForScope,
+    updateServicioForScope,
+    deleteServicioForScope,
+    listServicioConsultoresForScope,
+    upsertServicioConsultoresForScope
 } = createDataLayer({
     pool,
     fs,
@@ -793,6 +806,7 @@ registerDirectorioRoutes({
     listClientesLideresByClienteSummaryPaged,
     insertClienteLider,
     updateClienteLiderById,
+    deleteClienteLiderById,
     listColaboradoresPaged,
     insertColaborador,
     updateColaboradorByCedula,
@@ -805,23 +819,38 @@ registerDirectorioRoutes({
     linkGpCognitoSubByEmail,
     normalizeCedula,
     listMallaTurnosCeldasRange,
-    upsertMallaTurnosCeldas
+    upsertMallaTurnosCeldas,
+    getMallaTurnoAprobacionStatus,
+    getMallaNocturnoConfig,
+    upsertMallaNocturnoConfig,
+    getColaboradorByCedula
 });
 
-registerConciliacionesRoutes({
-    app,
-    verificarToken,
-    allowAnyPanel,
-    applyScope,
-    listConciliacionesClientesForScope,
-    getConciliacionResumenPorClienteMesForScope,
-    getConciliacionResumenTodosClientesMesForScope,
-    listConciliacionNovedadesDetalleForScope,
-    getConciliacionesDashboardResumenForScope,
-    upsertConciliacionFacturacionForScope,
-    upsertConciliacionFacturacionMasivaForScope,
-    listConciliacionesFacturacionForScope
-});
+// Conciliaciones queda detras de un flag: por defecto OFF (apagado en produccion).
+// Activar en QA/entornos de prueba con CONCILIACIONES_MODULE_ENABLED=true.
+const conciliacionesModuleEnabled = String(process.env.CONCILIACIONES_MODULE_ENABLED || 'false').toLowerCase() === 'true';
+if (conciliacionesModuleEnabled) {
+    registerConciliacionesRoutes({
+        app,
+        verificarToken,
+        allowAnyPanel,
+        applyScope,
+        listConciliacionesClientesForScope,
+        getConciliacionResumenPorClienteMesForScope,
+        getConciliacionResumenTodosClientesMesForScope,
+        listConciliacionNovedadesDetalleForScope,
+        getConciliacionesDashboardResumenForScope,
+        upsertConciliacionFacturacionForScope,
+        upsertConciliacionFacturacionMasivaForScope,
+        listConciliacionesFacturacionForScope,
+        listServiciosForScope,
+        createServicioForScope,
+        updateServicioForScope,
+        deleteServicioForScope,
+        listServicioConsultoresForScope,
+        upsertServicioConsultoresForScope
+    });
+}
 
 registerCotizadorRoutes({
     app,
@@ -899,6 +928,9 @@ startServer({
     ensureReubicacionesPipelineTable,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
+    ensureMallaTurnoAprobacionTable,
+    ensureMallaNocturnoConfigTable,
+    ensureNovedadesMallaOrigenRefColumn,
     ensureConciliacionesFacturacionTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,

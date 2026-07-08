@@ -24,6 +24,7 @@ const PATCH_CAMEL_TO_SNAKE = {
     horasRecargoDomingo: 'horas_recargo_domingo',
     horasRecargoDomingoDiurnas: 'horas_recargo_domingo_diurnas',
     horasRecargoDomingoNocturnas: 'horas_recargo_domingo_nocturnas',
+    horasRecargoNocturno: 'horas_recargo_nocturno',
     tipoHoraExtra: 'tipo_hora_extra',
     montoCop: 'monto_cop',
     estado: 'estado',
@@ -153,7 +154,8 @@ function mergeAdminPatch(existingRow, body, normalizeEstado, parseDateOrNull, pa
             snake === 'horas_nocturnas' ||
             snake === 'horas_recargo_domingo' ||
             snake === 'horas_recargo_domingo_diurnas' ||
-            snake === 'horas_recargo_domingo_nocturnas'
+            snake === 'horas_recargo_domingo_nocturnas' ||
+            snake === 'horas_recargo_nocturno'
         ) {
             const n = nonNegNum(v, 0);
             if (n === null) return { error: 'Las horas deben ser números mayores o iguales a cero.', merged: null, appliedKeys: [] };
@@ -248,7 +250,8 @@ function appendSetForColumn(setParts, vals, col, val) {
         col === 'horas_nocturnas' ||
         col === 'horas_recargo_domingo' ||
         col === 'horas_recargo_domingo_diurnas' ||
-        col === 'horas_recargo_domingo_nocturnas'
+        col === 'horas_recargo_domingo_nocturnas' ||
+        col === 'horas_recargo_nocturno'
     ) {
         setParts.push(`${col} = $${i}::numeric`);
         vals.push(nonNegNum(val, 0) ?? 0);

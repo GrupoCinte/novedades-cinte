@@ -13,7 +13,7 @@ function buildWelcomeText(ctx) {
     const lines = [
         '¡Hola! Soy **CINTEBot**, tu asistente sobre **novedades** en este portal.',
         'Puedo orientarte en **Dashboard general** (KPIs, filtros por mes, **cliente** y tipo), **Gestión de Novedades** (tabla, detalle, exportación Excel), **Alertas de Hora Extra** y **Calendario**.',
-        'El portal admite **tema claro u oscuro** (según el interruptor del módulo); este chat se muestra siempre en estilo oscuro.',
+        'El portal admite **tema claro u oscuro**; el asistente sigue la preferencia que elijas en el menú de cuenta.',
     ];
     if (ctx?.role === 'super_admin') {
         lines.push(
@@ -279,6 +279,13 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
     }, [isInline, bubbleVisible]);
 
     useEffect(() => {
+        if (isInline && !sidebarExpanded) {
+            setBubbleVisible(false);
+            setBubbleFading(false);
+        }
+    }, [isInline, sidebarExpanded]);
+
+    useEffect(() => {
         setMessages((prev) => {
             const first = prev[0];
             if (!first || first.role !== 'bot' || first.id !== 0) return prev;
@@ -381,7 +388,7 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
         : 'border-r border-b border-blue-400/30 bg-[#0f172a]';
 
     const welcomeBubble =
-        isInline && bubbleVisible && !open ? (
+        isInline && sidebarExpanded && bubbleVisible && !open ? (
             <div
                 role="status"
                 aria-live="polite"
@@ -456,25 +463,61 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
         </button>
     );
 
+    const chatWindowShellClass = isLight
+        ? 'border-slate-200/80 bg-white shadow-2xl'
+        : 'border-slate-700/70 bg-[#0f172a] shadow-2xl';
+    const chatHeaderClass = isLight
+        ? 'border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50'
+        : 'border-b border-slate-700/60 bg-gradient-to-r from-blue-700/20 to-indigo-700/10';
+    const chatHeaderTitleClass = isLight ? 'text-slate-900' : 'text-white';
+    const chatHeaderSubClass = isLight ? 'text-emerald-700' : 'text-emerald-400';
+    const chatCloseBtnClass = isLight
+        ? 'border-slate-200 bg-slate-100 text-slate-500 hover:bg-rose-50 hover:text-rose-600'
+        : 'border-slate-700 bg-slate-800 text-slate-400 hover:bg-rose-500/20 hover:text-rose-400';
+    const botBubbleClass = isLight
+        ? 'rounded-tl-sm border border-slate-200 bg-slate-50 text-slate-800'
+        : 'rounded-tl-sm border border-slate-700/60 bg-[#1e293b] text-slate-200';
+    const botIconWrapClass = isLight
+        ? 'border border-blue-200 bg-blue-50'
+        : 'border border-blue-500/30 bg-blue-600/20';
+    const botIconClass = isLight ? 'text-blue-600' : 'text-blue-400';
+    const categoryIdleClass = isLight
+        ? 'border-slate-200 bg-slate-100 text-slate-600 hover:border-slate-300 hover:text-slate-800'
+        : 'border-slate-700 bg-slate-800 text-slate-400 hover:border-slate-500 hover:text-slate-200';
+    const intentBtnClass = isLight
+        ? 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700'
+        : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-blue-500/50 hover:bg-blue-600/20 hover:text-blue-300';
+    const inputClass = isLight
+        ? 'border-slate-300 bg-white text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500/50'
+        : 'border-slate-700 bg-slate-800 text-slate-200 placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/50';
+    const footerBorderClass = isLight ? 'border-slate-200' : 'border-slate-700/60';
+    const timestampClass = isLight ? 'text-slate-400' : 'text-slate-600';
+
     const chatWindow = (
             <div
                 className={`
-                    fixed z-[200] flex w-[370px] max-w-[calc(100vw-1.5rem)] flex-col rounded-2xl border border-slate-700/70 bg-[#0f172a] shadow-2xl
+                    fixed z-[200] flex w-[min(370px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col rounded-2xl border border-slate-700/70 bg-[#0f172a] shadow-2xl
                     transition-all duration-300 origin-bottom-right
+                    ${chatWindowShellClass}
                     ${open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none invisible scale-90 opacity-0'}
                 `}
                 style={{
-                    maxHeight: 'min(600px, calc(100vh - 120px))',
-                    ...(isDocked ? { left: sidebarLeftPx, bottom: 24 } : { right: 24, bottom: 96 })
+                    maxHeight: 'min(600px, calc(100dvh - max(6rem, env(safe-area-inset-bottom) + 5rem)))',
+                    ...(isDocked
+                        ? {
+                              left: Math.max(8, sidebarLeftPx),
+                              bottom: 'max(1rem, env(safe-area-inset-bottom, 0px))'
+                          }
+                        : { right: 16, bottom: 'max(6rem, calc(env(safe-area-inset-bottom, 0px) + 5rem))' })
                 }}
             >
-                <div className="flex flex-shrink-0 items-center gap-3 rounded-t-2xl border-b border-slate-700/60 bg-gradient-to-r from-blue-700/20 to-indigo-700/10 px-4 py-3">
+                <div className={`flex flex-shrink-0 items-center gap-3 rounded-t-2xl px-4 py-3 ${chatHeaderClass}`}>
                     <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-blue-600 shadow-md">
                         <Sparkles size={16} className="text-white" />
                     </div>
                     <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold leading-tight text-white">CINTEBot</p>
-                        <p className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400">
+                        <p className={`text-sm font-bold leading-tight ${chatHeaderTitleClass}`}>CINTEBot</p>
+                        <p className={`flex items-center gap-1 text-[10px] font-semibold ${chatHeaderSubClass}`}>
                             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
                             En línea · Novedades y gestión
                         </p>
@@ -482,7 +525,7 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
                     <button
                         type="button"
                         onClick={toggleOpen}
-                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 transition-all hover:bg-rose-500/20 hover:text-rose-400"
+                        className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border transition-all ${chatCloseBtnClass}`}
                     >
                         <X size={13} />
                     </button>
@@ -492,8 +535,8 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
                     {messages.map((msg) => (
                         <div key={msg.id} className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                             {msg.role === 'bot' && (
-                                <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-blue-500/30 bg-blue-600/20">
-                                    <Bot size={13} className="text-blue-400" />
+                                <div className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${botIconWrapClass}`}>
+                                    <Bot size={13} className={botIconClass} />
                                 </div>
                             )}
                             <div className={`flex max-w-[85%] flex-col gap-0.5 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
@@ -503,23 +546,23 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
                                         ${
                                             msg.role === 'user'
                                                 ? 'rounded-tr-sm bg-blue-600 text-white'
-                                                : 'rounded-tl-sm border border-slate-700/60 bg-[#1e293b] text-slate-200'
+                                                : botBubbleClass
                                         }
                                     `}
                                 >
                                     <FormatText text={msg.text} />
                                 </div>
-                                <span className="px-1 text-[9px] text-slate-600">{formatTime(msg.timestamp)}</span>
+                                <span className={`px-1 text-[9px] ${timestampClass}`}>{formatTime(msg.timestamp)}</span>
                             </div>
                         </div>
                     ))}
 
                     {typing && (
                         <div className="flex gap-2">
-                            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-blue-500/30 bg-blue-600/20">
-                                <Bot size={13} className="text-blue-400" />
+                            <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${botIconWrapClass}`}>
+                                <Bot size={13} className={botIconClass} />
                             </div>
-                            <div className="rounded-2xl rounded-tl-sm border border-slate-700/60 bg-[#1e293b]">
+                            <div className={`rounded-2xl rounded-tl-sm border ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700/60 bg-[#1e293b]'}`}>
                                 <TypingDots />
                             </div>
                         </div>
@@ -527,7 +570,7 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
                     <div ref={messagesEndRef} />
                 </div>
 
-                <div className="flex-shrink-0 border-t border-slate-700/60">
+                <div className={`flex-shrink-0 border-t ${footerBorderClass}`}>
                     <div className="scrollbar-none flex gap-1 overflow-x-auto px-3 pb-1 pt-2.5">
                         {CATEGORIES.map((cat) => (
                             <button
@@ -539,7 +582,7 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
                                     ${
                                         activeCategory === cat.id
                                             ? 'border-blue-500 bg-blue-600 text-white'
-                                            : 'border-slate-700 bg-slate-800 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                                            : categoryIdleClass
                                     }
                                 `}
                             >
@@ -555,7 +598,7 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
                                 type="button"
                                 onClick={() => handleIntent(intent)}
                                 disabled={typing}
-                                className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-300 transition-all hover:border-blue-500/50 hover:bg-blue-600/20 hover:text-blue-300 disabled:cursor-not-allowed disabled:opacity-40"
+                                className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs transition-all disabled:cursor-not-allowed disabled:opacity-40 ${intentBtnClass}`}
                             >
                                 <span>{intent.icon}</span>
                                 <span className="leading-tight">{intent.label}</span>
@@ -571,7 +614,7 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
                             onChange={(e) => setInput(e.target.value)}
                             placeholder="Escribe tu pregunta..."
                             disabled={typing}
-                            className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 outline-none transition-all placeholder:text-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 disabled:opacity-50"
+                            className={`flex-1 rounded-xl border px-3 py-2 text-sm outline-none transition-all focus:ring-1 disabled:opacity-50 ${inputClass}`}
                         />
                         <button
                             type="submit"
@@ -597,7 +640,7 @@ export default function ChatWidget({ ctx, placement = 'floating', sidebarExpande
 
     if (isSidebar) {
         return (
-            <div className="relative mx-auto w-full max-w-[11rem] overflow-visible pb-1 pt-1">
+            <div className="relative mx-auto w-full min-w-0 max-w-[11rem] overflow-visible pb-1 pt-1">
                 {chatTrigger}
                 {chatWindow}
             </div>

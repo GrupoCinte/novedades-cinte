@@ -109,6 +109,7 @@ describe('RBAC - permisos por tipo', () => {
     assert.ok(getNovedadRuleByType('Incapacidad'));
     assert.ok(getNovedadRuleByType('Licencia de paternidad'));
     assert.ok(getNovedadRuleByType('Vacaciones en dinero'));
+    assert.equal(getNovedadRuleByType('Hora Extra').requiredMinSupports, 1);
   });
 });
 

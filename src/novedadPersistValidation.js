@@ -91,7 +91,8 @@ function validateMergedNovedadForAdmin(merged, opts) {
         ['horas_nocturnas', merged.horas_nocturnas],
         ['horas_recargo_domingo', merged.horas_recargo_domingo],
         ['horas_recargo_domingo_diurnas', merged.horas_recargo_domingo_diurnas],
-        ['horas_recargo_domingo_nocturnas', merged.horas_recargo_domingo_nocturnas]
+        ['horas_recargo_domingo_nocturnas', merged.horas_recargo_domingo_nocturnas],
+        ['horas_recargo_nocturno', merged.horas_recargo_nocturno ?? 0]
     ];
     for (const [, val] of nums) {
         const n = nonNegNum(val, 0);

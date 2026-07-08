@@ -117,6 +117,7 @@ function toClientNovedad(row) {
         horasRecargoDomingo: Number(row.horas_recargo_domingo || 0),
         horasRecargoDomingoDiurnas: Number(row.horas_recargo_domingo_diurnas || 0),
         horasRecargoDomingoNocturnas: Number(row.horas_recargo_domingo_nocturnas || 0),
+        horasRecargoNocturno: Number(row.horas_recargo_nocturno || 0),
         tipoHoraExtra: row.tipo_hora_extra || '',
         montoCop: row.monto_cop != null && row.monto_cop !== '' ? Number(row.monto_cop) : null,
         soporteRuta: isLocalSupport ? soportePrincipal : '',
@@ -140,7 +141,8 @@ function toClientNovedad(row) {
         fechaVotacion: pgDateToYmd(row.fecha_votacion),
         unidad: row.unidad != null ? String(row.unidad).trim() : '',
         observaciones: decodePossiblyMisencodedText(String(row.observaciones || '')),
-        observacionesRechazo: decodePossiblyMisencodedText(String(row.observaciones_rechazo || ''))
+        observacionesRechazo: decodePossiblyMisencodedText(String(row.observaciones_rechazo || '')),
+        mallaOrigenRef: row.malla_origen_ref ? String(row.malla_origen_ref) : null
     };
 }
 

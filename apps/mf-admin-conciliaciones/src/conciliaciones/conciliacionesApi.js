@@ -109,3 +109,70 @@ export async function fetchConciliacionesFacturacionList(token, { year, month })
     if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar listado de facturaciones'));
     return Array.isArray(data.items) ? data.items : [];
 }
+
+export async function fetchServicios(token) {
+    const res = await apiFetch('/api/conciliaciones/servicios', {
+        headers: conciliacionesAuthHeaders(token),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar servicios'));
+    return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function createServicio(token, payload) {
+    const res = await apiFetch('/api/conciliaciones/servicios', {
+        method: 'POST',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify(payload),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al crear servicio'));
+    return data.data;
+}
+
+export async function fetchServicioConsultores(token, idServicio) {
+    const res = await apiFetch(`/api/conciliaciones/servicios/${idServicio}/consultores`, {
+        headers: conciliacionesAuthHeaders(token),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar consultores del servicio'));
+    return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function associateConsultoresToServicio(token, idServicio, cedulas) {
+    const res = await apiFetch(`/api/conciliaciones/servicios/${idServicio}/consultores`, {
+        method: 'POST',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify({ cedulas }),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al asociar consultores al servicio'));
+    return data;
+}
+
+export async function updateServicio(token, idServicio, payload) {
+    const res = await apiFetch(`/api/conciliaciones/servicios/${idServicio}`, {
+        method: 'PUT',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify(payload),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al actualizar servicio'));
+    return data.data;
+}
+
+export async function deleteServicio(token, idServicio) {
+    const res = await apiFetch(`/api/conciliaciones/servicios/${idServicio}`, {
+        method: 'DELETE',
+        headers: conciliacionesAuthHeaders(token),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al eliminar servicio'));
+    return data;
+}

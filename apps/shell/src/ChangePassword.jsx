@@ -14,8 +14,6 @@ export default function ChangePassword() {
   const [showCurrent, setShowCurrent] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const [showPw2, setShowPw2] = useState(false);
-  const nav = useNavigate();
-
   const onSubmit = async (e) => {
     e.preventDefault();
     setMsg('');
@@ -29,10 +27,14 @@ export default function ChangePassword() {
     try {
       await cognitoChangePassword(current, pw);
       setMsg('Contraseña actualizada. Cerrando sesión...');
-      setTimeout(async () => {
+      try {
         await cognitoSignOut();
-        nav('/admin', { replace: true });
-      }, 1200);
+      } catch {
+        /* logout best-effort */
+      }
+      window.setTimeout(() => {
+        window.location.assign('/admin');
+      }, 800);
     } catch (err) {
       setMsg(err?.message || 'Error al actualizar');
     } finally {

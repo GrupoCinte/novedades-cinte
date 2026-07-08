@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import OnboardingFiltersBar, { buildChipLabel } from './OnboardingFiltersBar.jsx';
 import OnboardingFiltersDrawer, {
     drawerFieldCls,
     drawerLabelCls
 } from './OnboardingFiltersDrawer.jsx';
-import GestionDataTable from './GestionDataTable.jsx';
+import SortableGestionDataTable from './SortableGestionDataTable.jsx';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import { nativeCalendarOnlyInputProps } from '../nativeCalendarOnlyInputProps.js';
+import { LICENCIAS_DEFAULT_SORT, toggleSort } from './onboardingSortDefaults.js';
 
 /**
  * Componente declarativo de lista para los submódulos de Onboarding.
@@ -37,15 +38,12 @@ export default function OnboardingListView({
     searchPlaceholder = 'Buscar…',
     searchParamKey = 'q',
     onRowClick,
-    // `DataTable` queda como prop opcional para no romper llamadas existentes,
-    // pero por defecto usamos GestionDataTable (línea visual Gestión de Novedades).
-    DataTable,
     emptyText = 'Sin registros',
     pageSizes = [10, 20, 50, 100],
-    headerRight = null
+    headerRight = null,
+    defaultSort = LICENCIAS_DEFAULT_SORT
 }) {
     const G = buildGestionTableDash(Boolean(isLight));
-    const TableImpl = DataTable || GestionDataTable;
     const [rows, setRows] = useState([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
@@ -53,6 +51,7 @@ export default function OnboardingListView({
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(pageSizes[2] || 50);
+    const [sort, setSort] = useState(defaultSort);
     const [filters, setFilters] = useState({});
     const [draft, setDraft] = useState({});
     const [panelOpen, setPanelOpen] = useState(false);
@@ -64,6 +63,8 @@ export default function OnboardingListView({
         const p = {
             limit: pageSize,
             offset: page * pageSize,
+            sort: sort.key,
+            dir: sort.dir,
             ...extraParams
         };
         if (search) p[searchParamKey] = search;
@@ -80,25 +81,48 @@ export default function OnboardingListView({
             }
         }
         return p;
-    }, [pageSize, page, extraParams, search, searchParamKey, filtersConfig, filters]);
+    }, [pageSize, page, sort, extraParams, search, searchParamKey, filtersConfig, filters]);
+
+    const handleSort = useCallback((columnKey) => {
+        setSort((cur) => toggleSort(cur, columnKey));
+        setPage(0);
+    }, []);
+
+    const loadSeqRef = useRef(0);
+    // `fetcher` y `params` llegan como referencias nuevas en cada render (props inline y
+    // defaults {}/[]). Si la carga dependiera de su identidad, el efecto se redispararía en
+    // cada render → setState → render → … (tormenta de peticiones). Los leemos desde refs y
+    // disparamos por el VALOR serializado de params.
+    const fetcherRef = useRef(fetcher);
+    fetcherRef.current = fetcher;
+    const paramsRef = useRef(params);
+    paramsRef.current = params;
+    const paramsKey = JSON.stringify(params);
 
     const load = useCallback(async () => {
+        const seq = ++loadSeqRef.current;
         setLoading(true);
         setError('');
+        // Evita mezclar el orden anterior con la nueva cabecera mientras llega la respuesta.
+        setRows([]);
         try {
-            const r = await fetcher(params);
+            const r = await fetcherRef.current(paramsRef.current);
+            if (seq !== loadSeqRef.current) return;
             setRows(Array.isArray(r?.items) ? r.items : []);
             setTotal(Number(r?.total) || 0);
         } catch (e) {
+            if (seq !== loadSeqRef.current) return;
             setError(e?.response?.data?.error || e?.message || 'Error cargando');
         } finally {
-            setLoading(false);
+            if (seq === loadSeqRef.current) setLoading(false);
         }
-    }, [fetcher, params]);
+    }, []);
 
     useEffect(() => {
         load();
-    }, [load]);
+        // load es estable; recargamos solo cuando cambia el valor de params.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paramsKey]);
 
     const chipPairs = useMemo(() => {
         const arr = [];
@@ -260,10 +284,12 @@ export default function OnboardingListView({
                 </div>
             ) : null}
 
-            <TableImpl
+            <SortableGestionDataTable
                 columns={columns}
                 rows={rows}
                 isLight={isLight}
+                sort={sort}
+                onSort={handleSort}
                 emptyText={loading ? 'Cargando…' : emptyText}
                 onRowClick={onRowClick}
             />

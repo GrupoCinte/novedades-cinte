@@ -19,6 +19,7 @@ export default function ConciliacionesAccionMasivaModal({
     const [facturaFv, setFacturaFv] = useState('');
     const [fechaRadicacion, setFechaRadicacion] = useState('');
     const [motivoDevolucion, setMotivoDevolucion] = useState('');
+    const [observaciones, setObservaciones] = useState('');
     const [applyToFiltered, setApplyToFiltered] = useState(false);
     const [observaciones, setObservaciones] = useState('');
     const [errorMsg, setErrorMsg] = useState('');
@@ -33,6 +34,7 @@ export default function ConciliacionesAccionMasivaModal({
             setFacturaFv('');
             setFechaRadicacion('');
             setMotivoDevolucion('');
+            setObservaciones('');
             setApplyToFiltered(hasActiveFilters);
             setObservaciones('');
             setErrorMsg('');
@@ -117,8 +119,8 @@ export default function ConciliacionesAccionMasivaModal({
                     ) : null}
 
                     <div className="rounded-lg border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-400">
-                        El estado (y datos de radicación o devolución) se aplicará a los colaboradores seleccionados. Proyecto y
-                        observaciones individuales no se modifican.
+                        El estado (y datos de radicación o devolución) se aplicará a los colaboradores seleccionados. Proyecto
+                        individual no se modifica; las observaciones opcionales se aplican a todos si las indicas.
                     </div>
 
                     {hasActiveFilters ? (

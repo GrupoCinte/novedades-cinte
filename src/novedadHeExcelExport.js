@@ -1,6 +1,7 @@
 'use strict';
 
 const { formatHeDomingoCompTipoSuffix, parseHeDomingoCompFromObservacion } = require('./heDomingoCompensacion');
+const { isMallaOrigenNovedad } = require('./mallaRecargoSplit');
 const { splitHoursByBogotaDay, isSundayBogotaYmd } = require('./heDomingoBogota');
 const { collectHeDiurnaNocturnaSegmentsBogota } = require('./heBogotaSplit');
 
@@ -73,6 +74,12 @@ const SLICE_SPECS = [
         getter: (it) => Number(it?.horasRecargoDomingoDiurnas || 0)
     },
     {
+        sliceKey: 'recargo_nocturno_ordinario',
+        columnKey: 'horasRecargoNocturno',
+        tipoLabel: 'Recargo nocturno',
+        getter: (it) => Number(it?.horasRecargoNocturno || 0)
+    },
+    {
         sliceKey: 'recargo_nocturno',
         columnKey: 'horasRecargoDomingoNocturnas',
         tipoLabel: 'Recargo dominical nocturno',
@@ -111,7 +118,9 @@ function compensacionDominicalExcelEtiqueta(observacion, sliceKey) {
  */
 function formatTipoNovedadHeSlice(it, singleTipoLabel) {
     const tipo = String(it?.tipoNovedad || '').trim();
-    const base = singleTipoLabel ? `Hora Extra / ${singleTipoLabel}` : tipo || 'Hora Extra';
+    const fromMalla = isMallaOrigenNovedad(it);
+    const prefix = fromMalla ? 'Recargo' : 'Hora Extra';
+    const base = singleTipoLabel ? `${prefix} / ${singleTipoLabel}` : fromMalla ? 'Recargo' : tipo || 'Hora Extra';
     const suf = formatHeDomingoCompTipoSuffix(String(it?.heDomingoObservacion || ''));
     return suf ? base + suf : base;
 }

@@ -209,7 +209,7 @@ describe('createResolveApproverEmailsFromCognito', () => {
             getNovedadRuleByType: () => ({ key: 'incapacidad', approvers: ['admin_ch', 'team_ch'], viewers: [] }),
             logger: { error() {}, warn() {} }
         });
-        const out = await resolveApproverEmailsForNovedad('Incapacidad');
+        const out = await resolveApproverEmailsForNovedad('Vacaciones en tiempo');
         assert.deepEqual(out.emails, ['teamcap@example.com']);
     });
 
@@ -241,7 +241,7 @@ describe('createResolveApproverEmailsFromCognito', () => {
             getNovedadRuleByType: () => ({ key: 'incapacidad', approvers: ['admin_ch', 'team_ch'], viewers: [] }),
             logger: { error(...args) { errors.push(args); } }
         });
-        const out = await resolveApproverEmailsForNovedad('Incapacidad');
+        const out = await resolveApproverEmailsForNovedad('Vacaciones en tiempo');
         assert.equal(out.emails.includes('ok@example.com'), true);
         assert.equal(errors.length >= 1, true);
     });

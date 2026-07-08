@@ -481,7 +481,7 @@ async function listConciliacionesFacturacion(deps, scope, year, month) {
 
 async function upsertConciliacionFacturacionMasiva(deps, scope, payload) {
     const { pool } = deps;
-    const { cliente, anio, mes, estado, facturaFv, fechaRadicacion, motivoDevolucion, cedulas: cedulasPayload } = payload;
+    const { cliente, anio, mes, estado, facturaFv, fechaRadicacion, motivoDevolucion, observaciones, cedulas: cedulasPayload } = payload;
     
     const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
     if (!chk.ok) {
@@ -507,6 +507,7 @@ async function upsertConciliacionFacturacionMasiva(deps, scope, payload) {
     const fv = facturaFv !== undefined ? (facturaFv === null ? null : String(facturaFv).trim()) : null;
     const fRad = fechaRadicacion !== undefined ? (fechaRadicacion === null ? null : String(fechaRadicacion).trim()) : null;
     const mot = motivoDevolucion !== undefined ? (motivoDevolucion === null ? null : String(motivoDevolucion).trim()) : null;
+    const obs = observaciones !== undefined ? (observaciones === null ? null : String(observaciones).trim()) : null;
 
     // Obtener todas las cédulas de este cliente
     const colQ = await pool.query(
@@ -528,22 +529,292 @@ async function upsertConciliacionFacturacionMasiva(deps, scope, payload) {
         
         for (const ced of cedulas) {
             await client.query(
-                `INSERT INTO conciliaciones_facturacion (cedula, anio, mes, estado, factura_fv, fecha_radicacion, motivo_devolucion, fecha_cierre, updated_at)
-                 VALUES ($1, $2, $3, $4, $5, $6::date, $7, CURRENT_DATE, NOW())
+                `INSERT INTO conciliaciones_facturacion (cedula, anio, mes, estado, factura_fv, fecha_radicacion, motivo_devolucion, observaciones, fecha_cierre, updated_at)
+                 VALUES ($1, $2, $3, $4, $5, $6::date, $7, $8, CURRENT_DATE, NOW())
                  ON CONFLICT (cedula, anio, mes)
                  DO UPDATE SET 
                     estado = EXCLUDED.estado,
                     factura_fv = EXCLUDED.factura_fv,
                     fecha_radicacion = EXCLUDED.fecha_radicacion,
                     motivo_devolucion = EXCLUDED.motivo_devolucion,
+                    observaciones = COALESCE(EXCLUDED.observaciones, conciliaciones_facturacion.observaciones),
                     fecha_cierre = CURRENT_DATE,
                     updated_at = NOW()`,
-                [ced, y, m, est, fv, fRad, mot]
+                [ced, y, m, est, fv, fRad, mot, obs]
             );
         }
         
         await client.query('COMMIT');
         return { updated: cedulas.length };
+    } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+// ==========================================
+// SERVICIOS (Facturacion Consultores)
+// ==========================================
+
+async function listServicios(deps, scope) {
+    const { pool } = deps;
+    const allowedClients = await listConciliacionesClientes(deps, scope);
+    if (!allowedClients.length) return [];
+
+    const q = await pool.query(
+        `SELECT s.id, s.cliente, s.nombre_servicio, s.inicio_contrato, s.dia_cierre, s.modo_facturacion, s.tipo_facturacion, s.horas_base, s.created_at,
+                (SELECT COUNT(*) FROM servicio_consultores sc WHERE sc.servicio_id = s.id) AS consultores_count
+         FROM servicios s
+         WHERE lower(btrim(COALESCE(s.cliente, ''))) = ANY($1::text[])
+         ORDER BY s.created_at DESC`,
+        [allowedClients.map(c => String(c).toLowerCase())]
+    );
+
+    return q.rows.map(r => ({
+        id: r.id,
+        client: String(r.cliente || '').trim(),
+        serviceName: String(r.nombre_servicio || '').trim(),
+        inicioContrato: r.inicio_contrato ? r.inicio_contrato.toISOString().slice(0, 10) : '',
+        diaCierre: Number(r.dia_cierre),
+        modoFacturacion: String(r.modo_facturacion || '').trim(),
+        tipoFacturacion: r.tipo_facturacion ? String(r.tipo_facturacion).trim() : '',
+        horasBase: r.horas_base != null ? Number(r.horas_base) : null,
+        consultoresCount: Number(r.consultores_count || 0),
+        createdAt: r.created_at
+    }));
+}
+
+async function createServicio(deps, scope, payload) {
+    const { pool } = deps;
+    const cliente = payload.client;
+    const nombreServicio = payload.serviceName;
+    const inicioContrato = payload.inicio_contrato || payload.inicioContrato;
+    const diaCierreRaw = payload.dia_cierre !== undefined ? payload.dia_cierre : payload.diaCierre;
+    const modoFacturacion = payload.modo_facturacion || payload.modoFacturacion;
+    const tipoFacturacion = payload.tipo_facturacion || payload.tipoFacturacion;
+    const horasBase = payload.horas_base !== undefined ? payload.horas_base : payload.horasBase;
+
+    const diaCierre = Number(diaCierreRaw);
+    if (isNaN(diaCierre) || diaCierre < 1 || diaCierre > 31) {
+        const error = new Error('El día de cierre debe ser un número entero entre 1 y 31');
+        error.status = 400;
+        throw error;
+    }
+
+    const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado para este cliente');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    const q = await pool.query(
+        `INSERT INTO servicios (cliente, nombre_servicio, inicio_contrato, dia_cierre, modo_facturacion, tipo_facturacion, horas_base)
+         VALUES ($1, $2, $3::date, $4, $5, $6, $7)
+         RETURNING id, cliente, nombre_servicio, inicio_contrato, dia_cierre, modo_facturacion, tipo_facturacion, horas_base`,
+        [chk.canon, nombreServicio, inicioContrato, diaCierre, modoFacturacion, tipoFacturacion, horasBase]
+    );
+
+    const r = q.rows[0];
+    return {
+        id: r.id,
+        client: r.cliente,
+        serviceName: r.nombre_servicio,
+        inicioContrato: r.inicio_contrato.toISOString().slice(0, 10),
+        diaCierre: r.dia_cierre,
+        modoFacturacion: r.modo_facturacion,
+        tipoFacturacion: r.tipo_facturacion ? String(r.tipo_facturacion).trim() : '',
+        horasBase: r.horas_base != null ? Number(r.horas_base) : null
+    };
+}
+
+async function updateServicio(deps, scope, idServicio, payload) {
+    const { pool } = deps;
+    const cliente = payload.client;
+    const nombreServicio = payload.serviceName;
+    const inicioContrato = payload.inicio_contrato || payload.inicioContrato;
+    const diaCierreRaw = payload.dia_cierre !== undefined ? payload.dia_cierre : payload.diaCierre;
+    const modoFacturacion = payload.modo_facturacion || payload.modoFacturacion;
+    const tipoFacturacion = payload.tipo_facturacion || payload.tipoFacturacion;
+    const horasBase = payload.horas_base !== undefined ? payload.horas_base : payload.horasBase;
+
+    const diaCierre = Number(diaCierreRaw);
+    if (isNaN(diaCierre) || diaCierre < 1 || diaCierre > 31) {
+        const error = new Error('El día de cierre debe ser un número entero entre 1 y 31');
+        error.status = 400;
+        throw error;
+    }
+
+    // Primero validar cliente anterior
+    const sQ = await pool.query(`SELECT cliente FROM servicios WHERE id = $1`, [idServicio]);
+    if (sQ.rows.length === 0) {
+        const err = new Error('Servicio no encontrado');
+        err.status = 404;
+        throw err;
+    }
+    const oldCliente = sQ.rows[0].cliente;
+
+    const chkOld = await assertClienteConciliacionPermitido(deps, scope, oldCliente);
+    if (!chkOld.ok) {
+        const error = new Error('No autorizado para modificar este servicio');
+        error.status = 403;
+        throw error;
+    }
+
+    const chkNew = await assertClienteConciliacionPermitido(deps, scope, cliente);
+    if (!chkNew.ok) {
+        const error = new Error('No autorizado para asignar a este nuevo cliente');
+        error.status = 403;
+        throw error;
+    }
+
+    const q = await pool.query(
+        `UPDATE servicios
+         SET cliente = $1, nombre_servicio = $2, inicio_contrato = $3::date, dia_cierre = $4, modo_facturacion = $5, tipo_facturacion = $6, horas_base = $7
+         WHERE id = $8
+         RETURNING id, cliente, nombre_servicio, inicio_contrato, dia_cierre, modo_facturacion, tipo_facturacion, horas_base`,
+        [chkNew.canon, nombreServicio, inicioContrato, diaCierre, modoFacturacion, tipoFacturacion, horasBase, idServicio]
+    );
+
+    const r = q.rows[0];
+    return {
+        id: r.id,
+        client: r.cliente,
+        serviceName: r.nombre_servicio,
+        inicioContrato: r.inicio_contrato.toISOString().slice(0, 10),
+        diaCierre: r.dia_cierre,
+        modoFacturacion: r.modo_facturacion,
+        tipoFacturacion: r.tipo_facturacion ? String(r.tipo_facturacion).trim() : '',
+        horasBase: r.horas_base != null ? Number(r.horas_base) : null
+    };
+}
+
+async function deleteServicio(deps, scope, idServicio) {
+    const { pool } = deps;
+
+    // Primero validar cliente
+    const sQ = await pool.query(`SELECT cliente FROM servicios WHERE id = $1`, [idServicio]);
+    if (sQ.rows.length === 0) {
+        const err = new Error('Servicio no encontrado');
+        err.status = 404;
+        throw err;
+    }
+    const cliente = sQ.rows[0].cliente;
+
+    const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
+    if (!chk.ok) {
+        const error = new Error('No autorizado para eliminar este servicio');
+        error.status = 403;
+        throw error;
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+        // Primero eliminar relaciones de consultores
+        await client.query(`DELETE FROM servicio_consultores WHERE servicio_id = $1`, [idServicio]);
+        // Luego eliminar el servicio
+        await client.query(`DELETE FROM servicios WHERE id = $1`, [idServicio]);
+        await client.query('COMMIT');
+        return { success: true };
+    } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+    } finally {
+        client.release();
+    }
+}
+
+
+async function listServicioConsultores(deps, scope, servicioId) {
+    const { pool } = deps;
+    
+    // Primero obtener el servicio para validar cliente
+    const sQ = await pool.query(`SELECT cliente FROM servicios WHERE id = $1`, [servicioId]);
+    if (sQ.rows.length === 0) {
+        const err = new Error('Servicio no encontrado');
+        err.status = 404;
+        throw err;
+    }
+    const cliente = sQ.rows[0].cliente;
+
+    const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    // Obtener todos los colaboradores activos del cliente y cruzar con asociaciones
+    const q = await pool.query(
+        `SELECT c.cedula, c.nombre, c.tarifa_cliente, c.costo_empresa, c.moneda, sc.licencias, sc.equipo, sc.otras_dotaciones,
+                CASE WHEN sc.servicio_id IS NOT NULL THEN TRUE ELSE FALSE END as asociado
+         FROM colaboradores c
+         LEFT JOIN servicio_consultores sc ON c.cedula = sc.cedula AND sc.servicio_id = $1
+         WHERE c.activo IS NOT FALSE
+           AND lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($2::text))
+         ORDER BY c.nombre ASC`,
+        [servicioId, chk.canon]
+    );
+
+    return q.rows.map(r => ({
+        cedula: r.cedula,
+        nombre: r.nombre,
+        licencias: r.licencias || '',
+        equipo: r.equipo || '',
+        otrasDotaciones: r.otras_dotaciones || '',
+        tarifaCliente: r.tarifa_cliente != null ? Number(r.tarifa_cliente) : null,
+        costoCinte: r.costo_empresa != null ? Number(r.costo_empresa) : null,
+        moneda: r.moneda ? String(r.moneda).trim() : 'COP',
+        asociado: Boolean(r.asociado)
+    }));
+}
+
+async function upsertServicioConsultores(deps, scope, servicioId, consultoresAsociados) {
+    const { pool } = deps;
+
+    const sQ = await pool.query(`SELECT cliente FROM servicios WHERE id = $1`, [servicioId]);
+    if (sQ.rows.length === 0) {
+        const err = new Error('Servicio no encontrado');
+        err.status = 404;
+        throw err;
+    }
+    const cliente = sQ.rows[0].cliente;
+
+    const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Eliminar asociaciones actuales de este servicio (para re-crearlas y así manejar las desasociaciones)
+        await client.query(`DELETE FROM servicio_consultores WHERE servicio_id = $1`, [servicioId]);
+
+        for (const c of consultoresAsociados) {
+            // Validar que el consultor realmente pertenezca al cliente (por seguridad)
+            const colChk = await client.query(
+                `SELECT 1 FROM colaboradores WHERE cedula = $1 AND lower(btrim(COALESCE(cliente, ''))) = lower(btrim($2::text)) AND activo IS NOT FALSE`,
+                [c.cedula, chk.canon]
+            );
+            
+            if (colChk.rows.length > 0) {
+                await client.query(
+                    `INSERT INTO servicio_consultores (servicio_id, cedula, licencias, equipo, otras_dotaciones)
+                     VALUES ($1, $2, $3, $4, $5)`,
+                    [servicioId, c.cedula, c.licencias || null, c.equipo || null, c.otrasDotaciones || null]
+                );
+            }
+        }
+
+        await client.query('COMMIT');
+        return { success: true };
     } catch (error) {
         await client.query('ROLLBACK');
         throw error;
@@ -564,5 +835,11 @@ module.exports = {
     getConciliacionesDashboardResumen,
     upsertConciliacionFacturacion,
     upsertConciliacionFacturacionMasiva,
-    listConciliacionesFacturacion
+    listConciliacionesFacturacion,
+    listServicios,
+    createServicio,
+    updateServicio,
+    deleteServicio,
+    listServicioConsultores,
+    upsertServicioConsultores
 };

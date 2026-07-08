@@ -42,6 +42,35 @@ describe('novedadHeExcelExport', () => {
         assert.equal(compensacionDominicalExcelEtiqueta('', 'diurna'), 'No aplica (tramo no recargo dominical)');
     });
 
+    it('formatTipoNovedadHeSlice malla origen usa prefijo Recargo', () => {
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            mallaOrigenRef: 'Cliente|mallas|2026-06-10|22_06|123',
+            heDomingoObservacion: ''
+        };
+        const s = formatTipoNovedadHeSlice(it, 'Recargo nocturno');
+        assert.ok(s.includes('Recargo / Recargo nocturno'));
+        assert.ok(!s.includes('Hora Extra'));
+    });
+
+    it('buildHoraExtraExportSlices incluye recargo nocturno ordinario malla', () => {
+        const item = {
+            tipoNovedad: 'Hora Extra',
+            mallaOrigenRef: 'Cliente|mallas|2026-06-10|22_06|123',
+            horasRecargoNocturno: 8,
+            horasDiurnas: 0,
+            horasNocturnas: 0,
+            horasRecargoDomingoDiurnas: 0,
+            horasRecargoDomingoNocturnas: 0,
+            horasRecargoDomingo: 0,
+            heDomingoObservacion: ''
+        };
+        const slices = buildHoraExtraExportSlices(item);
+        assert.equal(slices.length, 1);
+        assert.equal(slices[0].sliceKey, 'recargo_nocturno_ordinario');
+        assert.equal(slices[0].hours, 8);
+        assert.equal(formatTipoNovedadHeSlice(item, slices[0].tipoLabel), 'Recargo / Recargo nocturno');
+    });
     it('formatTipoNovedadHeSlice añade sufijo dominical', () => {
         const it = {
             tipoNovedad: 'Hora Extra',

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { X } from 'lucide-react';
+import { X, RefreshCw } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash, GESTION_TOOLBAR_PRIMARY_BTN, withNovedadesTabShellAliases } from '../gestionTableDashTheme.js';
 import { CONCILIACIONES_FACTURACION_PAGE, CONCILIACIONES_FACTURACION_SHELL } from './conciliacionesLayout.js';
@@ -136,7 +136,9 @@ export default function ConciliacionesFacturacionPage({ token }) {
         if (clienteQuery) {
             const hit = clientes.find((c) => c.toLowerCase() === clienteQuery.toLowerCase());
             if (hit) setCliente(hit);
+            return;
         }
+        setCliente((prev) => (prev && clientes.includes(prev) ? prev : clientes[0] || ''));
     }, [clientes, clienteQuery]);
 
     const handleClienteChange = useCallback(
@@ -147,6 +149,11 @@ export default function ConciliacionesFacturacionPage({ token }) {
         },
         [handleResetFilters]
     );
+
+    const handleVerTodosClientes = useCallback(() => {
+        setCliente('');
+        handleResetFilters();
+    }, [handleResetFilters]);
 
     const loadResumen = useCallback(async () => {
         if (!ym.year || !ym.month) {
@@ -185,7 +192,7 @@ export default function ConciliacionesFacturacionPage({ token }) {
     const openDetalle = useCallback(
         async (row) => {
             const clienteRow = String(row?.cliente || cliente || '').trim();
-            if (!row?.novedadesCount || !clienteRow || !ym.year || !ym.month) return;
+            if (!clienteRow || !ym.year || !ym.month) return;
             setModalRow(row);
             setModalOpen(true);
             setModalLoading(true);
@@ -262,7 +269,8 @@ export default function ConciliacionesFacturacionPage({ token }) {
                     estado: form.estado,
                     facturaFv: form.facturaFv,
                     fechaRadicacion: form.fechaRadicacion,
-                    motivoDevolucion: form.motivoDevolucion
+                    motivoDevolucion: form.motivoDevolucion,
+                    observaciones: form.observaciones
                 },
                 { cliente, anio: ym.year, mes: ym.month, cedulas }
             );
@@ -371,17 +379,41 @@ export default function ConciliacionesFacturacionPage({ token }) {
                 onNovedadesChange={setFNovedades}
                 onResetFilters={handleResetFilters}
                 trailingActions={
-                    shouldShowFacturacionAccionGrupal(isTodosClientes) ? (
-                        <button
-                            type="button"
-                            onClick={() => setMasivaOpen(true)}
-                            disabled={rows.length === 0}
-                            className={GESTION_TOOLBAR_PRIMARY_BTN}
-                            title="Acción grupal"
-                        >
-                            Acción grupal
-                        </button>
-                    ) : null
+                    <>
+                        {!isTodosClientes ? (
+                            <button
+                                type="button"
+                                onClick={handleVerTodosClientes}
+                                className={`${dash.borrarFiltros} inline-flex items-center gap-1.5`}
+                                title="Quitar filtro de cliente y ver todos"
+                            >
+                                <RefreshCw size={14} aria-hidden />
+                                <span className="hidden sm:inline">Ver todos</span>
+                            </button>
+                        ) : null}
+                        {hasActiveFilters ? (
+                            <button
+                                type="button"
+                                onClick={handleResetFilters}
+                                className={`${dash.borrarFiltros} inline-flex items-center gap-1.5`}
+                                title="Limpiar filtros"
+                            >
+                                <RefreshCw size={14} aria-hidden />
+                                <span className="hidden sm:inline">Limpiar</span>
+                            </button>
+                        ) : null}
+                        {shouldShowFacturacionAccionGrupal(isTodosClientes) ? (
+                            <button
+                                type="button"
+                                onClick={() => setMasivaOpen(true)}
+                                disabled={rows.length === 0}
+                                className={GESTION_TOOLBAR_PRIMARY_BTN}
+                                title="Acción grupal"
+                            >
+                                Acción grupal
+                            </button>
+                        ) : null}
+                    </>
                 }
                 />
 

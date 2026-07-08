@@ -63,6 +63,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
     const [editCells, setEditCells] = useState({});
     const [editSaving, setEditSaving] = useState(false);
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
+    const [confirmDeleteFila, setConfirmDeleteFila] = useState(false);
 
     /** Columnas fijas en código (37 + extras si la fila trae claves no listadas). */
     const columnHeaders = TI_CATALOGO_TAXONOMIA_FIN_COLUMNAS;
@@ -202,7 +203,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
     };
 
     const onDeleteFila = async () => {
-        if (!canWrite || !detailRow || !window.confirm('¿Eliminar esta fila del catálogo?')) return;
+        if (!canWrite || !detailRow) return;
         try {
             const r = await apiFetch(`/api/cotizador/ti-catalog/filas/${encodeURIComponent(detailRow.id)}`, {
                 method: 'DELETE',
@@ -212,6 +213,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
             const j = await r.json();
             if (!r.ok) throw new Error(j?.error || `HTTP ${r.status}`);
             setMsg('Fila eliminada.');
+            setConfirmDeleteFila(false);
             closeDetail();
             await loadFilas();
             await loadMeta();
@@ -646,7 +648,7 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
                                                     ? 'inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-50 disabled:opacity-50'
                                                     : 'inline-flex items-center gap-1.5 rounded-lg border border-rose-500/50 bg-slate-800 px-3 py-2 text-sm font-semibold text-rose-300 hover:bg-rose-500/10 disabled:opacity-50'
                                             }
-                                            onClick={onDeleteFila}
+                                            onClick={() => setConfirmDeleteFila(true)}
                                         >
                                             Eliminar fila
                                         </button>
@@ -682,6 +684,37 @@ export default function RolesTiCatalogPage({ token, auth, embedInDirectorio = fa
                                     </>
                                 ) : null}
                             </div>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
+            {confirmDeleteFila && detailRow ? (
+                <div className={dash.modalBackdrop} role="dialog" aria-modal="true">
+                    <button
+                        type="button"
+                        className="modal-glass-scrim absolute inset-0 transition-opacity"
+                        aria-label="Cerrar"
+                        onClick={() => setConfirmDeleteFila(false)}
+                    />
+                    <div
+                        className={dash.modalCardMd}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
+                            ¿Eliminar esta fila del catálogo?
+                        </p>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button type="button" className={compactBtn} onClick={() => setConfirmDeleteFila(false)}>
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                className="px-3 py-2 rounded-md bg-rose-600/90 text-white text-sm font-semibold"
+                                onClick={onDeleteFila}
+                            >
+                                Eliminar
+                            </button>
                         </div>
                     </div>
                 </div>
