@@ -92,7 +92,8 @@ function App() {
   const isAdminRoute = location.pathname.startsWith('/admin');
   const isNovedadesRoute = location.pathname.startsWith('/admin/novedades');
   const moduleCount = adminPortalModuleCount(auth);
-  const isAdminHubHome = Boolean(auth?.user && location.pathname === '/admin' && moduleCount > 0);
+  const isAdminRoot = location.pathname === '/admin' || location.pathname === '/admin/';
+  const isAdminHubHome = Boolean(auth?.user && isAdminRoot && moduleCount > 0);
   const isAdminModuleShell = Boolean(auth?.user) && pathIsAdminModuleShell(location.pathname);
   const showGlobalHeader =
     !isFormularioPublico &&
