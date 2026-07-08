@@ -9,7 +9,7 @@ function readCookie(name) {
 }
 
 export function authHeaders(token) {
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
     const t = String(token || '').trim();
     if (t) headers.Authorization = `Bearer ${t}`;
     const xsrf = readCookie('cinteXsrf');
@@ -17,9 +17,11 @@ export function authHeaders(token) {
     return headers;
 }
 
+const baseUrl = import.meta.env.VITE_API_URL || 'https://small-bobcats-throw.loca.lt';
+
 export async function fetchMallasTurnos(token, cliente, desde, hasta) {
     const qs = new URLSearchParams({ cliente, desde, hasta });
-    const res = await fetch(`/api/directorio/mallas-turnos?${qs}`, {
+    const res = await fetch(`${baseUrl}/api/directorio/mallas-turnos?${qs}`, {
         headers: authHeaders(token)
     });
     const data = await res.json().catch(() => ({}));
@@ -28,7 +30,7 @@ export async function fetchMallasTurnos(token, cliente, desde, hasta) {
 }
 
 export async function putMallasTurnos(token, { cliente, patches }) {
-    const res = await fetch('/api/directorio/mallas-turnos', {
+    const res = await fetch(`${baseUrl}/api/directorio/mallas-turnos`, {
         method: 'PUT',
         headers: authHeaders(token),
         body: JSON.stringify({ cliente, patches })

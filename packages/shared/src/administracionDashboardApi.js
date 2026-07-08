@@ -10,7 +10,7 @@ function readCookie(name) {
 }
 
 export function authHeadersForDirectorio(token) {
-    const headers = { 'Content-Type': 'application/json' };
+    const headers = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
     const t = String(token || '').trim();
     if (t) headers.Authorization = `Bearer ${t}`;
     const xsrf = readCookie('cinteXsrf');
@@ -18,9 +18,11 @@ export function authHeadersForDirectorio(token) {
     return headers;
 }
 
-async function fetchJsonOk(token, url, signal = undefined) {
+const baseUrl = import.meta.env.VITE_API_URL || 'https://small-bobcats-throw.loca.lt';
+
+async function fetchJsonOk(token, path, signal = undefined) {
     /** Igual que conciliaciones: cookie `cinteSession` puede autenticar sin Bearer en memoria. */
-    const res = await fetch(url, { credentials: 'include', headers: authHeadersForDirectorio(token), signal });
+    const res = await fetch(`${baseUrl}${path}`, { credentials: 'include', headers: authHeadersForDirectorio(token), signal });
     const j = await res.json().catch(() => ({}));
     if (!res.ok || j.ok === false) throw new Error(j.error || `HTTP ${res.status}`);
     return j;
@@ -79,7 +81,7 @@ export async function fetchAllReubicacionesPipeline(token, signal = undefined) {
 
 /** Una sola petición: métricas agregadas en servidor (dashboard administración). */
 export async function fetchAdminDashboardMetrics(token, signal = undefined) {
-    const res = await fetch('/api/directorio/admin-dashboard-metrics', {
+    const res = await fetch(`${baseUrl}/api/directorio/admin-dashboard-metrics`, {
         credentials: 'include',
         headers: authHeadersForDirectorio(token),
         signal

@@ -18,13 +18,15 @@ function isBenignViteWsRejection(msg, stack) {
     return s.includes('@vite/client') || s.includes('vite') || m.includes('without opened');
 }
 
+const baseUrl = import.meta.env.VITE_API_URL || 'https://small-bobcats-throw.loca.lt';
+
 function postTrace(payload) {
     const route = typeof window !== 'undefined' ? window.location.pathname : '';
     const body = { ...payload, route: payload.route || route };
-    fetch('/api/dev/client-trace', {
+    fetch(`${baseUrl}/api/dev/client-trace`, {
         method: 'POST',
         credentials: 'include',
-        headers: buildCsrfHeaders({ 'Content-Type': 'application/json' }),
+        headers: buildCsrfHeaders({ 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' }),
         body: JSON.stringify(body)
     }).catch(() => {});
 }
