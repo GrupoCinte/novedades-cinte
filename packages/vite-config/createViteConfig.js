@@ -26,6 +26,10 @@ export const mfShared = {
   'react-dom': { singleton: true, requiredVersion: '^19.2.0' },
   'react-router-dom': { singleton: true, requiredVersion: '^7.13.1' },
   '@cinte/ui-shell': { singleton: true },
+  'aws-amplify': { singleton: true },
+  'aws-amplify/auth': { singleton: true },
+  '@cinte/api-client': { singleton: true },
+  '@cinte/shared': { singleton: true }
 };
 
 
