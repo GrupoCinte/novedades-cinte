@@ -20,11 +20,13 @@ Amplify.configure({
  * Inyecta automáticamente el token JWT de Cognito si la sesión está activa.
  */
 export async function apiFetch(path, options = {}) {
-  let token = null;
+  let token = options.token || (options.headers?.Authorization ? String(options.headers.Authorization).replace('Bearer ', '').trim() : null);
   try {
-    const session = await fetchAuthSession();
-    if (session && session.tokens && session.tokens.idToken) {
-      token = session.tokens.idToken.toString();
+    if (!token) {
+      const session = await fetchAuthSession();
+      if (session && session.tokens && session.tokens.idToken) {
+        token = session.tokens.idToken.toString();
+      }
     }
   } catch (e) {
     // Fallback: si Amplify falla en el MFE (por falta de env vars en el build), leer directamente de localStorage

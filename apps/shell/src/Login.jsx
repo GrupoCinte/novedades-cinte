@@ -38,6 +38,7 @@ export default function Login({ setAuth }) {
       if (!authData?.user) {
         throw new Error("Autenticación fallida");
       }
+      authData.token = authData.user.token;
       setAuth(authData);
       tryGpVincularCognitoSelf(authData.user);
       nav("/admin", { replace: true });
@@ -94,6 +95,7 @@ export default function Login({ setAuth }) {
         newPassword,
         phone,
       );
+      authData.token = authData.user?.token;
       setAuth(authData);
       tryGpVincularCognitoSelf(authData.user);
       nav("/admin", { replace: true });

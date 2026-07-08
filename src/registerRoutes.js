@@ -757,7 +757,7 @@ function registerRoutes(deps) {
     });
 
     app.get('/api/me', verificarToken, async (req, res) => {
-        const payload = { ok: true, me: req.user };
+        const payload = { ok: true, me: req.user, token: req.authToken };
         await attachDevDbProbe(payload);
         res.json(payload);
     });

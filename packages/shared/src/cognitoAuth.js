@@ -25,7 +25,8 @@ async function getAuthUser() {
             email: payload.email,
             name: payload.name || payload.email,
             role: groups[0] || 'consultor',
-            permissions: []
+            permissions: [],
+            token: session.tokens.idToken.toString()
         };
     } catch (e) {
         return null;
