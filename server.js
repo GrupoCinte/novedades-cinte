@@ -231,7 +231,7 @@ app.use(cors({
             if (corsAllowTryCloudflare && parsed.hostname.endsWith('.trycloudflare.com')) {
                 return callback(null, true);
             }
-            if (parsed.hostname.endsWith('.amplifyapp.com') || parsed.hostname.endsWith('.loca.lt') || parsed.hostname.endsWith('.pinggy.net') || parsed.hostname.endsWith('.pinggy.link')) {
+            if (parsed.hostname.endsWith('.amplifyapp.com') || parsed.hostname.endsWith('.loca.lt') || parsed.hostname.endsWith('.pinggy.net') || parsed.hostname.endsWith('.pinggy.link') || parsed.hostname.endsWith('.ngrok-free.app')) {
                 return callback(null, true);
             }
         } catch {
@@ -241,7 +241,7 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-cinte-xsrf', 'X-Request-Id', 'Bypass-Tunnel-Reminder', 'X-Pinggy-No-Screen'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-cinte-xsrf', 'X-Request-Id', 'Bypass-Tunnel-Reminder', 'X-Pinggy-No-Screen', 'ngrok-skip-browser-warning'],
     exposedHeaders: ['X-Request-Id']
 }));
 

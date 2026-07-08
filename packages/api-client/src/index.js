@@ -45,6 +45,7 @@ export async function apiFetch(path, options = {}) {
     'Content-Type': 'application/json',
     'Bypass-Tunnel-Reminder': 'true',
     'X-Pinggy-No-Screen': 'true',
+    'ngrok-skip-browser-warning': 'true',
     ...(options.headers || {}),
   });
 
