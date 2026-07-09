@@ -54,7 +54,7 @@ export async function apiFetch(path, options = {}) {
   }
 
   // Prepend API URL si el path es relativo
-  const baseUrl = import.meta.env.VITE_API_URL || 'https://small-bobcats-throw.loca.lt';
+  const baseUrl = import.meta.env.VITE_API_URL ?? '';
   const fullPath = path.startsWith('http') ? path : `${baseUrl}${path}`;
 
   const finalCredentials = options.credentials || 'omit';

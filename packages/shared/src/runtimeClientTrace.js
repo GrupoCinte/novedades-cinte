@@ -18,7 +18,7 @@ function isBenignViteWsRejection(msg, stack) {
     return s.includes('@vite/client') || s.includes('vite') || m.includes('without opened');
 }
 
-const baseUrl = import.meta.env.VITE_API_URL || 'https://small-bobcats-throw.loca.lt';
+const baseUrl = import.meta.env.VITE_API_URL ?? '';
 
 function postTrace(payload) {
     const route = typeof window !== 'undefined' ? window.location.pathname : '';

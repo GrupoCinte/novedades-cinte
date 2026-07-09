@@ -18,7 +18,7 @@ export function authHeadersForDirectorio(token) {
     return headers;
 }
 
-const baseUrl = import.meta.env.VITE_API_URL || 'https://small-bobcats-throw.loca.lt';
+const baseUrl = import.meta.env.VITE_API_URL ?? '';
 
 async function fetchJsonOk(token, path, signal = undefined) {
     /** Igual que conciliaciones: cookie `cinteSession` puede autenticar sin Bearer en memoria. */

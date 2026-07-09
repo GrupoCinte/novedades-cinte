@@ -17,7 +17,7 @@ export function authHeaders(token) {
     return headers;
 }
 
-const baseUrl = import.meta.env.VITE_API_URL || 'https://small-bobcats-throw.loca.lt';
+const baseUrl = import.meta.env.VITE_API_URL ?? '';
 
 export async function fetchMallasTurnos(token, cliente, desde, hasta, origen) {
     const qs = new URLSearchParams({ cliente, desde, hasta });
