@@ -131,7 +131,14 @@ export function PersonalView({
     useEffect(() => {
         let alive = true;
         const baseUrl = import.meta.env.VITE_API_URL ?? '';
-        fetch(`${baseUrl}/api/catalogos/clientes`, { credentials: 'include' })
+        fetch(`${baseUrl}/api/catalogos/clientes`, { 
+            credentials: 'include',
+            headers: {
+                'Bypass-Tunnel-Reminder': 'true',
+                'X-Pinggy-No-Screen': 'true',
+                'ngrok-skip-browser-warning': 'true'
+            }
+        })
             .then((r) => r.json().catch(() => ({})))
             .then((d) => {
                 if (alive && Array.isArray(d?.items)) setClientes(d.items);

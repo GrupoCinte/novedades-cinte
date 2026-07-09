@@ -16,7 +16,14 @@ import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.
 async function fetchClientes() {
     try {
         const baseUrl = import.meta.env.VITE_API_URL ?? '';
-        const res = await fetch(`${baseUrl}/api/catalogos/clientes`, { credentials: 'include' });
+        const res = await fetch(`${baseUrl}/api/catalogos/clientes`, { 
+            credentials: 'include',
+            headers: {
+                'Bypass-Tunnel-Reminder': 'true',
+                'X-Pinggy-No-Screen': 'true',
+                'ngrok-skip-browser-warning': 'true'
+            }
+        });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) return [];
         return Array.isArray(data.items) ? data.items : [];
@@ -31,7 +38,12 @@ async function fetchLideres(cliente) {
     try {
         const baseUrl = import.meta.env.VITE_API_URL ?? '';
         const res = await fetch(`${baseUrl}/api/catalogos/lideres?cliente=${encodeURIComponent(c)}`, {
-            credentials: 'include'
+            credentials: 'include',
+            headers: {
+                'Bypass-Tunnel-Reminder': 'true',
+                'X-Pinggy-No-Screen': 'true',
+                'ngrok-skip-browser-warning': 'true'
+            }
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) return [];

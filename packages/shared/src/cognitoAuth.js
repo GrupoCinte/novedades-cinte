@@ -35,7 +35,12 @@ async function getAuthUser() {
 
 // Mantener esto por retrocompatibilidad temporal con el SPA si es necesario
 export function buildCsrfHeaders(headers = {}) {
-    return headers; 
+    return {
+        ...headers,
+        'Bypass-Tunnel-Reminder': 'true',
+        'X-Pinggy-No-Screen': 'true',
+        'ngrok-skip-browser-warning': 'true'
+    }; 
 }
 
 export async function cognitoSignIn(emailOrUsername, password, roleRequested = '') {

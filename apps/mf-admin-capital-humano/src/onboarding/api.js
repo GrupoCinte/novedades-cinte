@@ -8,8 +8,13 @@ const AXIOS_TIMEOUT_MS = 30000;
 
 function authHeaders(token) {
     const t = String(token || '').trim();
-    if (!t) return {};
-    return { Authorization: `Bearer ${t}` };
+    const headers = {
+        'Bypass-Tunnel-Reminder': 'true',
+        'X-Pinggy-No-Screen': 'true',
+        'ngrok-skip-browser-warning': 'true'
+    };
+    if (t) headers.Authorization = `Bearer ${t}`;
+    return headers;
 }
 
 function xsrfFromCookie() {
