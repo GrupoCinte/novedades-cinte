@@ -67,7 +67,7 @@ export default function ChangePassword() {
                 value={current}
                 onChange={(e) => setCurrent(e.target.value)}
                 placeholder="••••••••"
-                className={`${au.authInputTight} pl-10 pr-10`}
+                className={`${au.authInputTight} !pl-10 !pr-10`}
               />
               <button
                 type="button"
@@ -92,7 +92,7 @@ export default function ChangePassword() {
                 value={pw}
                 onChange={(e) => setPw(e.target.value)}
                 placeholder="••••••••"
-                className={`${au.authInputTight} pl-10 pr-10`}
+                className={`${au.authInputTight} !pl-10 !pr-10`}
               />
               <button
                 type="button"
@@ -117,7 +117,7 @@ export default function ChangePassword() {
                 value={pw2}
                 onChange={(e) => setPw2(e.target.value)}
                 placeholder="••••••••"
-                className={`${au.authInputTight} pl-10 pr-10`}
+                className={`${au.authInputTight} !pl-10 !pr-10`}
               />
               <button
                 type="button"

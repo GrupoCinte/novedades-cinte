@@ -1,10 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
-const baseUrl = import.meta.env.VITE_API_URL || 'https://small-bobcats-throw.loca.lt';
-const apiUrl = `${baseUrl}/api/contratacion/monitor`;
-axios.defaults.baseURL = baseUrl;
-axios.defaults.headers.common['Bypass-Tunnel-Reminder'] = 'true';
-axios.defaults.headers.common['ngrok-skip-browser-warning'] = 'true';
 const API_PREFIX = '/api/contratacion';
 const WS_PATH = '/api/contratacion/ws';
 

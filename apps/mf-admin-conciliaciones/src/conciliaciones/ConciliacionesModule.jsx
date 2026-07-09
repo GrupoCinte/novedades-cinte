@@ -19,6 +19,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
         menuFab,
         sidebarIconBtn,
         navOutline,
+        navInactive,
         email,
         borderSubtle,
         mainCanvas,
@@ -37,8 +38,11 @@ export default function ConciliacionesModule({ auth, onLogout }) {
 
     const navItemClass = (active) =>
         `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
-            active ? 'bg-[#2F7BB8] shadow-[0_4px_12px_rgba(47,123,184,0.3)] text-white' : navOutline
+            active ? 'bg-[#2F7BB8] shadow-[0_4px_12px_rgba(47,123,184,0.3)] text-white' : navInactive
         }`;
+
+    const navIconClass = (active) =>
+        `flex-shrink-0 ${active ? 'text-white' : isLight ? 'text-slate-600' : 'text-slate-500'}`;
 
     const closeMobile = () => setMobileMenuOpen(false);
 
@@ -113,7 +117,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         }}
                         className={navItemClass(onDashboard)}
                     >
-                        <LayoutDashboard size={17} />
+                        <LayoutDashboard size={17} className={navIconClass(onDashboard)} />
                         <span>Dashboard</span>
                     </button>
                     <button
@@ -124,7 +128,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         }}
                         className={navItemClass(onResumen)}
                     >
-                        <Scale size={17} />
+                        <Scale size={17} className={navIconClass(onResumen)} />
                         <span>Resumen por cliente</span>
                     </button>
                     <button
@@ -135,7 +139,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         }}
                         className={navItemClass(onFacturacion)}
                     >
-                        <Receipt size={17} />
+                        <Receipt size={17} className={navIconClass(onFacturacion)} />
                         <span>Facturación</span>
                     </button>
                     <button
@@ -146,7 +150,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         }}
                         className={navItemClass(onServicios)}
                     >
-                        <Briefcase size={17} />
+                        <Briefcase size={17} className={navIconClass(onServicios)} />
                         <span>Servicios</span>
                     </button>
                 </nav>
@@ -210,9 +214,9 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         title={!sidebarOpen ? 'Dashboard' : undefined}
                         className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
                             sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
-                        } ${onDashboard ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navOutline}`}
+                        } ${onDashboard ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
                     >
-                        <LayoutDashboard size={18} className={`flex-shrink-0 ${onDashboard ? 'text-white' : isLight ? 'text-slate-600' : 'text-slate-500'}`} />
+                        <LayoutDashboard size={18} className={navIconClass(onDashboard)} />
                         {sidebarOpen ? <span className="truncate whitespace-nowrap">Dashboard</span> : null}
                     </button>
                     <button
@@ -221,9 +225,9 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         title={!sidebarOpen ? 'Resumen' : undefined}
                         className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
                             sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
-                        } ${onResumen ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navOutline}`}
+                        } ${onResumen ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
                     >
-                        <Scale size={18} className={`flex-shrink-0 ${onResumen ? 'text-white' : isLight ? 'text-slate-600' : 'text-slate-500'}`} />
+                        <Scale size={18} className={navIconClass(onResumen)} />
                         {sidebarOpen ? <span className="truncate whitespace-nowrap">Resumen por cliente</span> : null}
                     </button>
                     <button
@@ -232,9 +236,9 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         title={!sidebarOpen ? 'Facturación' : undefined}
                         className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
                             sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
-                        } ${onFacturacion ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navOutline}`}
+                        } ${onFacturacion ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
                     >
-                        <Receipt size={18} className={`flex-shrink-0 ${onFacturacion ? 'text-white' : isLight ? 'text-slate-600' : 'text-slate-500'}`} />
+                        <Receipt size={18} className={navIconClass(onFacturacion)} />
                         {sidebarOpen ? <span className="truncate whitespace-nowrap">Facturación</span> : null}
                     </button>
                     <button
@@ -243,9 +247,9 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         title={!sidebarOpen ? 'Servicios' : undefined}
                         className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
                             sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
-                        } ${onServicios ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navOutline}`}
+                        } ${onServicios ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
                     >
-                        <Briefcase size={18} className={`flex-shrink-0 ${onServicios ? 'text-white' : isLight ? 'text-slate-600' : 'text-slate-500'}`} />
+                        <Briefcase size={18} className={navIconClass(onServicios)} />
                         {sidebarOpen ? <span className="truncate whitespace-nowrap">Servicios</span> : null}
                     </button>
                 </nav>
@@ -259,7 +263,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                 />
             </aside>
 
-            <section className={`flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${mainCanvas}`}>
+            <section className={`flex min-h-0 min-w-0 flex-1 flex-col ${mainCanvas}`}>
                 <Outlet />
             </section>
         </div>

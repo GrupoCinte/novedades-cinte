@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import http from 'node:http';
 import https from 'node:https';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { federation } from '@module-federation/vite';
@@ -31,9 +32,9 @@ export const mfShared = {
 
 export function createRemoteConfig({ name, port, exposes }) {
   return {
+    envDir: repoRoot,
     plugins: [
       react(),
-      tailwindcss(),
       federation({
         name,
         filename: 'remoteEntry.js',
@@ -42,6 +43,12 @@ export function createRemoteConfig({ name, port, exposes }) {
         dts: false,
       }),
     ],
+
+    define: Object.fromEntries(
+      Object.entries(loadEnv(process.env.NODE_ENV || 'development', repoRoot, 'VITE_')).map(
+        ([key, val]) => [`import.meta.env.${key}`, JSON.stringify(val)]
+      )
+    ),
     resolve: { alias: workspaceAliases() },
     server: {
       port,
@@ -114,7 +121,6 @@ export function createShellConfig(env, options = {}) {
   return {
     plugins: [
       react(),
-      tailwindcss(),
       federation({
         name: 'shell',
         remotes: remoteEntries,
@@ -122,6 +128,12 @@ export function createShellConfig(env, options = {}) {
         dts: false,
       }),
     ],
+
+    define: Object.fromEntries(
+      Object.entries(loadEnv(mode, repoRoot, 'VITE_')).map(
+        ([key, val]) => [`import.meta.env.${key}`, JSON.stringify(val)]
+      )
+    ),
     resolve: { alias: workspaceAliases() },
     server: {
       port: devPort,

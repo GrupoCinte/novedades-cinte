@@ -6,7 +6,7 @@ import { userHasContratacionPanel } from '@cinte/shared/contratacionAccess.js';
 import { userHasOnboardingPanel } from '@cinte/shared/onboardingAccess.js';
 import { userHasDirectorioPanel } from '@cinte/shared/directorioAccess.js';
 import { UserAccountMenu, useUiTheme, ADMIN_PORTAL_UNIFIED_TITLE } from '@cinte/ui-shell';
-import { CONCILIACIONES_MODULE_ENABLED } from './featureFlags.js';
+import { CONCILIACIONES_MODULE_ENABLED } from '@cinte/shared/featureFlags.js';
 
 function resolveWelcomeName(auth) {
     const u = auth?.user && typeof auth.user === 'object' ? auth.user : {};

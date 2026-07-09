@@ -1,36 +1,62 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Home, Menu, X, Calculator } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ChevronLeft, ChevronRight, Home, Menu, X, Calculator, FileText, LayoutDashboard } from 'lucide-react';
 import CotizadorPage from './cotizador/CotizadorPage';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
+const VISTAS = [
+    { id: 'nueva', label: 'Nueva Cotización', icon: Calculator },
+    { id: 'cotizaciones', label: 'Mis Cotizaciones', icon: FileText },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }
+];
+
+const VISTA_IDS = VISTAS.map((v) => v.id);
+
 export default function ComercialModule({ token, auth, onLogout }) {
     const navigate = useNavigate();
-    const location = useLocation();
+    const [searchParams, setSearchParams] = useSearchParams();
     const mt = useModuleTheme();
     const { shell, aside, asideHeaderBorder, scrim, menuFab, sidebarIconBtn, navOutline, email, borderSubtle, mainCanvas, isLight } = mt;
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const path = location.pathname || '';
-    const onCotizador = path === '/admin/comercial' || path === '/admin/comercial/';
+
+    const rawVista = String(searchParams.get('v') || '').toLowerCase();
+    const vista = VISTA_IDS.includes(rawVista) ? rawVista : 'nueva';
+
+    const goVista = (id) => {
+        setSearchParams({ v: id });
+        setMobileMenuOpen(false);
+    };
 
     const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
-    const navCotizadorClass = (active) =>
+    const userAccent = {
+        accentClass: 'text-[#088DC6]',
+        accentBgClass: 'bg-[#088DC6]/20 border-[#088DC6]/30'
+    };
+
+    const drawerItemClass = (active) =>
         `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
             active
                 ? 'bg-[#088DC6] shadow-[0_4px_12px_rgba(8,141,198,0.3)] text-white'
                 : navOutline
         }`;
 
-    const userAccent = {
-        accentClass: 'text-[#088DC6]',
-        accentBgClass: 'bg-[#088DC6]/20 border-[#088DC6]/30'
-    };
+    const railItemClass = (active) =>
+        `flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left ${
+            sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'
+        } ${active ? 'bg-[#088DC6] shadow-[0_4px_12px_rgba(8,141,198,0.3)] text-white' : navOutline}`;
+
+    const moduleContext = (
+        <>
+            <p className="text-[10px] font-heading font-black text-[#088DC6] uppercase tracking-widest whitespace-nowrap leading-tight">Módulo Comercial</p>
+            <p className="text-[10px] font-body font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap leading-tight">Cotizador CINTE</p>
+        </>
+    );
 
     return (
         <div className={shell}>
@@ -51,12 +77,7 @@ export default function ComercialModule({ token, auth, onLogout }) {
                     variant="drawer"
                     isLight={isLight}
                     asideHeaderBorder={asideHeaderBorder}
-                    moduleContext={(
-                        <>
-                            <p className="text-[10px] font-heading font-black text-[#088DC6] uppercase tracking-widest leading-tight">Módulo Comercial</p>
-                            <p className="text-[10px] font-body font-bold text-slate-400 uppercase tracking-widest leading-tight">Cotizador CINTE</p>
-                        </>
-                    )}
+                    moduleContext={moduleContext}
                     endAction={(
                         <button type="button" onClick={() => setMobileMenuOpen(false)} className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`} aria-label="Cerrar menú">
                             <X size={16} />
@@ -84,17 +105,17 @@ export default function ComercialModule({ token, auth, onLogout }) {
                         <Home size={17} />
                         <span>Inicio portal</span>
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            navigate('/admin/comercial');
-                            setMobileMenuOpen(false);
-                        }}
-                        className={navCotizadorClass(onCotizador)}
-                    >
-                        <Calculator size={17} />
-                        <span>Cotizador</span>
-                    </button>
+                    {VISTAS.map(({ id, label, icon: Icon }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => goVista(id)}
+                            className={drawerItemClass(vista === id)}
+                        >
+                            <Icon size={17} />
+                            <span>{label}</span>
+                        </button>
+                    ))}
                 </nav>
                 <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
             </aside>
@@ -106,12 +127,7 @@ export default function ComercialModule({ token, auth, onLogout }) {
                     variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
                     isLight={isLight}
                     asideHeaderBorder={asideHeaderBorder}
-                    moduleContext={(
-                        <>
-                            <p className="text-[10px] font-heading font-black text-[#088DC6] uppercase tracking-widest whitespace-nowrap leading-tight">Módulo Comercial</p>
-                            <p className="text-[10px] font-body font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap leading-tight">Cotizador CINTE</p>
-                        </>
-                    )}
+                    moduleContext={moduleContext}
                     endAction={(
                         <button
                             type="button"
@@ -143,15 +159,21 @@ export default function ComercialModule({ token, auth, onLogout }) {
                         <Home size={18} className="flex-shrink-0 text-slate-500" />
                         {sidebarOpen && <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">Inicio portal</span>}
                     </button>
-                    <button
-                        type="button"
-                        onClick={() => navigate('/admin/comercial')}
-                        title={!sidebarOpen ? 'Cotizador' : undefined}
-                        className={`flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'} ${onCotizador ? 'bg-[#088DC6] shadow-[0_4px_12px_rgba(8,141,198,0.3)] text-white' : navOutline}`}
-                    >
-                        <Calculator size={18} className={`flex-shrink-0 ${onCotizador ? 'text-white' : 'text-slate-500'}`} />
-                        {sidebarOpen && <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">Cotizador</span>}
-                    </button>
+                    {VISTAS.map(({ id, label, icon: Icon }) => {
+                        const active = vista === id;
+                        return (
+                            <button
+                                key={id}
+                                type="button"
+                                onClick={() => goVista(id)}
+                                title={!sidebarOpen ? label : undefined}
+                                className={railItemClass(active)}
+                            >
+                                <Icon size={18} className={`flex-shrink-0 ${active ? 'text-white' : 'text-slate-500'}`} />
+                                {sidebarOpen && <span className="truncate whitespace-nowrap overflow-hidden transition-all duration-300">{label}</span>}
+                            </button>
+                        );
+                    })}
                 </nav>
 
                 <AdminModuleSidebarFooter
@@ -164,7 +186,7 @@ export default function ComercialModule({ token, auth, onLogout }) {
             </aside>
 
             <section className={`flex-1 min-w-0 min-h-0 h-full overflow-y-auto ${mainCanvas}`}>
-                <CotizadorPage token={token} embedded />
+                <CotizadorPage token={token} embedded vista={vista} onVistaChange={goVista} />
             </section>
         </div>
     );

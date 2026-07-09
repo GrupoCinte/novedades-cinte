@@ -1,4 +1,4 @@
-import './index.css';
+import './tailwind.css';
 import Dashboard from './Dashboard.jsx';
 
 export default function NovedadesRoot(props) {

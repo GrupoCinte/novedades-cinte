@@ -1,4 +1,3 @@
-import { apiFetch } from '@cinte/api-client';
 import { useEffect, useState } from 'react';
 import { formatMoney } from './salarioFormat';
 import { useModuleTheme } from '../moduleTheme.js';
@@ -14,7 +13,7 @@ export default function CotizadorResultados({
     /** Sin tarjeta exterior (p. ej. dentro del modal cristal del cotizador). */
     embedded = false
 }) {
-    const { cardPanel, insetWell, panelTitle, labelMuted, borderSubtle, tableHeadRow, tableBodyRow } = useModuleTheme();
+    const { cardPanel, insetWell, panelTitle, labelMuted, borderSubtle, tableHeadRow, tableBodyRow, primaryBtn, outlineBtn } = useModuleTheme();
     const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewError, setPreviewError] = useState('');
@@ -39,7 +38,7 @@ export default function CotizadorResultados({
             try {
                 const headers = buildCsrfHeaders({ 'Content-Type': 'application/json' });
                 if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
-                const res = await apiFetch('/api/cotizador/pdf', {
+                const res = await fetch('/api/cotizador/pdf', {
                     method: 'POST',
                     credentials: 'include',
                     headers,
@@ -94,17 +93,17 @@ export default function CotizadorResultados({
                         type="button"
                         onClick={onDescargarPdf}
                         disabled={descargandoPdf}
-                        className="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white"
+                        className={`${outlineBtn} disabled:opacity-50`}
                     >
-                        {descargandoPdf ? 'Generando PDF...' : 'Descargar PDF'}
+                        {descargandoPdf ? 'Generando PDF…' : 'Descargar PDF'}
                     </button>
                     <button
                         type="button"
                         onClick={onGuardar}
                         disabled={guardando}
-                        className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white"
+                        className={primaryBtn}
                     >
-                        {guardando ? 'Guardando...' : 'Guardar cotización'}
+                        {guardando ? 'Guardando…' : 'Guardar cotización'}
                     </button>
                 </div>
             </div>

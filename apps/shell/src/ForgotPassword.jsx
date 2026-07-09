@@ -91,7 +91,7 @@ export default function ForgotPassword() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="usuario@empresa.com"
-                  className={`${au.authInputTight} pl-10`}
+                  className={`${au.authInputTight} !pl-10`}
                 />
               </div>
             </div>

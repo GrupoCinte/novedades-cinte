@@ -163,7 +163,7 @@ export default function Login({ setAuth }) {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="usuario@empresa.com"
-                  className={`${au.authInput} pl-10`}
+                  className={`${au.authInput} !pl-10`}
                 />
               </div>
             </div>
@@ -182,7 +182,7 @@ export default function Login({ setAuth }) {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className={`${au.authInput} pl-10 pr-10`}
+                  className={`${au.authInput} !pl-10 !pr-10`}
                 />
                 <button
                   type="button"
@@ -220,7 +220,7 @@ export default function Login({ setAuth }) {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Nueva contraseña"
-                    className={`${au.authInput} pr-10`}
+                    className={`${au.authInput} !pr-10`}
                   />
                   <button
                     type="button"
@@ -237,7 +237,7 @@ export default function Login({ setAuth }) {
                     value={confirmNewPassword}
                     onChange={(e) => setConfirmNewPassword(e.target.value)}
                     placeholder="Confirmar nueva contraseña"
-                    className={`${au.authInput} pr-10`}
+                    className={`${au.authInput} !pr-10`}
                   />
                   <button
                     type="button"

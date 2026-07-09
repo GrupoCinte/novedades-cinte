@@ -1,11 +1,12 @@
-/** Textos de marca del sidebar (paridad con rama `testing`). */
+/** Textos de marca del sidebar, alineados con Dashboard (Sistema Análisis + subtítulo del módulo). */
 export const CONCILIACIONES_SIDEBAR_BRAND = {
-    line1: 'Conciliaciones',
-    line2: 'Facturación vs novedades'
+    line1: 'Sistema Análisis',
+    line2: 'Conciliaciones CINTE'
 };
 
-/** Contenedor principal de subrutas (paridad con rama `testing`). */
-export const CONCILIACIONES_PAGE_MAIN = 'min-h-0 flex-1 space-y-5 p-4 sm:p-6';
+/** Clases de contenedor principal alineadas con `<main>` de Dashboard.jsx (Novedades). */
+export const CONCILIACIONES_PAGE_MAIN =
+    'flex-1 overflow-y-auto scroll-smooth p-4 pt-12 md:pt-6 md:p-6 animate-in fade-in duration-300 min-h-0 space-y-5';
 
 /** Padding + shell alineados con el tab Gestión de Novedades (Dashboard). */
 export { GESTION_MODULE_PAGE_PADDING as CONCILIACIONES_FACTURACION_PAGE } from '../gestionTableDashTheme.js';

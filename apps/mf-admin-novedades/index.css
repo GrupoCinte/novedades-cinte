@@ -2,6 +2,5 @@
 @import "@cinte/ui-shell/cinte-fonts.css";
 @import "@cinte/ui-shell/cinte-tailwind-theme.css";
 @import "@cinte/ui-shell/cinte-global.css";
-@source "../../../packages/ui-shell/src";
-@source "../../../packages/shared/src";
-@source "./";
+@source "./src/**/*.{js,jsx,ts,tsx}";
+@source "../../packages/ui-shell/src/**/*.{js,jsx,ts,tsx}";

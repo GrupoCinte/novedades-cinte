@@ -8,14 +8,7 @@ import ClienteMesSelectors from './components/ClienteMesSelectors.jsx';
 import ConciliacionesMetricCards from './components/ConciliacionesMetricCards.jsx';
 import ConciliacionesTabla from './components/ConciliacionesTabla.jsx';
 import ConciliacionesDetalleModal from './components/ConciliacionesDetalleModal.jsx';
-import ConciliacionesFacturacionEstadosResumen from './components/ConciliacionesFacturacionEstadosResumen.jsx';
 import { fetchConciliacionesClientes, fetchConciliacionPorCliente, fetchConciliacionNovedadesDetalle } from './conciliacionesApi.js';
-import {
-    filterFacturacionRows,
-    buildFacturacionTotales,
-    toggleFacturacionEstadoFilter,
-    shouldShowFacturacionEstadosResumen
-} from './facturacionLogic.js';
 
 function currentMonthValue() {
     const d = new Date();
@@ -49,50 +42,7 @@ export default function ConciliacionesPage({ token }) {
     const [loadingResumen, setLoadingResumen] = useState(false);
     const [error, setError] = useState('');
 
-    const [fSearch, setFSearch] = useState('');
-    const [fEstado, setFEstado] = useState('');
-    const [fCerrado, setFCerrado] = useState('TODOS');
-    const [fProyecto, setFProyecto] = useState('');
-    const [fNovedades, setFNovedades] = useState('TODOS');
-
-    const facturacionFilters = useMemo(
-        () => ({ fSearch, fEstado, fCerrado, fProyecto, fNovedades }),
-        [fSearch, fEstado, fCerrado, fProyecto, fNovedades]
-    );
-
-    const handleResetFilters = useCallback(() => {
-        setFSearch('');
-        setFEstado('');
-        setFCerrado('TODOS');
-        setFProyecto('');
-        setFNovedades('TODOS');
-    }, []);
-
-    const handleEstadoPillClick = useCallback((estadoKey) => {
-        setFEstado((prev) => toggleFacturacionEstadoFilter(prev, estadoKey));
-    }, []);
-
-    const handleClienteChange = useCallback(
-        (nextCliente) => {
-            const v = String(nextCliente || '').trim();
-            setCliente(v);
-            if (v) handleResetFilters();
-        },
-        [handleResetFilters]
-    );
-
     const ym = useMemo(() => parseMonthValue(monthValue), [monthValue]);
-    const isTodosClientes = !String(cliente || '').trim();
-
-    const filteredRows = useMemo(
-        () => filterFacturacionRows(rows, facturacionFilters),
-        [rows, facturacionFilters]
-    );
-
-    const facturacionTotales = useMemo(
-        () => buildFacturacionTotales(rows, totales),
-        [rows, totales]
-    );
 
     useEffect(() => {
         let cancelled = false;
@@ -125,7 +75,7 @@ export default function ConciliacionesPage({ token }) {
     }, [clientes, clienteQuery]);
 
     const loadResumen = useCallback(async () => {
-        if (!ym.year || !ym.month) {
+        if (!cliente || !ym.year || !ym.month) {
             setRows([]);
             setTotales(null);
             return;
@@ -156,15 +106,14 @@ export default function ConciliacionesPage({ token }) {
 
     const openDetalle = useCallback(
         async (row) => {
-            const clienteRow = String(row?.cliente || cliente || '').trim();
-            if (!clienteRow || !ym.year || !ym.month) return;
+            if (!cliente || !ym.year || !ym.month) return;
             setModalRow(row);
             setModalOpen(true);
             setModalLoading(true);
             setModalItems([]);
             try {
                 const items = await fetchConciliacionNovedadesDetalle(token, {
-                    cliente: clienteRow,
+                    cliente,
                     cedula: row.cedula,
                     year: ym.year,
                     month: ym.month
@@ -182,7 +131,7 @@ export default function ConciliacionesPage({ token }) {
 
     const modalLabel = modalRow ? `${modalRow.nombre} · ${modalRow.cedula}` : '';
 
-    const tableLoading = loadingList || loadingResumen;
+    const tableLoading = loadingList || (loadingResumen && Boolean(cliente));
 
     return (
         <div className={`${CONCILIACIONES_PAGE_MAIN} pb-2`}>
@@ -201,23 +150,11 @@ export default function ConciliacionesPage({ token }) {
                             variant="gestion"
                             clientes={clientes}
                             clienteValue={cliente}
-                            onClienteChange={handleClienteChange}
+                            onClienteChange={setCliente}
                             monthValue={monthValue}
                             onMonthChange={setMonthValue}
                             field={field}
                             labelMuted={labelMuted}
-                            isFacturacion={true}
-                            fSearch={fSearch}
-                            onSearchChange={setFSearch}
-                            fEstado={fEstado}
-                            onEstadoChange={setFEstado}
-                            fCerrado={fCerrado}
-                            onCerradoChange={setFCerrado}
-                            fProyecto={fProyecto}
-                            onProyectoChange={setFProyecto}
-                            fNovedades={fNovedades}
-                            onNovedadesChange={setFNovedades}
-                            onResetFilters={handleResetFilters}
                         />
                     )}
                     headerExtra={
@@ -236,26 +173,14 @@ export default function ConciliacionesPage({ token }) {
                     footer={
                         rows.length > 0 ? (
                             <div className={dash.footerBar}>
-                                <span>Mostrando {filteredRows.length} de {rows.length} registros</span>
+                                <span>Mostrando {rows.length} de {rows.length} registros</span>
                             </div>
                         ) : null
                     }
                 >
-                    {shouldShowFacturacionEstadosResumen(isTodosClientes) && facturacionTotales?.estados && !loadingResumen ? (
-                        <div className="px-4 pt-3 pb-1">
-                            <ConciliacionesFacturacionEstadosResumen
-                                variant="inline"
-                                estados={facturacionTotales.estados}
-                                activeEstado={fEstado}
-                                onEstadoClick={handleEstadoPillClick}
-                                isLight={isLight}
-                            />
-                        </div>
-                    ) : null}
                     <ConciliacionesTabla
                         embedded
-                        rows={filteredRows}
-                        showClienteColumn={!cliente}
+                        rows={rows}
                         onVerDetalle={openDetalle}
                         headingAccent={headingAccent}
                         labelMuted={labelMuted}

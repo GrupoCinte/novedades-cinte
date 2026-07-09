@@ -88,7 +88,7 @@ export default function ResetPassword() {
                 value={pw}
                 onChange={(e) => setPw(e.target.value)}
                 placeholder="••••••••"
-                className={`${au.authInputTight} pl-10 pr-10`}
+                className={`${au.authInputTight} !pl-10 !pr-10`}
               />
               <button
                 type="button"
@@ -113,7 +113,7 @@ export default function ResetPassword() {
                 value={pw2}
                 onChange={(e) => setPw2(e.target.value)}
                 placeholder="••••••••"
-                className={`${au.authInputTight} pl-10 pr-10`}
+                className={`${au.authInputTight} !pl-10 !pr-10`}
               />
               <button
                 type="button"

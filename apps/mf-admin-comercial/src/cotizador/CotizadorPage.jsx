@@ -1,4 +1,3 @@
-import { apiFetch } from '@cinte/api-client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { resolveCargosLista } from './resolveCargosLista';
@@ -26,7 +25,7 @@ function authHeadersJson(token, extra = {}) {
 
 /** Misma lista que el formulario de novedades: `clientes_lideres` vía API de catálogo. */
 async function fetchClientesDesdeBdCatalogo(token) {
-    const res = await apiFetch('/api/catalogos/clientes', {
+    const res = await fetch('/api/catalogos/clientes', {
         credentials: 'include',
         headers: authHeadersJson(token)
     });
@@ -54,7 +53,7 @@ function mergeClienteRowsDedupe(rowsA, rowsB) {
 }
 
 async function api(path, token, options = {}) {
-    const res = await apiFetch(path, {
+    const res = await fetch(path, {
         credentials: 'include',
         ...options,
         headers: {
@@ -74,12 +73,21 @@ async function api(path, token, options = {}) {
     return data;
 }
 
-export default function CotizadorPage({ token, embedded = false }) {
-    const { cotizadorCanvas, labelMuted, isLight, ghostBtn, pageErrorBanner } = useModuleTheme();
+const SECCIONES = {
+    nueva: { titulo: 'Nueva Cotización', subtitulo: 'Completa los datos para crear una nueva cotización' },
+    cotizaciones: { titulo: 'Cotizaciones', subtitulo: 'Gestiona tus cotizaciones y propuestas' },
+    dashboard: { titulo: 'Dashboard', subtitulo: 'Indicadores del cotizador' }
+};
+
+export default function CotizadorPage({ token, vista = 'nueva', onVistaChange }) {
+    const { cotizadorCanvas, labelMuted, isLight, ghostBtn, pageErrorBanner, sectionTitle, sectionSubtitle } = useModuleTheme();
+    const seccion = SECCIONES[vista] || SECCIONES.nueva;
+    const goVista = (id) => (typeof onVistaChange === 'function' ? onVistaChange(id) : undefined);
     const [loading, setLoading] = useState(false);
     const [guardando, setGuardando] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
     const [descargandoPdf, setDescargandoPdf] = useState(false);
+    const [descargandoHistId, setDescargandoHistId] = useState(null);
     const [catalogos, setCatalogos] = useState(null);
     const [clientesLista, setClientesLista] = useState([]);
     const [historial, setHistorial] = useState([]);
@@ -280,7 +288,7 @@ export default function CotizadorPage({ token, embedded = false }) {
         setDescargandoPdf(true);
         setError('');
         try {
-            const res = await apiFetch('/api/cotizador/pdf', {
+            const res = await fetch('/api/cotizador/pdf', {
                 method: 'POST',
                 credentials: 'include',
                 headers: authHeadersJson(token),
@@ -338,7 +346,7 @@ export default function CotizadorPage({ token, embedded = false }) {
         try {
             const headers = buildCsrfHeaders({});
             if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
-            const res = await apiFetch(`/api/cotizador/pdf/${encodeURIComponent(it.id)}`, {
+            const res = await fetch(`/api/cotizador/pdf/${encodeURIComponent(it.id)}`, {
                 method: 'GET',
                 credentials: 'include',
                 headers
@@ -369,17 +377,60 @@ export default function CotizadorPage({ token, embedded = false }) {
         }
     };
 
+    /** Descarga directa del PDF de una cotización guardada (GET por id con ?download=1). */
+    const onHistorialPdfDownload = async (it) => {
+        if (it?.id == null) return;
+        if (!Array.isArray(it?.resultados) || it.resultados.length === 0) {
+            setError('Esta cotización no tiene resultados para generar el PDF.');
+            return;
+        }
+        setDescargandoHistId(it.id);
+        setError('');
+        try {
+            const headers = buildCsrfHeaders({});
+            if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
+            const res = await fetch(`/api/cotizador/pdf/${encodeURIComponent(it.id)}?download=1`, {
+                method: 'GET',
+                credentials: 'include',
+                headers
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                if (res.status === 429) {
+                    throw new Error(err?.error || 'Límite temporal de PDF alcanzado. Espera unos minutos.');
+                }
+                throw new Error(err?.error || `No se pudo generar el PDF (HTTP ${res.status})`);
+            }
+            const blob = await res.blob();
+            if (!blob.size) throw new Error('El servidor devolvió un PDF vacío.');
+            const url = URL.createObjectURL(blob);
+            const fileName = it?.codigo
+                ? `${String(it.codigo).replace(/[^\w\-]+/g, '_')}.pdf`
+                : `cotizacion_${it.id}.pdf`;
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            setError(e.message || 'No se pudo descargar el PDF');
+        } finally {
+            setDescargandoHistId(null);
+        }
+    };
+
     return (
         <div className={cotizadorCanvas}>
-            <div className="flex items-center justify-between mb-4">
-                <h2 className={`text-xl md:text-2xl font-black font-heading ${isLight ? 'text-slate-900' : 'text-white'}`}>Cotizador Web</h2>
-                {!embedded && (
-                    <span className={`text-xs font-subtitle font-extralight ${labelMuted}`}>Módulo comercial</span>
-                )}
+            <div className="flex flex-col gap-1 mb-5">
+                <h2 className={sectionTitle}>{seccion.titulo}</h2>
+                <p className={sectionSubtitle}>{seccion.subtitulo}</p>
             </div>
             {error && <div className={pageErrorBanner}>{error}</div>}
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
-                <div className="xl:col-span-7 space-y-3">
+
+            {vista === 'nueva' && (
+                <div className="space-y-3 max-w-5xl">
                     <CotizadorForm
                         catalogos={catalogos || {}}
                         cargosResueltos={cargosResueltos}
@@ -398,18 +449,23 @@ export default function CotizadorPage({ token, embedded = false }) {
                             Ver resultados de la cotización
                         </button>
                     ) : null}
-                    <p className={`text-xs ${labelMuted}`}>Tras cotizar, los resultados se muestran en un panel emergente.</p>
+                    <p className={`text-xs ${labelMuted}`}>Tras cotizar, los resultados se muestran en un panel emergente con la vista previa del PDF.</p>
                 </div>
-                <div className="xl:col-span-5 flex flex-col gap-4 min-h-0">
-                    <CotizadorHistorial
-                        historial={historial}
-                        onDelete={onDelete}
-                        deletingId={deletingId}
-                        onHistorialPdf={onHistorialPdf}
-                    />
-                    <CotizadorDashboard dashboard={dashboard} />
-                </div>
-            </div>
+            )}
+
+            {vista === 'cotizaciones' && (
+                <CotizadorHistorial
+                    historial={historial}
+                    onDelete={onDelete}
+                    deletingId={deletingId}
+                    onHistorialPdf={onHistorialPdf}
+                    onHistorialPdfDownload={onHistorialPdfDownload}
+                    descargandoHistId={descargandoHistId}
+                    onNuevaCotizacion={() => goVista('nueva')}
+                />
+            )}
+
+            {vista === 'dashboard' && <CotizadorDashboard dashboard={dashboard} />}
 
             {resultadosModalOpen && cotizacion?.resultados?.length > 0 ? (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

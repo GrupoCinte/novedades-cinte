@@ -21,7 +21,6 @@ export default function ConciliacionesAccionMasivaModal({
     const [motivoDevolucion, setMotivoDevolucion] = useState('');
     const [observaciones, setObservaciones] = useState('');
     const [applyToFiltered, setApplyToFiltered] = useState(false);
-    const [observaciones, setObservaciones] = useState('');
     const [errorMsg, setErrorMsg] = useState('');
 
     const closeBtnRef = useRef(null);
@@ -36,7 +35,6 @@ export default function ConciliacionesAccionMasivaModal({
             setMotivoDevolucion('');
             setObservaciones('');
             setApplyToFiltered(hasActiveFilters);
-            setObservaciones('');
             setErrorMsg('');
             setTimeout(() => {
                 if (closeBtnRef.current) closeBtnRef.current.focus();
@@ -77,7 +75,7 @@ export default function ConciliacionesAccionMasivaModal({
                 facturaFv: estado === 'RADICADA' || estado === 'ENVIADA' ? facturaFv : null,
                 fechaRadicacion: estado === 'RADICADA' || estado === 'ENVIADA' ? fechaRadicacion : null,
                 motivoDevolucion: estado === 'DEVUELTA' ? motivoDevolucion : null,
-                observaciones: observaciones ? String(observaciones).trim() : null,
+                observaciones: observaciones.trim() || null,
                 applyToFiltered: Boolean(applyToFiltered && hasActiveFilters)
             });
             onClose();

@@ -1765,7 +1765,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                         })()}
 
                         {/* KPIs Row */}
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-[#123456]">
 
                             <div className={`${dash.card} relative overflow-hidden p-6 group`}>
                                 <div className="flex justify-between items-start">
