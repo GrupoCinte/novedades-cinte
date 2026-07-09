@@ -565,7 +565,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     async function deleteLiderRow(row) {
         if (!row?.id) return;
         try {
-            const res = await fetch(`/api/directorio/clientes-lideres/${row.id}`, {
+            const res = await apiFetch(`/api/directorio/clientes-lideres/${row.id}`, {
                 method: 'DELETE',
                 credentials: 'include',
                 headers: authHeaders(token)

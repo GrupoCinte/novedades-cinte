@@ -10,7 +10,12 @@ function readCookie(name) {
 }
 
 export function authHeadersForDirectorio(token) {
-    const headers = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
+    const headers = { 
+        'Content-Type': 'application/json', 
+        'ngrok-skip-browser-warning': 'true',
+        'Bypass-Tunnel-Reminder': 'true',
+        'X-Pinggy-No-Screen': 'true'
+    };
     const t = String(token || '').trim();
     if (t) headers.Authorization = `Bearer ${t}`;
     const xsrf = readCookie('cinteXsrf');

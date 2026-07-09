@@ -1,3 +1,5 @@
+const baseUrl = import.meta.env.VITE_API_URL || '';
+
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
     if (!raw) return '';
@@ -24,11 +26,14 @@ export function conciliacionesAuthHeaders(token) {
     if (t) headers.Authorization = `Bearer ${t}`;
     const xsrf = readCookie('cinteXsrf');
     if (xsrf) headers['x-cinte-xsrf'] = xsrf;
+    headers['ngrok-skip-browser-warning'] = 'true';
+    headers['Bypass-Tunnel-Reminder'] = 'true';
+    headers['X-Pinggy-No-Screen'] = 'true';
     return headers;
 }
 
 export async function fetchConciliacionesClientes(token) {
-    const res = await fetch('/api/conciliaciones/clientes', { headers: conciliacionesAuthHeaders(token), credentials: 'include' });
+    const res = await fetch(`${baseUrl}/api/conciliaciones/clientes`, { headers: conciliacionesAuthHeaders(token), credentials: 'include' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar clientes'));
     return Array.isArray(data.clientes) ? data.clientes : [];
@@ -36,7 +41,7 @@ export async function fetchConciliacionesClientes(token) {
 
 export async function fetchConciliacionesDashboardResumen(token, { year, month }) {
     const q = new URLSearchParams({ year: String(year), month: String(month) });
-    const res = await fetch(`/api/conciliaciones/dashboard-resumen?${q}`, {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/dashboard-resumen?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });
@@ -49,7 +54,7 @@ export async function fetchConciliacionPorCliente(token, { cliente, year, month 
     const q = new URLSearchParams({ year: String(year), month: String(month) });
     const clienteTrim = String(cliente || '').trim();
     if (clienteTrim) q.set('cliente', clienteTrim);
-    const res = await fetch(`/api/conciliaciones/por-cliente?${q}`, {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/por-cliente?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });
@@ -65,7 +70,7 @@ export async function fetchConciliacionNovedadesDetalle(token, { cliente, cedula
         year: String(year),
         month: String(month)
     });
-    const res = await fetch(`/api/conciliaciones/novedades-detalle?${q}`, {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/novedades-detalle?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });
@@ -75,7 +80,7 @@ export async function fetchConciliacionNovedadesDetalle(token, { cliente, cedula
 }
 
 export async function saveConciliacionFacturacion(token, payload) {
-    const res = await fetch('/api/conciliaciones/facturacion', {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/facturacion`, {
         method: 'POST',
         headers: conciliacionesAuthHeaders(token),
         body: JSON.stringify(payload),
@@ -87,7 +92,7 @@ export async function saveConciliacionFacturacion(token, payload) {
 }
 
 export async function saveConciliacionFacturacionMasiva(token, payload) {
-    const res = await fetch('/api/conciliaciones/facturacion/masiva', {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/facturacion/masiva`, {
         method: 'POST',
         headers: conciliacionesAuthHeaders(token),
         body: JSON.stringify(payload),
@@ -100,7 +105,7 @@ export async function saveConciliacionFacturacionMasiva(token, payload) {
 
 export async function fetchConciliacionesFacturacionList(token, { year, month }) {
     const q = new URLSearchParams({ year: String(year), month: String(month) });
-    const res = await fetch(`/api/conciliaciones/facturacion?${q}`, {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/facturacion?${q}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });
@@ -110,7 +115,7 @@ export async function fetchConciliacionesFacturacionList(token, { year, month })
 }
 
 export async function fetchServicios(token) {
-    const res = await fetch('/api/conciliaciones/servicios', {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/servicios`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });
@@ -120,7 +125,7 @@ export async function fetchServicios(token) {
 }
 
 export async function createServicio(token, payload) {
-    const res = await fetch('/api/conciliaciones/servicios', {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/servicios`, {
         method: 'POST',
         headers: conciliacionesAuthHeaders(token),
         body: JSON.stringify(payload),
@@ -132,7 +137,7 @@ export async function createServicio(token, payload) {
 }
 
 export async function fetchServicioConsultores(token, idServicio) {
-    const res = await fetch(`/api/conciliaciones/servicios/${idServicio}/consultores`, {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/servicios/${idServicio}/consultores`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });
@@ -142,7 +147,7 @@ export async function fetchServicioConsultores(token, idServicio) {
 }
 
 export async function associateConsultoresToServicio(token, idServicio, cedulas) {
-    const res = await fetch(`/api/conciliaciones/servicios/${idServicio}/consultores`, {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/servicios/${idServicio}/consultores`, {
         method: 'POST',
         headers: conciliacionesAuthHeaders(token),
         body: JSON.stringify({ cedulas }),
@@ -154,7 +159,7 @@ export async function associateConsultoresToServicio(token, idServicio, cedulas)
 }
 
 export async function updateServicio(token, idServicio, payload) {
-    const res = await fetch(`/api/conciliaciones/servicios/${idServicio}`, {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/servicios/${idServicio}`, {
         method: 'PUT',
         headers: conciliacionesAuthHeaders(token),
         body: JSON.stringify(payload),
@@ -166,7 +171,7 @@ export async function updateServicio(token, idServicio, payload) {
 }
 
 export async function deleteServicio(token, idServicio) {
-    const res = await fetch(`/api/conciliaciones/servicios/${idServicio}`, {
+    const res = await fetch(`${baseUrl}/api/conciliaciones/servicios/${idServicio}`, {
         method: 'DELETE',
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'

@@ -9,7 +9,12 @@ function readCookie(name) {
 }
 
 export function authHeaders(token) {
-    const headers = { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': 'true' };
+    const headers = { 
+        'Content-Type': 'application/json', 
+        'ngrok-skip-browser-warning': 'true',
+        'Bypass-Tunnel-Reminder': 'true',
+        'X-Pinggy-No-Screen': 'true'
+    };
     const t = String(token || '').trim();
     if (t) headers.Authorization = `Bearer ${t}`;
     const xsrf = readCookie('cinteXsrf');
@@ -48,7 +53,7 @@ export async function fetchMallaAprobacionStatus(token, { cliente, anio, mes, va
         mes: String(mes),
         variant
     });
-    const res = await fetch(`/api/directorio/mallas-turnos/aprobacion?${qs}`, {
+    const res = await fetch(`${baseUrl}/api/directorio/mallas-turnos/aprobacion?${qs}`, {
         headers: authHeaders(token)
     });
     const data = await res.json().catch(() => ({}));
@@ -57,7 +62,7 @@ export async function fetchMallaAprobacionStatus(token, { cliente, anio, mes, va
 }
 
 export async function postMallaAprobar(token, { cliente, anio, mes, variant }) {
-    const res = await fetch('/api/directorio/mallas-turnos/aprobar', {
+    const res = await fetch(`${baseUrl}/api/directorio/mallas-turnos/aprobar`, {
         method: 'POST',
         headers: authHeaders(token),
         body: JSON.stringify({ cliente, anio, mes, variant })
@@ -68,7 +73,7 @@ export async function postMallaAprobar(token, { cliente, anio, mes, variant }) {
 }
 
 export async function fetchNocturnoConfig(token) {
-    const res = await fetch('/api/directorio/mallas-turnos/nocturno-config', {
+    const res = await fetch(`${baseUrl}/api/directorio/mallas-turnos/nocturno-config`, {
         headers: authHeaders(token)
     });
     const data = await res.json().catch(() => ({}));
@@ -77,7 +82,7 @@ export async function fetchNocturnoConfig(token) {
 }
 
 export async function putNocturnoConfig(token, { horaInicio, horaFin }) {
-    const res = await fetch('/api/directorio/mallas-turnos/nocturno-config', {
+    const res = await fetch(`${baseUrl}/api/directorio/mallas-turnos/nocturno-config`, {
         method: 'PUT',
         headers: authHeaders(token),
         body: JSON.stringify({ horaInicio, horaFin })
