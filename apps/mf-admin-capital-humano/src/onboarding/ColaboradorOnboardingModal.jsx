@@ -15,7 +15,8 @@ import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.
 
 async function fetchClientes() {
     try {
-        const res = await fetch('/api/catalogos/clientes', { credentials: 'include' });
+        const baseUrl = import.meta.env.VITE_API_URL ?? '';
+        const res = await fetch(`${baseUrl}/api/catalogos/clientes`, { credentials: 'include' });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) return [];
         return Array.isArray(data.items) ? data.items : [];
@@ -28,7 +29,8 @@ async function fetchLideres(cliente) {
     const c = String(cliente || '').trim();
     if (!c) return [];
     try {
-        const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(c)}`, {
+        const baseUrl = import.meta.env.VITE_API_URL ?? '';
+        const res = await fetch(`${baseUrl}/api/catalogos/lideres?cliente=${encodeURIComponent(c)}`, {
             credentials: 'include'
         });
         const data = await res.json().catch(() => ({}));

@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_PREFIX = '/api/onboarding';
+const baseUrl = import.meta.env.VITE_API_URL ?? '';
+const API_PREFIX = `${baseUrl}/api/onboarding`;
 
 const AXIOS_CRED = { withCredentials: true };
 const AXIOS_TIMEOUT_MS = 30000;

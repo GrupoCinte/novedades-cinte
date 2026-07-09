@@ -381,8 +381,9 @@ export default function ActiveCandidates({
         setFinalizarSubmitting(true);
         setFinalizarError('');
         try {
+            const baseUrl = import.meta.env.VITE_API_URL ?? '';
             await axios.post(
-                '/api/contratacion/finalizar-candidato',
+                `${baseUrl}/api/contratacion/finalizar-candidato`,
                 { executionId: finalizarTarget.executionId, obs_finalizado_manual: text },
                 {
                     withCredentials: true,
@@ -419,8 +420,9 @@ export default function ActiveCandidates({
         setEliminarSubmitting(true);
         setEliminarError('');
         try {
+            const baseUrl = import.meta.env.VITE_API_URL ?? '';
             await axios.post(
-                '/api/contratacion/eliminar-candidato',
+                `${baseUrl}/api/contratacion/eliminar-candidato`,
                 { executionId: eliminarTarget.executionId, obs_eliminado: text },
                 {
                     withCredentials: true,

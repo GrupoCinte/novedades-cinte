@@ -38,7 +38,8 @@ export default function CotizadorResultados({
             try {
                 const headers = buildCsrfHeaders({ 'Content-Type': 'application/json' });
                 if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
-                const res = await fetch('/api/cotizador/pdf', {
+                const baseUrl = import.meta.env.VITE_API_URL ?? '';
+                const res = await fetch(`${baseUrl}/api/cotizador/pdf`, {
                     method: 'POST',
                     credentials: 'include',
                     headers,

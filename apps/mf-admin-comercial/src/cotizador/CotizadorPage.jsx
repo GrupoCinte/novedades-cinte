@@ -23,9 +23,11 @@ function authHeadersJson(token, extra = {}) {
     return h;
 }
 
+const baseUrl = import.meta.env.VITE_API_URL ?? '';
+
 /** Misma lista que el formulario de novedades: `clientes_lideres` vía API de catálogo. */
 async function fetchClientesDesdeBdCatalogo(token) {
-    const res = await fetch('/api/catalogos/clientes', {
+    const res = await fetch(`${baseUrl}/api/catalogos/clientes`, {
         credentials: 'include',
         headers: authHeadersJson(token)
     });
@@ -53,7 +55,8 @@ function mergeClienteRowsDedupe(rowsA, rowsB) {
 }
 
 async function api(path, token, options = {}) {
-    const res = await fetch(path, {
+    const url = path.startsWith('http') ? path : `${baseUrl}${path}`;
+    const res = await fetch(url, {
         credentials: 'include',
         ...options,
         headers: {
@@ -288,7 +291,7 @@ export default function CotizadorPage({ token, vista = 'nueva', onVistaChange })
         setDescargandoPdf(true);
         setError('');
         try {
-            const res = await fetch('/api/cotizador/pdf', {
+            const res = await fetch(`${baseUrl}/api/cotizador/pdf`, {
                 method: 'POST',
                 credentials: 'include',
                 headers: authHeadersJson(token),
@@ -346,7 +349,7 @@ export default function CotizadorPage({ token, vista = 'nueva', onVistaChange })
         try {
             const headers = buildCsrfHeaders({});
             if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
-            const res = await fetch(`/api/cotizador/pdf/${encodeURIComponent(it.id)}`, {
+            const res = await fetch(`${baseUrl}/api/cotizador/pdf/${encodeURIComponent(it.id)}`, {
                 method: 'GET',
                 credentials: 'include',
                 headers
@@ -389,7 +392,7 @@ export default function CotizadorPage({ token, vista = 'nueva', onVistaChange })
         try {
             const headers = buildCsrfHeaders({});
             if (String(token || '').trim()) headers.Authorization = `Bearer ${token}`;
-            const res = await fetch(`/api/cotizador/pdf/${encodeURIComponent(it.id)}?download=1`, {
+            const res = await fetch(`${baseUrl}/api/cotizador/pdf/${encodeURIComponent(it.id)}?download=1`, {
                 method: 'GET',
                 credentials: 'include',
                 headers

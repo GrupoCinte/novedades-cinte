@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
-const API_PREFIX = '/api/contratacion';
-const WS_PATH = '/api/contratacion/ws';
+const baseUrl = import.meta.env.VITE_API_URL ?? '';
+const API_PREFIX = `${baseUrl}/api/contratacion`;
+const WS_PATH = `${baseUrl}/api/contratacion/ws`;
 
 function axiosErrorMessage(err) {
     const d = err?.response?.data;

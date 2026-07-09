@@ -130,7 +130,8 @@ export function PersonalView({
 
     useEffect(() => {
         let alive = true;
-        fetch('/api/catalogos/clientes', { credentials: 'include' })
+        const baseUrl = import.meta.env.VITE_API_URL ?? '';
+        fetch(`${baseUrl}/api/catalogos/clientes`, { credentials: 'include' })
             .then((r) => r.json().catch(() => ({})))
             .then((d) => {
                 if (alive && Array.isArray(d?.items)) setClientes(d.items);
