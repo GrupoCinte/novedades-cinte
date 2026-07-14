@@ -2765,6 +2765,10 @@ function createDataLayer(deps) {
         return conciliacionesQueries.applyConciliacionFacturacionAjustes(conciliacionesDeps, scope, payload, actor);
     }
 
+    async function createConciliacionNovedadManualForScope(scope, payload, actor) {
+        return conciliacionesQueries.createConciliacionNovedadManual(conciliacionesDeps, scope, payload, actor);
+    }
+
     async function getConciliacionesDashboardResumenForScope(scope, year, month) {
         const servicios = await serviciosDynamoData.listServicios(conciliacionesDeps, scope);
         const payload = await conciliacionesQueries.getConciliacionesDashboardResumen(
@@ -3004,6 +3008,7 @@ function createDataLayer(deps) {
         applyConciliacionFacturacionRevisionForScope,
         applyConciliacionFacturacionRevisionMasivaForScope,
         applyConciliacionFacturacionAjustesForScope,
+        createConciliacionNovedadManualForScope,
         listConciliacionFacturacionHistorialForScope,
         upsertConciliacionFacturacionMasivaForScope,
         deleteConciliacionFacturacionForScope,
