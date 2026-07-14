@@ -33,7 +33,7 @@ export default function ClienteMesSelectors({
     omitEstadoFilter = false,
     /** Contenido a la izquierda del mes (p. ej. título workspace + volver). */
     leadingContent = null,
-    /** Mes mínimo seleccionable (YYYY-MM); p. ej. mes actual para bloquear anteriores (AUT-554). */
+    /** Mes mínimo seleccionable (YYYY-MM). Null = sin tope inferior (permite meses pasados). */
     minMonthValue = null,
     trailingActions = null,
 
