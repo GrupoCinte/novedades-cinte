@@ -738,6 +738,27 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         [token, ym.year, ym.month, refreshAfterMutation, reloadRevisionData, facturacionRow, billingQueryParams]
     );
 
+    const handleNovedadManualCreada = useCallback(
+        async () => {
+            setSavingFacturacion(true);
+            setError('');
+            setSuccess('');
+            try {
+                const resumen = await refreshAfterMutation('ajustes');
+                const cedNorm = normalizeCedula(facturacionRow?.cedula);
+                const freshRow = (resumen?.rows || []).find((r) => normalizeCedula(r.cedula) === cedNorm);
+                if (freshRow) setFacturacionRow(freshRow);
+                await reloadRevisionData(freshRow || facturacionRow);
+                setSuccess('Vacaciones en tiempo registradas correctamente.');
+            } catch (e) {
+                setError(e.message || 'No se pudo actualizar el desglose de novedades');
+            } finally {
+                setSavingFacturacion(false);
+            }
+        },
+        [refreshAfterMutation, reloadRevisionData, facturacionRow]
+    );
+
     const handleSaveFacturacion = useCallback(
         async (data) => {
             setSavingFacturacion(true);
@@ -1310,6 +1331,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                     onClose={() => setFacturacionOpen(false)}
                     onSave={handleSaveFacturacion}
                     onSaveAjustes={workspaceReadonly ? null : handleSaveAjustes}
+                    onNovedadManualCreada={workspaceReadonly ? null : handleNovedadManualCreada}
                     onEliminar={canRevertCurrentRow ? handleEliminarFromRevision : null}
                     colaborador={facturacionRow}
                     servicioNombre={servicioSel?.serviceName || ''}
