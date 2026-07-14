@@ -112,6 +112,18 @@ export async function postFacturacionAjustes(token, payload) {
     return data.data;
 }
 
+export async function createConciliacionNovedadManual(token, payload) {
+    const res = await fetch('/api/conciliaciones/novedades-manuales', {
+        method: 'POST',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify(payload),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al registrar novedad manual'));
+    return { novedadId: data.novedadId, item: data.item };
+}
+
 export async function saveConciliacionFacturacion(token, payload) {
     const res = await fetch('/api/conciliaciones/facturacion', {
         method: 'POST',
