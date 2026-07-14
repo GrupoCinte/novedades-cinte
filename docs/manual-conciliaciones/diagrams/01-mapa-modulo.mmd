@@ -1,0 +1,17 @@
+flowchart TB
+    subgraph acceso [Acceso]
+        Login[Inicio sesion CINTE]
+        Flag{Modulo habilitado}
+        RBAC{Rol con acceso}
+        Login --> Flag
+        Flag -->|No| AdminOtro[Resto portal admin]
+        Flag -->|Si| RBAC
+        RBAC -->|No| AdminOtro
+        RBAC -->|Si| Modulo[Modulo Conciliaciones]
+    end
+    subgraph nav [Navegacion lateral]
+        Modulo --> Dash[Dashboard General]
+        Modulo --> Fact[Facturacion]
+        Modulo --> Serv[Servicios]
+        Modulo --> Home[Inicio portal]
+    end

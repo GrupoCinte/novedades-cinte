@@ -1,20 +1,9 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, QueryCommand, ScanCommand, PutCommand, DeleteCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { buildDynamoLowLevelClientConfig } = require('../contratacion/awsDynamoClientConfig');
 
 function getDynamoClient() {
-    const region = process.env.AWS_REGION || 'us-east-1';
-    const config = { region };
-    if (process.env.AWS_ENDPOINT_URL_DYNAMODB || process.env.DYNAMODB_ENDPOINT) {
-        config.endpoint = process.env.AWS_ENDPOINT_URL_DYNAMODB || process.env.DYNAMODB_ENDPOINT;
-    }
-    if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-        config.credentials = {
-            accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-            ...(process.env.AWS_SESSION_TOKEN ? { sessionToken: process.env.AWS_SESSION_TOKEN } : {})
-        };
-    }
-    const client = new DynamoDBClient(config);
+    const client = new DynamoDBClient(buildDynamoLowLevelClientConfig());
     return DynamoDBDocumentClient.from(client);
 }
 
@@ -37,8 +26,8 @@ async function callAppSyncPutService(payloadData) {
     }
 
     const query = `
-        mutation PutService($client: String!, $serviceName: String!, $initDate: AWSDate!, $closingDay: Int!, $billingMode: BillingMode!, $baseHours: Int!, $billingType: BillingType!, $collabs: [String!]) {
-            putService(client: $client, serviceName: $serviceName, initDate: $initDate, closingDay: $closingDay, billingMode: $billingMode, baseHours: $baseHours, billingType: $billingType, collabs: $collabs) {
+        mutation PutService($client: String!, $serviceName: String!, $initDate: AWSDate!, $closingDay: Int!, $billingMode: BillingMode!, $baseHours: Int!, $billingType: BillingType!) {
+            putService(client: $client, serviceName: $serviceName, initDate: $initDate, closingDay: $closingDay, billingMode: $billingMode, baseHours: $baseHours, billingType: $billingType) {
                 success
             }
         }
@@ -51,8 +40,7 @@ async function callAppSyncPutService(payloadData) {
         closingDay: Number(payloadData.closingDay),
         billingMode: payloadData.billingMode,
         baseHours: Number(payloadData.baseHours),
-        billingType: payloadData.billingType,
-        collabs: payloadData.collabs || []
+        billingType: payloadData.billingType
     };
 
     console.log('Enviando mutación a AppSync:', variables);
@@ -82,31 +70,96 @@ async function callAppSyncPutService(payloadData) {
  */
 async function _getServiceById(id) {
     const docClient = getDynamoClient();
-    
-    // Try decoding composite id
-    let client, serviceName;
-    try {
-        const decoded = Buffer.from(id, 'base64').toString('utf8');
-        if (decoded.includes('|')) {
-            [client, serviceName] = decoded.split('|');
+    const cmd = new QueryCommand({
+        TableName: TABLE_NAME,
+        IndexName: 'TipoEntidad',
+        KeyConditionExpression: 'entityType = :entityType',
+        ExpressionAttributeValues: {
+            ':entityType': 'SERVICIO'
         }
-    } catch(e) {}
-
-    if (client && serviceName) {
-        const cmd = new GetCommand({
-            TableName: TABLE_NAME,
-            Key: { client, serviceName }
-        });
-        const { Item } = await docClient.send(cmd);
-        return Item || null;
-    }
-
-    // Fallback for old UUIDs using Scan
-    const cmd = new ScanCommand({
-        TableName: TABLE_NAME
     });
     const { Items } = await docClient.send(cmd);
     return (Items || []).find(i => i.id === id) || null;
+}
+
+async function _listAllServicioItems() {
+    const docClient = getDynamoClient();
+    const cmd = new QueryCommand({
+        TableName: TABLE_NAME,
+        IndexName: 'TipoEntidad',
+        KeyConditionExpression: 'entityType = :entityType',
+        ExpressionAttributeValues: {
+            ':entityType': 'SERVICIO'
+        }
+    });
+    const { Items } = await docClient.send(cmd);
+    return Items || [];
+}
+
+function _normalizeCedulaKey(cedula) {
+    return String(cedula || '').replace(/\D/g, '');
+}
+
+/** @returns {string[]} vacío = todos los líderes del cliente */
+function _normalizeLideresAsociados(raw) {
+    if (!Array.isArray(raw)) return [];
+    return [...new Set(raw.map((l) => String(l || '').trim()).filter(Boolean))];
+}
+
+function _liderMatchesServicio(liderCatalogo, lideresAsociados) {
+    const allowed = _normalizeLideresAsociados(lideresAsociados);
+    if (!allowed.length) return true;
+    const lider = String(liderCatalogo || '').trim().toLowerCase();
+    if (!lider) return false;
+    return allowed.some((a) => a.toLowerCase() === lider);
+}
+
+function _serviciosMismoCliente(items, clienteCanon) {
+    const canon = String(clienteCanon || '').trim().toLowerCase();
+    return (items || []).filter(
+        (i) =>
+            String(i.entityType || '') === 'SERVICIO' &&
+            String(i.client || '').trim().toLowerCase() === canon
+    );
+}
+
+function _cedulasAsociadasServicio(service) {
+    const set = new Set();
+    for (const a of service?.consultores_asociados || []) {
+        const k = _normalizeCedulaKey(a?.cedula);
+        if (k) set.add(k);
+    }
+    return set;
+}
+
+/** Cédulas ya asignadas a otro servicio del mismo cliente (excluye servicioId). */
+function _cedulasOcupadasEnOtrosServicios(serviciosCliente, servicioId) {
+    const ocupadas = new Set();
+    for (const svc of serviciosCliente || []) {
+        if (svc.id === servicioId) continue;
+        for (const k of _cedulasAsociadasServicio(svc)) ocupadas.add(k);
+    }
+    return ocupadas;
+}
+
+async function _desasociarCedulasDeOtrosServicios(docClient, serviciosCliente, servicioId, cedulaKeys) {
+    const keys = cedulaKeys instanceof Set ? cedulaKeys : new Set(cedulaKeys || []);
+    if (!keys.size) return;
+
+    for (const svc of serviciosCliente || []) {
+        if (svc.id === servicioId) continue;
+        const antes = Array.isArray(svc.consultores_asociados) ? svc.consultores_asociados : [];
+        const despues = antes.filter((a) => !keys.has(_normalizeCedulaKey(a?.cedula)));
+        if (despues.length === antes.length) continue;
+        svc.consultores_asociados = despues;
+        svc.updated_at = new Date().toISOString();
+        await docClient.send(
+            new PutCommand({
+                TableName: TABLE_NAME,
+                Item: svc
+            })
+        );
+    }
 }
 
 async function listServicios(deps, scope) {
@@ -114,8 +167,13 @@ async function listServicios(deps, scope) {
     if (!allowedClients.length) return [];
 
     const docClient = getDynamoClient();
-    const cmd = new ScanCommand({
-        TableName: TABLE_NAME
+    const cmd = new QueryCommand({
+        TableName: TABLE_NAME,
+        IndexName: 'TipoEntidad',
+        KeyConditionExpression: 'entityType = :entityType',
+        ExpressionAttributeValues: {
+            ':entityType': 'SERVICIO'
+        }
     });
     
     const { Items } = await docClient.send(cmd);
@@ -135,18 +193,23 @@ async function listServicios(deps, scope) {
         return tB - tA;
     });
 
-    return filtered.map(r => ({
-        id: r.id || Buffer.from(`${r.client}|${r.serviceName}`).toString('base64'),
-        client: String(r.client || '').trim(),
-        serviceName: String(r.serviceName || '').trim(),
-        initDate: r.initDate || '',
-        closingDay: Number(r.closingDay),
-        billingMode: String(r.billingMode || '').trim(),
-        billingType: r.billingType ? String(r.billingType).trim() : '',
-        baseHours: r.baseHours != null ? Number(r.baseHours) : null,
-        consultoresCount: Array.isArray(r.collabs) ? r.collabs.length : (Array.isArray(r.consultores_asociados) ? r.consultores_asociados.length : 0),
-        createdAt: r.created_at ? new Date(r.created_at) : new Date()
-    }));
+    return filtered.map(r => {
+        const asociados = Array.isArray(r.consultores_asociados) ? r.consultores_asociados : [];
+        return {
+            id: r.id,
+            client: String(r.client || '').trim(),
+            serviceName: String(r.serviceName || '').trim(),
+            initDate: r.initDate || '',
+            closingDay: Number(r.closingDay),
+            billingMode: String(r.billingMode || '').trim(),
+            billingType: r.billingType ? String(r.billingType).trim() : '',
+            baseHours: r.baseHours != null ? Number(r.baseHours) : null,
+            consultoresCount: asociados.length,
+            consultoresCedulas: asociados.map((a) => String(a.cedula || '').trim()).filter(Boolean),
+            lideresAsociados: _normalizeLideresAsociados(r.lideres_asociados),
+            createdAt: r.created_at ? new Date(r.created_at) : new Date()
+        };
+    });
 }
 
 async function createServicio(deps, scope, payload) {
@@ -176,15 +239,20 @@ async function createServicio(deps, scope, payload) {
         throw error;
     }
 
+    const lideresAsociados = _normalizeLideresAsociados(payload.lideresAsociados);
+    const newId = randomUUID();
     const item = {
         client: chk.canon,
         serviceName: nombreServicio,
+        entityType: 'SERVICIO',
+        id: newId,
         initDate: initDate,
         closingDay: closingDay,
         billingMode: billingMode,
         billingType: billingType,
         baseHours: baseHours,
-        collabs: [],
+        lideres_asociados: lideresAsociados,
+        consultores_asociados: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
     };
@@ -197,18 +265,20 @@ async function createServicio(deps, scope, payload) {
     // 1. Invocar la API de AppSync para registrar la programación del "profesor batch"
     await callAppSyncPutService(item);
 
-    // 2. Insertar/Actualizar en DynamoDB
+    // 2. Insertar/Actualizar en DynamoDB para garantizar que nuestro frontend tenga los campos id y entityType (GSI)
     await docClient.send(cmd);
 
     return {
-        id: Buffer.from(`${item.client}|${item.serviceName}`).toString('base64'),
+        id: item.id,
         client: item.client,
         serviceName: item.serviceName,
         initDate: item.initDate,
         closingDay: item.closingDay,
         billingMode: item.billingMode,
         billingType: item.billingType ? String(item.billingType).trim() : '',
-        baseHours: item.baseHours != null ? Number(item.baseHours) : null
+        baseHours: item.baseHours != null ? Number(item.baseHours) : null,
+        consultoresCount: 0,
+        lideresAsociados: lideresAsociados
     };
 }
 
@@ -258,19 +328,21 @@ async function updateServicio(deps, scope, idServicio, payload) {
     const item = {
         client: chkNew.canon,
         serviceName: nombreServicio,
+        entityType: 'SERVICIO',
+        id: idServicio,
         initDate: payload.initDate || oldService.initDate || null,
         closingDay: closingDayRaw !== undefined ? Number(closingDayRaw) : (oldService.closingDay ?? null),
         billingMode: payload.billingMode || oldService.billingMode || null,
         billingType: payload.billingType || oldService.billingType || null,
         baseHours: payload.baseHours !== undefined ? payload.baseHours : (oldService.baseHours ?? null),
-        collabs: oldService.collabs || [],
+        consultores_asociados: oldService.consultores_asociados || [],
+        lideres_asociados:
+            payload.lideresAsociados !== undefined
+                ? _normalizeLideresAsociados(payload.lideresAsociados)
+                : _normalizeLideresAsociados(oldService.lideres_asociados),
         created_at: oldService.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString()
     };
-
-    if (oldService.consultores_asociados && (!oldService.collabs || oldService.collabs.length === 0)) {
-        item.collabs = oldService.consultores_asociados.map(c => c.cedula);
-    }
 
     const putCmd = new PutCommand({
         TableName: TABLE_NAME,
@@ -284,14 +356,15 @@ async function updateServicio(deps, scope, idServicio, payload) {
     await docClient.send(putCmd);
 
     return {
-        id: idServicio,
+        id: item.id,
         client: item.client,
         serviceName: item.serviceName,
         initDate: item.initDate,
         closingDay: item.closingDay,
         billingMode: item.billingMode,
         billingType: item.billingType ? String(item.billingType).trim() : '',
-        baseHours: item.baseHours != null ? Number(item.baseHours) : null
+        baseHours: item.baseHours != null ? Number(item.baseHours) : null,
+        lideresAsociados: _normalizeLideresAsociados(item.lideres_asociados)
     };
 }
 
@@ -325,11 +398,74 @@ async function deleteServicio(deps, scope, idServicio) {
     return { success: true };
 }
 
-async function listServicioConsultores(deps, scope, servicioId) {
+async function listConsultoresDisponiblesCliente(deps, scope, cliente, options = {}) {
     const { pool } = deps;
     const { assertClienteConciliacionPermitido } = require('./conciliacionesQueries');
 
-    const service = await _getServiceById(servicioId);
+    const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    const lideresServicio = _normalizeLideresAsociados(options.lideresAsociados);
+    const excludeServicioId = String(options.excludeServicioId || '').trim() || null;
+
+    const params = [chk.canon];
+    let liderSql = '';
+    if (lideresServicio.length) {
+        params.push(lideresServicio.map((l) => l.toLowerCase()));
+        liderSql = ` AND lower(btrim(COALESCE(c.lider_catalogo, ''))) = ANY($${params.length}::text[])`;
+    }
+
+    const q = await pool.query(
+        `SELECT c.cedula, c.nombre, c.tarifa_cliente, c.costo_empresa, c.moneda,
+                c.lider_catalogo AS lider
+         FROM colaboradores c
+         WHERE c.activo IS NOT FALSE
+           AND lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
+           ${liderSql}
+         ORDER BY c.nombre ASC`,
+        params
+    );
+
+    const allServicios = await _listAllServicioItems();
+    const serviciosCliente = _serviciosMismoCliente(allServicios, chk.canon);
+    const ocupadasEnOtros = _cedulasOcupadasEnOtrosServicios(serviciosCliente, excludeServicioId);
+
+    const rowsByNorm = new Map();
+    for (const row of q.rows) {
+        const k = _normalizeCedulaKey(row.cedula);
+        if (k && !rowsByNorm.has(k)) rowsByNorm.set(k, row);
+    }
+
+    return [...rowsByNorm.values()]
+        .filter((r) => {
+            const k = _normalizeCedulaKey(r.cedula);
+            if (!_liderMatchesServicio(r.lider, lideresServicio)) return false;
+            return !ocupadasEnOtros.has(k);
+        })
+        .map((r) => ({
+            cedula: r.cedula,
+            nombre: r.nombre,
+            lider: r.lider != null ? String(r.lider).trim() : '',
+            licencias: '',
+            equipo: '',
+            otrasDotaciones: '',
+            tarifaCliente: r.tarifa_cliente != null ? Number(r.tarifa_cliente) : null,
+            costoCinte: r.costo_empresa != null ? Number(r.costo_empresa) : null,
+            moneda: r.moneda ? String(r.moneda).trim() : 'COP',
+            asociado: false
+        }));
+}
+
+async function listServicioConsultores(deps, scope, servicioId, options = {}) {
+    const { pool } = deps;
+    const { assertClienteConciliacionPermitido } = require('./conciliacionesQueries');
+
+    const allServicios = await _listAllServicioItems();
+    const service = allServicios.find((i) => i.id === servicioId) || null;
     if (!service) {
         const err = new Error('Servicio no encontrado');
         err.status = 404;
@@ -343,34 +479,85 @@ async function listServicioConsultores(deps, scope, servicioId) {
         throw error;
     }
 
-    // Obtenemos los activos actuales en Postgres (directorio fuente)
+    const lideresServicio = Object.prototype.hasOwnProperty.call(options, 'lideresAsociados')
+        ? _normalizeLideresAsociados(options.lideresAsociados)
+        : _normalizeLideresAsociados(service.lideres_asociados);
+    const liderFiltroUi = String(options.lider || '').trim();
+
+    const params = [chk.canon];
+    let liderSql = '';
+    if (lideresServicio.length) {
+        params.push(lideresServicio.map((l) => l.toLowerCase()));
+        liderSql = ` AND lower(btrim(COALESCE(c.lider_catalogo, ''))) = ANY($${params.length}::text[])`;
+    } else if (liderFiltroUi) {
+        params.push(liderFiltroUi.toLowerCase());
+        liderSql = ` AND lower(btrim(COALESCE(c.lider_catalogo, ''))) = $${params.length}`;
+    }
+
     const q = await pool.query(
-        `SELECT c.cedula, c.nombre, c.tarifa_cliente, c.costo_empresa, c.moneda
+        `SELECT c.cedula, c.nombre, c.tarifa_cliente, c.costo_empresa, c.moneda,
+                c.lider_catalogo AS lider
          FROM colaboradores c
          WHERE c.activo IS NOT FALSE
            AND lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
+           ${liderSql}
          ORDER BY c.nombre ASC`,
-        [chk.canon]
+        params
     );
 
-    const asociadosMap = {};
-    const collabs = service.collabs || (service.consultores_asociados ? service.consultores_asociados.map(c => c.cedula) : []);
-    for (const ced of collabs) {
-        asociadosMap[String(ced).trim()] = true;
+    const asociadosByNorm = new Map();
+    for (const asc of service.consultores_asociados || []) {
+        const k = _normalizeCedulaKey(asc.cedula);
+        if (k) asociadosByNorm.set(k, asc);
     }
 
-    return q.rows.map(r => {
-        const cedStr = String(r.cedula).trim();
-        const asoc = asociadosMap[cedStr];
-        return {
-            cedula: r.cedula,
-            nombre: r.nombre,
-            tarifaCliente: r.tarifa_cliente != null ? Number(r.tarifa_cliente) : null,
-            costoCinte: r.costo_empresa != null ? Number(r.costo_empresa) : null,
-            moneda: r.moneda ? String(r.moneda).trim() : 'COP',
-            asociado: Boolean(asoc)
-        };
-    });
+    const serviciosCliente = _serviciosMismoCliente(allServicios, chk.canon);
+    const ocupadasEnOtros = _cedulasOcupadasEnOtrosServicios(serviciosCliente, servicioId);
+
+    const rowsByNorm = new Map();
+    for (const row of q.rows) {
+        const k = _normalizeCedulaKey(row.cedula);
+        if (k && !rowsByNorm.has(k)) rowsByNorm.set(k, row);
+    }
+
+    const missingNormKeys = [...asociadosByNorm.keys()].filter((k) => !rowsByNorm.has(k));
+    if (missingNormKeys.length) {
+        const qExtra = await pool.query(
+            `SELECT c.cedula, c.nombre, c.tarifa_cliente, c.costo_empresa, c.moneda,
+                    c.lider_catalogo AS lider
+             FROM colaboradores c
+             WHERE regexp_replace(c.cedula, '[^0-9]', '', 'g') = ANY($1::text[])
+             ORDER BY c.nombre ASC`,
+            [missingNormKeys]
+        );
+        for (const row of qExtra.rows) {
+            const k = _normalizeCedulaKey(row.cedula);
+            if (k && !rowsByNorm.has(k)) rowsByNorm.set(k, row);
+        }
+    }
+
+    return [...rowsByNorm.values()]
+        .filter((r) => {
+            const k = _normalizeCedulaKey(r.cedula);
+            if (!_liderMatchesServicio(r.lider, lideresServicio)) return false;
+            if (asociadosByNorm.has(k)) return true;
+            return !ocupadasEnOtros.has(k);
+        })
+        .map((r) => {
+            const asoc = asociadosByNorm.get(_normalizeCedulaKey(r.cedula));
+            return {
+                cedula: r.cedula,
+                nombre: r.nombre,
+                lider: r.lider != null ? String(r.lider).trim() : '',
+                licencias: asoc ? asoc.licencias : '',
+                equipo: asoc ? asoc.equipo : '',
+                otrasDotaciones: asoc ? asoc.otras_dotaciones : '',
+                tarifaCliente: r.tarifa_cliente != null ? Number(r.tarifa_cliente) : null,
+                costoCinte: r.costo_empresa != null ? Number(r.costo_empresa) : null,
+                moneda: r.moneda ? String(r.moneda).trim() : 'COP',
+                asociado: Boolean(asoc)
+            };
+        });
 }
 
 async function upsertServicioConsultores(deps, scope, servicioId, consultoresAsociados) {
@@ -390,20 +577,32 @@ async function upsertServicioConsultores(deps, scope, servicioId, consultoresAso
         throw error;
     }
 
+    const docClient = getDynamoClient();
+
+    const nuevasCedulas = new Set(
+        (consultoresAsociados || []).map((c) => _normalizeCedulaKey(c?.cedula)).filter(Boolean)
+    );
+
+    const allServicios = await _listAllServicioItems();
+    const serviciosCliente = _serviciosMismoCliente(allServicios, oldService.client);
+
+    // Un consultor solo puede pertenecer a un servicio por cliente: quitar de los demás.
+    await _desasociarCedulasDeOtrosServicios(docClient, serviciosCliente, servicioId, nuevasCedulas);
+
     // Actualizamos el array embebido en el servicio
-    oldService.collabs = consultoresAsociados.collabs || [];
-    if ('consultores_asociados' in oldService) delete oldService.consultores_asociados;
-    if ('id' in oldService) delete oldService.id;
-    if ('entityType' in oldService) delete oldService.entityType;
+    oldService.consultores_asociados = consultoresAsociados.map(c => ({
+        cedula: c.cedula,
+        licencias: c.licencias ?? null,
+        equipo: c.equipo ?? null,
+        otras_dotaciones: (c.otrasDotaciones !== undefined ? c.otrasDotaciones : c.otras_dotaciones) ?? null
+    }));
     oldService.updated_at = new Date().toISOString();
 
-    const docClient = getDynamoClient();
     const putCmd = new PutCommand({
         TableName: TABLE_NAME,
         Item: oldService
     });
 
-    await callAppSyncPutService(oldService);
     await docClient.send(putCmd);
     return { updated: true };
 }
@@ -414,5 +613,14 @@ module.exports = {
     updateServicio,
     deleteServicio,
     listServicioConsultores,
-    upsertServicioConsultores
+    listConsultoresDisponiblesCliente,
+    upsertServicioConsultores,
+    _getServiceById,
+    // Helpers expuestos para tests de exclusividad
+    _normalizeCedulaKey,
+    _serviciosMismoCliente,
+    _cedulasAsociadasServicio,
+    _cedulasOcupadasEnOtrosServicios,
+    _normalizeLideresAsociados,
+    _liderMatchesServicio
 };

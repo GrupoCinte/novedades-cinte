@@ -16,20 +16,20 @@ const {
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('../src/novedadHeTime');
 
 describe('heDomingoCompensacion', () => {
-    it('ventana compensatorio en tiempo: D+1 a D+15 (calendario Bogotá)', () => {
+    it('ventana compensatorio en tiempo: D+1 a D+6 lun-sab semana siguiente', () => {
         const worked = '2026-04-05';
         const vent = getVentanaCompensatorioTiempo(worked);
         assert.equal(vent.compensatorioTiempoMinYmd, '2026-04-06');
-        assert.equal(vent.compensatorioTiempoMaxYmd, '2026-04-20');
+        assert.equal(vent.compensatorioTiempoMaxYmd, '2026-04-11');
     });
 
-    it('acepta cualquier día laborable dentro de la ventana', () => {
+    it('acepta cualquier día dentro de la ventana lun-sab', () => {
         const worked = '2026-04-05';
         assert.equal(isYmdEnVentanaCompensatorio(worked, '2026-04-07'), true);
         assert.equal(isYmdEnVentanaCompensatorio(worked, '2026-04-06'), true);
-        assert.equal(isYmdEnVentanaCompensatorio(worked, '2026-04-20'), true);
+        assert.equal(isYmdEnVentanaCompensatorio(worked, '2026-04-11'), true);
         assert.equal(isYmdEnVentanaCompensatorio(worked, '2026-04-05'), false);
-        assert.equal(isYmdEnVentanaCompensatorio(worked, '2026-04-21'), false);
+        assert.equal(isYmdEnVentanaCompensatorio(worked, '2026-04-12'), false);
     });
 
     it('parsea línea persistida y sufijo Excel', () => {
@@ -81,7 +81,7 @@ describe('heDomingoCompensacion', () => {
         assert.equal(prev.esTercerDomingoOMas, false);
         assert.equal(prev.domingoTrabajadoYmd, '2026-04-12');
         assert.equal(prev.compensatorioTiempoMinYmd, '2026-04-13');
-        assert.equal(prev.compensatorioTiempoMaxYmd, '2026-04-27');
+        assert.equal(prev.compensatorioTiempoMaxYmd, '2026-04-18');
         assert.equal(isYmdEnVentanaCompensatorio(prev.domingoTrabajadoYmd, '2026-04-14'), true);
     });
 
@@ -101,7 +101,7 @@ describe('heDomingoCompensacion', () => {
         assert.equal(prev.esTercerDomingoOMas, false);
         assert.equal(prev.domingoTrabajadoYmd, '2026-04-05');
         assert.equal(prev.compensatorioTiempoMinYmd, '2026-04-06');
-        assert.equal(prev.compensatorioTiempoMaxYmd, '2026-04-20');
+        assert.equal(prev.compensatorioTiempoMaxYmd, '2026-04-11');
     });
 
     it('festivo no-domingo NO dispara compensatorio aunque festivosSet esté en dep', () => {

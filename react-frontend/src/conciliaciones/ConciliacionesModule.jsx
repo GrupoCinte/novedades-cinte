@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Home, LayoutDashboard, Menu, Scale, X, Receipt, Briefcase } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Home, LayoutDashboard, Menu, X, Receipt, Briefcase } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import AdminModuleSidebarBrand from '../AdminModuleSidebarBrand.jsx';
 import AdminModuleSidebarFooter from '../AdminModuleSidebarFooter.jsx';
@@ -29,7 +29,6 @@ export default function ConciliacionesModule({ auth, onLogout }) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const path = location.pathname || '';
     const onDashboard = path.includes('/admin/conciliaciones/dashboard');
-    const onResumen = path.includes('/admin/conciliaciones/resumen');
     const onFacturacion = path.includes('/admin/conciliaciones/facturacion');
     const onServicios = path.includes('/admin/conciliaciones/servicios');
 
@@ -118,29 +117,7 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                         className={navItemClass(onDashboard)}
                     >
                         <LayoutDashboard size={17} className={navIconClass(onDashboard)} />
-                        <span>Dashboard</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            navigate('/admin/conciliaciones/resumen');
-                            closeMobile();
-                        }}
-                        className={navItemClass(onResumen)}
-                    >
-                        <Scale size={17} className={navIconClass(onResumen)} />
-                        <span>Resumen por cliente</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            navigate('/admin/conciliaciones/facturacion');
-                            closeMobile();
-                        }}
-                        className={navItemClass(onFacturacion)}
-                    >
-                        <Receipt size={17} className={navIconClass(onFacturacion)} />
-                        <span>Facturación</span>
+                        <span>Dashboard General</span>
                     </button>
                     <button
                         type="button"
@@ -152,6 +129,17 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                     >
                         <Briefcase size={17} className={navIconClass(onServicios)} />
                         <span>Servicios</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            navigate('/admin/conciliaciones/facturacion');
+                            closeMobile();
+                        }}
+                        className={navItemClass(onFacturacion)}
+                    >
+                        <Receipt size={17} className={navIconClass(onFacturacion)} />
+                        <span>Facturación</span>
                     </button>
                 </nav>
                 <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
@@ -211,35 +199,13 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                     <button
                         type="button"
                         onClick={() => navigate('/admin/conciliaciones/dashboard')}
-                        title={!sidebarOpen ? 'Dashboard' : undefined}
+                        title={!sidebarOpen ? 'Dashboard General' : undefined}
                         className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
                             sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
                         } ${onDashboard ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
                     >
                         <LayoutDashboard size={18} className={navIconClass(onDashboard)} />
-                        {sidebarOpen ? <span className="truncate whitespace-nowrap">Dashboard</span> : null}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => navigate('/admin/conciliaciones/resumen')}
-                        title={!sidebarOpen ? 'Resumen' : undefined}
-                        className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
-                            sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
-                        } ${onResumen ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
-                    >
-                        <Scale size={18} className={navIconClass(onResumen)} />
-                        {sidebarOpen ? <span className="truncate whitespace-nowrap">Resumen por cliente</span> : null}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => navigate('/admin/conciliaciones/facturacion')}
-                        title={!sidebarOpen ? 'Facturación' : undefined}
-                        className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
-                            sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
-                        } ${onFacturacion ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
-                    >
-                        <Receipt size={18} className={navIconClass(onFacturacion)} />
-                        {sidebarOpen ? <span className="truncate whitespace-nowrap">Facturación</span> : null}
+                        {sidebarOpen ? <span className="truncate whitespace-nowrap">Dashboard General</span> : null}
                     </button>
                     <button
                         type="button"
@@ -251,6 +217,17 @@ export default function ConciliacionesModule({ auth, onLogout }) {
                     >
                         <Briefcase size={18} className={navIconClass(onServicios)} />
                         {sidebarOpen ? <span className="truncate whitespace-nowrap">Servicios</span> : null}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => navigate('/admin/conciliaciones/facturacion')}
+                        title={!sidebarOpen ? 'Facturación' : undefined}
+                        className={`flex items-center gap-3 rounded-xl text-left text-sm font-body font-medium transition-all ${
+                            sidebarOpen ? 'px-4 py-3' : 'justify-center px-0 py-3'
+                        } ${onFacturacion ? 'bg-[#2F7BB8] text-white shadow-[0_4px_12px_rgba(47,123,184,0.3)]' : navInactive}`}
+                    >
+                        <Receipt size={18} className={navIconClass(onFacturacion)} />
+                        {sidebarOpen ? <span className="truncate whitespace-nowrap">Facturación</span> : null}
                     </button>
                 </nav>
 

@@ -82,7 +82,13 @@ export const onboardingApi = {
     catalogoPuestos: (token) => get(token, '/catalogos/puestos'),
     reporteRotacion: (token, params) => get(token, '/reportes/rotacion', params),
     reporteGraficas: (token, params) => get(token, '/reportes/graficas', params),
-    health: (token) => get(token, '/health')
+    health: (token) => get(token, '/health'),
+    listFichaNovedades: (token, params) => get(token, '/ficha-novedades', params),
+    getFichaNovedad: (token, id) => get(token, `/ficha-novedades/${encodeURIComponent(id)}`),
+    aprobarFichaNovedad: (token, id) => post(token, `/ficha-novedades/${encodeURIComponent(id)}/aprobar`, {}),
+    rechazarFichaNovedad: (token, id, body) => post(token, `/ficha-novedades/${encodeURIComponent(id)}/rechazar`, body || {}),
+    vincularFichaNovedad: (token, id, body) => post(token, `/ficha-novedades/${encodeURIComponent(id)}/vincular`, body || {}),
+    editarFichaNovedad: (token, id, body) => patch(token, `/ficha-novedades/${encodeURIComponent(id)}`, body || {})
 };
 
 export default onboardingApi;

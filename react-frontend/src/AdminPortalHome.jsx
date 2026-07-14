@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, Building2, Calculator, Scale, Users } from 'lucide-react';
-import { userHasNovedadesAdminAccess, userHasCotizadorAccess } from './comercialAccess';
+import { userHasNovedadesAdminAccess, userHasCotizadorAccess, userHasConciliacionesAccess } from './comercialAccess';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
@@ -132,6 +132,15 @@ export default function AdminPortalHome({ auth, onLogout }) {
 
     const cards = useMemo(() => {
         const out = [];
+        if (CONCILIACIONES_MODULE_ENABLED && userHasConciliacionesAccess(auth)) {
+            out.push({
+                key: 'conciliaciones',
+                title: 'Conciliaciones',
+                description: 'Revisión de cierres, tarifas y novedades aprobadas por cliente y mes.',
+                path: '/admin/conciliaciones/dashboard',
+                Icon: Scale
+            });
+        }
         if (userHasNovedadesAdminAccess(auth)) {
             out.push({
                 key: 'novedades',
@@ -140,15 +149,6 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 path: '/admin/novedades',
                 Icon: Briefcase
             });
-            if (CONCILIACIONES_MODULE_ENABLED) {
-                out.push({
-                    key: 'conciliaciones',
-                    title: 'Conciliaciones',
-                    description: 'Tarifas por cliente y mes frente a novedades aprobadas (solo lectura).',
-                    path: '/admin/conciliaciones/dashboard',
-                    Icon: Scale
-                });
-            }
         }
         if (userHasCotizadorAccess(auth)) {
             out.push({

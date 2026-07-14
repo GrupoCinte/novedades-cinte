@@ -41,26 +41,6 @@ function formatTarifaDisplay(row) {
     return `${formatMoneyAmountOnly(num, ccy)}\u00A0${currencyNarrowSymbol(ccy)}`;
 }
 
-function formatSalarioDisplay(row) {
-    const key = 'sueldo_nomina';
-    const n = row.salario_actual;
-    if (n == null || n === '') return '—';
-    const ccy = row.montos_divisa?.[key] || 'COP';
-    const num = Number(n);
-    if (!Number.isFinite(num)) return '—';
-    return `${formatMoneyAmountOnly(num, ccy)}\u00A0${currencyNarrowSymbol(ccy)}`;
-}
-
-function formatBonosDisplay(row) {
-    const key = 'otros_ingresos';
-    const n = row.bonos_adicionales;
-    if (n == null || n === '') return 'No';
-    const ccy = row.montos_divisa?.[key] || 'COP';
-    const num = Number(n);
-    if (!Number.isFinite(num) || num === 0) return 'No';
-    return `Sí (${formatMoneyAmountOnly(num, ccy)}\u00A0${currencyNarrowSymbol(ccy)})`;
-}
-
 /** API devuelve Verde | Amarillo | Rojo | Vencido — etiquetas e iconos para UI. */
 function SemaforoBadge({ code, isLight }) {
     const s = String(code || '');
@@ -454,9 +434,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                 <tr className={dash.thead}>
                                     <Th colKey="cedula" label="Cédula" />
                                     <Th colKey="consultor" label="Consultor" />
-                                    <Th colKey="cargo" label="Cargo" />
                                     <Th colKey="tipo_contrato" label="Tipo contrato" />
-                                    <Th colKey="horario_laboral" label="Horario" />
                                     <Th colKey="cliente_actual" label="Cliente actual" />
                                     <Th colKey="cliente_destino" label="Cliente destino" />
                                     <Th colKey="causal" label="Causal" />
@@ -464,21 +442,19 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                     <Th colKey="dias_restantes" label="Días rest." align="right" />
                                     <Th colKey="semaforo" label="Semáforo" />
                                     <Th colKey="tarifa" label="Tarifa actual" />
-                                    <Th colKey="salario_actual" label="Salario actual" />
-                                    <Th colKey="bonos_adicionales" label="Bonos adic." />
                                     <th className="p-4 pr-6 font-semibold whitespace-nowrap">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className={dash.tbody}>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={15} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                        <td colSpan={11} className={`p-12 text-center font-medium ${dash.muted}`}>
                                             Cargando…
                                         </td>
                                     </tr>
                                 ) : items.length === 0 ? (
                                     <tr>
-                                        <td colSpan={15} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                        <td colSpan={11} className={`p-12 text-center font-medium ${dash.muted}`}>
                                             Sin registros. Cree uno con «Nuevo registro» (la cédula debe existir en Consultores).
                                         </td>
                                     </tr>
@@ -487,9 +463,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                         <tr key={row.id} className={dash.trHover}>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
                                             <td className={dash.tdName}>{row.consultor || '—'}</td>
-                                            <td className={dash.tdCell}>{row.cargo || '—'}</td>
                                             <td className={dash.tdCell}>{row.tipo_contrato || '—'}</td>
-                                            <td className={dash.tdCell}>{row.horario_laboral || '—'}</td>
                                             <td className={dash.tdCell}>{row.cliente_actual || '—'}</td>
                                             <td className={dash.tdCell}>{row.cliente_destino || '—'}</td>
                                             <td className={dash.tdCell} title={row.causal || ''}>
@@ -506,12 +480,6 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                             </td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
                                                 {formatTarifaDisplay(row)}
-                                            </td>
-                                            <td className={`${dash.tdCell} whitespace-nowrap`}>
-                                                {formatSalarioDisplay(row)}
-                                            </td>
-                                            <td className={`${dash.tdCell} whitespace-nowrap`}>
-                                                {formatBonosDisplay(row)}
                                             </td>
                                             <td className="p-4 pr-6 whitespace-nowrap">
                                                 <div className="flex items-center gap-2">

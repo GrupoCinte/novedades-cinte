@@ -1,0 +1,14 @@
+sequenceDiagram
+    participant A as Analista
+    participant S as Sistema
+    participant N as Nomina
+    A->>S: Abre cierre mes
+    A->>S: Revisa novedades consultor
+    A->>S: Aprueba analista con observacion
+    S->>S: APROBADO_ANALISTA y consumo novedades
+    N->>S: Aprueba finanzas
+    S->>S: APROBADO_FINANZAS
+    A->>S: Descarga Excel
+    S->>S: ENVIADA
+    A->>S: Marca conciliada
+    S->>S: CONCILIADA

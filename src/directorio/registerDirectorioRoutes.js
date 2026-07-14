@@ -896,10 +896,6 @@ function registerDirectorioRoutes(deps) {
                     c.cliente AS cliente_actual,
                     c.tarifa_cliente,
                     c.montos_divisa,
-                    c.puesto AS cargo,
-                    c.sueldo_nomina AS salario_actual,
-                    c.otros_ingresos AS bonos_adicionales,
-                    c.horario_laboral,
                     ${diasSql} AS dias_restantes
                 FROM reubicaciones_pipeline rp
                 INNER JOIN colaboradores c ON c.cedula = rp.cedula`;
@@ -1029,10 +1025,6 @@ function registerDirectorioRoutes(deps) {
                     c.cliente AS cliente_actual,
                     c.tarifa_cliente,
                     c.montos_divisa,
-                    c.puesto AS cargo,
-                    c.sueldo_nomina AS salario_actual,
-                    c.otros_ingresos AS bonos_adicionales,
-                    c.horario_laboral,
                     (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
                  FROM reubicaciones_pipeline rp
                  INNER JOIN colaboradores c ON c.cedula = rp.cedula
@@ -1105,10 +1097,6 @@ function registerDirectorioRoutes(deps) {
                     c.cliente AS cliente_actual,
                     c.tarifa_cliente,
                     c.montos_divisa,
-                    c.puesto AS cargo,
-                    c.sueldo_nomina AS salario_actual,
-                    c.otros_ingresos AS bonos_adicionales,
-                    c.horario_laboral,
                     (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
                  FROM reubicaciones_pipeline rp
                  INNER JOIN colaboradores c ON c.cedula = rp.cedula

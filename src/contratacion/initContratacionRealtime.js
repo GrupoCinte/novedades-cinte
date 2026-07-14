@@ -5,8 +5,84 @@ const {
     createOnboardingPromotionService,
     mapDynamoItemForPromotion
 } = require('../onboarding/onboardingPromotionService');
+const {
+    createFichaNovedadesService,
+    isZohoNovedadItem
+} = require('../onboarding/fichaNovedadesService');
 
-let active = { wsServer: null, streamPoller: null, promotionService: null };
+let active = { wsServer: null, streamPoller: null, promotionService: null, fichaNovedadesService: null };
+let zohoSyncIntervalHandle = null;
+let zohoSyncInFlight = false;
+
+function readEnvBool(name, defaultValue = false) {
+    const raw = process.env[name];
+    if (raw == null || String(raw).trim() === '') return defaultValue;
+    return String(raw).trim().toLowerCase() === 'true';
+}
+
+function readEnvInt(name, defaultValue = 0) {
+    const raw = process.env[name];
+    if (raw == null || String(raw).trim() === '') return defaultValue;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : defaultValue;
+}
+
+async function runZohoDynamoSyncIfIdle(service, reason) {
+    if (!service || typeof service.syncMissingFromDynamo !== 'function') return null;
+    if (zohoSyncInFlight) {
+        logger.warn({ reason }, 'FichaNovedades sync omitido: ejecución previa en curso');
+        return null;
+    }
+    zohoSyncInFlight = true;
+    try {
+        const summary = await service.syncMissingFromDynamo();
+        logger.info({ reason, ...summary }, 'FichaNovedades sync Dynamo completado');
+        return summary;
+    } catch (e) {
+        logger.error({ reason, error: e.message }, 'FichaNovedades sync Dynamo error');
+        return null;
+    } finally {
+        zohoSyncInFlight = false;
+    }
+}
+
+function scheduleZohoDynamoSync(service, reason) {
+    Promise.resolve(runZohoDynamoSyncIfIdle(service, reason)).catch((e) => {
+        logger.error({ reason, error: e.message }, 'FichaNovedades sync Dynamo (background) error');
+    });
+}
+
+function startZohoDynamoSyncScheduler(service) {
+    if (readEnvBool('FICHA_NOVEDADES_DYNAMO_SYNC_ON_START', false)) {
+        scheduleZohoDynamoSync(service, 'startup');
+    } else if (
+        readEnvBool('CONTRATACION_STREAM_POLLER_ENABLED', false) &&
+        !readEnvBool('FICHA_NOVEDADES_DYNAMO_SYNC_ON_START', false)
+    ) {
+        logger.warn(
+            'CONTRATACION_STREAM_POLLER_ENABLED=true sin FICHA_NOVEDADES_DYNAMO_SYNC_ON_START; ' +
+                'Novedades Zoho pueden quedar vacías si el backend no estaba activo al recibir correos Zoho.'
+        );
+    }
+
+    const intervalMs = readEnvInt('FICHA_NOVEDADES_DYNAMO_SYNC_INTERVAL_MS', 0);
+    if (intervalMs > 0 && !zohoSyncIntervalHandle) {
+        zohoSyncIntervalHandle = setInterval(() => {
+            scheduleZohoDynamoSync(service, 'interval');
+        }, intervalMs);
+        if (typeof zohoSyncIntervalHandle.unref === 'function') {
+            zohoSyncIntervalHandle.unref();
+        }
+        logger.info({ intervalMs }, 'FichaNovedades sync Dynamo periódico activo');
+    }
+}
+
+function stopZohoDynamoSyncScheduler() {
+    if (zohoSyncIntervalHandle) {
+        clearInterval(zohoSyncIntervalHandle);
+        zohoSyncIntervalHandle = null;
+    }
+}
 
 function readAwsCredentialsFromEnv() {
     if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
@@ -58,6 +134,19 @@ function initContratacionRealtime(server, deps = {}) {
         }
     }
 
+    if (deps && deps.pool && !active.fichaNovedadesService) {
+        try {
+            active.fichaNovedadesService = createFichaNovedadesService({
+                pool: deps.pool,
+                logger,
+                updateColaboradorByCedula: deps.updateColaboradorByCedula
+            });
+            startZohoDynamoSyncScheduler(active.fichaNovedadesService);
+        } catch (e) {
+            logger.error({ error: e.message }, 'FichaNovedades: no se pudo inicializar servicio');
+        }
+    }
+
     const pollerEnabled = String(process.env.CONTRATACION_STREAM_POLLER_ENABLED || '').toLowerCase() === 'true';
     const autopromoteEnabled = String(process.env.ONBOARDING_AUTOPROMOTE || '').toLowerCase() === 'true';
 
@@ -71,6 +160,22 @@ function initContratacionRealtime(server, deps = {}) {
     try {
         const credentials = readAwsCredentialsFromEnv();
         const poller = new StreamPoller(tableName, awsRegion, credentials, (event) => {
+            const rawItem = event && event.rawItem;
+
+            // Novedades Zoho: ingest a Postgres, sin broadcast al monitor de ingreso ni autopromote.
+            if (rawItem && isZohoNovedadItem(rawItem) && active.fichaNovedadesService) {
+                Promise.resolve(
+                    active.fichaNovedadesService.ingestFromDynamo(rawItem, {
+                        eventType: event.type,
+                        sequenceNumber: event.sequenceNumber,
+                        shardId: event.shardId
+                    })
+                ).catch((e) => {
+                    logger.error({ error: e && e.message }, 'FichaNovedades ingest (stream) error');
+                });
+                return;
+            }
+
             // 1) Broadcast a UI (comportamiento previo intacto).
             if (active.wsServer) {
                 active.wsServer.broadcast({ type: event.type, data: event.data });
@@ -110,6 +215,7 @@ function initContratacionRealtime(server, deps = {}) {
 }
 
 function shutdownContratacionRealtime() {
+    stopZohoDynamoSyncScheduler();
     if (active.streamPoller) {
         try {
             active.streamPoller.stop();
@@ -127,10 +233,20 @@ function shutdownContratacionRealtime() {
         active.wsServer = null;
     }
     active.promotionService = null;
+    active.fichaNovedadesService = null;
 }
 
 function getOnboardingPromotionService() {
     return active.promotionService || null;
 }
 
-module.exports = { initContratacionRealtime, shutdownContratacionRealtime, getOnboardingPromotionService };
+function getFichaNovedadesService() {
+    return active.fichaNovedadesService || null;
+}
+
+module.exports = {
+    initContratacionRealtime,
+    shutdownContratacionRealtime,
+    getOnboardingPromotionService,
+    getFichaNovedadesService
+};

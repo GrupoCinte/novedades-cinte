@@ -12,7 +12,7 @@ const {
   isNovedadTipoRetiradoDelFormulario
 } = require('../src/rbac');
 
-const EXPECTED_ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'gp', 'nomina', 'comercial', 'consultor'];
+const EXPECTED_ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'analista_conciliaciones', 'gp', 'nomina', 'comercial', 'consultor'];
 const allRoles = Object.keys(POLICY).sort();
 
 describe('RBAC - prioridad de roles', () => {
@@ -65,10 +65,14 @@ describe('RBAC - permisos por tipo', () => {
     assert.equal(canRoleApproveType('gp', 'Incapacidad'), false);
   });
 
-  it('gp y nómina ven Compensatorio por votación/jurado (gp ve todo de su cliente; aprobación sigue en admin_ch)', () => {
+  it('gp aprueba Compensatorio por votación/jurado; admin_ch y super_admin también', () => {
     assert.equal(canRoleViewType('gp', 'Compensatorio por votación/jurado'), true);
     assert.equal(canRoleViewType('nomina', 'Compensatorio por votación/jurado'), true);
-    assert.equal(canRoleApproveType('gp', 'Compensatorio por votación/jurado'), false);
+    assert.equal(canRoleApproveType('gp', 'Compensatorio por votación/jurado'), true);
+    assert.equal(canRoleApproveType('admin_ch', 'Compensatorio por votación/jurado'), true);
+    assert.equal(canRoleApproveType('super_admin', 'Compensatorio por votación/jurado'), true);
+    const rule = getNovedadRuleByType('Compensatorio por votación/jurado');
+    assert.ok(rule.approvers.includes('super_admin'));
   });
 
   it('cac puede ver/aprobar cualquier tipo (paridad super_admin en API)', () => {
@@ -174,6 +178,7 @@ describe('RBAC - matriz roles en POLICY x tipos', () => {
           role === 'cac' ||
           role === 'admin_ch' ||
           role === 'team_ch' ||
+          role === 'analista_conciliaciones' ||
           (rule.viewers || []).includes(role);
         const expectedApprove = role === 'super_admin' || role === 'cac' || (rule.approvers || []).includes(role);
         assert.equal(

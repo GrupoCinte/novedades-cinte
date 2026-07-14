@@ -1,13 +1,37 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LayoutDashboard } from 'lucide-react';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
-import { nativeCalendarOnlyInputProps } from '../nativeCalendarOnlyInputProps.js';
-import ConciliacionesPageHeader from './components/ConciliacionesPageHeader.jsx';
-import { CONCILIACIONES_PAGE_MAIN, conciliacionesErrorBannerClass } from './conciliacionesLayout.js';
-import { fetchConciliacionesDashboardResumen } from './conciliacionesApi.js';
+import ClienteMesSelectors from './components/ClienteMesSelectors.jsx';
+import ConciliacionesDashboardAlertas from './components/dashboard/ConciliacionesDashboardAlertas.jsx';
+import ConciliacionesDashboardCierreHeatmap from './components/dashboard/ConciliacionesDashboardCierreHeatmap.jsx';
+import ConciliacionesDashboardGapCierre from './components/dashboard/ConciliacionesDashboardGapCierre.jsx';
+import ConciliacionesDashboardPareto from './components/dashboard/ConciliacionesDashboardPareto.jsx';
+import ConciliacionesDashboardSaludCola from './components/dashboard/ConciliacionesDashboardSaludCola.jsx';
+import ConciliacionesDashboardTarifaStacked from './components/dashboard/ConciliacionesDashboardTarifaStacked.jsx';
+import ConciliacionesDashboardLiderClienteStacked from './components/dashboard/ConciliacionesDashboardLiderClienteStacked.jsx';
+import {
+    CONCILIACIONES_PAGE_MAIN,
+    conciliacionesErrorBannerClass,
+    CINTE_HEADING
+} from './conciliacionesLayout.js';
+import {
+    aggregateDashboardFromColaItems,
+    buildClienteCierreHeatmapData,
+    buildClienteStackedChartData,
+    buildColaSaludChartData,
+    buildDashboardAlertas,
+    buildGapCierreChartData,
+    buildLiderClienteStackedChartData,
+    buildParetoIngresosChartData,
+    liderClienteChartSeriesKeys
+} from './facturacionAggregate.js';
+import { fetchColaCierres, fetchDashboardLiderCliente } from './conciliacionesApi.js';
+import { formatCopCached } from './facturacionLogic.js';
+
+function formatCop(n) {
+    return formatCopCached(n);
+}
 
 function currentMonthValue() {
     const d = new Date();
@@ -23,11 +47,6 @@ function parseMonthValue(v) {
     return { year: Number(m[1]), month: Number(m[2]) };
 }
 
-function formatCop(n) {
-    const x = Number(n) || 0;
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(x);
-}
-
 function shortCliente(label) {
     const s = String(label || '').trim();
     if (s.length <= 14) return s;
@@ -37,29 +56,98 @@ function shortCliente(label) {
 export default function ConciliacionesDashboardPage({ token }) {
     const navigate = useNavigate();
     const mt = useModuleTheme();
-    const { isLight, headingAccent, labelMuted, field } = mt;
+    const { isLight, labelMuted, field } = mt;
 
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
 
     const [monthValue, setMonthValue] = useState(currentMonthValue);
     const [loading, setLoading] = useState(true);
+    const [liderLoading, setLiderLoading] = useState(true);
     const [error, setError] = useState('');
     const [payload, setPayload] = useState(null);
+    const [colaItems, setColaItems] = useState([]);
+    const [liderRows, setLiderRows] = useState([]);
+    const monthCacheRef = useRef(new Map());
 
     const ym = useMemo(() => parseMonthValue(monthValue), [monthValue]);
 
-    const load = useCallback(async () => {
+    const openFacturacion = useCallback(
+        (cliente) => {
+            const base = '/admin/conciliaciones/facturacion';
+            if (cliente) {
+                navigate(`${base}?cliente=${encodeURIComponent(cliente)}`);
+            } else {
+                navigate(base);
+            }
+        },
+        [navigate]
+    );
+
+    const load = useCallback(async (options = {}) => {
+        const { force = false } = options;
         if (!ym.year || !ym.month) return;
+        const cacheKey = `${ym.year}-${ym.month}`;
+        if (!force && monthCacheRef.current.has(cacheKey)) {
+            const cached = monthCacheRef.current.get(cacheKey);
+            setColaItems(cached.colaItems);
+            setPayload(cached.payload);
+            setLiderRows(cached.liderRows);
+            setLoading(false);
+            setLiderLoading(false);
+            setError('');
+            return;
+        }
         setLoading(true);
+        setLiderLoading(true);
         setError('');
         try {
-            const data = await fetchConciliacionesDashboardResumen(token, { year: ym.year, month: ym.month });
-            setPayload(data);
+            const [colaResult, liderResult] = await Promise.allSettled([
+                fetchColaCierres(token, { year: ym.year, month: ym.month }),
+                fetchDashboardLiderCliente(token, { year: ym.year, month: ym.month })
+            ]);
+
+            if (colaResult.status === 'fulfilled') {
+                const items = Array.isArray(colaResult.value?.items) ? colaResult.value.items : [];
+                setColaItems(items);
+                setPayload(aggregateDashboardFromColaItems(items));
+            } else {
+                throw colaResult.reason;
+            }
+
+            if (liderResult.status === 'fulfilled') {
+                setLiderRows(Array.isArray(liderResult.value?.items) ? liderResult.value.items : []);
+            } else {
+                setLiderRows([]);
+            }
+
+            monthCacheRef.current.set(cacheKey, {
+                colaItems:
+                    colaResult.status === 'fulfilled'
+                        ? Array.isArray(colaResult.value?.items)
+                            ? colaResult.value.items
+                            : []
+                        : [],
+                payload:
+                    colaResult.status === 'fulfilled'
+                        ? aggregateDashboardFromColaItems(
+                              Array.isArray(colaResult.value?.items) ? colaResult.value.items : []
+                          )
+                        : null,
+                liderRows:
+                    liderResult.status === 'fulfilled'
+                        ? Array.isArray(liderResult.value?.items)
+                            ? liderResult.value.items
+                            : []
+                        : []
+            });
         } catch (e) {
             setError(e.message || 'No se pudo cargar el dashboard');
             setPayload(null);
+            setColaItems([]);
+            setLiderRows([]);
         } finally {
             setLoading(false);
+            setLiderLoading(false);
         }
     }, [token, ym.year, ym.month]);
 
@@ -67,40 +155,59 @@ export default function ConciliacionesDashboardPage({ token }) {
         load();
     }, [load]);
 
-    const chartData = useMemo(() => {
-        const rows = payload?.rows || [];
-        return [...rows]
-            .map((r) => ({
-                cliente: shortCliente(r.cliente),
-                clienteFull: r.cliente,
-                factura: Number(r.totales?.facturaSum) || 0,
-                deduccion: Number(r.totales?.deduccionSum) || 0
-            }))
-            .sort((a, b) => b.factura - a.factura || b.deduccion - a.deduccion)
-            .slice(0, 16);
-    }, [payload]);
+    const monthCtx = useMemo(() => ({ year: ym.year, month: ym.month }), [ym.year, ym.month]);
+
+    const saludData = useMemo(() => buildColaSaludChartData(colaItems), [colaItems]);
+
+    const stackedData = useMemo(
+        () => buildClienteStackedChartData(payload?.rows || [], 12, shortCliente),
+        [payload?.rows]
+    );
+
+    const alertas = useMemo(
+        () => buildDashboardAlertas(colaItems, monthCtx),
+        [colaItems, monthCtx]
+    );
+
+    const gapCierre = useMemo(
+        () => buildGapCierreChartData(colaItems, monthCtx),
+        [colaItems, monthCtx]
+    );
+
+    const paretoData = useMemo(
+        () => buildParetoIngresosChartData(payload?.rows || [], 12, shortCliente),
+        [payload?.rows]
+    );
+
+    const heatmap = useMemo(
+        () => buildClienteCierreHeatmapData(colaItems, { maxClientes: 10 }, shortCliente),
+        [colaItems]
+    );
+
+    const liderChartData = useMemo(
+        () => buildLiderClienteStackedChartData(liderRows, 10, shortCliente),
+        [liderRows]
+    );
+    const liderSeriesKeys = useMemo(() => liderClienteChartSeriesKeys(liderChartData), [liderChartData]);
 
     const gt = payload?.globalTotales;
+    const hasServicios = (payload?.serviciosCount ?? 0) > 0;
 
     return (
         <div className={CONCILIACIONES_PAGE_MAIN}>
-            <ConciliacionesPageHeader
-                isLight={isLight}
-                icon={LayoutDashboard}
-                title="Dashboard de conciliaciones"
-                description="Vista consolidada por cliente para el mes seleccionado (tarifas, deducciones por novedades aprobadas y facturación neta). Abre el resumen detallado por colaborador desde la tabla."
-            >
-                <label className="flex w-full max-w-xs flex-col gap-1.5">
-                    <span className={`${dash.labelFilter} whitespace-nowrap`}>Mes</span>
-                    <input
-                        {...nativeCalendarOnlyInputProps}
-                        type="month"
-                        className={`${field} cinte-month-picker`}
-                        value={monthValue}
-                        onChange={(e) => setMonthValue(e.target.value)}
-                    />
-                </label>
-            </ConciliacionesPageHeader>
+            <ClienteMesSelectors
+                variant="gestion"
+                clientes={[]}
+                clienteValue=""
+                onClienteChange={() => {}}
+                monthValue={monthValue}
+                onMonthChange={setMonthValue}
+                field={field}
+                labelMuted={labelMuted}
+                hideClienteSelector
+                showMonthInline
+                allowTodos={false}
+            />
 
             {error ? (
                 <div className={conciliacionesErrorBannerClass(isLight)}>{error}</div>
@@ -108,63 +215,106 @@ export default function ConciliacionesDashboardPage({ token }) {
 
             {loading ? <p className={`text-sm ${labelMuted}`}>Cargando indicadores…</p> : null}
 
-            {!loading && !error && !gt ? (
+            {!loading && !error && !hasServicios ? (
                 <p className={`rounded-xl border px-4 py-3 text-sm ${isLight ? 'border-slate-200 bg-white text-slate-700' : 'border-slate-700 bg-[#1e293b] text-slate-300'}`}>
-                    No hay datos de conciliación para el mes seleccionado. Prueba otro mes o revisa que existan novedades aprobadas en ese periodo.
+                    No hay servicios en la cola para el mes seleccionado. Crea servicios y asocia consultores en el módulo Servicios.
                 </p>
             ) : null}
 
-            {!loading && gt ? (
+            {!loading && hasServicios && gt ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     {[
-                        { label: 'Clientes en alcance', value: String(payload?.clientesCount ?? 0) },
+                        { label: 'Servicios activos', value: String(payload?.serviciosCount ?? 0) },
+                        { label: 'Clientes con servicios', value: String(payload?.clientesCount ?? 0) },
                         { label: 'Suma tarifas', value: formatCop(gt.tarifaSum) },
-                        { label: 'Deducciones (aprobadas)', value: formatCop(gt.deduccionSum) },
                         { label: 'Total facturación neta', value: formatCop(gt.facturaSum) }
                     ].map(({ label, value }) => (
                         <div key={label} className={`${dash.card} p-4`}>
                             <p className={`text-[10px] font-heading font-bold uppercase tracking-wider ${labelMuted}`}>{label}</p>
-                            <p className={`mt-2 font-heading text-lg font-extrabold sm:text-xl ${headingAccent}`}>{value}</p>
+                            <p className={`mt-2 font-heading text-lg font-extrabold sm:text-xl ${CINTE_HEADING}`}>{value}</p>
                         </div>
                     ))}
                 </div>
             ) : null}
 
-            {!loading && chartData.length > 0 ? (
-                <div className={`${dash.card} p-4 sm:p-5`}>
-                    <h2 className={`mb-4 font-heading text-sm font-bold ${headingAccent}`}>Facturación neta por cliente</h2>
-                    <div className="h-[min(360px,50vh)] w-full min-h-[240px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 40 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke={isLight ? '#e2e8f0' : '#1a3a56'} />
-                                <XAxis dataKey="cliente" tick={{ fill: isLight ? '#475569' : '#94a3b8', fontSize: 10 }} interval={0} angle={-25} textAnchor="end" height={70} />
-                                <YAxis tick={{ fill: isLight ? '#475569' : '#94a3b8', fontSize: 10 }} tickFormatter={(v) => `${Math.round(v / 1_000_000)}M`} />
-                                <Tooltip
-                                    formatter={(value) => formatCop(value)}
-                                    labelFormatter={(_, pl) => (Array.isArray(pl) && pl[0]?.payload?.clienteFull ? String(pl[0].payload.clienteFull) : '')}
-                                    contentStyle={
-                                        isLight
-                                            ? { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8 }
-                                            : { background: '#0b1e30', border: '1px solid #1a3a56', borderRadius: 8, color: '#e2e8f0' }
-                                    }
-                                />
-                                <Bar dataKey="factura" name="Factura neta" fill="#65BCF7" radius={[4, 4, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
+            {!loading && hasServicios ? (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <ConciliacionesDashboardSaludCola
+                        data={saludData}
+                        dash={dash}
+                        isLight={isLight}
+                        labelMuted={labelMuted}
+                        onOpenFacturacion={() => openFacturacion()}
+                    />
+                    <ConciliacionesDashboardAlertas
+                        alertas={alertas}
+                        dash={dash}
+                        isLight={isLight}
+                        labelMuted={labelMuted}
+                        onOpenCliente={openFacturacion}
+                    />
                 </div>
             ) : null}
 
+            {!loading && hasServicios ? (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <ConciliacionesDashboardGapCierre
+                        gap={gapCierre}
+                        dash={dash}
+                        isLight={isLight}
+                        labelMuted={labelMuted}
+                    />
+                    <ConciliacionesDashboardPareto
+                        data={paretoData}
+                        dash={dash}
+                        isLight={isLight}
+                        labelMuted={labelMuted}
+                        onOpenCliente={openFacturacion}
+                    />
+                </div>
+            ) : null}
+
+            {!loading && hasServicios ? (
+                <ConciliacionesDashboardTarifaStacked
+                    data={stackedData}
+                    dash={dash}
+                    isLight={isLight}
+                    labelMuted={labelMuted}
+                />
+            ) : null}
+
+            {!loading && hasServicios && liderLoading ? (
+                <p className={`text-sm ${labelMuted}`}>Cargando gráfico por líder…</p>
+            ) : null}
+
+            {!loading && hasServicios && !liderLoading && liderChartData.length ? (
+                <ConciliacionesDashboardLiderClienteStacked
+                    data={liderChartData}
+                    seriesKeys={liderSeriesKeys}
+                    dash={dash}
+                    isLight={isLight}
+                    labelMuted={labelMuted}
+                />
+            ) : null}
+
+            {!loading && hasServicios ? (
+                <ConciliacionesDashboardCierreHeatmap
+                    heatmap={heatmap}
+                    dash={dash}
+                    isLight={isLight}
+                    labelMuted={labelMuted}
+                    onOpenCliente={openFacturacion}
+                />
+            ) : null}
+
             {!loading && payload?.rows?.length ? (
-                <div className={`${dash.cardFlex} overflow-hidden`}>
-                    <h2 className={`border-b px-4 py-3 font-heading text-sm font-bold ${dash.titleLg} ${dash.gestionHead}`}>Detalle por cliente</h2>
-                    <div className={dash.tableWrap}>
+                <div className={`${dash.card} overflow-hidden`}>
+                    <h2 className={`border-b px-4 py-3 font-heading text-sm font-bold ${dash.titleLg} ${dash.gestionHead} ${CINTE_HEADING}`}>Detalle por cliente</h2>
+                    <div className="overflow-x-auto">
                         <table className="w-full min-w-[640px] text-left text-sm">
                             <thead className={dash.thead}>
                                 <tr>
                                     <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Cliente</th>
-                                    <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Colaboradores</th>
-                                    <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Con novedad</th>
                                     <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Tarifas</th>
                                     <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Deducción</th>
                                     <th className="px-3 py-2 font-heading text-[10px] font-bold uppercase tracking-wide">Factura</th>
@@ -175,20 +325,16 @@ export default function ConciliacionesDashboardPage({ token }) {
                                 {payload.rows.map((r) => (
                                     <tr key={r.cliente} className={dash.trHover}>
                                         <td className={dash.tdName}>{r.cliente}</td>
-                                        <td className={`${dash.tdCell} tabular-nums`}>{r.totales?.colaboradores ?? 0}</td>
-                                        <td className={`${dash.tdCell} tabular-nums`}>{r.totales?.conNovedad ?? 0}</td>
                                         <td className={`${dash.tdCell} tabular-nums`}>{formatCop(r.totales?.tarifaSum)}</td>
                                         <td className={`${dash.tdCell} tabular-nums`}>{formatCop(r.totales?.deduccionSum)}</td>
-                                        <td className={`${dash.tdCell} tabular-nums font-semibold`}>{formatCop(r.totales?.facturaSum)}</td>
+                                        <td className={`${dash.tdCell} tabular-nums font-semibold ${CINTE_HEADING}`}>{formatCop(r.totales?.facturaSum)}</td>
                                         <td className={`${dash.tdCell} text-right`}>
                                             <button
                                                 type="button"
                                                 className={dash.actionBtn}
-                                                onClick={() =>
-                                                    navigate(`/admin/conciliaciones/resumen?cliente=${encodeURIComponent(r.cliente)}`)
-                                                }
+                                                onClick={() => openFacturacion(r.cliente)}
                                             >
-                                                Resumen
+                                                Facturación
                                             </button>
                                         </td>
                                     </tr>
@@ -197,8 +343,6 @@ export default function ConciliacionesDashboardPage({ token }) {
                         </table>
                     </div>
                 </div>
-            ) : !loading && !error ? (
-                <p className={`text-sm ${labelMuted}`}>No hay clientes en alcance para este usuario o no hay datos para el mes.</p>
             ) : null}
         </div>
     );

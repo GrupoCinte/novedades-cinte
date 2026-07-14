@@ -1,0 +1,15 @@
+flowchart TD
+    Start[Facturacion] --> SelMes[Seleccionar mes]
+    SelMes --> SelCli[Seleccionar cliente]
+    SelCli --> Cola[Cola de cierres]
+    Cola --> FiltroCola{Filtrar cola}
+    FiltroCola --> ColaFiltrada[Tarjetas filtradas]
+    ColaFiltrada --> AccionTarjeta{Accion tarjeta}
+    AccionTarjeta -->|Abrir cierre| Workspace[Workspace servicio]
+    AccionTarjeta -->|Excel| ExcelCola[Export Excel]
+    AccionTarjeta -->|Marcar conciliada| MarcarCola[Si ENVIADA]
+    Workspace --> Tabla[Tabla consultores]
+    Tabla --> Modal[Modal revision]
+    Workspace --> Masiva[Aprobacion masiva]
+    Workspace --> Regresar[Regresar cola]
+    Regresar --> Cola

@@ -9,7 +9,8 @@ import {
     applyClientSideFilters,
     buildFiltrosResumen,
     creadoEnRangeForMonthIndex,
-    filtersToGestionParams
+    filtersToGestionParams,
+    filtersToNominaProcesarBody
 } from './novedades/novedadesFilters.js';
 import {
     getNovedadRule,
@@ -29,6 +30,12 @@ import {
     formatHeSegmentListBogota
 } from './heNovedadBogotaClient.js';
 import { formatHeDomingoCompGestionResumen } from './heDomingoCompDisplay.js';
+import {
+    HE_TIPO_CANONICO,
+    HE_TIPO_CATALOGO_ORDEN,
+    formatHeTiposResumenParaItem,
+    formatHeTipoNovedadDisplay
+} from './novedadHeTipoCatalog.js';
 import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat.js';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
@@ -315,6 +322,12 @@ export default function Dashboard({ token, auth, onLogout }) {
         const rule = getNovedadRule(item.tipoNovedad);
         return Array.isArray(rule.approvers) && rule.approvers.includes(currentRole);
     };
+    const canMarkNominaProcesado = currentRole === 'nomina' || currentRole === 'super_admin' || currentRole === 'cac';
+    const canSelectItemForNominaProcesado = (item) =>
+        canMarkNominaProcesado
+        && item?.estado === 'Aprobado'
+        && !item?.nominaProcesado
+        && Boolean(item?.id);
 
     // Calendar State
     const [currentMonth, setCurrentMonth] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -335,6 +348,10 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [fGpUserId, setFGpUserId] = useState('');
     /** '' | '0'..'3' — franja de tiempo hasta decisión (KPI dashboard); ver `leadTimeBucket` en API. */
     const [fLeadTimeBucket, setFLeadTimeBucket] = useState('');
+    /** '' | 'si' | 'no' — capa procesado nómina (solo Gestión / API). */
+    const [fNominaProcesado, setFNominaProcesado] = useState('');
+    const [fFechaInicioDesde, setFFechaInicioDesde] = useState('');
+    const [fFechaInicioHasta, setFFechaInicioHasta] = useState('');
     const [gpFilterOptions, setGpFilterOptions] = useState([]);
     const isSuperAdminNovedades = currentRole === 'super_admin' || currentRole === 'cac';
     /** Temporal: ocultar el botón «Editar» en el modal de gestión (API PATCH sigue disponible). */
@@ -376,6 +393,11 @@ export default function Dashboard({ token, auth, onLogout }) {
      */
     const [gestionDispMontoInput, setGestionDispMontoInput] = useState('$ ');
     const [gestionDispMontoError, setGestionDispMontoError] = useState('');
+    const [gestionSelectedIds, setGestionSelectedIds] = useState(() => new Set());
+    const [gestionNominaSelectAllFiltered, setGestionNominaSelectAllFiltered] = useState(false);
+    const [gestionNominaEligibleTotal, setGestionNominaEligibleTotal] = useState(null);
+    const [gestionNominaModalOpen, setGestionNominaModalOpen] = useState(false);
+    const [gestionNominaBusy, setGestionNominaBusy] = useState(false);
     /** Drawer lateral de filtros avanzados (compartido entre pestañas del módulo). */
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
     const navigate = useNavigate();
@@ -452,7 +474,10 @@ export default function Dashboard({ token, auth, onLogout }) {
                     fCreadoDesde,
                     fCreadoHasta,
                     fGpUserId,
-                    fLeadTimeBucket
+                    fLeadTimeBucket,
+                    fNominaProcesado,
+                    fFechaInicioDesde,
+                    fFechaInicioHasta
                 },
                 { page, limit }
             );
@@ -490,6 +515,9 @@ export default function Dashboard({ token, auth, onLogout }) {
         fCreadoHasta,
         fGpUserId,
         fLeadTimeBucket,
+        fNominaProcesado,
+        fFechaInicioDesde,
+        fFechaInicioHasta,
         token
     ]);
 
@@ -1056,8 +1084,11 @@ export default function Dashboard({ token, auth, onLogout }) {
         fCreadoDesde,
         fCreadoHasta,
         fGpUserId,
-        fLeadTimeBucket
-    }), [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket]);
+        fLeadTimeBucket,
+        fNominaProcesado,
+        fFechaInicioDesde,
+        fFechaInicioHasta
+    }), [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket, fNominaProcesado, fFechaInicioDesde, fFechaInicioHasta]);
 
     const dashItems = useMemo(
         () => applyClientSideFilters(items, moduleFilters),
@@ -1084,6 +1115,9 @@ export default function Dashboard({ token, auth, onLogout }) {
         if (Object.prototype.hasOwnProperty.call(patch, 'fCreadoDesde')) setFCreadoDesde(patch.fCreadoDesde);
         if (Object.prototype.hasOwnProperty.call(patch, 'fCreadoHasta')) setFCreadoHasta(patch.fCreadoHasta);
         if (Object.prototype.hasOwnProperty.call(patch, 'fGpUserId')) setFGpUserId(patch.fGpUserId);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fNominaProcesado')) setFNominaProcesado(patch.fNominaProcesado);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fFechaInicioDesde')) setFFechaInicioDesde(patch.fFechaInicioDesde);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fFechaInicioHasta')) setFFechaInicioHasta(patch.fFechaInicioHasta);
     }, []);
 
     // ── Data Processing (based on dashItems) ─────────────────────────────────
@@ -1303,7 +1337,7 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket, pageSize]);
+    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket, fNominaProcesado, fFechaInicioDesde, fFechaInicioHasta, pageSize]);
     useEffect(() => {
         if (currentPage > totalPages) {
             setCurrentPage(totalPages);
@@ -1401,7 +1435,10 @@ export default function Dashboard({ token, auth, onLogout }) {
                 fCreadoDesde,
                 fCreadoHasta,
                 fGpUserId,
-                fLeadTimeBucket
+                fLeadTimeBucket,
+                fNominaProcesado,
+                fFechaInicioDesde,
+                fFechaInicioHasta
             });
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades/export-excel?${query}`, {
@@ -1429,6 +1466,155 @@ export default function Dashboard({ token, auth, onLogout }) {
         }
     };
 
+    const gestionSelectableOnPage = useMemo(
+        () => pagedItems.filter((it) => canSelectItemForNominaProcesado(it)),
+        [pagedItems, canMarkNominaProcesado]
+    );
+
+    const clearGestionNominaSelection = useCallback(() => {
+        setGestionSelectedIds(new Set());
+        setGestionNominaSelectAllFiltered(false);
+        setGestionNominaEligibleTotal(null);
+    }, []);
+
+    const gestionNominaHasSelection = gestionNominaSelectAllFiltered || gestionSelectedIds.size > 0;
+
+    useEffect(() => {
+        clearGestionNominaSelection();
+    }, [
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket,
+        fNominaProcesado,
+        fFechaInicioDesde,
+        fFechaInicioHasta,
+        clearGestionNominaSelection
+    ]);
+
+    useEffect(() => {
+        if (!gestionNominaSelectAllFiltered) {
+            setGestionNominaEligibleTotal(null);
+            return undefined;
+        }
+        const ac = new AbortController();
+        (async () => {
+            try {
+                const params = filtersToGestionParams(
+                    {
+                        fTipo,
+                        fEstado,
+                        fNombre,
+                        fCliente,
+                        fCreadoDesde,
+                        fCreadoHasta,
+                        fGpUserId,
+                        fLeadTimeBucket,
+                        fNominaProcesado: 'no',
+                        fFechaInicioDesde,
+                        fFechaInicioHasta
+                    },
+                    { page: 1, limit: 1 }
+                );
+                params.estado = 'Aprobado';
+                params.nominaProcesado = 'no';
+                const res = await fetch(`/api/novedades?${new URLSearchParams(params)}`, {
+                    credentials: 'include',
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal: ac.signal
+                });
+                if (!res.ok) throw new Error('count_failed');
+                const data = await res.json();
+                setGestionNominaEligibleTotal(Number(data?.pagination?.total ?? 0));
+            } catch {
+                if (!ac.signal.aborted) setGestionNominaEligibleTotal(null);
+            }
+        })();
+        return () => ac.abort();
+    }, [
+        gestionNominaSelectAllFiltered,
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket,
+        fNominaProcesado,
+        fFechaInicioDesde,
+        fFechaInicioHasta,
+        token
+    ]);
+
+    const toggleGestionSelectId = (id) => {
+        const sid = String(id || '');
+        if (!sid) return;
+        setGestionNominaSelectAllFiltered(false);
+        setGestionNominaEligibleTotal(null);
+        setGestionSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(sid)) next.delete(sid);
+            else next.add(sid);
+            return next;
+        });
+    };
+
+    const toggleGestionSelectAllFiltered = () => {
+        if (gestionNominaSelectAllFiltered) {
+            setGestionNominaSelectAllFiltered(false);
+            setGestionNominaEligibleTotal(null);
+            return;
+        }
+        setGestionSelectedIds(new Set());
+        setGestionNominaSelectAllFiltered(true);
+    };
+
+    const submitNominaProcesado = async () => {
+        if (!gestionNominaSelectAllFiltered && !gestionSelectedIds.size) return;
+        setGestionNominaBusy(true);
+        setStateError(null);
+        try {
+            const body = gestionNominaSelectAllFiltered
+                ? {
+                    filters: filtersToNominaProcesarBody({
+                        fTipo,
+                        fEstado,
+                        fNombre,
+                        fCliente,
+                        fCreadoDesde,
+                        fCreadoHasta,
+                        fGpUserId,
+                        fLeadTimeBucket,
+                        fNominaProcesado: 'no',
+                        fFechaInicioDesde,
+                        fFechaInicioHasta
+                    })
+                }
+                : { ids: [...gestionSelectedIds] };
+            const res = await fetch('/api/novedades/nomina-procesar', {
+                method: 'POST',
+                credentials: 'include',
+                headers: gestionAdminHeaders(),
+                body: JSON.stringify(body)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || 'No se pudo marcar procesado nómina');
+            setGestionNominaModalOpen(false);
+            clearGestionNominaSelection();
+            await loadGestionData(safePage, pageSize);
+            await loadData();
+        } catch (err) {
+            setStateError(err?.message || 'Error al marcar procesado nómina');
+        } finally {
+            setGestionNominaBusy(false);
+        }
+    };
+
     const clearNovedadesFilters = () => {
         setFTipo('');
         setFEstado('');
@@ -1438,6 +1624,9 @@ export default function Dashboard({ token, auth, onLogout }) {
         setFCreadoHasta('');
         setFGpUserId('');
         setFLeadTimeBucket('');
+        setFNominaProcesado('');
+        setFFechaInicioDesde('');
+        setFFechaInicioHasta('');
         setCurrentPage(1);
     };
 
@@ -2109,13 +2298,59 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <span className="sm:hidden">Exportar</span>
                             </button>
                         </NovedadesFiltersToolbar>
+                        {canMarkNominaProcesado && gestionNominaHasSelection ? (
+                            <div
+                                className={
+                                    isLight
+                                        ? 'mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-950'
+                                        : 'mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-3 text-sm text-violet-100'
+                                }
+                            >
+                                <span className="font-medium">
+                                    {gestionNominaSelectAllFiltered
+                                        ? `Todas las aprobadas pendientes de nómina del filtro${
+                                            gestionNominaEligibleTotal != null ? ` (${gestionNominaEligibleTotal})` : ''
+                                        } — todas las páginas`
+                                        : `${gestionSelectedIds.size} seleccionada(s)`}
+                                </span>
+                                <button
+                                    type="button"
+                                    disabled={gestionNominaBusy}
+                                    onClick={() => setGestionNominaModalOpen(true)}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-[#004D87] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#003a66] disabled:opacity-50"
+                                >
+                                    <BadgeCheck size={16} aria-hidden />
+                                    Marcar procesado nómina
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={gestionNominaBusy}
+                                    onClick={clearGestionNominaSelection}
+                                    className={isLight ? 'text-violet-800 underline hover:text-violet-950' : 'text-violet-200 underline hover:text-white'}
+                                >
+                                    Limpiar selección
+                                </button>
+                            </div>
+                        ) : null}
                         <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                             <div className={dash.tableWrap}>
                                 <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
                                     <table className="w-full text-left border-collapse whitespace-nowrap min-w-[900px] md:min-w-full">
                                         <thead>
                                             <tr className={dash.thead}>
-                                                <th className="p-4 pl-6 font-semibold">Creado</th>
+                                                {canMarkNominaProcesado ? (
+                                                    <th className="p-4 pl-6 font-semibold w-10">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="h-4 w-4 rounded border-slate-400"
+                                                            checked={gestionNominaSelectAllFiltered}
+                                                            disabled={!gestionSelectableOnPage.length || gestionNominaBusy}
+                                                            onChange={toggleGestionSelectAllFiltered}
+                                                            aria-label="Seleccionar todas las aprobadas pendientes de nómina del filtro (todas las páginas)"
+                                                        />
+                                                    </th>
+                                                ) : null}
+                                                <th className={`p-4 font-semibold ${canMarkNominaProcesado ? '' : 'pl-6'}`}>Creado</th>
                                                 <th className="p-4 font-semibold">Nombre</th>
                                                 <th className="p-4 font-semibold">Cliente</th>
                                                 <th className="p-4 font-semibold">Tipo</th>
@@ -2129,9 +2364,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         </thead>
                                         <tbody className={dash.tbody}>
                                             {gestionLoading ? (
-                                                <tr><td colSpan="10" className={`p-12 text-center font-medium ${dash.muted}`}>Cargando base de datos...</td></tr>
+                                                <tr><td colSpan={canMarkNominaProcesado ? 11 : 10} className={`p-12 text-center font-medium ${dash.muted}`}>Cargando base de datos...</td></tr>
                                             ) : sortedItems.length === 0 ? (
-                                                <tr><td colSpan="10" className={`p-12 text-center font-medium ${dash.muted}`}>No se encontraron registros.</td></tr>
+                                                <tr><td colSpan={canMarkNominaProcesado ? 11 : 10} className={`p-12 text-center font-medium ${dash.muted}`}>No se encontraron registros.</td></tr>
                                             ) : (
                                                 pagedItems.map(it => {
                                                     const cread = new Date(it.creadoEn);
@@ -2146,7 +2381,22 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                         : '';
                                                     return (
                                                         <tr key={it.id ? String(it.id) : `${it.creadoEn}-${it.cedula}-${it.nombre}`} className={dash.trHover}>
-                                                            <td className={dash.tdDate}>{validCread}</td>
+                                                            {canMarkNominaProcesado ? (
+                                                                <td className="p-4 pl-6">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        className="h-4 w-4 rounded border-slate-400"
+                                                                        checked={
+                                                                            (gestionNominaSelectAllFiltered && canSelectItemForNominaProcesado(it))
+                                                                            || gestionSelectedIds.has(String(it.id))
+                                                                        }
+                                                                        disabled={!canSelectItemForNominaProcesado(it) || gestionNominaBusy}
+                                                                        onChange={() => toggleGestionSelectId(it.id)}
+                                                                        aria-label={`Seleccionar ${it.nombre || 'novedad'}`}
+                                                                    />
+                                                                </td>
+                                                            ) : null}
+                                                            <td className={`${dash.tdDate} ${canMarkNominaProcesado ? '' : 'pl-6'}`}>{validCread}</td>
                                                             <td className={dash.tdName}>{it.nombre}</td>
                                                             <td className={dash.tdCell}>{it.cliente || '-'}</td>
                                                             <td className={dash.tdMuted}>
@@ -2184,6 +2434,26 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                             }
                                                                         >
                                                                             Gestionada por alerta HE: {it.alertaHeResueltaEstado}
+                                                                        </span>
+                                                                    ) : null}
+                                                                    {it.nominaProcesado ? (
+                                                                        <span
+                                                                            className={
+                                                                                isLight
+                                                                                    ? 'inline-flex w-fit flex-col gap-0.5 rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-900'
+                                                                                    : 'inline-flex w-fit flex-col gap-0.5 rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-100'
+                                                                            }
+                                                                            title={[
+                                                                                it.nominaProcesadoPorCorreo,
+                                                                                it.nominaProcesadoLote
+                                                                            ].filter(Boolean).join(' · ')}
+                                                                        >
+                                                                            <span>Procesado nómina</span>
+                                                                            {it.nominaProcesadoEn ? (
+                                                                                <span className="font-normal opacity-90">
+                                                                                    {new Date(it.nominaProcesadoEn).toLocaleString('es-CO')}
+                                                                                </span>
+                                                                            ) : null}
                                                                         </span>
                                                                     ) : null}
                                                                     {it.estado === 'Rechazado' && String(it.observacionesRechazo || '').trim() ? (
@@ -2742,6 +3012,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                         gpFilterOptions={gpFilterOptions}
                         isSuperAdminNovedades={isSuperAdminNovedades}
                         labelGpOption={labelGpDirectorioOption}
+                        showNominaFilters={activeTab === 'Gestión'}
                     />
                 )}
 
@@ -2906,6 +3177,28 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     Alerta HE gestionada: {gestionDetailItem.alertaHeResueltaEstado}
                                 </div>
                             ) : null}
+                            {gestionDetailItem.nominaProcesado ? (
+                                <div
+                                    className={
+                                        isLight
+                                            ? 'md:col-span-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-950'
+                                            : 'md:col-span-2 rounded-lg border border-violet-500/35 bg-violet-500/10 px-3 py-2 text-violet-100'
+                                    }
+                                >
+                                    <span className="font-semibold">Procesado nómina</span>
+                                    {gestionDetailItem.nominaProcesadoEn ? (
+                                        <span className="block text-sm opacity-90">
+                                            {new Date(gestionDetailItem.nominaProcesadoEn).toLocaleString('es-CO')}
+                                        </span>
+                                    ) : null}
+                                    {gestionDetailItem.nominaProcesadoPorCorreo ? (
+                                        <span className="block text-sm">{gestionDetailItem.nominaProcesadoPorCorreo}</span>
+                                    ) : null}
+                                    {gestionDetailItem.nominaProcesadoLote ? (
+                                        <span className="block text-sm">Lote: {gestionDetailItem.nominaProcesadoLote}</span>
+                                    ) : null}
+                                </div>
+                            ) : null}
                             {(() => {
                                 const heDomingoCompResumen = formatHeDomingoCompGestionResumen(
                                     gestionDetailItem.heDomingoObservacion
@@ -2982,7 +3275,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                     : 'text-[10px] font-black uppercase leading-tight tracking-widest text-amber-200'
                                                             }
                                                         >
-                                                            Recargo dominical/festivos — diurno
+                                                            {formatHeTipoNovedadDisplay(
+                                                                HE_TIPO_CANONICO.REC_DOM_DIURNO,
+                                                                gestionDetailItem.heDomingoObservacion,
+                                                                'recargo_diurno'
+                                                            )}
                                                         </span>
                                                         <span
                                                             className={
@@ -3017,7 +3314,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                     : 'text-[10px] font-black uppercase leading-tight tracking-widest text-orange-200'
                                                             }
                                                         >
-                                                            Recargo dominical/festivos — nocturno
+                                                            {formatHeTipoNovedadDisplay(
+                                                                HE_TIPO_CANONICO.REC_DOM_NOCTURNO,
+                                                                gestionDetailItem.heDomingoObservacion,
+                                                                'recargo_nocturno'
+                                                            )}
                                                         </span>
                                                         <span
                                                             className={
@@ -3052,7 +3353,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                     : 'text-[10px] font-black uppercase leading-tight tracking-widest text-violet-200'
                                                             }
                                                         >
-                                                            Recargo nocturno
+                                                            {HE_TIPO_CANONICO.REC_NOCTURNO}
                                                         </span>
                                                         <span
                                                             className={
@@ -3081,7 +3382,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                             : 'text-center text-[10px] font-bold uppercase leading-tight tracking-widest text-cyan-200'
                                                     }
                                                 >
-                                                    Hora extra diurna
+                                                    {HE_TIPO_CANONICO.HE_DIURNA}
                                                 </span>
                                                 <span
                                                     className={
@@ -3123,7 +3424,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                             : 'text-center text-[10px] font-bold uppercase leading-tight tracking-widest text-indigo-200'
                                                     }
                                                 >
-                                                    Hora extra nocturna
+                                                    {HE_TIPO_CANONICO.HE_NOCTURNA}
                                                 </span>
                                                 <span
                                                     className={
@@ -3297,7 +3598,18 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.horasRecargoDomingoNocturnas} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horasRecargoDomingoNocturnas: e.target.value }))} />
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Tipo hora extra
-                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.tipoHoraExtra} onChange={(e) => setGestionEditDraft((d) => ({ ...d, tipoHoraExtra: e.target.value }))} />
+                                    <select
+                                        className={`mt-1 w-full ${fieldInput}`}
+                                        value={gestionEditDraft.tipoHoraExtra}
+                                        onChange={(e) => setGestionEditDraft((d) => ({ ...d, tipoHoraExtra: e.target.value }))}
+                                    >
+                                        <option value="">— Sin especificar —</option>
+                                        {HE_TIPO_CATALOGO_ORDEN.map((label) => (
+                                            <option key={label} value={label}>
+                                                {label}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Monto COP
                                     <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.montoCop} onChange={(e) => setGestionEditDraft((d) => ({ ...d, montoCop: e.target.value }))} />
@@ -3717,7 +4029,15 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 return (
                                                     <span className={isLight ? 'text-xs font-bold text-blue-800' : 'text-xs font-bold text-blue-400'}>
                                                         {qtyTxt}
-                                                        {getCantidadMedidaKind(it.tipoNovedad, it) === 'hours' && it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : ''}
+                                                        {getCantidadMedidaKind(it.tipoNovedad, it) === 'hours'
+                                                            ? (() => {
+                                                                  if (resolveCanonicalNovedadTipo(it.tipoNovedad) === 'Hora Extra') {
+                                                                      const tipos = formatHeTiposResumenParaItem(it);
+                                                                      return tipos ? ` (${tipos})` : '';
+                                                                  }
+                                                                  return it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : '';
+                                                              })()
+                                                            : ''}
                                                     </span>
                                                 );
                                             })()}
@@ -3881,6 +4201,54 @@ export default function Dashboard({ token, auth, onLogout }) {
                     </div>
                 </div>
             )}
+
+            {gestionNominaModalOpen ? (
+                <div
+                    className={`${dash.modalBackdrop} z-[250]`}
+                    onClick={() => {
+                        if (gestionNominaBusy) return;
+                        setGestionNominaModalOpen(false);
+                    }}
+                    role="presentation"
+                >
+                    <div
+                        className={isLight ? 'w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl' : 'w-full max-w-md rounded-xl border border-slate-600 bg-slate-900 p-5 shadow-xl'}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 className={dash.titleLg}>Marcar procesado nómina</h3>
+                        <p className={`${dash.modalMuted} mt-2 text-sm`}>
+                            {gestionNominaSelectAllFiltered
+                                ? `Se marcarán todas las novedades aprobadas pendientes de nómina que coinciden con el filtro actual${
+                                    gestionNominaEligibleTotal != null ? ` (${gestionNominaEligibleTotal})` : ''
+                                }.`
+                                : `Se marcarán ${gestionSelectedIds.size} novedad(es) aprobada(s).`}
+                            {' '}Quedarán registrados la fecha y hora, y tu correo como responsable. Esta acción es irreversible.
+                        </p>
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                            <button
+                                type="button"
+                                disabled={gestionNominaBusy}
+                                onClick={() => setGestionNominaModalOpen(false)}
+                                className={`${outlineBtn} text-sm`}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={
+                                    gestionNominaBusy
+                                    || (!gestionNominaSelectAllFiltered && !gestionSelectedIds.size)
+                                    || (gestionNominaSelectAllFiltered && gestionNominaEligibleTotal === 0)
+                                }
+                                onClick={() => void submitNominaProcesado()}
+                                className="rounded-lg border border-[#004D87] bg-[#004D87] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003a66] disabled:opacity-40"
+                            >
+                                {gestionNominaBusy ? 'Marcando…' : 'Confirmar'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
 
             {gestionRejectOpen && (
                 <div

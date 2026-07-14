@@ -21,6 +21,7 @@ async function startServer(deps) {
         ensureNovedadesHoraExtraAlertColumns,
         ensureNovedadesHeDomingoObservacionColumn,
         ensureNovedadesNominaVerificacionColumns,
+        ensureNovedadesNominaProcesadoColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         ensureNovedadesModalidadVotacionUnidadColumns,
         ensureNovedadesObservacionesColumn,
@@ -37,6 +38,14 @@ async function startServer(deps) {
         ensureMallaNocturnoConfigTable,
         ensureNovedadesMallaOrigenRefColumn,
         ensureConciliacionesFacturacionTable,
+        ensureConciliacionesFacturacionHistorialTable,
+        ensureConciliacionesServicioNotificacionesTable,
+        ensureConciliacionesServicioCierreTable,
+        ensureConciliacionesEmailPlantillasTable,
+        ensureConciliacionesEmailAccionesTable,
+        ensureConciliacionesNovedadConsumoTable,
+        ensureColaboradorAsignacionesTable,
+        ensureColaboradorTarifaHistorialTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
@@ -63,6 +72,7 @@ async function startServer(deps) {
     await ensureNovedadesHoraExtraAlertColumns();
     await ensureNovedadesHeDomingoObservacionColumn();
     await ensureNovedadesNominaVerificacionColumns();
+    await ensureNovedadesNominaProcesadoColumns();
     await ensureNovedadesHorasRecargoDomingoColumn();
     await ensureNovedadesModalidadVotacionUnidadColumns();
     await ensureNovedadesObservacionesColumn();
@@ -79,6 +89,20 @@ async function startServer(deps) {
     await ensureMallaNocturnoConfigTable();
     await ensureNovedadesMallaOrigenRefColumn();
     await ensureConciliacionesFacturacionTable();
+    await ensureConciliacionesFacturacionHistorialTable();
+    await ensureConciliacionesServicioNotificacionesTable();
+    await ensureConciliacionesServicioCierreTable();
+    await ensureConciliacionesEmailPlantillasTable();
+    await ensureConciliacionesEmailAccionesTable();
+    await ensureConciliacionesNovedadConsumoTable();
+    await ensureColaboradorAsignacionesTable();
+    await ensureColaboradorTarifaHistorialTable();
+    try {
+        const { migrateColaboradoresToAsignaciones } = require('./conciliaciones/colaboradorAsignaciones');
+        await migrateColaboradoresToAsignaciones(pool);
+    } catch (e) {
+        logger.warn({ error: e?.message }, 'Migración colaborador_asignaciones omitida');
+    }
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
     /**

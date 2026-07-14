@@ -4,6 +4,8 @@ import * as React from 'react';
 import { UserConfirmationEmail } from './templates/UserConfirmationEmail.js';
 import { AdminNotificationEmail } from './templates/AdminNotificationEmail.js';
 import { UserStatusUpdateEmail } from './templates/UserStatusUpdateEmail.js';
+import { ConciliacionCorreoLiderEmail } from './templates/ConciliacionCorreoLiderEmail.js';
+import { ConciliacionServicioFinalizadaEmail } from './templates/ConciliacionServicioFinalizadaEmail.js';
 const sesClient = new SESClient({ region: process.env.AWS_REGION || 'us-east-1' });
 const fromEmail = String(process.env.SES_FROM_EMAIL || '').trim();
 const adminToCsv = String(process.env.EMAIL_ADMIN_TO_CSV || '').trim();
@@ -15,12 +17,57 @@ function json(statusCode, data) {
         body: JSON.stringify(data)
     };
 }
-function parseEventPayload(rawEvent) {
+function parseRawPayload(rawEvent) {
     const maybeApiEvent = rawEvent;
-    const payload = typeof maybeApiEvent?.body === 'string'
-        ? JSON.parse(maybeApiEvent.body)
-        : rawEvent;
+    return typeof maybeApiEvent?.body === 'string' ? JSON.parse(maybeApiEvent.body) : rawEvent;
+}
+function parseConciliacionCorreoLider(data) {
+    if (data?.eventType !== 'conciliacion_correo_lider') {
+        throw new Error('eventType invalido');
+    }
+    if (!data?.eventId)
+        throw new Error('eventId requerido');
+    if (!String(data?.conciliacionServicioId || '').trim())
+        throw new Error('conciliacionServicioId requerido');
+    const email = String(data?.recipient?.email || '').trim();
+    if (!email.includes('@'))
+        throw new Error('recipient.email invalido');
+    if (!String(data?.asunto || '').trim())
+        throw new Error('asunto requerido');
+    if (!String(data?.servicio?.cliente || '').trim())
+        throw new Error('servicio.cliente requerido');
+    return data;
+}
+function parseConciliacionServicioFinalizada(data) {
+    if (data?.eventType !== 'conciliacion_servicio_finalizada') {
+        throw new Error('eventType invalido');
+    }
+    if (!data?.eventId)
+        throw new Error('eventId requerido');
+    if (!String(data?.conciliacionServicioId || '').trim())
+        throw new Error('conciliacionServicioId requerido');
+    const recipients = data.recipients;
+    if (!Array.isArray(recipients) || recipients.length === 0)
+        throw new Error('recipients requerido');
+    for (const r of recipients) {
+        if (!String(r?.email || '').includes('@'))
+            throw new Error('recipients.email invalido');
+    }
+    if (!String(data?.servicio?.cliente || '').trim())
+        throw new Error('servicio.cliente requerido');
+    if (!String(data?.admin?.actionUrl || '').trim())
+        throw new Error('admin.actionUrl requerido');
+    return data;
+}
+function parseEventPayload(rawEvent) {
+    const payload = parseRawPayload(rawEvent);
     const data = payload;
+    if (data?.eventType === 'conciliacion_correo_lider') {
+        return parseConciliacionCorreoLider(data);
+    }
+    if (data?.eventType === 'conciliacion_servicio_finalizada') {
+        return parseConciliacionServicioFinalizada(data);
+    }
     if (data?.eventType !== 'form_submitted' && data?.eventType !== 'form_status_changed') {
         throw new Error('eventType invalido');
     }
@@ -82,11 +129,72 @@ function resolveAdminRecipientsForSubmitted(payload) {
     }
     return resolveAdminRecipientsFromEnv();
 }
+function monthLabel(anio, mes) {
+    const names = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const m = Math.max(1, Math.min(12, Number(mes) || 1));
+    return `${names[m - 1]} ${anio}`;
+}
 export const handler = async (event) => {
     try {
         if (!fromEmail)
             throw new Error('SES_FROM_EMAIL no configurado');
         const payload = parseEventPayload(event);
+        if (payload.eventType === 'conciliacion_correo_lider') {
+            const html = await render(React.createElement(ConciliacionCorreoLiderEmail, { payload }));
+            const subject = String(payload.asunto || '').trim();
+            const command = new SendEmailCommand({
+                Source: fromEmail,
+                Destination: { ToAddresses: [String(payload.recipient.email).trim()] },
+                Message: {
+                    Subject: { Data: subject, Charset: 'UTF-8' },
+                    Body: { Html: { Data: html, Charset: 'UTF-8' } }
+                }
+            });
+            const result = await sesClient.send(command);
+            return json(200, {
+                ok: true,
+                eventId: payload.eventId,
+                messageIds: { to: result.MessageId || null }
+            });
+        }
+        if (payload.eventType === 'conciliacion_servicio_finalizada') {
+            const html = await render(React.createElement(ConciliacionServicioFinalizadaEmail, { payload }));
+            const ml = monthLabel(payload.servicio.anio, payload.servicio.mes);
+            const subject = `Conciliación finalizada — ${payload.servicio.cliente} / ${payload.servicio.serviceName} (${ml})`;
+            const message = {
+                Subject: { Data: subject, Charset: 'UTF-8' },
+                Body: { Html: { Data: html, Charset: 'UTF-8' } }
+            };
+            const commands = payload.recipients.map((r) => new SendEmailCommand({
+                Source: fromEmail,
+                Destination: { ToAddresses: [String(r.email).trim()] },
+                Message: message
+            }));
+            const settled = await Promise.allSettled(commands.map((cmd) => sesClient.send(cmd)));
+            const messageIds = {};
+            const failures = [];
+            for (let i = 0; i < settled.length; i += 1) {
+                const to = String(payload.recipients[i]?.email || '').trim();
+                const entry = settled[i];
+                if (entry.status === 'rejected') {
+                    const err = entry.reason;
+                    failures.push({ to, message: err?.message || String(entry.reason) });
+                    continue;
+                }
+                messageIds[to] = entry.value.MessageId || null;
+            }
+            if (failures.length > 0) {
+                return json(500, {
+                    ok: false,
+                    eventId: payload.eventId,
+                    errorType: 'PartialOrFullEmailFailure',
+                    message: 'Uno o más correos de conciliación no se pudieron enviar.',
+                    messageIds,
+                    failures
+                });
+            }
+            return json(200, { ok: true, eventId: payload.eventId, messageIds });
+        }
         if (payload.eventType === 'form_status_changed') {
             const userHtml = await render(React.createElement(UserStatusUpdateEmail, { payload }));
             const subject = `Actualizacion de solicitud ${payload.novedadId}: ${payload.formData.estado}`;

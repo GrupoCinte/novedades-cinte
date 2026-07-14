@@ -43,6 +43,7 @@ export default function ConciliacionesServiciosList({ rows, loading, onVerDetall
                     <th className={thClass}>Inicio Conciliación</th>
                     <th className={thClass}>Día de Cierre</th>
                     <th className={thClass}>Modo Facturación</th>
+                    <th className={thClass}>Líder(es)</th>
                     <th className={thClass}>Consultores</th>
                 </tr>
             </thead>
@@ -56,6 +57,11 @@ export default function ConciliacionesServiciosList({ rows, loading, onVerDetall
                         <td className={tdClass}>
                             {getModoFacturacionLabel(row.billingMode)}
                             {row.baseHours ? ` (${row.baseHours} hrs)` : ''}
+                        </td>
+                        <td className={tdClass}>
+                            {Array.isArray(row.lideresAsociados) && row.lideresAsociados.length
+                                ? row.lideresAsociados.join(', ')
+                                : 'Todos'}
                         </td>
                         <td className={tdClass}>{row.consultoresCount || 0}</td>
                     </tr>

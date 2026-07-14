@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Pencil, Trash2, Check, Save } from 'lucide-react';
+import { Pencil, Trash2, Check, Save, ArrowRight, ArrowLeft } from 'lucide-react';
 import GestionModalShell from '../../shared/modals/GestionModalShell.jsx';
 import { buildGestionTableDash } from '../../gestionTableDashTheme.js';
 import { fetchServicioConsultores, updateServicio, associateConsultoresToServicio } from '../conciliacionesApi.js';
+import LideresMultiSelect from './LideresMultiSelect.jsx';
 
 const getModoFacturacionLabel = (val) => {
     switch (val) {
@@ -29,7 +30,9 @@ export default function ConciliacionDetalleServicioModal({
     onSuccess,
     clientes = [],
     isLight,
-    token
+    token,
+    /** Abrir directamente en edición + asociar consultores (AUT-551). */
+    initialAssociating = false
 }) {
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     
@@ -46,19 +49,43 @@ export default function ConciliacionDetalleServicioModal({
     const [billingMode, setBillingMode] = useState('HOURS');
     const [baseHours, setBaseHours] = useState('');
     const [billingType, setBillingType] = useState('EXPIRED_MONTH');
+    const [lideresCatalogo, setLideresCatalogo] = useState([]);
+    const [lideresAsociados, setLideresAsociados] = useState([]);
+    const [lideresAllMode, setLideresAllMode] = useState(true);
+    /** 'lideres' = confirmar líderes; 'consultores' = elegir consultores filtrados */
+    const [assocStep, setAssocStep] = useState('consultores');
     const [selectedConsultores, setSelectedConsultores] = useState({});
     
     const [saving, setSaving] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
+    const [consultorSearch, setConsultorSearch] = useState('');
+
+    const loadConsultores = (lideresOverride) => {
+        const fetchOpts = Object.prototype.hasOwnProperty.call({ lideresAsociados: lideresOverride }, 'lideresAsociados')
+            ? { lideresAsociados: lideresOverride }
+            : {};
+        return fetchServicioConsultores(token, servicio.id, fetchOpts)
+            .then((data) => {
+                setConsultores(data);
+                const selected = {};
+                data.forEach((c) => {
+                    if (c.asociado) selected[c.cedula] = true;
+                });
+                setSelectedConsultores(selected);
+                return data;
+            });
+    };
 
     useEffect(() => {
         if (open && servicio) {
-            setMode('view');
-            setIsAssociating(false);
+            const associating = Boolean(initialAssociating);
+            setMode(associating ? 'edit' : 'view');
+            setIsAssociating(associating);
+            setAssocStep(associating ? 'lideres' : 'consultores');
+            setConsultorSearch('');
             setErrorMsg('');
-            setLoading(true);
-            
-            // Init Form
+
+            const savedLideres = Array.isArray(servicio.lideresAsociados) ? servicio.lideresAsociados : [];
             setClient(servicio.client || '');
             setServiceName(servicio.serviceName || '');
             setInitDate(servicio.initDate || '');
@@ -66,17 +93,19 @@ export default function ConciliacionDetalleServicioModal({
             setBillingMode(servicio.billingMode || 'HOURS');
             setBaseHours(servicio.baseHours !== undefined && servicio.baseHours !== null ? String(servicio.baseHours) : '');
             setBillingType(servicio.billingType || 'EXPIRED_MONTH');
+            setLideresAsociados(savedLideres);
+            setLideresAllMode(!savedLideres.length);
 
-            fetchServicioConsultores(token, servicio.id)
-                .then(data => {
-                    setConsultores(data);
-                    const selected = {};
-                    data.forEach(c => {
-                        if (c.asociado) selected[c.cedula] = true;
-                    });
-                    setSelectedConsultores(selected);
-                })
-                .catch(err => {
+            if (associating) {
+                setConsultores([]);
+                setSelectedConsultores({});
+                setLoading(false);
+                return;
+            }
+
+            setLoading(true);
+            loadConsultores()
+                .catch((err) => {
                     console.error('Error fetching consultores:', err);
                     setConsultores([]);
                 })
@@ -85,8 +114,30 @@ export default function ConciliacionDetalleServicioModal({
             setConsultores([]);
             setMode('view');
             setIsAssociating(false);
+            setAssocStep('consultores');
         }
-    }, [open, servicio, token]);
+    }, [open, servicio, token, initialAssociating]);
+
+    useEffect(() => {
+        if (!open || !client) {
+            setLideresCatalogo([]);
+            return undefined;
+        }
+        let cancelled = false;
+        fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(client)}`, { credentials: 'include' })
+            .then((r) => r.json())
+            .then((data) => {
+                if (cancelled) return;
+                const list = Array.isArray(data?.items) ? data.items.map(String) : [];
+                setLideresCatalogo(list);
+            })
+            .catch(() => {
+                if (!cancelled) setLideresCatalogo([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [open, client]);
 
     if (!open || !servicio) return null;
 
@@ -94,7 +145,7 @@ export default function ConciliacionDetalleServicioModal({
     const allSelected = consultores.length > 0 && consultores.every(c => selectedConsultores[c.cedula]);
 
     const toggleConsultor = (cedula) => {
-        if (mode !== 'edit' || !isAssociating) return;
+        if (mode !== 'edit' || !isAssociating || assocStep !== 'consultores') return;
         setSelectedConsultores(prev => {
             const next = { ...prev };
             if (next[cedula]) delete next[cedula];
@@ -110,6 +161,36 @@ export default function ConciliacionDetalleServicioModal({
             const next = {};
             consultores.forEach(c => { next[c.cedula] = true; });
             setSelectedConsultores(next);
+        }
+    };
+
+    const lideresSelectionValid = lideresAllMode || lideresAsociados.length > 0;
+    const consultoresSeleccionadosCount = Object.keys(selectedConsultores).length;
+    const canSaveServicio = lideresSelectionValid && consultoresSeleccionadosCount > 0;
+
+    const handleContinuarAsociacion = async () => {
+        setErrorMsg('');
+        if (!client || !serviceName || !initDate || !closingDay || !billingMode || !billingType) {
+            setErrorMsg('Complete todos los campos del servicio antes de continuar.');
+            return;
+        }
+        if (billingMode === 'HOURS' && !baseHours) {
+            setErrorMsg('Las horas base son obligatorias cuando el modo de facturación es Horas');
+            return;
+        }
+        if (!lideresSelectionValid) {
+            setErrorMsg('Seleccione al menos un líder o marque «Todos los líderes».');
+            return;
+        }
+        setLoading(true);
+        try {
+            await loadConsultores(lideresAsociados);
+            setAssocStep('consultores');
+        } catch (err) {
+            setErrorMsg(err.message || 'Error al cargar consultores');
+            setConsultores([]);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -133,6 +214,16 @@ export default function ConciliacionDetalleServicioModal({
             return;
         }
 
+        if (!lideresSelectionValid) {
+            setErrorMsg('Seleccione al menos un líder o marque «Todos los líderes».');
+            return;
+        }
+
+        if (!canSaveServicio || assocStep !== 'consultores') {
+            setErrorMsg('Debe seleccionar al menos un consultor para guardar el servicio.');
+            return;
+        }
+
         setSaving(true);
         const payloadServicio = {
             client,
@@ -141,19 +232,21 @@ export default function ConciliacionDetalleServicioModal({
             closingDay: parsedDiaCierre,
             billingMode: billingMode,
             billingType: billingType,
-            baseHours: billingMode === 'HOURS' ? Number(baseHours) : null
+            baseHours: billingMode === 'HOURS' ? Number(baseHours) : null,
+            lideresAsociados
         };
 
-        const payloadAsociacion = {
-            collabs: Object.keys(selectedConsultores)
-        };
+        const payloadAsociacion = Object.keys(selectedConsultores).map(cedula => ({
+            cedula
+        }));
 
         try {
-            await updateServicio(token, servicio.id, payloadServicio);
-            if (isAssociating) {
-                await associateConsultoresToServicio(token, servicio.id, payloadAsociacion);
-            }
-            onSuccess();
+            const saved = await updateServicio(token, servicio.id, payloadServicio);
+            await associateConsultoresToServicio(token, servicio.id, payloadAsociacion);
+            onSuccess({
+                ...(saved || { ...payloadServicio, id: servicio.id }),
+                consultoresCount: payloadAsociacion.length
+            });
             onClose();
         } catch (err) {
             setErrorMsg(err.message || 'Error al guardar los cambios');
@@ -163,7 +256,28 @@ export default function ConciliacionDetalleServicioModal({
     };
 
     const inputBg = isLight ? 'field-control bg-white text-slate-900' : 'field-control';
-    const consultoresAMostrar = (mode === 'edit' && isAssociating) ? consultores : consultores.filter(c => selectedConsultores[c.cedula]);
+    const consultoresBase =
+        mode === 'edit' && isAssociating && assocStep === 'consultores'
+            ? consultores
+            : consultores.filter((c) => selectedConsultores[c.cedula]);
+    const consultorQuery = consultorSearch.trim().toLowerCase();
+    const consultoresAMostrar = consultorQuery
+        ? consultoresBase.filter((c) => {
+              const nombre = String(c.nombre || '').toLowerCase();
+              const cedula = String(c.cedula || '').toLowerCase();
+              return nombre.includes(consultorQuery) || cedula.includes(consultorQuery);
+          })
+        : consultoresBase;
+
+    const lideresFiltroLabel =
+        lideresAllMode || !lideresAsociados.length
+            ? 'todos los líderes'
+            : lideresAsociados.join(', ');
+
+    const lideresLabel =
+        !lideresAsociados.length || lideresAsociados.length === lideresCatalogo.length
+            ? 'Todos los líderes'
+            : lideresAsociados.join(', ');
 
     const titleElement = (
         <div className="flex items-center gap-3">
@@ -199,7 +313,15 @@ export default function ConciliacionDetalleServicioModal({
                 mode === 'view' ? (
                     <button
                         type="button"
-                        onClick={() => setMode('edit')}
+                        onClick={() => {
+                            setMode('edit');
+                            setIsAssociating(true);
+                            setAssocStep('lideres');
+                            setConsultores([]);
+                            setSelectedConsultores({});
+                            setConsultorSearch('');
+                            setErrorMsg('');
+                        }}
                         className="rounded-md bg-[#2F7BB8] px-4 py-1.5 text-sm font-semibold text-white hover:bg-[#266395] transition-colors"
                     >
                         Editar
@@ -226,27 +348,55 @@ export default function ConciliacionDetalleServicioModal({
                                 onClick={() => {
                                     setMode('view');
                                     setIsAssociating(false);
+                                    setAssocStep('consultores');
                                     setErrorMsg('');
-                                    // Reset selected consultores
-                                    const selected = {};
-                                    consultores.forEach(c => {
-                                        if (c.asociado) selected[c.cedula] = true;
-                                    });
-                                    setSelectedConsultores(selected);
+                                    setLoading(true);
+                                    loadConsultores()
+                                        .catch(() => setConsultores([]))
+                                        .finally(() => setLoading(false));
                                 }}
                                 className={dash.borrarFiltros}
                             >
                                 Cancelar
                             </button>
-                            <button
-                                type="button"
-                                onClick={handleSubmit}
-                                disabled={saving || loading}
-                                className={`${dash.btnPrimaryCinte} inline-flex items-center gap-1.5 disabled:opacity-50`}
-                            >
-                                <Save size={14} />
-                                {saving ? 'Guardando...' : 'Guardar Cambios'}
-                            </button>
+                            {assocStep === 'lideres' ? (
+                                <button
+                                    type="button"
+                                    onClick={handleContinuarAsociacion}
+                                    disabled={loading || saving || !lideresSelectionValid}
+                                    className={`${dash.btnPrimaryCinte} inline-flex items-center gap-1.5 disabled:opacity-50`}
+                                >
+                                    {loading ? 'Cargando…' : 'Continuar'}
+                                    {!loading ? <ArrowRight size={14} /> : null}
+                                </button>
+                            ) : (
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setAssocStep('lideres');
+                                            setConsultores([]);
+                                            setSelectedConsultores({});
+                                            setConsultorSearch('');
+                                            setErrorMsg('');
+                                        }}
+                                        className={`${dash.borrarFiltros} inline-flex items-center gap-1.5`}
+                                    >
+                                        <ArrowLeft size={14} />
+                                        Volver
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleSubmit}
+                                        disabled={saving || loading || !canSaveServicio}
+                                        className={`${dash.btnPrimaryCinte} inline-flex items-center gap-1.5 disabled:opacity-50`}
+                                        title={!canSaveServicio ? 'Seleccione al menos un consultor' : undefined}
+                                    >
+                                        <Save size={14} />
+                                        {saving ? 'Guardando…' : 'Guardar servicio'}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 ) : null
@@ -282,8 +432,7 @@ export default function ConciliacionDetalleServicioModal({
                                     required
                                     value={client}
                                     onChange={(e) => setClient(e.target.value)}
-                                    disabled={true}
-                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg} opacity-60 cursor-not-allowed`}
+                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
                                 >
                                     <option value="">Seleccione un cliente</option>
                                     {clientes.map(c => (
@@ -301,9 +450,8 @@ export default function ConciliacionDetalleServicioModal({
                                     required
                                     value={serviceName}
                                     onChange={(e) => setServiceName(e.target.value)}
-                                    disabled={true}
                                     placeholder="Ej. Soporte Nivel 2"
-                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg} opacity-60 cursor-not-allowed`}
+                                    className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
                                 />
                             </div>
 
@@ -383,6 +531,18 @@ export default function ConciliacionDetalleServicioModal({
                                     <option value="ADVANCE_MONTH">Mes anticipado</option>
                                 </select>
                             </div>
+                            <div className="flex flex-col gap-1.5 md:col-span-2">
+                                <label className={`text-xs font-bold ${dash.titleLg}`}>Líder(es)</label>
+                                <LideresMultiSelect
+                                    key={client || 'sin-cliente'}
+                                    lideres={lideresCatalogo}
+                                    value={lideresAsociados}
+                                    onChange={setLideresAsociados}
+                                    onAllLeadersModeChange={setLideresAllMode}
+                                    disabled={!client || saving}
+                                    isLight={isLight}
+                                />
+                            </div>
                         </div>
                     ) : (
                         <div className="grid grid-cols-2 gap-4">
@@ -415,43 +575,39 @@ export default function ConciliacionDetalleServicioModal({
                                     {getTipoFacturacionLabel(servicio.billingType)}
                                 </span>
                             </div>
+                            <div className="col-span-2">
+                                <span className="block font-bold opacity-60 uppercase tracking-wider text-[10px] mb-0.5">Líder(es)</span>
+                                <span className={`text-base font-semibold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{lideresLabel}</span>
+                            </div>
                         </div>
                     )}
                 </div>
 
                 {/* CONSULTORES LIST */}
                 <div className="mt-8 pt-4 border-t border-slate-200 dark:border-slate-700/50">
-                    <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                         <h3 className={`text-xs font-bold uppercase tracking-wider ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                            Consultores {(mode === 'edit' && isAssociating) ? 'del Cliente' : 'Asociados'}
+                            {mode === 'edit' && isAssociating && assocStep === 'lideres'
+                                ? 'Paso 2 — Consultores (pulse Continuar abajo)'
+                                : (mode === 'edit' && isAssociating && assocStep === 'consultores')
+                                    ? 'Paso 2 — Seleccione consultores'
+                                    : 'Consultores Asociados'}
                         </h3>
-                        {mode === 'edit' && !isAssociating && (
-                            <button
-                                type="button"
-                                onClick={() => setIsAssociating(true)}
-                                className="rounded-md bg-[#2F7BB8] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#266395] transition-colors shadow-sm"
-                            >
-                                Asociar Consultores
-                            </button>
-                        )}
-                        {mode === 'edit' && isAssociating && !loading && consultores.length > 0 && (
+                        {mode === 'edit' && isAssociating && assocStep === 'consultores' && !loading && consultores.length > 0 && (
                             <div className="flex gap-2">
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        setIsAssociating(false);
-                                        // Revert associations
-                                        const selected = {};
-                                        consultores.forEach(c => {
-                                            if (c.asociado) selected[c.cedula] = true;
-                                        });
-                                        setSelectedConsultores(selected);
+                                        setAssocStep('lideres');
+                                        setConsultores([]);
+                                        setSelectedConsultores({});
+                                        setConsultorSearch('');
                                     }}
                                     className={`text-xs font-semibold px-2 py-1 rounded transition-colors ${
                                         isLight ? 'text-slate-600 hover:bg-slate-100' : 'text-slate-400 hover:bg-slate-800'
                                     }`}
                                 >
-                                    Cancelar Asociación
+                                    Cambiar líderes
                                 </button>
                                 <button
                                     type="button"
@@ -467,14 +623,47 @@ export default function ConciliacionDetalleServicioModal({
                             </div>
                         )}
                     </div>
-                    
-                    {loading ? (
+
+                    {mode === 'edit' && isAssociating && assocStep === 'lideres' ? (
+                        <div className={`mb-4 rounded-lg border p-4 ${isLight ? 'border-[#2F7BB8]/30 bg-[#2F7BB8]/5' : 'border-[#2F7BB8]/40 bg-[#2F7BB8]/10'}`}>
+                            <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                                Elija los líderes arriba y pulse <strong>Continuar</strong> en el pie del modal.
+                                Se cargarán solo los consultores de {lideresFiltroLabel}.
+                            </p>
+                        </div>
+                    ) : null}
+
+                    {mode === 'edit' && isAssociating && assocStep === 'consultores' && !loading ? (
+                        <p className={`mb-3 text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                            Mostrando consultores de: <span className="font-semibold">{lideresFiltroLabel}</span>
+                            {' · '}
+                            {consultoresSeleccionadosCount} seleccionado(s)
+                        </p>
+                    ) : null}
+
+                    {mode === 'edit' && isAssociating && assocStep === 'consultores' ? (
+                        <div className="mb-3">
+                            <input
+                                type="search"
+                                value={consultorSearch}
+                                onChange={(e) => setConsultorSearch(e.target.value)}
+                                placeholder="Buscar por nombre o cédula…"
+                                className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
+                                aria-label="Buscar consultor"
+                            />
+                        </div>
+                    ) : null}
+
+                    {!(mode === 'edit' && isAssociating && assocStep === 'lideres') && (
+                        loading ? (
                         <div className="p-4 text-center text-sm opacity-70 animate-pulse">
                             Cargando consultores...
                         </div>
                     ) : consultoresAMostrar.length === 0 ? (
                         <div className="p-4 text-center text-sm opacity-70">
-                            {mode === 'edit' ? 'No hay consultores disponibles para este cliente.' : 'No hay consultores asociados a este servicio.'}
+                            {mode === 'edit' && isAssociating && assocStep === 'consultores'
+                                ? 'No hay consultores disponibles para los líderes seleccionados. Los que no aparecen pueden estar asociados a otro servicio del mismo cliente.'
+                                : 'No hay consultores asociados a este servicio.'}
                         </div>
                     ) : (
                         <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
@@ -484,14 +673,14 @@ export default function ConciliacionDetalleServicioModal({
                                     <div 
                                         key={c.cedula}
                                         onClick={() => toggleConsultor(c.cedula)}
-                                        className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${(mode === 'edit' && isAssociating) ? 'cursor-pointer' : ''} ${
+                                        className={`flex items-center justify-between p-3 rounded-lg border transition-colors ${(mode === 'edit' && isAssociating && assocStep === 'consultores') ? 'cursor-pointer' : ''} ${
                                             isSelected 
                                                 ? (isLight ? 'border-[#2F7BB8] bg-[#2F7BB8]/5' : 'border-[#2F7BB8] bg-[#2F7BB8]/10')
                                                 : (isLight ? 'border-slate-200 hover:bg-slate-50' : 'border-slate-700 hover:bg-slate-800/50')
                                         }`}
                                     >
                                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                                            {(mode === 'edit' && isAssociating) ? (
+                                            {(mode === 'edit' && isAssociating && assocStep === 'consultores') ? (
                                                 <div className={`flex items-center justify-center w-5 h-5 rounded border shrink-0 ${
                                                     isSelected ? 'bg-[#2F7BB8] border-[#2F7BB8] text-white' : (isLight ? 'border-slate-300' : 'border-slate-600')
                                                 }`}>
@@ -507,7 +696,7 @@ export default function ConciliacionDetalleServicioModal({
                                                     {c.nombre}
                                                 </p>
                                                 <p className={`text-xs truncate ${dash.modalMuted}`}>
-                                                    CC: {c.cedula} • {c.perfil || 'Sin perfil'}
+                                                    CC: {c.cedula} • {c.lider || 'Sin líder'} • {c.perfil || 'Sin perfil'}
                                                 </p>
                                             </div>
                                         </div>
@@ -530,7 +719,7 @@ export default function ConciliacionDetalleServicioModal({
                                 );
                             })}
                         </div>
-                    )}
+                    ))}
                 </div>
             </div>
         </GestionModalShell>

@@ -18,7 +18,8 @@ const POLICY = {
      * mantiene limitada por `approvers` en `NOVELTY_RULES` (no se gana capacidad de decidir por este flag).
      */
     gp: { panels: ['gestion', 'onboarding'], viewAllAreas: true },
-    nomina: { panels: ['dashboard', 'calendar', 'gestion', 'onboarding'], viewAllAreas: true },
+    analista_conciliaciones: { panels: ['conciliaciones'], viewAllAreas: true },
+    nomina: { panels: ['dashboard', 'calendar', 'gestion', 'onboarding', 'conciliaciones'], viewAllAreas: true },
     /** Radicación vía Microsoft Entra (sin paneles admin). */
     consultor: { panels: [] }
 };
@@ -119,7 +120,9 @@ const NOVELTY_RULES = {
         displayName: 'Compensatorio por votación/jurado',
         /** La ruta POST valida el conteo por modalidad (1 o 2 archivos). */
         requiredMinSupports: 0,
-        approvers: ['admin_ch'],
+        approvers: ['super_admin', 'gp', 'admin_ch'],
+        /** Correo GP: solo usuarios asignados al cliente en `clientes_lideres` (no todo el grupo Cognito). */
+        gpNotifyByCliente: true,
         viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina', 'gp']
     },
     /**
@@ -157,7 +160,7 @@ function getAreaFromRole(role) {
     if (role === 'admin_ch' || role === 'team_ch') return 'Capital Humano';
     if (role === 'gp' || role === 'consultor') return 'Operaciones';
     if (role === 'comercial') return 'Comercial';
-    if (role === 'nomina') return 'Financiero';
+    if (role === 'nomina' || role === 'analista_conciliaciones') return 'Financiero';
     return '';
 }
 
@@ -246,6 +249,8 @@ function getNovedadRuleByType(typeName = '') {
 function canRoleViewType(role = '', typeName = '') {
     /** Visualización total de tipos (sin cambiar aprobadores): staff CH gestión. */
     if (role === 'super_admin' || role === 'cac' || role === 'admin_ch' || role === 'team_ch') return true;
+    /** Conciliaciones: el analista debe ver todas las novedades aprobadas que impactan facturación (paridad con nómina). */
+    if (role === 'analista_conciliaciones') return true;
     const rule = getNovedadRuleByType(typeName);
     if (!rule) return true;
     return Array.isArray(rule.viewers) && rule.viewers.includes(role);

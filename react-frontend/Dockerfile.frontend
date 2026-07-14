@@ -1,5 +1,8 @@
 FROM node:20-alpine AS build
 WORKDIR /app
+# Flag Vite embebido en build (QA: VITE_CONCILIACIONES_ENABLED=true en .env del host).
+ARG VITE_CONCILIACIONES_ENABLED=false
+ENV VITE_CONCILIACIONES_ENABLED=$VITE_CONCILIACIONES_ENABLED
 COPY react-frontend/package*.json ./
 RUN npm ci
 COPY react-frontend/ .

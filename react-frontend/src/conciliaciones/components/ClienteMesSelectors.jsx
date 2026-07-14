@@ -1,15 +1,15 @@
 import { useMemo, useState } from 'react';
 import { Filter, ChevronDown, ChevronUp, X, RefreshCw } from 'lucide-react';
+import { COLA_ESTADO_LABELS } from '../facturacionAggregate.js';
 import { useModuleTheme } from '../../moduleTheme.js';
 import { buildGestionTableDash, GESTION_SEARCH_FIELD_WIDTH } from '../../gestionTableDashTheme.js';
-import { buildConciliacionesFiltrosResumen } from '../conciliacionesFiltrosResumen.js';
 
 const fieldCompact = (field) => `${field} min-w-[10rem] max-w-[22rem] cursor-pointer text-sm`;
 
 /**
  * @param {'default' | 'gestion' | 'embedded'} variant
  * - default: tarjeta filterBar independiente
- * - gestion: fila compacta dentro de ConciliacionesGestionShell (como Dashboard Gestión)
+ * - gestion: fila compacta en cabecera de facturación (como Dashboard Gestión)
  * - embedded: separador dentro de panel legacy
  */
 export default function ClienteMesSelectors({
@@ -23,6 +23,18 @@ export default function ClienteMesSelectors({
     variant = 'default',
     /** Menos padding y etiquetas (facturación compacta). */
     dense = false,
+    /** Mostrar la opción "Todos / seleccionar" en el select de cliente. */
+    allowTodos = true,
+    /** Ocultar selector de cliente (p. ej. workspace con servicio ya elegido). */
+    hideClienteSelector = false,
+    /** Mes visible en la barra principal (sin abrir drawer). */
+    showMonthInline = false,
+    /** Ocultar filtro de estado en drawer (cuando las pills ya filtran). */
+    omitEstadoFilter = false,
+    /** Contenido a la izquierda del mes (p. ej. título workspace + volver). */
+    leadingContent = null,
+    /** Mes mínimo seleccionable (YYYY-MM). Null = sin tope inferior (permite meses pasados). */
+    minMonthValue = null,
     trailingActions = null,
 
     isFacturacion = false,
@@ -36,7 +48,23 @@ export default function ClienteMesSelectors({
     onProyectoChange = () => {},
     fNovedades = 'TODOS',
     onNovedadesChange = () => {},
-    onResetFilters = () => {}
+    fLider = '',
+    onLiderChange = () => {},
+    lideresOpciones = [],
+    onResetFilters = () => {},
+
+    colaMode = false,
+    fSearchCola = '',
+    onSearchColaChange = () => {},
+    fEstadoCola = 'TODOS',
+    onEstadoColaChange = () => {},
+    fLiderCola = '',
+    onLiderColaChange = () => {},
+    fBillingMode = '',
+    onBillingModeChange = () => {},
+    fBillingType = '',
+    onBillingTypeChange = () => {},
+    onResetColaFilters = () => {}
 }) {
     const [isOpen, setIsOpen] = useState(false);
     const { isLight } = useModuleTheme();
@@ -44,50 +72,63 @@ export default function ClienteMesSelectors({
 
     /** Búsqueda y filtros avanzados en toda la vista de facturación (todos o un cliente). */
     const facturacionFiltersOn = Boolean(isFacturacion);
-
-    const { chipLabel } = useMemo(
-        () =>
-            buildConciliacionesFiltrosResumen({
-                clienteValue,
-                monthValue,
-                isFacturacion: facturacionFiltersOn,
-                fSearch,
-                fEstado,
-                fCerrado,
-                fProyecto,
-                fNovedades
-            }),
-        [clienteValue, monthValue, facturacionFiltersOn, fSearch, fEstado, fCerrado, fProyecto, fNovedades]
-    );
+    const colaFiltersOn = Boolean(colaMode);
+    const advancedFiltersOn = facturacionFiltersOn || colaFiltersOn;
 
     const drawerExtrasCount = useMemo(() => {
+        if (colaFiltersOn) {
+            let c = 0;
+            if (String(clienteValue || '').trim()) c += 1;
+            if (fEstadoCola && fEstadoCola !== 'TODOS') c += 1;
+            if (fLiderCola) c += 1;
+            if (fBillingMode) c += 1;
+            if (fBillingType) c += 1;
+            if (String(fSearchCola || '').trim()) c += 1;
+            return c;
+        }
         if (!facturacionFiltersOn) return 0;
         let c = 0;
-        if (fEstado) c += 1;
+        if (String(fSearch || '').trim()) c += 1;
+        if (!omitEstadoFilter && fEstado) c += 1;
         if (fCerrado !== 'TODOS') c += 1;
         if (fProyecto) c += 1;
         if (fNovedades !== 'TODOS') c += 1;
+        if (fLider) c += 1;
         return c;
-    }, [facturacionFiltersOn, fEstado, fCerrado, fProyecto, fNovedades]);
+    }, [
+        colaFiltersOn,
+        facturacionFiltersOn,
+        omitEstadoFilter,
+        clienteValue,
+        fSearch,
+        fEstado,
+        fCerrado,
+        fProyecto,
+        fNovedades,
+        fLider,
+        fEstadoCola,
+        fLiderCola,
+        fBillingMode,
+        fBillingType,
+        fSearchCola
+    ]);
+
+    /** Con drawer activo, mes/cliente/búsqueda van solo dentro del panel (como Servicios). */
+    const showInlineMonth = showMonthInline && !advancedFiltersOn;
+    const showInlineCliente = !hideClienteSelector && !advancedFiltersOn;
+    const showInlineSearch = !advancedFiltersOn;
 
     const filtrosBtnClass = dense
         ? isLight
-            ? 'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-600/35 bg-cyan-50 px-2 py-1 text-xs font-semibold text-cyan-900 shadow-sm hover:bg-cyan-100'
-            : 'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-xs font-semibold text-cyan-100 shadow-sm hover:bg-cyan-500/20'
+            ? 'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#2F7BB8]/35 bg-[#2F7BB8]/10 px-2 py-1 text-xs font-semibold text-[#004D87] shadow-sm hover:bg-[#2F7BB8]/15'
+            : 'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-[#65BCF7]/40 bg-[#2F7BB8]/15 px-2 py-1 text-xs font-semibold text-[#65BCF7] shadow-sm hover:bg-[#2F7BB8]/25'
         : dash.filtrosAvanzadosBtn;
-
-    const chipClass = dense
-        ? isLight
-            ? 'inline-flex max-w-[min(100%,12rem)] items-center truncate rounded-md border border-slate-300 bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700'
-            : 'inline-flex max-w-[min(100%,12rem)] items-center truncate rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-[11px] font-medium text-slate-300'
-        : dash.filtrosChip;
 
     const filterRow = (
         <div className="flex flex-wrap items-center gap-2">
-            <span className={chipClass} title={chipLabel}>
-                {chipLabel}
-            </span>
-            {facturacionFiltersOn ? (
+            {leadingContent}
+
+            {advancedFiltersOn ? (
                 <button
                     type="button"
                     id="conciliaciones-filtros-avanzados-toggle"
@@ -98,9 +139,11 @@ export default function ClienteMesSelectors({
                     title={dense ? 'Filtros avanzados' : undefined}
                 >
                     <Filter size={dense ? 14 : 16} className="shrink-0 opacity-90" aria-hidden />
-                    <span className={dense ? 'sr-only sm:not-sr-only sm:inline' : ''}>{dense ? 'Filtros' : 'Filtros avanzados'}</span>
+                    <span className={dense ? 'sr-only sm:not-sr-only sm:inline' : ''}>
+                        {colaFiltersOn ? 'Filtros de búsqueda' : dense ? 'Filtros' : 'Filtros avanzados'}
+                    </span>
                     {drawerExtrasCount > 0 ? (
-                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-cyan-600 text-[10px] font-bold text-white">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-[#2F7BB8] text-[10px] font-bold text-white">
                             {drawerExtrasCount}
                         </span>
                     ) : null}
@@ -112,29 +155,52 @@ export default function ClienteMesSelectors({
                 </button>
             ) : null}
 
-            <div className="flex items-center gap-1.5">
-                {!dense ? (
-                    <label htmlFor="conciliaciones-page-cliente" className={`${dash.labelFilter} whitespace-nowrap`}>
-                        Cliente
-                    </label>
-                ) : null}
-                <select
-                    id="conciliaciones-page-cliente"
-                    className={fieldCompact(field)}
-                    value={clienteValue}
-                    onChange={(e) => onClienteChange(e.target.value)}
-                    aria-label="Cliente"
-                >
-                    <option value="">{dense ? 'Todos…' : 'Todos / seleccionar'}</option>
-                    {clientes.map((c) => (
-                        <option key={c} value={c}>
-                            {c}
-                        </option>
-                    ))}
-                </select>
-            </div>
+            {showInlineMonth ? (
+                <div className="flex items-center gap-1.5">
+                    {!dense ? (
+                        <label htmlFor="conciliaciones-page-mes" className={`${dash.labelFilter} whitespace-nowrap`}>
+                            Mes
+                        </label>
+                    ) : null}
+                    <input
+                        id="conciliaciones-page-mes"
+                        type="month"
+                        className={`${fieldCompact(field)} cinte-month-picker`}
+                        value={monthValue}
+                        min={minMonthValue || undefined}
+                        onChange={(e) => onMonthChange(e.target.value)}
+                        aria-label="Mes de facturación"
+                    />
+                </div>
+            ) : null}
 
-            {facturacionFiltersOn ? (
+            {showInlineCliente ? (
+                <div className="flex items-center gap-1.5">
+                    {!dense ? (
+                        <label htmlFor="conciliaciones-page-cliente" className={`${dash.labelFilter} whitespace-nowrap`}>
+                            Cliente
+                        </label>
+                    ) : null}
+                    <select
+                        id="conciliaciones-page-cliente"
+                        className={fieldCompact(field)}
+                        value={clienteValue}
+                        onChange={(e) => onClienteChange(e.target.value)}
+                        aria-label="Cliente"
+                    >
+                        {allowTodos ? (
+                            <option value="">{dense ? 'Todos…' : 'Todos / seleccionar'}</option>
+                        ) : null}
+                        {clientes.map((c) => (
+                            <option key={c} value={c}>
+                                {c}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            ) : null}
+
+            {showInlineSearch && facturacionFiltersOn ? (
                 <input
                     type="search"
                     enterKeyHint="search"
@@ -143,6 +209,16 @@ export default function ClienteMesSelectors({
                     onChange={(e) => onSearchChange(e.target.value)}
                     className={`${field} ${GESTION_SEARCH_FIELD_WIDTH}`}
                     aria-label="Buscar por nombre o cédula"
+                />
+            ) : showInlineSearch && colaFiltersOn ? (
+                <input
+                    type="search"
+                    enterKeyHint="search"
+                    placeholder="Buscar servicio o cliente..."
+                    value={fSearchCola}
+                    onChange={(e) => onSearchColaChange(e.target.value)}
+                    className={`${field} ${GESTION_SEARCH_FIELD_WIDTH}`}
+                    aria-label="Buscar servicio o cliente"
                 />
             ) : null}
 
@@ -179,12 +255,132 @@ export default function ClienteMesSelectors({
                             type="month"
                             className={`${field} cinte-month-picker w-full text-sm`}
                             value={monthValue}
+                            min={minMonthValue || undefined}
                             onChange={(e) => onMonthChange(e.target.value)}
                         />
                     </div>
 
+                    {colaFiltersOn ? (
+                        <>
+                            {!hideClienteSelector ? (
+                                <div className="flex flex-col gap-1.5">
+                                    <label htmlFor="conciliaciones-drawer-cliente-cola" className={dash.filtrosDrawerLabel}>
+                                        Cliente
+                                    </label>
+                                    <select
+                                        id="conciliaciones-drawer-cliente-cola"
+                                        className={`${field} w-full text-sm`}
+                                        value={clienteValue}
+                                        onChange={(e) => onClienteChange(e.target.value)}
+                                    >
+                                        {allowTodos ? <option value="">Todos los clientes</option> : null}
+                                        {clientes.map((c) => (
+                                            <option key={c} value={c}>
+                                                {c}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            ) : null}
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="conciliaciones-drawer-cola-busqueda" className={dash.filtrosDrawerLabel}>
+                                    Buscar servicio o cliente
+                                </label>
+                                <input
+                                    id="conciliaciones-drawer-cola-busqueda"
+                                    type="search"
+                                    placeholder="Nombre del servicio o cliente…"
+                                    className={`${field} w-full text-sm`}
+                                    value={fSearchCola}
+                                    onChange={(e) => onSearchColaChange(e.target.value)}
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="conciliaciones-drawer-cola-estado" className={dash.filtrosDrawerLabel}>
+                                    Estado del cierre
+                                </label>
+                                <select
+                                    id="conciliaciones-drawer-cola-estado"
+                                    className={`${field} w-full text-sm`}
+                                    value={fEstadoCola || 'TODOS'}
+                                    onChange={(e) => onEstadoColaChange(e.target.value)}
+                                >
+                                    <option value="TODOS">Todos</option>
+                                    {Object.entries(COLA_ESTADO_LABELS).map(([key, label]) => (
+                                        <option key={key} value={key}>
+                                            {label}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="conciliaciones-drawer-cola-lider" className={dash.filtrosDrawerLabel}>
+                                    Líder
+                                </label>
+                                <select
+                                    id="conciliaciones-drawer-cola-lider"
+                                    className={`${field} w-full text-sm`}
+                                    value={fLiderCola}
+                                    onChange={(e) => onLiderColaChange(e.target.value)}
+                                >
+                                    <option value="">Todos los líderes</option>
+                                    {lideresOpciones.map((l) => (
+                                        <option key={l} value={l}>
+                                            {l}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="conciliaciones-drawer-cola-modo" className={dash.filtrosDrawerLabel}>
+                                    Modo de facturación
+                                </label>
+                                <select
+                                    id="conciliaciones-drawer-cola-modo"
+                                    className={`${field} w-full text-sm`}
+                                    value={fBillingMode}
+                                    onChange={(e) => onBillingModeChange(e.target.value)}
+                                >
+                                    <option value="">Todos</option>
+                                    <option value="HOURS">Horas</option>
+                                    <option value="CALENDAR_DAYS">Días calendario</option>
+                                    <option value="BUSINESS_DAYS">Días hábiles</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="conciliaciones-drawer-cola-tipo" className={dash.filtrosDrawerLabel}>
+                                    Tipo de facturación
+                                </label>
+                                <select
+                                    id="conciliaciones-drawer-cola-tipo"
+                                    className={`${field} w-full text-sm`}
+                                    value={fBillingType}
+                                    onChange={(e) => onBillingTypeChange(e.target.value)}
+                                >
+                                    <option value="">Todos</option>
+                                    <option value="CURRENT_MONTH">Mes corriente</option>
+                                    <option value="EXPIRED_MONTH">Mes vencido</option>
+                                    <option value="ADVANCE_MONTH">Mes anticipado</option>
+                                </select>
+                            </div>
+                        </>
+                    ) : null}
+
                     {facturacionFiltersOn ? (
                         <>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="conciliaciones-drawer-busqueda" className={dash.filtrosDrawerLabel}>
+                                    Buscar por nombre o cédula
+                                </label>
+                                <input
+                                    id="conciliaciones-drawer-busqueda"
+                                    type="search"
+                                    placeholder="Nombre o cédula…"
+                                    className={`${field} w-full text-sm`}
+                                    value={fSearch}
+                                    onChange={(e) => onSearchChange(e.target.value)}
+                                />
+                            </div>
                             <div className="flex flex-col gap-1.5">
                                 <label htmlFor="conciliaciones-drawer-proyecto" className={dash.filtrosDrawerLabel}>
                                     Proyecto asignado
@@ -213,24 +409,26 @@ export default function ClienteMesSelectors({
                                     <option value="CERRADO">Cerrado (listo para facturar)</option>
                                 </select>
                             </div>
-                            <div className="flex flex-col gap-1.5">
-                                <label htmlFor="conciliaciones-drawer-estado" className={dash.filtrosDrawerLabel}>
-                                    Estado de envío / radicación
-                                </label>
-                                <select
-                                    id="conciliaciones-drawer-estado"
-                                    className={`${field} w-full text-sm`}
-                                    value={fEstado}
-                                    onChange={(e) => onEstadoChange(e.target.value)}
-                                >
-                                    <option value="">Todos los estados</option>
-                                    <option value="PENDIENTE">Pendiente</option>
-                                    <option value="ENVIADA">Enviada</option>
-                                    <option value="DEVUELTA">Devuelta</option>
-                                    <option value="CONCILIADA">Conciliada</option>
-                                    <option value="RADICADA">Radicada</option>
-                                </select>
-                            </div>
+                            {!omitEstadoFilter ? (
+                                <div className="flex flex-col gap-1.5">
+                                    <label htmlFor="conciliaciones-drawer-estado" className={dash.filtrosDrawerLabel}>
+                                        Estado de conciliación
+                                    </label>
+                                    <select
+                                        id="conciliaciones-drawer-estado"
+                                        className={`${field} w-full text-sm`}
+                                        value={fEstado}
+                                        onChange={(e) => onEstadoChange(e.target.value)}
+                                    >
+                                        <option value="">Todos los estados</option>
+                                        <option value="PENDIENTE">Pendiente</option>
+                                        <option value="APROBADO_ANALISTA">Aprobado Analista</option>
+                                        <option value="APROBADO_FINANZAS">Aprobado Finanzas</option>
+                                        <option value="DEVUELTA">Devuelta</option>
+                                        <option value="CONCILIADA">Conciliada</option>
+                                    </select>
+                                </div>
+                            ) : null}
                             <div className="flex flex-col gap-1.5">
                                 <label htmlFor="conciliaciones-drawer-novedades" className={dash.filtrosDrawerLabel}>
                                     Deducciones por novedades
@@ -246,12 +444,43 @@ export default function ClienteMesSelectors({
                                     <option value="SIN_NOVEDADES">Sin novedades (tarifa neta)</option>
                                 </select>
                             </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="conciliaciones-drawer-lider" className={dash.filtrosDrawerLabel}>
+                                    Líder del consultor
+                                </label>
+                                <select
+                                    id="conciliaciones-drawer-lider"
+                                    className={`${field} w-full text-sm`}
+                                    value={fLider}
+                                    onChange={(e) => onLiderChange(e.target.value)}
+                                >
+                                    <option value="">Todos los líderes</option>
+                                    {lideresOpciones.map((l) => (
+                                        <option key={l} value={l}>
+                                            {l}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
                         </>
                     ) : null}
                 </div>
 
                 <footer className={dash.filtrosDrawerFooter}>
-                    {facturacionFiltersOn && (drawerExtrasCount > 0 || fSearch || fProyecto) ? (
+                    {colaFiltersOn && drawerExtrasCount > 0 ? (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                onResetColaFilters();
+                                onClienteChange('');
+                                setIsOpen(false);
+                            }}
+                            className={`${dash.borrarFiltros} inline-flex items-center gap-1.5`}
+                        >
+                            <RefreshCw size={14} aria-hidden />
+                            Limpiar
+                        </button>
+                    ) : facturacionFiltersOn && (drawerExtrasCount > 0 || fSearch || fProyecto) ? (
                         <button
                             type="button"
                             onClick={() => {

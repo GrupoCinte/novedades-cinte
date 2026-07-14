@@ -33,5 +33,6 @@ enum BillingMode {
 
 enum BillingType {
   ADVANCE_MONTH
+  CURRENT_MONTH
   EXPIRED_MONTH
 }
