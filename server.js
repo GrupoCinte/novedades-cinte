@@ -231,7 +231,7 @@ app.use(cors({
             if (corsAllowTryCloudflare && parsed.hostname.endsWith('.trycloudflare.com')) {
                 return callback(null, true);
             }
-            if (parsed.hostname.endsWith('.amplifyapp.com') || parsed.hostname.endsWith('.loca.lt') || parsed.hostname.endsWith('.pinggy.net') || parsed.hostname.endsWith('.pinggy.link') || parsed.hostname.endsWith('.ngrok-free.app')) {
+            if (parsed.hostname.endsWith('.amplifyapp.com') || parsed.hostname.endsWith('.loca.lt') || parsed.hostname.endsWith('.pinggy.net') || parsed.hostname.endsWith('.pinggy.link') || parsed.hostname.endsWith('.ngrok-free.app') || parsed.hostname.endsWith('.ngrok-free.dev')) {
                 return callback(null, true);
             }
         } catch {
