@@ -1,5 +1,10 @@
-import { CheckCircle2, Circle, Download } from 'lucide-react';
-import { ESTADOS_SERVICIO_META, canExportServicioCompleto, canMarcarServicioConciliada } from '../facturacionLogic.js';
+import { CheckCircle2, Circle, Download, Mail } from 'lucide-react';
+import {
+    ESTADOS_SERVICIO_META,
+    canEnviarCorreoServicioCompleto,
+    canExportServicioCompleto,
+    canMarcarServicioConciliada
+} from '../facturacionLogic.js';
 import { CINTE_BTN_PRIMARY } from '../conciliacionesLayout.js';
 
 const STEP_ACTIVE = 'text-[#2F7BB8] border-[#2F7BB8]/40 bg-[#2F7BB8]/10';
@@ -73,25 +78,41 @@ export function ConciliacionesServicioCierreAcciones({
     isLight,
     exportando = false,
     conciliando = false,
+    enviandoCorreo = false,
     onExportExcel,
+    onEnviarCorreo,
     onMarcarConciliada
 }) {
     const estadoServicio = String(item?.estadoServicio || 'EN_REVISION').toUpperCase();
-    const finanzasOk =
+    const revisionOk =
         item?.consultoresTotal > 0 &&
-        (Number(item?.estados?.APROBADO_FINANZAS) || 0) + (Number(item?.estados?.CONCILIADA) || 0) >=
+        (Number(item?.estados?.APROBADO_ANALISTA) || 0) +
+            (Number(item?.estados?.APROBADO_FINANZAS) || 0) +
+            (Number(item?.estados?.CONCILIADA) || 0) >=
             item.consultoresTotal;
-    const canExport = finanzasOk && canExportServicioCompleto(userRole) && estadoServicio !== 'CONCILIADA';
+    const canExport = revisionOk && canExportServicioCompleto(userRole) && estadoServicio !== 'CONCILIADA';
+    const canCorreo = revisionOk && canEnviarCorreoServicioCompleto(userRole) && estadoServicio !== 'CONCILIADA';
     const canConciliar = canMarcarServicioConciliada(userRole, estadoServicio);
 
-    if (!canExport && !canConciliar) return null;
+    if (!canExport && !canCorreo && !canConciliar) return null;
 
     const btnSecondary = isLight
         ? 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50'
         : 'inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-600/50 bg-slate-800/40 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800/70';
 
     return (
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            {canCorreo ? (
+                <button
+                    type="button"
+                    disabled={enviandoCorreo}
+                    onClick={() => onEnviarCorreo?.(item)}
+                    className={`${CINTE_BTN_PRIMARY} flex-1`}
+                >
+                    <Mail size={14} aria-hidden />
+                    {enviandoCorreo ? 'Abriendo…' : estadoServicio === 'ENVIADA' ? 'Reenviar correo' : 'Enviar correo'}
+                </button>
+            ) : null}
             {canExport ? (
                 <button
                     type="button"

@@ -37,6 +37,78 @@ function monthRangeDates(year, month) {
     return { start, end };
 }
 
+/**
+ * Novedades registradas manualmente desde conciliaciones (historial NOVEDAD_MANUAL).
+ * Cubre altas con aprobado_en posterior al bucket cuando ya quedaron en historial.
+ * @param {import('pg').Pool} pool
+ * @param {{ clienteCanon: string, factAnio: number, factMes: number, cedulaRaw?: string }} opts
+ * @returns {Promise<string[]>}
+ */
+async function listNovedadIdsFromConciliacionManualHistorial(pool, opts) {
+    const factY = Number(opts.factAnio);
+    const factM = Number(opts.factMes);
+    if (!Number.isFinite(factY) || !Number.isFinite(factM) || factM < 1 || factM > 12) return [];
+
+    const params = [factY, factM, opts.clienteCanon];
+    let cedulaSql = '';
+    const cedDigits = opts.cedulaRaw != null ? String(opts.cedulaRaw).replace(/\D/g, '') : '';
+    if (cedDigits) {
+        params.push(cedDigits);
+        cedulaSql = ` AND regexp_replace(COALESCE(h.cedula, ''), '\\D', '', 'g') = $${params.length}`;
+    }
+
+    const q = await pool.query(
+        `SELECT DISTINCT (h.detalle->>'novedadId')::uuid AS novedad_id
+         FROM conciliaciones_facturacion_historial h
+         INNER JOIN novedades nov ON nov.id = (h.detalle->>'novedadId')::uuid
+         WHERE h.accion = 'NOVEDAD_MANUAL'
+           AND h.anio = $1::integer
+           AND h.mes = $2::integer
+           AND h.detalle->>'novedadId' IS NOT NULL
+           AND lower(btrim(COALESCE(nov.cliente, ''))) = lower(btrim($3::text))
+           AND nov.estado = 'Aprobado'::novedad_estado
+           AND NOT EXISTS (
+               SELECT 1 FROM conciliaciones_novedad_consumo cnc WHERE cnc.novedad_id = nov.id
+           )
+         ${cedulaSql}`,
+        params
+    );
+    return (q.rows || []).map((r) => String(r.novedad_id)).filter(Boolean);
+}
+
+/**
+ * @param {object} deps
+ * @param {object} scope
+ * @param {{ clienteCanon: string, cedulaRaw?: string, factAnio: number, factMes: number }} opts
+ * @param {Map<string, object>} byId
+ */
+async function appendConciliacionManualNovedadesFromHistorial(deps, scope, opts, byId) {
+    const { pool, normalizeCedula, canRoleViewType } = deps;
+    const manualIds = await listNovedadIdsFromConciliacionManualHistorial(pool, {
+        clienteCanon: opts.clienteCanon,
+        factAnio: opts.factAnio,
+        factMes: opts.factMes,
+        cedulaRaw: opts.cedulaRaw
+    });
+    const missingIds = manualIds.filter((id) => !byId.has(String(id)));
+    if (!missingIds.length) return;
+
+    const q = await pool.query(
+        `SELECT ${NOVEDADES_ELEGIBLES_SELECT}
+         FROM novedades nov
+         WHERE nov.id = ANY($1::uuid[])`,
+        [missingIds]
+    );
+
+    const role = String(scope?.role || '');
+    for (const row of q.rows || []) {
+        if (!canRoleViewType(role, row.tipo_novedad)) continue;
+        const ced = normalizeCedula(String(row.cedula || ''));
+        if (opts.cedulaRaw != null && ced !== normalizeCedula(opts.cedulaRaw)) continue;
+        byId.set(String(row.id), row);
+    }
+}
+
 function novedadesAreaClause(scope) {
     const role = String(scope?.role || '');
     if (role === 'gp') return { sql: '', params: [] };
@@ -49,10 +121,8 @@ function novedadesAreaClause(scope) {
 /**
  * @param {object} row
  * @param {{ novStart: string, novEnd: string, factStart: string, factEnd: string }} ranges
- * @param {{ includeRuleC?: boolean }} [opts]
  */
-function isNovedadElegibleParaCierreRow(row, ranges, opts = {}) {
-    const includeRuleC = opts.includeRuleC !== false;
+function isNovedadElegibleParaCierreRow(row, ranges) {
     const effectiveDate = row.fecha_inicio || row.fecha || row.creado_en;
     const eff =
         effectiveDate instanceof Date
@@ -64,26 +134,24 @@ function isNovedadElegibleParaCierreRow(row, ranges, opts = {}) {
 
     const { novStart, novEnd, factStart, factEnd } = ranges;
     const ruleA = eff >= novStart && eff <= novEnd && (!aprobadoStr || aprobadoStr <= novEnd);
-    const ruleB = aprobadoStr && aprobadoStr >= factStart && aprobadoStr <= factEnd;
-    const ruleC = includeRuleC && aprobadoStr && aprobadoStr <= factEnd && eff < factStart;
-    return ruleA || ruleB || ruleC;
+    // Tardía: fecha efectiva anterior al bucket, aprobada en el mes de facturación.
+    const ruleB =
+        eff &&
+        eff < novStart &&
+        aprobadoStr &&
+        aprobadoStr >= factStart &&
+        aprobadoStr <= factEnd;
+    return ruleA || ruleB;
 }
 
 /**
  * SQL WHERE fragment: novedad elegible para cierre (sin filtro cédula).
  * Params: $1 cliente, $2 novStart, $3 novEnd, $4 factStart, $5 factEnd
  * @param {string} novAlias
- * @param {{ includeRuleC?: boolean }} [opts]
  */
-function novedadElegibleWhereSql(novAlias = 'nov', opts = {}) {
-    const includeRuleC = opts.includeRuleC !== false;
+function novedadElegibleWhereSql(novAlias = 'nov') {
     const dateExpr = effectiveNovedadDateSql(novAlias);
     const aprobadoDateExpr = `(${novAlias}.aprobado_en AT TIME ZONE 'America/Bogota')::date`;
-    const ruleCSql = includeRuleC
-        ? `OR (${novAlias}.aprobado_en IS NOT NULL
-                AND ${aprobadoDateExpr} <= $5::date
-                AND ${dateExpr} < $4::date)`
-        : '';
     return `
         ${novAlias}.estado = 'Aprobado'::novedad_estado
         AND lower(btrim(COALESCE(${novAlias}.cliente, ''))) = lower(btrim($1::text))
@@ -94,10 +162,10 @@ function novedadElegibleWhereSql(novAlias = 'nov', opts = {}) {
         AND (
             (${dateExpr} >= $2::date AND ${dateExpr} <= $3::date
                 AND (${novAlias}.aprobado_en IS NULL OR ${aprobadoDateExpr} <= $3::date))
-            OR (${novAlias}.aprobado_en IS NOT NULL
+            OR (${dateExpr} < $2::date
+                AND ${novAlias}.aprobado_en IS NOT NULL
                 AND ${aprobadoDateExpr} >= $4::date
                 AND ${aprobadoDateExpr} <= $5::date)
-            ${ruleCSql}
         )`;
 }
 
@@ -139,8 +207,6 @@ async function listNovedadesElegiblesParaCierre(deps, scope, opts) {
     if (!mrNov || !mrFact) return [];
 
     const advanceBilling = isAdvanceMonthBilling(opts.billingType);
-    const eligOpts = { includeRuleC: !advanceBilling };
-
     const areaPart = novedadesAreaClause(scope);
     const params = [opts.clienteCanon, mrNov.start, mrNov.end, mrFact.start, mrFact.end];
     let areaSql = areaPart.sql;
@@ -159,7 +225,7 @@ async function listNovedadesElegiblesParaCierre(deps, scope, opts) {
     const q = await pool.query(
         `SELECT ${NOVEDADES_ELEGIBLES_SELECT}
          FROM novedades nov
-         WHERE ${novedadElegibleWhereSql('nov', eligOpts)}
+         WHERE ${novedadElegibleWhereSql('nov')}
          ${cedulaSql}
          ${areaSql}`,
         params
@@ -170,7 +236,7 @@ async function listNovedadesElegiblesParaCierre(deps, scope, opts) {
     /** @type {Map<string, object>} */
     const byId = new Map();
     for (const row of q.rows || []) {
-        if (!isNovedadElegibleParaCierreRow(row, ranges, eligOpts)) continue;
+        if (!isNovedadElegibleParaCierreRow(row, ranges)) continue;
         if (!canRoleViewType(role, row.tipo_novedad)) continue;
         const key = row.id ? String(row.id) : `${row.cedula}-${row.fecha_inicio}-${row.tipo_novedad}-${byId.size}`;
         byId.set(key, row);
@@ -206,6 +272,8 @@ async function listNovedadesElegiblesParaCierre(deps, scope, opts) {
             }
         }
     }
+
+    await appendConciliacionManualNovedadesFromHistorial(deps, scope, opts, byId);
 
     return Array.from(byId.values());
 }
@@ -254,6 +322,70 @@ async function listNovedadesConsumidasParaCierre(deps, scope, opts) {
     return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad));
 }
 
+/**
+ * Novedades ya consumidas cuya fecha efectiva cae en el bucket de novedades del mes de facturación.
+ * Cubre mes vencido: vacaciones de junio consumidas al cerrar junio deben verse al facturar julio.
+ */
+async function listNovedadesConsumidasEnBucketNov(deps, scope, opts) {
+    const { pool, normalizeCedula, canRoleViewType } = deps;
+    const novBucket =
+        opts.novedadesYear != null && opts.novedadesMonth != null
+            ? { year: Number(opts.novedadesYear), month: Number(opts.novedadesMonth) }
+            : resolveNovedadesBucket(opts.factAnio, opts.factMes, opts.billingType);
+    const mrNov = monthRangeDates(novBucket.year, novBucket.month);
+    if (!mrNov) return [];
+
+    const areaPart = novedadesAreaClause(scope);
+    const params = [opts.clienteCanon, mrNov.start, mrNov.end];
+    let areaSql = areaPart.sql;
+    if (areaPart.params.length) {
+        params.push(areaPart.params[0]);
+        areaSql = areaSql.replace('$IDX', `$${params.length}`);
+    }
+
+    let cedulaSql = '';
+    const cedDigits = opts.cedulaRaw != null ? normalizeCedula(opts.cedulaRaw) : '';
+    if (cedDigits) {
+        params.push(cedDigits);
+        cedulaSql = ` AND regexp_replace(COALESCE(cnc.cedula, ''), '\\D', '', 'g') = $${params.length}`;
+    }
+
+    const dateExpr = effectiveNovedadDateSql('nov');
+    const q = await pool.query(
+        `SELECT ${NOVEDADES_ELEGIBLES_SELECT}
+         FROM conciliaciones_novedad_consumo cnc
+         INNER JOIN novedades nov ON nov.id = cnc.novedad_id
+         WHERE lower(btrim(COALESCE(nov.cliente, ''))) = lower(btrim($1::text))
+           AND ${dateExpr} >= $2::date
+           AND ${dateExpr} <= $3::date
+         ${cedulaSql}
+         ${areaSql}`,
+        params
+    );
+
+    const role = String(scope?.role || '');
+    return (q.rows || []).filter((row) => canRoleViewType(role, row.tipo_novedad));
+}
+
+function mergeNovedadRowsUnique(...lists) {
+    const byId = new Map();
+    for (const list of lists) {
+        for (const row of list || []) {
+            if (row?.id) byId.set(String(row.id), row);
+        }
+    }
+    return [...byId.values()];
+}
+
+function resolveNovedadesRowsParaColaborador(estadoFact, elegiblesCol, consumidasCol, bucketConsumidasCol) {
+    if (isFacturacionEstadoConCorteNovedades(estadoFact)) {
+        if (consumidasCol.length) return consumidasCol;
+        if (bucketConsumidasCol.length) return bucketConsumidasCol;
+        return elegiblesCol;
+    }
+    return mergeNovedadRowsUnique(elegiblesCol, bucketConsumidasCol);
+}
+
 /** @param {object[]} rows @param {(v: string) => string} normalizeCedula */
 function groupNovedadRowsByCedula(rows, normalizeCedula) {
     /** @type {Map<string, object[]>} */
@@ -270,16 +402,30 @@ function groupNovedadRowsByCedula(rows, normalizeCedula) {
 
 /**
  * Elegibles (vivo) o consumidas (snapshot) según estado del cierre.
+ * Si el cierre ya fue aprobado pero no hay consumo persistido, se muestran elegibles
+ * (p. ej. aprobación directa a finanzas o bucket de novedades distinto al aprobar).
  * @param {object} deps
  * @param {object} scope
  * @param {object} opts
  * @param {string} [estadoFacturacion]
  */
 async function listNovedadesForFacturacionByEstado(deps, scope, opts, estadoFacturacion) {
-    if (isFacturacionEstadoConCorteNovedades(estadoFacturacion)) {
-        return listNovedadesConsumidasParaCierre(deps, scope, opts);
-    }
-    return listNovedadesElegiblesParaCierre(deps, scope, opts);
+    const bucketOpts = {
+        ...opts,
+        novedadesYear: opts.novedadesYear,
+        novedadesMonth: opts.novedadesMonth
+    };
+    const [elegibles, consumidasMes, bucketConsumidas] = await Promise.all([
+        listNovedadesElegiblesParaCierre(deps, scope, opts),
+        listNovedadesConsumidasParaCierre(deps, scope, opts),
+        listNovedadesConsumidasEnBucketNov(deps, scope, bucketOpts)
+    ]);
+    return resolveNovedadesRowsParaColaborador(
+        estadoFacturacion,
+        elegibles,
+        consumidasMes,
+        bucketConsumidas
+    );
 }
 
 /**
@@ -347,8 +493,13 @@ module.exports = {
     novedadElegibleWhereSql,
     novedadAjusteAnticipoWhereSql,
     isFacturacionEstadoConCorteNovedades,
+    listNovedadIdsFromConciliacionManualHistorial,
+    appendConciliacionManualNovedadesFromHistorial,
     listNovedadesElegiblesParaCierre,
     listNovedadesConsumidasParaCierre,
+    listNovedadesConsumidasEnBucketNov,
+    mergeNovedadRowsUnique,
+    resolveNovedadesRowsParaColaborador,
     groupNovedadRowsByCedula,
     listNovedadesForFacturacionByEstado,
     consumirNovedadesParaCierreAnalista,

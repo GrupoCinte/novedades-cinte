@@ -40,7 +40,8 @@ test('tarifa 10M salida 15 jun → 5M base', () => {
     assert.equal(r.prorrateoAplicado, true);
 });
 
-test('modo HOURS: horas facturables proporcionales', () => {
+test('modo HOURS: horas por días hábiles trabajados (baseHours 160 → 8 h/día)', () => {
+    // Salida 15 jun: días hábiles 1–15 (excl. fines de semana) = 11 → 11 × (160/20) = 88 h.
     const r = resolveTarifaBaseMes({
         tarifaMaestro: 3_520_000,
         year: 2026,
@@ -49,8 +50,64 @@ test('modo HOURS: horas facturables proporcionales', () => {
         billingMode: 'HOURS',
         baseHours: 160
     });
-    assert.equal(r.horasFacturables, 80);
-    assert.equal(r.tarifaBase, 1_760_000);
+    assert.equal(r.horasFacturables, 88);
+    assert.equal(r.tarifaBase, Math.round(3_520_000 * (88 / 160)));
+});
+
+test('modo HOURS: baseHours 180 → 9 h/día laborado, salida 5 jun = 45 h', () => {
+    // Jun 1–5 2026 son lunes a viernes: 5 días hábiles × 9 h = 45 h.
+    const r = resolveTarifaBaseMes({
+        tarifaMaestro: 10_720_200,
+        year: 2026,
+        month: 6,
+        fechaTermino: '2026-06-05',
+        billingMode: 'HOURS',
+        baseHours: 180
+    });
+    assert.equal(r.horasFacturables, 45);
+    assert.equal(r.tarifaBase, Math.round(10_720_200 * (45 / 180)));
+});
+
+test('modo HOURS: mes completo tope en baseHours (= catálogo)', () => {
+    const r = resolveTarifaBaseMes({
+        tarifaMaestro: 10_720_200,
+        year: 2026,
+        month: 6,
+        billingMode: 'HOURS',
+        baseHours: 180
+    });
+    assert.equal(r.horasFacturables, 180);
+    assert.equal(r.tarifaBase, 10_720_200);
+    assert.equal(r.prorrateoAplicado, false);
+});
+
+test('modo HOURS: mes completo conserva catálogo aunque haya festivos en el mes', () => {
+    const r = resolveTarifaBaseMes({
+        tarifaMaestro: 10_720_200,
+        year: 2026,
+        month: 6,
+        billingMode: 'HOURS',
+        baseHours: 180,
+        festivosSet: new Set(['2026-06-02', '2026-06-15', '2026-06-29'])
+    });
+    assert.equal(r.horasFacturables, 180);
+    assert.equal(r.tarifaBase, 10_720_200);
+    assert.equal(r.prorrateoAplicado, false);
+});
+
+test('modo HOURS: festivos se excluyen solo en mes parcial (salida 5 jun)', () => {
+    // Con un festivo el 2 de junio, Jun 1–5 baja de 5 a 4 días hábiles → 36 h.
+    const r = resolveTarifaBaseMes({
+        tarifaMaestro: 10_720_200,
+        year: 2026,
+        month: 6,
+        fechaTermino: '2026-06-05',
+        billingMode: 'HOURS',
+        baseHours: 180,
+        festivosSet: new Set(['2026-06-02'])
+    });
+    assert.equal(r.horasFacturables, 36);
+    assert.equal(r.tarifaBase, Math.round(10_720_200 * (36 / 180)));
 });
 
 test('tramos mid-mes: 10M hasta 15 y 15M desde 16', () => {

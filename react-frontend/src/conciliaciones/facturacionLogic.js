@@ -47,6 +47,7 @@ export function hasFacturacionAdvancedFilters(filters) {
     if (filters.fCerrado && filters.fCerrado !== 'TODOS') return true;
     if (String(filters.fProyecto || '').trim()) return true;
     if (filters.fNovedades && filters.fNovedades !== 'TODOS') return true;
+    if (String(filters.fLider || '').trim()) return true;
     return false;
 }
 
@@ -60,6 +61,7 @@ export function filterFacturacionRows(rows, filters) {
     const fCerrado = filters?.fCerrado ?? 'TODOS';
     const fProyecto = String(filters?.fProyecto || '').trim().toLowerCase();
     const fNovedades = filters?.fNovedades ?? 'TODOS';
+    const fLider = String(filters?.fLider || '').trim().toLowerCase();
 
     return list.filter((r) => {
         if (fSearch) {
@@ -84,6 +86,10 @@ export function filterFacturacionRows(rows, filters) {
             const hasNov = (r.novedadesCount || 0) > 0;
             if (fNovedades === 'CON_NOVEDADES' && !hasNov) return false;
             if (fNovedades === 'SIN_NOVEDADES' && hasNov) return false;
+        }
+        if (fLider) {
+            const rowLider = String(r.lider || '').trim().toLowerCase();
+            if (rowLider !== fLider) return false;
         }
         return true;
     });
@@ -327,18 +333,16 @@ function resolveEffectiveEtapa(role, estadoActual) {
     const r = normalizeRole(role);
     if (ELEVATED_ROLES.has(r)) {
         const est = normalizeEstado(estadoActual);
-        if (est === 'APROBADO_ANALISTA') return 'NOMINA';
         if (est === 'PENDIENTE' || est === 'DEVUELTA') return 'ANALISTA';
         return null;
     }
     if (r === 'analista_conciliaciones') return 'ANALISTA';
-    if (r === 'nomina') return 'NOMINA';
     return null;
 }
 
 function normalizeEtapaObjetivo(etapaObjetivo) {
     const etapa = String(etapaObjetivo || '').trim().toUpperCase();
-    return etapa === 'ANALISTA' || etapa === 'NOMINA' ? etapa : null;
+    return etapa === 'ANALISTA' ? etapa : null;
 }
 
 function canRoleActAtEtapa(role, etapaObjetivo) {
@@ -346,9 +350,7 @@ function canRoleActAtEtapa(role, etapaObjetivo) {
     if (!etapa) return false;
     const r = normalizeRole(role);
     if (ELEVATED_ROLES.has(r)) return true;
-    if (etapa === 'ANALISTA') return r === 'analista_conciliaciones';
-    if (etapa === 'NOMINA') return r === 'nomina';
-    return false;
+    return etapa === 'ANALISTA' && r === 'analista_conciliaciones';
 }
 
 /** Elegibilidad por etapa fija (masiva), sin adaptar etapa por fila en roles elevados. */
@@ -363,9 +365,6 @@ export function canActOnEstadoForEtapa(role, estadoActual, accion, etapaObjetivo
         if (act === 'rechazar') return false;
         return est === 'PENDIENTE' || est === 'DEVUELTA';
     }
-    if (etapa === 'NOMINA') {
-        return est === 'APROBADO_ANALISTA';
-    }
     return false;
 }
 
@@ -374,58 +373,57 @@ function canActOnEstado(role, estadoActual, accion) {
     if (act !== 'aprobar' && act !== 'rechazar') return false;
     const est = normalizeEstado(estadoActual);
     const etapa = resolveEffectiveEtapa(role, est);
-    if (!etapa) return false;
-    if (etapa === 'ANALISTA') {
-        if (act === 'rechazar') return false;
-        return est === 'PENDIENTE' || est === 'DEVUELTA';
-    }
-    if (etapa === 'NOMINA') {
-        return est === 'APROBADO_ANALISTA';
-    }
-    return false;
+    if (!etapa || etapa !== 'ANALISTA') return false;
+    if (act === 'rechazar') return false;
+    return est === 'PENDIENTE' || est === 'DEVUELTA';
 }
 
 /** Roles que pueden usar aprobación masiva de revisión. */
 export function canUserPerformMasivaRevision(role) {
     const r = normalizeRole(role);
-    return r === 'analista_conciliaciones' || r === 'nomina' || ELEVATED_ROLES.has(r);
+    return r === 'analista_conciliaciones' || ELEVATED_ROLES.has(r);
 }
 
 /** Filas sobre las que el rol puede ejecutar la acción masiva indicada. */
 export function filterMasivaEligibleRows(role, rows, accion = 'aprobar', etapaObjetivo = null) {
     const list = Array.isArray(rows) ? rows : [];
-    const etapa = normalizeEtapaObjetivo(etapaObjetivo);
-    if (etapa) {
+    if (etapaObjetivo != null && String(etapaObjetivo).trim()) {
+        const etapa = normalizeEtapaObjetivo(etapaObjetivo);
+        if (!etapa) return [];
         return list.filter((row) => canActOnEstadoForEtapa(role, row?.estado, accion, etapa));
     }
     return list.filter((row) => canActOnEstado(role, row?.estado, accion));
 }
 
+/** Asociados al servicio + salidas del mes (sin duplicar cédula) para aprobación masiva. */
+export function buildMasivaScopeRows(associatedRows, salidasRows) {
+    const seen = new Set();
+    const out = [];
+    const push = (row) => {
+        const k = normalizeCedula(row?.cedula);
+        if (!k || seen.has(k)) return;
+        seen.add(k);
+        out.push(row);
+    };
+    for (const row of associatedRows || []) push(row);
+    for (const row of salidasRows || []) push(row);
+    return out;
+}
+
 /** Opciones de etapa disponibles para masiva (p. ej. super_admin con filas mixtas). */
 export function listMasivaEtapaOptions(role, rows, accion = 'aprobar') {
-    const options = [];
     const analistaCount = filterMasivaEligibleRows(role, rows, accion, 'ANALISTA').length;
-    const nominaCount = filterMasivaEligibleRows(role, rows, accion, 'NOMINA').length;
     if (analistaCount > 0) {
-        options.push({
-            etapaObjetivo: 'ANALISTA',
-            eligibleCount: analistaCount,
-            aprobarLabel: 'Enviar a Nómina',
-            title: 'Aprobación masiva — Analista'
-        });
+        return [
+            {
+                etapaObjetivo: 'ANALISTA',
+                eligibleCount: analistaCount,
+                aprobarLabel: 'Aprobar cierres',
+                title: 'Aprobación masiva — Analista'
+            }
+        ];
     }
-    if (nominaCount > 0) {
-        options.push({
-            etapaObjetivo: 'NOMINA',
-            eligibleCount: nominaCount,
-            aprobarLabel: 'Aprobar cierres',
-            title: 'Aprobación masiva — Nómina'
-        });
-    }
-    if (ELEVATED_ROLES.has(normalizeRole(role)) && options.length > 1) {
-        return [options.sort((a, b) => b.eligibleCount - a.eligibleCount)[0]];
-    }
-    return options;
+    return [];
 }
 
 /** Etapa por defecto: prioriza pendientes de analista. */
@@ -447,16 +445,16 @@ export function canEditConciliacionAjustes(role, estado) {
 /** Acciones de revisión visibles según rol y estado del cierre. */
 export function getRevisionActionsForUser(role, estado) {
     const est = normalizeEstado(estado);
-    if (est === 'APROBADO_FINANZAS' || est === 'CONCILIADA') {
+    if (est === 'APROBADO_ANALISTA' || est === 'APROBADO_FINANZAS' || est === 'CONCILIADA') {
         return {
             canAprobar: false,
             canRechazar: false,
-            etapaLabel: est === 'CONCILIADA' ? 'Conciliada' : 'Finanzas',
+            etapaLabel: est === 'CONCILIADA' ? 'Conciliada' : 'Aprobado',
             aprobarLabel: 'Aprobar',
             readOnlyMessage:
                 est === 'CONCILIADA'
                     ? 'Este cierre ya fue conciliado.'
-                    : 'Cierre aprobado en finanzas. Pendiente de exportación o cierre del servicio.'
+                    : 'Cierre aprobado por el analista. Pendiente de envío o exportación del servicio.'
         };
     }
     const etapa = resolveEffectiveEtapa(role, est);
@@ -469,14 +467,6 @@ export function getRevisionActionsForUser(role, estado) {
             canAprobar,
             canRechazar: false,
             etapaLabel: 'Analista',
-            aprobarLabel: 'Enviar a Nómina'
-        };
-    }
-    if (etapa === 'NOMINA' && est === 'APROBADO_ANALISTA') {
-        return {
-            canAprobar: true,
-            canRechazar: true,
-            etapaLabel: 'Nómina',
             aprobarLabel: 'Aprobar cierre'
         };
     }
@@ -527,6 +517,11 @@ export function buildFacturacionAjustesPayload({ observaciones, cedula, anio, me
 
     const tarifaEffective = Math.round(Number(draft?.tarifaEffective) || 0);
     const tarifaMaestro = Math.round(Number(draft?.tarifaMaestro) || 0);
+    const horasBase = resolveHorasBaseMes({
+        billingMode: draft?.billingMode,
+        baseHours: draft?.baseHours,
+        horasBaseMes: draft?.horasBaseMes
+    });
     const tarifaDraft = draft?.tarifaDraft;
     if (tarifaDraft !== undefined && tarifaDraft !== '') {
         const val = Math.round(Number(tarifaDraft) || 0);
@@ -536,13 +531,42 @@ export function buildFacturacionAjustesPayload({ observaciones, cedula, anio, me
     }
 
     const montosNovedad = [];
+    const cantidadesHorasNovedad = [];
     const items = Array.isArray(draft?.items) ? draft.items : [];
     const montosDraft = draft?.montosDraft || {};
+    const cantidadesHorasDraft = draft?.cantidadesHorasDraft || {};
+    const touchedRaw = draft?.cantidadesHorasTouched;
+    const touchedSet =
+        touchedRaw instanceof Set
+            ? touchedRaw
+            : new Set(Array.isArray(touchedRaw) ? touchedRaw : []);
+
     for (const item of items) {
         const id = String(item.id || '');
         if (!id) continue;
+
+        if (touchedSet.has(id) && isNovedadCalculadaHoras(item)) {
+            const nextHoras = normalizeHorasInput(cantidadesHorasDraft[id]);
+            const defaultHoras = normalizeHorasInput(
+                item.cantidadHorasMaestro ??
+                    resolveCantidadHorasFacturacionPreview(item, true, horasBase)
+            );
+            const currentHoras = item.cantidadHorasAjustado
+                ? normalizeHorasInput(item.cantidadHoras)
+                : defaultHoras;
+            if (nextHoras !== currentHoras) {
+                cantidadesHorasNovedad.push({
+                    novedadId: id,
+                    cantidadHoras: nextHoras === defaultHoras ? null : nextHoras
+                });
+            } else if (item.cantidadHorasAjustado && nextHoras === defaultHoras) {
+                cantidadesHorasNovedad.push({ novedadId: id, cantidadHoras: null });
+            }
+        }
+
         const draftVal = montosDraft[id];
         if (draftVal === undefined || draftVal === '') continue;
+        if (touchedSet.has(id) && isNovedadCalculadaHoras(item)) continue;
         const current = Math.round(Number(item.montoCop) || 0);
         const master = Math.round(Number(item.montoMaestro ?? item.montoCop) || 0);
         const next = Math.round(Number(draftVal) || 0);
@@ -553,8 +577,13 @@ export function buildFacturacionAjustesPayload({ observaciones, cedula, anio, me
         }
     }
     if (montosNovedad.length) payload.montosNovedad = montosNovedad;
+    if (cantidadesHorasNovedad.length) payload.cantidadesHorasNovedad = cantidadesHorasNovedad;
 
-    if (payload.tarifaOverride === undefined && !payload.montosNovedad?.length) {
+    if (
+        payload.tarifaOverride === undefined &&
+        !payload.montosNovedad?.length &&
+        !payload.cantidadesHorasNovedad?.length
+    ) {
         return { ok: false, error: 'No hay cambios para guardar' };
     }
 
@@ -604,15 +633,17 @@ export function buildFacturacionRevisionMasivaPayload(form, { cliente, anio, mes
 
 /** Etapa de revisión masiva según rol, filas y etapa seleccionada. */
 export function resolveMasivaEtapaForRows(role, rows, accion = 'aprobar', etapaObjetivo = null) {
-    const etapaFija = normalizeEtapaObjetivo(etapaObjetivo);
-    if (etapaFija) return etapaFija;
+    if (etapaObjetivo != null && String(etapaObjetivo).trim()) {
+        const etapaFija = normalizeEtapaObjetivo(etapaObjetivo);
+        if (!etapaFija) return null;
+        return etapaFija;
+    }
 
     const eligible = filterMasivaEligibleRows(role, rows, accion);
     if (!eligible.length) return null;
 
     const r = normalizeRole(role);
     if (r === 'analista_conciliaciones') return 'ANALISTA';
-    if (r === 'nomina') return 'NOMINA';
     if (ELEVATED_ROLES.has(r)) {
         return defaultMasivaEtapaObjetivo(role, rows, accion);
     }
@@ -624,23 +655,11 @@ export function getMasivaRevisionDefaults(role, rows, accion = 'aprobar', etapaO
     const eligible = etapa
         ? filterMasivaEligibleRows(role, rows, accion, etapa)
         : filterMasivaEligibleRows(role, rows, accion);
-    if (etapa === 'NOMINA') {
-        const canRechazar = filterMasivaEligibleRows(role, rows, 'rechazar', 'NOMINA').length > 0;
-        return {
-            accionDefault: 'aprobar',
-            canRechazar,
-            aprobarLabel: 'Aprobar cierres',
-            rechazarLabel: 'Rechazar cierres',
-            title: 'Aprobación masiva — Nómina',
-            etapa,
-            eligibleCount: eligible.length
-        };
-    }
     if (etapa === 'ANALISTA') {
         return {
             accionDefault: 'aprobar',
             canRechazar: false,
-            aprobarLabel: 'Enviar a Nómina',
+            aprobarLabel: 'Aprobar cierres',
             rechazarLabel: null,
             title: 'Aprobación masiva — Analista',
             etapa,
@@ -671,11 +690,8 @@ export function patchFacturacionRowEstado(rows, cedula, estado) {
 export function resolveEstadoTrasRevisionIndividual(prevEst, revisionAccion) {
     let nextEst = normalizeEstado(prevEst);
     const act = String(revisionAccion || '').trim().toLowerCase();
-    if (act === 'aprobar') {
-        if (nextEst === 'PENDIENTE' || nextEst === 'DEVUELTA') nextEst = 'APROBADO_ANALISTA';
-        else if (nextEst === 'APROBADO_ANALISTA') nextEst = 'APROBADO_FINANZAS';
-    } else if (act === 'rechazar' && nextEst === 'APROBADO_ANALISTA') {
-        nextEst = 'DEVUELTA';
+    if (act === 'aprobar' && (nextEst === 'PENDIENTE' || nextEst === 'DEVUELTA')) {
+        nextEst = 'APROBADO_ANALISTA';
     }
     return nextEst;
 }
@@ -684,7 +700,6 @@ export function resolveEstadoTrasRevisionIndividual(prevEst, revisionAccion) {
 export function resolveEstadoTrasMasivaAprobar(prevEst, etapaObjetivo) {
     const est = normalizeEstado(prevEst);
     const etapa = normalizeEtapaObjetivo(etapaObjetivo);
-    if (etapa === 'NOMINA' && est === 'APROBADO_ANALISTA') return 'APROBADO_FINANZAS';
     if (etapa === 'ANALISTA' && (est === 'PENDIENTE' || est === 'DEVUELTA')) return 'APROBADO_ANALISTA';
     return resolveEstadoTrasRevisionIndividual(est, 'aprobar');
 }
@@ -820,11 +835,42 @@ const NOVEDAD_TIPOS_SUMA = new Set(['Bonos', 'Hora Extra', 'Disponibilidad']);
 
 export const HORAS_MES_LABORALES = 176;
 export const DIAS_MES_FACTURACION = 30;
+export const DIAS_HABILES_NOMINAL_MES = 20;
+/** @deprecated Usar horasPorDiaLaboral(baseHours). */
+export const HORAS_LABOR_DIA = 9;
 
-/** Novedad calculada que usa valor hora de la tarifa (modo HOURS). Incluye HE en suma. */
-export function isNovedadCalculadaValorHora(row) {
+/** Horas laborables por día en modo HOURS: baseHours / 20 días hábiles nominales. */
+export function horasPorDiaLaboral(baseHours) {
+    const bh = Number(baseHours) || 0;
+    return bh > 0 ? bh / DIAS_HABILES_NOMINAL_MES : 0;
+}
+
+/**
+ * Normaliza una cantidad de horas ingresada por el usuario admitiendo decimales
+ * con punto o coma (ej. "4.5" o "4,5"). Devuelve un número >= 0 redondeado a 2
+ * decimales; valores inválidos o negativos se tratan como 0.
+ */
+export function normalizeHorasInput(raw) {
+    if (raw == null) return 0;
+    if (typeof raw === 'number') {
+        return Number.isFinite(raw) && raw > 0 ? Math.round(raw * 100) / 100 : 0;
+    }
+    const s = String(raw).trim().replace(',', '.');
+    if (s === '') return 0;
+    const n = Number(s);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.round(n * 100) / 100;
+}
+
+/** Novedad calculada por horas en modo HOURS (días o horas). Incluye HE en suma. */
+export function isNovedadCalculadaHoras(row) {
     const calculado = Boolean(row?.montoCalculado || row?.montoOrigen === 'calculado');
     return calculado && (row?.medida === 'hours' || row?.medida === 'days');
+}
+
+/** @deprecated use isNovedadCalculadaHoras */
+export function isNovedadCalculadaValorHora(row) {
+    return isNovedadCalculadaHoras(row);
 }
 
 /** Modo HOURS activo según props del servicio / API. */
@@ -872,20 +918,33 @@ export function computeMontoFromValorHoraCop(valorHora, cantidadHoras) {
     return Math.round(vh * q);
 }
 
-/** Modo HOURS: monto días = valorHora × días × (baseHours / 30). */
-export function computeMontoNovedadDiasFromValorHora(valorHora, dias, horasBaseMes) {
+/** Horas facturables de una novedad en modo HOURS. */
+export function resolveCantidadHorasFacturacionPreview(row, hoursMode = false, horasBaseMes = null) {
+    if (!hoursMode || !isNovedadCalculadaHoras(row)) return null;
+    if (row?.cantidadHoras != null && Number(row.cantidadHoras) > 0) {
+        return Number(row.cantidadHoras);
+    }
+    const q = Number(row?.cantidad) || 0;
+    if (q <= 0) return null;
+    const bh = horasBaseMes != null ? Number(horasBaseMes) : HORAS_MES_LABORALES;
+    if (row?.medida === 'hours') return q;
+    if (row?.medida === 'days') return Math.round(q * horasPorDiaLaboral(bh) * 100) / 100;
+    return null;
+}
+
+/** Modo HOURS: monto = valorHora × cantidadHoras. */
+export function computeMontoNovedadDiasFromValorHora(valorHora, dias, horasBaseMes = HORAS_MES_LABORALES) {
     const vh = Number(valorHora) || 0;
     const d = Number(dias) || 0;
-    const base = Number(horasBaseMes) || HORAS_MES_LABORALES;
     if (vh <= 0 || d <= 0) return 0;
-    return Math.round(vh * d * (base / DIAS_MES_FACTURACION));
+    return Math.round(vh * d * horasPorDiaLaboral(horasBaseMes));
 }
 
 /**
  * Recalcula monto de novedad en edición según medida.
- * Modo HOURS: valorHora × cantidad (horas) o valorHora × días × baseHours/30.
+ * Modo HOURS: valorHora × cantidadHoras (días × 9 h laborales).
  */
-export function computeMontoNovedadPreview(row, { tarifa, horasBaseMes, valorHora, hoursMode = false } = {}) {
+export function computeMontoNovedadPreview(row, { tarifa, horasBaseMes, cantidadHoras, hoursMode = false } = {}) {
     const esCalculado = row?.montoOrigen === 'calculado' || row?.montoCalculado;
     if (!hoursMode) {
         if (!esCalculado && row?.medida !== 'hours') {
@@ -894,26 +953,18 @@ export function computeMontoNovedadPreview(row, { tarifa, horasBaseMes, valorHor
     } else if (!esCalculado && row?.medida !== 'hours' && row?.medida !== 'days') {
         return Number(row?.montoMaestro ?? row?.montoCop) || 0;
     }
-    const q = Number(row?.cantidad) || 0;
     const t = Number(tarifa) || 0;
-    const vh =
-        valorHora != null && valorHora !== ''
-            ? Number(valorHora) || 0
-            : computeValorHoraCop(t, horasBaseMes);
-
-    if (row?.medida === 'days') {
-        if (hoursMode) {
-            const vhDefault = computeValorHoraCop(t, horasBaseMes);
-            const vhNum = valorHora != null && valorHora !== '' ? Math.round(Number(valorHora)) : vhDefault;
-            if (vhNum === vhDefault) return Math.round((t / DIAS_MES_FACTURACION) * q);
-            return computeMontoNovedadDiasFromValorHora(vhNum, q, horasBaseMes);
-        }
-        return Math.round((t / DIAS_MES_FACTURACION) * q);
+    const vh = computeValorHoraCop(t, horasBaseMes);
+    const horas =
+        cantidadHoras != null && cantidadHoras !== ''
+            ? Number(cantidadHoras) || 0
+            : resolveCantidadHorasFacturacionPreview(row, hoursMode, horasBaseMes) || 0;
+    if (hoursMode && (row?.medida === 'hours' || row?.medida === 'days')) {
+        return Math.round((t / horasBaseMes) * horas);
     }
-    if (row?.medida === 'hours') {
-        if (hoursMode) return computeMontoFromValorHoraCop(vh, q);
-        return Math.round((t / horasBaseMes) * q);
-    }
+    const q = Number(row?.cantidad) || 0;
+    if (row?.medida === 'days') return Math.round((t / DIAS_MES_FACTURACION) * q);
+    if (row?.medida === 'hours') return Math.round((t / horasBaseMes) * q);
     return Number(row?.montoMaestro ?? row?.montoCop) || 0;
 }
 
@@ -1050,24 +1101,29 @@ export function canRevertConciliacionCierre(role, estado, cerrado = true) {
     return est !== 'PENDIENTE';
 }
 
-/** Servicio completo: asociados + salidas del mes en APROBADO_FINANZAS o CONCILIADA. */
-export function isServicioCompletoFinanzas(allRows, cedulas) {
+/** Servicio completo: todos los consultores aprobados por analista (o legacy finanzas). */
+export function isServicioCompletoRevision(allRows, cedulas) {
     const merged = mergeConciliacionServicioRows(allRows, cedulas);
     if (!merged.length) return false;
     return merged.every((r) => {
         const e = normalizeEstado(r?.estado);
-        return e === 'APROBADO_FINANZAS' || e === 'CONCILIADA';
+        return e === 'APROBADO_ANALISTA' || e === 'APROBADO_FINANZAS' || e === 'CONCILIADA';
     });
+}
+
+/** @deprecated Usar isServicioCompletoRevision */
+export function isServicioCompletoFinanzas(allRows, cedulas) {
+    return isServicioCompletoRevision(allRows, cedulas);
 }
 
 export function canExportServicioCompleto(role) {
     const r = normalizeRole(role);
-    return (
-        r === 'analista_conciliaciones' ||
-        r === 'nomina' ||
-        r === 'super_admin' ||
-        r === 'cac'
-    );
+    return r === 'analista_conciliaciones' || r === 'super_admin' || r === 'cac';
+}
+
+export function canEnviarCorreoServicioCompleto(role) {
+    const r = normalizeRole(role);
+    return r === 'analista_conciliaciones' || r === 'super_admin';
 }
 
 export const ESTADOS_SERVICIO = ['EN_REVISION', 'LISTO_EXPORT', 'ENVIADA', 'CONCILIADA'];
@@ -1082,14 +1138,14 @@ export const ESTADOS_SERVICIO_META = [
     {
         key: 'LISTO_EXPORT',
         label: 'Listo export',
-        shortLabel: 'Listo Excel',
-        description: 'Todos aprobados en finanzas; puede descargar Excel'
+        shortLabel: 'Listo',
+        description: 'Todos aprobados por analista; puede enviar correo o descargar Excel'
     },
     {
         key: 'ENVIADA',
         label: 'Enviada',
         shortLabel: 'Enviada',
-        description: 'Excel descargado; paquete enviado'
+        description: 'Correo enviado o Excel descargado'
     },
     {
         key: 'CONCILIADA',
@@ -1157,15 +1213,18 @@ export function patchColaItemEstadoServicio(items, servicioId, estadoServicio) {
 export function resolveFilaEstadoDisplay(rowEstado, estadoServicio) {
     const workflowEstado = normalizeEstado(rowEstado);
     const serv = normalizeEstadoServicio(estadoServicio);
-    const finanzasOk = workflowEstado === 'APROBADO_FINANZAS' || workflowEstado === 'CONCILIADA';
+    const revisionOk =
+        workflowEstado === 'APROBADO_ANALISTA' ||
+        workflowEstado === 'APROBADO_FINANZAS' ||
+        workflowEstado === 'CONCILIADA';
 
-    if (finanzasOk && serv === 'CONCILIADA') {
+    if (revisionOk && serv === 'CONCILIADA') {
         return { displayKey: 'CONCILIADA', label: 'Conciliada', workflowEstado };
     }
-    if (finanzasOk && serv === 'ENVIADA') {
+    if (revisionOk && serv === 'ENVIADA') {
         return { displayKey: 'SERVICIO_ENVIADA', label: 'Enviada', workflowEstado };
     }
-    if (finanzasOk && serv === 'LISTO_EXPORT') {
+    if (revisionOk && serv === 'LISTO_EXPORT') {
         return { displayKey: 'SERVICIO_LISTO_EXPORT', label: 'Listo export', workflowEstado };
     }
 

@@ -68,7 +68,40 @@ export interface FormStatusChangedNotificationEvent {
 export type TransactionalEmailEvent =
   | FormSubmittedNotificationEvent
   | FormStatusChangedNotificationEvent
-  | ConciliacionServicioFinalizadaEvent;
+  | ConciliacionServicioFinalizadaEvent
+  | ConciliacionCorreoLiderEvent;
+
+export interface ConciliacionCorreoLiderEvent {
+  eventType: 'conciliacion_correo_lider';
+  eventId: string;
+  occurredAt: string;
+  conciliacionServicioId: string;
+  recipient: { name?: string; email: string };
+  asunto: string;
+  introHtml: string;
+  tableHtml: string;
+  cierreHtml?: string;
+  columnas?: string[];
+  servicio: {
+    id: string;
+    serviceName: string;
+    cliente: string;
+    anio: number;
+    mes: number;
+  };
+  sentBy?: {
+    email?: string | null;
+    nombre?: string | null;
+  };
+  meta: {
+    source: string;
+    env: string;
+  };
+  actions?: {
+    approveUrl?: string;
+    rejectUrl?: string;
+  };
+}
 
 export interface ConciliacionServicioFinalizadaEvent {
   eventType: 'conciliacion_servicio_finalizada';

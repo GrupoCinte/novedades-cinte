@@ -37,6 +37,16 @@
 
 ---
 
+## 📊 Conciliaciones / facturación
+
+| Documento | Descripción |
+|-----------|-------------|
+| [manual-conciliaciones/email-accion-seguridad.md](./manual-conciliaciones/email-accion-seguridad.md) | Magic links aprobar/rechazar por correo: API, TTL, rate limit, consumo atómico, logs |
+| [manual-conciliaciones-facturacion.docx](./manual-conciliaciones-facturacion.docx) | Manual funcional del módulo (Word) |
+| [manual-conciliaciones/diagrams/](./manual-conciliaciones/diagrams/) | Diagramas Mermaid del flujo de conciliaciones |
+
+---
+
 ## 🗄️ Base de Datos y Datos
 
 | Documento | Descripción |
@@ -61,6 +71,7 @@
 | ¿Cómo usa el sistema un colaborador? | [MANUAL_USUARIO.md Parte I](./MANUAL_USUARIO.md#parte-i--colaborador-formulario-de-novedades) |
 | ¿Cómo aprueba/rechaza un admin? | [MANUAL_USUARIO.md §7.3](./MANUAL_USUARIO.md#73-pestaña-gestión-tabla-principal) |
 | ¿Cómo funciona la secuencia de arranque? | [ARCHITECTURE.md §8](./ARCHITECTURE.md#8-secuencia-de-arranque) |
+| ¿Cómo funcionan los enlaces aprobar/rechazar del correo al líder? | [manual-conciliaciones/email-accion-seguridad.md](./manual-conciliaciones/email-accion-seguridad.md) |
 
 ---
 

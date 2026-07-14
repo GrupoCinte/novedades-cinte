@@ -11,12 +11,17 @@ import {
     computeValorHoraFromTarifa,
     computeMontoFromValorHoraCop,
     computeMontoNovedadPreview,
-    isNovedadCalculadaValorHora,
+    isNovedadCalculadaHoras,
+    resolveCantidadHorasFacturacionPreview,
     showHorasDesgloseColumn,
-    formatDiasBaseMesLine
+    formatDiasBaseMesLine,
+    normalizeHorasInput
 } from '../facturacionLogic.js';
 import ConciliacionesNovedadesAprobadasPanel from './ConciliacionesNovedadesAprobadasPanel.jsx';
 import ConciliacionesFacturacionHistorialPanel from './ConciliacionesFacturacionHistorialPanel.jsx';
+import ConciliacionesNovedadVacacionesManualForm, {
+    ConciliacionesVacacionesManualToggleButton
+} from './ConciliacionesNovedadVacacionesManualForm.jsx';
 
 function formatCop(n) {
     const x = Math.round(Number(n) || 0);
@@ -32,6 +37,7 @@ export default function ConciliacionesFacturacionModal({
     onClose,
     onSave,
     onSaveAjustes = null,
+    onNovedadManualCreada = null,
     onEliminar = null,
     servicioNombre = '',
     servicioId = '',
@@ -48,6 +54,11 @@ export default function ConciliacionesFacturacionModal({
     diasBaseMes = null,
     diasBaseLabel = null,
     festivosAplicados = false,
+    festivosSet = null,
+    billingQueryParams = {},
+    revisionAnio = null,
+    revisionMes = null,
+    revisionCliente = '',
     monthLabel = '',
     historial = [],
     historialLoading = false,
@@ -62,10 +73,11 @@ export default function ConciliacionesFacturacionModal({
     const [editMode, setEditMode] = useState(false);
     const [draftTarifa, setDraftTarifa] = useState('');
     const [draftValorHora, setDraftValorHora] = useState('');
-    const [draftValorHorasNovedad, setDraftValorHorasNovedad] = useState({});
-    const [valorHoraNovedadTouched, setValorHoraNovedadTouched] = useState(() => new Set());
+    const [draftCantidadHorasNovedad, setDraftCantidadHorasNovedad] = useState({});
+    const [cantidadHorasNovedadTouched, setCantidadHorasNovedadTouched] = useState(() => new Set());
     const [draftMontos, setDraftMontos] = useState({});
     const [ajustesPendiente, setAjustesPendiente] = useState(false);
+    const [vacacionesFormOpen, setVacacionesFormOpen] = useState(false);
 
     const modalRef = useRef(null);
     const closeBtnRef = useRef(null);
@@ -80,6 +92,8 @@ export default function ConciliacionesFacturacionModal({
         () => !servicioCompleto && canEditConciliacionAjustes(userRole, colaborador?.estado || 'PENDIENTE'),
         [servicioCompleto, userRole, colaborador?.estado]
     );
+    const canAddVacacionesManual = canEditAjustes && Boolean(onNovedadManualCreada);
+    const token = auth?.token || auth?.accessToken || '';
 
     const diasBaseLine = useMemo(
         () =>
@@ -108,24 +122,26 @@ export default function ConciliacionesFacturacionModal({
     const showValorHoraCol = showHorasDesgloseColumn({ billingMode, baseHours, horasBaseMes });
 
     const syncMontosFromDrafts = useCallback(
-        (tarifaStr, valorHoraStr, valorHorasNov = {}, touched = new Set()) => {
+        (tarifaStr, valorHoraStr, cantidadesHorasNov = {}, touched = new Set()) => {
             const tarifa = Math.round(Number(tarifaStr) || 0);
-            const vhTarifa = Math.round(Number(valorHoraStr) || computeValorHoraFromTarifa(tarifa, horasBase));
             const montos = {};
-            const vhNov = { ...valorHorasNov };
+            const chNov = { ...cantidadesHorasNov };
             for (const item of novedadesItems || []) {
                 const id = String(item?.id || '');
                 if (!id) continue;
-                if (showValorHoraCol && isNovedadCalculadaValorHora(item)) {
-                    const vh = touched.has(id)
-                        ? Math.round(Number(vhNov[id]) || 0)
-                        : vhTarifa;
-                    vhNov[id] = String(vh);
+                if (showValorHoraCol && isNovedadCalculadaHoras(item)) {
+                    const horas = touched.has(id)
+                        ? normalizeHorasInput(chNov[id])
+                        : normalizeHorasInput(
+                              item.cantidadHorasMaestro ??
+                                  resolveCantidadHorasFacturacionPreview(item, true, horasBase)
+                          );
+                    chNov[id] = touched.has(id) ? (chNov[id] ?? String(horas)) : String(horas);
                     montos[id] = String(
                         computeMontoNovedadPreview(item, {
                             tarifa,
                             horasBaseMes: horasBase,
-                            valorHora: vh,
+                            cantidadHoras: horas,
                             hoursMode: true
                         })
                     );
@@ -133,7 +149,7 @@ export default function ConciliacionesFacturacionModal({
                     montos[id] = String(item.montoCop ?? '');
                 }
             }
-            return { montos, vhNov };
+            return { montos, chNov };
         },
         [novedadesItems, horasBase, showValorHoraCol]
     );
@@ -143,11 +159,26 @@ export default function ConciliacionesFacturacionModal({
         const vh = computeValorHoraFromTarifa(tarifa, horasBase);
         setDraftTarifa(String(tarifa));
         setDraftValorHora(String(vh));
-        setValorHoraNovedadTouched(new Set());
-        const { montos, vhNov } = syncMontosFromDrafts(String(tarifa), String(vh), {}, new Set());
-        setDraftValorHorasNovedad(vhNov);
+        const touched = new Set();
+        const chNovInit = {};
+        for (const item of novedadesItems || []) {
+            const id = String(item?.id || '');
+            if (!id || !showValorHoraCol || !isNovedadCalculadaHoras(item)) continue;
+            const horasBaseItem = normalizeHorasInput(
+                item.cantidadHorasMaestro ?? resolveCantidadHorasFacturacionPreview(item, true, horasBase)
+            );
+            if (item.cantidadHorasAjustado && item.cantidadHoras != null) {
+                chNovInit[id] = String(normalizeHorasInput(item.cantidadHoras));
+                touched.add(id);
+            } else {
+                chNovInit[id] = String(horasBaseItem);
+            }
+        }
+        setCantidadHorasNovedadTouched(touched);
+        const { montos, chNov } = syncMontosFromDrafts(String(tarifa), String(vh), chNovInit, touched);
+        setDraftCantidadHorasNovedad(chNov);
         setDraftMontos(montos);
-    }, [tarifaCliente, horasBase, syncMontosFromDrafts]);
+    }, [tarifaCliente, horasBase, syncMontosFromDrafts, novedadesItems, showValorHoraCol]);
 
     const handleValorHoraChange = useCallback(
         (raw) => {
@@ -155,34 +186,35 @@ export default function ConciliacionesFacturacionModal({
             const tarifa = computeTarifaMesFromValorHora(vh, horasBase);
             setDraftValorHora(String(vh));
             setDraftTarifa(String(tarifa));
-            const { montos, vhNov } = syncMontosFromDrafts(
+            const { montos, chNov } = syncMontosFromDrafts(
                 String(tarifa),
                 String(vh),
-                draftValorHorasNovedad,
-                valorHoraNovedadTouched
+                draftCantidadHorasNovedad,
+                cantidadHorasNovedadTouched
             );
-            setDraftValorHorasNovedad(vhNov);
+            setDraftCantidadHorasNovedad(chNov);
             setDraftMontos((prev) => ({ ...prev, ...montos }));
         },
-        [horasBase, syncMontosFromDrafts, draftValorHorasNovedad, valorHoraNovedadTouched]
+        [horasBase, syncMontosFromDrafts, draftCantidadHorasNovedad, cantidadHorasNovedadTouched]
     );
 
-    const handleValorHoraNovedadChange = useCallback(
+    const handleCantidadHorasNovedadChange = useCallback(
         (novedadId, raw) => {
             const id = String(novedadId || '');
             if (!id) return;
-            const vh = Math.round(Number(raw) || 0);
             const item = (novedadesItems || []).find((n) => String(n.id) === id);
             if (!item) return;
-            setValorHoraNovedadTouched((prev) => new Set(prev).add(id));
-            setDraftValorHorasNovedad((prev) => ({ ...prev, [id]: String(vh) }));
+            const sanitized = String(raw ?? '').replace(/[^0-9.,]/g, '');
+            const horas = normalizeHorasInput(sanitized);
+            setCantidadHorasNovedadTouched((prev) => new Set(prev).add(id));
+            setDraftCantidadHorasNovedad((prev) => ({ ...prev, [id]: sanitized }));
             setDraftMontos((prev) => ({
                 ...prev,
                 [id]: String(
                     computeMontoNovedadPreview(item, {
                         tarifa: draftTarifa,
                         horasBaseMes: horasBase,
-                        valorHora: vh,
+                        cantidadHoras: horas,
                         hoursMode: showValorHoraCol
                     })
                 )
@@ -199,6 +231,7 @@ export default function ConciliacionesFacturacionModal({
             setObservaciones('');
             setObsError('');
             setEditMode(false);
+            setVacacionesFormOpen(false);
             resetEditDraft();
             setTimeout(() => {
                 if (closeBtnRef.current) closeBtnRef.current.focus();
@@ -294,6 +327,11 @@ export default function ConciliacionesFacturacionModal({
                 tarifaEffective: tarifaCliente,
                 tarifaMaestro,
                 montosDraft: draftMontos,
+                cantidadesHorasDraft: draftCantidadHorasNovedad,
+                cantidadesHorasTouched: cantidadHorasNovedadTouched,
+                horasBaseMes: horasBase,
+                billingMode,
+                baseHours,
                 items: novedadesItems
             }
         );
@@ -403,7 +441,11 @@ export default function ConciliacionesFacturacionModal({
                                             {formatCop(tarifaDetalle?.tarifaProrrateada ?? colaborador.tarifaProrrateada ?? tarifaCliente)}
                                             {' · '}
                                             {tarifaDetalle?.diasFacturables ?? colaborador.diasFacturables}/
-                                            {tarifaDetalle?.diasMes ?? colaborador.diasMes} días
+                                            {tarifaDetalle?.diasMes ?? colaborador.diasMes} días cal.
+                                            {(tarifaDetalle?.diasHabilesFacturables ??
+                                                colaborador.diasHabilesFacturables) != null
+                                                ? ` · ${tarifaDetalle?.diasHabilesFacturables ?? colaborador.diasHabilesFacturables} hábiles`
+                                                : ''}
                                             {(tarifaDetalle?.horasFacturables ?? colaborador.horasFacturables) != null
                                                 ? ` · ${tarifaDetalle?.horasFacturables ?? colaborador.horasFacturables} h`
                                                 : ''}
@@ -435,6 +477,14 @@ export default function ConciliacionesFacturacionModal({
 
                         <div className="border-t border-dashed border-slate-300/40 pt-4 dark:border-slate-600/40">
                             <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+                                {canAddVacacionesManual && !editMode ? (
+                                    vacacionesFormOpen ? null : (
+                                        <ConciliacionesVacacionesManualToggleButton
+                                            disabled={saving || novedadesLoading}
+                                            onClick={() => setVacacionesFormOpen(true)}
+                                        />
+                                    )
+                                ) : null}
                                 {canEditAjustes && onSaveAjustes ? (
                                     editMode ? (
                                         <>
@@ -472,6 +522,32 @@ export default function ConciliacionesFacturacionModal({
                                     )
                                 ) : null}
                             </div>
+                            {canAddVacacionesManual && vacacionesFormOpen ? (
+                                <ConciliacionesNovedadVacacionesManualForm
+                                    token={token}
+                                    cliente={revisionCliente || colaborador?.cliente || ''}
+                                    cedula={colaborador?.cedula || ''}
+                                    anio={revisionAnio}
+                                    mes={revisionMes}
+                                    servicioId={servicioId}
+                                    tarifaCliente={tarifaCliente}
+                                    horasBaseMes={horasBaseMes}
+                                    tarifaValorHora={tarifaValorHora}
+                                    billingMode={billingMode}
+                                    billingQueryParams={billingQueryParams}
+                                    festivosSet={festivosSet}
+                                    isLight={isLight}
+                                    saving={saving}
+                                    onCancel={() => setVacacionesFormOpen(false)}
+                                    onCreated={async (out) => {
+                                        setVacacionesFormOpen(false);
+                                        setErrorMsg('');
+                                        if (onNovedadManualCreada) {
+                                            await onNovedadManualCreada(out);
+                                        }
+                                    }}
+                                />
+                            ) : null}
                             <ConciliacionesNovedadesAprobadasPanel
                                 embedded
                                 items={novedadesItems}
@@ -501,12 +577,12 @@ export default function ConciliacionesFacturacionModal({
                                 editMode={editMode}
                                 draftTarifa={draftTarifa}
                                 draftValorHora={draftValorHora}
-                                draftValorHorasNovedad={draftValorHorasNovedad}
+                                draftCantidadHorasNovedad={draftCantidadHorasNovedad}
                                 draftMontos={draftMontos}
                                 onTarifaChange={editMode && !showValorHoraCol ? setDraftTarifa : null}
                                 onValorHoraChange={editMode && showValorHoraCol ? handleValorHoraChange : null}
-                                onValorHoraNovedadChange={
-                                    editMode && showValorHoraCol ? handleValorHoraNovedadChange : null
+                                onCantidadHorasNovedadChange={
+                                    editMode && showValorHoraCol ? handleCantidadHorasNovedadChange : null
                                 }
                                 onMontoChange={
                                     editMode

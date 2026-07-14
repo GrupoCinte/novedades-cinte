@@ -40,6 +40,16 @@ function validateConciliacionServicioFinalizadaPayload(payload) {
     return Boolean(String(payload?.servicio?.cliente || '').trim());
 }
 
+function validateConciliacionCorreoLiderPayload(payload) {
+    if (!payload || typeof payload !== 'object') return false;
+    if (payload.eventType !== 'conciliacion_correo_lider') return false;
+    if (!payload.eventId || !payload.conciliacionServicioId) return false;
+    const email = String(payload?.recipient?.email || '').trim();
+    if (!email.includes('@')) return false;
+    if (!String(payload?.asunto || '').trim()) return false;
+    return Boolean(String(payload?.servicio?.cliente || '').trim());
+}
+
 function createEmailNotificationsPublisher({
     lambdaClient,
     functionName,
@@ -107,12 +117,38 @@ function createEmailNotificationsPublisher({
         };
     }
 
-    return { publishFormSubmitted, publishFormStatusChanged, publishConciliacionServicioFinalizada };
+    async function publishConciliacionCorreoLider(payload) {
+        if (!isEnabled) {
+            return { accepted: false, skipped: true, reason: 'disabled' };
+        }
+        if (!validateConciliacionCorreoLiderPayload(payload)) {
+            return { accepted: false, skipped: true, reason: 'invalid_payload' };
+        }
+        const command = new InvokeCommand({
+            FunctionName: functionName,
+            InvocationType: 'Event',
+            Payload: Buffer.from(JSON.stringify(payload), 'utf8')
+        });
+        const response = await lambdaClient.send(command);
+        return {
+            accepted: Number(response?.StatusCode || 0) >= 200 && Number(response?.StatusCode || 0) < 300,
+            statusCode: response?.StatusCode || 0,
+            requestId: response?.$metadata?.requestId || response?.ResponseMetadata?.RequestId || null
+        };
+    }
+
+    return {
+        publishFormSubmitted,
+        publishFormStatusChanged,
+        publishConciliacionServicioFinalizada,
+        publishConciliacionCorreoLider
+    };
 }
 
 module.exports = {
     createEmailNotificationsPublisher,
     validateFormSubmittedPayload,
     validateFormStatusChangedPayload,
-    validateConciliacionServicioFinalizadaPayload
+    validateConciliacionServicioFinalizadaPayload,
+    validateConciliacionCorreoLiderPayload
 };

@@ -243,6 +243,40 @@ export async function postMarcarServicioConciliada(token, { servicioId, anio, me
     return data;
 }
 
+export async function fetchConciliacionEmailPlantilla(token) {
+    const res = await fetch('/api/conciliaciones/email-plantilla/correo-lider', {
+        headers: conciliacionesAuthHeaders(token),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar plantilla'));
+    return data.plantilla || data;
+}
+
+export async function putConciliacionEmailPlantilla(token, payload) {
+    const res = await fetch('/api/conciliaciones/email-plantilla/correo-lider', {
+        method: 'PUT',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify(payload || {}),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al guardar plantilla'));
+    return data.plantilla || data;
+}
+
+export async function postEnviarConciliacionCorreo(token, payload) {
+    const res = await fetch('/api/conciliaciones/facturacion/servicio-cierre/enviar-correo', {
+        method: 'POST',
+        headers: conciliacionesAuthHeaders(token),
+        body: JSON.stringify(payload || {}),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al enviar correo'));
+    return data.data || data;
+}
+
 export async function fetchColaCierres(token, { year, month, cliente }) {
     const q = new URLSearchParams({ year: String(year), month: String(month) });
     const clienteTrim = String(cliente || '').trim();
@@ -289,8 +323,34 @@ export async function createServicio(token, payload) {
     return data.data;
 }
 
-export async function fetchServicioConsultores(token, idServicio) {
-    const res = await fetch(`/api/conciliaciones/servicios/${idServicio}/consultores`, {
+export async function fetchConsultoresDisponibles(token, cliente, options = {}) {
+    const params = new URLSearchParams();
+    params.set('cliente', cliente);
+    if (Object.prototype.hasOwnProperty.call(options, 'lideresAsociados')) {
+        const list = Array.isArray(options.lideresAsociados) ? options.lideresAsociados : [];
+        params.set('lideres', list.join(','));
+    }
+    const excludeServicioId = String(options.excludeServicioId || '').trim();
+    if (excludeServicioId) params.set('excludeServicioId', excludeServicioId);
+    const res = await fetch(`/api/conciliaciones/servicios/consultores-disponibles?${params.toString()}`, {
+        headers: conciliacionesAuthHeaders(token),
+        credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseConciliacionesApiError(data, res.statusText || 'Error al cargar consultores disponibles'));
+    return Array.isArray(data.items) ? data.items : [];
+}
+
+export async function fetchServicioConsultores(token, idServicio, options = {}) {
+    const params = new URLSearchParams();
+    const lider = String(options.lider || '').trim();
+    if (lider) params.set('lider', lider);
+    if (Object.prototype.hasOwnProperty.call(options, 'lideresAsociados')) {
+        const list = Array.isArray(options.lideresAsociados) ? options.lideresAsociados : [];
+        params.set('lideres', list.join(','));
+    }
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`/api/conciliaciones/servicios/${idServicio}/consultores${qs}`, {
         headers: conciliacionesAuthHeaders(token),
         credentials: 'include'
     });

@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc --noEmit -p tsconfig.json"
+    "check": "tsc --noEmit -p tsconfig.json",
+    "package": "node scripts/package-lambda.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-ses": "^3.927.0",

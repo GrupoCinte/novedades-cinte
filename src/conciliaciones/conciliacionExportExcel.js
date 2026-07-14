@@ -1,7 +1,12 @@
 'use strict';
 
 const { resolveNovedadesBucket } = require('./facturacionAggregate');
-const { aggregateServicioCierre, deriveEstadoCola, mergeConciliacionServicioRows } = require('./facturacionAggregate');
+const {
+    aggregateServicioCierre,
+    deriveEstadoCola,
+    mergeConciliacionServicioRows,
+    filterRowsByServicioLideres
+} = require('./facturacionAggregate');
 const { resolveDiasBaseMes } = require('./conciliacionDiasBaseMes');
 
 function normalizeCedulaLocal(value) {
@@ -58,8 +63,13 @@ async function buildConciliacionServicioExcelWorkbook(deps, scope, query) {
         .map(normalizeCedulaLocal)
         .filter(Boolean);
     const allRows = resumen.rows || [];
-    const rows = mergeConciliacionServicioRows(allRows, cedulas);
-    const agg = aggregateServicioCierre(allRows, cedulas);
+    const lideresAsociados = serv.lideresAsociados || serv.lideres_asociados;
+    const rows = filterRowsByServicioLideres(
+        mergeConciliacionServicioRows(allRows, cedulas),
+        lideresAsociados,
+        cedulas
+    );
+    const agg = aggregateServicioCierre(allRows, cedulas, lideresAsociados);
 
     const { assertServicioListoExport } = require('./conciliacionServicioCierre');
     await assertServicioListoExport(deps, scope, {

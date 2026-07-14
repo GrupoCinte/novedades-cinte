@@ -1,13 +1,13 @@
 'use strict';
 
 const { randomUUID } = require('crypto');
+const { isServicioCompletoRevision } = require('./conciliacionServicioCompleto');
 const { buildConciliacionServicioFinalizadaEvent } = require('../notifications/conciliacionEmailEvents');
 const {
     aggregateServicioCierre,
     deriveEstadoCola,
     resolveNovedadesBucket
 } = require('./facturacionAggregate');
-const { normalizeEstado } = require('./facturacionRevision');
 
 function normalizeCedulaLocal(value) {
     return String(value || '').replace(/\D/g, '');
@@ -23,12 +23,9 @@ function servicioMatchesCliente(serv, clienteCanon) {
     return a && b && a === b;
 }
 
+/** @deprecated Usar isServicioCompletoRevision */
 function isServicioCompletoFinanzas(agg) {
-    const { consultoresTotal, estados } = agg || {};
-    if (!consultoresTotal) return false;
-    const fin =
-        (Number(estados?.APROBADO_FINANZAS) || 0) + (Number(estados?.CONCILIADA) || 0);
-    return fin === consultoresTotal;
+    return isServicioCompletoRevision(agg);
 }
 
 async function wasServicioNotificacionSent(pool, servicioId, anio, mes, tipo = 'SERVICIO_FINALIZADO') {
@@ -175,7 +172,10 @@ async function tryNotifyServiciosCompletos(deps, scope, { clienteCanon, anio, me
 module.exports = {
     tryNotifyServiciosCompletos,
     isServicioCompletoFinanzas,
+    isServicioCompletoRevision,
     aggregateServicioCierre,
     deriveEstadoCola,
-    normalizeCedulaLocal
+    normalizeCedulaLocal,
+    wasServicioNotificacionSent,
+    markServicioNotificacionSent
 };

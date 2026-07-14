@@ -105,8 +105,9 @@ function aggregateConciliacionRows(filtered) {
 /**
  * Agrega métricas de cierre: asociados Dynamo + salidas del mes M del cliente.
  */
-function aggregateServicioCierre(rows, cedulas) {
-    const filtered = mergeConciliacionServicioRows(rows, cedulas);
+function aggregateServicioCierre(rows, cedulas, lideresAsociados) {
+    let filtered = mergeConciliacionServicioRows(rows, cedulas);
+    filtered = filterRowsByServicioLideres(filtered, lideresAsociados, cedulas);
     return aggregateConciliacionRows(filtered);
 }
 
@@ -117,9 +118,12 @@ function deriveEstadoCola(agg) {
     const { consultoresTotal, consultoresCerrados, estados } = agg || {};
     if (!consultoresTotal) return 'SIN_CONSULTORES';
     if ((estados?.DEVUELTA || 0) > 0) return 'DEVUELTA';
-    const finanzasOk =
-        (estados?.APROBADO_FINANZAS || 0) + (estados?.CONCILIADA || 0) === consultoresTotal;
-    if (finanzasOk) return 'CONCILIADA';
+    const revisionOk =
+        (estados?.APROBADO_ANALISTA || 0) +
+            (estados?.APROBADO_FINANZAS || 0) +
+            (estados?.CONCILIADA || 0) ===
+        consultoresTotal;
+    if (revisionOk) return 'CONCILIADA';
     if ((estados?.PENDIENTE || 0) > 0 || consultoresCerrados < consultoresTotal) return 'PENDIENTE';
     return 'EN_REVISION';
 }
@@ -149,6 +153,62 @@ function filterColaCierresByEstado(items, estadoColaFilter) {
     const f = String(estadoColaFilter || '').trim();
     if (!f || f === 'TODOS') return Array.isArray(items) ? items : [];
     return (Array.isArray(items) ? items : []).filter((i) => i.estadoCola === f);
+}
+
+function normalizeLideresList(raw) {
+    if (!Array.isArray(raw)) return [];
+    return [...new Set(raw.map((l) => String(l || '').trim()).filter(Boolean))];
+}
+
+function normalizeCedulaKey(cedula) {
+    return String(cedula || '').replace(/\D/g, '');
+}
+
+function rowMatchesServicioLideres(row, lideresAsociados) {
+    const allowed = normalizeLideresList(lideresAsociados);
+    if (!allowed.length) return true;
+    const lider = String(row?.lider || '').trim().toLowerCase();
+    if (!lider) return false;
+    return allowed.some((a) => a.toLowerCase() === lider);
+}
+
+function filterRowsByServicioLideres(rows, lideresAsociados, consultoresAsociados = null) {
+    const keep = new Set(
+        (Array.isArray(consultoresAsociados) ? consultoresAsociados : [])
+            .map(normalizeCedulaKey)
+            .filter(Boolean)
+    );
+    return (Array.isArray(rows) ? rows : []).filter((r) => {
+        const k = normalizeCedulaKey(r?.cedula);
+        if (keep.size && k && keep.has(k)) return true;
+        return rowMatchesServicioLideres(r, lideresAsociados);
+    });
+}
+
+function filterColaCierres(items, filters = {}) {
+    let out = filterColaCierresByEstado(items, filters.fEstadoCola);
+    const search = String(filters.fSearchCola || '').trim().toLowerCase();
+    if (search) {
+        out = out.filter(
+            (i) =>
+                String(i.client || '').toLowerCase().includes(search) ||
+                String(i.serviceName || '').toLowerCase().includes(search)
+        );
+    }
+    const lider = String(filters.fLiderCola || '').trim().toLowerCase();
+    if (lider) {
+        out = out.filter((i) => {
+            const la = normalizeLideresList(i.lideresAsociados);
+            if (la.length && la.some((l) => l.toLowerCase() === lider)) return true;
+            const dist = Array.isArray(i.lideresDistintos) ? i.lideresDistintos : [];
+            return dist.some((l) => String(l || '').trim().toLowerCase() === lider);
+        });
+    }
+    const bm = String(filters.fBillingMode || '').trim();
+    if (bm) out = out.filter((i) => String(i.billingMode || '') === bm);
+    const bt = String(filters.fBillingType || '').trim();
+    if (bt) out = out.filter((i) => String(i.billingType || '') === bt);
+    return out;
 }
 
 /** Desplaza year/month calendario (month 1-12). */
@@ -443,11 +503,15 @@ module.exports = {
     isColaboradorInactivoRow,
     extractSalidasMesRows,
     mergeConciliacionServicioRows,
+    aggregateConciliacionRows,
     aggregateServicioCierre,
     deriveEstadoCola,
     colaCierreProgress,
     sortColaCierresItems,
     filterColaCierresByEstado,
+    filterColaCierres,
+    filterRowsByServicioLideres,
+    normalizeLideresList,
     shiftCalendarMonth,
     resolveNovedadesBucket,
     aggregateDashboardFromColaItems,

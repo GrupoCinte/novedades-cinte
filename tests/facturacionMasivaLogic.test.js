@@ -23,11 +23,11 @@ test('aprobación masiva: filas elegibles por rol y acción', async () => {
     assert.equal(resolveMasivaEtapaForRows('analista_conciliaciones', rows, 'aprobar'), 'ANALISTA');
 
     const nominaEligible = filterMasivaEligibleRows('nomina', rows, 'aprobar');
-    assert.equal(nominaEligible.length, 1);
-    assert.equal(resolveMasivaEtapaForRows('nomina', rows, 'aprobar'), 'NOMINA');
+    assert.equal(nominaEligible.length, 0);
+    assert.equal(resolveMasivaEtapaForRows('nomina', rows, 'aprobar'), null);
 
     assert.equal(resolveMasivaEtapaForRows('super_admin', rows, 'aprobar'), 'ANALISTA');
-    assert.equal(resolveMasivaEtapaForRows('super_admin', rows, 'aprobar', 'NOMINA'), 'NOMINA');
+    assert.equal(resolveMasivaEtapaForRows('super_admin', rows, 'aprobar', 'NOMINA'), null);
 });
 
 test('super_admin masiva ANALISTA no incluye filas ya aprobadas por analista', async () => {
@@ -51,11 +51,11 @@ test('super_admin masiva ANALISTA no incluye filas ya aprobadas por analista', a
     assert.ok(analistaEligible.every((r) => r.estado === 'PENDIENTE'));
 
     const nominaEligible = filterMasivaEligibleRows('super_admin', rows, 'aprobar', 'NOMINA');
-    assert.equal(nominaEligible.length, 1);
-    assert.equal(nominaEligible[0].cedula, '2');
+    assert.equal(nominaEligible.length, 0);
 
     const options = listMasivaEtapaOptions('super_admin', rows, 'aprobar');
-    assert.equal(options.length, 2);
+    assert.equal(options.length, 1);
+    assert.equal(options[0].etapaObjetivo, 'ANALISTA');
 
     const built = buildFacturacionRevisionMasivaPayload(
         { accion: 'aprobar', observacion: 'Ok masivo' },
@@ -66,6 +66,30 @@ test('super_admin masiva ANALISTA no incluye filas ya aprobadas por analista', a
     assert.deepEqual(built.data.cedulas, ['1', '3']);
 });
 
+test('buildMasivaScopeRows incluye salidas del mes no presentes en asociados', async () => {
+    const { buildMasivaScopeRows, filterMasivaEligibleRows } = await import(
+        '../react-frontend/src/conciliaciones/facturacionLogic.js'
+    );
+
+    const asociados = [
+        { cedula: '111', estado: 'PENDIENTE' },
+        { cedula: '222', estado: 'APROBADO_ANALISTA' }
+    ];
+    const salidas = [{ cedula: '333', estado: 'PENDIENTE', activo: false }];
+
+    const scope = buildMasivaScopeRows(asociados, salidas);
+    assert.equal(scope.length, 3);
+    assert.deepEqual(
+        scope.map((r) => r.cedula),
+        ['111', '222', '333']
+    );
+
+    const eligible = filterMasivaEligibleRows('super_admin', scope, 'aprobar', 'ANALISTA');
+    assert.deepEqual(
+        eligible.map((r) => r.cedula),
+        ['111', '333']
+    );
+});
 test('canEditConciliacionAjustes y buildFacturacionAjustesPayload', async () => {
     const {
         canEditConciliacionAjustes,
@@ -124,7 +148,7 @@ test('resolveTarjetaCierreBadge usa estadoServicio, no estadoCola finanzas', asy
 test('resolveFilaEstadoDisplay hereda Enviada del servicio en filas finanzas', async () => {
     const { resolveFilaEstadoDisplay } = await import('../react-frontend/src/conciliaciones/facturacionLogic.js');
 
-    const enviada = resolveFilaEstadoDisplay('APROBADO_FINANZAS', 'ENVIADA');
+    const enviada = resolveFilaEstadoDisplay('APROBADO_ANALISTA', 'ENVIADA');
     assert.equal(enviada.label, 'Enviada');
     assert.equal(enviada.displayKey, 'SERVICIO_ENVIADA');
 

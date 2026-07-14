@@ -27,6 +27,7 @@ export default function ConciliacionesColaCierresCard({
     item,
     onAbrirCierre,
     onExportExcel,
+    onEnviarCorreo,
     onMarcarConciliada,
     exportandoId = '',
     conciliandoId = '',
@@ -123,6 +124,7 @@ export default function ConciliacionesColaCierresCard({
                 exportando={exportandoId === item.servicioId}
                 conciliando={conciliandoId === item.servicioId}
                 onExportExcel={onExportExcel}
+                onEnviarCorreo={onEnviarCorreo}
                 onMarcarConciliada={onMarcarConciliada}
             />
 
@@ -150,9 +152,10 @@ export default function ConciliacionesColaCierresCard({
 
             <button
                 type="button"
-                disabled={disabled || servicioConciliada}
+                disabled={disabled}
                 onClick={() => onAbrirCierre(item)}
                 className={`${CINTE_BTN_PRIMARY} mt-auto w-full`}
+                aria-label={servicioConciliada ? 'Ver conciliación conciliada en solo lectura' : 'Abrir conciliación'}
             >
                 {servicioConciliada ? 'Conciliada (solo lectura)' : 'Abrir conciliación'}
                 <ArrowRight size={16} aria-hidden />

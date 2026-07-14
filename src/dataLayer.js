@@ -839,6 +839,74 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureConciliacionesEmailPlantillasTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_email_plantillas (
+                    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tipo                VARCHAR(50) NOT NULL UNIQUE,
+                    asunto_template     TEXT NOT NULL,
+                    intro_template      TEXT NOT NULL,
+                    cierre_template     TEXT NOT NULL DEFAULT '',
+                    columnas_default    JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_by_email    TEXT NULL
+                )
+            `);
+            const { defaultPlantillaCorreoLider } = require('./conciliaciones/conciliacionEmailPlantilla');
+            const defaults = defaultPlantillaCorreoLider();
+            await pool.query(
+                `INSERT INTO conciliaciones_email_plantillas
+                    (tipo, asunto_template, intro_template, cierre_template, columnas_default)
+                 VALUES ($1, $2, $3, $4, $5::jsonb)
+                 ON CONFLICT (tipo) DO NOTHING`,
+                [
+                    defaults.tipo,
+                    defaults.asuntoTemplate,
+                    defaults.introTemplate,
+                    defaults.cierreTemplate,
+                    JSON.stringify(defaults.columnasDefault)
+                ]
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para conciliaciones_email_plantillas.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesEmailAccionesTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_email_acciones (
+                    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    token_hash       TEXT NOT NULL UNIQUE,
+                    servicio_id      TEXT NOT NULL,
+                    anio             INTEGER NOT NULL,
+                    mes              INTEGER NOT NULL,
+                    accion           VARCHAR(20) NOT NULL CHECK (accion IN ('approve', 'reject')),
+                    recipient_email  TEXT NOT NULL,
+                    event_id         TEXT NULL,
+                    usado_at         TIMESTAMPTZ NULL,
+                    expira_at        TIMESTAMPTZ NOT NULL,
+                    observacion      TEXT NULL,
+                    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(
+                'CREATE INDEX IF NOT EXISTS idx_conc_email_acc_servicio ON conciliaciones_email_acciones(servicio_id, anio, mes)'
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para conciliaciones_email_acciones.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     async function ensureConciliacionesNovedadConsumoTable() {
         try {
             await pool.query(`
@@ -2758,6 +2826,33 @@ function createDataLayer(deps) {
         return conciliacionesQueries.markConciliacionServicioConciliada(conciliacionesDeps, scope, payload, actor);
     }
 
+    async function enviarConciliacionServicioCorreoForScope(scope, payload, actor) {
+        const { enviarCorreoConciliacionServicio } = require('./conciliaciones/conciliacionServicioEmail');
+        return enviarCorreoConciliacionServicio(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function getConciliacionEmailPlantillaCorreoLiderForScope(scope) {
+        const role = String(scope?.role || '').trim().toLowerCase();
+        if (role !== 'analista_conciliaciones' && role !== 'super_admin') {
+            const error = new Error('No autorizado');
+            error.status = 403;
+            throw error;
+        }
+        const { getCorreoLiderPlantilla } = require('./conciliaciones/conciliacionEmailPlantilla');
+        return getCorreoLiderPlantilla(pool);
+    }
+
+    async function upsertConciliacionEmailPlantillaCorreoLiderForScope(scope, payload, actor) {
+        const role = String(scope?.role || '').trim().toLowerCase();
+        if (role !== 'analista_conciliaciones' && role !== 'super_admin') {
+            const error = new Error('No autorizado');
+            error.status = 403;
+            throw error;
+        }
+        const { upsertCorreoLiderPlantilla } = require('./conciliaciones/conciliacionEmailPlantilla');
+        return upsertCorreoLiderPlantilla(pool, payload, actor);
+    }
+
     async function listConciliacionesFacturacionForScope(scope, year, month) {
         return conciliacionesQueries.listConciliacionesFacturacion(conciliacionesDeps, scope, year, month);
     }
@@ -2815,8 +2910,12 @@ function createDataLayer(deps) {
         return serviciosDynamoData.deleteServicio(conciliacionesDeps, scope, idServicio);
     }
 
-    async function listServicioConsultoresForScope(scope, idServicio) {
-        return serviciosDynamoData.listServicioConsultores(conciliacionesDeps, scope, idServicio);
+    async function listServicioConsultoresForScope(scope, idServicio, options = {}) {
+        return serviciosDynamoData.listServicioConsultores(conciliacionesDeps, scope, idServicio, options);
+    }
+
+    async function listConsultoresDisponiblesClienteForScope(scope, cliente, options = {}) {
+        return serviciosDynamoData.listConsultoresDisponiblesCliente(conciliacionesDeps, scope, cliente, options);
     }
 
     async function upsertServicioConsultoresForScope(scope, idServicio, cedulas) {
@@ -2862,6 +2961,8 @@ function createDataLayer(deps) {
         ensureConciliacionesFacturacionHistorialTable,
         ensureConciliacionesServicioNotificacionesTable,
         ensureConciliacionesServicioCierreTable,
+        ensureConciliacionesEmailPlantillasTable,
+        ensureConciliacionesEmailAccionesTable,
         ensureConciliacionesNovedadConsumoTable,
         ensureColaboradorAsignacionesTable,
         ensureColaboradorTarifaHistorialTable,
@@ -2910,6 +3011,9 @@ function createDataLayer(deps) {
         exportConciliacionServicioExcelForScope,
         markConciliacionServicioEnviadaForScope,
         markConciliacionServicioConciliadaForScope,
+        enviarConciliacionServicioCorreoForScope,
+        getConciliacionEmailPlantillaCorreoLiderForScope,
+        upsertConciliacionEmailPlantillaCorreoLiderForScope,
         listConciliacionesFacturacionForScope,
         getColaCierresPorMesForScope,
         listServiciosForScope,
@@ -2917,6 +3021,7 @@ function createDataLayer(deps) {
         updateServicioForScope,
         deleteServicioForScope,
         listServicioConsultoresForScope,
+        listConsultoresDisponiblesClienteForScope,
         upsertServicioConsultoresForScope
     };
 }

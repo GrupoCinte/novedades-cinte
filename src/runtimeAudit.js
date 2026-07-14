@@ -63,6 +63,23 @@ function pickUserFields(u) {
     };
 }
 
+/** Enmascara tokens en path/query de auditoría (magic links, rutas legacy). */
+function sanitizeAuditPath(pathOrUrl) {
+    let s = String(pathOrUrl || '').split('?')[0];
+    s = s.replace(/\/api\/conciliaciones\/email-accion\/[0-9a-f]{32,128}/gi, '/api/conciliaciones/email-accion/:token');
+    s = s.replace(/([?&]token=)[^&]+/gi, '$1[redacted]');
+    return s;
+}
+
+function sanitizeAuditUrl(url) {
+    const raw = String(url || '');
+    const qIdx = raw.indexOf('?');
+    const pathPart = qIdx >= 0 ? raw.slice(0, qIdx) : raw;
+    let query = qIdx >= 0 ? raw.slice(qIdx) : '';
+    query = query.replace(/([?&]token=)[^&]+/gi, '$1[redacted]');
+    return sanitizeAuditPath(pathPart) + query;
+}
+
 function createRuntimeAuditMiddleware({ logger, fs, path: pathMod, rootDir, isProduction }) {
     const enabled = isRuntimeAuditEnabled(isProduction);
     if (!enabled) {
@@ -88,7 +105,7 @@ function createRuntimeAuditMiddleware({ logger, fs, path: pathMod, rootDir, isPr
                     kind: 'http',
                     reqId,
                     method: req.method,
-                    path: req.path || url.split('?')[0],
+                    path: sanitizeAuditPath(req.path || url.split('?')[0]),
                     status: res.statusCode,
                     ms: Math.round(ms * 10) / 10,
                     userEmail,
@@ -163,6 +180,8 @@ function registerRuntimeClientTraceRoute(app, deps) {
 
 module.exports = {
     isRuntimeAuditEnabled,
+    sanitizeAuditPath,
+    sanitizeAuditUrl,
     createRuntimeAuditMiddleware,
     registerRuntimeClientTraceRoute
 };

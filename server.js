@@ -302,6 +302,8 @@ app.use((req, res, next) => {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
     if (String(req.get('authorization') || '').startsWith('Bearer ')) return next();
     if (CSRF_SKIP_PATHS.has(p)) return next();
+    // Aprobar/rechazar conciliación desde enlace de correo (auth por token de un solo uso).
+    if (p.startsWith('/api/conciliaciones/email-accion/')) return next();
     const hdr = String(req.get('x-cinte-xsrf') || req.get('x-xsrf-token') || '').trim();
     if (!hdr || !cookie || hdr !== cookie) {
         return res.status(403).json({ ok: false, error: 'CSRF token inválido o ausente' });
@@ -485,6 +487,18 @@ const contratacionWsTokenLimiter = rateLimit({
     message: { success: false, message: 'Demasiadas solicitudes de ticket WebSocket. Intente más tarde.' }
 });
 
+const CONCILIACION_EMAIL_RATE_LIMIT_WINDOW_MIN = Number(process.env.CONCILIACION_EMAIL_RATE_LIMIT_WINDOW_MIN || 15);
+const CONCILIACION_EMAIL_RATE_LIMIT_MAX = Number(process.env.CONCILIACION_EMAIL_RATE_LIMIT_MAX || 40);
+
+const emailAccionLimiter = rateLimit({
+    windowMs: CONCILIACION_EMAIL_RATE_LIMIT_WINDOW_MIN * 60 * 1000,
+    max: CONCILIACION_EMAIL_RATE_LIMIT_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `email-accion:${ipKeyGenerator(req.ip || '127.0.0.1')}`,
+    message: { ok: false, error: 'Demasiados intentos. Espera unos minutos.' }
+});
+
 const CONTRATACION_WS_TICKET_TTL_SEC = Number(process.env.CONTRATACION_WS_TICKET_TTL_SEC || 300);
 const contratacionWsSecret = (process.env.CONTRATACION_WS_SECRET || SECRET_KEY || '').trim();
 
@@ -645,6 +659,8 @@ const {
     ensureConciliacionesFacturacionHistorialTable,
     ensureConciliacionesServicioNotificacionesTable,
     ensureConciliacionesServicioCierreTable,
+    ensureConciliacionesEmailPlantillasTable,
+    ensureConciliacionesEmailAccionesTable,
     ensureConciliacionesNovedadConsumoTable,
     ensureColaboradorAsignacionesTable,
     ensureColaboradorTarifaHistorialTable,
@@ -686,6 +702,7 @@ const {
     applyConciliacionFacturacionRevisionForScope,
     applyConciliacionFacturacionRevisionMasivaForScope,
     applyConciliacionFacturacionAjustesForScope,
+    createConciliacionNovedadManualForScope,
     listConciliacionFacturacionHistorialForScope,
     upsertConciliacionFacturacionMasivaForScope,
     deleteConciliacionFacturacionForScope,
@@ -696,11 +713,15 @@ const {
     updateServicioForScope,
     deleteServicioForScope,
     listServicioConsultoresForScope,
+    listConsultoresDisponiblesClienteForScope,
     upsertServicioConsultoresForScope,
     listDashboardLiderClienteRowsForScope,
     exportConciliacionServicioExcelForScope,
     markConciliacionServicioEnviadaForScope,
-    markConciliacionServicioConciliadaForScope
+    markConciliacionServicioConciliadaForScope,
+    enviarConciliacionServicioCorreoForScope,
+    getConciliacionEmailPlantillaCorreoLiderForScope,
+    upsertConciliacionEmailPlantillaCorreoLiderForScope
 } = createDataLayer({
     pool,
     fs,
@@ -864,6 +885,7 @@ if (conciliacionesModuleEnabled) {
         applyConciliacionFacturacionRevisionForScope,
         applyConciliacionFacturacionRevisionMasivaForScope,
         applyConciliacionFacturacionAjustesForScope,
+        createConciliacionNovedadManualForScope,
         listConciliacionFacturacionHistorialForScope,
         upsertConciliacionFacturacionMasivaForScope,
         deleteConciliacionFacturacionForScope,
@@ -874,11 +896,17 @@ if (conciliacionesModuleEnabled) {
         updateServicioForScope,
         deleteServicioForScope,
         listServicioConsultoresForScope,
+        listConsultoresDisponiblesClienteForScope,
         upsertServicioConsultoresForScope,
         listDashboardLiderClienteRowsForScope,
         exportConciliacionServicioExcelForScope,
         markConciliacionServicioEnviadaForScope,
-        markConciliacionServicioConciliadaForScope
+        markConciliacionServicioConciliadaForScope,
+        enviarConciliacionServicioCorreoForScope,
+        getConciliacionEmailPlantillaCorreoLiderForScope,
+        upsertConciliacionEmailPlantillaCorreoLiderForScope,
+        pool,
+        emailAccionLimiter
     });
 }
 
@@ -966,6 +994,8 @@ startServer({
     ensureConciliacionesFacturacionHistorialTable,
     ensureConciliacionesServicioNotificacionesTable,
     ensureConciliacionesServicioCierreTable,
+    ensureConciliacionesEmailPlantillasTable,
+    ensureConciliacionesEmailAccionesTable,
     ensureConciliacionesNovedadConsumoTable,
     ensureColaboradorAsignacionesTable,
     ensureColaboradorTarifaHistorialTable,

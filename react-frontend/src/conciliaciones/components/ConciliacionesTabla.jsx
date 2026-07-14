@@ -186,11 +186,6 @@ export default function ConciliacionesTabla({
                             ) : null}
                             <td className={`${tdRest} tabular-nums`}>
                                 {formatCop(r.tarifaCliente)}
-                                {r.prorrateoAplicado ? (
-                                    <span className={`mt-0.5 block text-[10px] font-medium ${labelMuted}`}>
-                                        Prorrateo {r.diasFacturables}/{r.diasMes} d.
-                                    </span>
-                                ) : null}
                                 {r.moneda ? <span className={`ml-1 text-xs ${labelMuted}`}>{r.moneda}</span> : null}
                             </td>
                             <td className={tdRest}>

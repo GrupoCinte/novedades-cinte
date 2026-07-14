@@ -19,6 +19,7 @@ import ConciliacionesModule from './conciliaciones/ConciliacionesModule.jsx';
 import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboardPage.jsx';
 import ConciliacionesFacturacionPage from './conciliaciones/ConciliacionesFacturacionPage.jsx';
 import ConciliacionesServiciosPage from './conciliaciones/ConciliacionesServiciosPage.jsx';
+import ConciliacionesEmailAccionPage from './conciliaciones/ConciliacionesEmailAccionPage.jsx';
 import AdminPortalHome from './AdminPortalHome';
 import AdminAccountSettingsPage from './AdminAccountSettingsPage.jsx';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
@@ -286,6 +287,7 @@ function App() {
       >
         <Routes>
           <Route path="/" element={<ConsultorRadicacionPortal />} />
+          <Route path="/conciliaciones/email-accion" element={<ConciliacionesEmailAccionPage />} />
           <Route path="/consultor" element={<ConsultorProtectedLayout />}>
             <Route index element={<ConsultorPortalHome />} />
             <Route path="novedades" element={<ConsultorNovedadesPage />} />

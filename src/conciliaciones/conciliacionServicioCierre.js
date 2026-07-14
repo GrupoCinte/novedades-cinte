@@ -1,7 +1,7 @@
 'use strict';
 
 const { aggregateServicioCierre } = require('./facturacionAggregate');
-const { isServicioCompletoFinanzas } = require('./conciliacionServicioNotify');
+const { isServicioCompletoRevision } = require('./conciliacionServicioCompleto');
 
 const ESTADOS_SERVICIO = ['EN_REVISION', 'LISTO_EXPORT', 'ENVIADA', 'CONCILIADA'];
 
@@ -54,7 +54,7 @@ function mapServicioCierreToApi(row) {
  * @param {number} mes
  */
 async function ensureListoExportIfCompleto(pool, servicioId, anio, mes, agg) {
-    if (!isServicioCompletoFinanzas(agg)) return null;
+    if (!isServicioCompletoRevision(agg)) return null;
     const existing = await getServicioCierreRow(pool, servicioId, anio, mes);
     const cur = normalizeEstadoServicio(existing?.estado_servicio);
     if (cur === 'ENVIADA' || cur === 'CONCILIADA') return existing;
@@ -93,8 +93,8 @@ async function assertServicioListoExport(deps, scope, ctx) {
     }
 
     const agg = aggregateServicioCierre(ctx.rows || [], ctx.cedulas || []);
-    if (!isServicioCompletoFinanzas(agg)) {
-        const error = new Error('El servicio aún no está completo en finanzas');
+    if (!isServicioCompletoRevision(agg)) {
+        const error = new Error('El servicio aún no está completo en revisión del analista');
         error.status = 400;
         throw error;
     }
