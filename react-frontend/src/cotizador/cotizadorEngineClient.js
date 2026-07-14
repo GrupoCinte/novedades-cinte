@@ -82,8 +82,8 @@ export function calcularTarifa({
     const proviIndem = totalNomina * 0.013;
     const costoTotal = totalNomina + equipoCosto + gtoVinc + safeNumber(staffCinte) + proviIndem;
     const tasa = safeNumber(parametros?.tasas?.[String(plazo)], safeNumber(parametros?.tasas?.['45']));
-    const costoFinanciado = costoTotal * (1 + tasa);
-    const tarifaMesCop = costoFinanciado * (1 + safeNumber(margen));
+    const costoFinanciado = costoTotal; // Ya no multiplica por (1 + tasa)
+    const tarifaMesCop = costoFinanciado; // Ya no multiplica por (1 + margen)
 
     const tasaMoneda = safeNumber(parametros?.monedas?.[String(moneda)]?.tasa, 1);
     let tarifaMes = tarifaMesCop;
@@ -102,8 +102,8 @@ export function calcularTarifa({
         const vHora = safeNumber(valorHoraManual);
         // Costo base hora (incluyendo provisión indemnización similar a la mensual)
         const costoTotalHora = vHora + (vHora * 0.013);
-        const costoFinHora = costoTotalHora * (1 + tasa);
-        const tarifaHoraCop = costoFinHora * (1 + safeNumber(margen));
+        const costoFinHora = costoTotalHora; // Ya no multiplica por (1 + tasa)
+        const tarifaHoraCop = costoFinHora; // Ya no multiplica por (1 + margen)
         
         let tHora = tarifaHoraCop;
         if (moneda === 'USD') tHora = tasaMoneda ? tarifaHoraCop / tasaMoneda : tarifaHoraCop;
