@@ -29,6 +29,7 @@ function buildApp(deps = {}) {
         applyConciliacionFacturacionRevisionForScope: deps.applyConciliacionFacturacionRevisionForScope ?? stubAsync,
         applyConciliacionFacturacionRevisionMasivaForScope: deps.applyConciliacionFacturacionRevisionMasivaForScope ?? stubAsync,
         applyConciliacionFacturacionAjustesForScope: deps.applyConciliacionFacturacionAjustesForScope ?? stubAsync,
+        createConciliacionNovedadManualForScope: deps.createConciliacionNovedadManualForScope ?? stubAsync,
         listConciliacionFacturacionHistorialForScope: deps.listConciliacionFacturacionHistorialForScope ?? (async () => []),
         upsertConciliacionFacturacionMasivaForScope: deps.upsertConciliacionFacturacionMasivaForScope ?? stubAsync,
         deleteConciliacionFacturacionForScope: deps.deleteConciliacionFacturacionForScope ?? (async () => ({ reverted: 0 })),
@@ -41,11 +42,17 @@ function buildApp(deps = {}) {
         updateServicioForScope: deps.updateServicioForScope ?? stubAsync,
         deleteServicioForScope: deps.deleteServicioForScope ?? stubAsync,
         listServicioConsultoresForScope: deps.listServicioConsultoresForScope ?? (async () => []),
+        listConsultoresDisponiblesClienteForScope: deps.listConsultoresDisponiblesClienteForScope ?? (async () => []),
         upsertServicioConsultoresForScope: deps.upsertServicioConsultoresForScope ?? stubAsync,
         listDashboardLiderClienteRowsForScope: deps.listDashboardLiderClienteRowsForScope ?? (async () => []),
         exportConciliacionServicioExcelForScope: deps.exportConciliacionServicioExcelForScope ?? stubAsync,
         markConciliacionServicioEnviadaForScope: deps.markConciliacionServicioEnviadaForScope ?? stubAsync,
-        markConciliacionServicioConciliadaForScope: deps.markConciliacionServicioConciliadaForScope ?? stubAsync
+        markConciliacionServicioConciliadaForScope: deps.markConciliacionServicioConciliadaForScope ?? stubAsync,
+        enviarConciliacionServicioCorreoForScope: deps.enviarConciliacionServicioCorreoForScope ?? stubAsync,
+        getConciliacionEmailPlantillaCorreoLiderForScope:
+            deps.getConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync,
+        upsertConciliacionEmailPlantillaCorreoLiderForScope:
+            deps.upsertConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync
     });
     return app;
 }

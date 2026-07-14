@@ -65,6 +65,54 @@ function buildConciliacionServicioFinalizadaEvent({
     };
 }
 
+function buildConciliacionCorreoLiderEvent({
+    servicioId,
+    servicioName,
+    cliente,
+    anio,
+    mes,
+    destinatario,
+    asunto,
+    introHtml,
+    tableHtml,
+    cierreHtml,
+    columnas,
+    sentBy,
+    frontendUrl
+}) {
+    const email = String(destinatario?.email || '').trim().toLowerCase();
+    const nombre = String(destinatario?.nombre || '').trim();
+
+    return {
+        eventType: 'conciliacion_correo_lider',
+        eventId: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        conciliacionServicioId: String(servicioId || ''),
+        recipient: { email, name: nombre || email },
+        asunto: String(asunto || '').trim(),
+        introHtml: String(introHtml || ''),
+        tableHtml: String(tableHtml || ''),
+        cierreHtml: String(cierreHtml || ''),
+        columnas: Array.isArray(columnas) ? columnas.map(String) : [],
+        servicio: {
+            id: String(servicioId || ''),
+            serviceName: String(servicioName || '').trim(),
+            cliente: String(cliente || '').trim(),
+            anio: Number(anio),
+            mes: Number(mes)
+        },
+        sentBy: {
+            email: String(sentBy?.email || '').trim() || null,
+            nombre: String(sentBy?.nombre || sentBy?.name || '').trim() || null
+        },
+        meta: {
+            source: 'backend-express',
+            env: process.env.NODE_ENV || 'development'
+        }
+    };
+}
+
 module.exports = {
-    buildConciliacionServicioFinalizadaEvent
+    buildConciliacionServicioFinalizadaEvent,
+    buildConciliacionCorreoLiderEvent
 };

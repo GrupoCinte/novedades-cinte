@@ -48,7 +48,7 @@ const facturacionRevisionMasivaSchema = z.object({
     mes: z.coerce.number({ required_error: 'El mes es requerido' }).int().min(1).max(12),
     accion: z.enum(['aprobar', 'rechazar'], { required_error: 'La acción es requerida' }),
     observacion: z.string({ required_error: 'La observación es obligatoria' }).min(1, 'La observación es obligatoria').max(1000),
-    etapaObjetivo: z.enum(['ANALISTA', 'NOMINA'], { required_error: 'La etapa objetivo es requerida' }),
+    etapaObjetivo: z.enum(['ANALISTA'], { required_error: 'La etapa objetivo es requerida' }),
     cedulas: z.array(z.string().min(1, 'Cédula vacía')).min(1, 'Debe indicar al menos una cédula'),
     servicioId: z.string().trim().optional()
 });

@@ -79,8 +79,8 @@ test('patchFacturacionRowEstado y resolveEstadoTrasRevisionIndividual', async ()
     ];
 
     assert.equal(resolveEstadoTrasRevisionIndividual('PENDIENTE', 'aprobar'), 'APROBADO_ANALISTA');
-    assert.equal(resolveEstadoTrasRevisionIndividual('APROBADO_ANALISTA', 'aprobar'), 'APROBADO_FINANZAS');
-    assert.equal(resolveEstadoTrasRevisionIndividual('APROBADO_ANALISTA', 'rechazar'), 'DEVUELTA');
+    assert.equal(resolveEstadoTrasRevisionIndividual('APROBADO_ANALISTA', 'aprobar'), 'APROBADO_ANALISTA');
+    assert.equal(resolveEstadoTrasRevisionIndividual('APROBADO_ANALISTA', 'rechazar'), 'APROBADO_ANALISTA');
 
     const patched = patchFacturacionRowEstado(rows, '123', 'APROBADO_ANALISTA');
     assert.equal(patched[0].estado, 'APROBADO_ANALISTA');
@@ -101,8 +101,8 @@ test('patchFacturacionRowsMasivaAprobar por etapa', async () => {
     assert.equal(analista[1].estado, 'APROBADO_ANALISTA');
     assert.equal(analista[2].estado, 'APROBADO_ANALISTA');
 
-    const nomina = patchFacturacionRowsMasivaAprobar(rows, ['2'], 'NOMINA');
-    assert.equal(nomina[1].estado, 'APROBADO_FINANZAS');
+    const sinCambio = patchFacturacionRowsMasivaAprobar(rows, ['2'], 'NOMINA');
+    assert.equal(sinCambio[1].estado, 'APROBADO_ANALISTA');
 });
 
 test('mergeServicioInList: insert, update y delete', async () => {

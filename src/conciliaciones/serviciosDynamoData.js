@@ -100,6 +100,20 @@ function _normalizeCedulaKey(cedula) {
     return String(cedula || '').replace(/\D/g, '');
 }
 
+/** @returns {string[]} vacío = todos los líderes del cliente */
+function _normalizeLideresAsociados(raw) {
+    if (!Array.isArray(raw)) return [];
+    return [...new Set(raw.map((l) => String(l || '').trim()).filter(Boolean))];
+}
+
+function _liderMatchesServicio(liderCatalogo, lideresAsociados) {
+    const allowed = _normalizeLideresAsociados(lideresAsociados);
+    if (!allowed.length) return true;
+    const lider = String(liderCatalogo || '').trim().toLowerCase();
+    if (!lider) return false;
+    return allowed.some((a) => a.toLowerCase() === lider);
+}
+
 function _serviciosMismoCliente(items, clienteCanon) {
     const canon = String(clienteCanon || '').trim().toLowerCase();
     return (items || []).filter(
@@ -192,6 +206,7 @@ async function listServicios(deps, scope) {
             baseHours: r.baseHours != null ? Number(r.baseHours) : null,
             consultoresCount: asociados.length,
             consultoresCedulas: asociados.map((a) => String(a.cedula || '').trim()).filter(Boolean),
+            lideresAsociados: _normalizeLideresAsociados(r.lideres_asociados),
             createdAt: r.created_at ? new Date(r.created_at) : new Date()
         };
     });
@@ -224,6 +239,7 @@ async function createServicio(deps, scope, payload) {
         throw error;
     }
 
+    const lideresAsociados = _normalizeLideresAsociados(payload.lideresAsociados);
     const newId = randomUUID();
     const item = {
         client: chk.canon,
@@ -235,6 +251,7 @@ async function createServicio(deps, scope, payload) {
         billingMode: billingMode,
         billingType: billingType,
         baseHours: baseHours,
+        lideres_asociados: lideresAsociados,
         consultores_asociados: [],
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
@@ -260,7 +277,8 @@ async function createServicio(deps, scope, payload) {
         billingMode: item.billingMode,
         billingType: item.billingType ? String(item.billingType).trim() : '',
         baseHours: item.baseHours != null ? Number(item.baseHours) : null,
-        consultoresCount: 0
+        consultoresCount: 0,
+        lideresAsociados: lideresAsociados
     };
 }
 
@@ -318,6 +336,10 @@ async function updateServicio(deps, scope, idServicio, payload) {
         billingType: payload.billingType || oldService.billingType || null,
         baseHours: payload.baseHours !== undefined ? payload.baseHours : (oldService.baseHours ?? null),
         consultores_asociados: oldService.consultores_asociados || [],
+        lideres_asociados:
+            payload.lideresAsociados !== undefined
+                ? _normalizeLideresAsociados(payload.lideresAsociados)
+                : _normalizeLideresAsociados(oldService.lideres_asociados),
         created_at: oldService.created_at || new Date().toISOString(),
         updated_at: new Date().toISOString()
     };
@@ -341,7 +363,8 @@ async function updateServicio(deps, scope, idServicio, payload) {
         closingDay: item.closingDay,
         billingMode: item.billingMode,
         billingType: item.billingType ? String(item.billingType).trim() : '',
-        baseHours: item.baseHours != null ? Number(item.baseHours) : null
+        baseHours: item.baseHours != null ? Number(item.baseHours) : null,
+        lideresAsociados: _normalizeLideresAsociados(item.lideres_asociados)
     };
 }
 
@@ -375,7 +398,69 @@ async function deleteServicio(deps, scope, idServicio) {
     return { success: true };
 }
 
-async function listServicioConsultores(deps, scope, servicioId) {
+async function listConsultoresDisponiblesCliente(deps, scope, cliente, options = {}) {
+    const { pool } = deps;
+    const { assertClienteConciliacionPermitido } = require('./conciliacionesQueries');
+
+    const chk = await assertClienteConciliacionPermitido(deps, scope, cliente);
+    if (!chk.ok) {
+        const error = new Error(chk.error || 'No autorizado');
+        error.status = chk.status || 403;
+        throw error;
+    }
+
+    const lideresServicio = _normalizeLideresAsociados(options.lideresAsociados);
+    const excludeServicioId = String(options.excludeServicioId || '').trim() || null;
+
+    const params = [chk.canon];
+    let liderSql = '';
+    if (lideresServicio.length) {
+        params.push(lideresServicio.map((l) => l.toLowerCase()));
+        liderSql = ` AND lower(btrim(COALESCE(c.lider_catalogo, ''))) = ANY($${params.length}::text[])`;
+    }
+
+    const q = await pool.query(
+        `SELECT c.cedula, c.nombre, c.tarifa_cliente, c.costo_empresa, c.moneda,
+                c.lider_catalogo AS lider
+         FROM colaboradores c
+         WHERE c.activo IS NOT FALSE
+           AND lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
+           ${liderSql}
+         ORDER BY c.nombre ASC`,
+        params
+    );
+
+    const allServicios = await _listAllServicioItems();
+    const serviciosCliente = _serviciosMismoCliente(allServicios, chk.canon);
+    const ocupadasEnOtros = _cedulasOcupadasEnOtrosServicios(serviciosCliente, excludeServicioId);
+
+    const rowsByNorm = new Map();
+    for (const row of q.rows) {
+        const k = _normalizeCedulaKey(row.cedula);
+        if (k && !rowsByNorm.has(k)) rowsByNorm.set(k, row);
+    }
+
+    return [...rowsByNorm.values()]
+        .filter((r) => {
+            const k = _normalizeCedulaKey(r.cedula);
+            if (!_liderMatchesServicio(r.lider, lideresServicio)) return false;
+            return !ocupadasEnOtros.has(k);
+        })
+        .map((r) => ({
+            cedula: r.cedula,
+            nombre: r.nombre,
+            lider: r.lider != null ? String(r.lider).trim() : '',
+            licencias: '',
+            equipo: '',
+            otrasDotaciones: '',
+            tarifaCliente: r.tarifa_cliente != null ? Number(r.tarifa_cliente) : null,
+            costoCinte: r.costo_empresa != null ? Number(r.costo_empresa) : null,
+            moneda: r.moneda ? String(r.moneda).trim() : 'COP',
+            asociado: false
+        }));
+}
+
+async function listServicioConsultores(deps, scope, servicioId, options = {}) {
     const { pool } = deps;
     const { assertClienteConciliacionPermitido } = require('./conciliacionesQueries');
 
@@ -394,45 +479,85 @@ async function listServicioConsultores(deps, scope, servicioId) {
         throw error;
     }
 
-    // Obtenemos los activos actuales en Postgres (directorio fuente)
+    const lideresServicio = Object.prototype.hasOwnProperty.call(options, 'lideresAsociados')
+        ? _normalizeLideresAsociados(options.lideresAsociados)
+        : _normalizeLideresAsociados(service.lideres_asociados);
+    const liderFiltroUi = String(options.lider || '').trim();
+
+    const params = [chk.canon];
+    let liderSql = '';
+    if (lideresServicio.length) {
+        params.push(lideresServicio.map((l) => l.toLowerCase()));
+        liderSql = ` AND lower(btrim(COALESCE(c.lider_catalogo, ''))) = ANY($${params.length}::text[])`;
+    } else if (liderFiltroUi) {
+        params.push(liderFiltroUi.toLowerCase());
+        liderSql = ` AND lower(btrim(COALESCE(c.lider_catalogo, ''))) = $${params.length}`;
+    }
+
     const q = await pool.query(
-        `SELECT c.cedula, c.nombre, c.tarifa_cliente, c.costo_empresa, c.moneda
+        `SELECT c.cedula, c.nombre, c.tarifa_cliente, c.costo_empresa, c.moneda,
+                c.lider_catalogo AS lider
          FROM colaboradores c
          WHERE c.activo IS NOT FALSE
            AND lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
+           ${liderSql}
          ORDER BY c.nombre ASC`,
-        [chk.canon]
+        params
     );
 
-    const asociadosMap = {};
+    const asociadosByNorm = new Map();
     for (const asc of service.consultores_asociados || []) {
-        asociadosMap[String(asc.cedula).trim()] = asc;
+        const k = _normalizeCedulaKey(asc.cedula);
+        if (k) asociadosByNorm.set(k, asc);
     }
 
     const serviciosCliente = _serviciosMismoCliente(allServicios, chk.canon);
     const ocupadasEnOtros = _cedulasOcupadasEnOtrosServicios(serviciosCliente, servicioId);
 
-    return q.rows
+    const rowsByNorm = new Map();
+    for (const row of q.rows) {
+        const k = _normalizeCedulaKey(row.cedula);
+        if (k && !rowsByNorm.has(k)) rowsByNorm.set(k, row);
+    }
+
+    const missingNormKeys = [...asociadosByNorm.keys()].filter((k) => !rowsByNorm.has(k));
+    if (missingNormKeys.length) {
+        const qExtra = await pool.query(
+            `SELECT c.cedula, c.nombre, c.tarifa_cliente, c.costo_empresa, c.moneda,
+                    c.lider_catalogo AS lider
+             FROM colaboradores c
+             WHERE regexp_replace(c.cedula, '[^0-9]', '', 'g') = ANY($1::text[])
+             ORDER BY c.nombre ASC`,
+            [missingNormKeys]
+        );
+        for (const row of qExtra.rows) {
+            const k = _normalizeCedulaKey(row.cedula);
+            if (k && !rowsByNorm.has(k)) rowsByNorm.set(k, row);
+        }
+    }
+
+    return [...rowsByNorm.values()]
         .filter((r) => {
-            const cedStr = String(r.cedula).trim();
-            if (asociadosMap[cedStr]) return true;
-            return !ocupadasEnOtros.has(_normalizeCedulaKey(r.cedula));
+            const k = _normalizeCedulaKey(r.cedula);
+            if (!_liderMatchesServicio(r.lider, lideresServicio)) return false;
+            if (asociadosByNorm.has(k)) return true;
+            return !ocupadasEnOtros.has(k);
         })
         .map((r) => {
-        const cedStr = String(r.cedula).trim();
-        const asoc = asociadosMap[cedStr];
-        return {
-            cedula: r.cedula,
-            nombre: r.nombre,
-            licencias: asoc ? asoc.licencias : '',
-            equipo: asoc ? asoc.equipo : '',
-            otrasDotaciones: asoc ? asoc.otras_dotaciones : '',
-            tarifaCliente: r.tarifa_cliente != null ? Number(r.tarifa_cliente) : null,
-            costoCinte: r.costo_empresa != null ? Number(r.costo_empresa) : null,
-            moneda: r.moneda ? String(r.moneda).trim() : 'COP',
-            asociado: Boolean(asoc)
-        };
-    });
+            const asoc = asociadosByNorm.get(_normalizeCedulaKey(r.cedula));
+            return {
+                cedula: r.cedula,
+                nombre: r.nombre,
+                lider: r.lider != null ? String(r.lider).trim() : '',
+                licencias: asoc ? asoc.licencias : '',
+                equipo: asoc ? asoc.equipo : '',
+                otrasDotaciones: asoc ? asoc.otras_dotaciones : '',
+                tarifaCliente: r.tarifa_cliente != null ? Number(r.tarifa_cliente) : null,
+                costoCinte: r.costo_empresa != null ? Number(r.costo_empresa) : null,
+                moneda: r.moneda ? String(r.moneda).trim() : 'COP',
+                asociado: Boolean(asoc)
+            };
+        });
 }
 
 async function upsertServicioConsultores(deps, scope, servicioId, consultoresAsociados) {
@@ -488,10 +613,14 @@ module.exports = {
     updateServicio,
     deleteServicio,
     listServicioConsultores,
+    listConsultoresDisponiblesCliente,
     upsertServicioConsultores,
+    _getServiceById,
     // Helpers expuestos para tests de exclusividad
     _normalizeCedulaKey,
     _serviciosMismoCliente,
     _cedulasAsociadasServicio,
-    _cedulasOcupadasEnOtrosServicios
+    _cedulasOcupadasEnOtrosServicios,
+    _normalizeLideresAsociados,
+    _liderMatchesServicio
 };

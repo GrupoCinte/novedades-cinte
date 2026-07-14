@@ -41,6 +41,8 @@ async function startServer(deps) {
         ensureConciliacionesFacturacionHistorialTable,
         ensureConciliacionesServicioNotificacionesTable,
         ensureConciliacionesServicioCierreTable,
+        ensureConciliacionesEmailPlantillasTable,
+        ensureConciliacionesEmailAccionesTable,
         ensureConciliacionesNovedadConsumoTable,
         ensureColaboradorAsignacionesTable,
         ensureColaboradorTarifaHistorialTable,
@@ -90,6 +92,8 @@ async function startServer(deps) {
     await ensureConciliacionesFacturacionHistorialTable();
     await ensureConciliacionesServicioNotificacionesTable();
     await ensureConciliacionesServicioCierreTable();
+    await ensureConciliacionesEmailPlantillasTable();
+    await ensureConciliacionesEmailAccionesTable();
     await ensureConciliacionesNovedadConsumoTable();
     await ensureColaboradorAsignacionesTable();
     await ensureColaboradorTarifaHistorialTable();

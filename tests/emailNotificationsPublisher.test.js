@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     validateConciliacionServicioFinalizadaPayload,
+    validateConciliacionCorreoLiderPayload,
     createEmailNotificationsPublisher
 } = require('../src/notifications/emailNotificationsPublisher');
 
@@ -55,4 +56,39 @@ test('publishConciliacionServicioFinalizada invoca Lambda cuando está habilitad
     assert.ok(invokedPayload);
     const parsed = JSON.parse(Buffer.from(invokedPayload).toString('utf8'));
     assert.equal(parsed.eventType, 'conciliacion_servicio_finalizada');
+});
+
+const validCorreoLiderPayload = {
+    eventType: 'conciliacion_correo_lider',
+    eventId: 'evt-correo-1',
+    occurredAt: new Date().toISOString(),
+    conciliacionServicioId: 'svc-1',
+    recipient: { name: 'Líder Cliente', email: 'lider@cliente.com' },
+    asunto: 'Conciliación junio',
+    introHtml: '<p>Hola</p>',
+    tableHtml: '<table><tr><td>1</td></tr></table>',
+    servicio: { id: 'svc-1', serviceName: 'DevOps', cliente: 'Cliente X', anio: 2026, mes: 6 },
+    meta: { source: 'test', env: 'test' }
+};
+
+test('validateConciliacionCorreoLiderPayload acepta payload válido', () => {
+    assert.equal(validateConciliacionCorreoLiderPayload(validCorreoLiderPayload), true);
+});
+
+test('publishConciliacionCorreoLider invoca Lambda cuando está habilitado', async () => {
+    let invokedPayload = null;
+    const publisher = createEmailNotificationsPublisher({
+        lambdaClient: {
+            send: async (cmd) => {
+                invokedPayload = cmd.input?.Payload || cmd.Payload;
+                return { StatusCode: 202 };
+            }
+        },
+        functionName: 'email-transactions',
+        enabled: true
+    });
+    const out = await publisher.publishConciliacionCorreoLider(validCorreoLiderPayload);
+    assert.equal(out.accepted, true);
+    const parsed = JSON.parse(Buffer.from(invokedPayload).toString('utf8'));
+    assert.equal(parsed.eventType, 'conciliacion_correo_lider');
 });

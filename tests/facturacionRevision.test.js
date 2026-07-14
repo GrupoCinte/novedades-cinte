@@ -16,24 +16,18 @@ test('analista puede aprobar PENDIENTE y DEVUELTA pero no rechazar', () => {
     assert.equal(canActOnEstado('analista_conciliaciones', 'APROBADO_ANALISTA', 'aprobar'), false);
 });
 
-test('nomina puede aprobar o rechazar APROBADO_ANALISTA', () => {
-    assert.equal(canActOnEstado('nomina', 'APROBADO_ANALISTA', 'aprobar'), true);
-    assert.equal(canActOnEstado('nomina', 'APROBADO_ANALISTA', 'rechazar'), true);
+test('rol nomina ya no puede aprobar en conciliaciones', () => {
+    assert.equal(canActOnEstado('nomina', 'APROBADO_ANALISTA', 'aprobar'), false);
     assert.equal(canActOnEstado('nomina', 'PENDIENTE', 'aprobar'), false);
 });
 
-test('transiciones analista → APROBADO_ANALISTA y nomina → APROBADO_FINANZAS / DEVUELTA', () => {
+test('transición analista → APROBADO_ANALISTA', () => {
     const analista = resolveNextEstado('PENDIENTE', 'aprobar', 'ANALISTA');
     assert.equal(analista.ok, true);
     assert.equal(analista.estado, 'APROBADO_ANALISTA');
 
-    const nominaOk = resolveNextEstado('APROBADO_ANALISTA', 'aprobar', 'NOMINA');
-    assert.equal(nominaOk.ok, true);
-    assert.equal(nominaOk.estado, 'APROBADO_FINANZAS');
-
-    const nominaRech = resolveNextEstado('APROBADO_ANALISTA', 'rechazar', 'NOMINA');
-    assert.equal(nominaRech.ok, true);
-    assert.equal(nominaRech.estado, 'DEVUELTA');
+    const nomina = resolveNextEstado('APROBADO_ANALISTA', 'aprobar', 'NOMINA');
+    assert.equal(nomina.ok, false);
 });
 
 test('validateRevisionRequest exige observación', () => {
@@ -55,15 +49,15 @@ test('validateRevisionRequest exige observación', () => {
     assert.equal(good.estado, 'APROBADO_ANALISTA');
 });
 
-test('super_admin usa etapa según estado actual', () => {
+test('super_admin solo actúa en etapa analista para pendientes', () => {
     assert.equal(resolveEffectiveEtapa('super_admin', 'PENDIENTE'), 'ANALISTA');
-    assert.equal(resolveEffectiveEtapa('super_admin', 'APROBADO_ANALISTA'), 'NOMINA');
+    assert.equal(resolveEffectiveEtapa('super_admin', 'APROBADO_ANALISTA'), null);
 });
 
-test('masiva con etapaObjetivo fija no promueve APROBADO_ANALISTA en etapa ANALISTA', () => {
+test('masiva con etapaObjetivo ANALISTA no promueve filas ya aprobadas', () => {
     assert.equal(canActOnEstadoForEtapa('super_admin', 'PENDIENTE', 'aprobar', 'ANALISTA'), true);
     assert.equal(canActOnEstadoForEtapa('super_admin', 'APROBADO_ANALISTA', 'aprobar', 'ANALISTA'), false);
-    assert.equal(canActOnEstadoForEtapa('super_admin', 'APROBADO_ANALISTA', 'aprobar', 'NOMINA'), true);
+    assert.equal(canActOnEstadoForEtapa('super_admin', 'APROBADO_ANALISTA', 'aprobar', 'NOMINA'), false);
 
     const skipAnalista = validateRevisionRequestMasiva({
         role: 'super_admin',
@@ -84,14 +78,4 @@ test('masiva con etapaObjetivo fija no promueve APROBADO_ANALISTA en etapa ANALI
     });
     assert.equal(okAnalista.ok, true);
     assert.equal(okAnalista.estado, 'APROBADO_ANALISTA');
-
-    const okNomina = validateRevisionRequestMasiva({
-        role: 'super_admin',
-        estadoActual: 'APROBADO_ANALISTA',
-        accion: 'aprobar',
-        observacion: 'Masivo',
-        etapaObjetivo: 'NOMINA'
-    });
-    assert.equal(okNomina.ok, true);
-    assert.equal(okNomina.estado, 'APROBADO_FINANZAS');
 });

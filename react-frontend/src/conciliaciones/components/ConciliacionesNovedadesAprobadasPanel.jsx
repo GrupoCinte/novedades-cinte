@@ -6,12 +6,20 @@ import {
     resolveHorasBaseMes,
     computeValorHoraCop,
     computeMontoNovedadPreview,
-    isNovedadCalculadaValorHora,
+    isNovedadCalculadaHoras,
+    resolveCantidadHorasFacturacionPreview,
     showHorasDesgloseColumn,
     formatValorDesgloseCell,
     computeAdvanceDisplayTotals,
-    formatSaldoAnticipoLabel
+    formatSaldoAnticipoLabel,
+    normalizeHorasInput
 } from '../facturacionLogic.js';
+
+function formatHoras(n) {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return '';
+    return x.toLocaleString('es-CO', { maximumFractionDigits: 2 });
+}
 
 function formatCop(n) {
     const x = Number(n) || 0;
@@ -42,52 +50,52 @@ function formatCantidadImpacto(row) {
 }
 
 function origenLabel(row) {
+    if (row.cantidadHorasAjustado) return 'horas ajustadas';
     if (row.montoAjustado) return 'ajustado';
     if (row.montoOrigen === 'calculado' || row.montoCalculado) return 'calculado';
     if (row.montoOrigen === 'novedad') return 'desde novedad';
     return null;
 }
 
-function recalcMontoPreview(row, tarifa, horasBaseMes, valorHora, hoursMode) {
-    return computeMontoNovedadPreview(row, { tarifa, horasBaseMes, valorHora, hoursMode });
+function recalcMontoPreview(row, tarifa, horasBaseMes, cantidadHoras, hoursMode) {
+    return computeMontoNovedadPreview(row, { tarifa, horasBaseMes, cantidadHoras, hoursMode });
 }
 
-function resolveValorHoraNovedad(row, id, { draftValorHorasNovedad, displayValorHora }) {
-    if (!isNovedadCalculadaValorHora(row)) return null;
-    const draft = draftValorHorasNovedad?.[id];
-    if (draft != null && draft !== '') return Number(draft) || 0;
-    if (row.valorHora != null && Number(row.valorHora) > 0) return Number(row.valorHora);
-    return displayValorHora;
+function resolveCantidadHorasNovedad(row, id, { draftCantidadHorasNovedad, horasBaseMes }) {
+    if (!isNovedadCalculadaHoras(row)) return null;
+    const draft = draftCantidadHorasNovedad?.[id];
+    if (draft != null && draft !== '') return normalizeHorasInput(draft);
+    return resolveCantidadHorasFacturacionPreview(row, true, horasBaseMes);
 }
 
-function enrichItemValorHora(row, valorHoraTarifa, horasBase, hoursMode) {
-    if (!hoursMode || !isNovedadCalculadaValorHora(row)) return row;
-    const vh = row.valorHora != null && Number(row.valorHora) > 0 ? Number(row.valorHora) : valorHoraTarifa;
-    return { ...row, valorHora: vh };
+function enrichItemHoras(row, hoursMode, horasBaseMes) {
+    if (!hoursMode || !isNovedadCalculadaHoras(row)) return row;
+    const horas = resolveCantidadHorasFacturacionPreview(row, true, horasBaseMes);
+    return horas != null ? { ...row, cantidadHoras: horas } : row;
 }
 
-function ValorHoraCell({ valor, dash, tdClass, inputCls, editable, onChange, ariaLabel }) {
+function HorasCell({ horas, dash, tdClass, inputCls, editable, onChange, ariaLabel }) {
     if (editable && onChange) {
         return (
             <td className={`${tdClass} tabular-nums text-right`}>
                 <input
-                    type="number"
-                    min="0"
-                    step="1"
+                    type="text"
+                    inputMode="decimal"
                     className={inputCls}
-                    value={valor ?? ''}
+                    value={horas ?? ''}
                     onChange={(e) => onChange(e.target.value)}
-                    aria-label={ariaLabel || 'Valor hora'}
+                    aria-label={ariaLabel || 'Horas'}
+                    placeholder="0"
                 />
             </td>
         );
     }
-    if (valor == null || !Number.isFinite(Number(valor)) || Number(valor) <= 0) {
+    if (horas == null || !Number.isFinite(Number(horas)) || Number(horas) <= 0) {
         return <td className={`${tdClass} ${dash.tdMuted}`}>—</td>;
     }
     return (
         <td className={`${tdClass} tabular-nums text-right text-sm font-medium ${dash.tdLead}`}>
-            {formatCop(valor)}
+            {formatHoras(horas)} h
         </td>
     );
 }
@@ -114,11 +122,11 @@ export default function ConciliacionesNovedadesAprobadasPanel({
     editMode = false,
     draftTarifa = null,
     draftValorHora = null,
-    draftValorHorasNovedad = {},
+    draftCantidadHorasNovedad = {},
     draftMontos = {},
     onTarifaChange = null,
     onValorHoraChange = null,
-    onValorHoraNovedadChange = null,
+    onCantidadHorasNovedadChange = null,
     onMontoChange = null
 }) {
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
@@ -141,29 +149,31 @@ export default function ConciliacionesNovedadesAprobadasPanel({
         const baseList = items || [];
         if (!editMode) {
             if (!showHorasCol) return baseList;
-            return baseList.map((row) =>
-                enrichItemValorHora(row, displayValorHora, horasBase, true)
-            );
+            return baseList.map((row) => enrichItemHoras(row, true, horasBase));
         }
         return baseList.map((row) => {
             const id = String(row.id || '');
-            const valorHoraRow = resolveValorHoraNovedad(row, id, {
-                draftValorHorasNovedad,
-                displayValorHora
+            const cantidadHorasRow = resolveCantidadHorasNovedad(row, id, {
+                draftCantidadHorasNovedad,
+                horasBaseMes: horasBase
             });
-            const usesValorHora = showHorasCol && isNovedadCalculadaValorHora(row);
-            if (id && draftMontos[id] != null && draftMontos[id] !== '' && !usesValorHora) {
+            const usesHorasCalculo = showHorasCol && isNovedadCalculadaHoras(row);
+            if (id && draftMontos[id] != null && draftMontos[id] !== '' && !usesHorasCalculo) {
                 return { ...row, montoCop: Number(draftMontos[id]) };
             }
             const recalc = recalcMontoPreview(
                 row,
                 displayTarifa,
                 horasBase,
-                valorHoraRow,
+                cantidadHorasRow,
                 showHorasCol
             );
-            if (recalc !== row.montoCop || valorHoraRow != null) {
-                return { ...row, montoCop: recalc, valorHora: valorHoraRow ?? row.valorHora };
+            if (recalc !== row.montoCop || cantidadHorasRow != null) {
+                return {
+                    ...row,
+                    montoCop: recalc,
+                    cantidadHoras: cantidadHorasRow ?? row.cantidadHoras
+                };
             }
             return row;
         });
@@ -171,9 +181,8 @@ export default function ConciliacionesNovedadesAprobadasPanel({
         items,
         editMode,
         draftMontos,
-        draftValorHorasNovedad,
+        draftCantidadHorasNovedad,
         displayTarifa,
-        displayValorHora,
         horasBase,
         showHorasCol
     ]);
@@ -217,13 +226,13 @@ export default function ConciliacionesNovedadesAprobadasPanel({
     const renderNovedadRow = (row) => {
         const impacto = getNovedadImpactoFacturacion(row.tipoNovedad, row);
         const id = String(row.id || '');
-        const usesValorHoraCalculo = showHorasCol && isNovedadCalculadaValorHora(row);
-        const valorHoraRow = resolveValorHoraNovedad(row, id, {
-            draftValorHorasNovedad,
-            displayValorHora
+        const usesHorasCalculo = showHorasCol && isNovedadCalculadaHoras(row);
+        const cantidadHorasRow = resolveCantidadHorasNovedad(row, id, {
+            draftCantidadHorasNovedad,
+            horasBaseMes: horasBase
         });
         const montoDisplay =
-            editMode && !usesValorHoraCalculo && draftMontos[id] != null
+            editMode && !usesHorasCalculo && draftMontos[id] != null
                 ? Number(draftMontos[id])
                 : row.montoCop != null
                   ? Number(row.montoCop)
@@ -234,14 +243,13 @@ export default function ConciliacionesNovedadesAprobadasPanel({
             montoDisplay != null && Number.isFinite(montoDisplay) && montoDisplay !== 0
                 ? `${impacto === 'suma' ? '+' : '−'} ${formatCop(Math.abs(montoDisplay))}`
                 : '—';
-        const valorHoraCell = showHorasCol
-            ? formatValorDesgloseCell({
-                  medida: row.medida,
-                  valorHora: valorHoraRow ?? row.valorHora ?? displayValorHora,
-                  tarifaValorHora: displayValorHora
-              })
-            : null;
-        const editValorHoraNovedad = editMode && usesValorHoraCalculo && onValorHoraNovedadChange;
+        const editCantidadHoras = editMode && usesHorasCalculo && onCantidadHorasNovedadChange;
+        const rawHorasDraft = draftCantidadHorasNovedad?.[id];
+        const horasCellValue = editCantidadHoras
+            ? rawHorasDraft != null
+                ? rawHorasDraft
+                : (cantidadHorasRow ?? '')
+            : cantidadHorasRow;
         const infoOnly = billingAdvanceMode && row.scope === 'periodo_actual';
 
         return (
@@ -268,14 +276,14 @@ export default function ConciliacionesNovedadesAprobadasPanel({
                     {row.aprobador || 'Aprobador CINTE'}
                 </td>
                 {showHorasCol ? (
-                    <ValorHoraCell
-                        valor={valorHoraCell}
+                    <HorasCell
+                        horas={horasCellValue}
                         dash={dash}
-                        tdClass={tdValorHora}
+                        tdClass={tdHoras}
                         inputCls={inputCls}
-                        editable={editValorHoraNovedad}
-                        onChange={(val) => onValorHoraNovedadChange(id, val)}
-                        ariaLabel={`Valor hora ${row.tipoNovedad}`}
+                        editable={editCantidadHoras}
+                        onChange={(val) => onCantidadHorasNovedadChange(id, val)}
+                        ariaLabel={`Horas ${row.tipoNovedad}`}
                     />
                 ) : null}
                 <td
@@ -283,7 +291,7 @@ export default function ConciliacionesNovedadesAprobadasPanel({
                         infoOnly ? dash.tdMuted : impactMontoClasses(impacto)
                     }`}
                 >
-                    {editMode && onMontoChange && !usesValorHoraCalculo && !infoOnly ? (
+                    {editMode && onMontoChange && !usesHorasCalculo && !infoOnly ? (
                         <input
                             type="number"
                             min="0"
@@ -303,8 +311,8 @@ export default function ConciliacionesNovedadesAprobadasPanel({
         );
     };
 
-    const thValorHora = 'px-3 py-2 text-right font-heading text-[10px] font-bold uppercase tracking-wide w-[7.5rem] min-w-[7.5rem]';
-    const tdValorHora = `${dash.tdCell} align-middle w-[7.5rem] min-w-[7.5rem]`;
+    const thHoras = 'px-3 py-2 text-right font-heading text-[10px] font-bold uppercase tracking-wide w-[7.5rem] min-w-[7.5rem]';
+    const tdHoras = `${dash.tdCell} align-middle w-[7.5rem] min-w-[7.5rem]`;
     const thMonto = 'px-3 py-2 text-right font-heading text-[10px] font-bold uppercase tracking-wide w-[9.5rem] min-w-[9.5rem]';
     const tdMonto = `${dash.tdCell} tabular-nums text-right font-semibold w-[9.5rem] min-w-[9.5rem]`;
     const inputCls = isLight
@@ -344,7 +352,7 @@ export default function ConciliacionesNovedadesAprobadasPanel({
                                         Aprobador
                                     </th>
                                     {showHorasCol ? (
-                                        <th className={thValorHora}>Valor hora</th>
+                                        <th className={thHoras}>Horas</th>
                                     ) : null}
                                     <th className={thMonto}>{ledgerMode ? 'Monto (mes)' : 'Monto'}</th>
                                 </tr>
@@ -363,15 +371,29 @@ export default function ConciliacionesNovedadesAprobadasPanel({
                                         <td className={dash.tdMuted}>—</td>
                                         <td className={dash.tdMuted}>—</td>
                                         {showHorasCol ? (
-                                            <ValorHoraCell
-                                                valor={tarifaValorHoraCell ?? displayValorHora}
-                                                dash={dash}
-                                                tdClass={tdValorHora}
-                                                inputCls={inputCls}
-                                                editable={editTarifaViaValorHora}
-                                                onChange={onValorHoraChange}
-                                                ariaLabel="Valor hora tarifa cliente"
-                                            />
+                                            <td className={`${tdHoras} align-middle`}>
+                                                {editTarifaViaValorHora ? (
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        step="1"
+                                                        className={inputCls}
+                                                        value={tarifaValorHoraCell ?? displayValorHora ?? ''}
+                                                        onChange={(e) => onValorHoraChange(e.target.value)}
+                                                        aria-label="Valor hora tarifa cliente"
+                                                        title="Valor hora de la tarifa"
+                                                    />
+                                                ) : tarifaValorHoraCell != null ? (
+                                                    <span className={`text-sm font-medium tabular-nums ${dash.tdLead}`}>
+                                                        {formatCop(tarifaValorHoraCell)}
+                                                    </span>
+                                                ) : (
+                                                    <span className={dash.tdMuted}>—</span>
+                                                )}
+                                                <span className={`mt-0.5 block text-[9px] ${dash.modalMuted}`}>
+                                                    valor hora
+                                                </span>
+                                            </td>
                                         ) : null}
                                         <td className={`${tdMonto} ${dash.titleLg}`}>
                                             {editMode && onTarifaChange && !editTarifaViaValorHora ? (
@@ -456,7 +478,7 @@ export default function ConciliacionesNovedadesAprobadasPanel({
                                         </td>
                                         <td className={dash.tdMuted}>—</td>
                                         <td className={dash.tdMuted}>—</td>
-                                        {showHorasCol ? <td className={`${tdValorHora} ${dash.tdMuted}`}>—</td> : null}
+                                        {showHorasCol ? <td className={`${tdHoras} ${dash.tdMuted}`}>—</td> : null}
                                         <td className={`${tdMonto} text-base font-extrabold ${dash.titleLg}`}>
                                             {formatCop(ledgerTotal)}
                                         </td>

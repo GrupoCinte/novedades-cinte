@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { X, ArrowLeft, CheckCircle2, Download } from 'lucide-react';
+import { X, ArrowLeft, CheckCircle2, Download, Mail, Receipt } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash, withNovedadesTabShellAliases, GESTION_TOOLBAR_PRIMARY_BTN } from '../gestionTableDashTheme.js';
 import { CONCILIACIONES_FACTURACION_PAGE, CONCILIACIONES_FACTURACION_SHELL } from './conciliacionesLayout.js';
 import ClienteMesSelectors from './components/ClienteMesSelectors.jsx';
 import ConciliacionesColaCierres from './components/ConciliacionesColaCierres.jsx';
-import ConciliacionesAccionMasivaModal from './components/ConciliacionesAccionMasivaModal.jsx';
+import ConciliacionesEnviarCorreoModal from './components/ConciliacionesEnviarCorreoModal.jsx';
 import { formatConciliacionesMonthLabel } from './conciliacionesFiltrosResumen.js';
 import ConciliacionesTabla from './components/ConciliacionesTabla.jsx';
 import ConciliacionesFacturacionModal from './components/ConciliacionesFacturacionModal.jsx';
+import ConciliacionesAccionMasivaModal from './components/ConciliacionesAccionMasivaModal.jsx';
 import ConciliacionesServicioResumenCard from './components/ConciliacionesServicioResumenCard.jsx';
 import {
     fetchConciliacionesClientes,
@@ -33,7 +34,10 @@ import {
     planSuccessBannerDismiss,
     canUserPerformMasivaRevision,
     filterMasivaEligibleRows,
+    buildMasivaScopeRows,
+    isServicioCompletoRevision,
     isServicioCompletoFinanzas,
+    canEnviarCorreoServicioCompleto,
     canRevertConciliacionCierre,
     canExportServicioCompleto,
     canMarcarServicioConciliada,
@@ -47,7 +51,7 @@ import {
     shouldShowTablaInitialLoading,
     extractSalidasMesRows
 } from './facturacionLogic.js';
-import { mergeConciliacionServicioRows } from './facturacionAggregate.js';
+import { mergeConciliacionServicioRows, filterColaCierres, filterRowsByServicioLideres } from './facturacionAggregate.js';
 
 function currentMonthValue() {
     const d = new Date();
@@ -135,13 +139,22 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     const [colaItems, setColaItems] = useState([]);
     const [loadingCola, setLoadingCola] = useState(true);
     const [fEstadoCola, setFEstadoCola] = useState('TODOS');
-    const [filtrosColaOpen, setFiltrosColaOpen] = useState(false);
+    const [fSearchCola, setFSearchCola] = useState('');
+    const [fLiderCola, setFLiderCola] = useState('');
+    const [fBillingModeCola, setFBillingModeCola] = useState('');
+    const [fBillingTypeCola, setFBillingTypeCola] = useState('');
+    const [colaLideresCatalogo, setColaLideresCatalogo] = useState([]);
 
     const [servicioSel, setServicioSel] = useState(null);
     const [servicioCedulas, setServicioCedulas] = useState([]);
     const [loadingCedulas, setLoadingCedulas] = useState(false);
 
     const [fEstado, setFEstado] = useState('');
+    const [fSearch, setFSearch] = useState('');
+    const [fCerrado, setFCerrado] = useState('TODOS');
+    const [fProyecto, setFProyecto] = useState('');
+    const [fNovedades, setFNovedades] = useState('TODOS');
+    const [fLider, setFLider] = useState('');
 
     const [confirmEliminar, setConfirmEliminar] = useState(null);
     const [revertObservacion, setRevertObservacion] = useState('');
@@ -153,12 +166,95 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     const [festivosSet, setFestivosSet] = useState(() => new Set());
     const [festivosLoaded, setFestivosLoaded] = useState(false);
     const [masivaOpen, setMasivaOpen] = useState(false);
+    const [correoModal, setCorreoModal] = useState(null);
+    const [enviandoCorreoModal, setEnviandoCorreoModal] = useState(false);
 
-    const facturacionFilters = useMemo(() => ({ fEstado }), [fEstado]);
+    const facturacionFilters = useMemo(
+        () => ({ fEstado, fSearch, fCerrado, fProyecto, fNovedades, fLider }),
+        [fEstado, fSearch, fCerrado, fProyecto, fNovedades, fLider]
+    );
+
+    const colaFilters = useMemo(
+        () => ({
+            fEstadoCola,
+            fSearchCola,
+            fLiderCola,
+            fBillingMode: fBillingModeCola,
+            fBillingType: fBillingTypeCola
+        }),
+        [fEstadoCola, fSearchCola, fLiderCola, fBillingModeCola, fBillingTypeCola]
+    );
 
     const handleResetFilters = useCallback(() => {
         setFEstado('');
+        setFSearch('');
+        setFCerrado('TODOS');
+        setFProyecto('');
+        setFNovedades('TODOS');
+        setFLider('');
     }, []);
+
+    const handleResetColaFilters = useCallback(() => {
+        setFEstadoCola('TODOS');
+        setFSearchCola('');
+        setFLiderCola('');
+        setFBillingModeCola('');
+        setFBillingTypeCola('');
+    }, []);
+
+    const filteredColaItems = useMemo(() => filterColaCierres(colaItems, colaFilters), [colaItems, colaFilters]);
+
+    const colaLideresOpciones = useMemo(() => {
+        const set = new Set(colaLideresCatalogo);
+        for (const item of colaItems) {
+            for (const l of item.lideresAsociados || []) {
+                if (l) set.add(String(l).trim());
+            }
+            for (const l of item.lideresDistintos || []) {
+                if (l) set.add(String(l).trim());
+            }
+        }
+        return [...set].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+    }, [colaItems, colaLideresCatalogo]);
+
+    useEffect(() => {
+        if (servicioSel) return undefined;
+        let cancelled = false;
+
+        async function fetchLideresForCliente(clienteName) {
+            const res = await fetch(`/api/catalogos/lideres?cliente=${encodeURIComponent(clienteName)}`, {
+                credentials: 'include'
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok || !Array.isArray(data.items)) return [];
+            return data.items.map((l) => String(l || '').trim()).filter(Boolean);
+        }
+
+        (async () => {
+            try {
+                if (cliente) {
+                    const list = await fetchLideresForCliente(cliente);
+                    if (!cancelled) setColaLideresCatalogo(list);
+                    return;
+                }
+                const clientesCola = [...new Set(colaItems.map((i) => String(i.client || '').trim()).filter(Boolean))];
+                const merged = new Set();
+                for (const cl of clientesCola.slice(0, 30)) {
+                    const list = await fetchLideresForCliente(cl);
+                    for (const l of list) merged.add(l);
+                }
+                if (!cancelled) {
+                    setColaLideresCatalogo([...merged].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' })));
+                }
+            } catch {
+                if (!cancelled) setColaLideresCatalogo([]);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [cliente, colaItems, servicioSel]);
 
     const hasEstadoFilter = Boolean(String(fEstado || '').trim());
 
@@ -273,6 +369,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
             setCliente(v);
             setServicioSel(null);
             setServicioCedulas([]);
+            setFLiderCola('');
             handleResetFilters();
         },
         [handleResetFilters]
@@ -377,14 +474,25 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         if (!servicioSel) return [];
         const set = new Set(servicioCedulas.map(normalizeCedula).filter(Boolean));
         if (!set.size) return [];
-        return rows.filter((r) => set.has(normalizeCedula(r.cedula)));
+        const base = rows.filter((r) => set.has(normalizeCedula(r.cedula)));
+        return filterRowsByServicioLideres(base, servicioSel.lideresAsociados, servicioCedulas);
     }, [servicioSel, servicioCedulas, rows]);
 
     /** Asociados + salidas del mes: base para totales, masiva, cierre y métricas. */
     const rowsConciliacion = useMemo(() => {
         if (!servicioSel) return [];
-        return mergeConciliacionServicioRows(rows, servicioCedulas);
+        const merged = mergeConciliacionServicioRows(rows, servicioCedulas);
+        return filterRowsByServicioLideres(merged, servicioSel.lideresAsociados, servicioCedulas);
     }, [servicioSel, rows, servicioCedulas]);
+
+    const workspaceLideresOpciones = useMemo(() => {
+        const set = new Set();
+        for (const r of rowsConciliacion) {
+            const l = String(r.lider || '').trim();
+            if (l) set.add(l);
+        }
+        return [...set].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+    }, [rowsConciliacion]);
 
     const rowsSalidas = useMemo(() => {
         if (!servicioSel) return [];
@@ -406,6 +514,17 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         [rowsSalidas, facturacionFilters]
     );
 
+    /** Asociados + salidas del mes visibles en workspace (masiva incluye ambos). */
+    const masivaScopeRows = useMemo(
+        () => buildMasivaScopeRows(rowsConciliacion, rowsSalidas),
+        [rowsConciliacion, rowsSalidas]
+    );
+
+    const filteredMasivaScopeRows = useMemo(
+        () => filterFacturacionRows(masivaScopeRows, facturacionFilters),
+        [masivaScopeRows, facturacionFilters]
+    );
+
     const [facturacionOpen, setFacturacionOpen] = useState(false);
     const [facturacionRow, setFacturacionRow] = useState(null);
     const [novedadesItems, setNovedadesItems] = useState([]);
@@ -417,7 +536,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     const userRole = auth?.user?.role || auth?.claims?.role || '';
 
     const servicioCompleto = useMemo(
-        () => isServicioCompletoFinanzas(rows, servicioCedulas),
+        () => isServicioCompletoRevision(rows, servicioCedulas),
         [rows, servicioCedulas]
     );
 
@@ -444,6 +563,14 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         if (!facturacionRow || workspaceReadonly) return false;
         return canRevertConciliacionCierre(userRole, facturacionRow.estado, facturacionRow.cerrado);
     }, [facturacionRow, workspaceReadonly, userRole]);
+
+    const showEnviarCorreoBtn =
+        Boolean(servicioSel) &&
+        servicioCompleto &&
+        canEnviarCorreoServicioCompleto(userRole) &&
+        !servicioCierreReadonly &&
+        ym.year &&
+        ym.month;
 
     const showExportExcelBtn =
         Boolean(servicioSel) &&
@@ -661,7 +788,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
             setSuccess('');
             try {
                 const scopeRows =
-                    form.applyToFiltered && hasEstadoFilter ? filteredRowsConciliacion : rowsConciliacion;
+                    form.applyToFiltered && hasEstadoFilter ? filteredMasivaScopeRows : masivaScopeRows;
                 const etapaObjetivo = form.etapaObjetivo;
                 const eligibleRows = filterMasivaEligibleRows(userRole, scopeRows, form.accion, etapaObjetivo);
                 if (!eligibleRows.length) {
@@ -703,7 +830,7 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                 setSavingMasiva(false);
             }
         },
-        [token, ym.year, ym.month, clienteServicio, filteredRowsConciliacion, rowsConciliacion, hasEstadoFilter, userRole, servicioSel?.id, refreshAfterMutation]
+        [token, ym.year, ym.month, clienteServicio, filteredMasivaScopeRows, masivaScopeRows, hasEstadoFilter, userRole, servicioSel?.id, refreshAfterMutation]
     );
 
     const handleOpenMasiva = useCallback(() => {
@@ -740,6 +867,54 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
             setEliminando(false);
         }
     }, [token, confirmEliminar, revertObservacion, ym.year, ym.month, refreshAfterMutation]);
+
+    const handleCorreoSent = useCallback(
+        async (result) => {
+            const sid = correoModal?.item?.servicioId || correoModal?.item?.id || servicioSel?.id;
+            if (sid) {
+                setColaItems((prev) => patchColaItemEstadoServicio(prev, sid, 'ENVIADA'));
+                if (servicioSel?.id === sid) {
+                    setServicioSel((prev) => (prev ? { ...prev, estadoServicio: 'ENVIADA' } : prev));
+                }
+            }
+            void loadCola({ background: true });
+            setSuccess(`Correo enviado a ${result?.destinatario?.email || 'destinatario'}. El servicio quedó marcado como Enviada.`);
+        },
+        [correoModal, servicioSel?.id, loadCola]
+    );
+
+    const handleOpenEnviarCorreo = useCallback(
+        async (item) => {
+            const target = item || (servicioSel ? { ...servicioSel, servicioId: servicioSel.id } : null);
+            if (!target || !ym.year || !ym.month) return;
+
+            if (servicioSel && rowsConciliacion.length) {
+                setCorreoModal({ item: target, rows: rowsConciliacion, loading: false });
+                return;
+            }
+
+            setCorreoModal({ item: target, rows: [], loading: true });
+            try {
+                const billingQueryParams = {
+                    billingType: target.billingType,
+                    billingMode: target.billingMode,
+                    baseHours: target.baseHours
+                };
+                const data = await fetchConciliacionPorCliente(token, {
+                    cliente: target.client,
+                    year: ym.year,
+                    month: ym.month,
+                    ...billingQueryParams
+                });
+                const merged = mergeConciliacionServicioRows(data.rows || [], target.consultoresCedulas || []);
+                setCorreoModal({ item: target, rows: merged, loading: false });
+            } catch (e) {
+                setError(e.message || 'No se pudieron cargar los consultores para el correo');
+                setCorreoModal(null);
+            }
+        },
+        [servicioSel, rowsConciliacion, ym.year, ym.month, token]
+    );
 
     const handleExportExcel = useCallback(async () => {
         if (!servicioSel?.id || !ym.year || !ym.month) return;
@@ -814,9 +989,9 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     );
 
     const masivaEligibleCount = useMemo(() => {
-        const scope = hasEstadoFilter ? filteredRowsConciliacion : rowsConciliacion;
+        const scope = hasEstadoFilter ? filteredMasivaScopeRows : masivaScopeRows;
         return filterMasivaEligibleRows(userRole, scope, 'aprobar').length;
-    }, [userRole, hasEstadoFilter, filteredRowsConciliacion, rowsConciliacion]);
+    }, [userRole, hasEstadoFilter, filteredMasivaScopeRows, masivaScopeRows]);
 
     const showMasivaBtn =
         Boolean(servicioSel) &&
@@ -918,11 +1093,61 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                                     {workspaceToolbarLabel}
                                 </span>
                             </div>
-                        ) : null
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <Receipt size={18} className="text-[#65BCF7]" aria-hidden />
+                                <div>
+                                    <p className={`text-sm font-semibold ${headingAccent}`}>Cola de cierres — {monthLabel}</p>
+                                    <p className={`text-xs ${labelMuted}`}>
+                                        {filteredColaItems.length} servicio{filteredColaItems.length === 1 ? '' : 's'}
+                                    </p>
+                                </div>
+                            </div>
+                        )
                     }
+                    colaMode={!servicioSel}
+                    isFacturacion={Boolean(servicioSel)}
+                    fSearchCola={fSearchCola}
+                    onSearchColaChange={setFSearchCola}
+                    fEstadoCola={fEstadoCola}
+                    onEstadoColaChange={setFEstadoCola}
+                    fLiderCola={fLiderCola}
+                    onLiderColaChange={setFLiderCola}
+                    fBillingMode={fBillingModeCola}
+                    onBillingModeChange={setFBillingModeCola}
+                    fBillingType={fBillingTypeCola}
+                    onBillingTypeChange={setFBillingTypeCola}
+                    onResetColaFilters={handleResetColaFilters}
+                    lideresOpciones={servicioSel ? workspaceLideresOpciones : colaLideresOpciones}
+                    fSearch={fSearch}
+                    onSearchChange={setFSearch}
+                    fEstado={fEstado}
+                    onEstadoChange={setFEstado}
+                    fCerrado={fCerrado}
+                    onCerradoChange={setFCerrado}
+                    fProyecto={fProyecto}
+                    onProyectoChange={setFProyecto}
+                    fNovedades={fNovedades}
+                    onNovedadesChange={setFNovedades}
+                    fLider={fLider}
+                    onLiderChange={setFLider}
+                    onResetFilters={handleResetFilters}
+                    omitEstadoFilter={false}
+                    dense
                     trailingActions={
-                        showMasivaBtn || showExportExcelBtn || showMarcarConciliadaBtn ? (
+                        showMasivaBtn || showExportExcelBtn || showEnviarCorreoBtn || showMarcarConciliadaBtn ? (
                             <div className="flex flex-wrap items-center gap-2">
+                                {showEnviarCorreoBtn ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => handleOpenEnviarCorreo()}
+                                        className={`${GESTION_TOOLBAR_PRIMARY_BTN} inline-flex items-center gap-2`}
+                                        title="Enviar conciliación por correo al líder"
+                                    >
+                                        <Mail size={16} aria-hidden />
+                                        Enviar correo
+                                    </button>
+                                ) : null}
                                 {showExportExcelBtn ? (
                                     <button
                                         type="button"
@@ -965,29 +1190,23 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
 
                 {!servicioSel ? (
                     <ConciliacionesColaCierres
-                        items={colaItems}
+                        items={filteredColaItems}
                         loading={loadingCola || loadingList}
-                        monthLabel={monthLabel}
                         year={ym.year}
                         month={ym.month}
                         userRole={userRole}
-                        fEstadoCola={fEstadoCola}
-                        onEstadoColaChange={setFEstadoCola}
-                        filtrosColaOpen={filtrosColaOpen}
-                        onToggleFiltrosCola={() => setFiltrosColaOpen((o) => !o)}
                         onAbrirCierre={handleSelectServicio}
                         onExportExcel={handleColaExportExcel}
+                        onEnviarCorreo={handleOpenEnviarCorreo}
                         onMarcarConciliada={(item) => handleMarcarConciliada(item.servicioId)}
                         exportandoId={exportandoColaId}
                         conciliandoId={conciliandoColaId}
                         headingAccent={headingAccent}
                         labelMuted={labelMuted}
                         isLight={isLight}
-                        dash={dash}
-                        field={field}
                     />
                 ) : (
-                    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2">
+                    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pb-2">
                         <ConciliacionesServicioResumenCard
                             servicio={servicioSel}
                             monthLabel={monthLabel}
@@ -1012,9 +1231,6 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                                 className={`border-b px-4 py-3 ${isLight ? 'border-slate-200 bg-slate-50/80' : 'border-slate-700/50 bg-slate-800/40'}`}
                             >
                                 <p className={`text-sm font-semibold ${headingAccent}`}>Consultores asociados</p>
-                                <p className={`mt-0.5 text-xs ${labelMuted}`}>
-                                    Vinculados a este servicio en Dynamo para {monthLabel}.
-                                </p>
                             </div>
                             <div className={isLight ? 'bg-slate-50' : 'bg-[#0f172a]/50'}>
                                 <div className="overflow-x-auto">
@@ -1124,8 +1340,8 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                     onClose={() => setMasivaOpen(false)}
                     onSave={handleSaveMasiva}
                     userRole={userRole}
-                    serviceRows={rowsConciliacion}
-                    filteredRows={filteredRowsConciliacion}
+                    serviceRows={masivaScopeRows}
+                    filteredRows={filteredMasivaScopeRows}
                     cliente={servicioSel?.serviceName || clienteServicio}
                     hasActiveFilters={hasEstadoFilter}
                     saving={savingMasiva}
@@ -1188,6 +1404,20 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                     </div>
                 </>
             ) : null}
+
+            <ConciliacionesEnviarCorreoModal
+                open={Boolean(correoModal && !correoModal.loading)}
+                onClose={() => setCorreoModal(null)}
+                onSent={handleCorreoSent}
+                token={token}
+                item={correoModal?.item}
+                consultorRows={correoModal?.rows || []}
+                year={ym.year}
+                month={ym.month}
+                saving={enviandoCorreoModal}
+                setSaving={setEnviandoCorreoModal}
+                isLight={isLight}
+            />
         </div>
     );
 }

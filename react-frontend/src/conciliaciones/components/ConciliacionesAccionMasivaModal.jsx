@@ -59,15 +59,14 @@ export default function ConciliacionesAccionMasivaModal({
     const targetCount = masivaDefaults.eligibleCount;
     const skippedCount = Math.max(0, scopeRows.length - targetCount);
     const esAprobar = accion === 'aprobar';
-    const showAccionToggles = rechazarDefaults.eligibleCount > 0 && etapaObjetivo === 'NOMINA';
+    const showAccionToggles = false;
     const showEtapaSelector = etapaOptions.length > 1;
 
     const submitLabel = useMemo(() => {
         if (saving) return 'Procesando…';
         const n = targetCount;
         if (!esAprobar) return `Rechazar cierres (${n})`;
-        if (etapaObjetivo === 'ANALISTA') return `Enviar a Nómina (${n})`;
-        if (etapaObjetivo === 'NOMINA') return `Aprobar cierres (${n})`;
+        if (etapaObjetivo === 'ANALISTA') return `Aprobar cierres (${n})`;
         return `Aplicar a ${n}`;
     }, [saving, esAprobar, etapaObjetivo, targetCount]);
 

@@ -21,18 +21,16 @@ function isElevatedRole(role) {
     return ELEVATED_ROLES.has(normalizeRole(role));
 }
 
-/** Etapa de revisión según rol (sin privilegio elevado). */
+/** Etapa de revisión según rol (sin privilegio elevado). Solo analista. */
 function resolveRevisionEtapa(role) {
     const r = normalizeRole(role);
     if (r === 'analista_conciliaciones') return 'ANALISTA';
-    if (r === 'nomina') return 'NOMINA';
     return null;
 }
 
 function resolveEffectiveEtapa(role, estadoActual) {
     if (isElevatedRole(role)) {
         const est = normalizeEstado(estadoActual);
-        if (est === 'APROBADO_ANALISTA') return 'NOMINA';
         if (est === 'PENDIENTE' || est === 'DEVUELTA') return 'ANALISTA';
         return null;
     }
@@ -44,18 +42,10 @@ function canActOnEstado(role, estadoActual, accion) {
     if (!act) return false;
     const est = normalizeEstado(estadoActual);
     const etapa = resolveEffectiveEtapa(role, est);
-    if (!etapa) return false;
+    if (!etapa || etapa !== 'ANALISTA') return false;
 
-    if (etapa === 'ANALISTA') {
-        if (act === 'rechazar') return false;
-        return est === 'PENDIENTE' || est === 'DEVUELTA';
-    }
-
-    if (etapa === 'NOMINA') {
-        return est === 'APROBADO_ANALISTA';
-    }
-
-    return false;
+    if (act === 'rechazar') return false;
+    return est === 'PENDIENTE' || est === 'DEVUELTA';
 }
 
 function resolveNextEstado(estadoActual, accion, etapa) {
@@ -75,22 +65,12 @@ function resolveNextEstado(estadoActual, accion, etapa) {
         return { ok: true, estado: 'APROBADO_ANALISTA', etapa: 'ANALISTA', accion: 'APROBAR' };
     }
 
-    if (etapa === 'NOMINA') {
-        if (est !== 'APROBADO_ANALISTA') {
-            return { ok: false, error: 'El cierre no está pendiente de revisión de nómina' };
-        }
-        if (act === 'aprobar') {
-            return { ok: true, estado: 'APROBADO_FINANZAS', etapa: 'NOMINA', accion: 'APROBAR' };
-        }
-        return { ok: true, estado: 'DEVUELTA', etapa: 'NOMINA', accion: 'RECHAZAR' };
-    }
-
     return { ok: false, error: 'Etapa de revisión no reconocida' };
 }
 
 function normalizeEtapaObjetivo(etapaObjetivo) {
     const etapa = String(etapaObjetivo || '').trim().toUpperCase();
-    return etapa === 'ANALISTA' || etapa === 'NOMINA' ? etapa : null;
+    return etapa === 'ANALISTA' ? etapa : null;
 }
 
 /** Rol autorizado para actuar en la etapa fija (masiva). */
@@ -99,9 +79,7 @@ function canRoleActAtEtapa(role, etapaObjetivo) {
     if (!etapa) return false;
     const r = normalizeRole(role);
     if (ELEVATED_ROLES.has(r)) return true;
-    if (etapa === 'ANALISTA') return r === 'analista_conciliaciones';
-    if (etapa === 'NOMINA') return r === 'nomina';
-    return false;
+    return etapa === 'ANALISTA' && r === 'analista_conciliaciones';
 }
 
 /** Elegibilidad por etapa fija (masiva), sin adaptar etapa por fila en roles elevados. */
@@ -115,9 +93,6 @@ function canActOnEstadoForEtapa(role, estadoActual, accion, etapaObjetivo) {
     if (etapa === 'ANALISTA') {
         if (act === 'rechazar') return false;
         return est === 'PENDIENTE' || est === 'DEVUELTA';
-    }
-    if (etapa === 'NOMINA') {
-        return est === 'APROBADO_ANALISTA';
     }
     return false;
 }

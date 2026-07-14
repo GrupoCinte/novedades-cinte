@@ -238,7 +238,6 @@ export default function ConciliacionesServiciosPage({ token }) {
                 servicio={servicioToEdit}
                 onSuccess={(saved) => {
                     setCrearOpen(false);
-                    const wasCreate = !servicioToEdit;
                     setSuccess(servicioToEdit ? 'Servicio actualizado correctamente' : 'Servicio creado correctamente');
                     if (saved) {
                         setServicios((prev) =>
@@ -251,11 +250,6 @@ export default function ConciliacionesServiciosPage({ token }) {
                         void loadData({ silent: true });
                     }
                     setServicioToEdit(null);
-                    if (wasCreate && saved?.id) {
-                        setDetalleInitialAssociating(true);
-                        setServicioToDetalle(saved);
-                        setDetalleOpen(true);
-                    }
                 }}
             />
 

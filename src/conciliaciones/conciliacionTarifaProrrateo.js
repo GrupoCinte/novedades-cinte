@@ -106,29 +106,75 @@ function roundCop(n) {
     return Math.round(Number(n) || 0);
 }
 
+/**
+ * Días hábiles nominales del mes (5 días/semana × 4 semanas). Se usa para derivar
+ * las horas por día laborable en modo HOURS: horasDia = baseHours / 20
+ * (ej. baseHours 180 → 9 h/día; baseHours 160 → 8 h/día).
+ */
+const DIAS_HABILES_NOMINAL_MES = 20;
+
 function isHoursBillingMode(billingMode, baseHours) {
     const mode = String(billingMode || '').trim().toUpperCase();
     const bh = Number(baseHours);
     return mode === 'HOURS' && Number.isFinite(bh) && bh > 0;
 }
 
+/** Horas laborables por día en modo HOURS (baseHours / 20 días hábiles nominales). */
+function horasPorDiaLaboral(baseHours) {
+    const bh = Number(baseHours) || 0;
+    return bh > 0 ? bh / DIAS_HABILES_NOMINAL_MES : 0;
+}
+
 /**
- * Prorratea tarifa mensual por proporción de días (o horas en modo HOURS).
+ * Cuenta días hábiles (lunes a viernes) en [start, end] inclusive, excluyendo
+ * los festivos presentes en `festivosSet` (claves YYYY-MM-DD). Si no se provee
+ * `festivosSet`, solo se excluyen los fines de semana.
  */
-function prorrateTarifaPorDias(tarifaMaestro, diasFacturables, daysInMonth, { billingMode, baseHours } = {}) {
+function countBusinessDaysInclusive(startDateRaw, endDateRaw, festivosSet = null) {
+    if (!startDateRaw || !endDateRaw || endDateRaw < startDateRaw) return 0;
+    const start = new Date(`${startDateRaw}T00:00:00`);
+    const end = new Date(`${endDateRaw}T00:00:00`);
+    const hasFestivos = festivosSet && typeof festivosSet.has === 'function';
+    let count = 0;
+    for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+        const day = cursor.getDay();
+        if (day === 0 || day === 6) continue;
+        if (hasFestivos) {
+            const ymd = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
+            if (festivosSet.has(ymd)) continue;
+        }
+        count += 1;
+    }
+    return count;
+}
+
+/**
+ * Prorratea tarifa mensual por proporción de días.
+ * - Modo calendario: ratio = díasCalendario / díasDelMes.
+ * - Modo HOURS: horas = díasHábilesTrabajados × (baseHours/20), con tope en baseHours,
+ *   y la tarifa se prorratea por horas/baseHours (el valor hora NO se prorratea).
+ */
+function prorrateTarifaPorDias(
+    tarifaMaestro,
+    diasFacturables,
+    daysInMonth,
+    { billingMode, baseHours, businessDays } = {}
+) {
     const t = Number(tarifaMaestro) || 0;
     const dim = Number(daysInMonth) || 30;
     const dias = Number(diasFacturables) || 0;
     if (t <= 0 || dias <= 0) {
         return { tarifaProrrateada: 0, ratio: 0, horasFacturables: 0 };
     }
+    if (isHoursBillingMode(billingMode, baseHours)) {
+        const bh = Number(baseHours);
+        const bd = Number(businessDays) || 0;
+        const horasFacturables = Math.min(bh, Math.round(bd * horasPorDiaLaboral(bh) * 100) / 100);
+        const ratio = bh > 0 ? horasFacturables / bh : 0;
+        return { tarifaProrrateada: roundCop(t * ratio), ratio, horasFacturables };
+    }
     const ratio = dias / dim;
-    const tarifaProrrateada = roundCop(t * ratio);
-    const hoursMode = isHoursBillingMode(billingMode, baseHours);
-    const horasFacturables = hoursMode
-        ? Math.round(Number(baseHours) * ratio * 100) / 100
-        : null;
-    return { tarifaProrrateada, ratio, horasFacturables };
+    return { tarifaProrrateada: roundCop(t * ratio), ratio, horasFacturables: null };
 }
 
 /**
@@ -158,7 +204,8 @@ function resolveTarifaBaseMes({
     fechaBajaEfectiva,
     billingMode,
     baseHours,
-    tramos = null
+    tramos = null,
+    festivosSet = null
 }) {
     const diasCtx = computeDiasFacturablesMes({
         year,
@@ -172,6 +219,59 @@ function resolveTarifaBaseMes({
     const tramoList = Array.isArray(tramos) ? tramos.filter((t) => t && Number(t.tarifa) >= 0) : [];
     let tarifaBase = 0;
     const tramosAplicados = [];
+
+    if (isHoursBillingMode(billingMode, baseHours)) {
+        // Modo HOURS: días hábiles × horas/día solo cuando hay mes parcial (ingreso/salida).
+        // Mes completo → baseHours (180 h) = tarifa catálogo, sin descontar festivos del mes.
+        const bh = Number(baseHours);
+        const perDay = horasPorDiaLaboral(bh);
+        const businessDaysWorked =
+            diasCtx.diasFacturables > 0
+                ? countBusinessDaysInclusive(effectiveStart, effectiveEnd, festivosSet)
+                : 0;
+        const horasFacturables = diasCtx.prorrateoAplicado
+            ? Math.min(bh, Math.round(businessDaysWorked * perDay * 100) / 100)
+            : bh;
+
+        if (tramoList.length > 0 && businessDaysWorked > 0) {
+            for (const tramo of tramoList) {
+                const clip = clipTramoToPeriod(
+                    tramo.vigente_desde,
+                    tramo.vigente_hasta || diasCtx.periodEnd,
+                    effectiveStart,
+                    effectiveEnd
+                );
+                if (!clip || clip.dias <= 0) continue;
+                const clipBusinessDays = countBusinessDaysInclusive(clip.start, clip.end, festivosSet);
+                // Reparte las horas facturables (ya topadas) según los días hábiles del tramo.
+                const clipHoras = (horasFacturables * clipBusinessDays) / businessDaysWorked;
+                const parteTarifa = bh > 0 ? roundCop(Number(tramo.tarifa) * (clipHoras / bh)) : 0;
+                tarifaBase += parteTarifa;
+                tramosAplicados.push({
+                    tarifa: roundCop(tramo.tarifa),
+                    vigenteDesde: clip.start,
+                    vigenteHasta: clip.end,
+                    dias: clip.dias,
+                    horas: Math.round(clipHoras * 100) / 100,
+                    montoCop: parteTarifa
+                });
+            }
+            tarifaBase = roundCop(tarifaBase);
+        } else {
+            tarifaBase = bh > 0 ? roundCop((Number(tarifaMaestro) || 0) * (horasFacturables / bh)) : 0;
+        }
+
+        return {
+            tarifaMaestro: roundCop(tarifaMaestro),
+            tarifaBase,
+            tarifaProrrateada: tarifaBase,
+            ...diasCtx,
+            businessDaysFacturables: businessDaysWorked,
+            horasFacturables,
+            tramosAplicados,
+            prorrateoAplicado: diasCtx.prorrateoAplicado || tramosAplicados.length > 1
+        };
+    }
 
     if (tramoList.length > 0) {
         for (const tramo of tramoList) {
@@ -206,18 +306,12 @@ function resolveTarifaBaseMes({
         tarifaBase = parte.tarifaProrrateada;
     }
 
-    const ratio =
-        daysInMonth > 0 ? Math.min(1, Math.max(0, diasCtx.diasFacturables / daysInMonth)) : 0;
-    const horasFacturables = isHoursBillingMode(billingMode, baseHours)
-        ? Math.round(Number(baseHours) * ratio * 100) / 100
-        : null;
-
     return {
         tarifaMaestro: roundCop(tarifaMaestro),
         tarifaBase,
         tarifaProrrateada: tarifaBase,
         ...diasCtx,
-        horasFacturables,
+        horasFacturables: null,
         tramosAplicados,
         prorrateoAplicado: diasCtx.prorrateoAplicado || tramosAplicados.length > 1
     };
@@ -241,6 +335,8 @@ module.exports = {
     daysInCalendarMonth,
     monthBounds,
     computeDiasFacturablesMes,
+    countBusinessDaysInclusive,
+    horasPorDiaLaboral,
     prorrateTarifaPorDias,
     resolveTarifaBaseMes,
     colaboradorVisibleEnMesSql,

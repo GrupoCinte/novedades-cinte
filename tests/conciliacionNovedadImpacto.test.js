@@ -103,7 +103,7 @@ test('suspensión resta días calendario del rango', () => {
     assert.equal(r.montoCop, 500_000);
 });
 
-test('incapacidad cuenta días calendario incluyendo fin de semana', () => {
+test('incapacidad en conciliaciones cuenta solo días hábiles (sin fin de semana)', () => {
     const r = computeNovedadImpactoMonto(3_000_000, {
         tipo_novedad: 'Incapacidad',
         fecha_inicio: '2026-05-09',
@@ -112,8 +112,25 @@ test('incapacidad cuenta días calendario incluyendo fin de semana', () => {
         monto_cop: 100
     });
     assert.equal(r.medida, 'days');
-    assert.equal(r.cantidad, 2);
-    assert.equal(r.montoCop, 200_000);
+    assert.equal(r.cantidad, 0);
+    assert.equal(r.montoCop, 0);
+});
+
+test('incapacidad un día hábil resta tarifa/días_del_mes × 1', () => {
+    const r = computeNovedadImpactoMonto(
+        3_000_000,
+        {
+            tipo_novedad: 'Incapacidad',
+            fecha_inicio: '2026-05-15',
+            fecha_fin: '2026-05-15',
+            cantidad_horas: 0,
+            monto_cop: 100
+        },
+        { factAnio: 2026, factMes: 5 }
+    );
+    assert.equal(r.medida, 'days');
+    assert.equal(r.cantidad, 1);
+    assert.equal(r.montoCop, Math.round(3_000_000 / 31));
 });
 
 test('aggregateNovedadesImpacto combina suma y resta', () => {
@@ -127,7 +144,7 @@ test('aggregateNovedadesImpacto combina suma y resta', () => {
     assert.equal(agg.count, 2);
 });
 
-test('incapacidad 3 días en modo HOURS expone valorHora y monto vía baseHours del servicio', () => {
+test('incapacidad en modo HOURS usa días hábiles × h/día laboral del servicio', () => {
     const tarifa = 17_291_052;
     const r = computeNovedadImpactoMonto(
         tarifa,
@@ -140,10 +157,11 @@ test('incapacidad 3 días en modo HOURS expone valorHora y monto vía baseHours 
         { billingMode: 'HOURS', baseHours: 160 }
     );
     assert.equal(r.medida, 'days');
-    assert.equal(r.cantidad, 3);
+    assert.equal(r.cantidad, 1, 'solo lunes 4-may es hábil en el rango');
+    assert.equal(r.cantidadHoras, 8);
     assert.equal(r.valorHora, 108_069);
     assert.equal(r.horasBaseMes, 160);
-    assert.equal(r.montoCop, 1_729_105);
+    assert.equal(r.montoCop, Math.round((tarifa / 160) * 8));
 });
 
 test('getNovedadImpactoFacturacion clasifica hora extra como suma', () => {

@@ -26,6 +26,7 @@ test('getConciliacionResumenPorClienteMes agrega solo novedades visibles y calcu
                 return {
                     rows: [
                         {
+                            id: '11111111-1111-1111-1111-111111111111',
                             cedula: '12.345.678',
                             tipo_novedad: 'Incapacidad',
                             monto_cop: '100',
@@ -38,6 +39,7 @@ test('getConciliacionResumenPorClienteMes agrega solo novedades visibles y calcu
                             fecha_fin: '2026-05-06'
                         },
                         {
+                            id: '22222222-2222-2222-2222-222222222222',
                             cedula: '12.345.678',
                             tipo_novedad: 'Incapacidad',
                             monto_cop: '50.25',
@@ -95,6 +97,7 @@ test('getConciliacionResumenPorClienteMes EXPIRED_MONTH consulta novedades del m
                 novRange = [params[1], params[2]];
                 return {
                     rows: [{
+                        id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
                         cedula: '12345678',
                         tipo_novedad: 'Bonos',
                         monto_cop: '100',
@@ -247,7 +250,7 @@ test('upsertConciliacionFacturacionMasiva actualiza multiples registros', async 
     const pool = {
         query: async (sql, params) => {
             queryArgs.push({ sql, params });
-            if (String(sql).includes('SELECT cedula FROM colaboradores')) {
+            if (String(sql).includes('FROM colaboradores') && String(sql).includes('cedula')) {
                 return { rows: [{ cedula: '111' }, { cedula: '222' }] };
             }
             return { rows: [] };
@@ -358,7 +361,7 @@ test('upsertConciliacionFacturacionMasiva respeta cedulas opcionales del payload
     const pool = {
         query: async (sql, params) => {
             queryArgs.push({ sql, params });
-            if (String(sql).includes('SELECT cedula FROM colaboradores')) {
+            if (String(sql).includes('FROM colaboradores') && String(sql).includes('cedula')) {
                 return { rows: [{ cedula: '111' }, { cedula: '222' }, { cedula: '333' }] };
             }
             return { rows: [] };
@@ -937,14 +940,16 @@ test('getConciliacionResumenPorClienteMes julio PENDIENTE incluye novedad junio 
     };
     const deps = { pool, normalizeCedula, canRoleViewType };
     const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
-    const { rows } = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 7);
+    // Mes vencido: facturación julio lee bucket de novedades de junio.
+    const { rows } = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 7, {
+        billingType: 'EXPIRED_MONTH'
+    });
     assert.equal(rows.length, 1);
     assert.equal(rows[0].novedadesCount, 1);
     assert.equal(rows[0].estado, 'PENDIENTE');
 });
 
-test('applyConciliacionFacturacionRevision DEVUELTA libera novedades consumidas', async () => {
-    const clientQueries = [];
+test('applyConciliacionFacturacionRevision: rol nomina ya no puede rechazar', async () => {
     const pool = {
         query: async (sql) => {
             if (String(sql).includes('SELECT cliente FROM colaboradores')) {
@@ -953,36 +958,7 @@ test('applyConciliacionFacturacionRevision DEVUELTA libera novedades consumidas'
             return { rows: [] };
         },
         connect: async () => ({
-            query: async (sql) => {
-                clientQueries.push(String(sql));
-                if (sql === 'BEGIN' || sql === 'COMMIT') return { rows: [] };
-                if (String(sql).includes('FROM conciliaciones_facturacion') && String(sql).includes('FOR UPDATE')) {
-                    return {
-                        rows: [
-                            {
-                                id: '44444444-4444-4444-4444-444444444444',
-                                estado: 'APROBADO_ANALISTA',
-                                observaciones: '',
-                                motivo_devolucion: null
-                            }
-                        ]
-                    };
-                }
-                if (String(sql).includes('UPDATE conciliaciones_facturacion')) {
-                    return {
-                        rows: [
-                            {
-                                id: '44444444-4444-4444-4444-444444444444',
-                                estado: 'DEVUELTA',
-                                cedula: '12345678',
-                                anio: 2026,
-                                mes: 6
-                            }
-                        ]
-                    };
-                }
-                return { rows: [] };
-            },
+            query: async () => ({ rows: [] }),
             release: () => {}
         })
     };
@@ -996,20 +972,23 @@ test('applyConciliacionFacturacionRevision DEVUELTA libera novedades consumidas'
         normalizeCatalogValue: (v) => v
     };
     const { applyConciliacionFacturacionRevision } = require('../src/conciliaciones/conciliacionesQueries');
-    await applyConciliacionFacturacionRevision(
-        deps,
-        { role: 'nomina', canViewAllAreas: true, areas: [] },
-        {
-            cedula: '12345678',
-            anio: 2026,
-            mes: 6,
-            accion: 'rechazar',
-            observacion: 'Corregir montos',
-            etapaObjetivo: 'NOMINA'
-        },
-        { role: 'nomina', email: 'nom@t.com' }
+    await assert.rejects(
+        () =>
+            applyConciliacionFacturacionRevision(
+                deps,
+                { role: 'nomina', canViewAllAreas: true, areas: [] },
+                {
+                    cedula: '12345678',
+                    anio: 2026,
+                    mes: 6,
+                    accion: 'rechazar',
+                    observacion: 'Corregir montos',
+                    etapaObjetivo: 'NOMINA'
+                },
+                { role: 'nomina', email: 'nom@t.com' }
+            ),
+        (err) => /No autorizado|Etapa objetivo inválida/i.test(err.message)
     );
-    assert.ok(clientQueries.some((q) => q.includes('DELETE FROM conciliaciones_novedad_consumo')));
 });
 
 function matchesColaboradorVisibleEnMes(col, year, month) {

@@ -70,9 +70,10 @@ test('deriveEstadoCola prioriza sin consultores, devuelta, conciliada y pendient
         deriveEstadoCola({ consultoresTotal: 2, consultoresCerrados: 0, estados: { PENDIENTE: 2 } }),
         'PENDIENTE'
     );
+    // Flujo solo-analista: todos APROBADO_ANALISTA ⇒ cola lista (CONCILIADA derivada).
     assert.equal(
         deriveEstadoCola({ consultoresTotal: 2, consultoresCerrados: 2, estados: { APROBADO_ANALISTA: 2 } }),
-        'EN_REVISION'
+        'CONCILIADA'
     );
 });
 
