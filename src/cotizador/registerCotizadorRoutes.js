@@ -139,7 +139,10 @@ function registerCotizadorRoutes(deps) {
     app.delete('/api/cotizador/historial/:id', ...guard, adminActionLimiter, async (req, res) => {
         try {
             const out = await cotizadorStore.deleteCotizacion(req.params.id);
-            if (!out.deleted) return res.status(404).json({ ok: false, error: 'Cotización no encontrada' });
+            if (!out.deleted) {
+                if (out.error) return res.status(400).json({ ok: false, error: out.error });
+                return res.status(404).json({ ok: false, error: 'Cotización no encontrada' });
+            }
             return res.json({ ok: true });
         } catch (error) {
             console.error('Error cotizador/delete:', error);
@@ -147,10 +150,30 @@ function registerCotizadorRoutes(deps) {
         }
     });
 
+    app.patch('/api/cotizador/historial/:id/estado', ...guard, adminActionLimiter, async (req, res) => {
+        try {
+            const id = Number(req.params.id);
+            const { estado } = req.body || {};
+            if (!estado) {
+                return res.status(400).json({ ok: false, error: 'Estado es requerido' });
+            }
+            const allowed = ['Borrador', 'Enviada', 'Aceptada', 'Rechazada'];
+            if (!allowed.includes(estado)) {
+                return res.status(400).json({ ok: false, error: 'Estado inválido' });
+            }
+            const out = await cotizadorStore.updateCotizacionEstado(id, estado);
+            if (!out.ok) return res.status(404).json({ ok: false, error: 'Cotización no encontrada' });
+            return res.json({ ok: true });
+        } catch (error) {
+            console.error('Error cotizador/estado:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo cambiar el estado de la cotización' });
+        }
+    });
+
     app.get('/api/cotizador/dashboard', ...guard, catalogLimiter, async (req, res) => {
         try {
             const rows = await cotizadorStore.getHistorial();
-            return res.json({ ok: true, ...generarDashboardData(rows) });
+            return res.json({ ok: true, ...generarDashboardData(rows, req.query.cliente) });
         } catch (error) {
             console.error('Error cotizador/dashboard:', error);
             return res.status(500).json({ ok: false, error: 'No se pudo cargar dashboard del cotizador' });
@@ -178,7 +201,13 @@ function registerCotizadorRoutes(deps) {
                 codigo: row.codigo || '',
                 resultados: row.resultados,
                 fecha: row.fecha,
-                fecha_generacion_iso: row.fecha_generacion_iso
+                fecha_generacion_iso: row.fecha_generacion_iso,
+                titulo: row.titulo || '',
+                notas: row.notas || '',
+                terminos: row.terminos || '',
+                contacto_nombre: row.contacto_nombre || '',
+                contacto_cargo: row.contacto_cargo || '',
+                contacto_correo: row.contacto_correo || ''
             };
             const pdfBuffer = await buildCotizacionPdfBuffer(payload);
             const baseName = row.codigo ? `${String(row.codigo).replace(/[^\w\-]+/g, '_')}.pdf` : `cotizacion_${id}.pdf`;
