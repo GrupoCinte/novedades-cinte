@@ -115,6 +115,12 @@ function formatTipoNovedadParaExportExcel(it) {
 }
 
 /** Columnas Excel de procesado nómina (post-aprobación). */
+/** Fecha de la decisión para el Excel: aprobación (o rechazo) formateada, '' si sigue pendiente. */
+function resolveFechaAprobacionExcel(it) {
+    const iso = it?.estado === 'Rechazado' ? it?.rechazadoEn : it?.aprobadoEn;
+    return iso ? new Date(iso).toLocaleString('es-ES') : '';
+}
+
 function appendNominaProcesadoExcelFields(baseRow, it) {
     return {
         ...baseRow,
@@ -184,14 +190,12 @@ function buildExcelRowHoraExtraSlice(opts) {
     const {
         it,
         slice,
-        observacionHeDomingo,
         correoActor,
         esPorHoras
     } = opts;
     const obs = String(it.heDomingoObservacion || '').trim();
     const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, slice.sliceKey);
     const tipoNovedad = formatTipoNovedadHeSlice(it, slice);
-    const ck = slice.columnKey;
     const h = Number(slice.hours || 0);
     const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, h, it);
     const timeExcel =
@@ -199,8 +203,9 @@ function buildExcelRowHoraExtraSlice(opts) {
             ? msRangeToExcelHoraFields(slice.startMs, slice.endMs)
             : null;
     return appendNominaProcesadoExcelFields({
-        novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        fechaAprobacion: resolveFechaAprobacionExcel(it),
+        aprobadoPor: it.estado === 'Pendiente' ? '' : correoActor,
         nombre: it.nombre || '',
         cedula: it.cedula || '',
         correo: it.correoSolicitante || '',
@@ -212,25 +217,17 @@ function buildExcelRowHoraExtraSlice(opts) {
         unidad,
         horaInicial: esPorHoras ? (timeExcel?.horaInicial || formatHoraMinutaParaExcel(it.horaInicio)) : '',
         horaFinal: esPorHoras ? (timeExcel?.horaFinal || formatHoraMinutaParaExcel(it.horaFin)) : '',
-        horasDiurnas: ck === 'horasDiurnas' && h > 0 ? h : '',
-        horasNocturnas: ck === 'horasNocturnas' && h > 0 ? h : '',
-        horasRecargoDomingo: ck === 'horasRecargoDomingo' && h > 0 ? h : '',
-        horasRecargoDomingoDiurnas: ck === 'horasRecargoDomingoDiurnas' && h > 0 ? h : '',
-        horasRecargoDomingoNocturnas: ck === 'horasRecargoDomingoNocturnas' && h > 0 ? h : '',
-        horasRecargoNocturno: ck === 'horasRecargoNocturno' && h > 0 ? h : '',
         compensacionDominical,
-        observacionHeDomingo,
         observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
-        asignadoRoles: it.asignacionRolesEtiqueta || '—',
-        aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
+        asignadoRoles: it.asignacionRolesEtiqueta || '—'
     }, it);
 }
 
 /** HE sin componentes >0: una fila como antes + columnas compensación / id. */
 function buildExcelRowHoraExtraLegacy(opts) {
-    const { it, observacionHeDomingo, correoActor, esPorHoras } = opts;
+    const { it, correoActor, esPorHoras } = opts;
     const obs = String(it.heDomingoObservacion || '').trim();
     const rdd = Number(it.horasRecargoDomingoDiurnas || 0);
     const rdn = Number(it.horasRecargoDomingoNocturnas || 0);
@@ -240,8 +237,9 @@ function buildExcelRowHoraExtraLegacy(opts) {
     const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, sliceKeyForComp);
     const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, it.cantidadHoras, it);
     return appendNominaProcesadoExcelFields({
-        novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        fechaAprobacion: resolveFechaAprobacionExcel(it),
+        aprobadoPor: it.estado === 'Pendiente' ? '' : correoActor,
         nombre: it.nombre || '',
         cedula: it.cedula || '',
         correo: it.correoSolicitante || '',
@@ -253,30 +251,21 @@ function buildExcelRowHoraExtraLegacy(opts) {
         unidad,
         horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
         horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
-        horasDiurnas: Number(it.horasDiurnas || 0) > 0 ? Number(it.horasDiurnas) : '',
-        horasNocturnas: Number(it.horasNocturnas || 0) > 0 ? Number(it.horasNocturnas) : '',
-        horasRecargoDomingo: Number(it.horasRecargoDomingo || 0) > 0 ? Number(it.horasRecargoDomingo) : '',
-        horasRecargoDomingoDiurnas:
-            Number(it.horasRecargoDomingoDiurnas || 0) > 0 ? Number(it.horasRecargoDomingoDiurnas) : '',
-        horasRecargoDomingoNocturnas:
-            Number(it.horasRecargoDomingoNocturnas || 0) > 0 ? Number(it.horasRecargoDomingoNocturnas) : '',
-        horasRecargoNocturno: Number(it.horasRecargoNocturno || 0) > 0 ? Number(it.horasRecargoNocturno) : '',
         compensacionDominical,
-        observacionHeDomingo,
         observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
-        asignadoRoles: it.asignacionRolesEtiqueta || '—',
-        aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
+        asignadoRoles: it.asignacionRolesEtiqueta || '—'
     }, it);
 }
 
 function buildExcelRowOtroTipo(opts) {
-    const { it, observacionHeDomingo, correoActor, esPorHoras } = opts;
+    const { it, correoActor, esPorHoras } = opts;
     const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, it.cantidadHoras, it);
     return appendNominaProcesadoExcelFields({
-        novedadId: it.id || '',
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        fechaAprobacion: resolveFechaAprobacionExcel(it),
+        aprobadoPor: it.estado === 'Pendiente' ? '' : correoActor,
         nombre: it.nombre || '',
         cedula: it.cedula || '',
         correo: it.correoSolicitante || '',
@@ -288,19 +277,11 @@ function buildExcelRowOtroTipo(opts) {
         unidad,
         horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
         horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
-        horasDiurnas: '',
-        horasNocturnas: '',
-        horasRecargoDomingo: '',
-        horasRecargoDomingoDiurnas: '',
-        horasRecargoDomingoNocturnas: '',
-        horasRecargoNocturno: '',
         compensacionDominical: '',
-        observacionHeDomingo,
         observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
-        asignadoRoles: it.asignacionRolesEtiqueta || '—',
-        aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
+        asignadoRoles: it.asignacionRolesEtiqueta || '—'
     }, it);
 }
 
@@ -1063,8 +1044,9 @@ function registerRoutes(deps) {
             );
 
             const columns = [
-                { header: 'ID novedad', key: 'novedadId', width: 38 },
                 { header: 'Fecha Creación', key: 'fechaCreacion', width: 20 },
+                { header: 'Fecha Aprobación', key: 'fechaAprobacion', width: 20 },
+                { header: 'Aprobado por', key: 'aprobadoPor', width: 32 },
                 { header: 'Nombre', key: 'nombre', width: 28 },
                 { header: 'Cédula', key: 'cedula', width: 14 },
                 { header: 'Correo', key: 'correo', width: 30 },
@@ -1076,14 +1058,7 @@ function registerRoutes(deps) {
                 { header: 'Unidad', key: 'unidad', width: 10 },
                 { header: 'Hora inicial', key: 'horaInicial', width: 12 },
                 { header: 'Hora final', key: 'horaFinal', width: 12 },
-                { header: 'Horas diurnas', key: 'horasDiurnas', width: 14 },
-                { header: 'Horas nocturnas', key: 'horasNocturnas', width: 14 },
-                { header: 'Horas recargo domingo', key: 'horasRecargoDomingo', width: 18 },
-                { header: 'Recargo dominical/festivos — diurno', key: 'horasRecargoDomingoDiurnas', width: 22 },
-                { header: 'Recargo dominical/festivos — nocturno', key: 'horasRecargoDomingoNocturnas', width: 24 },
-                { header: 'Recargo nocturno', key: 'horasRecargoNocturno', width: 16 },
                 { header: 'Compensación dominical', key: 'compensacionDominical', width: 32 },
-                { header: 'Observación HE domingo', key: 'observacionHeDomingo', width: 48 },
                 { header: 'Observaciones', key: 'observaciones', width: 48 },
                 { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
                 { header: 'Estado', key: 'estado', width: 14 },
@@ -1091,8 +1066,7 @@ function registerRoutes(deps) {
                 { header: 'Procesado nómina (fecha)', key: 'nominaProcesadoEn', width: 22 },
                 { header: 'Procesado nómina (correo)', key: 'nominaProcesadoPorCorreo', width: 28 },
                 { header: 'Procesado nómina (lote)', key: 'nominaProcesadoLote', width: 22 },
-                { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 },
-                { header: 'Aprobado / rechazado por (correo)', key: 'aprobadoPorCorreo', width: 32 }
+                { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 }
             ];
 
             const wb = new ExcelJS.Workbook();
