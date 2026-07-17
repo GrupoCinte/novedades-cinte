@@ -26,8 +26,8 @@
 | **Equipo Capital Humano** | Operativo CH | Sí | Misma **visibilidad** amplia que Admin CH (todas las áreas y tipos). Las **aprobaciones** dependen del tipo (ver sección 4) | **No** | Sí | Sí (lectura + edición ficha; **NO** tramita bajas) | **No** |
 | **Comercial** | Fuerza comercial | Solo si la ruta lo permite | Normalmente **no** entra al shell clásico de novedades | **Sí** (es su módulo principal) | No | No | No |
 | **GP** (Gestión de proyectos) | Coordinación operativa | Sí | Solo **Gestión de novedades** (sin tablero ni calendario como menú principal). Ve solicitudes de sus **clientes asignados**. Aprueba tipos operativos (Hora extra, disponibilidad, etc.) | No | No | Sí (**solo lectura** de sus clientes asignados) | No |
-| **Analista de conciliaciones** | Conciliaciones / facturación | Sí | **No** (solo módulo Conciliaciones) | No | No | No | No |
-| **Nómina** | Área financiera / nómina | Sí | Tablero, calendario y gestión. Ve **todas las áreas**. **No** aprueba solicitudes de novedades: solo **verifica** donde aplique; en **Conciliaciones** aprueba o rechaza cierres en etapa nómina | No | No | Sí (lectura: calculadora y bajas, reporte de rotación) | No |
+| **Analista de conciliaciones** | Conciliaciones / facturación | Sí | **No** (solo módulo Conciliaciones — **CRUD completo**) | No | No | No | No |
+| **Nómina** | Área financiera / nómina | Sí | Tablero, calendario y gestión. Ve **todas las áreas**. **No** aprueba solicitudes de novedades: solo **verifica** donde aplique; en **Conciliaciones** tiene **solo lectura** de todo el módulo | No | No | Sí (lectura: calculadora y bajas, reporte de rotación) | No |
 | **Consultor** (Microsoft) | Externo | Redirige a **`/consultor`**, no al admin staff | Radicación y seguimiento en portal consultor | No | No | No | No |
 
 ---
@@ -72,7 +72,11 @@ Pueden **aprobar o rechazar cualquier tipo** según las validaciones del sistema
 Al entrar a **`/admin`** con sesión válida, según el rol aparecen tarjetas como:
 
 - **Gestión de Novedades** — quien tenga permiso de novedades.
-- **Conciliaciones** — roles con panel `conciliaciones`, **Nómina**, **Analista de conciliaciones**, o acceso admin de novedades (super_admin, CAC, Admin CH, etc.). Flujo de cierre: **Analista** envía a nómina → **Nómina** aprueba (`APROBADO_FINANZAS`) o devuelve para ajuste. En revisión de cierre, **Analista de conciliaciones** ve **todas** las novedades aprobadas que impactan la factura del periodo (misma visibilidad que nómina en ese desglose).
+- **Conciliaciones** — panel `conciliaciones` o paneles de novedades admin. RBAC del módulo (`src/conciliaciones/conciliacionRbac.js`):
+  - **`analista_conciliaciones`**: CRUD completo (todos los clientes).
+  - **`gp`**: CRUD completo en sus **clientes asignados** (aprobar, ajustes, correo líder, export, marcar conciliada, revertir, servicios).
+  - **`nomina`**: **solo lectura** de todo el módulo (alcance wide); sin mutaciones.
+  - **`super_admin` / `cac`**: elevated / CRUD.
 - **Módulo Comercial** — cotizador; **no** aplica a **CAC**, **GP**, **Nómina**, ni a **Admin CH** ni **Equipo CH** (solo quienes tienen rol pensado para comercial o super administrador).
 - **Capital Humano Onboarding (monitor n8n)** — contratación en tiempo real desde DynamoDB; **sí** aplica a **Admin CH** y **Equipo CH**; **no** aplica a **CAC**.
 - **Onboarding (maestro de personal)** — módulo madre con personal activo, bajas, SENA, staff, licencias, calculadora, extranjeros, pólizas y capacitaciones. Aplica a **Super administrador**, **CAC**, **Admin CH**, **Equipo CH**; **GP** y **Nómina** ven el módulo en modo lectura con su alcance.
@@ -84,8 +88,9 @@ El rol efectivo sale del **nombre del grupo** en Cognito (debe coincidir con `sr
 
 | Negocio / etapa en Conciliaciones | Grupo Cognito | ¿Existe hoy? |
 |-----------------------------------|---------------|--------------|
-| **Finanzas** (aprobar/rechazar `APROBADO_FINANZAS`) | **`nomina`** | Sí — no crear grupo `finanzas`; es el mismo rol |
-| **Analista** (ajustes, enviar a nómina, export, marcar conciliada) | **`analista_conciliaciones`** | **Crear** y asignar usuarios nuevos |
+| **Lectura** (todo el módulo, sin mutar) | **`nomina`** | Sí |
+| **CRUD** (analista) | **`analista_conciliaciones`** | Sí |
+| **CRUD** (alcance clientes asignados) | **`gp`** | Sí |
 
 Reglas:
 

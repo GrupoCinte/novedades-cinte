@@ -78,7 +78,10 @@ function buildConciliacionCorreoLiderEvent({
     cierreHtml,
     columnas,
     sentBy,
-    frontendUrl
+    frontendUrl,
+    plazoLabel,
+    ttlHours,
+    expiraAt
 }) {
     const email = String(destinatario?.email || '').trim().toLowerCase();
     const nombre = String(destinatario?.nombre || '').trim();
@@ -94,6 +97,9 @@ function buildConciliacionCorreoLiderEvent({
         tableHtml: String(tableHtml || ''),
         cierreHtml: String(cierreHtml || ''),
         columnas: Array.isArray(columnas) ? columnas.map(String) : [],
+        plazoLabel: plazoLabel != null ? String(plazoLabel) : null,
+        ttlHours: ttlHours != null ? Number(ttlHours) : null,
+        expiraAt: expiraAt != null ? String(expiraAt) : null,
         servicio: {
             id: String(servicioId || ''),
             serviceName: String(servicioName || '').trim(),
@@ -112,7 +118,67 @@ function buildConciliacionCorreoLiderEvent({
     };
 }
 
+function buildConciliacionStakeholdersAvisoEvent({
+    kind,
+    servicioId,
+    servicioName,
+    cliente,
+    anio,
+    mes,
+    recipients,
+    lider,
+    sentBy,
+    aprobados,
+    rechazados,
+    frontendUrl
+}) {
+    const adminBase = String(frontendUrl || '').trim() || 'http://localhost:5175';
+    const recipientList = (Array.isArray(recipients) ? recipients : [])
+        .map((r) => ({
+            name: String(r?.name || r?.nombre || '').trim(),
+            email: String(r?.email || '').trim().toLowerCase()
+        }))
+        .filter((r) => r.email.includes('@'));
+
+    const k = String(kind || 'enviada').trim().toLowerCase();
+    return {
+        eventType: 'conciliacion_stakeholders_aviso',
+        eventId: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        kind: ['enviada', 'aprobada', 'rechazada', 'parcial'].includes(k) ? k : 'enviada',
+        conciliacionServicioId: String(servicioId || ''),
+        recipients: recipientList,
+        servicio: {
+            id: String(servicioId || ''),
+            serviceName: String(servicioName || '').trim(),
+            cliente: String(cliente || '').trim(),
+            anio: Number(anio),
+            mes: Number(mes)
+        },
+        lider: {
+            email: String(lider?.email || '').trim().toLowerCase() || null,
+            nombre: String(lider?.nombre || lider?.name || '').trim() || null
+        },
+        sentBy: {
+            email: String(sentBy?.email || '').trim() || null,
+            nombre: String(sentBy?.nombre || sentBy?.name || '').trim() || null
+        },
+        resumen: {
+            aprobados: Number(aprobados) || 0,
+            rechazados: Number(rechazados) || 0
+        },
+        admin: {
+            actionUrl: `${adminBase}/admin/conciliaciones/facturacion?cliente=${encodeURIComponent(String(cliente || ''))}`
+        },
+        meta: {
+            source: 'backend-express',
+            env: process.env.NODE_ENV || 'development'
+        }
+    };
+}
+
 module.exports = {
     buildConciliacionServicioFinalizadaEvent,
-    buildConciliacionCorreoLiderEvent
+    buildConciliacionCorreoLiderEvent,
+    buildConciliacionStakeholdersAvisoEvent
 };

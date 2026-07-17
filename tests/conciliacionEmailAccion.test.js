@@ -1,38 +1,51 @@
 'use strict';
 
-const { test, beforeEach, afterEach } = require('node:test');
+const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
     buildActionUrl,
     attachActionUrlsToEvent,
     resolveEmailActionTokenTtlMs,
+    formatEmailActionTokenTtlLabel,
     hashToken,
     assertTokenRowValid,
     executeEmailActionTransactional,
-    lockEmailActionToken,
     consumeEmailActionTokenLocked
 } = require('../src/conciliaciones/conciliacionEmailAccion');
 const { sanitizeAuditPath, sanitizeAuditUrl } = require('../src/runtimeAudit');
 
 const ENV_KEYS = ['CONCILIACION_EMAIL_TOKEN_TTL_HOURS', 'CONCILIACION_EMAIL_TOKEN_TTL_DAYS'];
 
-test('buildActionUrl genera landing con token y acción', () => {
-    const url = buildActionUrl('https://novedades.example.com', 'abc123', 'approve');
-    assert.match(url, /^https:\/\/novedades\.example\.com\/conciliaciones\/email-accion\?token=abc123&accion=approve$/);
+test('buildActionUrl genera landing con token y acción view', () => {
+    const url = buildActionUrl('https://novedades.example.com', 'abc123', 'view');
+    assert.match(url, /^https:\/\/novedades\.example\.com\/conciliaciones\/email-accion\?token=abc123&accion=view$/);
 });
 
-test('attachActionUrlsToEvent añade URLs approve/reject', () => {
+test('attachActionUrlsToEvent añade viewUrl y plazo', () => {
     const event = {
         eventType: 'conciliacion_correo_lider',
         eventId: 'evt-1',
         asunto: 'Test'
     };
-    const tokens = { approve: 'tok-a', reject: 'tok-r' };
+    const tokens = {
+        view: 'tok-view',
+        plazoLabel: '3 días',
+        ttlHours: 72,
+        expiraAt: new Date('2026-07-20T00:00:00.000Z')
+    };
     const out = attachActionUrlsToEvent(event, tokens, 'http://localhost:5175');
-    assert.ok(out.actions.approveUrl.includes('tok-a'));
-    assert.ok(out.actions.rejectUrl.includes('accion=reject'));
+    assert.ok(out.actions.viewUrl.includes('tok-view'));
+    assert.ok(out.actions.viewUrl.includes('accion=view'));
+    assert.equal(out.plazoLabel, '3 días');
+    assert.equal(out.ttlHours, 72);
     assert.equal(out.asunto, 'Test');
+});
+
+test('formatEmailActionTokenTtlLabel: 72h → 3 días', () => {
+    assert.equal(formatEmailActionTokenTtlLabel(72 * 60 * 60 * 1000), '3 días');
+    assert.equal(formatEmailActionTokenTtlLabel(48 * 60 * 60 * 1000), '2 días');
+    assert.equal(formatEmailActionTokenTtlLabel(5 * 60 * 60 * 1000), '5 horas');
 });
 
 test('resolveEmailActionTokenTtlMs: default 72 h', () => {
@@ -70,14 +83,18 @@ test('resolveEmailActionTokenTtlMs: CONCILIACION_EMAIL_TOKEN_TTL_HOURS tiene pri
 
 test('assertTokenRowValid: enlace ya usado → 410', () => {
     assert.throws(
-        () => assertTokenRowValid({ usado_at: new Date(), accion: 'approve' }, 'approve'),
+        () => assertTokenRowValid({ usado_at: new Date(), accion: 'view' }, 'view'),
         (e) => e.status === 410
     );
 });
 
 test('assertTokenRowValid: acción incorrecta → 400', () => {
     assert.throws(
-        () => assertTokenRowValid({ accion: 'reject', usado_at: null, expira_at: new Date(Date.now() + 3600000) }, 'approve'),
+        () =>
+            assertTokenRowValid(
+                { accion: 'view', usado_at: null, expira_at: new Date(Date.now() + 3600000) },
+                'approve'
+            ),
         (e) => e.status === 400
     );
 });
@@ -89,7 +106,7 @@ test('sanitizeAuditPath enmascara token hex en path legacy', () => {
 });
 
 test('sanitizeAuditUrl enmascara token en query', () => {
-    const url = '/api/conciliaciones/email-accion/context?token=secret123&accion=approve';
+    const url = '/api/conciliaciones/email-accion/context?token=secret123&accion=view';
     assert.match(sanitizeAuditUrl(url), /token=\[redacted\]/);
     assert.doesNotMatch(sanitizeAuditUrl(url), /secret123/);
 });
@@ -108,7 +125,8 @@ test('executeEmailActionTransactional: segundo consumo falla con 409', async () 
         accion: 'approve',
         recipient_email: 'lider@test.com',
         usado_at: null,
-        expira_at: new Date(Date.now() + 86400000)
+        expira_at: new Date(Date.now() + 86400000),
+        columnas_json: null
     };
 
     const client = {

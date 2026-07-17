@@ -9,6 +9,7 @@ const CONCILIACION_EMAIL_COLUMNS = [
     { key: 'tarifaCliente', label: 'Tarifa prorrateada', defaultSelected: true, format: 'cop' },
     { key: 'novedadesSumCop', label: 'Deducción', defaultSelected: true, format: 'cop' },
     { key: 'novedadesSumaCop', label: 'Incremento', defaultSelected: true, format: 'cop' },
+    { key: 'novedadesTipos', label: 'Novedades', defaultSelected: true },
     { key: 'facturaCop', label: 'Factura neta', defaultSelected: true, format: 'cop' },
     { key: 'estado', label: 'Estado', defaultSelected: false },
     { key: 'facturaFv', label: 'FV', defaultSelected: false }
@@ -75,13 +76,73 @@ function normalizeColumnKeys(columnas) {
     return out;
 }
 
+/** Formatea creado_en en America/Bogota: dd/mm/yyyy HH:mm */
+function formatCreadoEnBogota(isoOrDate) {
+    if (!isoOrDate) return '';
+    const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
+    if (Number.isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('es-CO', {
+        timeZone: 'America/Bogota',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    }).formatToParts(d);
+    const get = (type) => parts.find((p) => p.type === type)?.value || '';
+    const day = get('day');
+    const month = get('month');
+    const year = get('year');
+    const hour = get('hour');
+    const minute = get('minute');
+    if (!day || !month || !year) return '';
+    return `${day}/${month}/${year} ${hour}:${minute}`;
+}
+
+/**
+ * Líneas de texto para la celda Novedades (una por carga).
+ * Prefiere novedadesDetalle; fallback a tipos únicos / count.
+ */
+function formatNovedadesCellLines(row) {
+    const detalle = Array.isArray(row?.novedadesDetalle) ? row.novedadesDetalle : [];
+    if (detalle.length) {
+        return detalle
+            .map((d) => {
+                const tipo = String(d?.tipo || '').trim();
+                if (!tipo) return '';
+                const when = formatCreadoEnBogota(d?.creadoEn || d?.creado_en);
+                return when ? `${tipo} · ${when}` : tipo;
+            })
+            .filter(Boolean);
+    }
+    const raw = row?.novedadesTipos;
+    if (Array.isArray(raw)) {
+        const tipos = raw.map((t) => String(t || '').trim()).filter(Boolean);
+        if (tipos.length) return [tipos.join(', ')];
+    } else {
+        const asText = String(raw || '').trim();
+        if (asText) return [asText];
+    }
+    const cnt = Number(row?.novedadesCount) || 0;
+    if (cnt > 0) return [`${cnt} aprobada${cnt === 1 ? '' : 's'}`];
+    return ['Sin novedades'];
+}
+
 function formatCellValue(row, col) {
     const key = col.key;
     if (key === 'diasFacturables') {
-        if (row?.prorrateoAplicado) {
-            return `${row.diasFacturables ?? ''}/${row.diasMes ?? ''}`;
+        const dias = row?.diasFacturables;
+        const diasMes = row?.diasMes;
+        if (row?.prorrateoAplicado && diasMes != null && diasMes !== '') {
+            return `${dias ?? ''}/${diasMes}`;
         }
-        return row?.diasMes != null ? String(row.diasMes) : '';
+        if (dias != null && dias !== '') return String(dias);
+        if (diasMes != null && diasMes !== '') return String(diasMes);
+        return '';
+    }
+    if (key === 'novedadesTipos') {
+        return formatNovedadesCellLines(row).join('\n');
     }
     const val = row?.[key];
     if (col.format === 'cop') return formatCop(val);
@@ -101,10 +162,15 @@ function buildConciliacionEmailTableHtml(rows, columnKeys) {
     const body = (Array.isArray(rows) ? rows : [])
         .map((row) => {
             const cells = cols
-                .map(
-                    (c) =>
-                        `<td style="padding:8px 10px;border:1px solid #e2e8f0;font-size:12px;color:#334155;">${escapeHtml(formatCellValue(row, c))}</td>`
-                )
+                .map((c) => {
+                    let inner;
+                    if (c.key === 'novedadesTipos') {
+                        inner = formatNovedadesCellLines(row).map(escapeHtml).join('<br>');
+                    } else {
+                        inner = escapeHtml(formatCellValue(row, c));
+                    }
+                    return `<td style="padding:8px 10px;border:1px solid #e2e8f0;font-size:12px;color:#334155;">${inner}</td>`;
+                })
                 .join('');
             return `<tr>${cells}</tr>`;
         })
@@ -137,6 +203,9 @@ module.exports = {
     monthLabelShort,
     formatCop,
     escapeHtml,
+    formatCreadoEnBogota,
+    formatNovedadesCellLines,
+    formatCellValue,
     DEFAULT_ASUNTO_TEMPLATE,
     DEFAULT_INTRO_TEMPLATE,
     DEFAULT_CIERRE_TEMPLATE

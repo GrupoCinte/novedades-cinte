@@ -64,6 +64,10 @@ function assertConciliacionesRouteDeps(deps) {
         'markConciliacionServicioEnviadaForScope',
         'markConciliacionServicioConciliadaForScope',
         'enviarConciliacionServicioCorreoForScope',
+        'getConciliacionEmailAccionContext',
+        'decideConciliacionEmailAccion',
+        'decideMasivoConciliacionEmailAccion',
+        'finalizeConciliacionEmailAccion',
         'getConciliacionEmailPlantillaCorreoLiderForScope',
         'upsertConciliacionEmailPlantillaCorreoLiderForScope'
     ];
@@ -691,72 +695,75 @@ function registerConciliacionesRoutes(deps) {
     });
 
     const {
-        getEmailActionContext,
-        executeEmailActionApprove,
-        executeEmailActionReject
-    } = require('./conciliacionEmailAccion');
-    const emailActionPool = deps.pool;
+        getConciliacionEmailAccionContext,
+        decideConciliacionEmailAccion,
+        decideMasivoConciliacionEmailAccion,
+        finalizeConciliacionEmailAccion
+    } = deps;
     const emailAccionLimiter =
         typeof deps.emailAccionLimiter === 'function' ? deps.emailAccionLimiter : (_req, _res, next) => next();
 
     app.get('/api/conciliaciones/email-accion/context', emailAccionLimiter, async (req, res) => {
-        if (!emailActionPool) {
-            return res.status(503).json({ ok: false, error: 'Servicio no disponible' });
-        }
         const token = String(req.query.token || '').trim();
         if (!token) {
             return res.status(400).json({ ok: false, error: 'Token requerido' });
         }
         try {
-            const ctx = await getEmailActionContext({ pool: emailActionPool }, token);
+            const ctx = await getConciliacionEmailAccionContext(token);
             return res.json({ ok: true, ...ctx });
         } catch (e) {
             const status = e.status || 500;
-            return res.status(status).json({ ok: false, error: e.message || 'Enlace no v?lido' });
+            return res.status(status).json({ ok: false, error: e.message || 'Enlace no válido' });
         }
     });
 
-    app.post('/api/conciliaciones/email-accion/approve', emailAccionLimiter, async (req, res) => {
-        if (!emailActionPool) {
-            return res.status(503).json({ ok: false, error: 'Servicio no disponible' });
-        }
+    app.post('/api/conciliaciones/email-accion/decide', emailAccionLimiter, async (req, res) => {
         const token = String(req.body?.token || '').trim();
         if (!token) {
             return res.status(400).json({ ok: false, error: 'Token requerido' });
         }
         try {
-            const out = await executeEmailActionApprove(
-                { pool: emailActionPool },
-                { role: 'super_admin' },
-                token
-            );
+            const out = await decideConciliacionEmailAccion(token, {
+                cedula: req.body?.cedula,
+                decision: req.body?.decision,
+                observacion: req.body?.observacion
+            });
             return res.json({ ok: true, ...out });
         } catch (e) {
             const status = e.status || 500;
-            return res.status(status).json({ ok: false, error: e.message || 'No se pudo aprobar' });
+            return res.status(status).json({ ok: false, error: e.message || 'No se pudo registrar la decisión' });
         }
     });
 
-    app.post('/api/conciliaciones/email-accion/reject', emailAccionLimiter, async (req, res) => {
-        if (!emailActionPool) {
-            return res.status(503).json({ ok: false, error: 'Servicio no disponible' });
-        }
+    app.post('/api/conciliaciones/email-accion/decide-masivo', emailAccionLimiter, async (req, res) => {
         const token = String(req.body?.token || '').trim();
         if (!token) {
             return res.status(400).json({ ok: false, error: 'Token requerido' });
         }
         try {
-            const observacion = String(req.body?.observacion || '').trim();
-            const out = await executeEmailActionReject(
-                { pool: emailActionPool },
-                { role: 'super_admin' },
-                token,
-                observacion
-            );
+            const out = await decideMasivoConciliacionEmailAccion(token, {
+                decision: req.body?.decision,
+                observacion: req.body?.observacion,
+                cedulas: req.body?.cedulas
+            });
             return res.json({ ok: true, ...out });
         } catch (e) {
             const status = e.status || 500;
-            return res.status(status).json({ ok: false, error: e.message || 'No se pudo rechazar' });
+            return res.status(status).json({ ok: false, error: e.message || 'No se pudo registrar la decisión masiva' });
+        }
+    });
+
+    app.post('/api/conciliaciones/email-accion/finalize', emailAccionLimiter, async (req, res) => {
+        const token = String(req.body?.token || '').trim();
+        if (!token) {
+            return res.status(400).json({ ok: false, error: 'Token requerido' });
+        }
+        try {
+            const out = await finalizeConciliacionEmailAccion(token);
+            return res.json({ ok: true, ...out });
+        } catch (e) {
+            const status = e.status || 500;
+            return res.status(status).json({ ok: false, error: e.message || 'No se pudo finalizar' });
         }
     });
 }

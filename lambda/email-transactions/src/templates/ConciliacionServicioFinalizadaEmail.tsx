@@ -112,7 +112,7 @@ export function ConciliacionServicioFinalizadaEmail({ payload }: Props) {
             ) : null}
             <Section className="mt-7 text-center">
               <Button href={actionUrl} className="rounded-md bg-[#004D87] px-6 py-3 text-sm font-semibold text-white">
-                Abrir facturación del servicio
+                Abrir conciliación del servicio
               </Button>
             </Section>
             <Text className="mt-4 break-all text-center text-xs text-slate-500">

@@ -169,6 +169,116 @@ async function tryNotifyServiciosCompletos(deps, scope, { clienteCanon, anio, me
     return { notified };
 }
 
+/** Grupos Cognito que reciben aviso de conciliación (no roles de tabla users). */
+const STAKEHOLDER_COGNITO_GROUPS = ['gp', 'cac', 'super_admin'];
+
+/**
+ * Destinatarios stakeholders solo desde Cognito (ListUsersInGroup).
+ * @param {object} deps
+ * @returns {Promise<{ email: string, name: string }[]>}
+ */
+async function collectStakeholderRecipients(deps) {
+    const { listEmailsFromCognitoGroups } = require('../notifications/resolveApproverEmailsFromCognito');
+    const cognitoClient = deps?.cognitoClient || null;
+    const userPoolId = deps?.cognitoUserPoolId || deps?.userPoolId || '';
+    if (typeof deps?.listStakeholderEmailsFromCognito === 'function') {
+        const custom = await deps.listStakeholderEmailsFromCognito(STAKEHOLDER_COGNITO_GROUPS);
+        if (Array.isArray(custom?.recipients)) return custom.recipients;
+        if (Array.isArray(custom)) {
+            return custom
+                .map((r) =>
+                    typeof r === 'string'
+                        ? { email: r.trim().toLowerCase(), name: r.trim().toLowerCase() }
+                        : {
+                              email: String(r?.email || '')
+                                  .trim()
+                                  .toLowerCase(),
+                              name: String(r?.name || r?.email || '').trim()
+                          }
+                )
+                .filter((r) => r.email.includes('@'));
+        }
+    }
+
+    const out = await listEmailsFromCognitoGroups({
+        cognitoClient,
+        userPoolId,
+        groupNames: STAKEHOLDER_COGNITO_GROUPS
+    });
+    if (!(out.recipients || []).length) {
+        console.warn('[conciliaciones/email] Sin destinatarios Cognito en grupos', {
+            groups: STAKEHOLDER_COGNITO_GROUPS,
+            insights: out.insights
+        });
+    }
+    return out.recipients || [];
+}
+
+async function notifyStakeholdersConciliacionAviso(deps, payload) {
+    const { emailNotificationsPublisher, frontendUrl } = deps;
+    const { buildConciliacionStakeholdersAvisoEvent } = require('../notifications/conciliacionEmailEvents');
+    const stakeholders = await collectStakeholderRecipients(deps);
+    const extra = Array.isArray(payload?.extraRecipients) ? payload.extraRecipients : [];
+    const seen = new Set();
+    const recipients = [];
+    for (const r of [...stakeholders, ...extra]) {
+        const email = String(r?.email || '')
+            .trim()
+            .toLowerCase();
+        if (!email.includes('@') || seen.has(email)) continue;
+        seen.add(email);
+        recipients.push({ email, name: String(r?.name || r?.nombre || '').trim() || email });
+    }
+    if (!recipients.length) {
+        console.warn('[conciliaciones/email] Sin destinatarios stakeholders', { kind: payload?.kind });
+        return { accepted: false, skipped: true, reason: 'no_recipients' };
+    }
+
+    const eventPayload = buildConciliacionStakeholdersAvisoEvent({
+        ...payload,
+        recipients,
+        frontendUrl
+    });
+
+    try {
+        const pub = await emailNotificationsPublisher?.publishConciliacionStakeholdersAviso?.(eventPayload);
+        return pub || { accepted: false, skipped: true, reason: 'no_publisher' };
+    } catch (e) {
+        console.error('[conciliaciones/email] Error publicando conciliacion_stakeholders_aviso', e);
+        return { accepted: false, skipped: true, reason: e?.message || 'error' };
+    }
+}
+
+async function notifyStakeholdersConciliacionEnviada(deps, opts) {
+    return notifyStakeholdersConciliacionAviso(deps, {
+        kind: 'enviada',
+        servicioId: opts.servicioId,
+        servicioName: opts.servicioName,
+        cliente: opts.cliente,
+        anio: opts.anio,
+        mes: opts.mes,
+        lider: { email: opts.liderEmail, nombre: opts.liderNombre },
+        sentBy: opts.sentBy
+    });
+}
+
+async function notifyStakeholdersConciliacionDecision(deps, opts) {
+    return notifyStakeholdersConciliacionAviso(deps, {
+        kind: opts.kind || 'aprobada',
+        servicioId: opts.servicioId,
+        servicioName: opts.servicioName,
+        cliente: opts.cliente,
+        anio: opts.anio,
+        mes: opts.mes,
+        lider: { email: opts.liderEmail, nombre: opts.liderEmail },
+        aprobados: opts.aprobados,
+        rechazados: opts.rechazados,
+        extraRecipients: opts.liderEmail
+            ? [{ email: opts.liderEmail, name: opts.liderEmail }]
+            : []
+    });
+}
+
 module.exports = {
     tryNotifyServiciosCompletos,
     isServicioCompletoFinanzas,
@@ -177,5 +287,10 @@ module.exports = {
     deriveEstadoCola,
     normalizeCedulaLocal,
     wasServicioNotificacionSent,
-    markServicioNotificacionSent
+    markServicioNotificacionSent,
+    STAKEHOLDER_COGNITO_GROUPS,
+    collectStakeholderRecipients,
+    notifyStakeholdersConciliacionAviso,
+    notifyStakeholdersConciliacionEnviada,
+    notifyStakeholdersConciliacionDecision
 };

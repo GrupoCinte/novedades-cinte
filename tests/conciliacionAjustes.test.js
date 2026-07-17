@@ -115,8 +115,9 @@ test('parseAjustesFromFacturacionRow normaliza JSON', () => {
     assert.deepEqual(a.montosNovedadOverride, { abc: 100 });
 });
 
-test('canEditConciliacionAjustes solo analista y super_admin en PENDIENTE/DEVUELTA', () => {
+test('canEditConciliacionAjustes analista/gp/super_admin en PENDIENTE/DEVUELTA; nomina no', () => {
     assert.equal(canEditConciliacionAjustes('analista_conciliaciones', 'PENDIENTE'), true);
+    assert.equal(canEditConciliacionAjustes('gp', 'PENDIENTE'), true);
     assert.equal(canEditConciliacionAjustes('super_admin', 'DEVUELTA'), true);
     assert.equal(canEditConciliacionAjustes('nomina', 'PENDIENTE'), false);
     assert.equal(canEditConciliacionAjustes('analista_conciliaciones', 'APROBADO_ANALISTA'), false);

@@ -29,7 +29,9 @@ function createDataLayer(deps) {
         canRoleViewType,
         getAreaFromRole,
         emailNotificationsPublisher = null,
-        frontendUrl = ''
+        frontendUrl = '',
+        cognitoClient = null,
+        cognitoUserPoolId = ''
     } = deps;
 
     async function ensureUserRoleEnumValues() {
@@ -889,17 +891,53 @@ function createDataLayer(deps) {
                     servicio_id      TEXT NOT NULL,
                     anio             INTEGER NOT NULL,
                     mes              INTEGER NOT NULL,
-                    accion           VARCHAR(20) NOT NULL CHECK (accion IN ('approve', 'reject')),
+                    accion           VARCHAR(20) NOT NULL,
                     recipient_email  TEXT NOT NULL,
                     event_id         TEXT NULL,
                     usado_at         TIMESTAMPTZ NULL,
                     expira_at        TIMESTAMPTZ NOT NULL,
                     observacion      TEXT NULL,
+                    columnas_json    JSONB NULL,
                     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
             `);
             await pool.query(
                 'CREATE INDEX IF NOT EXISTS idx_conc_email_acc_servicio ON conciliaciones_email_acciones(servicio_id, anio, mes)'
+            );
+            await pool.query(
+                `ALTER TABLE conciliaciones_email_acciones
+                 ADD COLUMN IF NOT EXISTS columnas_json JSONB NULL`
+            );
+            // Ampliar CHECK legacy approve/reject → incluir view (drop/recreate constraint si existe)
+            try {
+                await pool.query(
+                    `ALTER TABLE conciliaciones_email_acciones DROP CONSTRAINT IF EXISTS conciliaciones_email_acciones_accion_check`
+                );
+                await pool.query(
+                    `ALTER TABLE conciliaciones_email_acciones
+                     ADD CONSTRAINT conciliaciones_email_acciones_accion_check
+                     CHECK (accion IN ('approve', 'reject', 'view'))`
+                );
+            } catch (e) {
+                console.warn('[Conciliaciones] No se pudo actualizar CHECK accion email_acciones:', e?.message || e);
+            }
+
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_email_decisiones (
+                    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    token_id         UUID NOT NULL REFERENCES conciliaciones_email_acciones(id) ON DELETE CASCADE,
+                    servicio_id      TEXT NOT NULL,
+                    anio             INTEGER NOT NULL,
+                    mes              INTEGER NOT NULL,
+                    cedula           TEXT NOT NULL,
+                    decision         VARCHAR(20) NOT NULL CHECK (decision IN ('APROBADO', 'RECHAZADO')),
+                    observacion      TEXT NULL,
+                    decided_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_conc_email_decision_token_cedula UNIQUE (token_id, cedula)
+                )
+            `);
+            await pool.query(
+                'CREATE INDEX IF NOT EXISTS idx_conc_email_dec_token ON conciliaciones_email_decisiones(token_id)'
             );
         } catch (error) {
             if (String(error?.code || '') === '42501') {
@@ -2714,6 +2752,8 @@ function createDataLayer(deps) {
         getFestivosSet: () => festivosService.getFestivosSet(),
         emailNotificationsPublisher,
         frontendUrl: String(frontendUrl || '').trim(),
+        cognitoClient,
+        cognitoUserPoolId: String(cognitoUserPoolId || '').trim(),
         listServicios: (scope) => serviciosDynamoData.listServicios(conciliacionesDeps, scope),
         getConciliacionResumenPorClienteMes: (...args) =>
             conciliacionesQueries.getConciliacionResumenPorClienteMes(...args)
@@ -2836,6 +2876,26 @@ function createDataLayer(deps) {
     async function enviarConciliacionServicioCorreoForScope(scope, payload, actor) {
         const { enviarCorreoConciliacionServicio } = require('./conciliaciones/conciliacionServicioEmail');
         return enviarCorreoConciliacionServicio(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function getConciliacionEmailAccionContext(token) {
+        const { getEmailActionContext } = require('./conciliaciones/conciliacionEmailAccion');
+        return getEmailActionContext(conciliacionesDeps, token);
+    }
+
+    async function decideConciliacionEmailAccion(token, payload) {
+        const { executeEmailActionDecide } = require('./conciliaciones/conciliacionEmailAccion');
+        return executeEmailActionDecide(conciliacionesDeps, token, payload);
+    }
+
+    async function decideMasivoConciliacionEmailAccion(token, payload) {
+        const { executeEmailActionDecideMasivo } = require('./conciliaciones/conciliacionEmailAccion');
+        return executeEmailActionDecideMasivo(conciliacionesDeps, token, payload);
+    }
+
+    async function finalizeConciliacionEmailAccion(token) {
+        const { executeEmailActionFinalize } = require('./conciliaciones/conciliacionEmailAccion');
+        return executeEmailActionFinalize(conciliacionesDeps, { role: 'super_admin' }, token);
     }
 
     async function getConciliacionEmailPlantillaCorreoLiderForScope(scope) {
@@ -3020,6 +3080,10 @@ function createDataLayer(deps) {
         markConciliacionServicioEnviadaForScope,
         markConciliacionServicioConciliadaForScope,
         enviarConciliacionServicioCorreoForScope,
+        getConciliacionEmailAccionContext,
+        decideConciliacionEmailAccion,
+        decideMasivoConciliacionEmailAccion,
+        finalizeConciliacionEmailAccion,
         getConciliacionEmailPlantillaCorreoLiderForScope,
         upsertConciliacionEmailPlantillaCorreoLiderForScope,
         listConciliacionesFacturacionForScope,

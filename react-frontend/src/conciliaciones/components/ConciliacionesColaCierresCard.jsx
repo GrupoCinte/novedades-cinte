@@ -5,6 +5,7 @@ import ConciliacionesFacturacionEstadosResumen from './ConciliacionesFacturacion
 import ConciliacionesServicioCierreEstados, {
     ConciliacionesServicioCierreAcciones
 } from './ConciliacionesServicioCierreEstados.jsx';
+import ConciliacionesEmailTokenCountdown from './ConciliacionesEmailTokenCountdown.jsx';
 import { CINTE_BTN_PRIMARY, CINTE_PROGRESS_FILL, CINTE_CHIP_BLUE } from '../conciliacionesLayout.js';
 
 function formatCop(n) {
@@ -110,6 +111,14 @@ export default function ConciliacionesColaCierresCard({
                         item.estadoCola === 'CONCILIADA' ||
                         ['LISTO_EXPORT', 'ENVIADA', 'CONCILIADA'].includes(String(item.estadoServicio || '').toUpperCase())
                     }
+                    isLight={isLight}
+                    compact
+                />
+                <ConciliacionesEmailTokenCountdown
+                    emailExpiraAt={item.emailExpiraAt}
+                    emailUsadoAt={item.emailUsadoAt}
+                    estadoServicio={item.estadoServicio}
+                    liderDecisiones={item.liderDecisiones}
                     isLight={isLight}
                     compact
                 />

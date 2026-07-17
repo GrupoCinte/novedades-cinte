@@ -158,3 +158,25 @@ test('resolveFilaEstadoDisplay hereda Enviada del servicio en filas finanzas', a
     const conciliada = resolveFilaEstadoDisplay('APROBADO_FINANZAS', 'CONCILIADA');
     assert.equal(conciliada.label, 'Conciliada');
 });
+
+test('resolveFilaEstadoDisplay: LISTO_EXPORT no pisa Conciliada ni Devuelta', async () => {
+    const { resolveFilaEstadoDisplay } = await import('../react-frontend/src/conciliaciones/facturacionLogic.js');
+
+    const conc = resolveFilaEstadoDisplay('CONCILIADA', 'LISTO_EXPORT');
+    assert.equal(conc.label, 'Conciliada');
+
+    const dev = resolveFilaEstadoDisplay('DEVUELTA', 'LISTO_EXPORT');
+    assert.equal(dev.label, 'Devuelta');
+
+    const apr = resolveFilaEstadoDisplay('APROBADO_ANALISTA', 'LISTO_EXPORT');
+    assert.equal(apr.label, 'Aprobado Analista');
+});
+
+test('resolveTarjetaCierreBadge prioriza devoluciones sobre Listo export', async () => {
+    const { resolveTarjetaCierreBadge } = await import('../react-frontend/src/conciliaciones/facturacionLogic.js');
+    const badge = resolveTarjetaCierreBadge({
+        estadoServicio: 'LISTO_EXPORT',
+        estadoCola: 'DEVUELTA'
+    });
+    assert.equal(badge.chipKey, 'DEVUELTA');
+});

@@ -1,4 +1,4 @@
-import { SESClient, SendEmailCommand } from '@aws-sdk/client-ses';
+import { SESClient } from '@aws-sdk/client-ses';
 import { render } from '@react-email/render';
 import * as React from 'react';
 import { UserConfirmationEmail } from './templates/UserConfirmationEmail.js';
@@ -6,6 +6,8 @@ import { AdminNotificationEmail } from './templates/AdminNotificationEmail.js';
 import { UserStatusUpdateEmail } from './templates/UserStatusUpdateEmail.js';
 import { ConciliacionCorreoLiderEmail } from './templates/ConciliacionCorreoLiderEmail.js';
 import { ConciliacionServicioFinalizadaEmail } from './templates/ConciliacionServicioFinalizadaEmail.js';
+import { ConciliacionStakeholdersAvisoEmail } from './templates/ConciliacionStakeholdersAvisoEmail.js';
+import { sendHtmlEmailWithInlineLogo } from './sesSend.js';
 const sesClient = new SESClient({ region: process.env.AWS_REGION || 'us-east-1' });
 const fromEmail = String(process.env.SES_FROM_EMAIL || '').trim();
 const adminToCsv = String(process.env.EMAIL_ADMIN_TO_CSV || '').trim();
@@ -59,6 +61,29 @@ function parseConciliacionServicioFinalizada(data) {
         throw new Error('admin.actionUrl requerido');
     return data;
 }
+function parseConciliacionStakeholdersAviso(data) {
+    if (data?.eventType !== 'conciliacion_stakeholders_aviso') {
+        throw new Error('eventType invalido');
+    }
+    if (!data?.eventId)
+        throw new Error('eventId requerido');
+    if (!String(data?.conciliacionServicioId || '').trim())
+        throw new Error('conciliacionServicioId requerido');
+    const kind = String(data?.kind || '').trim();
+    if (!['enviada', 'aprobada', 'rechazada', 'parcial'].includes(kind)) {
+        throw new Error('kind invalido');
+    }
+    const recipients = data.recipients;
+    if (!Array.isArray(recipients) || recipients.length === 0)
+        throw new Error('recipients requerido');
+    for (const r of recipients) {
+        if (!String(r?.email || '').includes('@'))
+            throw new Error('recipients.email invalido');
+    }
+    if (!String(data?.servicio?.cliente || '').trim())
+        throw new Error('servicio.cliente requerido');
+    return data;
+}
 function parseEventPayload(rawEvent) {
     const payload = parseRawPayload(rawEvent);
     const data = payload;
@@ -67,6 +92,9 @@ function parseEventPayload(rawEvent) {
     }
     if (data?.eventType === 'conciliacion_servicio_finalizada') {
         return parseConciliacionServicioFinalizada(data);
+    }
+    if (data?.eventType === 'conciliacion_stakeholders_aviso') {
+        return parseConciliacionStakeholdersAviso(data);
     }
     if (data?.eventType !== 'form_submitted' && data?.eventType !== 'form_status_changed') {
         throw new Error('eventType invalido');
@@ -142,35 +170,69 @@ export const handler = async (event) => {
         if (payload.eventType === 'conciliacion_correo_lider') {
             const html = await render(React.createElement(ConciliacionCorreoLiderEmail, { payload }));
             const subject = String(payload.asunto || '').trim();
-            const command = new SendEmailCommand({
-                Source: fromEmail,
-                Destination: { ToAddresses: [String(payload.recipient.email).trim()] },
-                Message: {
-                    Subject: { Data: subject, Charset: 'UTF-8' },
-                    Body: { Html: { Data: html, Charset: 'UTF-8' } }
-                }
+            const result = await sendHtmlEmailWithInlineLogo(sesClient, {
+                from: fromEmail,
+                to: String(payload.recipient.email).trim(),
+                subject,
+                html
             });
-            const result = await sesClient.send(command);
             return json(200, {
                 ok: true,
                 eventId: payload.eventId,
                 messageIds: { to: result.MessageId || null }
             });
         }
+        if (payload.eventType === 'conciliacion_stakeholders_aviso') {
+            const html = await render(React.createElement(ConciliacionStakeholdersAvisoEmail, { payload }));
+            const ml = monthLabel(payload.servicio.anio, payload.servicio.mes);
+            const kindLabel = payload.kind === 'enviada'
+                ? 'enviada al líder'
+                : payload.kind === 'aprobada'
+                    ? 'aprobada'
+                    : payload.kind === 'rechazada'
+                        ? 'rechazada'
+                        : 'cerrada parcial';
+            const subject = `Conciliación ${kindLabel} — ${payload.servicio.cliente} / ${payload.servicio.serviceName} (${ml})`;
+            const settled = await Promise.allSettled(payload.recipients.map((r) => sendHtmlEmailWithInlineLogo(sesClient, {
+                from: fromEmail,
+                to: String(r.email).trim(),
+                subject,
+                html
+            })));
+            const messageIds = {};
+            const failures = [];
+            for (let i = 0; i < settled.length; i += 1) {
+                const to = String(payload.recipients[i]?.email || '').trim();
+                const entry = settled[i];
+                if (entry.status === 'rejected') {
+                    const err = entry.reason;
+                    failures.push({ to, message: err?.message || String(entry.reason) });
+                    continue;
+                }
+                messageIds[to] = entry.value.MessageId || null;
+            }
+            if (failures.length > 0) {
+                return json(500, {
+                    ok: false,
+                    eventId: payload.eventId,
+                    errorType: 'PartialOrFullEmailFailure',
+                    message: 'Uno o más correos de aviso de conciliación no se pudieron enviar.',
+                    messageIds,
+                    failures
+                });
+            }
+            return json(200, { ok: true, eventId: payload.eventId, messageIds });
+        }
         if (payload.eventType === 'conciliacion_servicio_finalizada') {
             const html = await render(React.createElement(ConciliacionServicioFinalizadaEmail, { payload }));
             const ml = monthLabel(payload.servicio.anio, payload.servicio.mes);
             const subject = `Conciliación finalizada — ${payload.servicio.cliente} / ${payload.servicio.serviceName} (${ml})`;
-            const message = {
-                Subject: { Data: subject, Charset: 'UTF-8' },
-                Body: { Html: { Data: html, Charset: 'UTF-8' } }
-            };
-            const commands = payload.recipients.map((r) => new SendEmailCommand({
-                Source: fromEmail,
-                Destination: { ToAddresses: [String(r.email).trim()] },
-                Message: message
-            }));
-            const settled = await Promise.allSettled(commands.map((cmd) => sesClient.send(cmd)));
+            const settled = await Promise.allSettled(payload.recipients.map((r) => sendHtmlEmailWithInlineLogo(sesClient, {
+                from: fromEmail,
+                to: String(r.email).trim(),
+                subject,
+                html
+            })));
             const messageIds = {};
             const failures = [];
             for (let i = 0; i < settled.length; i += 1) {
@@ -198,15 +260,12 @@ export const handler = async (event) => {
         if (payload.eventType === 'form_status_changed') {
             const userHtml = await render(React.createElement(UserStatusUpdateEmail, { payload }));
             const subject = `Actualizacion de solicitud ${payload.novedadId}: ${payload.formData.estado}`;
-            const userCommand = new SendEmailCommand({
-                Source: fromEmail,
-                Destination: { ToAddresses: [payload.user.email] },
-                Message: {
-                    Subject: { Data: subject, Charset: 'UTF-8' },
-                    Body: { Html: { Data: userHtml, Charset: 'UTF-8' } }
-                }
+            const userResult = await sendHtmlEmailWithInlineLogo(sesClient, {
+                from: fromEmail,
+                to: payload.user.email,
+                subject,
+                html: userHtml
             });
-            const userResult = await sesClient.send(userCommand);
             return json(200, {
                 ok: true,
                 eventId: payload.eventId,
@@ -216,17 +275,15 @@ export const handler = async (event) => {
             });
         }
         const userHtml = await render(React.createElement(UserConfirmationEmail, { payload }));
-        const userCommand = new SendEmailCommand({
-            Source: fromEmail,
-            Destination: { ToAddresses: [payload.user.email] },
-            Message: {
-                Subject: { Data: `Solicitud Radicada - ${payload.formData.tipoNovedad}`, Charset: 'UTF-8' },
-                Body: { Html: { Data: userHtml, Charset: 'UTF-8' } }
-            }
-        });
+        const userSubject = `Solicitud Radicada - ${payload.formData.tipoNovedad}`;
         const adminRecipients = resolveAdminRecipientsForSubmitted(payload);
         if (adminRecipients.length === 0) {
-            const userOnly = await sesClient.send(userCommand);
+            const userOnly = await sendHtmlEmailWithInlineLogo(sesClient, {
+                from: fromEmail,
+                to: payload.user.email,
+                subject: userSubject,
+                html: userHtml
+            });
             console.warn('[email-transactions] Sin destinatarios admin (notifyTo vacío y sin EMAIL_ADMIN_TO*)', {
                 eventId: payload.eventId
             });
@@ -242,23 +299,28 @@ export const handler = async (event) => {
         }
         const adminHtml = await render(React.createElement(AdminNotificationEmail, { payload }));
         const adminSubject = `Nueva solicitud ${payload.formData.tipoNovedad} - ${payload.novedadId}`;
-        const adminMessage = {
-            Subject: { Data: adminSubject, Charset: 'UTF-8' },
-            Body: { Html: { Data: adminHtml, Charset: 'UTF-8' } }
-        };
-        const adminCommands = adminRecipients.map((to) => new SendEmailCommand({
-            Source: fromEmail,
-            Destination: { ToAddresses: [to] },
-            Message: adminMessage
-        }));
         const taskSpecs = [
-            { role: 'user', to: payload.user.email, promise: sesClient.send(userCommand) }
+            {
+                role: 'user',
+                to: payload.user.email,
+                promise: sendHtmlEmailWithInlineLogo(sesClient, {
+                    from: fromEmail,
+                    to: payload.user.email,
+                    subject: userSubject,
+                    html: userHtml
+                })
+            }
         ];
-        for (let i = 0; i < adminCommands.length; i += 1) {
+        for (const to of adminRecipients) {
             taskSpecs.push({
                 role: 'admin',
-                to: adminRecipients[i],
-                promise: sesClient.send(adminCommands[i])
+                to,
+                promise: sendHtmlEmailWithInlineLogo(sesClient, {
+                    from: fromEmail,
+                    to,
+                    subject: adminSubject,
+                    html: adminHtml
+                })
             });
         }
         const settled = await Promise.allSettled(taskSpecs.map((t) => t.promise));

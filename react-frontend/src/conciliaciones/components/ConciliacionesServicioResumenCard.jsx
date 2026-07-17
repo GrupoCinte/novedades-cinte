@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import ConciliacionesServicioCierreEstados from './ConciliacionesServicioCierreEstados.jsx';
+import ConciliacionesEmailTokenCountdown from './ConciliacionesEmailTokenCountdown.jsx';
 import ConciliacionesMetricCards from './ConciliacionesMetricCards.jsx';
 import { ESTADOS_SERVICIO_META } from '../facturacionLogic.js';
 
@@ -41,6 +42,9 @@ export default function ConciliacionesServicioResumenCard({
     consultoresCount = 0,
     servicioCompleto = false,
     estadoServicio = 'EN_REVISION',
+    emailExpiraAt = null,
+    emailUsadoAt = null,
+    liderDecisiones = null,
     diasBaseMes = null,
     diasBaseLabel = null,
     festivosAplicados = false,
@@ -151,6 +155,16 @@ export default function ConciliacionesServicioResumenCard({
                     isLight={isLight}
                     compact
                 />
+                <div className="mt-2">
+                    <ConciliacionesEmailTokenCountdown
+                        emailExpiraAt={emailExpiraAt}
+                        emailUsadoAt={emailUsadoAt}
+                        estadoServicio={estadoServicio}
+                        liderDecisiones={liderDecisiones}
+                        isLight={isLight}
+                        compact
+                    />
+                </div>
             </div>
 
             {expanded ? (

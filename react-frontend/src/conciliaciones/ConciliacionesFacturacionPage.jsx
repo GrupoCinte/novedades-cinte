@@ -90,7 +90,12 @@ function colaItemToServicio(item) {
         baseHours: item.baseHours,
         estadoServicio: item.estadoServicio,
         enviadaAt: item.enviadaAt,
-        conciliadaAt: item.conciliadaAt
+        conciliadaAt: item.conciliadaAt,
+        emailTokenCreatedAt: item.emailTokenCreatedAt,
+        emailExpiraAt: item.emailExpiraAt,
+        emailUsadoAt: item.emailUsadoAt,
+        emailRecipient: item.emailRecipient,
+        liderDecisiones: item.liderDecisiones
     };
 }
 
@@ -114,6 +119,15 @@ function novedadesDetalleFromApi(value) {
 export default function ConciliacionesFacturacionPage({ token, auth }) {
     const [searchParams] = useSearchParams();
     const clienteQuery = useMemo(() => String(searchParams.get('cliente') || '').trim(), [searchParams]);
+    const estadoServicioQuery = useMemo(
+        () => String(searchParams.get('estadoServicio') || '').trim().toUpperCase(),
+        [searchParams]
+    );
+    const seguimientoQuery = useMemo(
+        () => String(searchParams.get('seguimiento') || '').trim().toUpperCase(),
+        [searchParams]
+    );
+    const mesQuery = useMemo(() => String(searchParams.get('mes') || '').trim(), [searchParams]);
 
     const mt = useModuleTheme();
     const { isLight, headingAccent, labelMuted, field } = mt;
@@ -125,7 +139,10 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
 
     const [clientes, setClientes] = useState([]);
     const [cliente, setCliente] = useState('');
-    const [monthValue, setMonthValue] = useState(currentMonthValue);
+    const [monthValue, setMonthValue] = useState(() => {
+        const mq = String(new URLSearchParams(window.location.search).get('mes') || '').trim();
+        return /^\d{4}-\d{2}$/.test(mq) ? mq : currentMonthValue();
+    });
     const [rows, setRows] = useState([]);
     const [totales, setTotales] = useState(null);
     const [loadingList, setLoadingList] = useState(true);
@@ -143,6 +160,8 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
     const [fLiderCola, setFLiderCola] = useState('');
     const [fBillingModeCola, setFBillingModeCola] = useState('');
     const [fBillingTypeCola, setFBillingTypeCola] = useState('');
+    const [fSeguimientoCola, setFSeguimientoCola] = useState('');
+    const [fEstadoServicioCola, setFEstadoServicioCola] = useState('');
     const [colaLideresCatalogo, setColaLideresCatalogo] = useState([]);
 
     const [servicioSel, setServicioSel] = useState(null);
@@ -180,9 +199,19 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
             fSearchCola,
             fLiderCola,
             fBillingMode: fBillingModeCola,
-            fBillingType: fBillingTypeCola
+            fBillingType: fBillingTypeCola,
+            fSeguimientoCola,
+            fEstadoServicio: fEstadoServicioCola
         }),
-        [fEstadoCola, fSearchCola, fLiderCola, fBillingModeCola, fBillingTypeCola]
+        [
+            fEstadoCola,
+            fSearchCola,
+            fLiderCola,
+            fBillingModeCola,
+            fBillingTypeCola,
+            fSeguimientoCola,
+            fEstadoServicioCola
+        ]
     );
 
     const handleResetFilters = useCallback(() => {
@@ -200,6 +229,8 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         setFLiderCola('');
         setFBillingModeCola('');
         setFBillingTypeCola('');
+        setFSeguimientoCola('');
+        setFEstadoServicioCola('');
     }, []);
 
     const filteredColaItems = useMemo(() => filterColaCierres(colaItems, colaFilters), [colaItems, colaFilters]);
@@ -312,6 +343,26 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         }
     }, [clientes, clienteQuery]);
 
+    useEffect(() => {
+        if (mesQuery && /^\d{4}-\d{2}$/.test(mesQuery)) {
+            setMonthValue(mesQuery);
+        }
+    }, [mesQuery]);
+
+    useEffect(() => {
+        const allowed = new Set(['EN_REVISION', 'LISTO_EXPORT', 'ENVIADA', 'CONCILIADA']);
+        if (estadoServicioQuery && allowed.has(estadoServicioQuery)) {
+            setFEstadoServicioCola(estadoServicioQuery);
+            setFSeguimientoCola('');
+        } else if (!estadoServicioQuery) {
+            // no-op: keep current unless cleared via URL without param on first load only
+        }
+        if (seguimientoQuery === 'ESPERANDO_LIDER' || seguimientoQuery === 'CON_DEVOLUCIONES') {
+            setFSeguimientoCola(seguimientoQuery);
+            setFEstadoServicioCola('');
+        }
+    }, [estadoServicioQuery, seguimientoQuery]);
+
     const loadCola = useCallback(async (options = {}) => {
         const { background = false } = options;
         if (!ym.year || !ym.month) {
@@ -348,7 +399,9 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
         if (
             match.estadoServicio !== servicioSel.estadoServicio ||
             match.enviadaAt !== servicioSel.enviadaAt ||
-            match.conciliadaAt !== servicioSel.conciliadaAt
+            match.conciliadaAt !== servicioSel.conciliadaAt ||
+            match.emailExpiraAt !== servicioSel.emailExpiraAt ||
+            match.emailUsadoAt !== servicioSel.emailUsadoAt
         ) {
             setServicioSel((prev) =>
                 prev
@@ -356,12 +409,25 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                           ...prev,
                           estadoServicio: match.estadoServicio,
                           enviadaAt: match.enviadaAt,
-                          conciliadaAt: match.conciliadaAt
+                          conciliadaAt: match.conciliadaAt,
+                          emailExpiraAt: match.emailExpiraAt,
+                          emailUsadoAt: match.emailUsadoAt,
+                          emailTokenCreatedAt: match.emailTokenCreatedAt,
+                          emailRecipient: match.emailRecipient,
+                          liderDecisiones: match.liderDecisiones
                       }
                     : prev
             );
         }
-    }, [colaItems, servicioSel?.id, servicioSel?.estadoServicio, servicioSel?.enviadaAt, servicioSel?.conciliadaAt]);
+    }, [
+        colaItems,
+        servicioSel?.id,
+        servicioSel?.estadoServicio,
+        servicioSel?.enviadaAt,
+        servicioSel?.conciliadaAt,
+        servicioSel?.emailExpiraAt,
+        servicioSel?.emailUsadoAt
+    ]);
 
     const handleClienteChange = useCallback(
         (nextCliente) => {
@@ -1120,6 +1186,21 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                                     <p className={`text-sm font-semibold ${headingAccent}`}>Cola de cierres — {monthLabel}</p>
                                     <p className={`text-xs ${labelMuted}`}>
                                         {filteredColaItems.length} servicio{filteredColaItems.length === 1 ? '' : 's'}
+                                        {fEstadoServicioCola
+                                            ? ` · filtro: ${
+                                                  {
+                                                      EN_REVISION: 'En revisión',
+                                                      LISTO_EXPORT: 'Listo export',
+                                                      ENVIADA: 'Enviada',
+                                                      CONCILIADA: 'Conciliada'
+                                                  }[fEstadoServicioCola] || fEstadoServicioCola
+                                              }`
+                                            : ''}
+                                        {fSeguimientoCola === 'ESPERANDO_LIDER'
+                                            ? ' · filtro: Esperando líder'
+                                            : fSeguimientoCola === 'CON_DEVOLUCIONES'
+                                              ? ' · filtro: Con devoluciones'
+                                              : ''}
                                     </p>
                                 </div>
                             </div>
@@ -1137,6 +1218,10 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                     onBillingModeChange={setFBillingModeCola}
                     fBillingType={fBillingTypeCola}
                     onBillingTypeChange={setFBillingTypeCola}
+                    fSeguimientoCola={fSeguimientoCola}
+                    onSeguimientoColaChange={setFSeguimientoCola}
+                    fEstadoServicioCola={fEstadoServicioCola}
+                    onEstadoServicioColaChange={setFEstadoServicioCola}
                     onResetColaFilters={handleResetColaFilters}
                     lideresOpciones={servicioSel ? workspaceLideresOpciones : colaLideresOpciones}
                     fSearch={fSearch}
@@ -1233,6 +1318,9 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                             consultoresCount={rowsConciliacion.length}
                             servicioCompleto={workspaceReadonly}
                             estadoServicio={servicioSel?.estadoServicio}
+                            emailExpiraAt={servicioSel?.emailExpiraAt}
+                            emailUsadoAt={servicioSel?.emailUsadoAt}
+                            liderDecisiones={servicioSel?.liderDecisiones}
                             diasBaseMes={diasBaseServicio.diasBaseMes}
                             diasBaseLabel={diasBaseServicio.diasBaseLabel}
                             festivosAplicados={diasBaseServicio.festivosAplicados}

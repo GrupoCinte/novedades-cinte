@@ -19,6 +19,8 @@ export function ConciliacionCorreoLiderEmail({ payload }: Props) {
   const svc = payload.servicio;
   const ml = monthLabel(svc.anio, svc.mes);
   const recipientName = payload.recipient?.name || 'Líder';
+  const viewUrl = payload.actions?.viewUrl;
+  const plazoLabel = payload.plazoLabel || (payload.ttlHours ? `${payload.ttlHours} horas` : null);
 
   return (
     <Html>
@@ -46,53 +48,28 @@ export function ConciliacionCorreoLiderEmail({ payload }: Props) {
             <Section>
               <div dangerouslySetInnerHTML={{ __html: payload.tableHtml || '' }} />
             </Section>
-            {payload.actions?.approveUrl || payload.actions?.rejectUrl ? (
+            {viewUrl ? (
               <Section className="mt-6 text-center">
-                <table role="presentation" cellPadding={0} cellSpacing={0} style={{ margin: '0 auto' }}>
-                  <tbody>
-                    <tr>
-                      {payload.actions?.approveUrl ? (
-                        <td style={{ padding: '0 8px 12px' }}>
-                          <a
-                            href={payload.actions.approveUrl}
-                            style={{
-                              display: 'inline-block',
-                              backgroundColor: '#2F7BB8',
-                              color: '#ffffff',
-                              fontSize: '14px',
-                              fontWeight: 600,
-                              textDecoration: 'none',
-                              padding: '12px 24px',
-                              borderRadius: '8px'
-                            }}
-                          >
-                            Aprobar conciliación
-                          </a>
-                        </td>
-                      ) : null}
-                      {payload.actions?.rejectUrl ? (
-                        <td style={{ padding: '0 8px 12px' }}>
-                          <a
-                            href={payload.actions.rejectUrl}
-                            style={{
-                              display: 'inline-block',
-                              backgroundColor: '#ffffff',
-                              color: '#b91c1c',
-                              fontSize: '14px',
-                              fontWeight: 600,
-                              textDecoration: 'none',
-                              padding: '11px 23px',
-                              borderRadius: '8px',
-                              border: '1px solid #fecaca'
-                            }}
-                          >
-                            Rechazar y solicitar corrección
-                          </a>
-                        </td>
-                      ) : null}
-                    </tr>
-                  </tbody>
-                </table>
+                <a
+                  href={viewUrl}
+                  style={{
+                    display: 'inline-block',
+                    backgroundColor: '#2F7BB8',
+                    color: '#ffffff',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    textDecoration: 'none',
+                    padding: '12px 24px',
+                    borderRadius: '8px'
+                  }}
+                >
+                  Visualizar la conciliación
+                </a>
+                {plazoLabel ? (
+                  <Text className="mb-0 mt-4 text-sm text-slate-600">
+                    Tienes {plazoLabel} para revisar y decidir. Tras ese plazo el enlace caduca.
+                  </Text>
+                ) : null}
               </Section>
             ) : null}
             {payload.cierreHtml ? (

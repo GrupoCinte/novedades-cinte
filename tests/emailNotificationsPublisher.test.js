@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
     validateConciliacionServicioFinalizadaPayload,
     validateConciliacionCorreoLiderPayload,
+    validateConciliacionStakeholdersAvisoPayload,
     createEmailNotificationsPublisher
 } = require('../src/notifications/emailNotificationsPublisher');
 
@@ -91,4 +92,37 @@ test('publishConciliacionCorreoLider invoca Lambda cuando está habilitado', asy
     assert.equal(out.accepted, true);
     const parsed = JSON.parse(Buffer.from(invokedPayload).toString('utf8'));
     assert.equal(parsed.eventType, 'conciliacion_correo_lider');
+});
+
+const validStakeholdersPayload = {
+    eventType: 'conciliacion_stakeholders_aviso',
+    eventId: 'evt-aviso-1',
+    kind: 'enviada',
+    occurredAt: new Date().toISOString(),
+    conciliacionServicioId: 'svc-1',
+    recipients: [{ name: 'GP', email: 'gp@example.com' }],
+    servicio: { id: 'svc-1', serviceName: 'DevOps', cliente: 'Cliente X', anio: 2026, mes: 6 },
+    meta: { source: 'test', env: 'test' }
+};
+
+test('validateConciliacionStakeholdersAvisoPayload acepta payload válido', () => {
+    assert.equal(validateConciliacionStakeholdersAvisoPayload(validStakeholdersPayload), true);
+});
+
+test('publishConciliacionStakeholdersAviso invoca Lambda', async () => {
+    let invokedPayload = null;
+    const publisher = createEmailNotificationsPublisher({
+        lambdaClient: {
+            send: async (cmd) => {
+                invokedPayload = cmd.input?.Payload || cmd.Payload;
+                return { StatusCode: 202 };
+            }
+        },
+        functionName: 'email-transactions',
+        enabled: true
+    });
+    const out = await publisher.publishConciliacionStakeholdersAviso(validStakeholdersPayload);
+    assert.equal(out.accepted, true);
+    const parsed = JSON.parse(Buffer.from(invokedPayload).toString('utf8'));
+    assert.equal(parsed.eventType, 'conciliacion_stakeholders_aviso');
 });

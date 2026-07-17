@@ -42,6 +42,66 @@ test('buildConciliacionEmailTableHtml respeta columnas seleccionadas', () => {
     assert.doesNotMatch(html, /1\.000/);
 });
 
+test('formatCellValue novedadesTipos une tipos o Sin novedades', () => {
+    const html = buildConciliacionEmailTableHtml(
+        [
+            { cedula: '1', novedadesTipos: ['Vacaciones', 'Incapacidad'] },
+            { cedula: '2', novedadesTipos: [] }
+        ],
+        ['cedula', 'novedadesTipos']
+    );
+    assert.match(html, /Vacaciones, Incapacidad/);
+    assert.match(html, /Sin novedades/);
+});
+
+test('formatCellValue novedadesDetalle lista tipo + fecha/hora con br', () => {
+    const { formatNovedadesCellLines, formatCreadoEnBogota } = require('../src/conciliaciones/conciliacionEmailColumns');
+    const lines = formatNovedadesCellLines({
+        novedadesDetalle: [
+            { tipo: 'Vacaciones', creadoEn: '2026-07-10T20:42:00.000Z' },
+            { tipo: 'HE', creadoEn: '2026-07-12T14:05:00.000Z' }
+        ]
+    });
+    assert.equal(lines.length, 2);
+    assert.match(lines[0], /^Vacaciones · /);
+    assert.match(lines[1], /^HE · /);
+    assert.ok(formatCreadoEnBogota('2026-07-10T20:42:00.000Z'));
+
+    const html = buildConciliacionEmailTableHtml(
+        [
+            {
+                cedula: '1',
+                novedadesDetalle: [
+                    { tipo: 'Vacaciones', creadoEn: '2026-07-10T20:42:00.000Z' },
+                    { tipo: 'Vacaciones', creadoEn: '2026-07-11T10:00:00.000Z' }
+                ]
+            }
+        ],
+        ['cedula', 'novedadesTipos']
+    );
+    assert.match(html, /Vacaciones · /);
+    assert.match(html, /<br>/);
+    // No colapsa dos cargas del mismo tipo
+    const matches = html.match(/Vacaciones · /g) || [];
+    assert.equal(matches.length, 2);
+});
+
+test('formatCellValue diasFacturables usa diasFacturables si no hay diasMes', () => {
+    const html = buildConciliacionEmailTableHtml(
+        [{ cedula: '1', diasFacturables: 31, prorrateoAplicado: false }],
+        ['cedula', 'diasFacturables']
+    );
+    assert.match(html, />31</);
+});
+
+test('formatCellValue novedadesTipos cae a count si tipos vacíos', () => {
+    const html = buildConciliacionEmailTableHtml(
+        [{ cedula: '1', novedadesTipos: [], novedadesCount: 2 }],
+        ['cedula', 'novedadesTipos']
+    );
+    assert.match(html, /2 aprobadas/);
+});
+
 test('applyTemplateVars sustituye placeholders', () => {
     const out = applyTemplateVars('Hola {nombreLider}, mes {mes}', {
         nombreLider: 'Carlos',
