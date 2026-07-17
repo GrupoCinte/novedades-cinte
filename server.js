@@ -723,6 +723,10 @@ const {
     markConciliacionServicioEnviadaForScope,
     markConciliacionServicioConciliadaForScope,
     enviarConciliacionServicioCorreoForScope,
+    getConciliacionEmailAccionContext,
+    decideConciliacionEmailAccion,
+    decideMasivoConciliacionEmailAccion,
+    finalizeConciliacionEmailAccion,
     getConciliacionEmailPlantillaCorreoLiderForScope,
     upsertConciliacionEmailPlantillaCorreoLiderForScope
 } = createDataLayer({
@@ -906,6 +910,10 @@ if (conciliacionesModuleEnabled) {
         markConciliacionServicioEnviadaForScope,
         markConciliacionServicioConciliadaForScope,
         enviarConciliacionServicioCorreoForScope,
+        getConciliacionEmailAccionContext,
+        decideConciliacionEmailAccion,
+        decideMasivoConciliacionEmailAccion,
+        finalizeConciliacionEmailAccion,
         getConciliacionEmailPlantillaCorreoLiderForScope,
         upsertConciliacionEmailPlantillaCorreoLiderForScope,
         pool,

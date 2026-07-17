@@ -42,6 +42,18 @@ test('buildConciliacionEmailTableHtml respeta columnas seleccionadas', () => {
     assert.doesNotMatch(html, /1\.000/);
 });
 
+test('formatCellValue novedadesTipos une tipos o Sin novedades', () => {
+    const html = buildConciliacionEmailTableHtml(
+        [
+            { cedula: '1', novedadesTipos: ['Vacaciones', 'Incapacidad'] },
+            { cedula: '2', novedadesTipos: [] }
+        ],
+        ['cedula', 'novedadesTipos']
+    );
+    assert.match(html, /Vacaciones, Incapacidad/);
+    assert.match(html, /Sin novedades/);
+});
+
 test('applyTemplateVars sustituye placeholders', () => {
     const out = applyTemplateVars('Hola {nombreLider}, mes {mes}', {
         nombreLider: 'Carlos',

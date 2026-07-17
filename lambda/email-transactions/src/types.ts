@@ -69,7 +69,8 @@ export type TransactionalEmailEvent =
   | FormSubmittedNotificationEvent
   | FormStatusChangedNotificationEvent
   | ConciliacionServicioFinalizadaEvent
-  | ConciliacionCorreoLiderEvent;
+  | ConciliacionCorreoLiderEvent
+  | ConciliacionStakeholdersAvisoEvent;
 
 export interface ConciliacionCorreoLiderEvent {
   eventType: 'conciliacion_correo_lider';
@@ -82,6 +83,9 @@ export interface ConciliacionCorreoLiderEvent {
   tableHtml: string;
   cierreHtml?: string;
   columnas?: string[];
+  plazoLabel?: string | null;
+  ttlHours?: number | null;
+  expiraAt?: string | null;
   servicio: {
     id: string;
     serviceName: string;
@@ -98,8 +102,44 @@ export interface ConciliacionCorreoLiderEvent {
     env: string;
   };
   actions?: {
+    viewUrl?: string;
     approveUrl?: string;
     rejectUrl?: string;
+  };
+}
+
+export interface ConciliacionStakeholdersAvisoEvent {
+  eventType: 'conciliacion_stakeholders_aviso';
+  eventId: string;
+  occurredAt: string;
+  kind: 'enviada' | 'aprobada' | 'rechazada' | 'parcial';
+  conciliacionServicioId: string;
+  recipients: Array<{ name?: string; email: string }>;
+  servicio: {
+    id: string;
+    serviceName: string;
+    cliente: string;
+    anio: number;
+    mes: number;
+  };
+  lider?: {
+    email?: string | null;
+    nombre?: string | null;
+  };
+  sentBy?: {
+    email?: string | null;
+    nombre?: string | null;
+  };
+  resumen?: {
+    aprobados?: number;
+    rechazados?: number;
+  };
+  admin?: {
+    actionUrl?: string;
+  };
+  meta: {
+    source: string;
+    env: string;
   };
 }
 

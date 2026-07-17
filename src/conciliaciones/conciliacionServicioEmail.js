@@ -2,11 +2,13 @@
 
 const { resolveNovedadesBucket, mergeConciliacionServicioRows, filterRowsByServicioLideres } = require('./facturacionAggregate');
 const { assertServicioListoExport, markServicioEnviada } = require('./conciliacionServicioCierre');
-const { markServicioNotificacionSent } = require('./conciliacionServicioNotify');
+const { markServicioNotificacionSent, notifyStakeholdersConciliacionEnviada } = require('./conciliacionServicioNotify');
 const { buildConciliacionCorreoLiderEvent } = require('../notifications/conciliacionEmailEvents');
 const {
-    createEmailActionTokens,
-    attachActionUrlsToEvent
+    createEmailActionViewToken,
+    attachActionUrlsToEvent,
+    formatEmailActionTokenTtlLabel,
+    resolveEmailActionTokenTtlMs
 } = require('./conciliacionEmailAccion');
 const {
     buildConciliacionEmailTableHtml,
@@ -149,6 +151,10 @@ async function enviarCorreoConciliacionServicio(deps, scope, payload, actor) {
     const introHtml = introTextToHtml(introText);
     const cierreHtml = cierreText ? introTextToHtml(cierreText) : '';
 
+    const ttlMs = resolveEmailActionTokenTtlMs();
+    const plazoLabel = formatEmailActionTokenTtlLabel(ttlMs);
+    const ttlHours = Math.round(ttlMs / (60 * 60 * 1000));
+
     const eventPayloadBase = buildConciliacionCorreoLiderEvent({
         servicioId,
         servicioName: serv.serviceName,
@@ -165,17 +171,29 @@ async function enviarCorreoConciliacionServicio(deps, scope, payload, actor) {
             email: actor?.email,
             nombre: actor?.full_name || actor?.name || actor?.nombre
         },
-        frontendUrl
+        frontendUrl,
+        plazoLabel,
+        ttlHours
     });
 
-    const tokens = await createEmailActionTokens(pool, {
+    const tokenInfo = await createEmailActionViewToken(pool, {
         servicioId,
         anio: year,
         mes: month,
         recipientEmail: destEmail,
-        eventId: eventPayloadBase.eventId
+        eventId: eventPayloadBase.eventId,
+        columnas
     });
-    const eventPayload = attachActionUrlsToEvent(eventPayloadBase, tokens, frontendUrl);
+    const eventPayload = attachActionUrlsToEvent(
+        {
+            ...eventPayloadBase,
+            plazoLabel: tokenInfo.plazoLabel,
+            ttlHours: tokenInfo.ttlHours,
+            expiraAt: tokenInfo.expiraAt.toISOString()
+        },
+        tokenInfo,
+        frontendUrl
+    );
 
     let accepted = false;
     try {
@@ -196,6 +214,24 @@ async function enviarCorreoConciliacionServicio(deps, scope, payload, actor) {
 
     await markServicioNotificacionSent(pool, servicioId, year, month, eventPayload.eventId, 'CORREO_LIDER');
 
+    try {
+        await notifyStakeholdersConciliacionEnviada(deps, {
+            servicioId,
+            servicioName: serv.serviceName,
+            cliente: clienteCanon,
+            anio: year,
+            mes: month,
+            liderEmail: destEmail,
+            liderNombre: destNombre,
+            sentBy: {
+                email: actor?.email,
+                nombre: actor?.full_name || actor?.name || actor?.nombre
+            }
+        });
+    } catch (e) {
+        console.error('[conciliaciones/email] Error notificando stakeholders tras envío líder', e);
+    }
+
     const revActor = {
         userId: actor?.id || actor?.sub || null,
         email: actor?.email || '',
@@ -214,6 +250,7 @@ async function enviarCorreoConciliacionServicio(deps, scope, payload, actor) {
         destinatario: { email: destEmail, nombre: destNombre },
         asunto,
         columnas,
+        plazoLabel: tokenInfo.plazoLabel,
         ...cierreApi
     };
 }

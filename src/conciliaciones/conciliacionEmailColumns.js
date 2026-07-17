@@ -9,6 +9,7 @@ const CONCILIACION_EMAIL_COLUMNS = [
     { key: 'tarifaCliente', label: 'Tarifa prorrateada', defaultSelected: true, format: 'cop' },
     { key: 'novedadesSumCop', label: 'Deducción', defaultSelected: true, format: 'cop' },
     { key: 'novedadesSumaCop', label: 'Incremento', defaultSelected: true, format: 'cop' },
+    { key: 'novedadesTipos', label: 'Novedades', defaultSelected: true },
     { key: 'facturaCop', label: 'Factura neta', defaultSelected: true, format: 'cop' },
     { key: 'estado', label: 'Estado', defaultSelected: false },
     { key: 'facturaFv', label: 'FV', defaultSelected: false }
@@ -82,6 +83,15 @@ function formatCellValue(row, col) {
             return `${row.diasFacturables ?? ''}/${row.diasMes ?? ''}`;
         }
         return row?.diasMes != null ? String(row.diasMes) : '';
+    }
+    if (key === 'novedadesTipos') {
+        const raw = row?.novedadesTipos;
+        if (Array.isArray(raw)) {
+            const tipos = raw.map((t) => String(t || '').trim()).filter(Boolean);
+            return tipos.length ? tipos.join(', ') : 'Sin novedades';
+        }
+        const asText = String(raw || '').trim();
+        return asText || 'Sin novedades';
     }
     const val = row?.[key];
     if (col.format === 'cop') return formatCop(val);
