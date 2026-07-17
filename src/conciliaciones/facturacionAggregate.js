@@ -29,10 +29,19 @@ const ALERTA_TIPO_LABELS = {
     devuelta: 'Con devoluciones',
     cierre_vencido: 'Cierre vencido',
     sin_consultores: 'Sin consultores',
-    bajo_avance: 'Bajo avance'
+    bajo_avance: 'Bajo avance',
+    token_vencido: 'Correo líder vencido',
+    token_por_vencer: 'Correo líder por vencer'
 };
 
-const ALERTA_TIPO_ORDER = ['devuelta', 'cierre_vencido', 'sin_consultores', 'bajo_avance'];
+const ALERTA_TIPO_ORDER = [
+    'devuelta',
+    'token_vencido',
+    'cierre_vencido',
+    'token_por_vencer',
+    'sin_consultores',
+    'bajo_avance'
+];
 
 const GAP_CIERRE_ALERT_TIPOS = ['cierre_vencido', 'bajo_avance'];
 
@@ -208,7 +217,31 @@ function filterColaCierres(items, filters = {}) {
     if (bm) out = out.filter((i) => String(i.billingMode || '') === bm);
     const bt = String(filters.fBillingType || '').trim();
     if (bt) out = out.filter((i) => String(i.billingType || '') === bt);
+    const estServ = String(filters.fEstadoServicio || '').trim().toUpperCase();
+    if (estServ) {
+        out = out.filter((i) => String(i.estadoServicio || 'EN_REVISION').trim().toUpperCase() === estServ);
+    }
+    const seg = String(filters.fSeguimientoCola || '').trim().toUpperCase();
+    if (seg === 'ESPERANDO_LIDER') {
+        out = out.filter(isColaItemEsperandoLider);
+    } else if (seg === 'CON_DEVOLUCIONES') {
+        out = out.filter(isColaItemConDevoluciones);
+    }
     return out;
+}
+
+function isColaItemEsperandoLider(item) {
+    const est = String(item?.estadoServicio || '').trim().toUpperCase();
+    if (est !== 'ENVIADA') return false;
+    if (item?.emailUsadoAt) return false;
+    return true;
+}
+
+function isColaItemConDevoluciones(item) {
+    const estados = item?.estados || {};
+    if ((Number(estados.DEVUELTA) || 0) > 0) return true;
+    if ((Number(item?.liderDecisiones?.rechazados) || 0) > 0) return true;
+    return false;
 }
 
 /** Desplaza year/month calendario (month 1-12). */
@@ -328,10 +361,27 @@ function buildClienteStackedChartData(rows, limit = 12, shortLabelFn = null) {
         .slice(0, limit);
 }
 
-function classifyItemAlert(item, refDay) {
+function classifyEmailTokenAlert(item, now = new Date()) {
+    const est = String(item?.estadoServicio || '').trim().toUpperCase();
+    if (est !== 'ENVIADA' || item?.emailUsadoAt) return null;
+    const expiraAt = item?.emailExpiraAt;
+    if (!expiraAt) return null;
+    const expMs = new Date(expiraAt).getTime();
+    if (Number.isNaN(expMs)) return null;
+    const nowMs = now.getTime();
+    if (expMs < nowMs) return 'token_vencido';
+    const hoursLeft = (expMs - nowMs) / (60 * 60 * 1000);
+    if (hoursLeft <= 24) return 'token_por_vencer';
+    return null;
+}
+
+function classifyItemAlert(item, refDay, now = new Date()) {
+    const tokenAlert = classifyEmailTokenAlert(item, now);
+    if (tokenAlert === 'token_vencido') return tokenAlert;
     const progress = colaCierreProgress(item);
     if (item.estadoCola === 'SIN_CONSULTORES') return 'sin_consultores';
     if (item.estadoCola === 'DEVUELTA') return 'devuelta';
+    if (tokenAlert === 'token_por_vencer') return tokenAlert;
     const closingDay = Number(item.closingDay) || 0;
     if (
         (item.consultoresTotal || 0) > 0 &&
@@ -348,11 +398,18 @@ function classifyItemAlert(item, refDay) {
 
 function buildDashboardAlertas(items, { year, month, now = new Date() } = {}) {
     const refDay = referenceDayInSelectedMonth(year, month, now);
-    const counts = { devuelta: 0, cierre_vencido: 0, sin_consultores: 0, bajo_avance: 0 };
+    const counts = {
+        devuelta: 0,
+        cierre_vencido: 0,
+        sin_consultores: 0,
+        bajo_avance: 0,
+        token_vencido: 0,
+        token_por_vencer: 0
+    };
     const allEntries = [];
 
     for (const item of Array.isArray(items) ? items : []) {
-        const tipo = classifyItemAlert(item, refDay);
+        const tipo = classifyItemAlert(item, refDay, now);
         if (!tipo) continue;
         counts[tipo] += 1;
         allEntries.push({
@@ -365,7 +422,14 @@ function buildDashboardAlertas(items, { year, month, now = new Date() } = {}) {
         });
     }
 
-    const severity = { devuelta: 0, cierre_vencido: 1, sin_consultores: 2, bajo_avance: 3 };
+    const severity = {
+        token_vencido: 0,
+        devuelta: 1,
+        cierre_vencido: 2,
+        token_por_vencer: 3,
+        sin_consultores: 4,
+        bajo_avance: 5
+    };
     allEntries.sort((a, b) => severity[a.tipo] - severity[b.tipo] || a.progress - b.progress);
 
     const chartData = ALERTA_TIPO_ORDER.filter((tipo) => counts[tipo] > 0).map((tipo) => ({
@@ -375,6 +439,48 @@ function buildDashboardAlertas(items, { year, month, now = new Date() } = {}) {
     }));
 
     return { counts, entries: allEntries.slice(0, 8), chartData };
+}
+
+const SERVICIO_ESTADO_SEGUIMIENTO = ['EN_REVISION', 'LISTO_EXPORT', 'ENVIADA', 'CONCILIADA'];
+const CONSULTOR_ESTADO_SEGUIMIENTO = [
+    'PENDIENTE',
+    'APROBADO_ANALISTA',
+    'APROBADO_FINANZAS',
+    'DEVUELTA',
+    'CONCILIADA'
+];
+
+/**
+ * Resumen numérico para chips del dashboard (servicio + consultor + token).
+ */
+function buildSeguimientoEstadoResumen(items, now = new Date()) {
+    const porServicio = Object.fromEntries(SERVICIO_ESTADO_SEGUIMIENTO.map((k) => [k, 0]));
+    const porConsultor = Object.fromEntries(CONSULTOR_ESTADO_SEGUIMIENTO.map((k) => [k, 0]));
+    let enviadaVencida = 0;
+    let esperandoLider = 0;
+
+    for (const item of Array.isArray(items) ? items : []) {
+        const est = String(item?.estadoServicio || 'EN_REVISION').trim().toUpperCase();
+        if (porServicio[est] != null) porServicio[est] += 1;
+        else porServicio.EN_REVISION += 1;
+
+        const estados = item?.estados || {};
+        for (const key of CONSULTOR_ESTADO_SEGUIMIENTO) {
+            porConsultor[key] += Number(estados[key]) || 0;
+        }
+
+        if (isColaItemEsperandoLider(item)) {
+            esperandoLider += 1;
+            if (classifyEmailTokenAlert(item, now) === 'token_vencido') enviadaVencida += 1;
+        }
+    }
+
+    return {
+        porServicio,
+        porConsultor,
+        esperandoLider,
+        enviadaVencida
+    };
 }
 
 function buildGapCierreChartData(items, { year, month, now = new Date() } = {}) {
@@ -512,6 +618,10 @@ module.exports = {
     filterColaCierres,
     filterRowsByServicioLideres,
     normalizeLideresList,
+    isColaItemEsperandoLider,
+    isColaItemConDevoluciones,
+    classifyEmailTokenAlert,
+    buildSeguimientoEstadoResumen,
     shiftCalendarMonth,
     resolveNovedadesBucket,
     aggregateDashboardFromColaItems,

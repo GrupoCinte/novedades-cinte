@@ -18,7 +18,7 @@ const POLICY_PANELS_BY_ROLE = {
     admin_ch: ['dashboard', 'calendar', 'gestion', 'contratacion'],
     team_ch: ['dashboard', 'calendar', 'gestion', 'contratacion'],
     comercial: ['comercial'],
-    gp: ['gestion'],
+    gp: ['gestion', 'conciliaciones'],
     nomina: ['dashboard', 'calendar', 'gestion', 'conciliaciones'],
     analista_conciliaciones: ['conciliaciones'],
     /** Entra consultor: sin paneles admin (docs/RBAC_MATRIX.md). */

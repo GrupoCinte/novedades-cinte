@@ -17,6 +17,7 @@ const {
     monthLabel,
     escapeHtml
 } = require('./conciliacionEmailColumns');
+const { canEnviarCorreoConciliacion } = require('./conciliacionRbac');
 
 function normalizeCedulaLocal(value) {
     return String(value || '').replace(/\D/g, '');
@@ -37,7 +38,27 @@ function introTextToHtml(text) {
 async function loadConsultoresRowsForServicio(deps, scope, { servicioId, year, month }) {
     const { listServicios } = deps;
     const servicios = typeof listServicios === 'function' ? await listServicios(scope) : [];
-    const serv = (Array.isArray(servicios) ? servicios : []).find((s) => String(s.id) === String(servicioId));
+    let serv = (Array.isArray(servicios) ? servicios : []).find((s) => String(s.id) === String(servicioId));
+
+    // Fallback: item Dynamo crudo (email action sin listado scoped)
+    if (!serv) {
+        const serviciosDynamo = require('./serviciosDynamoData');
+        const raw = await serviciosDynamo._getServiceById(servicioId);
+        if (raw) {
+            const asociados = Array.isArray(raw.consultores_asociados) ? raw.consultores_asociados : [];
+            serv = {
+                id: raw.id,
+                client: String(raw.client || '').trim(),
+                serviceName: String(raw.serviceName || '').trim(),
+                billingMode: String(raw.billingMode || '').trim(),
+                billingType: raw.billingType ? String(raw.billingType).trim() : '',
+                baseHours: raw.baseHours != null ? Number(raw.baseHours) : null,
+                consultoresCedulas: asociados.map((a) => String(a.cedula || '').trim()).filter(Boolean),
+                lideresAsociados: serviciosDynamo._normalizeLideresAsociados(raw.lideres_asociados)
+            };
+        }
+    }
+
     if (!serv) {
         const error = new Error('Servicio no encontrado');
         error.status = 404;
@@ -68,9 +89,14 @@ async function loadConsultoresRowsForServicio(deps, scope, { servicioId, year, m
         }
     );
 
-    const cedulas = (Array.isArray(serv.consultoresCedulas) ? serv.consultoresCedulas : [])
+    let cedulas = (Array.isArray(serv.consultoresCedulas) ? serv.consultoresCedulas : [])
         .map(normalizeCedulaLocal)
         .filter(Boolean);
+    if (!cedulas.length && Array.isArray(serv.consultores_asociados)) {
+        cedulas = serv.consultores_asociados
+            .map((a) => normalizeCedulaLocal(a?.cedula))
+            .filter(Boolean);
+    }
     const rows = filterRowsByServicioLideres(
         mergeConciliacionServicioRows(resumen.rows || [], cedulas),
         serv.lideresAsociados || serv.lideres_asociados,
@@ -101,7 +127,7 @@ async function enviarCorreoConciliacionServicio(deps, scope, payload, actor) {
     }
 
     const role = String(scope?.role || '').trim().toLowerCase();
-    if (role !== 'analista_conciliaciones' && role !== 'super_admin') {
+    if (!canEnviarCorreoConciliacion(role)) {
         const error = new Error('No autorizado para enviar correo de conciliación');
         error.status = 403;
         throw error;

@@ -78,7 +78,7 @@ export function ConciliacionStakeholdersAvisoEmail({ payload }: Props) {
                     borderRadius: '8px'
                   }}
                 >
-                  Abrir facturación
+                  Abrir conciliación
                 </a>
               </Section>
             ) : null}

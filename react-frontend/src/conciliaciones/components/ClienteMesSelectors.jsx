@@ -64,6 +64,10 @@ export default function ClienteMesSelectors({
     onBillingModeChange = () => {},
     fBillingType = '',
     onBillingTypeChange = () => {},
+    fSeguimientoCola = '',
+    onSeguimientoColaChange = () => {},
+    fEstadoServicioCola = '',
+    onEstadoServicioColaChange = () => {},
     onResetColaFilters = () => {}
 }) {
     const [isOpen, setIsOpen] = useState(false);
@@ -83,6 +87,8 @@ export default function ClienteMesSelectors({
             if (fLiderCola) c += 1;
             if (fBillingMode) c += 1;
             if (fBillingType) c += 1;
+            if (fSeguimientoCola) c += 1;
+            if (fEstadoServicioCola) c += 1;
             if (String(fSearchCola || '').trim()) c += 1;
             return c;
         }
@@ -110,6 +116,8 @@ export default function ClienteMesSelectors({
         fLiderCola,
         fBillingMode,
         fBillingType,
+        fSeguimientoCola,
+        fEstadoServicioCola,
         fSearchCola
     ]);
 
@@ -311,6 +319,44 @@ export default function ClienteMesSelectors({
                                             {label}
                                         </option>
                                     ))}
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="conciliaciones-drawer-cola-estado-servicio" className={dash.filtrosDrawerLabel}>
+                                    Estado del servicio
+                                </label>
+                                <select
+                                    id="conciliaciones-drawer-cola-estado-servicio"
+                                    className={`${field} w-full text-sm`}
+                                    value={fEstadoServicioCola || ''}
+                                    onChange={(e) => {
+                                        onEstadoServicioColaChange(e.target.value);
+                                        if (e.target.value) onSeguimientoColaChange('');
+                                    }}
+                                >
+                                    <option value="">Todos</option>
+                                    <option value="EN_REVISION">En revisión</option>
+                                    <option value="LISTO_EXPORT">Listo export</option>
+                                    <option value="ENVIADA">Enviada</option>
+                                    <option value="CONCILIADA">Conciliada</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="conciliaciones-drawer-cola-seguimiento" className={dash.filtrosDrawerLabel}>
+                                    Seguimiento correo líder
+                                </label>
+                                <select
+                                    id="conciliaciones-drawer-cola-seguimiento"
+                                    className={`${field} w-full text-sm`}
+                                    value={fSeguimientoCola || ''}
+                                    onChange={(e) => {
+                                        onSeguimientoColaChange(e.target.value);
+                                        if (e.target.value) onEstadoServicioColaChange('');
+                                    }}
+                                >
+                                    <option value="">Todos</option>
+                                    <option value="ESPERANDO_LIDER">Esperando líder</option>
+                                    <option value="CON_DEVOLUCIONES">Con devoluciones</option>
                                 </select>
                             </div>
                             <div className="flex flex-col gap-1.5">

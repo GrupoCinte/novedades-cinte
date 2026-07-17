@@ -24,8 +24,10 @@ import {
     buildGapCierreChartData,
     buildLiderClienteStackedChartData,
     buildParetoIngresosChartData,
+    buildSeguimientoEstadoResumen,
     liderClienteChartSeriesKeys
 } from './facturacionAggregate.js';
+import ConciliacionesDashboardSeguimientoChips from './components/dashboard/ConciliacionesDashboardSeguimientoChips.jsx';
 import { fetchColaCierres, fetchDashboardLiderCliente } from './conciliacionesApi.js';
 import { formatCopCached } from './facturacionLogic.js';
 
@@ -72,15 +74,19 @@ export default function ConciliacionesDashboardPage({ token }) {
     const ym = useMemo(() => parseMonthValue(monthValue), [monthValue]);
 
     const openFacturacion = useCallback(
-        (cliente) => {
-            const base = '/admin/conciliaciones/facturacion';
-            if (cliente) {
-                navigate(`${base}?cliente=${encodeURIComponent(cliente)}`);
-            } else {
-                navigate(base);
+        (arg) => {
+            const opts = typeof arg === 'string' ? { cliente: arg } : arg && typeof arg === 'object' ? arg : {};
+            const params = new URLSearchParams();
+            if (opts.cliente) params.set('cliente', String(opts.cliente).trim());
+            if (opts.estadoServicio) params.set('estadoServicio', String(opts.estadoServicio).trim().toUpperCase());
+            if (opts.seguimiento) params.set('seguimiento', String(opts.seguimiento).trim().toUpperCase());
+            if (ym.year && ym.month) {
+                params.set('mes', `${ym.year}-${String(ym.month).padStart(2, '0')}`);
             }
+            const qs = params.toString();
+            navigate(qs ? `/admin/conciliaciones/facturacion?${qs}` : '/admin/conciliaciones/facturacion');
         },
-        [navigate]
+        [navigate, ym.year, ym.month]
     );
 
     const load = useCallback(async (options = {}) => {
@@ -159,6 +165,8 @@ export default function ConciliacionesDashboardPage({ token }) {
 
     const saludData = useMemo(() => buildColaSaludChartData(colaItems), [colaItems]);
 
+    const seguimientoResumen = useMemo(() => buildSeguimientoEstadoResumen(colaItems), [colaItems]);
+
     const stackedData = useMemo(
         () => buildClienteStackedChartData(payload?.rows || [], 12, shortCliente),
         [payload?.rows]
@@ -235,6 +243,16 @@ export default function ConciliacionesDashboardPage({ token }) {
                         </div>
                     ))}
                 </div>
+            ) : null}
+
+            {!loading && hasServicios ? (
+                <ConciliacionesDashboardSeguimientoChips
+                    resumen={seguimientoResumen}
+                    dash={dash}
+                    labelMuted={labelMuted}
+                    isLight={isLight}
+                    onFilterServicio={openFacturacion}
+                />
             ) : null}
 
             {!loading && hasServicios ? (

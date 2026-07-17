@@ -130,6 +130,62 @@ async function createEmailActionTokens(pool, opts) {
     return { view: token.view, approve: null, reject: null, ...token };
 }
 
+function emptyEmailTokenMeta() {
+    return {
+        emailTokenCreatedAt: null,
+        emailExpiraAt: null,
+        emailUsadoAt: null,
+        emailRecipient: null,
+        liderDecisiones: null
+    };
+}
+
+/**
+ * Meta del último token view del servicio/mes (countdown + progreso de decisiones del líder).
+ * @param {object} pool
+ * @param {string} servicioId
+ * @param {number} anio
+ * @param {number} mes
+ * @param {number} [consultoresTotal=0]
+ */
+async function getLatestViewTokenMeta(pool, servicioId, anio, mes, consultoresTotal = 0) {
+    if (!pool || !servicioId) return emptyEmailTokenMeta();
+    const q = await pool.query(
+        `SELECT id, created_at, expira_at, usado_at, recipient_email
+         FROM conciliaciones_email_acciones
+         WHERE servicio_id = $1 AND anio = $2::integer AND mes = $3::integer AND accion = 'view'
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [String(servicioId), Number(anio), Number(mes)]
+    );
+    const row = q.rows[0];
+    if (!row) return emptyEmailTokenMeta();
+
+    const dec = await pool.query(
+        `SELECT UPPER(TRIM(decision)) AS decision, COUNT(*)::int AS n
+         FROM conciliaciones_email_decisiones
+         WHERE token_id = $1
+         GROUP BY UPPER(TRIM(decision))`,
+        [row.id]
+    );
+    let aprobados = 0;
+    let rechazados = 0;
+    for (const r of dec.rows || []) {
+        if (r.decision === 'APROBADO') aprobados = Number(r.n) || 0;
+        if (r.decision === 'RECHAZADO') rechazados = Number(r.n) || 0;
+    }
+    const total = Math.max(0, Number(consultoresTotal) || 0);
+    const pendientes = Math.max(0, total - aprobados - rechazados);
+
+    return {
+        emailTokenCreatedAt: row.created_at ? new Date(row.created_at).toISOString() : null,
+        emailExpiraAt: row.expira_at ? new Date(row.expira_at).toISOString() : null,
+        emailUsadoAt: row.usado_at ? new Date(row.usado_at).toISOString() : null,
+        emailRecipient: row.recipient_email ? String(row.recipient_email).trim().toLowerCase() : null,
+        liderDecisiones: { aprobados, rechazados, pendientes, total }
+    };
+}
+
 function attachActionUrlsToEvent(eventPayload, tokens, frontendUrl) {
     const viewToken = tokens?.view || tokens?.approve;
     const plazoLabel =
@@ -312,6 +368,65 @@ async function markConsultoresDevueltaPorLider(client, { cedulas, anio, mes, obs
     return updated;
 }
 
+/** Consultores aprobados por el líder → CONCILIADA (no heredar «Listo export» del servicio). */
+async function markConsultoresConciliadaPorLider(client, { cedulas, anio, mes, actorEmail, actorNombre }) {
+    const list = [...new Set((cedulas || []).map((c) => normalizeCedulaLocal(c)).filter(Boolean))];
+    if (!list.length) return 0;
+
+    let updated = 0;
+    for (const ced of list) {
+        let rowQ = await client.query(
+            `SELECT id, estado FROM conciliaciones_facturacion
+             WHERE regexp_replace(cedula, '[^0-9]', '', 'g') = $1 AND anio = $2::integer AND mes = $3::integer
+             FOR UPDATE`,
+            [ced, Number(anio), Number(mes)]
+        );
+        let row = rowQ.rows[0];
+        const estadoAnterior = row ? String(row.estado || 'PENDIENTE') : 'PENDIENTE';
+        if (String(estadoAnterior).toUpperCase() === 'CONCILIADA') {
+            updated += 1;
+            continue;
+        }
+
+        if (!row) {
+            const ins = await client.query(
+                `INSERT INTO conciliaciones_facturacion (cedula, anio, mes, estado, fecha_cierre, updated_at)
+                 VALUES ($1, $2::integer, $3::integer, 'CONCILIADA', CURRENT_DATE, NOW())
+                 RETURNING id, estado`,
+                [ced, Number(anio), Number(mes)]
+            );
+            row = ins.rows[0];
+        } else {
+            await client.query(
+                `UPDATE conciliaciones_facturacion
+                 SET estado = 'CONCILIADA', motivo_devolucion = NULL, updated_at = NOW()
+                 WHERE id = $1`,
+                [row.id]
+            );
+        }
+
+        await client.query(
+            `INSERT INTO conciliaciones_facturacion_historial
+                (facturacion_id, cedula, anio, mes, accion, etapa, estado_anterior, estado_nuevo,
+                 observacion, actor_user_id, actor_email, actor_nombre, actor_role, detalle)
+             VALUES ($1, $2, $3, $4, 'aprobar', 'LIDER', $5, 'CONCILIADA', $6, NULL, $7, $8, 'super_admin'::user_role, $9::jsonb)`,
+            [
+                row.id,
+                ced,
+                Number(anio),
+                Number(mes),
+                estadoAnterior,
+                'Aprobado por líder desde correo',
+                String(actorEmail || '').trim(),
+                String(actorNombre || 'Líder cliente').trim(),
+                JSON.stringify({ origen: 'correo_lider' })
+            ]
+        );
+        updated += 1;
+    }
+    return updated;
+}
+
 async function assertServicioEnviadaOnClient(client, servicioId, year, month) {
     const q = await client.query(
         `SELECT estado_servicio FROM conciliaciones_servicio_cierre
@@ -429,8 +544,50 @@ function serializeWorkspaceRow(row, columnas) {
         }
         out[k] = row?.[k];
     }
+    // Helpers de formato (días / novedades) aunque no estén en columnas seleccionadas
+    out.diasFacturables = row?.diasFacturables;
+    out.diasMes = row?.diasMes;
+    out.prorrateoAplicado = Boolean(row?.prorrateoAplicado);
+    out.novedadesCount = Number(row?.novedadesCount) || 0;
+    if (!Array.isArray(out.novedadesTipos)) {
+        out.novedadesTipos = Array.isArray(row?.novedadesTipos) ? row.novedadesTipos : [];
+    }
+    out.novedadesDetalle = Array.isArray(row?.novedadesDetalle)
+        ? row.novedadesDetalle.map((d) => ({
+              tipo: String(d?.tipo || '').trim(),
+              creadoEn: d?.creadoEn || d?.creado_en || null
+          })).filter((d) => d.tipo)
+        : [];
+    if (out.novedadesSumCop == null) out.novedadesSumCop = row?.novedadesSumCop;
+    if (out.novedadesSumaCop == null) out.novedadesSumaCop = row?.novedadesSumaCop;
+    if (out.facturaCop == null) out.facturaCop = row?.facturaCop;
+    if (out.tarifaCliente == null) out.tarifaCliente = row?.tarifaCliente;
     if (!out.cedula && row?.cedula) out.cedula = normalizeCedulaLocal(row.cedula);
+    const estadoFact = String(row?.estado || '').trim().toUpperCase() || 'PENDIENTE';
+    out.estadoFacturacion = estadoFact;
+    // Ya conciliados por el líder en un ciclo anterior: no se reabre aprobar/rechazar
+    out.locked = estadoFact === 'CONCILIADA';
     return out;
+}
+
+async function assertConsultorEditableEnCorreo(client, { cedula, anio, mes }) {
+    const ced = normalizeCedulaLocal(cedula);
+    const q = await client.query(
+        `SELECT estado FROM conciliaciones_facturacion
+         WHERE regexp_replace(cedula, '[^0-9]', '', 'g') = $1
+           AND anio = $2::integer AND mes = $3::integer
+         LIMIT 1`,
+        [ced, Number(anio), Number(mes)]
+    );
+    const estado = String(q.rows[0]?.estado || '').trim().toUpperCase();
+    if (estado === 'CONCILIADA') {
+        const error = new Error(
+            'Este consultor ya está conciliado; solo se pueden decidir las filas pendientes o devueltas'
+        );
+        error.status = 400;
+        throw error;
+    }
+    return estado;
 }
 
 async function getEmailActionContext(deps, rawToken) {
@@ -445,7 +602,7 @@ async function getEmailActionContext(deps, rawToken) {
     const cierre = await getServicioCierreRow(pool, row.servicio_id, row.anio, row.mes);
     const estadoServicio = normalizeEstadoServicio(cierre?.estado_servicio);
 
-    const scope = { role: 'super_admin' };
+    const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
     const { loadConsultoresRowsForServicio } = require('./conciliacionServicioEmail');
     let rows = [];
     let servicioMeta = null;
@@ -473,16 +630,21 @@ async function getEmailActionContext(deps, rawToken) {
     const workspaceRows = rows.map((r) => {
         const ced = normalizeCedulaLocal(r.cedula);
         const d = decisionMap.get(ced);
+        const serialized = serializeWorkspaceRow(r, columnas);
+        const locked = Boolean(serialized.locked);
         return {
-            ...serializeWorkspaceRow(r, columnas),
-            decision: d?.decision || null,
+            ...serialized,
+            // Conciliados previos: se muestran como aprobados y no requieren nueva decisión
+            decision: locked ? d?.decision || 'APROBADO' : d?.decision || null,
             decisionObservacion: d?.observacion || null
         };
     });
 
-    const cedulasAlcance = workspaceRows.map((r) => r.cedula).filter(Boolean);
+    const pendientes = workspaceRows.filter((r) => r.cedula && !r.locked);
     const todosDecididos =
-        cedulasAlcance.length > 0 && cedulasAlcance.every((c) => decisionMap.has(c));
+        pendientes.length === 0
+            ? workspaceRows.length > 0
+            : pendientes.every((r) => decisionMap.has(r.cedula));
     const puedeFinalizar = todosDecididos && estadoServicio === 'ENVIADA' && !row.usado_at;
 
     const ttlMs = resolveEmailActionTokenTtlMs();
@@ -514,6 +676,12 @@ async function executeEmailActionDecide(deps, rawToken, { cedula, decision, obse
         const row = await lockEmailActionToken(client, rawToken);
         assertTokenRowValid(row, 'view');
         await assertServicioEnviadaOnClient(client, row.servicio_id, row.anio, row.mes);
+
+        await assertConsultorEditableEnCorreo(client, {
+            cedula,
+            anio: row.anio,
+            mes: row.mes
+        });
 
         await upsertDecisionLocked(client, {
             tokenId: row.id,
@@ -555,23 +723,36 @@ async function executeEmailActionDecideMasivo(deps, rawToken, { decision, observ
         assertTokenRowValid(row, 'view');
         await assertServicioEnviadaOnClient(client, row.servicio_id, row.anio, row.mes);
 
-        const scope = { role: 'super_admin' };
+        const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
         const { loadConsultoresRowsForServicio } = require('./conciliacionServicioEmail');
         const loaded = await loadConsultoresRowsForServicio(deps, scope, {
             servicioId: row.servicio_id,
             year: row.anio,
             month: row.mes
         });
-        const allCeds = (loaded.rows || []).map((r) => normalizeCedulaLocal(r.cedula)).filter(Boolean);
+        const allRows = loaded.rows || [];
+        const allCeds = allRows.map((r) => normalizeCedulaLocal(r.cedula)).filter(Boolean);
+        const lockedSet = new Set(
+            allRows
+                .filter((r) => String(r.estado || '').toUpperCase() === 'CONCILIADA')
+                .map((r) => normalizeCedulaLocal(r.cedula))
+                .filter(Boolean)
+        );
         const requested = Array.isArray(cedulas)
             ? cedulas.map(normalizeCedulaLocal).filter(Boolean)
             : null;
-        const target = requested?.length
+        let target = requested?.length
             ? allCeds.filter((c) => requested.includes(c))
             : allCeds;
+        // No reabrir conciliados en acciones masivas
+        target = target.filter((c) => !lockedSet.has(c));
 
         if (!target.length) {
-            const error = new Error('No hay consultores para decidir');
+            const error = new Error(
+                lockedSet.size
+                    ? 'No hay consultores pendientes: los conciliados no se pueden volver a decidir'
+                    : 'No hay consultores para decidir'
+            );
             error.status = 400;
             throw error;
         }
@@ -619,14 +800,20 @@ async function executeEmailActionFinalize(deps, scope, rawToken) {
         tokenRow = row;
         await assertServicioEnviadaOnClient(client, row.servicio_id, row.anio, row.mes);
 
-        const loadScope = { role: 'super_admin' };
+        const loadScope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
         const { loadConsultoresRowsForServicio } = require('./conciliacionServicioEmail');
         const loaded = await loadConsultoresRowsForServicio(deps, loadScope, {
             servicioId: row.servicio_id,
             year: row.anio,
             month: row.mes
         });
-        const allCeds = (loaded.rows || []).map((r) => normalizeCedulaLocal(r.cedula)).filter(Boolean);
+        const loadedRows = loaded.rows || [];
+        const allCeds = loadedRows.map((r) => normalizeCedulaLocal(r.cedula)).filter(Boolean);
+        const estadoByCed = new Map(
+            loadedRows.map((r) => [normalizeCedulaLocal(r.cedula), String(r.estado || '').toUpperCase()])
+        );
+        const lockedCeds = allCeds.filter((c) => estadoByCed.get(c) === 'CONCILIADA');
+        const actionableCeds = allCeds.filter((c) => estadoByCed.get(c) !== 'CONCILIADA');
         decisiones = await listDecisionesByTokenId(client, row.id);
         const decisionMap = new Map(decisiones.map((d) => [d.cedula, d]));
 
@@ -635,15 +822,26 @@ async function executeEmailActionFinalize(deps, scope, rawToken) {
             error.status = 400;
             throw error;
         }
-        const missing = allCeds.filter((c) => !decisionMap.has(c));
+        const missing = actionableCeds.filter((c) => !decisionMap.has(c));
         if (missing.length) {
             const error = new Error('Aún hay consultores sin decisión');
             error.status = 400;
             throw error;
         }
 
-        const rechazados = allCeds.filter((c) => decisionMap.get(c)?.decision === 'RECHAZADO');
-        const aprobados = allCeds.filter((c) => decisionMap.get(c)?.decision === 'APROBADO');
+        const rechazados = actionableCeds.filter((c) => decisionMap.get(c)?.decision === 'RECHAZADO');
+        const aprobadosNuevos = actionableCeds.filter((c) => decisionMap.get(c)?.decision === 'APROBADO');
+        const aprobados = [...lockedCeds, ...aprobadosNuevos];
+
+        if (aprobadosNuevos.length) {
+            await markConsultoresConciliadaPorLider(client, {
+                cedulas: aprobadosNuevos,
+                anio: row.anio,
+                mes: row.mes,
+                actorEmail: row.recipient_email,
+                actorNombre: row.recipient_email
+            });
+        }
 
         if (rechazados.length) {
             for (const ced of rechazados) {
@@ -818,6 +1016,8 @@ module.exports = {
     hashToken,
     createEmailActionViewToken,
     createEmailActionTokens,
+    getLatestViewTokenMeta,
+    emptyEmailTokenMeta,
     attachActionUrlsToEvent,
     buildActionUrl,
     getEmailActionContext,

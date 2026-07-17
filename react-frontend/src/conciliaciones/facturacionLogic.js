@@ -319,9 +319,14 @@ export function validateRevisionObservacion(observaciones) {
 }
 
 const ELEVATED_ROLES = new Set(['super_admin', 'cac']);
+const CONCILIACION_WRITE_ROLES = new Set(['analista_conciliaciones', 'gp', 'super_admin', 'cac']);
 
 function normalizeRole(role) {
     return String(role || '').trim().toLowerCase();
+}
+
+function canWriteConciliacion(role) {
+    return CONCILIACION_WRITE_ROLES.has(normalizeRole(role));
 }
 
 function normalizeEstado(estado) {
@@ -336,7 +341,7 @@ function resolveEffectiveEtapa(role, estadoActual) {
         if (est === 'PENDIENTE' || est === 'DEVUELTA') return 'ANALISTA';
         return null;
     }
-    if (r === 'analista_conciliaciones') return 'ANALISTA';
+    if (r === 'analista_conciliaciones' || r === 'gp') return 'ANALISTA';
     return null;
 }
 
@@ -350,7 +355,7 @@ function canRoleActAtEtapa(role, etapaObjetivo) {
     if (!etapa) return false;
     const r = normalizeRole(role);
     if (ELEVATED_ROLES.has(r)) return true;
-    return etapa === 'ANALISTA' && r === 'analista_conciliaciones';
+    return etapa === 'ANALISTA' && (r === 'analista_conciliaciones' || r === 'gp');
 }
 
 /** Elegibilidad por etapa fija (masiva), sin adaptar etapa por fila en roles elevados. */
@@ -380,8 +385,7 @@ function canActOnEstado(role, estadoActual, accion) {
 
 /** Roles que pueden usar aprobación masiva de revisión. */
 export function canUserPerformMasivaRevision(role) {
-    const r = normalizeRole(role);
-    return r === 'analista_conciliaciones' || ELEVATED_ROLES.has(r);
+    return canWriteConciliacion(role);
 }
 
 /** Filas sobre las que el rol puede ejecutar la acción masiva indicada. */
@@ -434,11 +438,10 @@ export function defaultMasivaEtapaObjetivo(role, rows, accion = 'aprobar') {
     return options[0]?.etapaObjetivo || null;
 }
 
-/** Analista o super_admin pueden ajustar montos en PENDIENTE / DEVUELTA. */
+/** Analista, GP o elevated pueden ajustar montos en PENDIENTE / DEVUELTA. */
 export function canEditConciliacionAjustes(role, estado) {
-    const r = normalizeRole(role);
     const est = normalizeEstado(estado);
-    if (r !== 'analista_conciliaciones' && r !== 'super_admin') return false;
+    if (!canWriteConciliacion(role)) return false;
     return est === 'PENDIENTE' || est === 'DEVUELTA';
 }
 
@@ -643,7 +646,7 @@ export function resolveMasivaEtapaForRows(role, rows, accion = 'aprobar', etapaO
     if (!eligible.length) return null;
 
     const r = normalizeRole(role);
-    if (r === 'analista_conciliaciones') return 'ANALISTA';
+    if (r === 'analista_conciliaciones' || r === 'gp') return 'ANALISTA';
     if (ELEVATED_ROLES.has(r)) {
         return defaultMasivaEtapaObjetivo(role, rows, accion);
     }
@@ -1092,10 +1095,9 @@ export function facturacionSuccessMessage(kind, meta = {}) {
     return 'Cambios guardados correctamente.';
 }
 
-/** Solo analista (o super_admin) puede revertir cierres activos. */
+/** Solo analista / GP / elevated pueden revertir cierres activos. */
 export function canRevertConciliacionCierre(role, estado, cerrado = true) {
-    const r = normalizeRole(role);
-    if (r !== 'analista_conciliaciones' && r !== 'super_admin') return false;
+    if (!canWriteConciliacion(role)) return false;
     if (!cerrado) return false;
     const est = normalizeEstado(estado);
     return est !== 'PENDIENTE';
@@ -1117,13 +1119,11 @@ export function isServicioCompletoFinanzas(allRows, cedulas) {
 }
 
 export function canExportServicioCompleto(role) {
-    const r = normalizeRole(role);
-    return r === 'analista_conciliaciones' || r === 'super_admin' || r === 'cac';
+    return canWriteConciliacion(role);
 }
 
 export function canEnviarCorreoServicioCompleto(role) {
-    const r = normalizeRole(role);
-    return r === 'analista_conciliaciones' || r === 'super_admin';
+    return canWriteConciliacion(role);
 }
 
 export const ESTADOS_SERVICIO = ['EN_REVISION', 'LISTO_EXPORT', 'ENVIADA', 'CONCILIADA'];
@@ -1161,8 +1161,7 @@ export function normalizeEstadoServicio(value) {
 }
 
 export function canMarcarServicioConciliada(role, estadoServicio) {
-    const r = normalizeRole(role);
-    if (r !== 'analista_conciliaciones' && r !== 'super_admin') return false;
+    if (!canWriteConciliacion(role)) return false;
     return normalizeEstadoServicio(estadoServicio) === 'ENVIADA';
 }
 
@@ -1189,6 +1188,11 @@ export function resolveTarjetaCierreBadge(item) {
         return { chipKey: 'SERVICIO_ENVIADA', label: 'Enviada' };
     }
     const cola = String(item?.estadoCola || 'PENDIENTE');
+    // Tras rechazo parcial del líder el servicio vuelve a LISTO_EXPORT, pero si hay DEVUELTA
+    // la tarjeta debe reflejar devoluciones (no «Listo export»).
+    if (cola === 'DEVUELTA') {
+        return { chipKey: 'DEVUELTA', label: COLA_ESTADO_LABELS.DEVUELTA || 'Con devoluciones' };
+    }
     if (servicio === 'LISTO_EXPORT' || cola === 'CONCILIADA') {
         return { chipKey: 'SERVICIO_LISTO_EXPORT', label: 'Listo export' };
     }
@@ -1206,26 +1210,29 @@ export function patchColaItemEstadoServicio(items, servicioId, estadoServicio) {
 }
 
 /**
- * Estado visible por fila de consultor: hereda Enviada/Conciliada del servicio
- * cuando el consultor ya está en finanzas.
- * @returns {{ displayKey: string, label: string, workflowEstado: string }}
+ * Estado visible por fila de consultor.
+ * CONCILIADA / ENVIADA del servicio pueden enriquecer filas ya aprobadas.
+ * LISTO_EXPORT es solo estado de servicio (retrabajo): no pisa Aprobado/Conciliada/Devuelta.
  */
 export function resolveFilaEstadoDisplay(rowEstado, estadoServicio) {
     const workflowEstado = normalizeEstado(rowEstado);
     const serv = normalizeEstadoServicio(estadoServicio);
+
+    if (workflowEstado === 'DEVUELTA') {
+        return { displayKey: 'DEVUELTA', label: 'Devuelta', workflowEstado };
+    }
+    if (workflowEstado === 'CONCILIADA') {
+        return { displayKey: 'CONCILIADA', label: 'Conciliada', workflowEstado };
+    }
+
     const revisionOk =
-        workflowEstado === 'APROBADO_ANALISTA' ||
-        workflowEstado === 'APROBADO_FINANZAS' ||
-        workflowEstado === 'CONCILIADA';
+        workflowEstado === 'APROBADO_ANALISTA' || workflowEstado === 'APROBADO_FINANZAS';
 
     if (revisionOk && serv === 'CONCILIADA') {
         return { displayKey: 'CONCILIADA', label: 'Conciliada', workflowEstado };
     }
     if (revisionOk && serv === 'ENVIADA') {
         return { displayKey: 'SERVICIO_ENVIADA', label: 'Enviada', workflowEstado };
-    }
-    if (revisionOk && serv === 'LISTO_EXPORT') {
-        return { displayKey: 'SERVICIO_LISTO_EXPORT', label: 'Listo export', workflowEstado };
     }
 
     const meta = ESTADOS_FACTURACION_META.find((m) => m.key === workflowEstado);

@@ -53,22 +53,69 @@ function formatCop(n) {
     }).format(Number(n) || 0);
 }
 
+/** Formatea creado_en en America/Bogota: dd/mm/yyyy HH:mm */
+export function formatCreadoEnBogota(isoOrDate) {
+    if (!isoOrDate) return '';
+    const d = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
+    if (Number.isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('es-CO', {
+        timeZone: 'America/Bogota',
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    }).formatToParts(d);
+    const get = (type) => parts.find((p) => p.type === type)?.value || '';
+    const day = get('day');
+    const month = get('month');
+    const year = get('year');
+    const hour = get('hour');
+    const minute = get('minute');
+    if (!day || !month || !year) return '';
+    return `${day}/${month}/${year} ${hour}:${minute}`;
+}
+
+export function formatNovedadesCellLines(row) {
+    const detalle = Array.isArray(row?.novedadesDetalle) ? row.novedadesDetalle : [];
+    if (detalle.length) {
+        return detalle
+            .map((d) => {
+                const tipo = String(d?.tipo || '').trim();
+                if (!tipo) return '';
+                const when = formatCreadoEnBogota(d?.creadoEn || d?.creado_en);
+                return when ? `${tipo} · ${when}` : tipo;
+            })
+            .filter(Boolean);
+    }
+    const raw = row?.novedadesTipos;
+    if (Array.isArray(raw)) {
+        const tipos = raw.map((t) => String(t || '').trim()).filter(Boolean);
+        if (tipos.length) return [tipos.join(', ')];
+    } else {
+        const asText = String(raw || '').trim();
+        if (asText) return [asText];
+    }
+    const cnt = Number(row?.novedadesCount) || 0;
+    if (cnt > 0) return [`${cnt} aprobada${cnt === 1 ? '' : 's'}`];
+    return ['Sin novedades'];
+}
+
 function formatCellValue(row, col) {
     const key = col.key;
     if (key === 'diasFacturables') {
-        if (row?.prorrateoAplicado) {
-            return `${row.diasFacturables ?? ''}/${row.diasMes ?? ''}`;
+        const dias = row?.diasFacturables;
+        const diasMes = row?.diasMes;
+        if (row?.prorrateoAplicado && diasMes != null && diasMes !== '') {
+            return `${dias ?? ''}/${diasMes}`;
         }
-        return row?.diasMes != null ? String(row.diasMes) : '';
+        if (dias != null && dias !== '') return String(dias);
+        if (diasMes != null && diasMes !== '') return String(diasMes);
+        return '';
     }
     if (key === 'novedadesTipos') {
-        const raw = row?.novedadesTipos;
-        if (Array.isArray(raw)) {
-            const tipos = raw.map((t) => String(t || '').trim()).filter(Boolean);
-            return tipos.length ? tipos.join(', ') : 'Sin novedades';
-        }
-        const asText = String(raw || '').trim();
-        return asText || 'Sin novedades';
+        return formatNovedadesCellLines(row).join('\n');
     }
     const val = row?.[key];
     if (col.format === 'cop') return formatCop(val);
@@ -84,7 +131,15 @@ export function buildPreviewTableHtml(rows, columnKeys) {
     const head = cols.map((c) => `<th class="px-2 py-1 text-left font-semibold">${c.label}</th>`).join('');
     const body = (Array.isArray(rows) ? rows : [])
         .map((row) => {
-            const cells = cols.map((c) => `<td class="px-2 py-1">${formatCellValue(row, c)}</td>`).join('');
+            const cells = cols
+                .map((c) => {
+                    if (c.key === 'novedadesTipos') {
+                        const lines = formatNovedadesCellLines(row);
+                        return `<td class="px-2 py-1">${lines.join('<br>')}</td>`;
+                    }
+                    return `<td class="px-2 py-1">${formatCellValue(row, c)}</td>`;
+                })
+                .join('');
             return `<tr class="border-t border-slate-200">${cells}</tr>`;
         })
         .join('');

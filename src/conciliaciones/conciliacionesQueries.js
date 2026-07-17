@@ -66,9 +66,11 @@ const {
     mapServicioCierreToApi,
     markServicioConciliada
 } = require('./conciliacionServicioCierre');
+const { getLatestViewTokenMeta } = require('./conciliacionEmailAccion');
+const { isWideConciliacionRole, canRevertConciliacionCierre } = require('./conciliacionRbac');
 
 const NOVEDADES_IMPACTO_SELECT = `nov.id, nov.cedula, nov.tipo_novedad, nov.monto_cop, nov.cantidad_horas, nov.unidad,
-                nov.modalidad, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin`;
+                nov.modalidad, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.creado_en`;
 
 /** @param {string} alias */
 function effectiveNovedadDateSql(alias = 'nov') {
@@ -164,19 +166,6 @@ async function listConciliacionesClientes(deps, scope) {
     );
 }
 
-const WIDE_CONCILIACION_ROLES = new Set([
-    'super_admin',
-    'admin_ch',
-    'admin_ops',
-    'cac',
-    'nomina',
-    'analista_conciliaciones'
-]);
-
-function isWideConciliacionRole(role) {
-    return WIDE_CONCILIACION_ROLES.has(String(role || '').trim());
-}
-
 /** Une listas de clientes deduplicando por fold (PG + Dynamo u otras fuentes). */
 function mergeConciliacionClientesLists(pgClients, extraClients) {
     const byFold = new Map();
@@ -270,6 +259,16 @@ function buildAdvanceRowFields(impacto) {
 function novedadesAreaClause(scope) {
     const role = String(scope?.role || '');
     if (role === 'gp') return { sql: '', params: [] };
+    if (
+        role === 'super_admin' ||
+        role === 'cac' ||
+        role === 'analista_conciliaciones' ||
+        role === 'nomina' ||
+        role === 'admin_ch' ||
+        role === 'admin_ops'
+    ) {
+        return { sql: '', params: [] };
+    }
     if (scope?.canViewAllAreas) return { sql: '', params: [] };
     const areas = Array.isArray(scope?.areas) ? scope.areas.filter(Boolean) : [];
     if (!areas.length) return { sql: ' AND FALSE ', params: [] };
@@ -388,6 +387,27 @@ function buildConciliacionResumenRowsFromColaboradores(colRows, ctx) {
                     .filter(Boolean)
             )
         ].sort((x, y) => x.localeCompare(y, 'es', { sensitivity: 'base' }));
+        const novedadesDetalle = [...novRowsForCol]
+            .map((r) => {
+                const tipo = String(r.tipo_novedad || '').trim();
+                if (!tipo) return null;
+                const creadoRaw = r.creado_en ?? r.creadoEn ?? null;
+                let creadoEn = null;
+                if (creadoRaw instanceof Date) {
+                    creadoEn = creadoRaw.toISOString();
+                } else if (creadoRaw) {
+                    const d = new Date(creadoRaw);
+                    creadoEn = Number.isNaN(d.getTime()) ? null : d.toISOString();
+                }
+                return { tipo, creadoEn };
+            })
+            .filter(Boolean)
+            .sort((a, b) => {
+                const ta = a.creadoEn ? new Date(a.creadoEn).getTime() : 0;
+                const tb = b.creadoEn ? new Date(b.creadoEn).getTime() : 0;
+                if (ta !== tb) return ta - tb;
+                return a.tipo.localeCompare(b.tipo, 'es', { sensitivity: 'base' });
+            });
         totals.tarifaSum += tarifa;
         totals.incrementoSum += sumSuma;
         totals.deduccionSum += sumMonto;
@@ -426,6 +446,7 @@ function buildConciliacionResumenRowsFromColaboradores(colRows, ctx) {
             profesion: c.profesion != null ? String(c.profesion).trim() : '',
             novedadesCount: cnt,
             novedadesTipos,
+            novedadesDetalle,
             novedadesSumCop: sumMonto,
             novedadesSumaCop: sumSuma,
             facturaCop: factura,
@@ -1761,8 +1782,6 @@ async function listConciliacionFacturacionHistorial(deps, scope, query) {
     }));
 }
 
-const REVERT_CIERRE_ROLES = new Set(['analista_conciliaciones', 'super_admin']);
-
 async function resolveServicioBillingForRevision(deps, scope, clienteCanon, cedula, payload) {
     const y = Number(payload?.anio);
     const m = Number(payload?.mes);
@@ -1838,7 +1857,7 @@ async function revertConciliacionFacturacion(deps, scope, payload, actor) {
     }
 
     const revActor = buildRevisionActor(actor, scope);
-    if (!REVERT_CIERRE_ROLES.has(revActor.role)) {
+    if (!canRevertConciliacionCierre(revActor.role)) {
         const error = new Error('No autorizado para revertir cierres');
         error.status = 403;
         throw error;
@@ -2476,6 +2495,13 @@ async function getColaCierresPorMes(deps, scope, year, month, clienteOpcional, s
             await ensureListoExportIfCompleto(deps.pool, serv.id, year, month, agg);
             const cierreRow = await getServicioCierreRow(deps.pool, serv.id, year, month);
             const cierreApi = mapServicioCierreToApi(cierreRow);
+            const tokenMeta = await getLatestViewTokenMeta(
+                deps.pool,
+                serv.id,
+                year,
+                month,
+                agg.consultoresTotal
+            );
             return {
                 servicioId: serv.id,
                 client: serv.client,
@@ -2498,7 +2524,8 @@ async function getColaCierresPorMes(deps, scope, year, month, clienteOpcional, s
                 estados: agg.estados,
                 totales: agg.totales,
                 estadoCola: deriveEstadoCola(agg),
-                ...cierreApi
+                ...cierreApi,
+                ...tokenMeta
             };
         };
 

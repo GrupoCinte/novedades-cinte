@@ -10,14 +10,18 @@ const ALERTA_CHIP = {
     devuelta: 'text-red-500 border-red-500/30 bg-red-500/10',
     cierre_vencido: 'text-orange-500 border-orange-500/30 bg-orange-500/10',
     sin_consultores: 'text-slate-500 border-slate-500/30 bg-slate-500/10',
-    bajo_avance: 'text-amber-500 border-amber-500/30 bg-amber-500/10'
+    bajo_avance: 'text-amber-500 border-amber-500/30 bg-amber-500/10',
+    token_vencido: 'text-red-600 border-red-600/30 bg-red-600/10',
+    token_por_vencer: 'text-[#2F7BB8] border-[#2F7BB8]/30 bg-[#2F7BB8]/10'
 };
 
 const ALERTA_BAR_COLOR = {
     devuelta: '#ef4444',
     cierre_vencido: '#f97316',
     sin_consultores: '#64748b',
-    bajo_avance: '#f59e0b'
+    bajo_avance: '#f59e0b',
+    token_vencido: '#dc2626',
+    token_por_vencer: '#2F7BB8'
 };
 
 export default function ConciliacionesDashboardAlertas({
@@ -40,7 +44,7 @@ export default function ConciliacionesDashboardAlertas({
         <div className={`${dash.card} flex min-h-[320px] flex-col p-4 sm:p-5`}>
             <h2 className={`mb-3 font-heading text-sm font-bold ${CINTE_HEADING}`}>Alertas operativas</h2>
 
-            <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-3">
                 {ALERTA_TIPO_ORDER.map((tipo) => (
                     <div
                         key={tipo}

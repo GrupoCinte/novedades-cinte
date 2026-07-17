@@ -29,7 +29,9 @@ function createDataLayer(deps) {
         canRoleViewType,
         getAreaFromRole,
         emailNotificationsPublisher = null,
-        frontendUrl = ''
+        frontendUrl = '',
+        cognitoClient = null,
+        cognitoUserPoolId = ''
     } = deps;
 
     async function ensureUserRoleEnumValues() {
@@ -2750,6 +2752,8 @@ function createDataLayer(deps) {
         getFestivosSet: () => festivosService.getFestivosSet(),
         emailNotificationsPublisher,
         frontendUrl: String(frontendUrl || '').trim(),
+        cognitoClient,
+        cognitoUserPoolId: String(cognitoUserPoolId || '').trim(),
         listServicios: (scope) => serviciosDynamoData.listServicios(conciliacionesDeps, scope),
         getConciliacionResumenPorClienteMes: (...args) =>
             conciliacionesQueries.getConciliacionResumenPorClienteMes(...args)

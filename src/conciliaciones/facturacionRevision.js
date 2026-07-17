@@ -1,10 +1,11 @@
 const ESTADOS = ['PENDIENTE', 'APROBADO_ANALISTA', 'APROBADO_FINANZAS', 'DEVUELTA', 'CONCILIADA'];
 
-const ELEVATED_ROLES = new Set(['super_admin', 'cac']);
-
-function normalizeRole(role) {
-    return String(role || '').trim().toLowerCase();
-}
+const {
+    ELEVATED_ROLES,
+    normalizeRole,
+    isElevatedConciliacionRole,
+    resolveConciliacionRevisionEtapa
+} = require('./conciliacionRbac');
 
 function normalizeAccion(accion) {
     const a = String(accion || '').trim().toLowerCase();
@@ -18,14 +19,12 @@ function normalizeEstado(estado) {
 }
 
 function isElevatedRole(role) {
-    return ELEVATED_ROLES.has(normalizeRole(role));
+    return isElevatedConciliacionRole(role);
 }
 
-/** Etapa de revisión según rol (sin privilegio elevado). Solo analista. */
+/** Etapa de revisión según rol (sin privilegio elevado). Analista y GP. */
 function resolveRevisionEtapa(role) {
-    const r = normalizeRole(role);
-    if (r === 'analista_conciliaciones') return 'ANALISTA';
-    return null;
+    return resolveConciliacionRevisionEtapa(role);
 }
 
 function resolveEffectiveEtapa(role, estadoActual) {
@@ -79,7 +78,7 @@ function canRoleActAtEtapa(role, etapaObjetivo) {
     if (!etapa) return false;
     const r = normalizeRole(role);
     if (ELEVATED_ROLES.has(r)) return true;
-    return etapa === 'ANALISTA' && r === 'analista_conciliaciones';
+    return etapa === 'ANALISTA' && (r === 'analista_conciliaciones' || r === 'gp');
 }
 
 /** Elegibilidad por etapa fija (masiva), sin adaptar etapa por fila en roles elevados. */

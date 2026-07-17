@@ -1,8 +1,6 @@
-/**
- * Overrides de tarifa y montos por cierre (cedula + anio + mes).
- * No modifica colaboradores ni novedades maestras.
- */
+const AJUSTES_EDIT_ESTADOS = new Set(['PENDIENTE', 'DEVUELTA']);
 
+const { canEditConciliacionAjustesRole, normalizeRole } = require('./conciliacionRbac');
 const { normalizeEstado } = require('./facturacionRevision');
 const {
     computeNovedadImpactoMonto,
@@ -11,13 +9,6 @@ const {
     montoPorHoras,
     resolveHorasBaseMes
 } = require('./conciliacionNovedadImpacto');
-
-const AJUSTES_EDIT_ROLES = new Set(['analista_conciliaciones', 'super_admin']);
-const AJUSTES_EDIT_ESTADOS = new Set(['PENDIENTE', 'DEVUELTA']);
-
-function normalizeRole(role) {
-    return String(role || '').trim().toLowerCase();
-}
 
 function parseJsonOverrideMap(raw) {
     if (!raw) return {};
@@ -144,9 +135,8 @@ function aggregateNovedadesImpactoConAjustes(tarifaMaestro, novedadRows, ajustes
 }
 
 function canEditConciliacionAjustes(role, estado) {
-    const r = normalizeRole(role);
     const est = normalizeEstado(estado);
-    if (!AJUSTES_EDIT_ROLES.has(r)) return false;
+    if (!canEditConciliacionAjustesRole(role)) return false;
     return AJUSTES_EDIT_ESTADOS.has(est);
 }
 
@@ -178,7 +168,6 @@ function buildAjusteHistorialObservacion(campo, valorAnterior, valorNuevo, extra
 }
 
 module.exports = {
-    AJUSTES_EDIT_ROLES,
     AJUSTES_EDIT_ESTADOS,
     parseMontosOverride,
     parseJsonOverrideMap,

@@ -112,6 +112,17 @@ async function appendConciliacionManualNovedadesFromHistorial(deps, scope, opts,
 function novedadesAreaClause(scope) {
     const role = String(scope?.role || '');
     if (role === 'gp') return { sql: '', params: [] };
+    // Roles amplios: sin areas en scope no deben anular todas las novedades (AND FALSE).
+    if (
+        role === 'super_admin' ||
+        role === 'cac' ||
+        role === 'analista_conciliaciones' ||
+        role === 'nomina' ||
+        role === 'admin_ch' ||
+        role === 'admin_ops'
+    ) {
+        return { sql: '', params: [] };
+    }
     if (scope?.canViewAllAreas) return { sql: '', params: [] };
     const areas = Array.isArray(scope?.areas) ? scope.areas.filter(Boolean) : [];
     if (!areas.length) return { sql: ' AND FALSE ', params: [] };

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
-import { CONCILIACION_EMAIL_COLUMNS } from './conciliacionEmailColumns.js';
+import { CONCILIACION_EMAIL_COLUMNS, formatNovedadesCellLines } from './conciliacionEmailColumns.js';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? document.cookie : '';
@@ -23,16 +23,17 @@ function formatCell(row, colKey) {
     const col = CONCILIACION_EMAIL_COLUMNS.find((c) => c.key === colKey);
     if (!col) return row?.[colKey] != null ? String(row[colKey]) : '';
     if (colKey === 'diasFacturables') {
-        if (row?.prorrateoAplicado) return `${row.diasFacturables ?? ''}/${row.diasMes ?? ''}`;
-        return row?.diasMes != null ? String(row.diasMes) : '';
+        const dias = row?.diasFacturables;
+        const diasMes = row?.diasMes;
+        if (row?.prorrateoAplicado && diasMes != null && diasMes !== '') {
+            return `${dias ?? ''}/${diasMes}`;
+        }
+        if (dias != null && dias !== '') return String(dias);
+        if (diasMes != null && diasMes !== '') return String(diasMes);
+        return '';
     }
     if (colKey === 'novedadesTipos') {
-        const raw = row?.novedadesTipos;
-        if (Array.isArray(raw)) {
-            const tipos = raw.map((t) => String(t || '').trim()).filter(Boolean);
-            return tipos.length ? tipos.join(', ') : 'Sin novedades';
-        }
-        return String(raw || '').trim() || 'Sin novedades';
+        return formatNovedadesCellLines(row).join('\n');
     }
     const val = row?.[colKey];
     if (col.format === 'cop') {
@@ -45,7 +46,14 @@ function formatCell(row, colKey) {
     return val != null && val !== '' ? String(val) : '';
 }
 
-function DecisionBadge({ decision }) {
+function DecisionBadge({ decision, locked }) {
+    if (locked) {
+        return (
+            <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                Conciliada
+            </span>
+        );
+    }
     if (decision === 'APROBADO') {
         return (
             <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
@@ -139,6 +147,8 @@ export default function ConciliacionesEmailAccionPage() {
     }, [context?.columnas]);
 
     const rows = Array.isArray(context?.rows) ? context.rows : [];
+    const rowsEditables = useMemo(() => rows.filter((r) => !r.locked), [rows]);
+    const puedeAccionMasiva = rowsEditables.length > 0;
 
     const applyRowsUpdate = (data) => {
         if (data?.rows) {
@@ -217,7 +227,12 @@ export default function ConciliacionesEmailAccionPage() {
         }
         try {
             if (rejectModal?.mode === 'masivo') {
-                await postDecideMasivo({ decision: 'RECHAZADO', observacion: obs });
+                const cedulas = rowsEditables.map((r) => r.cedula).filter(Boolean);
+                if (!cedulas.length) {
+                    setError('No hay consultores pendientes para rechazar');
+                    return;
+                }
+                await postDecideMasivo({ decision: 'RECHAZADO', observacion: obs, cedulas });
             } else {
                 await postDecide({
                     cedula: rejectModal?.cedula,
@@ -235,7 +250,12 @@ export default function ConciliacionesEmailAccionPage() {
 
     const handleApproveAll = async () => {
         try {
-            await postDecideMasivo({ decision: 'APROBADO' });
+            const cedulas = rowsEditables.map((r) => r.cedula).filter(Boolean);
+            if (!cedulas.length) {
+                setError('No hay consultores pendientes: los ya conciliados no se pueden volver a decidir');
+                return;
+            }
+            await postDecideMasivo({ decision: 'APROBADO', cedulas });
         } catch (e) {
             setError(e.message || 'Error al aprobar todo');
         }
@@ -334,7 +354,7 @@ export default function ConciliacionesEmailAccionPage() {
                     <div className="mt-4 flex flex-wrap gap-2">
                         <button
                             type="button"
-                            disabled={submitting || !rows.length}
+                            disabled={submitting || !puedeAccionMasiva}
                             onClick={handleApproveAll}
                             className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
                         >
@@ -342,7 +362,7 @@ export default function ConciliacionesEmailAccionPage() {
                         </button>
                         <button
                             type="button"
-                            disabled={submitting || !rows.length}
+                            disabled={submitting || !puedeAccionMasiva}
                             onClick={() => openReject('masivo')}
                             className="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
                         >
@@ -377,32 +397,39 @@ export default function ConciliacionesEmailAccionPage() {
                                 {rows.map((row) => (
                                     <tr key={row.cedula} className="border-b border-slate-100">
                                         {columnas.map((c) => (
-                                            <td key={c.key} className="px-3 py-2 text-slate-700">
+                                            <td
+                                                key={c.key}
+                                                className={`px-3 py-2 text-slate-700 ${c.key === 'novedadesTipos' ? 'whitespace-pre-line' : ''}`}
+                                            >
                                                 {formatCell(row, c.key)}
                                             </td>
                                         ))}
                                         <td className="px-3 py-2">
-                                            <DecisionBadge decision={row.decision} />
+                                            <DecisionBadge decision={row.decision} locked={row.locked} />
                                         </td>
                                         <td className="px-3 py-2">
-                                            <div className="flex flex-col gap-1 sm:flex-row">
-                                                <button
-                                                    type="button"
-                                                    disabled={submitting}
-                                                    onClick={() => handleApprove(row.cedula)}
-                                                    className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
-                                                >
-                                                    Aprobar
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    disabled={submitting}
-                                                    onClick={() => openReject('uno', row.cedula)}
-                                                    className="rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
-                                                >
-                                                    Rechazar
-                                                </button>
-                                            </div>
+                                            {row.locked ? (
+                                                <span className="text-xs text-slate-500">Ya conciliado</span>
+                                            ) : (
+                                                <div className="flex flex-col gap-1 sm:flex-row">
+                                                    <button
+                                                        type="button"
+                                                        disabled={submitting}
+                                                        onClick={() => handleApprove(row.cedula)}
+                                                        className="rounded-md bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                                                    >
+                                                        Aprobar
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={submitting}
+                                                        onClick={() => openReject('uno', row.cedula)}
+                                                        className="rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:opacity-50"
+                                                    >
+                                                        Rechazar
+                                                    </button>
+                                                </div>
+                                            )}
                                         </td>
                                     </tr>
                                 ))}
@@ -428,7 +455,7 @@ export default function ConciliacionesEmailAccionPage() {
                         <h2 className="text-lg font-semibold text-slate-800">Motivo del rechazo</h2>
                         <p className="mt-1 text-sm text-slate-600">
                             {rejectModal.mode === 'masivo'
-                                ? 'Indica el motivo para rechazar todos los consultores.'
+                                ? 'Indica el motivo para rechazar los consultores pendientes (los ya conciliados no se incluyen).'
                                 : 'Indica el motivo del rechazo de este consultor.'}
                         </p>
                         <textarea

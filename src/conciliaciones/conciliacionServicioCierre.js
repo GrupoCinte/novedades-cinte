@@ -2,8 +2,10 @@
 
 const { aggregateServicioCierre } = require('./facturacionAggregate');
 const { isServicioCompletoRevision } = require('./conciliacionServicioCompleto');
+const { canMarcarConciliacionServicio, CONCILIACION_WRITE_ROLES } = require('./conciliacionRbac');
 
 const ESTADOS_SERVICIO = ['EN_REVISION', 'LISTO_EXPORT', 'ENVIADA', 'CONCILIADA'];
+const CONCILIAR_SERVICIO_ROLES = CONCILIACION_WRITE_ROLES;
 
 function normalizeEstadoServicio(value) {
     const v = String(value || '').trim().toUpperCase();
@@ -141,8 +143,6 @@ async function markServicioEnviada(pool, { servicioId, year, month, actor }) {
     return mapServicioCierreToApi(q.rows[0]);
 }
 
-const CONCILIAR_SERVICIO_ROLES = new Set(['analista_conciliaciones', 'super_admin']);
-
 /**
  * @param {object} pool
  * @param {object} scope
@@ -150,7 +150,7 @@ const CONCILIAR_SERVICIO_ROLES = new Set(['analista_conciliaciones', 'super_admi
  */
 async function markServicioConciliada(pool, scope, { servicioId, year, month, actor }) {
     const role = String(scope?.role || '').trim().toLowerCase();
-    if (!CONCILIAR_SERVICIO_ROLES.has(role)) {
+    if (!canMarcarConciliacionServicio(role)) {
         const error = new Error('No autorizado para marcar el servicio como conciliado');
         error.status = 403;
         throw error;

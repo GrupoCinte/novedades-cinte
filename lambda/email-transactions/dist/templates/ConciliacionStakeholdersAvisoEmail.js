@@ -32,5 +32,5 @@ export function ConciliacionStakeholdersAvisoEmail({ payload }) {
                                         textDecoration: 'none',
                                         padding: '10px 20px',
                                         borderRadius: '8px'
-                                    }, children: "Abrir facturaci\u00F3n" }) })) : null, _jsx(Text, { className: "mb-0 mt-8 text-xs text-slate-400", children: "Equipo de Conciliaciones \u2014 Grupo Cinte" })] }) }) })] }));
+                                    }, children: "Abrir conciliaci\u00F3n" }) })) : null, _jsx(Text, { className: "mb-0 mt-8 text-xs text-slate-400", children: "Equipo de Conciliaciones \u2014 Grupo Cinte" })] }) }) })] }));
 }

@@ -17,6 +17,7 @@ Envía correos transaccionales vía SES. Invocada de forma asíncrona desde el b
 - `SES_FROM_EMAIL`
 - `EMAIL_ADMIN_TO` o `EMAIL_ADMIN_TO_CSV` (solo eventos novedades)
 - `ADMIN_PLATFORM_URL` / `EMAIL_GESTION_URL`
+- `EMAIL_LOGO_URL` (opcional): si se define, usa URL remota; si no, el logo va **embebido CID** (`logo-cinte-header-light.png` en `assets/`)
 
 ## Desarrollo local
 

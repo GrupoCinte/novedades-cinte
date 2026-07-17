@@ -314,7 +314,16 @@ app.use((req, res, next) => {
     return next();
 });
 
-app.use('/assets', express.static(path.join(__dirname, 'assets')));
+app.use(
+    '/assets',
+    (req, res, next) => {
+        // Logo/assets embebidos en correos (origen distinto: Gmail/Outlook web). Sin esto Helmet
+        // deja Cross-Origin-Resource-Policy: same-origin y el <img> queda roto.
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        next();
+    },
+    express.static(path.join(__dirname, 'assets'))
+);
 
 const AUTH_RATE_LIMIT_WINDOW_MIN = Number(process.env.AUTH_RATE_LIMIT_WINDOW_MIN || 15);
 const AUTH_RATE_LIMIT_MAX = Number(process.env.AUTH_RATE_LIMIT_MAX || 10);
@@ -739,7 +748,9 @@ const {
     canRoleViewType,
     getAreaFromRole,
     emailNotificationsPublisher,
-    frontendUrl: FRONTEND_URL
+    frontendUrl: FRONTEND_URL,
+    cognitoClient: cognitoIdpClient,
+    cognitoUserPoolId: COGNITO_USER_POOL_ID
 });
 
 const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
