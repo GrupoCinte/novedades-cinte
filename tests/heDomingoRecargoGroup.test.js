@@ -3,7 +3,10 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { toUtcMsFromDateAndTime } = require('../src/novedadHeTime');
-const { computeHoraExtraGroupSplitBogota, RECARGO_DOMINGO_MAX_HORAS } = require('../src/heBogotaSplit');
+const {
+    computeHoraExtraGroupSplitBogota,
+    RECARGO_DOMINGO_MAX_HORAS_PRE_42
+} = require('../src/heBogotaSplit');
 const {
     mapSplitToPersistedFields,
     recomputeAndPersistDomingoRecargoGroup
@@ -63,7 +66,7 @@ describe('heDomingoRecargoGroup', () => {
         const malla = splits.get('malla');
         assert.ok(manual && malla);
         const totalRec = manual.horasRecargoDomingo + malla.horasRecargoDomingo;
-        assert.ok(Math.abs(totalRec - RECARGO_DOMINGO_MAX_HORAS) < 0.02);
+        assert.ok(Math.abs(totalRec - RECARGO_DOMINGO_MAX_HORAS_PRE_42) < 0.02);
         const manualFields = mapSplitToPersistedFields(manual, false);
         const mallaFields = mapSplitToPersistedFields(malla, true);
         assert.equal(manualFields.horasRecargoDomingo, 4);
@@ -140,6 +143,6 @@ describe('heDomingoRecargoGroup', () => {
         assert.equal(result.updated, 2);
         assert.equal(updates.length, 2);
         const totalRec = updates.reduce((s, u) => s + Number(u.recargo), 0);
-        assert.ok(Math.abs(totalRec - RECARGO_DOMINGO_MAX_HORAS) < 0.02);
+        assert.ok(Math.abs(totalRec - RECARGO_DOMINGO_MAX_HORAS_PRE_42) < 0.02);
     });
 });
