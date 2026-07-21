@@ -6,10 +6,29 @@ const { registerSourcingRoutes } = require('../src/sourcing/registerSourcingRout
 const { extractJsonObject, mergeCriterios } = require('../src/sourcing/services/parseVacante');
 const { DEFAULT_MODEL_ID, getBedrockModelId, isNovaModel, buildBedrockClientConfig, isAwsTlsInsecure } = require('../src/sourcing/services/bedrockClient');
 
+// Criterios que superan el gate de filtros obligatorios (formación, experiencia,
+// seniority, modalidad, ciudad, tipo de contrato y salario).
+const CRITERIOS_COMPLETOS = {
+    cargo: 'Dev Java',
+    ciudad: 'Bogotá',
+    experiencia_min: 3,
+    seniority: 'Senior',
+    modalidad: 'híbrido',
+    tipo_contrato: 'término indefinido',
+    formacion: 'Ingeniería de sistemas',
+    salario_rangos_cop: ['3.000.000 - 4.500.000'],
+    filtros_confirmados: true,
+    filtros_confirmados_at: new Date().toISOString()
+};
+
 function mockPool() {
     const vacantes = [];
     const jobs = {};
     const candidatos = [];
+    const campanas = {};
+    const destinatarios = [];
+    const preentrevistas = [];
+    const preMensajes = [];
     const integraciones = {
         elempleo: {
             provider: 'elempleo',
@@ -21,6 +40,14 @@ function mockPool() {
         },
         linkedin: {
             provider: 'linkedin',
+            estado: 'desconectado',
+            mensaje: null,
+            connected_at: null,
+            updated_at: new Date().toISOString(),
+            cookies_enc: null
+        },
+        zoho_recruit: {
+            provider: 'zoho_recruit',
             estado: 'desconectado',
             mensaje: null,
             connected_at: null,
@@ -87,6 +114,10 @@ function mockPool() {
                     };
                 }
                 if (s.includes('SELECT cookies_enc')) {
+                    if (s.includes('zoho_recruit')) {
+                        const row = integraciones.zoho_recruit || { cookies_enc: null, estado: 'desconectado' };
+                        return { rows: [row] };
+                    }
                     const row = integraciones[params[0]];
                     return { rows: row ? [row] : [] };
                 }
@@ -130,6 +161,16 @@ function mockPool() {
                 vacantes.unshift(row);
                 return { rows: [row] };
             }
+            if (s.includes('UPDATE sourcing_vacantes') && s.includes("estado = 'archivada'")) {
+                const idx = vacantes.findIndex((v) => v.id === params[0]);
+                if (idx < 0) return { rows: [] };
+                vacantes[idx] = {
+                    ...vacantes[idx],
+                    estado: 'archivada',
+                    updated_at: new Date().toISOString()
+                };
+                return { rows: [vacantes[idx]] };
+            }
             if (s.includes('UPDATE sourcing_vacantes')) {
                 const idx = vacantes.findIndex((v) => v.id === params[0]);
                 const prev = idx >= 0 ? vacantes[idx] : null;
@@ -146,6 +187,9 @@ function mockPool() {
                 return { rows: [row] };
             }
             if (s.includes('FROM sourcing_vacantes') && s.includes('ORDER BY')) {
+                if (s.includes("estado <> 'archivada'")) {
+                    return { rows: vacantes.filter((v) => v.estado !== 'archivada') };
+                }
                 return { rows: vacantes };
             }
             if (s.includes('FROM sourcing_vacantes WHERE id')) {
@@ -237,7 +281,7 @@ function mockPool() {
             }
             if (s.includes('INSERT INTO sourcing_candidatos')) {
                 const row = {
-                    id: `cand-${candidatos.length + 1}`,
+                    id: `cccccccc-cccc-4ccc-8ccc-${String(candidatos.length + 1).padStart(12, '0')}`,
                     job_id: params[0],
                     vacante_id: params[1],
                     fuente: params[2],
@@ -267,6 +311,36 @@ function mockPool() {
                 };
                 return { rows: [candidatos[idx]] };
             }
+            if (s.includes('UPDATE sourcing_candidatos') && s.includes('decision = $2')) {
+                const idx = candidatos.findIndex((c) => c.id === params[0]);
+                if (idx < 0) return { rows: [] };
+                candidatos[idx] = {
+                    ...candidatos[idx],
+                    decision: params[1],
+                    updated_at: new Date().toISOString()
+                };
+                return { rows: [{ id: candidatos[idx].id, decision: candidatos[idx].decision }] };
+            }
+            if (s.includes('FROM sourcing_candidatos') && s.includes('WHERE id = $1::uuid') && !s.includes('ANY')) {
+                return { rows: candidatos.filter((c) => c.id === params[0]) };
+            }
+            if (s.includes('FROM sourcing_candidatos') && s.includes('ANY($1::uuid[])')) {
+                const ids = params[0] || [];
+                return { rows: candidatos.filter((c) => ids.includes(c.id)) };
+            }
+            if (s.includes('FROM sourcing_candidatos c') && s.includes('JOIN sourcing_vacantes v')) {
+                // Base de captura: todos los candidatos con datos de la vacante.
+                const rows = candidatos.map((c) => {
+                    const vac = vacantes.find((v) => v.id === c.vacante_id) || {};
+                    return {
+                        ...c,
+                        vacante_titulo: vac.titulo || null,
+                        vacante_codigo: vac.codigo || null,
+                        vacante_estado: vac.estado || null
+                    };
+                });
+                return { rows };
+            }
             if (s.includes('FROM sourcing_candidatos') && s.includes('score IS NULL')) {
                 return {
                     rows: candidatos.filter((c) => c.job_id === params[0] && c.score == null)
@@ -286,6 +360,208 @@ function mockPool() {
             if (s.includes('FROM sourcing_candidatos')) {
                 return { rows: candidatos.filter((c) => c.job_id === params[0]) };
             }
+
+            // --- Campañas ---
+            if (s.includes('INSERT INTO sourcing_campanas')) {
+                const row = {
+                    id: `camp-${Object.keys(campanas).length + 1}`,
+                    nombre: params[0],
+                    canal_default: params[1],
+                    mensaje_plantilla: params[2],
+                    plantillas: params[3] ? JSON.parse(params[3]) : {},
+                    estado: 'borrador',
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+                campanas[row.id] = row;
+                return { rows: [row] };
+            }
+            if (s.includes('SELECT id FROM sourcing_campana_destinatarios')
+                && s.includes('candidato_id = $2')) {
+                return {
+                    rows: destinatarios.filter((d) => d.campana_id === params[0] && d.candidato_id === params[1])
+                };
+            }
+            if (s.includes('INSERT INTO sourcing_campana_destinatarios') && s.includes('correo') && s.includes('NULL')) {
+                const row = {
+                    id: `dest-${destinatarios.length + 1}`,
+                    campana_id: params[0],
+                    candidato_id: null,
+                    nombre: params[1],
+                    canal: params[2],
+                    contacto: params[3],
+                    correo: params[4],
+                    mensaje: params[5],
+                    estado: 'pendiente',
+                    error_mensaje: null,
+                    enviado_at: null,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+                destinatarios.push(row);
+                return { rows: [row] };
+            }
+            if (s.includes('INSERT INTO sourcing_campana_destinatarios')) {
+                const row = {
+                    id: `dest-${destinatarios.length + 1}`,
+                    campana_id: params[0],
+                    candidato_id: params[1],
+                    nombre: params[2],
+                    canal: params[3],
+                    contacto: params[4],
+                    correo: null,
+                    mensaje: params[5],
+                    estado: 'pendiente',
+                    error_mensaje: null,
+                    enviado_at: null,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+                destinatarios.push(row);
+                return { rows: [row] };
+            }
+            if (s.includes('FROM sourcing_campanas c') && s.includes('LEFT JOIN')) {
+                return {
+                    rows: Object.values(campanas).map((c) => {
+                        const dest = destinatarios.filter((d) => d.campana_id === c.id);
+                        return {
+                            ...c,
+                            total_destinatarios: dest.length,
+                            enviados: dest.filter((d) => d.estado === 'enviado').length
+                        };
+                    })
+                };
+            }
+            if (s.includes('FROM sourcing_campanas WHERE id')) {
+                const row = campanas[params[0]];
+                return { rows: row ? [row] : [] };
+            }
+            if (s.includes('FROM sourcing_campana_destinatarios') && s.includes('ORDER BY created_at ASC')) {
+                return { rows: destinatarios.filter((d) => d.campana_id === params[0]) };
+            }
+            if (s.includes('DELETE FROM sourcing_campana_destinatarios')) {
+                const idx = destinatarios.findIndex((d) => d.id === params[1] && d.campana_id === params[0]);
+                if (idx < 0) return { rows: [] };
+                const [removed] = destinatarios.splice(idx, 1);
+                return { rows: [{ id: removed.id }] };
+            }
+            if (s.includes('UPDATE sourcing_campana_destinatarios')) {
+                const idx = destinatarios.findIndex((d) => d.id === params[1] && d.campana_id === params[0]);
+                if (idx < 0) return { rows: [] };
+                destinatarios[idx] = {
+                    ...destinatarios[idx],
+                    estado: params[2],
+                    error_mensaje: params[3],
+                    enviado_at: params[2] === 'enviado' ? new Date().toISOString() : destinatarios[idx].enviado_at,
+                    updated_at: new Date().toISOString()
+                };
+                return { rows: [destinatarios[idx]] };
+            }
+            if (s.includes('COUNT(*)::int AS total') && s.includes('FROM sourcing_campana_destinatarios')) {
+                const dest = destinatarios.filter((d) => d.campana_id === params[0]);
+                return {
+                    rows: [{
+                        total: dest.length,
+                        enviados: dest.filter((d) => d.estado === 'enviado').length,
+                        pendientes: dest.filter((d) => d.estado === 'pendiente').length
+                    }]
+                };
+            }
+            if (s.includes('UPDATE sourcing_campanas SET estado')) {
+                const row = campanas[params[0]];
+                if (!row) return { rows: [] };
+                campanas[params[0]] = { ...row, estado: params[1], updated_at: new Date().toISOString() };
+                return { rows: [campanas[params[0]]] };
+            }
+            if (s.includes('UPDATE sourcing_campanas SET') && !s.includes('estado')) {
+                const row = campanas[params[0]];
+                if (!row) return { rows: [] };
+                let i = 1;
+                if (s.includes('nombre =')) { row.nombre = params[i++]; }
+                if (s.includes('mensaje_plantilla =')) { row.mensaje_plantilla = params[i++]; }
+                if (s.includes('plantillas =')) { row.plantillas = params[i] ? JSON.parse(params[i]) : {}; i++; }
+                row.updated_at = new Date().toISOString();
+                campanas[params[0]] = row;
+                return { rows: [row] };
+            }
+
+            // --- Preentrevistas ---
+            if (s.includes('FROM sourcing_preentrevistas') && s.includes('destinatario_id = $1')
+                && !s.includes('INSERT')) {
+                return { rows: preentrevistas.filter((p) => p.destinatario_id === params[0]) };
+            }
+            if (s.includes('INSERT INTO sourcing_preentrevistas')) {
+                const row = {
+                    id: `pre-${preentrevistas.length + 1}`,
+                    destinatario_id: params[0] || null,
+                    campana_id: params[1] || null,
+                    candidato_id: params[2] || null,
+                    telefono: params[3] || null,
+                    fase: params[4] || 'apertura',
+                    estado: 'en_curso',
+                    interes: null,
+                    datos: {},
+                    cv_url: null,
+                    entrevista: null,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+                preentrevistas.push(row);
+                return { rows: [row] };
+            }
+            if (s.includes('FROM sourcing_preentrevistas') && s.includes('WHERE id = $1')) {
+                return { rows: preentrevistas.filter((p) => p.id === params[0]) };
+            }
+            if (s.includes('FROM sourcing_preentrevistas') && s.includes('regexp_replace')) {
+                const digits = params[0];
+                return {
+                    rows: preentrevistas.filter((p) => String(p.telefono || '').replace(/\D/g, '') === digits)
+                };
+            }
+            if (s.includes('UPDATE sourcing_preentrevistas SET')) {
+                const idx = preentrevistas.findIndex((p) => p.id === params[0]);
+                if (idx < 0) return { rows: [] };
+                let i = 1;
+                if (s.includes('fase =')) { preentrevistas[idx].fase = params[i++]; }
+                if (s.includes('estado =')) { preentrevistas[idx].estado = params[i++]; }
+                if (s.includes('interes =')) { preentrevistas[idx].interes = params[i++]; }
+                if (s.includes('datos =')) { preentrevistas[idx].datos = params[i] ? JSON.parse(params[i]) : {}; i++; }
+                if (s.includes('cv_url =')) { preentrevistas[idx].cv_url = params[i++]; }
+                if (s.includes('entrevista =')) { preentrevistas[idx].entrevista = params[i] ? JSON.parse(params[i]) : null; i++; }
+                preentrevistas[idx].updated_at = new Date().toISOString();
+                return { rows: [preentrevistas[idx]] };
+            }
+            if (s.includes('INSERT INTO sourcing_preentrevista_mensajes')) {
+                const row = {
+                    id: `msg-${preMensajes.length + 1}`,
+                    preentrevista_id: params[0],
+                    rol: params[1],
+                    texto: params[2],
+                    created_at: new Date().toISOString()
+                };
+                preMensajes.push(row);
+                return { rows: [row] };
+            }
+            if (s.includes('INSERT INTO sourcing_flujos')) {
+                const row = {
+                    id: '33333333-3333-4333-8333-333333333333',
+                    nombre: params[0],
+                    descripcion: params[1],
+                    pasos_json: JSON.parse(params[2]),
+                    created_at: new Date().toISOString()
+                };
+                return { rows: [row] };
+            }
+            if (s.includes('INSERT INTO sourcing_decisiones_entrenamiento')) {
+                return { rows: [{ id: 'dec-1' }] };
+            }
+            if (s.includes('FROM sourcing_flujos')) {
+                return { rows: [] };
+            }
+            if (s.includes('DELETE FROM sourcing_flujos')) {
+                return { rows: [{ id: params[0] }] };
+            }
+
             return { rows: [] };
         }
     };
@@ -483,6 +759,248 @@ test('PATCH /api/atraccion/vacantes/:id/criterios confirma filtros', async () =>
     assert.ok(res.body.vacante.criterios.filtros_confirmados_at);
 });
 
+test('POST /api/atraccion/vacantes/:id/archivar marca archivada y la excluye del listado', async () => {
+    const pool = mockPool();
+    await pool.query(`INSERT INTO sourcing_vacantes`, [
+        'Dev Java',
+        'Desarrollador Java Senior en Bogotá con AWS',
+        JSON.stringify({ cargo: 'Dev Java' }),
+        'activa',
+        null
+    ]);
+    const app = buildApp(pool);
+    const res = await request(app)
+        .post('/api/atraccion/vacantes/11111111-1111-4111-8111-111111111111/archivar')
+        .send({});
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.vacante.estado, 'archivada');
+
+    const list = await request(app).get('/api/atraccion/vacantes');
+    assert.equal(list.status, 200);
+    assert.equal(list.body.vacantes.length, 0);
+});
+
+test('POST /api/atraccion/vacantes/:id/archivar 404 si no existe', async () => {
+    const app = buildApp(mockPool());
+    const res = await request(app)
+        .post('/api/atraccion/vacantes/99999999-9999-4999-8999-999999999999/archivar')
+        .send({});
+    assert.equal(res.status, 404);
+});
+
+test('POST /api/atraccion/jobs bloquea si faltan filtros obligatorios', async () => {
+    const pool = mockPool();
+    await pool.query(`INSERT INTO sourcing_vacantes`, [
+        'Dev Java',
+        'Desarrollador Java Senior en Bogotá con AWS',
+        JSON.stringify({ cargo: 'Dev', ciudad: 'Bogotá', filtros_confirmados: true }),
+        'activa',
+        null
+    ]);
+    const app = buildApp(pool);
+    const res = await request(app)
+        .post('/api/atraccion/jobs')
+        .send({
+            vacante_id: '11111111-1111-4111-8111-111111111111',
+            fuentes: { xray: true }
+        });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /obligatorios/i);
+    assert.ok(Array.isArray(res.body.filtros_faltantes));
+    assert.ok(res.body.filtros_faltantes.length > 0);
+});
+
+test('GET /api/atraccion/captura incluye candidatos de vacantes archivadas', async () => {
+    const pool = mockPool();
+    await pool.query(`INSERT INTO sourcing_vacantes`, [
+        'Dev Java',
+        'Desarrollador Java Senior en Bogotá',
+        JSON.stringify({ cargo: 'Dev' }),
+        'archivada',
+        null
+    ]);
+    await pool.query(`INSERT INTO sourcing_candidatos`, [
+        '22222222-2222-4222-8222-222222222222',
+        '11111111-1111-4111-8111-111111111111',
+        'X-Ray',
+        'https://linkedin.com/in/ana',
+        'Ana Dev',
+        JSON.stringify({ cargo: 'Java Dev' }),
+        null,
+        'descubrimiento',
+        false
+    ]);
+    const app = buildApp(pool);
+    const res = await request(app).get('/api/atraccion/captura');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.candidatos.length, 1);
+    assert.equal(res.body.candidatos[0].vacante_estado, 'archivada');
+});
+
+test('flujo campaña: crear, listar, marcar destinatario y enviar (manual)', async () => {
+    const prevWebhook = process.env.N8N_CONTACTO_WEBHOOK_URL;
+    const prevAgent = process.env.N8N_ATCONTACTO_WEBHOOK_URL;
+    const prevEnvio = process.env.ATRACCION_CAMPANA_ENVIO;
+    delete process.env.N8N_CONTACTO_WEBHOOK_URL;
+    delete process.env.N8N_ATCONTACTO_WEBHOOK_URL;
+    delete process.env.ATRACCION_CAMPANA_ENVIO;
+    try {
+        const pool = mockPool();
+        await pool.query(`INSERT INTO sourcing_vacantes`, [
+            'Dev Java',
+            'Desarrollador Java Senior en Bogotá',
+            JSON.stringify({ cargo: 'Dev' }),
+            'activa',
+            null
+        ]);
+        await pool.query(`INSERT INTO sourcing_candidatos`, [
+            '22222222-2222-4222-8222-222222222222',
+            '11111111-1111-4111-8111-111111111111',
+            'El Empleo',
+            'https://elempleo.com/hv/ana',
+            'Ana Dev',
+            JSON.stringify({ telefono: '3001234567' }),
+            null,
+            'descubrimiento',
+            false
+        ]);
+        const app = buildApp(pool);
+
+        const candId = 'cccccccc-cccc-4ccc-8ccc-000000000001';
+
+        // Sin aprobar, la campaña debe bloquearse (solo aprobados pasan).
+        const blocked = await request(app)
+            .post('/api/atraccion/campanas')
+            .send({ nombre: 'Campaña Bloqueada', candidato_ids: [candId] });
+        assert.equal(blocked.status, 400);
+
+        // Aprobar el candidato habilita la campaña.
+        const decision = await request(app)
+            .patch(`/api/atraccion/candidatos/${candId}/decision`)
+            .send({ decision: 'aprobado' });
+        assert.equal(decision.status, 200);
+        assert.equal(decision.body.decision, 'aprobado');
+
+        const create = await request(app)
+            .post('/api/atraccion/campanas')
+            .send({ nombre: 'Campaña Test', mensaje_plantilla: 'Hola {nombre}', candidato_ids: [candId] });
+        assert.equal(create.status, 201);
+        assert.equal(create.body.ok, true);
+        assert.equal(create.body.campana.destinatarios.length, 1);
+        assert.equal(create.body.campana.destinatarios[0].canal, 'whatsapp');
+        assert.equal(create.body.campana.destinatarios[0].contacto, '3001234567');
+        const campanaId = create.body.campana.id;
+
+        const list = await request(app).get('/api/atraccion/campanas');
+        assert.equal(list.status, 200);
+        assert.equal(list.body.campanas.length, 1);
+        assert.equal(list.body.campanas[0].total_destinatarios, 1);
+
+        const destId = create.body.campana.destinatarios[0].id;
+        const patch = await request(app)
+            .patch(`/api/atraccion/campanas/${campanaId}/destinatarios/${destId}`)
+            .send({ estado: 'enviado' });
+        assert.equal(patch.status, 200);
+        assert.equal(patch.body.destinatario.estado, 'enviado');
+        assert.equal(patch.body.campana.estado, 'enviada');
+
+        // Editar plantillas por fase (PATCH campaña).
+        const editada = await request(app)
+            .patch(`/api/atraccion/campanas/${campanaId}`)
+            .send({ plantillas: { apertura: 'Hola [NOMBRE_CANDIDATO]', oferta: 'Rol: [NOMBRE_CARGO]' } });
+        assert.equal(editada.status, 200);
+        assert.equal(editada.body.campana.plantillas.apertura, 'Hola [NOMBRE_CANDIDATO]');
+
+        // Agregar un segundo candidato aprobado a la campaña existente.
+        await pool.query(`INSERT INTO sourcing_candidatos`, [
+            '11111111-1111-4111-8111-111111111111',
+            '11111111-1111-4111-8111-111111111111',
+            'El Empleo',
+            'https://elempleo.com/hv/luis',
+            'Luis Dev',
+            JSON.stringify({ telefono: '3009998888' }),
+            null,
+            'descubrimiento',
+            false
+        ]);
+        const candId2 = 'cccccccc-cccc-4ccc-8ccc-000000000002';
+        await request(app).patch(`/api/atraccion/candidatos/${candId2}/decision`).send({ decision: 'aprobado' });
+        const add = await request(app)
+            .post(`/api/atraccion/campanas/${campanaId}/destinatarios`)
+            .send({ candidato_ids: [candId2] });
+        assert.equal(add.status, 200);
+        assert.equal(add.body.agregados, 1);
+        assert.equal(add.body.campana.destinatarios.length, 2);
+
+        // Alta manual: nombre + correo + número.
+        const addManual = await request(app)
+            .post(`/api/atraccion/campanas/${campanaId}/destinatarios`)
+            .send({ manuales: [{ nombre: 'Contacto Manual', correo: 'manual@test.com', telefono: '3007776666' }] });
+        assert.equal(addManual.status, 200);
+        assert.equal(addManual.body.agregados, 1);
+        assert.equal(addManual.body.campana.destinatarios.length, 3);
+        const manual = addManual.body.campana.destinatarios.find((d) => d.nombre === 'Contacto Manual');
+        assert.equal(manual.canal, 'whatsapp');
+        assert.equal(manual.contacto, '3007776666');
+        assert.equal(manual.correo, 'manual@test.com');
+
+        // Eliminar un destinatario de la campaña.
+        const del = await request(app)
+            .delete(`/api/atraccion/campanas/${campanaId}/destinatarios/${manual.id}`);
+        assert.equal(del.status, 200);
+        assert.equal(del.body.ok, true);
+        assert.equal(del.body.campana.destinatarios.length, 2);
+
+        const enviar = await request(app).post(`/api/atraccion/campanas/${campanaId}/enviar`).send({});
+        assert.equal(enviar.status, 200);
+        assert.equal(enviar.body.dispatched, false);
+    } finally {
+        if (prevWebhook === undefined) delete process.env.N8N_CONTACTO_WEBHOOK_URL;
+        else process.env.N8N_CONTACTO_WEBHOOK_URL = prevWebhook;
+        if (prevAgent === undefined) delete process.env.N8N_ATCONTACTO_WEBHOOK_URL;
+        else process.env.N8N_ATCONTACTO_WEBHOOK_URL = prevAgent;
+        if (prevEnvio === undefined) delete process.env.ATRACCION_CAMPANA_ENVIO;
+        else process.env.ATRACCION_CAMPANA_ENVIO = prevEnvio;
+    }
+});
+
+test('intake de contacto AT actualiza la preentrevista', async () => {
+    const prevKey = process.env.ATCONTACTO_INGEST_KEY;
+    process.env.ATCONTACTO_INGEST_KEY = 'test-intake-key';
+    try {
+        const pool = mockPool();
+        const app = buildApp(pool);
+
+        // Sin key → 401.
+        const noauth = await request(app)
+            .post('/api/atraccion/contacto/intake')
+            .send({ destinatario_id: 'dddddddd-dddd-4ddd-8ddd-000000000001', fase: 'formulario' });
+        assert.equal(noauth.status, 401);
+
+        // Con key + destinatario_id → crea preentrevista y avanza fase/datos.
+        const ok = await request(app)
+            .post('/api/atraccion/contacto/intake')
+            .set('x-atcontacto-key', 'test-intake-key')
+            .send({
+                destinatario_id: 'dddddddd-dddd-4ddd-8ddd-000000000001',
+                fase: 'formulario',
+                estado: 'interesado',
+                datos: { ciudad_residencia: 'Bogotá' },
+                mensaje: { rol: 'candidato', texto: 'Sí, me interesa' }
+            });
+        assert.equal(ok.status, 200);
+        assert.equal(ok.body.ok, true);
+        assert.equal(ok.body.preentrevista.fase, 'formulario');
+        assert.equal(ok.body.preentrevista.estado, 'interesado');
+        assert.equal(ok.body.preentrevista.datos.ciudad_residencia, 'Bogotá');
+    } finally {
+        if (prevKey === undefined) delete process.env.ATCONTACTO_INGEST_KEY;
+        else process.env.ATCONTACTO_INGEST_KEY = prevKey;
+    }
+});
+
 test('POST /api/atraccion/jobs despacha worker mock', async () => {
     const prevUrl = process.env.SOURCING_WORKER_URL;
     const prevSecret = process.env.SOURCING_WORKER_CALLBACK_SECRET;
@@ -493,11 +1011,7 @@ test('POST /api/atraccion/jobs despacha worker mock', async () => {
         await pool.query(`INSERT INTO sourcing_vacantes`, [
             'Dev Java',
             'Desarrollador Java Senior en Bogotá con AWS',
-            JSON.stringify({
-                cargo: 'Dev Java',
-                filtros_confirmados: true,
-                filtros_confirmados_at: new Date().toISOString()
-            }),
+            JSON.stringify(CRITERIOS_COMPLETOS),
             'activa',
             null
         ]);
@@ -636,7 +1150,7 @@ test('GET /api/atraccion/integraciones lista proveedores', async () => {
     const res = await request(app).get('/api/atraccion/integraciones');
     assert.equal(res.status, 200);
     assert.equal(res.body.ok, true);
-    assert.equal(res.body.integraciones.length, 2);
+    assert.equal(res.body.integraciones.length, 3);
     assert.ok(res.body.integraciones.some((i) => i.provider === 'elempleo'));
 });
 
@@ -645,7 +1159,7 @@ test('POST jobs con elempleo sin conectar devuelve 400', async () => {
     await pool.query(`INSERT INTO sourcing_vacantes`, [
         'Dev Java',
         'Desarrollador Java Senior en Bogotá con AWS',
-        JSON.stringify({ filtros_confirmados: true }),
+        JSON.stringify(CRITERIOS_COMPLETOS),
         'activa',
         null
     ]);
@@ -850,4 +1364,66 @@ test('internal score omite si Bedrock no configurado', async () => {
         if (prevBedrock === undefined) delete process.env.SOURCING_BEDROCK_ENABLED;
         else process.env.SOURCING_BEDROCK_ENABLED = prevBedrock;
     }
+});
+
+test('GET health incluye flags paridad ScrapingAT', async () => {
+    const app = buildApp(mockPool());
+    const res = await request(app).get('/api/atraccion/health');
+    assert.equal(res.status, 200);
+    assert.equal(typeof res.body.scoreMin, 'number');
+    assert.equal(typeof res.body.pushZoho, 'boolean');
+    assert.equal(typeof res.body.inmailAuto, 'boolean');
+});
+
+test('POST postulaciones rechaza URL sin panel empresas', async () => {
+    const app = buildApp(mockPool());
+    const res = await request(app)
+        .post('/api/atraccion/jobs/postulaciones')
+        .send({
+            vacante_id: '11111111-1111-4111-8111-111111111111',
+            url_oferta: 'https://www.elempleo.com/co/ofertas-trabajo/dev-java'
+        });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /empresas/i);
+});
+
+test('POST jobs con zoho sin conectar devuelve 400', async () => {
+    const pool = mockPool();
+    await pool.query(`INSERT INTO sourcing_vacantes`, [
+        'Dev Java',
+        'Desarrollador Java Senior en Bogotá',
+        JSON.stringify(CRITERIOS_COMPLETOS),
+        'activa',
+        null
+    ]);
+    const app = buildApp(pool);
+    const res = await request(app)
+        .post('/api/atraccion/jobs')
+        .send({
+            vacante_id: '11111111-1111-4111-8111-111111111111',
+            fuentes: { zoho: true, xray: false }
+        });
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /Zoho/i);
+});
+
+test('POST flujos crea secuencia', async () => {
+    const app = buildApp(mockPool());
+    const res = await request(app)
+        .post('/api/atraccion/flujos')
+        .send({
+            nombre: 'InMail + WA',
+            pasos: [{ orden: 1, canal: 'inmail', plantilla: 'Hola [nombre]' }]
+        });
+    assert.equal(res.status, 201);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.flujo.nombre, 'InMail + WA');
+});
+
+test('GET flujos lista vacía inicial', async () => {
+    const app = buildApp(mockPool());
+    const res = await request(app).get('/api/atraccion/flujos');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.ok(Array.isArray(res.body.flujos));
 });

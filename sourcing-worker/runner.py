@@ -11,7 +11,10 @@ from pipeline.stream import CandidateStream, tag_discover_item
 from scrapers.criterios_mapper import normalize_criterios, linkedin_keywords
 from scrapers.elempleo import buscar_elempleo
 from scrapers.linkedin import buscar_linkedin
+from scrapers.postulaciones import buscar_postulaciones
+from scrapers.salary_filter import excede_aspiracion, salario_max_from_criterios
 from scrapers.xray import buscar_xray
+from scrapers.zoho import buscar_zoho
 from session.store import bind_job_session, clear_job_session
 
 
@@ -32,12 +35,15 @@ async def _run_fuente_xray(cb, job_id, criterios, max_c, discovered: list):
     norm = normalize_criterios(criterios)
     await cb.progress(job_id, fuente, estado="en_progreso", count=0)
     try:
-        items = _tag_discover(
-            await asyncio.to_thread(
-                buscar_xray,
-                norm,
-                max_c,
-            )
+        items = _filter_salary(
+            _tag_discover(
+                await asyncio.to_thread(
+                    buscar_xray,
+                    norm,
+                    max_c,
+                )
+            ),
+            criterios,
         )
         discovered.extend(items)
         if items:
@@ -53,7 +59,7 @@ async def _run_fuente_xray(cb, job_id, criterios, max_c, discovered: list):
 async def _run_fuente_elempleo(cb, job_id, criterios, max_c, discovered: list):
     fuente = "elempleo"
     await cb.progress(job_id, fuente, estado="en_progreso", count=0)
-    stream = CandidateStream(cb, job_id, fuente, discovered)
+    stream = CandidateStream(cb, job_id, fuente, discovered, criterios=criterios)
     try:
         items, err = await asyncio.wait_for(
             buscar_elempleo(
@@ -85,7 +91,7 @@ async def _run_fuente_linkedin(cb, job_id, criterios, max_c, discovered: list):
     await cb.progress(job_id, fuente, estado="en_progreso", count=0)
     try:
         items, err = await buscar_linkedin(criterios, max_c)
-        tagged = _tag_discover(items)
+        tagged = _filter_salary(_tag_discover(items), criterios)
         discovered.extend(tagged)
         if tagged:
             await cb.candidatos(job_id, tagged)
@@ -101,32 +107,123 @@ async def _run_fuente_linkedin(cb, job_id, criterios, max_c, discovered: list):
         return 0, err
 
 
+async def _run_fuente_zoho(cb, job_id, payload, criterios, max_c, discovered: list, callback_base: str):
+    fuente = "zoho"
+    await cb.progress(job_id, fuente, estado="en_progreso", count=0)
+    modo = "rediscovery" if payload.get("tipo") == "rediscovery" else "busqueda"
+    try:
+        items_raw, err = await buscar_zoho(callback_base, job_id, criterios, max_c, modo=modo)
+        items = _filter_salary(_tag_discover(items_raw), criterios)
+        discovered.extend(items)
+        if items:
+            await cb.candidatos(job_id, items)
+        if err and not items:
+            await cb.progress(job_id, fuente, estado="fallido", count=0, error=err)
+            return 0, err
+        await cb.progress(job_id, fuente, estado="completado", count=len(items), error=err)
+        return len(items), err
+    except Exception as exc:
+        err = _short_err(exc)
+        await cb.progress(job_id, fuente, estado="fallido", count=0, error=err)
+        return 0, err
+
+
+async def _run_fuente_postulaciones(cb, job_id, payload, discovered: list):
+    fuente = "postulaciones"
+    await cb.progress(job_id, fuente, estado="en_progreso", count=0)
+    meta = payload.get("meta") or {}
+    url_oferta = meta.get("url_oferta") or ""
+    try:
+        items, err = await buscar_postulaciones(url_oferta, meta.get("cargo", ""), meta.get("skills") or [])
+        tagged = _tag_discover(items)
+        discovered.extend(tagged)
+        if tagged:
+            await cb.candidatos(job_id, tagged)
+        if err and not tagged:
+            await cb.progress(job_id, fuente, estado="fallido", count=0, error=err)
+            return 0, err
+        await cb.progress(job_id, fuente, estado="completado", count=len(tagged), error=err)
+        return len(tagged), err
+    except Exception as exc:
+        err = _short_err(exc)
+        await cb.progress(job_id, fuente, estado="fallido", count=0, error=err)
+        return 0, err
+
+
+def _filter_salary(items: list[dict], criterios: dict) -> list[dict]:
+    sal_max = salario_max_from_criterios(criterios)
+    if not sal_max:
+        return items
+    out = []
+    for it in items:
+        perfil = it.get("perfil") or it
+        sal = perfil.get("salario") or it.get("salario") or ""
+        if excede_aspiracion(sal, sal_max):
+            continue
+        out.append(it)
+    return out
+
+
 async def _phase_discover(cb, job_id, payload, discovered: list) -> tuple[int, list[str], int, int]:
     criterios = normalize_criterios(payload.get("criterios") or {})
     fuentes = payload.get("fuentes") or {}
     max_c = int(payload.get("max_candidatos") or 30)
+    callback_base = payload.get("callback_base_url") or ""
+    job_tipo = payload.get("tipo") or "busqueda"
 
     await cb.phase(job_id, "descubrimiento", estado="en_progreso", count=0)
     errores: list[str] = []
     fuentes_ok = 0
     fuentes_fail = 0
-    total = 0
 
-    runners = []
+    if job_tipo == "postulaciones":
+        count, err = await _run_fuente_postulaciones(cb, job_id, payload, discovered)
+        if err:
+            errores.append(f"postulaciones: {err}")
+            fuentes_fail = 1 if count == 0 else 0
+            fuentes_ok = 0 if count == 0 else 1
+        else:
+            fuentes_ok = 1
+        total = count
+        fase_estado = "completado" if total > 0 else "fallido"
+        await cb.phase(
+            job_id, "descubrimiento", estado=fase_estado, count=len(discovered),
+            total=len(discovered), error=errores[0] if total == 0 and errores else None,
+        )
+        return total, errores, fuentes_ok, fuentes_fail
+
+    if job_tipo == "rediscovery":
+        fuentes = {**fuentes, "zoho": True}
+
+    runners: list[tuple[str, asyncio.Task]] = []
     if fuentes.get("xray"):
-        runners.append(("xray", _run_fuente_xray(cb, job_id, criterios, max_c, discovered)))
+        runners.append(("xray", asyncio.create_task(
+            _run_fuente_xray(cb, job_id, criterios, max_c, discovered)
+        )))
     if fuentes.get("elempleo"):
-        runners.append(("elempleo", _run_fuente_elempleo(cb, job_id, criterios, max_c, discovered)))
+        runners.append(("elempleo", asyncio.create_task(
+            _run_fuente_elempleo(cb, job_id, criterios, max_c, discovered)
+        )))
     if fuentes.get("linkedin"):
-        runners.append(("linkedin", _run_fuente_linkedin(cb, job_id, criterios, max_c, discovered)))
+        runners.append(("linkedin", asyncio.create_task(
+            _run_fuente_linkedin(cb, job_id, criterios, max_c, discovered)
+        )))
+    if fuentes.get("zoho"):
+        runners.append(("zoho", asyncio.create_task(
+            _run_fuente_zoho(cb, job_id, payload, criterios, max_c, discovered, callback_base)
+        )))
 
     if not runners:
         await cb.phase(job_id, "descubrimiento", estado="fallido", count=0, error="Ninguna fuente activa")
         return 0, ["Ninguna fuente activa"], 0, 0
 
-    for name, coro in runners:
+    total = 0
+    gathered = await asyncio.gather(*[t for _, t in runners], return_exceptions=True)
+    for (name, _), result in zip(runners, gathered):
         try:
-            count, err = await coro
+            if isinstance(result, Exception):
+                raise result
+            count, err = result
             total += count
             if err:
                 errores.append(f"{name}: {err}")
@@ -235,6 +332,7 @@ async def run_job(payload: dict):
     job_id = payload["job_id"]
     callback_base = payload["callback_base_url"]
     secret = payload.get("callback_secret")
+    payload["callback_base_url"] = callback_base
     bind_job_session(callback_base, secret)
     cb = CallbackClient(callback_base, secret)
 

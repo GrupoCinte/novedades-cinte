@@ -36,7 +36,9 @@ async function dispatchSourcingJob({ job, vacante, maxCandidatos, fetchImpl = fe
         callback_secret: getWorkerSecret(),
         criterios,
         fuentes: job.fuentes || {},
-        max_candidatos: Math.min(Math.max(Number(maxCandidatos) || Number(process.env.SOURCING_MAX_CANDIDATOS) || 30, 1), 100)
+        max_candidatos: Math.min(Math.max(Number(maxCandidatos) || Number(process.env.SOURCING_MAX_CANDIDATOS) || 30, 1), 100),
+        tipo: job.tipo || 'busqueda',
+        meta: job.meta || {}
     };
 
     const res = await fetchImpl(`${workerUrl}/run`, {

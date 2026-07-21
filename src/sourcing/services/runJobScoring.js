@@ -58,7 +58,7 @@ async function runJobScoring({ jobId, store, scoreFn }) {
 
     await runWithConcurrency(pending, getScoreConcurrency(), async (candidato) => {
         try {
-            const result = await evaluate(vacante, candidato);
+            const result = await evaluate(vacante, candidato, { store, ...opts });
             await store.updateCandidatoScore({
                 candidatoId: candidato.id,
                 score: result.score,

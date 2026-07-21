@@ -240,6 +240,7 @@ async def _run_connect_flow(provider: str, callback_base_url: str, callback_secr
                     "La conexión se guardará sola al detectar la sesión."
                 )
 
+            ee_last_nav = 0.0
             while time.time() < deadline:
                 await asyncio.sleep(2)
                 if page.is_closed():
@@ -252,6 +253,34 @@ async def _run_connect_flow(provider: str, callback_base_url: str, callback_secr
                     if provider == "elempleo":
                         if await _elempleo_session_ready(page, raw_cookies):
                             break
+                        # Tras el login, El Empleo deja al usuario en el home. Si NO está
+                        # en la página de login, navegar al buscador de empresas para
+                        # forzar la cookie de empresa, detectar la sesión y cerrar la
+                        # ventana solo (sin que el usuario navegue a mano). Se reintenta
+                        # con throttle porque el login puede redirigir varias veces.
+                        cur = (page.url or "").lower()
+                        on_login = "iniciar-sesion" in cur or "sessionexpired" in cur
+                        if (
+                            not on_login
+                            and "empresas/buscar" not in cur
+                            and (time.time() - ee_last_nav) > 12
+                        ):
+                            ee_last_nav = time.time()
+                            _connect_status[provider]["mensaje"] = (
+                                "Abriendo el buscador de candidatos de El Empleo…"
+                            )
+                            try:
+                                await page.goto(
+                                    cfg["login_url"],
+                                    wait_until="domcontentloaded",
+                                    timeout=60000,
+                                )
+                                await asyncio.sleep(2)
+                                raw_cookies = await context.cookies()
+                                if await _elempleo_session_ready(page, raw_cookies):
+                                    break
+                            except Exception:
+                                pass
                     elif _is_logged_in(provider, page.url) or _has_auth_cookies(
                         provider, raw_cookies
                     ):

@@ -20,9 +20,12 @@ import ConciliacionesDashboardPage from './conciliaciones/ConciliacionesDashboar
 import ConciliacionesFacturacionPage from './conciliaciones/ConciliacionesFacturacionPage.jsx';
 import ConciliacionesServiciosPage from './conciliaciones/ConciliacionesServiciosPage.jsx';
 import AtraccionTalentoModule from './sourcing/AtraccionTalentoModule.jsx';
-import AtraccionBusquedaPage from './sourcing/AtraccionBusquedaPage.jsx';
-import AtraccionCandidatosPage from './sourcing/AtraccionCandidatosPage.jsx';
+import AtraccionVacantePage from './sourcing/AtraccionVacantePage.jsx';
+import AtraccionShortlistPage from './sourcing/AtraccionShortlistPage.jsx';
+import AtraccionCapturaPage from './sourcing/AtraccionCapturaPage.jsx';
+import AtraccionCampanasPage from './sourcing/AtraccionCampanasPage.jsx';
 import AtraccionIntegracionesPage from './sourcing/AtraccionIntegracionesPage.jsx';
+import AtraccionCandidatosRedirect from './sourcing/AtraccionCandidatosRedirect.jsx';
 import AdminPortalHome from './AdminPortalHome';
 import AdminAccountSettingsPage from './AdminAccountSettingsPage.jsx';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
@@ -358,9 +361,13 @@ function App() {
                 </ProtectedRoute>
               )}
             >
-              <Route index element={<Navigate to="busqueda" replace />} />
-              <Route path="busqueda" element={<AtraccionBusquedaPage token={auth?.token || ''} />} />
-              <Route path="candidatos" element={<AtraccionCandidatosPage token={auth?.token || ''} />} />
+              <Route index element={<Navigate to="vacante" replace />} />
+              <Route path="vacante" element={<AtraccionVacantePage token={auth?.token || ''} />} />
+              <Route path="shortlist" element={<AtraccionShortlistPage token={auth?.token || ''} />} />
+              <Route path="busqueda" element={<Navigate to="../shortlist" replace />} />
+              <Route path="captura" element={<AtraccionCapturaPage token={auth?.token || ''} />} />
+              <Route path="campanas" element={<AtraccionCampanasPage token={auth?.token || ''} />} />
+              <Route path="candidatos" element={<AtraccionCandidatosRedirect token={auth?.token || ''} />} />
               <Route path="integraciones" element={<AtraccionIntegracionesPage token={auth?.token || ''} />} />
             </Route>
           ) : (

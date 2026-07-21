@@ -3,7 +3,9 @@ const { z } = require('zod');
 const fuentesBusquedaSchema = z.object({
     elempleo: z.boolean().optional().default(false),
     linkedin: z.boolean().optional().default(false),
-    xray: z.boolean().optional().default(true)
+    xray: z.boolean().optional().default(true),
+    zoho: z.boolean().optional().default(false),
+    postulaciones: z.boolean().optional().default(false)
 });
 
 const infoFaltanteSchema = z.object({
@@ -28,11 +30,15 @@ const criteriosVacanteSchema = z.object({
     palabras_clave_hv: z.array(z.string().trim().min(1).max(40)).max(3).optional().default([]),
     experiencia_min: z.number().int().min(0).max(50).optional().default(0),
     experiencia_max: z.number().int().min(0).max(50).optional().nullable(),
+    seniority: z.string().trim().max(60).optional().nullable(),
+    tipo_contrato: z.string().trim().max(60).optional().nullable(),
     formacion: z.string().trim().max(200).optional().nullable(),
     nivel_estudios_min: z.string().trim().max(80).optional().nullable(),
     profesion: z.string().trim().max(120).optional().nullable(),
     area_trabajo: z.string().trim().max(120).optional().nullable(),
     sector: z.string().trim().max(120).optional().nullable(),
+    cliente: z.string().trim().max(160).optional().nullable(),
+    horario: z.string().trim().max(160).optional().nullable(),
     idiomas: z.array(idiomaSchema).max(3).optional().default([]),
     salario_rangos_cop: z.array(z.string().trim().max(40)).max(10).optional().default([]),
     modalidad: z.string().trim().max(40).optional().nullable(),
@@ -66,11 +72,15 @@ const parsedVacanteSchema = z.object({
     palabras_clave_hv: z.array(z.string().trim().min(1).max(40)).max(3).optional().default([]),
     experiencia_min: z.number().int().min(0).max(50).optional().default(0),
     experiencia_max: z.number().int().min(0).max(50).optional().nullable(),
+    seniority: z.string().trim().max(60).optional().nullable(),
+    tipo_contrato: z.string().trim().max(60).optional().nullable(),
     formacion: z.string().trim().max(200).optional().nullable(),
     nivel_estudios_min: z.string().trim().max(80).optional().nullable(),
     profesion: z.string().trim().max(120).optional().nullable(),
     area_trabajo: z.string().trim().max(120).optional().nullable(),
     sector: z.string().trim().max(120).optional().nullable(),
+    cliente: z.string().trim().max(160).optional().nullable(),
+    horario: z.string().trim().max(160).optional().nullable(),
     idiomas: z.array(idiomaSchema).max(3).optional().default([]),
     salario_rangos_cop: z.array(z.string().trim().max(40)).max(10).optional().default([]),
     modalidad: z.string().trim().max(40).optional().nullable(),

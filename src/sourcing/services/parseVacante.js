@@ -20,11 +20,15 @@ function buildUserPrompt(descripcion) {
   "palabras_clave_hv": ["máx 3 términos cortos para filtro «La palabra» en EE: tecnologías concretas, NO el cargo"],
   "experiencia_min": 0,
   "experiencia_max": null,
+  "seniority": "Junior|Semisenior|Senior|Líder|etc o null",
+  "tipo_contrato": "término indefinido|término fijo|prestación de servicios|obra labor|etc o null",
   "formacion": "carrera o nivel si se menciona, o null",
   "nivel_estudios_min": "Profesional|Tecnólogo|Maestría|etc o null",
   "profesion": "carrera para filtro Profesión EE o null",
   "area_trabajo": "área inferida (Tecnología, Finanzas...) o null",
   "sector": null,
+  "cliente": "empresa/cliente final si se menciona, o null",
+  "horario": "jornada u horario si se menciona (ej. L-V 8am-6pm), o null",
   "idiomas": [{"idioma": "Inglés", "nivel": "B2"}],
   "salario_rangos_cop": [],
   "modalidad": "presencial|remoto|híbrido|null",
@@ -40,7 +44,9 @@ Reglas:
 - palabras_clave_hv: solo tech concretas (AWS, Java, Docker). Nunca frases largas ni el nombre del cargo.
 - skills_requeridas vs skills_deseables: separar estrictamente.
 - hv_actualizada: null salvo que el descriptivo pida perfiles recientes (último_mes, ultimos_3_meses, ultimos_6_meses, ultimo_ano).
-- info_faltante: avisos cuando falte info que degrade el filtrado (ciudad, experiencia, salario, idioma, cargo ambiguo).
+- seniority: nivel de seniority (Junior, Semisenior, Senior, Líder) si se infiere del descriptivo, o null.
+- tipo_contrato: tipo de contrato laboral colombiano si se menciona (término indefinido, término fijo, prestación de servicios, obra labor), o null.
+- info_faltante: OBLIGATORIO añadir un aviso por CADA uno de estos campos que falte en la descripción, con impacto "alto": formacion (formación académica), experiencia (experiencia requerida), seniority, modalidad, ciudad, tipo_contrato (tipo de contrato) y salario. Usa el nombre exacto del campo en "campo". Añade también otros avisos relevantes (idioma, cargo ambiguo).
 - confianza: 0-1 por cargo, cargos_equivalentes, ciudad, experiencia_min.
 - No extraer género ni edad salvo requisito legal explícito.
 - Si falta un campo opcional, usa null, [] o 0 según el tipo.
@@ -103,11 +109,15 @@ function mergeCriterios(existing, parsed) {
                 ? base.experiencia_min
                 : parsed.experiencia_min ?? 0,
         experiencia_max: base.experiencia_max ?? parsed.experiencia_max ?? null,
+        seniority: base.seniority || parsed.seniority || null,
+        tipo_contrato: base.tipo_contrato || parsed.tipo_contrato || null,
         formacion: base.formacion || parsed.formacion || null,
         nivel_estudios_min: base.nivel_estudios_min || parsed.nivel_estudios_min || null,
         profesion: base.profesion || parsed.profesion || null,
         area_trabajo: base.area_trabajo || parsed.area_trabajo || null,
         sector: base.sector || parsed.sector || null,
+        cliente: base.cliente || parsed.cliente || null,
+        horario: base.horario || parsed.horario || null,
         idiomas: base.idiomas?.length ? base.idiomas : parsed.idiomas || [],
         salario_rangos_cop: base.salario_rangos_cop?.length
             ? base.salario_rangos_cop

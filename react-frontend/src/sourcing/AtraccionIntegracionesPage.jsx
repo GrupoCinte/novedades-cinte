@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useModuleTheme } from '../moduleTheme.js';
 import { ATRACCION_PAGE_MAIN, CINTE_BTN_PRIMARY } from './atraccionLayout.js';
 import {
@@ -304,7 +304,103 @@ function IntegracionCard(props) {
     if (props.row.provider === 'elempleo') {
         return <ElEmpleoCard {...props} />;
     }
+    if (props.row.provider === 'zoho_recruit') {
+        return <ZohoRecruitCard {...props} />;
+    }
     return <LinkedInCard {...props} />;
+}
+
+function ZohoRecruitCard({ row, token, isLight, onRefresh, pushZoho }) {
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState('');
+    const [refreshToken, setRefreshToken] = useState('');
+    const [accessToken, setAccessToken] = useState('');
+    const cardInner = isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-[#04141E]/50';
+    const muted = isLight ? 'text-slate-600' : 'text-slate-400';
+    const input = isLight
+        ? 'mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm'
+        : 'mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-white';
+
+    async function onSave() {
+        setError('');
+        setBusy(true);
+        try {
+            const { saveZohoTokens, disconnectZoho } = await import('./atraccionApi.js');
+            if (!refreshToken.trim() && !accessToken.trim()) {
+                throw new Error('Ingrese refresh_token o access_token de Zoho Recruit');
+            }
+            await saveZohoTokens(token, {
+                refresh_token: refreshToken.trim() || undefined,
+                access_token: accessToken.trim() || undefined
+            });
+            setRefreshToken('');
+            setAccessToken('');
+            await onRefresh();
+        } catch (e) {
+            setError(e.message || 'Error al conectar Zoho');
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function onDisconnect() {
+        setBusy(true);
+        try {
+            const { disconnectZoho } = await import('./atraccionApi.js');
+            await disconnectZoho(token);
+            await onRefresh();
+        } catch (e) {
+            setError(e.message || 'Error');
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    return (
+        <li className={`rounded-xl border px-5 py-4 ${cardInner}`}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h3 className={`text-base font-semibold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+                        {row.label}
+                    </h3>
+                    <p className={`mt-1 text-sm ${muted}`}>{row.descripcion}</p>
+                </div>
+                <EstadoBadge estado={row.estado} isLight={isLight} />
+            </div>
+            <p className={`mt-3 text-sm ${muted}`}>
+                Pegue el <strong>refresh_token</strong> OAuth de Zoho Recruit (API Console). Opcionalmente access_token temporal.
+            </p>
+            <p className={`mt-2 text-xs ${muted}`}>
+                Push automático a Zoho (candidatos aprobados):{' '}
+                <strong className={pushZoho ? 'text-emerald-600' : ''}>{pushZoho ? 'activo' : 'inactivo'}</strong>
+                {' '}(variable servidor <code>SOURCING_PUSH_ZOHO</code>).
+            </p>
+            {row.estado !== 'conectado' ? (
+                <div className="mt-3 space-y-2 max-w-lg">
+                    <label className={`block text-xs ${muted}`}>
+                        Refresh token
+                        <input className={input} value={refreshToken} onChange={(e) => setRefreshToken(e.target.value)} />
+                    </label>
+                    <label className={`block text-xs ${muted}`}>
+                        Access token (opcional)
+                        <input className={input} value={accessToken} onChange={(e) => setAccessToken(e.target.value)} />
+                    </label>
+                </div>
+            ) : null}
+            {error ? <p className="mt-2 text-xs text-red-500">{error}</p> : null}
+            <div className="mt-3 flex flex-wrap gap-2">
+                {row.estado !== 'conectado' ? (
+                    <button type="button" className={`${CINTE_BTN_PRIMARY} !px-4 !py-2 !text-xs`} disabled={busy} onClick={onSave}>
+                        {busy ? 'Guardando…' : 'Conectar Zoho'}
+                    </button>
+                ) : (
+                    <button type="button" className={`${CINTE_BTN_PRIMARY} !px-4 !py-2 !text-xs`} disabled={busy} onClick={onDisconnect}>
+                        Desconectar
+                    </button>
+                )}
+            </div>
+        </li>
+    );
 }
 
 export default function AtraccionIntegracionesPage({ token }) {
@@ -320,10 +416,14 @@ export default function AtraccionIntegracionesPage({ token }) {
     const [error, setError] = useState('');
     const [extensionReady, setExtensionReady] = useState(false);
     const [extensionStale, setExtensionStale] = useState(false);
+    const [health, setHealth] = useState(null);
 
     const load = useCallback(async ({ includeHealth = false } = {}) => {
         try {
-            if (includeHealth) await fetchAtraccionHealth(token);
+            if (includeHealth) {
+                const h = await fetchAtraccionHealth(token);
+                setHealth(h);
+            }
             const list = await fetchIntegraciones(token);
             setRows(list);
             setError('');
@@ -338,7 +438,7 @@ export default function AtraccionIntegracionesPage({ token }) {
 
     const handleSessionSaved = useCallback((provider) => {
         const label = provider === 'elempleo' ? 'El Empleo' : 'LinkedIn';
-        navigate('/admin/atraccion-talento/busqueda', {
+        navigate('/admin/atraccion-talento/shortlist', {
             replace: false,
             state: { flash: `${label} conectado. Ya puede buscar candidatos.` }
         });
@@ -359,22 +459,6 @@ export default function AtraccionIntegracionesPage({ token }) {
     return (
         <main className={ATRACCION_PAGE_MAIN}>
             <div className={card}>
-                <h1 className={`text-xl font-heading font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    Integraciones
-                </h1>
-                <p className={`mt-2 text-sm ${muted}`}>
-                    <strong>El Empleo:</strong> un botón, Chrome se abre solo, usted inicia sesión — listo.
-                    {' '}
-                    <strong>LinkedIn:</strong> extensión CINTE + Guardar conexión.
-                </p>
-                <p className={`mt-2 text-xs ${muted}`}>
-                    <Link to="/admin/atraccion-talento/busqueda" className="text-sky-600 underline">
-                        Volver a búsqueda
-                    </Link>
-                </p>
-            </div>
-
-            <div className={card}>
                 {loading ? (
                     <p className={`text-sm ${muted}`}>Cargando…</p>
                 ) : error ? (
@@ -391,6 +475,7 @@ export default function AtraccionIntegracionesPage({ token }) {
                                 extensionStale={extensionStale}
                                 onSessionSaved={handleSessionSaved}
                                 onRefresh={load}
+                                pushZoho={Boolean(health?.pushZoho)}
                             />
                         ))}
                     </ul>

@@ -70,7 +70,9 @@ export function isJobStale(job, meta) {
 export const FUENTE_LABELS = {
     elempleo: 'El Empleo',
     linkedin: 'LinkedIn',
-    xray: 'X-Ray'
+    xray: 'X-Ray',
+    zoho: 'Zoho Recruit',
+    postulaciones: 'Postulaciones EE'
 };
 
 export const PIPELINE_FASES = ['descubrimiento', 'extraccion', 'enriquecimiento'];

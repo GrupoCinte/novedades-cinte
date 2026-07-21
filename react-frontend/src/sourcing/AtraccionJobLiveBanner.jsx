@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Loader2, Radio, X } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import { useAtraccionJob } from './AtraccionJobContext.jsx';
-import { FUENTE_LABELS, PIPELINE_FASES, FASE_LABELS, resolveProgressEstado } from './atraccionJobStorage.js';
+import { PIPELINE_FASES, FASE_LABELS, resolveProgressEstado } from './atraccionJobStorage.js';
 
 function secondsAgo(ts) {
     if (!ts) return '';
@@ -37,7 +37,6 @@ export function JobProgressPanel({ job, candidatosCount = 0, lastPolledAt, pollE
 
     const progreso = job.progreso && typeof job.progreso === 'object' ? job.progreso : {};
     const fasesProg = progreso.fases && typeof progreso.fases === 'object' ? progreso.fases : {};
-    const fuentes = Object.keys(FUENTE_LABELS).filter((f) => job.fuentes?.[f]);
     const live = job.estado === 'en_progreso' || job.estado === 'pendiente';
     const faseActual = job.fase || 'descubrimiento';
 
@@ -77,8 +76,8 @@ export function JobProgressPanel({ job, candidatosCount = 0, lastPolledAt, pollE
                 <p className={`mt-2 text-xs ${isLight ? 'text-amber-700' : 'text-amber-300'}`}>{job.error_mensaje}</p>
             ) : null}
 
-            <div className="mt-3 flex flex-wrap gap-1.5">
-                {PIPELINE_FASES.map((f) => {
+            <div className="mt-2 flex flex-wrap gap-1.5">
+                {PIPELINE_FASES.filter((f) => f === 'descubrimiento').map((f) => {
                     const p = fasesProg[f] || {};
                     const isCurrent = faseActual === f;
                     const rawEstado = p.estado || (isCurrent && live ? 'en_progreso' : 'pendiente');
@@ -109,40 +108,12 @@ export function JobProgressPanel({ job, candidatosCount = 0, lastPolledAt, pollE
                 </span>
             </div>
 
-            {fuentes.length > 0 ? (
-            <div className="mt-2 flex flex-wrap gap-2">
-                {fuentes.map((f) => {
-                    const p = progreso[f] || {};
-                    const hasEstado = Boolean(p.estado);
-                    const rawEstado = p.estado
-                        || (live ? 'pendiente' : job.estado === 'fallido' && !hasEstado ? 'fallido' : 'completado');
-                    const estado = resolveProgressEstado(rawEstado, job.estado);
-                    const animate = live && estado === 'en_progreso';
-                    return (
-                        <span
-                            key={f}
-                            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs ${estadoChipClass(estado, isLight, animate)}`}
-                        >
-                            {FUENTE_LABELS[f]}: {estado.replace(/_/g, ' ')}
-                            {typeof p.count === 'number' && p.count > 0 ? ` (${p.count})` : ''}
-                        </span>
-                    );
-                })}
-            </div>
-            ) : null}
-
-            {!compact && live && fuentes.every((f) => !(progreso[f]?.estado) || progreso[f]?.estado === 'pendiente') ? (
-                <p className={`mt-2 text-xs ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                    El worker está procesando… Si permanece en pendiente, verifique que el backend y el worker estén activos.
-                </p>
-            ) : null}
-
-            {!compact && ['completado', 'parcial', 'fallido'].includes(job.estado) ? (
+            {!compact && ['completado', 'parcial', 'fallido'].includes(job.estado) && job.vacante_id ? (
                 <Link
-                    to={`/admin/atraccion-talento/candidatos?job=${job.id}`}
+                    to={`/admin/atraccion-talento/shortlist?vacante=${encodeURIComponent(job.vacante_id)}&tab=candidatos`}
                     className="mt-3 inline-block text-sm font-medium text-sky-600 underline"
                 >
-                    Ver candidatos de esta búsqueda
+                    Ver candidatos en shortlist
                 </Link>
             ) : null}
         </div>
@@ -200,17 +171,8 @@ export default function AtraccionJobLiveBanner() {
                         />
                     </div>
                 </div>
-                <div className="flex flex-shrink-0 flex-col items-end gap-2">
-                    {isLive ? (
-                        <Link
-                            to={`/admin/atraccion-talento/candidatos?job=${job.id}`}
-                            className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                                isLight ? 'bg-sky-600 text-white hover:bg-sky-700' : 'bg-sky-700 text-white hover:bg-sky-600'
-                            }`}
-                        >
-                            Ver en vivo ({count})
-                        </Link>
-                    ) : (
+                {!isLive ? (
+                    <div className="flex flex-shrink-0 flex-col items-end gap-2">
                         <button
                             type="button"
                             onClick={dismissJob}
@@ -219,8 +181,8 @@ export default function AtraccionJobLiveBanner() {
                         >
                             <X size={16} />
                         </button>
-                    )}
-                </div>
+                    </div>
+                ) : null}
             </div>
         </div>
     );

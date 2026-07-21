@@ -10,6 +10,10 @@ const PROVIDER_META = {
     linkedin: {
         label: 'LinkedIn Recruiter',
         descripcion: 'Búsqueda directa y extracción de perfiles en LinkedIn.'
+    },
+    zoho_recruit: {
+        label: 'Zoho Recruit',
+        descripcion: 'Base histórica de candidatos en Zoho Recruit.'
     }
 };
 
@@ -149,8 +153,46 @@ function createSourcingIntegrationsStore({ pool }) {
     }
 
     async function isProviderConnected(provider) {
+        const p = String(provider || '').trim().toLowerCase();
+        if (p === 'zoho_recruit' || p === 'zoho') {
+            const tokens = await getZohoTokens();
+            return Boolean(tokens?.access_token || tokens?.refresh_token);
+        }
         const cookies = await getIntegracionCookies(provider);
         return Boolean(cookies && cookies.length);
+    }
+
+    async function getZohoTokens() {
+        await ensureProviderRow('zoho_recruit');
+        const q = await pool.query(
+            `SELECT cookies_enc, estado FROM sourcing_integraciones WHERE provider = 'zoho_recruit'`
+        );
+        const row = q.rows[0];
+        if (!row?.cookies_enc) return null;
+        const data = decryptJson(row.cookies_enc);
+        return data && typeof data === 'object' ? data : null;
+    }
+
+    async function saveZohoTokens(tokens, { actorUserId = null, mensaje = null } = {}) {
+        await ensureProviderRow('zoho_recruit');
+        const enc = encryptJson(tokens || {});
+        const q = await pool.query(
+            `UPDATE sourcing_integraciones
+             SET estado = 'conectado',
+                 cookies_enc = $1,
+                 mensaje = COALESCE($2, 'Zoho Recruit conectado'),
+                 connected_by = COALESCE($3::uuid, connected_by),
+                 connected_at = NOW(),
+                 updated_at = NOW()
+             WHERE provider = 'zoho_recruit'
+             RETURNING ${PUBLIC_SELECT}`,
+            [enc, mensaje, parseUuidActor(actorUserId)]
+        );
+        return toPublicRow(q.rows[0] || null);
+    }
+
+    async function disconnectZoho() {
+        return disconnectIntegracion('zoho_recruit');
     }
 
     return {
@@ -161,6 +203,9 @@ function createSourcingIntegrationsStore({ pool }) {
         getIntegracionCookies,
         disconnectIntegracion,
         isProviderConnected,
+        getZohoTokens,
+        saveZohoTokens,
+        disconnectZoho,
         PROVIDER_META
     };
 }

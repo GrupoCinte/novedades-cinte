@@ -135,20 +135,62 @@ function registerSourcingInternalRoutes(deps) {
             const job = await store.getJobById(req.params.id);
             if (!job) return res.status(404).json({ ok: false, error: 'Job no encontrado' });
 
+            const vacante = await store.getVacanteById(job.vacante_id);
+            const evaluateFn = deps.evaluateCandidatoForPersist;
+            const scoreFn = deps.scoreCandidatoFn;
+
             let inserted = 0;
+            let skipped = 0;
             let lastFuente = null;
             for (const c of parsed.data.candidatos) {
-                await store.upsertCandidato({
+                let score = c.perfil?.score_ia;
+                let resumen = c.perfil?.resumen_ia;
+                if (evaluateFn && vacante) {
+                    const evalResult = await evaluateFn({
+                        vacante,
+                        candidatoPayload: c,
+                        store,
+                        scoreFn
+                    });
+                    if (!evalResult.persist) {
+                        skipped += 1;
+                        continue;
+                    }
+                    if (evalResult.score != null) {
+                        score = evalResult.score;
+                        resumen = evalResult.resumen;
+                    }
+                }
+                const perfil = { ...(c.perfil || {}) };
+                if (score != null) {
+                    perfil.score_ia = score;
+                    if (resumen) perfil.resumen_ia = resumen;
+                }
+                const row = await store.upsertCandidato({
                     jobId: job.id,
                     vacanteId: job.vacante_id,
                     fuente: c.fuente,
                     urlPerfil: c.url_perfil,
                     nombre: c.nombre,
-                    perfil: c.perfil,
+                    perfil,
                     etapa: c.etapa,
                     enriquecido: c.enriquecido,
-                    resumeeId: c.perfil?.resumee_id || null
+                    resumeeId: perfil?.resumee_id || null
                 });
+                if (score != null && row?.id) {
+                    await store.updateCandidatoScore({
+                        candidatoId: row.id,
+                        score,
+                        resumenScore: resumen || null
+                    });
+                }
+                if (deps.zohoPushEnabled && deps.zohoClient && c.fuente?.includes('Zoho')) {
+                    try {
+                        await deps.zohoClient.createCandidate(row || c);
+                    } catch (e) {
+                        console.warn('[Sourcing] zoho push discover:', e.message);
+                    }
+                }
                 lastFuente = c.fuente;
                 inserted += 1;
             }
@@ -193,7 +235,7 @@ function registerSourcingInternalRoutes(deps) {
                 });
             }
 
-            return res.json({ ok: true, inserted, total: totalCandidatos });
+            return res.json({ ok: true, inserted, skipped, total: totalCandidatos });
         } catch (error) {
             console.error('[Sourcing] internal candidatos:', error);
             return res.status(500).json({ ok: false, error: 'No se pudieron guardar candidatos' });

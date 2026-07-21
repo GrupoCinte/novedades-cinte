@@ -2,7 +2,7 @@
 
 const crypto = require('crypto');
 
-const PROVIDERS = new Set(['elempleo', 'linkedin']);
+const PROVIDERS = new Set(['elempleo', 'linkedin', 'zoho_recruit']);
 
 function getEncryptionKey() {
     const secret = String(

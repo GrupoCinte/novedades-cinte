@@ -56,7 +56,7 @@ function summarizePerfil(perfil) {
     return lines.join('\n') || '(perfil muy limitado)';
 }
 
-function buildScorePrompt(vacante, candidato) {
+async function buildScorePrompt(vacante, candidato, ejemplosText = '') {
     const criterios = vacante?.criterios && typeof vacante.criterios === 'object' ? vacante.criterios : {};
     const perfil = candidato?.perfil && typeof candidato.perfil === 'object' ? candidato.perfil : {};
     const partial = isPartialProfile(perfil);
@@ -80,7 +80,7 @@ Reglas:
 - Si el cargo del candidato no guarda relación con el buscado, score ≤ 35 salvo skills muy fuertes.
 - Perfil parcial (${partial ? 'SÍ' : 'NO'}): confianza ≤ 0.55 y score máximo 65.
 - resumen_score: factual, sin imperativos ni recomendaciones de contacto.
-
+${ejemplosText ? `\n${ejemplosText}\n` : ''}
 VACANTE
 Título: ${vacante?.titulo || criterios.cargo || 'sin título'}
 Descripción original:
@@ -116,10 +116,24 @@ async function scoreCandidatoFromBedrock(vacante, candidato, opts = {}) {
         throw err;
     }
 
+    let ejemplosText = '';
+    if (opts.store && typeof opts.store.listDecisionesEntrenamiento === 'function') {
+        const criterios = vacante?.criterios || {};
+        const cargo = criterios.cargo || vacante?.titulo || '';
+        const rows = await opts.store.listDecisionesEntrenamiento({ cargo, limit: 5 });
+        if (rows.length) {
+            ejemplosText = 'Decisiones anteriores de CINTE:\n'
+                + rows.map((r) => {
+                    const dec = r.decision === 'aprobado' ? 'APLICA' : 'NO APLICA';
+                    return `- ${r.nombre} (${r.ciudad || ''}, ${r.cargo_candidato || ''}): ${dec}`;
+                }).join('\n');
+        }
+    }
+
     const converseFn = opts.converseFn || bedrockConverse;
     const text = await converseFn({
         system: SYSTEM_PROMPT,
-        user: buildScorePrompt(vacante, candidato),
+        user: await buildScorePrompt(vacante, candidato, ejemplosText),
         maxTokens: 512,
         temperature: 0.2
     });

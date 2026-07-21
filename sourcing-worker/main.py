@@ -29,6 +29,25 @@ class RunJobRequest(BaseModel):
     criterios: dict[str, Any] = Field(default_factory=dict)
     fuentes: dict[str, bool] = Field(default_factory=dict)
     max_candidatos: int = 30
+    tipo: str = "busqueda"
+    meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class PublishRequest(BaseModel):
+    publicacion_id: str
+    vacante_id: str
+    texto_oferta: str = ""
+    callback_base_url: str
+    callback_secret: str | None = None
+    criterios: dict[str, Any] = Field(default_factory=dict)
+
+
+class InMailRequest(BaseModel):
+    candidato_url: str
+    nombre: str
+    mensaje: str
+    destinatario_id: str | None = None
+    campana_id: str | None = None
 
 
 class ConnectRequest(BaseModel):
@@ -87,6 +106,62 @@ async def connect_provider(provider: str, payload: ConnectRequest, background: B
 async def run(payload: RunJobRequest, background: BackgroundTasks):
     background.add_task(run_job, payload.model_dump())
     return {"ok": True, "accepted": True, "job_id": payload.job_id}
+
+
+@app.post("/inmail/send")
+async def inmail_send(payload: InMailRequest):
+    from inmail.send import enviar_inmail
+
+    result = await enviar_inmail(payload.candidato_url, payload.nombre, payload.mensaje)
+    return {"ok": result.get("status") == "ok", **result}
+
+
+@app.post("/publish/{canal}")
+async def publish_vacante(canal: str, payload: PublishRequest, background: BackgroundTasks):
+    if canal not in ("elempleo", "linkedin"):
+        raise HTTPException(status_code=404, detail="Canal desconocido")
+
+    async def _run():
+        import httpx
+        from config import CALLBACK_SECRET
+
+        if canal == "elempleo":
+            from publish.elempleo import publicar_elempleo
+
+            c = payload.criterios or {}
+            result = await publicar_elempleo(
+                c.get("cargo", ""),
+                c.get("ciudad", ""),
+                c.get("skills_requeridas") or c.get("skills") or [],
+                payload.texto_oferta,
+                c.get("tipo_contrato", "Indefinido"),
+                c.get("modalidad", "Híbrido"),
+            )
+        else:
+            from publish.linkedin import publicar_linkedin
+
+            result = await publicar_linkedin(payload.texto_oferta)
+
+        estado = "publicada" if result.get("status") == "ok" else "fallida"
+        body = {
+            "estado": estado,
+            "url_publicada": result.get("url_publicada"),
+            "error_mensaje": result.get("mensaje") if estado == "fallida" else None,
+        }
+        base = payload.callback_base_url.rstrip("/")
+        secret = payload.callback_secret or CALLBACK_SECRET
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                await client.post(
+                    f"{base}/api/atraccion/internal/publicaciones/{payload.publicacion_id}/complete",
+                    headers={"x-sourcing-worker-key": secret, "Content-Type": "application/json"},
+                    json=body,
+                )
+        except Exception as exc:
+            print(f"[publish] callback error: {exc}")
+
+    background.add_task(_run)
+    return {"ok": True, "accepted": True, "canal": canal}
 
 
 if __name__ == "__main__":

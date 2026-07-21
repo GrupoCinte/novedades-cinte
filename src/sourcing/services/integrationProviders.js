@@ -13,6 +13,12 @@ const PROVIDERS = {
         descripcion: 'Búsqueda directa y extracción de perfiles en LinkedIn.',
         loginUrl: 'https://www.linkedin.com/login',
         cookieDomain: '.linkedin.com'
+    },
+    zoho_recruit: {
+        label: 'Zoho Recruit',
+        descripcion: 'Base histórica de candidatos en Zoho Recruit (búsqueda y rediscovery).',
+        loginUrl: 'https://recruit.zoho.com/recruit/',
+        cookieDomain: null
     }
 };
 

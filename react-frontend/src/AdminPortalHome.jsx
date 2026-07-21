@@ -201,7 +201,7 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 key: 'atraccion',
                 title: 'Atracción de Talento',
                 description: 'Búsqueda de candidatos, scoring con IA y preselección para procesos de reclutamiento.',
-                path: '/admin/atraccion-talento/busqueda',
+                path: '/admin/atraccion-talento/vacante',
                 Icon: UserSearch
             });
         }

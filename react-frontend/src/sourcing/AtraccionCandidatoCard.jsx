@@ -1,25 +1,97 @@
-import { useState } from 'react';
-import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
-import { isNavigableProfileUrl, isPartialProfile, profileSections, formatContactos } from './candidatoProfile.js';
+import { ExternalLink, Trash2, Check, X } from 'lucide-react';
+import { isPartialProfile } from './candidatoProfile.js';
 import ScoreRing from './ScoreRing.jsx';
 
-export default function AtraccionCandidatoCard({ c, isLight, scoringActive = false }) {
-    const [open, setOpen] = useState(false);
+function DecisionBadge({ decision, isLight }) {
+    if (decision === 'aprobado') {
+        return (
+            <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                Aprobado
+            </span>
+        );
+    }
+    if (decision === 'rechazado') {
+        return (
+            <span className="rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">
+                Rechazado
+            </span>
+        );
+    }
+    return (
+        <span className={`rounded-full border px-2 py-0.5 text-xs ${
+            isLight ? 'border-slate-300 bg-slate-100 text-slate-600' : 'border-slate-600 bg-slate-700/40 text-slate-300'
+        }`}>
+            Pendiente
+        </span>
+    );
+}
+
+export default function AtraccionCandidatoCard({
+    c,
+    isLight,
+    scoringActive = false,
+    onOpen,
+    onDelete,
+    onDecision,
+    selectable = false,
+    selected = false,
+    onToggleSelect
+}) {
     const muted = isLight ? 'text-slate-600' : 'text-slate-400';
     const partial = isPartialProfile(c.perfil);
-    const sections = profileSections(c.perfil);
-    const contactos = formatContactos(c.perfil);
-    const showExternal = isNavigableProfileUrl(c.url_perfil);
     const scorePending = scoringActive && c.score == null;
+    // Los candidatos de X-Ray no tienen ficha enriquecida: en vez de abrir el
+    // modal, se redirige directamente al perfil externo (LinkedIn, etc.).
+    const isXray = /x-?ray/i.test(c.fuente || '');
+    const redirectUrl = typeof c.url_perfil === 'string' && c.url_perfil.startsWith('http')
+        ? c.url_perfil
+        : '';
+    const useRedirect = isXray && Boolean(redirectUrl);
+    const decision = c.decision || 'pendiente';
+
+    function handleActivate() {
+        if (useRedirect) {
+            window.open(redirectUrl, '_blank', 'noopener,noreferrer');
+        } else {
+            onOpen?.(c);
+        }
+    }
+
+    const aprobarBtn = decision === 'aprobado'
+        ? 'inline-flex items-center gap-1 rounded-md border border-emerald-500 bg-emerald-500 px-2 py-1 text-xs font-medium text-white'
+        : (isLight
+            ? 'inline-flex items-center gap-1 rounded-md border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50'
+            : 'inline-flex items-center gap-1 rounded-md border border-emerald-500/40 px-2 py-1 text-xs font-medium text-emerald-300 hover:bg-emerald-500/10');
+    const rechazarBtn = decision === 'rechazado'
+        ? 'inline-flex items-center gap-1 rounded-md border border-red-500 bg-red-500 px-2 py-1 text-xs font-medium text-white'
+        : (isLight
+            ? 'inline-flex items-center gap-1 rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50'
+            : 'inline-flex items-center gap-1 rounded-md border border-red-500/40 px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-500/10');
 
     return (
         <li
-            className={`rounded-lg border px-4 py-3 text-sm ${
-                isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-[#04141E]/50'
+            className={`cursor-pointer rounded-lg border px-4 py-3 text-sm transition-colors ${
+                isLight
+                    ? 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                    : 'border-slate-700 bg-[#04141E]/50 hover:bg-[#04141E]/80'
             }`}
+            onClick={handleActivate}
         >
-            <div className="flex gap-3">
-                <div className="flex shrink-0 flex-col items-center gap-1">
+            <div className="flex items-center gap-3">
+                {selectable ? (
+                    <input
+                        type="checkbox"
+                        checked={selected}
+                        title={decision !== 'aprobado'
+                            ? 'Seleccionar (se aprueba automáticamente para campaña)'
+                            : 'Seleccionar para campaña'}
+                        onClick={(ev) => ev.stopPropagation()}
+                        onChange={() => onToggleSelect?.(c.id)}
+                        className="shrink-0 h-4 w-4 cursor-pointer accent-sky-600"
+                        aria-label={`Seleccionar ${c.nombre || 'candidato'}`}
+                    />
+                ) : null}
+                <div className="flex shrink-0 items-center gap-2">
                     <ScoreRing
                         score={c.score}
                         pending={scorePending}
@@ -37,150 +109,65 @@ export default function AtraccionCandidatoCard({ c, isLight, scoringActive = fal
                     ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
-                            <div className={`font-medium ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
-                                {c.nombre || 'Sin nombre'}
-                                <span className={`ml-2 text-xs font-normal ${muted}`}>{c.fuente}</span>
-                            </div>
-                            {c.resumen_score ? (
-                                <p className={`mt-1 text-xs italic ${isLight ? 'text-slate-700' : 'text-slate-300'} ${open ? '' : 'line-clamp-2'}`}>
-                                    {c.resumen_score}
-                                </p>
-                            ) : scorePending ? (
-                                <p className={`mt-1 text-xs ${muted}`}>Evaluando encaje con la vacante…</p>
-                            ) : null}
-                            {c.perfil?.cargo ? (
-                                <p className={`mt-0.5 ${muted}`}>{c.perfil.cargo}</p>
-                            ) : null}
-                            {c.perfil?.ciudad ? (
-                                <p className={`text-xs ${muted}`}>{c.perfil.ciudad}</p>
-                            ) : null}
-                            {c.perfil?.fecha_actualizacion ? (
-                                <p className={`text-xs ${isLight ? 'text-sky-700' : 'text-sky-300'}`}>
-                                    CV actualizado: {c.perfil.fecha_actualizacion}
-                                </p>
-                            ) : null}
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                            {partial ? (
-                                <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs text-amber-800">
-                                    Datos parciales
-                                </span>
-                            ) : (
-                                <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-800">
-                                    Ficha completa
-                                </span>
-                            )}
-                        </div>
+                    <div className={`flex items-center gap-2 font-medium ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
+                        <span className="truncate">{c.nombre || 'Sin nombre'}</span>
+                        <span className={`text-xs font-normal ${muted}`}>{c.fuente}</span>
+                        <DecisionBadge decision={decision} isLight={isLight} />
                     </div>
-
-                    {c.perfil?.resumen_perfil ? (
-                        <p className={`mt-2 text-xs ${muted} ${open ? '' : 'line-clamp-3'}`}>
-                            {c.perfil.resumen_perfil}
+                    {c.perfil?.cargo ? <p className={`mt-0.5 text-xs ${muted}`}>{c.perfil.cargo}</p> : null}
+                    {c.perfil?.ciudad ? <p className={`text-xs ${muted}`}>{c.perfil.ciudad}</p> : null}
+                    {c.resumen_score ? (
+                        <p className={`mt-1 line-clamp-2 text-xs italic ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                            {c.resumen_score}
                         </p>
-                    ) : c.perfil?.snippet ? (
-                        <p className={`mt-2 line-clamp-3 text-xs ${muted}`}>{c.perfil.snippet}</p>
+                    ) : scorePending ? (
+                        <p className={`mt-1 text-xs ${muted}`}>Evaluando encaje con la vacante…</p>
                     ) : null}
-
-                    {contactos.length > 0 ? (
-                        <ul className={`mt-2 space-y-1 text-xs ${isLight ? 'text-emerald-700' : 'text-emerald-300'}`}>
-                            {contactos.map((ct) => (
-                                <li key={`${ct.label}-${ct.telefono}-${ct.email}`}>
-                                    <span className="font-medium">{ct.label}:</span>{' '}
-                                    {[ct.telefono, ct.email].filter(Boolean).join(' · ')}
-                                </li>
-                            ))}
-                        </ul>
-                    ) : null}
-
-                    {Array.isArray(c.perfil?.skills_enriquecidos) && c.perfil.skills_enriquecidos.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                            {c.perfil.skills_enriquecidos.slice(0, 8).map((skill) => (
-                                <span
-                                    key={skill}
-                                    className={`rounded-full px-2 py-0.5 text-xs ${
-                                        isLight ? 'bg-sky-100 text-sky-800' : 'bg-sky-900/50 text-sky-200'
-                                    }`}
-                                >
-                                    {skill}
-                                </span>
-                            ))}
-                        </div>
-                    ) : null}
-
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <button
-                            type="button"
-                            onClick={() => setOpen((v) => !v)}
-                            className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-medium ${
-                                isLight
-                                    ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
-                                    : 'border-slate-600 text-slate-200 hover:bg-slate-800'
-                            }`}
-                        >
-                            {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                            {open ? 'Ocultar ficha' : 'Ver ficha completa'}
-                        </button>
-                        {showExternal ? (
-                            <a
-                                href={c.url_perfil}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-sky-600 underline"
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                    {onDecision ? (
+                        <div className="flex items-center gap-1">
+                            <button
+                                type="button"
+                                onClick={(ev) => { ev.stopPropagation(); onDecision(c, decision === 'aprobado' ? 'pendiente' : 'aprobado'); }}
+                                className={aprobarBtn}
+                                title="Aprobar candidato"
                             >
-                                Abrir en El Empleo
-                                <ExternalLink size={12} />
-                            </a>
-                        ) : null}
-                    </div>
-
-                    {open ? (
-                        <div
-                            className={`mt-3 space-y-3 rounded-lg border p-3 text-xs ${
-                                isLight ? 'border-slate-200 bg-white' : 'border-slate-600 bg-[#0b1f2a]/60'
-                            }`}
-                        >
-                            {c.resumen_score ? (
-                                <div>
-                                    <p className={`font-semibold ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
-                                        Evaluación IA
-                                    </p>
-                                    <p className={`mt-1 ${muted}`}>{c.resumen_score}</p>
-                                </div>
-                            ) : null}
-                            {sections.map((s) => (
-                                <div key={s.label}>
-                                    <p className={`font-semibold ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
-                                        {s.label}
-                                    </p>
-                                    {s.list ? (
-                                        <ul className={`mt-1 list-inside list-disc ${muted}`}>
-                                            {s.list.map((item) => (
-                                                <li key={item}>{item}</li>
-                                            ))}
-                                        </ul>
-                                    ) : (
-                                        <p className={`mt-1 ${muted}`}>{s.value}</p>
-                                    )}
-                                </div>
-                            ))}
-                            {!sections.length && !c.perfil?.resumen_perfil ? (
-                                <p className={muted}>
-                                    Aún no hay detalle adicional. El worker puede completar la ficha en la siguiente
-                                    búsqueda.
-                                </p>
-                            ) : null}
-                            {c.etapa ? (
-                                <p className={`${isLight ? 'text-sky-700' : 'text-sky-300'}`}>
-                                    Etapa: {c.etapa}
-                                    {c.enriquecido ? ' · enriquecido' : ''}
-                                    {c.score != null ? ` · score ${c.score}` : ''}
-                                    {c.perfil?.extraccion?.nota ? ` · ${c.perfil.extraccion.nota}` : ''}
-                                </p>
-                            ) : null}
+                                <Check size={13} /> Aprobar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={(ev) => { ev.stopPropagation(); onDecision(c, decision === 'rechazado' ? 'pendiente' : 'rechazado'); }}
+                                className={rechazarBtn}
+                                title="Rechazar candidato"
+                            >
+                                <X size={13} /> Rechazar
+                            </button>
                         </div>
                     ) : null}
+                    <div className="flex items-center gap-1">
+                        {onDelete ? (
+                            <button
+                                type="button"
+                                onClick={(ev) => { ev.stopPropagation(); onDelete(c); }}
+                                title="Eliminar candidato"
+                                aria-label={`Eliminar ${c.nombre || 'candidato'}`}
+                                className={isLight
+                                    ? 'inline-flex items-center justify-center rounded-md border border-red-200 p-1 text-red-600 hover:bg-red-50'
+                                    : 'inline-flex items-center justify-center rounded-md border border-red-500/40 p-1 text-red-400 hover:bg-red-500/10'}
+                            >
+                                <Trash2 size={14} />
+                            </button>
+                        ) : null}
+                        {useRedirect ? (
+                            <span className={`inline-flex items-center gap-1 text-xs font-medium ${isLight ? 'text-sky-700' : 'text-sky-300'}`}>
+                                Abrir perfil
+                                <ExternalLink size={12} />
+                            </span>
+                        ) : (
+                            <span className={`text-xs ${muted}`}>Ver ficha →</span>
+                        )}
+                    </div>
                 </div>
             </div>
         </li>

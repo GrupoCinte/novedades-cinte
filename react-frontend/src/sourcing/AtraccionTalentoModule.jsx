@@ -1,23 +1,13 @@
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Home, Link2, Menu, Search, Users, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Database, Home, Link2, Megaphone, Menu, Search, Sparkles, X } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
 import AdminModuleSidebarBrand from '../AdminModuleSidebarBrand.jsx';
 import AdminModuleSidebarFooter from '../AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from '../AdminModuleSidebarUser.jsx';
 import { ATRACCION_SIDEBAR_BRAND } from './atraccionLayout.js';
-import { AtraccionJobProvider, useAtraccionJob } from './AtraccionJobContext.jsx';
+import { AtraccionJobProvider } from './AtraccionJobContext.jsx';
 import AtraccionJobLiveBanner from './AtraccionJobLiveBanner.jsx';
-
-function CandidatosNavBadge() {
-    const { isLive, candidatosCount } = useAtraccionJob();
-    if (!isLive) return null;
-    return (
-        <span className="ml-auto flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-slate-900 animate-pulse">
-            {candidatosCount > 99 ? '99+' : candidatosCount || '…'}
-        </span>
-    );
-}
 
 function AtraccionTalentoShell({ auth, onLogout }) {
     const navigate = useNavigate();
@@ -40,8 +30,10 @@ function AtraccionTalentoShell({ auth, onLogout }) {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const path = location.pathname || '';
-    const onBusqueda = path.includes('/admin/atraccion-talento/busqueda') || path.endsWith('/atraccion-talento');
-    const onCandidatos = path.includes('/admin/atraccion-talento/candidatos');
+    const onVacante = path.includes('/admin/atraccion-talento/vacante') || path.endsWith('/atraccion-talento');
+    const onBusqueda = path.includes('/admin/atraccion-talento/shortlist') || path.includes('/admin/atraccion-talento/busqueda');
+    const onCaptura = path.includes('/admin/atraccion-talento/captura');
+    const onCampanas = path.includes('/admin/atraccion-talento/campanas');
     const onIntegraciones = path.includes('/admin/atraccion-talento/integraciones');
 
     const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
@@ -83,26 +75,39 @@ function AtraccionTalentoShell({ auth, onLogout }) {
             </button>
             <button
                 type="button"
-                onClick={() => { navigate('/admin/atraccion-talento/busqueda'); closeMobile(); }}
-                title={!expanded ? 'Búsqueda' : undefined}
-                className={`${navItemClass(onBusqueda)} ${expanded ? 'px-4 py-3' : 'justify-center px-0 py-3'}`}
+                onClick={() => { navigate('/admin/atraccion-talento/vacante'); closeMobile(); }}
+                title={!expanded ? 'Vacante' : undefined}
+                className={`${navItemClass(onVacante)} ${expanded ? 'px-4 py-3' : 'justify-center px-0 py-3'}`}
             >
-                <Search size={18} className={navIconClass(onBusqueda)} />
-                {expanded ? <span className="truncate">Búsqueda</span> : null}
+                <Sparkles size={18} className={navIconClass(onVacante)} />
+                {expanded ? <span className="truncate">Vacante</span> : null}
             </button>
             <button
                 type="button"
-                onClick={() => { navigate('/admin/atraccion-talento/candidatos'); closeMobile(); }}
-                title={!expanded ? 'Candidatos' : undefined}
-                className={`${navItemClass(onCandidatos)} ${expanded ? 'px-4 py-3' : 'justify-center px-0 py-3'}`}
+                onClick={() => { navigate('/admin/atraccion-talento/shortlist'); closeMobile(); }}
+                title={!expanded ? 'Shortlist' : undefined}
+                className={`${navItemClass(onBusqueda)} ${expanded ? 'px-4 py-3' : 'justify-center px-0 py-3'}`}
             >
-                <Users size={18} className={navIconClass(onCandidatos)} />
-                {expanded ? (
-                    <span className="flex min-w-0 flex-1 items-center truncate">
-                        Candidatos
-                        <CandidatosNavBadge />
-                    </span>
-                ) : null}
+                <Search size={18} className={navIconClass(onBusqueda)} />
+                {expanded ? <span className="truncate">Shortlist</span> : null}
+            </button>
+            <button
+                type="button"
+                onClick={() => { navigate('/admin/atraccion-talento/captura'); closeMobile(); }}
+                title={!expanded ? 'Base de captura' : undefined}
+                className={`${navItemClass(onCaptura)} ${expanded ? 'px-4 py-3' : 'justify-center px-0 py-3'}`}
+            >
+                <Database size={18} className={navIconClass(onCaptura)} />
+                {expanded ? <span className="truncate">Base de captura</span> : null}
+            </button>
+            <button
+                type="button"
+                onClick={() => { navigate('/admin/atraccion-talento/campanas'); closeMobile(); }}
+                title={!expanded ? 'Campañas' : undefined}
+                className={`${navItemClass(onCampanas)} ${expanded ? 'px-4 py-3' : 'justify-center px-0 py-3'}`}
+            >
+                <Megaphone size={18} className={navIconClass(onCampanas)} />
+                {expanded ? <span className="truncate">Campañas</span> : null}
             </button>
             <button
                 type="button"

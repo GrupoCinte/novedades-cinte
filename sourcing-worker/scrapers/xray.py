@@ -4,18 +4,43 @@ from __future__ import annotations
 import os
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 
 from ddgs import DDGS
 
 from scrapers.serpapi_search import buscar_serpapi, serpapi_available
 from scrapers.criterios_mapper import normalize_criterios, xray_skills, xray_variantes
 
+# Solo sitios de PERFILES de persona. Se excluye computrabajo.com.co porque su
+# contenido público indexable son ofertas de empleo, no perfiles de candidatos.
 DEFAULT_SITES = [
     "linkedin.com/in",
     "co.linkedin.com/in",
     "github.com",
-    "computrabajo.com.co",
 ]
+
+# Rutas de GitHub que NO son perfiles de persona (orgs, repos y páginas de sistema).
+GITHUB_RESERVED = {
+    "orgs", "topics", "search", "marketplace", "collections", "sponsors",
+    "about", "pricing", "features", "enterprise", "login", "join", "explore",
+    "notifications", "settings", "apps", "team", "customer-stories", "readme",
+    "trending", "events", "security", "site", "contact", "nonprofit",
+    "education", "git-guides", "mobile", "issues", "pulls", "codespaces",
+    "new", "organizations", "dashboard", "stars", "watching",
+}
+
+# Patrones que delatan una OFERTA/aviso de empleo (no una persona).
+JOB_URL_PATTERNS = (
+    "/jobs", "/job/", "/ofertas", "/oferta", "/vacante", "/vacantes",
+    "/empleo", "/empleos", "/trabajo", "/trabajos", "/careers", "/carreras",
+    "/hiring", "/postula", "/aviso", "/reclutamiento",
+)
+JOB_TEXT_PATTERNS = (
+    "postúlate", "postulate", "postular", "aplica ya", "oferta de empleo",
+    "oferta laboral", "buscamos", "estamos buscando", "únete a", "unete a",
+    "requisitos del cargo", "salario a convenir", "envía tu hoja de vida",
+    "aplicar a este empleo", "convocatoria", "empleos en",
+)
 
 TRADUCCIONES = {
     "desarrollador": "developer",
@@ -72,14 +97,45 @@ def _build_query(sitio: str, variante: str, ciudad: str, skills: list[str] | Non
         parts = [f'"{s}"' if " " in s else s for s in skills[:3]]
         q += " (" + " OR ".join(parts) + ")" if len(parts) > 1 else " " + parts[0]
     q += f' "{ciudad}" Colombia' if ciudad else " Colombia -site:linkedin.com/in/ar"
-    q += " -inurl:jobs -inurl:ofertas -inurl:vacantes -inurl:empleo"
+    q += " -inurl:jobs -inurl:job -inurl:ofertas -inurl:oferta -inurl:vacantes -inurl:vacante"
+    q += " -inurl:empleo -inurl:empleos -inurl:trabajo -inurl:careers -inurl:hiring"
     return q
+
+
+def _is_person_url(url: str) -> bool:
+    """True solo si la URL apunta a un PERFIL de persona (no repo/org/oferta)."""
+    u = (url or "").lower()
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    host = (parsed.netloc or "").lower()
+    segs = [s for s in (parsed.path or "").split("/") if s]
+    if "linkedin.com" in host:
+        return "/in/" in u
+    if "github.com" in host:
+        # Perfil de persona = exactamente un segmento no reservado (github.com/<user>).
+        # Repos (user/repo), orgs y páginas de sistema quedan fuera.
+        if len(segs) != 1:
+            return False
+        return segs[0].lower() not in GITHUB_RESERVED
+    return True
+
+
+def _looks_like_job(titulo: str, snippet: str, url: str) -> bool:
+    u = (url or "").lower()
+    if any(p in u for p in JOB_URL_PATTERNS):
+        return True
+    texto = f"{titulo} {snippet}".lower()
+    return any(p in texto for p in JOB_TEXT_PATTERNS)
 
 
 def _parse_result_item(titulo: str, url: str, snippet: str, ciudad: str, skills: list[str], strict_skills: bool) -> dict | None:
     if not url or not titulo:
         return None
-    if any(x in url.lower() for x in ["/jobs", "/ofertas", "/vacantes"]):
+    if _looks_like_job(titulo, snippet, url):
+        return None
+    if not _is_person_url(url):
         return None
     nombre = titulo.split(" - ")[0].split(" | ")[0].strip()
     if not nombre or len(nombre) < 2:

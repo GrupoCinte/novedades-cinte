@@ -60,19 +60,31 @@ async def buscar_linkedin(
             return [], err
 
         pagina = 1
+        await page.evaluate(
+            "() => { document.querySelectorAll('[data-cinte-visto]').forEach(el => el.removeAttribute('data-cinte-visto')); }"
+        )
         while contador < max_c:
             for _ in range(6):
                 await page.evaluate("window.scrollBy(0,500)")
                 await asyncio.sleep(0.3)
             await asyncio.sleep(1)
 
-            links = await page.query_selector_all("a[href*='linkedin.com/in/']")
+            cards = await page.query_selector_all(
+                "li.reusable-search__result-container, div.entity-result, div[data-chameleon-result-urn]"
+            )
             urls_vistas: set[str] = set()
 
-            for link in links:
+            for card in cards:
                 if contador >= max_c:
                     break
                 try:
+                    if await card.get_attribute("data-cinte-visto"):
+                        continue
+                    await card.evaluate("el => el.setAttribute('data-cinte-visto', '1')")
+
+                    link = await card.query_selector("a[href*='/in/']")
+                    if not link:
+                        continue
                     href = await link.get_attribute("href")
                     if not href or "/in/" not in href:
                         continue
@@ -81,14 +93,18 @@ async def buscar_linkedin(
                         continue
                     urls_vistas.add(url_cand)
 
-                    padre = link
                     nombre = (await link.inner_text()).strip()
                     if not nombre or len(nombre) < 2:
                         continue
 
+                    cargo_el = await card.query_selector(
+                        ".entity-result__primary-subtitle, .artdeco-entity-lockup__subtitle"
+                    )
+                    cargo = (await cargo_el.inner_text()).strip() if cargo_el else ""
+
                     raw = {
                         "nombre": nombre,
-                        "cargo": "",
+                        "cargo": cargo,
                         "ciudad": ciudad,
                         "url": url_cand,
                         "email": "",
@@ -99,6 +115,37 @@ async def buscar_linkedin(
                     contador += 1
                 except Exception:
                     continue
+
+            # Compatibilidad: enlaces sueltos si no hay tarjetas estándar
+            if not cards:
+                links = await page.query_selector_all("a[href*='linkedin.com/in/']")
+                for link in links:
+                    if contador >= max_c:
+                        break
+                    try:
+                        href = await link.get_attribute("href")
+                        if not href or "/in/" not in href:
+                            continue
+                        url_cand = href.split("?")[0]
+                        if url_cand in urls_vistas:
+                            continue
+                        urls_vistas.add(url_cand)
+                        nombre = (await link.inner_text()).strip()
+                        if not nombre or len(nombre) < 2:
+                            continue
+                        raw = {
+                            "nombre": nombre,
+                            "cargo": "",
+                            "ciudad": ciudad,
+                            "url": url_cand,
+                            "email": "",
+                            "telefono": "",
+                            "resumen_perfil": "",
+                        }
+                        candidatos.append(to_api_candidate(raw, "LinkedIn", skills))
+                        contador += 1
+                    except Exception:
+                        continue
 
             next_btn = await page.query_selector("button[aria-label='Siguiente'], button.artdeco-pagination__button--next")
             if not next_btn or contador >= max_c:
