@@ -9,8 +9,16 @@ const {
     isSundayBogotaYmd
 } = require('./heDomingoBogota');
 
-/** Máximo horas recargo dominical por cada domingo calendario Bogotá. */
-const RECARGO_DOMINGO_MAX_HORAS = 7.33;
+/**
+ * Tope horas recargo dominical/festivo por día calendario Bogotá.
+ * Pre jornada 42 h (hasta 2026-07-14): 44/6 = 7,33 h.
+ * Desde 2026-07-15 (Ley 2101): 42/6 = 7,00 h.
+ */
+const JORNADA_42_CUTOFF_YMD = '2026-07-15';
+const RECARGO_DOMINGO_MAX_HORAS_PRE_42 = 7.33;
+const RECARGO_DOMINGO_MAX_HORAS_42 = 7;
+/** Valor vigente “hoy” (post corte 42 h) para docs/tests nuevos. */
+const RECARGO_DOMINGO_MAX_HORAS = RECARGO_DOMINGO_MAX_HORAS_42;
 
 /** Diurna: 06:00 inclusive – 18:59 inclusive (minuto < 19:00), reloj Bogotá. */
 const HORA_DIURNA_INICIO_MIN = 6 * 60;
@@ -18,8 +26,30 @@ const HORA_NOCTURNA_INICIO_MIN = 19 * 60;
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-/** 7,33 h en ms (7 × 3600 + 19 × 60 + 48 = 26388 s). */
-const RECARGO_DOMINGO_MAX_MS = Math.round(7.33 * 3600 * 1000);
+const RECARGO_DOMINGO_MAX_MS_PRE_42 = Math.round(RECARGO_DOMINGO_MAX_HORAS_PRE_42 * HOUR_MS);
+const RECARGO_DOMINGO_MAX_MS_42 = Math.round(RECARGO_DOMINGO_MAX_HORAS_42 * HOUR_MS);
+/** Alias vigente (post corte). Preferir resolveRecargoDomingoMaxMsForDayKey. */
+const RECARGO_DOMINGO_MAX_MS = RECARGO_DOMINGO_MAX_MS_42;
+
+/**
+ * @param {string} dayKey YYYY-MM-DD Bogotá
+ * @returns {number}
+ */
+function resolveRecargoDomingoMaxHorasForDayKey(dayKey) {
+    const ymd = String(dayKey || '').trim().slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ymd) && ymd >= JORNADA_42_CUTOFF_YMD) {
+        return RECARGO_DOMINGO_MAX_HORAS_42;
+    }
+    return RECARGO_DOMINGO_MAX_HORAS_PRE_42;
+}
+
+/**
+ * @param {string} dayKey YYYY-MM-DD Bogotá
+ * @returns {number}
+ */
+function resolveRecargoDomingoMaxMsForDayKey(dayKey) {
+    return Math.round(resolveRecargoDomingoMaxHorasForDayKey(dayKey) * HOUR_MS);
+}
 
 const dtfHm = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Bogota',
@@ -200,7 +230,8 @@ function collectRecargoDayKeysInInterval(startMs, endMs, festivosSet) {
 }
 
 /**
- * Split HE con presupuesto compartido de 7,33 h por domingo/festivo y cédula (varias filas).
+ * Split HE con presupuesto compartido por domingo/festivo y cédula (varias filas).
+ * Tope por dayKey: 7,33 h antes de 2026-07-15; 7 h desde esa fecha.
  * @param {Array<{ rowKey: string|number, startMs: number, endMs: number }>} rows
  * @param {Set<string>} [festivosSet]
  * @returns {Map<string, { total: number, horasRecargoDomingo: number, horasRecargoDomingoDiurnas: number, horasRecargoDomingoNocturnas: number, diurnas: number, nocturnas: number }>}
@@ -247,9 +278,9 @@ function computeHoraExtraGroupSplitBogota(rows, festivosSet) {
         if (!byDay.has(seg.dayKey)) byDay.set(seg.dayKey, []);
         byDay.get(seg.dayKey).push(seg);
     }
-    for (const segs of byDay.values()) {
+    for (const [dayKey, segs] of byDay) {
         segs.sort((a, b) => a.startMs - b.startMs || a.rowKey.localeCompare(b.rowKey));
-        const budget = { value: RECARGO_DOMINGO_MAX_MS };
+        const budget = { value: resolveRecargoDomingoMaxMsForDayKey(dayKey) };
         for (const seg of segs) {
             const buckets = bucketsByRow.get(seg.rowKey);
             if (!buckets) continue;
@@ -267,7 +298,8 @@ function computeHoraExtraGroupSplitBogota(rows, festivosSet) {
 
 /**
  * Recorre [startMs, endMs) por días calendario Bogotá y acumula recargo dom./festivo
- * (diurno/nocturno en las primeras 7,33 h del domingo o festivo) y HE diurna/nocturna (resto).
+ * (diurno/nocturno en las primeras L h del domingo o festivo; L=7,33 pre-15-jul-2026, L=7 después)
+ * y HE diurna/nocturna (resto).
  * Si `festivosSet` no se provee, solo los domingos disparan recargo (back-compat).
  *
  * @param {number|null} startMs
@@ -332,7 +364,7 @@ function collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs, festivosSet) {
             if (isSabadoInicioCruzaDomingoHe(startMs, dayKey, festivosSet)) {
                 pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, s, e, dayStart);
             } else {
-                const rlen = Math.min(e - s, RECARGO_DOMINGO_MAX_MS);
+                const rlen = Math.min(e - s, resolveRecargoDomingoMaxMsForDayKey(dayKey));
                 const after = s + rlen;
                 if (e > after) pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, after, e, dayStart);
             }
@@ -346,7 +378,7 @@ function collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs, festivosSet) {
 }
 
 /**
- * Segmentos del tramo de recargo dominical/festivo (primeros L ms del día, L ≤ 7,33 h),
+ * Segmentos del tramo de recargo dominical/festivo (primeros L ms del día; L según jornada vigente),
  * partidos por franja Bogotá. Sin `festivosSet` solo aplica a domingo (back-compat).
  * @param {number} startMs
  * @param {number} endMs
@@ -376,7 +408,7 @@ function collectRecargoDomingoDiurnaNocturnaSegmentsBogota(startMs, endMs, festi
 
         if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) {
             if (!isSabadoInicioCruzaDomingoHe(startMs, dayKey, festivosSet)) {
-                const rlen = Math.min(e - s, RECARGO_DOMINGO_MAX_MS);
+                const rlen = Math.min(e - s, resolveRecargoDomingoMaxMsForDayKey(dayKey));
                 const after = s + rlen;
                 pushDiurnaNocturnaSegmentsForWindow(diurna, nocturna, s, after, dayStart);
             }
@@ -440,8 +472,13 @@ function resolveHoraExtraLabel(heDiurnas, heNocturnas, recDomDiurnas, recDomNoct
 }
 
 module.exports = {
+    JORNADA_42_CUTOFF_YMD,
     RECARGO_DOMINGO_MAX_HORAS,
+    RECARGO_DOMINGO_MAX_HORAS_PRE_42,
+    RECARGO_DOMINGO_MAX_HORAS_42,
     RECARGO_DOMINGO_MAX_MS,
+    resolveRecargoDomingoMaxHorasForDayKey,
+    resolveRecargoDomingoMaxMsForDayKey,
     bogotaMinuteOfDayFromMs,
     isDiurnaBogotaMinute,
     computeHoraExtraSplitBogota,
