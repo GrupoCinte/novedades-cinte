@@ -21,6 +21,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
 
+### 2026-07-21 19:06:03 · `fix/AUT-576-gp-acceso-mallas` · `63bb71c6`
+- **Commit:** `63bb71c680e0f3443c3145df9ffa0fdb5e91e9f5`
+- **Ticket:** AUT-576
+- **Requerimiento funcional:** Registrar en la bitácora el hotfix de acceso GP a Mallas.
+- **Componente técnico:** `docs/HISTORIAL-CAMBIOS.md`.
+- **Cambios (uno a uno):**
+  - Entrada append-only del commit `41fe6e2a` (AUT-576).
+
 ### 2026-07-21 19:05:58 · `fix/AUT-576-gp-acceso-mallas` · `41fe6e2a`
 - **Commit:** `41fe6e2aaac3f3896e58a6094aa9a2110b3ad64a`
 - **Ticket:** AUT-576
