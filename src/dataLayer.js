@@ -3024,6 +3024,8 @@ function createDataLayer(deps) {
         getMallaTurnoAprobacionStatus,
         getMallaNocturnoConfig,
         upsertMallaNocturnoConfig,
+        listAssignedClientesForGpUserId,
+        resolveGpInternalUserIdForScope,
         ensureConciliacionesFacturacionTable,
         ensureConciliacionesFacturacionHistorialTable,
         ensureConciliacionesServicioNotificacionesTable,
