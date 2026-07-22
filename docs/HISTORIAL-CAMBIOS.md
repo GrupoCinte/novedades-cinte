@@ -21,6 +21,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
 
+### 2026-07-21 19:12:34 · `fix/AUT-576-gp-acceso-mallas` · `74ee8be1`
+- **Commit:** `74ee8be1162fde532b29e28b3604b704e8980320`
+- **Ticket:** AUT-576
+- **Requerimiento funcional:** Corregir fallo en runtime al cargar clientes de mallas como GP (`resolveGpInternalUserIdForScope is not a function`).
+- **Componente técnico:** `src/dataLayer.js` — exportación de `listAssignedClientesForGpUserId` y `resolveGpInternalUserIdForScope` en el return de `createDataLayer`.
+- **Cambios (uno a uno):**
+  - Las helpers de alcance GP ya existían internamente pero no salían del data layer; ahora `server.js` las recibe como funciones.
+
 ### 2026-07-21 19:06:03 · `fix/AUT-576-gp-acceso-mallas` · `63bb71c6`
 - **Commit:** `63bb71c680e0f3443c3145df9ffa0fdb5e91e9f5`
 - **Ticket:** AUT-576
