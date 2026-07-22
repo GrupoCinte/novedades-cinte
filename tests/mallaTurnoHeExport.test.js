@@ -134,11 +134,12 @@ test('aprobarMallaTurnosMes 409 si mes ya aprobado sin permiso de re-aprobación
     );
 });
 
-test('canReaprobarMallaRole solo super_admin y cac', () => {
+test('canReaprobarMallaRole super_admin, cac y gp', () => {
     const { canReaprobarMallaRole } = require('../src/mallaTurnoHeExport');
     assert.equal(canReaprobarMallaRole('super_admin'), true);
     assert.equal(canReaprobarMallaRole('cac'), true);
-    assert.equal(canReaprobarMallaRole('gp'), false);
+    assert.equal(canReaprobarMallaRole('gp'), true);
+    assert.equal(canReaprobarMallaRole('nomina'), false);
 });
 
 test('aprobarMallaTurnosMes re-aprobación cac con 06_14 no inserta (turno diurno planificado)', async () => {

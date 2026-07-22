@@ -17,6 +17,32 @@ export function authHeaders(token) {
     return headers;
 }
 
+export async function fetchMallasClientes(token) {
+    const res = await fetch('/api/directorio/mallas-turnos/clientes', {
+        headers: authHeaders(token)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+}
+
+export async function fetchMallasColaboradores(token, { cliente, activo = 'true', limit = 200, offset = 0, sort = 'nombre', dir = 'asc' }) {
+    const qs = new URLSearchParams({
+        cliente,
+        activo: String(activo),
+        limit: String(limit),
+        offset: String(offset),
+        sort,
+        dir
+    });
+    const res = await fetch(`/api/directorio/mallas-turnos/colaboradores?${qs}`, {
+        headers: authHeaders(token)
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+}
+
 export async function fetchMallasTurnos(token, cliente, desde, hasta, origen) {
     const qs = new URLSearchParams({ cliente, desde, hasta });
     if (origen === 'mallas' || origen === 'nocturnos') qs.set('origen', origen);

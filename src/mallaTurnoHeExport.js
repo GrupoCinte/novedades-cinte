@@ -96,7 +96,7 @@ function formatAprobacionFechaObs(isoOrDate) {
 
 function canReaprobarMallaRole(role) {
     const r = String(role || '').trim();
-    return r === 'super_admin' || r === 'cac';
+    return r === 'super_admin' || r === 'cac' || r === 'gp';
 }
 
 const INSERT_NOVEDAD_MALLA_SQL = `INSERT INTO novedades (

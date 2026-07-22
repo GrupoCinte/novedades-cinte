@@ -26,6 +26,7 @@ import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess, userHasConciliacionesAccess } from './comercialAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
+import { userHasMallasAccess } from './mallasAccess';
 import { cognitoSignOut } from './cognitoAuth';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { pathIsAdminModuleShell, ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
@@ -417,7 +418,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {(() => {
-                  return userHasDirectorioPanel(auth) ? (
+                  return userHasMallasAccess(auth) || userHasDirectorioPanel(auth) ? (
                     <DirectorioClienteColaboradorModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                   ) : (
                     <Navigate to="/admin" replace />

@@ -21,6 +21,33 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
 
+### 2026-07-21 19:12:34 · `fix/AUT-576-gp-acceso-mallas` · `74ee8be1`
+- **Commit:** `74ee8be1162fde532b29e28b3604b704e8980320`
+- **Ticket:** AUT-576
+- **Requerimiento funcional:** Corregir fallo en runtime al cargar clientes de mallas como GP (`resolveGpInternalUserIdForScope is not a function`).
+- **Componente técnico:** `src/dataLayer.js` — exportación de `listAssignedClientesForGpUserId` y `resolveGpInternalUserIdForScope` en el return de `createDataLayer`.
+- **Cambios (uno a uno):**
+  - Las helpers de alcance GP ya existían internamente pero no salían del data layer; ahora `server.js` las recibe como funciones.
+
+### 2026-07-21 19:06:03 · `fix/AUT-576-gp-acceso-mallas` · `63bb71c6`
+- **Commit:** `63bb71c680e0f3443c3145df9ffa0fdb5e91e9f5`
+- **Ticket:** AUT-576
+- **Requerimiento funcional:** Registrar en la bitácora el hotfix de acceso GP a Mallas.
+- **Componente técnico:** `docs/HISTORIAL-CAMBIOS.md`.
+- **Cambios (uno a uno):**
+  - Entrada append-only del commit `41fe6e2a` (AUT-576).
+
+### 2026-07-21 19:05:58 · `fix/AUT-576-gp-acceso-mallas` · `41fe6e2a`
+- **Commit:** `41fe6e2aaac3f3896e58a6094aa9a2110b3ad64a`
+- **Ticket:** AUT-576
+- **Requerimiento funcional:** El rol GP puede entrar a Mallas de turnos, editar y aprobar/reaprobar solo sobre sus clientes asignados en directorio, sin abrir el resto del módulo de administración.
+- **Componente técnico:** `src/directorio/registerDirectorioRoutes.js` (guards mallas + alcance GP), `src/mallaTurnoHeExport.js` (reaprobación GP), `server.js` (deps alcance), frontend `mallasAccess.js` / tile / sidebar / selector scoped, tests de rutas mallas y RBAC, `docs/RBAC_MATRIX.md`.
+- **Cambios (uno a uno):**
+  - Rutas `mallas-turnos*` accesibles a GP sin panel `directorio`; assert de cliente asignado.
+  - Endpoints `…/clientes` y `…/colaboradores` para el selector de mallas.
+  - Aprobación/reaprobación con paridad CAC/super_admin; `PUT` nocturno-config sigue bloqueado a GP.
+  - UI: tile «Mallas» para GP y sidebar reducido solo a mallas.
+
 ### 2026-07-21 18:44:54 · `fix/AUT-575-recargo-tope-7h-jornada-42` · `e44f93ac`
 - **Commit:** `e44f93ac571b6450e8cfa9c7b820079539c2c5b1`
 - **Ticket:** AUT-575
