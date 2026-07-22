@@ -54,9 +54,10 @@ describe('RBAC - permisos por tipo', () => {
   });
 
   it('gp ve gestión de novedades y onboarding (lectura acotada a sus clientes), sin contratacion ni comercial', () => {
-    assert.deepEqual([...(POLICY.gp?.panels || [])].sort(), ['gestion', 'onboarding']);
+    assert.deepEqual([...(POLICY.gp?.panels || [])].sort(), ['conciliaciones', 'gestion', 'onboarding']);
     assert.equal(POLICY.gp.panels.includes('contratacion'), false);
     assert.equal(POLICY.gp.panels.includes('comercial'), false);
+    assert.equal(POLICY.gp.panels.includes('directorio'), false);
   });
 
   it('gp aprueba tipos asignados y no los que solo admin_ch/super_admin/cac', () => {

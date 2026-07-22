@@ -2,7 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, PanelRightClose, PanelRightOpen, Trash2, X } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
 import { buildGestionTableDash } from './gestionTableDashTheme.js';
-import { authHeaders, fetchMallasTurnos, putMallasTurnos, fetchMallaAprobacionStatus, postMallaAprobar } from './mallasTurnosApi.js';
+import {
+    fetchMallasClientes,
+    fetchMallasColaboradores,
+    fetchMallasTurnos,
+    putMallasTurnos,
+    fetchMallaAprobacionStatus,
+    postMallaAprobar
+} from './mallasTurnosApi.js';
 import {
     DEFAULT_NOCTURNO_CONFIG,
     buildMallaTurnoPatch,
@@ -238,7 +245,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     const [successMsg, setSuccessMsg] = useState('');
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const canAprobarMalla =
-        userRole === 'super_admin' || userRole === 'cac' || userRole === '';
+        userRole === 'super_admin' || userRole === 'cac' || userRole === 'gp' || userRole === '';
     const hasCliente = Boolean(String(clienteSeleccionado || '').trim());
 
     const monthLabel = useMemo(() => {
@@ -267,13 +274,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     const loadClientesCatalogo = useCallback(async () => {
         setLoadingClientes(true);
         try {
-            const u = new URLSearchParams();
-            u.set('activo', 'true');
-            u.set('limit', '2000');
-            u.set('offset', '0');
-            const res = await fetch(`/api/directorio/clientes-resumen?${u}`, { headers: authHeaders(token) });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            const data = await fetchMallasClientes(token);
             setClientesOptions(Array.isArray(data.items) ? data.items : []);
         } catch (e) {
             setError(e.message || 'No se pudo cargar el catálogo de clientes');
@@ -291,16 +292,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
         setLoadingCo(true);
         setError('');
         try {
-            const u = new URLSearchParams();
-            u.set('activo', 'true');
-            u.set('cliente', cli);
-            u.set('limit', '200');
-            u.set('offset', '0');
-            u.set('sort', 'nombre');
-            u.set('dir', 'asc');
-            const res = await fetch(`/api/directorio/colaboradores?${u}`, { headers: authHeaders(token) });
-            const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+            const data = await fetchMallasColaboradores(token, { cliente: cli });
             setColaboradores(Array.isArray(data.items) ? data.items : []);
         } catch (e) {
             setError(e.message || 'No se pudieron cargar colaboradores');

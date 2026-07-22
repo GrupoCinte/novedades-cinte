@@ -32,6 +32,7 @@ import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js'
 import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
+import { userIsGpMallasOnly } from './mallasAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
@@ -190,20 +191,36 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
+    const gpMallasOnly = userIsGpMallasOnly(auth);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     /** Vista principal del sidebar */
-    const [mainView, setMainView] = useState('cliente');
+    const [mainView, setMainView] = useState(() => (gpMallasOnly ? 'mallasTurnos' : 'cliente'));
 
     useEffect(() => {
         setFiltersPanelOpen(false);
     }, [mainView]);
 
-    const showTiCatalogSubmod = userHasRolesTiCatalogRead(auth);
+    useEffect(() => {
+        if (gpMallasOnly && mainView !== 'mallasTurnos') {
+            setMainView('mallasTurnos');
+        }
+    }, [gpMallasOnly, mainView]);
+
+    const showTiCatalogSubmod = !gpMallasOnly && userHasRolesTiCatalogRead(auth);
     useEffect(() => {
         const v = searchParams.get('v');
+        if (gpMallasOnly) {
+            setMainView('mallasTurnos');
+            if (v) {
+                const next = new URLSearchParams(searchParams);
+                next.delete('v');
+                setSearchParams(next, { replace: true });
+            }
+            return;
+        }
         if (v === 'dashboard') {
             setMainView('dashboardAdmin');
             const next = new URLSearchParams(searchParams);
@@ -236,7 +253,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         const next = new URLSearchParams(searchParams);
         next.delete('v');
         setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams, showTiCatalogSubmod]);
+    }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly]);
 
     const [msg, setMsg] = useState(null);
 
@@ -1050,65 +1067,79 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     setMobileMenuOpen(false);
                 }}
             />
-            <NavBtn
-                active={mainView === 'dashboardAdmin'}
-                icon={LayoutDashboard}
-                label="Dashboard"
-                onClick={() => {
-                    setMainView('dashboardAdmin');
-                    setMobileMenuOpen(false);
-                }}
-            />
-            <NavBtn
-                active={mainView === 'cliente'}
-                icon={Building2}
-                label="Cliente"
-                onClick={() => {
-                    setMainView('cliente');
-                    setMobileMenuOpen(false);
-                }}
-            />
-            <NavBtn
-                active={mainView === 'consultores'}
-                icon={Users}
-                label="Consultores / Staff"
-                onClick={() => {
-                    setCoTipoContrato('');
-                    setCoQ('');
-                    setMainView('consultores');
-                    setMobileMenuOpen(false);
-                }}
-            />
-            <NavBtn
-                active={mainView === 'reubicaciones'}
-                icon={ArrowRightLeft}
-                label="Reubicaciones"
-                onClick={() => {
-                    setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
-                    setMainView('reubicaciones');
-                    setMobileMenuOpen(false);
-                }}
-            />
-            <NavBtn
-                active={mainView === 'mallasTurnos'}
-                icon={CalendarDays}
-                label="Mallas de turnos"
-                onClick={() => {
-                    setMainView('mallasTurnos');
-                    setMobileMenuOpen(false);
-                }}
-            />
-            {showTiCatalogSubmod ? (
+            {gpMallasOnly ? (
                 <NavBtn
-                    active={mainView === 'catalogoTi'}
-                    icon={Layers}
-                    label="Catálogo roles TI"
+                    active={mainView === 'mallasTurnos'}
+                    icon={CalendarDays}
+                    label="Mallas de turnos"
                     onClick={() => {
-                        setMainView('catalogoTi');
+                        setMainView('mallasTurnos');
                         setMobileMenuOpen(false);
                     }}
                 />
-            ) : null}
+            ) : (
+                <>
+                    <NavBtn
+                        active={mainView === 'dashboardAdmin'}
+                        icon={LayoutDashboard}
+                        label="Dashboard"
+                        onClick={() => {
+                            setMainView('dashboardAdmin');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    <NavBtn
+                        active={mainView === 'cliente'}
+                        icon={Building2}
+                        label="Cliente"
+                        onClick={() => {
+                            setMainView('cliente');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    <NavBtn
+                        active={mainView === 'consultores'}
+                        icon={Users}
+                        label="Consultores / Staff"
+                        onClick={() => {
+                            setCoTipoContrato('');
+                            setCoQ('');
+                            setMainView('consultores');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    <NavBtn
+                        active={mainView === 'reubicaciones'}
+                        icon={ArrowRightLeft}
+                        label="Reubicaciones"
+                        onClick={() => {
+                            setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
+                            setMainView('reubicaciones');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    <NavBtn
+                        active={mainView === 'mallasTurnos'}
+                        icon={CalendarDays}
+                        label="Mallas de turnos"
+                        onClick={() => {
+                            setMainView('mallasTurnos');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    {showTiCatalogSubmod ? (
+                        <NavBtn
+                            active={mainView === 'catalogoTi'}
+                            icon={Layers}
+                            label="Catálogo roles TI"
+                            onClick={() => {
+                                setMainView('catalogoTi');
+                                setMobileMenuOpen(false);
+                            }}
+                        />
+                    ) : null}
+                </>
+            )}
         </nav>
     );
 

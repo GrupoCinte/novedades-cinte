@@ -18,6 +18,22 @@ function directorioGuard() {
     };
 }
 
+/** AUT-576: mallas-turnos sin panel directorio (GP + super_admin/cac). */
+function mallasRoleGuard() {
+    return (req, res, next) => {
+        const role = normalizeRoleOrNull(req.user?.role);
+        if (role === 'super_admin' || role === 'cac' || role === 'gp') {
+            return next();
+        }
+        return res.status(403).json({ ok: false, error: 'Sin permiso para mallas de turnos.' });
+    };
+}
+
+function canAprobarMallaRole(role) {
+    const r = normalizeRoleOrNull(role);
+    return r === 'super_admin' || r === 'cac' || r === 'gp';
+}
+
 async function writeAudit(pool, row) {
     try {
         await pool.query(
@@ -84,13 +100,41 @@ function registerDirectorioRoutes(deps) {
         getMallaTurnoAprobacionStatus,
         getMallaNocturnoConfig,
         upsertMallaNocturnoConfig,
-        getColaboradorByCedula
+        getColaboradorByCedula,
+        listAssignedClientesForGpUserId,
+        resolveGpInternalUserIdForScope
     } = deps;
 
     /** Lecturas: sin adminActionLimiter (200/hora incluía cada GET y bloqueaba uso normal del directorio). */
     const readGuard = [verificarToken, allowPanel('directorio'), directorioGuard()];
     /** Escrituras: mismo límite que cotizador/guardar (costosas / abuso). */
     const writeGuard = [verificarToken, allowPanel('directorio'), adminActionLimiter, directorioGuard()];
+    /** AUT-576: rutas mallas (GP sin panel directorio). */
+    const mallasReadGuard = [verificarToken, mallasRoleGuard()];
+    const mallasWriteGuard = [verificarToken, mallasRoleGuard(), adminActionLimiter];
+
+    async function assertGpClienteAsignado(req, clienteRaw) {
+        const role = normalizeRoleOrNull(req.user?.role);
+        if (role !== 'gp') return;
+        const cliente = normalizeCatalogValue(clienteRaw);
+        if (!cliente) {
+            throw Object.assign(new Error('Cliente es obligatorio.'), { status: 400 });
+        }
+        const gpEmail = String(req.user?.email || '')
+            .trim()
+            .toLowerCase();
+        const gpUserId = parseUuidActor(req.user?.sub);
+        if (typeof listAssignedClientesForGpUserId !== 'function' || typeof resolveGpInternalUserIdForScope !== 'function') {
+            throw Object.assign(new Error('Alcance GP no configurado.'), { status: 500 });
+        }
+        const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
+        const assigned = await listAssignedClientesForGpUserId(gpId);
+        const fold = foldForMatch(cliente);
+        const ok = assigned.some((c) => foldForMatch(c) === fold);
+        if (!ok) {
+            throw Object.assign(new Error('Sin permiso para este cliente.'), { status: 403 });
+        }
+    }
 
     const clienteLiderListSchema = z.object({
         activo: z.enum(['true', 'false', 'all']).optional(),
@@ -737,20 +781,80 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/mallas-turnos', ...readGuard, async (req, res) => {
+    app.get('/api/directorio/mallas-turnos/clientes', ...mallasReadGuard, async (req, res) => {
+        try {
+            const role = normalizeRoleOrNull(req.user?.role);
+            if (role === 'gp') {
+                const gpEmail = String(req.user?.email || '')
+                    .trim()
+                    .toLowerCase();
+                const gpUserId = parseUuidActor(req.user?.sub);
+                const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
+                const assigned = await listAssignedClientesForGpUserId(gpId);
+                const items = assigned.map((cliente) => ({ cliente }));
+                return res.json({ ok: true, items, total: items.length });
+            }
+            const { rows, total } = await listClientesLideresByClienteSummaryPaged({
+                activo: true,
+                limit: 2000,
+                offset: 0
+            });
+            return res.json({ ok: true, items: rows, total: total ?? rows.length });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('GET directorio mallas-turnos/clientes:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo listar clientes de mallas.' });
+        }
+    });
+
+    app.get('/api/directorio/mallas-turnos/colaboradores', ...mallasReadGuard, async (req, res) => {
+        try {
+            const q = colabListSchema.safeParse(req.query);
+            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
+            const { activo, limit, offset, q: search, sort, dir, tipo_contrato: tipoContrato, cliente: clienteColab } =
+                q.data;
+            const cliente = clienteColab ? String(clienteColab).trim() : '';
+            if (!cliente) {
+                return res.status(400).json({ ok: false, error: 'Cliente es obligatorio.' });
+            }
+            await assertGpClienteAsignado(req, cliente);
+            let activoBool = null;
+            if (activo === 'true') activoBool = true;
+            if (activo === 'false') activoBool = false;
+            const { rows, total } = await listColaboradoresPaged({
+                activo: activoBool,
+                q: search,
+                cliente,
+                tipoContrato: tipoContrato ? String(tipoContrato).trim() : '',
+                limit,
+                offset,
+                sort,
+                dir
+            });
+            return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('GET directorio mallas-turnos/colaboradores:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudieron listar colaboradores.' });
+        }
+    });
+
+    app.get('/api/directorio/mallas-turnos', ...mallasReadGuard, async (req, res) => {
         try {
             const parsed = mallasTurnosListSchema.safeParse(req.query);
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
             const { desde, hasta, cliente, origen } = parsed.data;
+            await assertGpClienteAsignado(req, cliente);
             const items = await listMallaTurnosCeldasRange({ cliente, desde, hasta, origen });
             return res.json({ ok: true, items });
         } catch (e) {
-            console.error('GET directorio mallas-turnos:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar la malla de turnos.' });
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('GET directorio mallas-turnos:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'No se pudo listar la malla de turnos.' });
         }
     });
 
-    app.put('/api/directorio/mallas-turnos', ...writeGuard, async (req, res) => {
+    app.put('/api/directorio/mallas-turnos', ...mallasWriteGuard, async (req, res) => {
         try {
             const parsed = mallasTurnosPutSchema.safeParse(req.body || {});
             if (!parsed.success) {
@@ -759,6 +863,7 @@ function registerDirectorioRoutes(deps) {
                     .json({ ok: false, error: describeMallaPutValidationError(parsed.error) });
             }
             const { cliente, patches } = parsed.data;
+            await assertGpClienteAsignado(req, cliente);
             await upsertMallaTurnosCeldas({ cliente, patches });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user?.sub),
@@ -776,7 +881,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/mallas-turnos/nocturno-config', ...readGuard, async (_req, res) => {
+    app.get('/api/directorio/mallas-turnos/nocturno-config', ...mallasReadGuard, async (_req, res) => {
         try {
             const config = await getMallaNocturnoConfig();
             return res.json({ ok: true, ...config });
@@ -811,10 +916,11 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/mallas-turnos/aprobacion', ...readGuard, async (req, res) => {
+    app.get('/api/directorio/mallas-turnos/aprobacion', ...mallasReadGuard, async (req, res) => {
         try {
             const parsed = mallasTurnosAprobacionQuerySchema.safeParse(req.query);
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
+            await assertGpClienteAsignado(req, parsed.data.cliente);
             const status = await getMallaTurnoAprobacionStatus(parsed.data);
             return res.json({ ok: true, ...status });
         } catch (e) {
@@ -824,14 +930,15 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.post('/api/directorio/mallas-turnos/aprobar', ...writeGuard, async (req, res) => {
+    app.post('/api/directorio/mallas-turnos/aprobar', ...mallasWriteGuard, async (req, res) => {
         try {
             const parsed = mallasTurnosAprobarBodySchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const role = normalizeRoleOrNull(req.user?.role);
-            if (role !== 'super_admin' && role !== 'cac') {
+            if (!canAprobarMallaRole(role)) {
                 return res.status(403).json({ ok: false, error: 'Sin permiso para aprobar mallas de turnos.' });
             }
+            await assertGpClienteAsignado(req, parsed.data.cliente);
             const actorEmail = String(req.user?.email || '').trim();
             const actorUserId = await resolveActorUserIdForSession(pool, {
                 sub: req.user?.sub,

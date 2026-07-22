@@ -11,7 +11,11 @@ const {
 
 function authWithRole(role) {
     return (req, _res, next) => {
-        req.user = { role, sub: '550e8400-e29b-41d4-a716-446655440000', email: 'qa@cinte.test' };
+        req.user = {
+            role,
+            sub: '550e8400-e29b-41d4-a716-446655440000',
+            email: role === 'gp' ? 'gp@cinte.test' : 'qa@cinte.test'
+        };
         next();
     };
 }
@@ -73,7 +77,6 @@ function buildApp(role, pool, mallaMocks = {}) {
         getLideresByCliente: mallaMocks.getLideresByCliente || (async () => []),
         getAreaFromRole: () => 'Capital Humano',
         listClientesLideresPaged: async () => ({ rows: [], total: 0 }),
-        listClientesLideresByClienteSummaryPaged: async () => ({ rows: [], total: 0 }),
         insertClienteLider: async () => ({}),
         updateClienteLiderById: async () => ({}),
         deleteClienteLiderById: async () => null,
@@ -100,7 +103,14 @@ function buildApp(role, pool, mallaMocks = {}) {
             })),
         getMallaNocturnoConfig,
         upsertMallaNocturnoConfig,
-        getColaboradorByCedula: mallaMocks.getColaboradorByCedula || (async () => null)
+        getColaboradorByCedula: mallaMocks.getColaboradorByCedula || (async () => null),
+        listAssignedClientesForGpUserId:
+            mallaMocks.listAssignedClientesForGpUserId || (async () => ['Cliente Demo']),
+        resolveGpInternalUserIdForScope:
+            mallaMocks.resolveGpInternalUserIdForScope || (async () => '550e8400-e29b-41d4-a716-446655440000'),
+        listClientesLideresByClienteSummaryPaged:
+            mallaMocks.listClientesLideresByClienteSummaryPaged ||
+            (async () => ({ rows: [{ cliente: 'Cliente Demo' }], total: 1 }))
     });
     return app;
 }
@@ -108,9 +118,38 @@ function buildApp(role, pool, mallaMocks = {}) {
 const Q =
     'cliente=Cliente%20Demo&desde=2026-05-01&hasta=2026-05-31';
 
-test('GET /api/directorio/mallas-turnos 403 para rol gp', async () => {
+test('GET /api/directorio/mallas-turnos 200 para rol gp con cliente asignado', async () => {
     const app = buildApp('gp', buildPoolAuditOnly());
     const res = await request(app).get(`/api/directorio/mallas-turnos?${Q}`);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.items.length, 1);
+});
+
+test('GET /api/directorio/mallas-turnos 403 para gp con cliente no asignado', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly(), {
+        listAssignedClientesForGpUserId: async () => ['Otro Cliente']
+    });
+    const res = await request(app).get(`/api/directorio/mallas-turnos?${Q}`);
+    assert.equal(res.status, 403);
+});
+
+test('GET /api/directorio/mallas-turnos/clientes 200 gp solo asignados', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly(), {
+        listAssignedClientesForGpUserId: async () => ['Cliente A', 'Cliente B']
+    });
+    const res = await request(app).get('/api/directorio/mallas-turnos/clientes');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.deepEqual(
+        res.body.items.map((i) => i.cliente),
+        ['Cliente A', 'Cliente B']
+    );
+});
+
+test('GET /api/directorio/clientes-resumen 403 para rol gp', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly());
+    const res = await request(app).get('/api/directorio/clientes-resumen?activo=true&limit=10');
     assert.equal(res.status, 403);
 });
 
@@ -135,8 +174,28 @@ test('GET /api/directorio/mallas-turnos 200 super_admin', async () => {
     assert.equal(res.body.items[0].franja, '06_14');
 });
 
-test('PUT /api/directorio/mallas-turnos 403 para rol gp', async () => {
-    const app = buildApp('gp', buildPoolAuditOnly());
+test('PUT /api/directorio/mallas-turnos 200 para rol gp con cliente asignado', async () => {
+    let payload;
+    const app = buildApp('gp', buildPoolAuditOnly(), {
+        upsertMallaTurnosCeldas: async (p) => {
+            payload = p;
+        }
+    });
+    const res = await request(app)
+        .put('/api/directorio/mallas-turnos')
+        .send({
+            cliente: 'Cliente Demo',
+            patches: [{ fecha: '2026-05-10', franja: '06_14', cedulas: ['1234567890'] }]
+        });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(payload.cliente, 'Cliente Demo');
+});
+
+test('PUT /api/directorio/mallas-turnos 403 para gp con cliente no asignado', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly(), {
+        listAssignedClientesForGpUserId: async () => []
+    });
     const res = await request(app)
         .put('/api/directorio/mallas-turnos')
         .send({
@@ -237,12 +296,13 @@ test('PUT /api/directorio/mallas-turnos 400 mode inválido', async () => {
     assert.equal(res.status, 400);
 });
 
-test('GET /api/directorio/mallas-turnos/aprobacion 403 para rol gp', async () => {
+test('GET /api/directorio/mallas-turnos/aprobacion 200 para rol gp', async () => {
     const app = buildApp('gp', buildPoolAuditOnly());
     const res = await request(app).get(
         '/api/directorio/mallas-turnos/aprobacion?cliente=Cliente%20Demo&anio=2026&mes=6&variant=mallas'
     );
-    assert.equal(res.status, 403);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
 });
 
 test('GET /api/directorio/mallas-turnos/aprobacion 200 super_admin', async () => {
@@ -263,8 +323,29 @@ test('GET /api/directorio/mallas-turnos/aprobacion 200 super_admin', async () =>
     assert.equal(res.body.novedadesGeneradas, 5);
 });
 
-test('POST /api/directorio/mallas-turnos/aprobar 403 para rol gp', async () => {
-    const app = buildApp('gp', buildPoolAuditOnly());
+test('POST /api/directorio/mallas-turnos/aprobar 200 re-aprobación gp', async () => {
+    const { pool, captured } = buildPoolReaprobacionRouteMock();
+    const app = buildApp('gp', pool, {
+        getColaboradorByCedula: async () => colaboradorDemo,
+        getLideresByCliente: async () => ['Lider Demo'],
+        listMallaTurnosCeldasRange: async () => [
+            { fecha: '2026-06-10', franja: '14_22', cedula: '1234567890', nombre: 'Colaborador Uno' }
+        ]
+    });
+    const res = await request(app)
+        .post('/api/directorio/mallas-turnos/aprobar')
+        .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
+    assert.equal(res.status, 200, res.body?.error || '');
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.reaprobacion, true);
+    assert.equal(res.body.novedadesGeneradas, 1);
+    assert.match(captured.observaciones[0] || '', /Modificación a la aprobación original/i);
+});
+
+test('POST /api/directorio/mallas-turnos/aprobar 403 gp cliente no asignado', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly(), {
+        listAssignedClientesForGpUserId: async () => ['Otro']
+    });
     const res = await request(app)
         .post('/api/directorio/mallas-turnos/aprobar')
         .send({ cliente: 'Cliente Demo', anio: 2026, mes: 6, variant: 'mallas' });
@@ -320,9 +401,18 @@ test('POST /api/directorio/mallas-turnos/aprobar 409 no aplica a super_admin en 
     assert.equal(res.status, 200);
 });
 
-test('GET /api/directorio/mallas-turnos/nocturno-config 403 para rol gp', async () => {
+test('GET /api/directorio/mallas-turnos/nocturno-config 200 para rol gp', async () => {
     const app = buildApp('gp', buildPoolAuditOnly());
     const res = await request(app).get('/api/directorio/mallas-turnos/nocturno-config');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+});
+
+test('PUT /api/directorio/mallas-turnos/nocturno-config 403 para rol gp', async () => {
+    const app = buildApp('gp', buildPoolAuditOnly());
+    const res = await request(app)
+        .put('/api/directorio/mallas-turnos/nocturno-config')
+        .send({ horaInicio: '20:00', horaFin: '04:00' });
     assert.equal(res.status, 403);
 });
 

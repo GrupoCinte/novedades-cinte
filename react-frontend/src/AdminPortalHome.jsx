@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, Building2, Calculator, Scale, Users } from 'lucide-react';
+import { Briefcase, Building2, Calculator, CalendarDays, Scale, Users } from 'lucide-react';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess, userHasConciliacionesAccess } from './comercialAccess';
 import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
+import { userHasMallasAccess, userIsGpMallasOnly } from './mallasAccess';
 import UserAccountMenu from './UserAccountMenu.jsx';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
@@ -175,6 +176,14 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 description: 'Configuración de catálogo, permisos y datos maestros del directorio.',
                 path: '/admin/directorio?v=dashboard',
                 Icon: Building2
+            });
+        } else if (userIsGpMallasOnly(auth) || (userHasMallasAccess(auth) && !userHasDirectorioPanel(auth))) {
+            out.push({
+                key: 'mallas',
+                title: 'Mallas de turnos',
+                description: 'Asignación y aprobación de mallas de tus clientes asignados.',
+                path: '/admin/directorio?v=mallas-turnos',
+                Icon: CalendarDays
             });
         }
         return out;

@@ -25,7 +25,7 @@
 | **Admin Capital Humano** | Responsable CH | Sí | Ve **todas** las áreas y **todos** los tipos de solicitud. Aprueba según reglas por tipo (ver sección 4). Accede a tablero, calendario y gestión | **No** | Sí | Sí (lectura + escritura + bajas) | **No** |
 | **Equipo Capital Humano** | Operativo CH | Sí | Misma **visibilidad** amplia que Admin CH (todas las áreas y tipos). Las **aprobaciones** dependen del tipo (ver sección 4) | **No** | Sí | Sí (lectura + edición ficha; **NO** tramita bajas) | **No** |
 | **Comercial** | Fuerza comercial | Solo si la ruta lo permite | Normalmente **no** entra al shell clásico de novedades | **Sí** (es su módulo principal) | No | No | No |
-| **GP** (Gestión de proyectos) | Coordinación operativa | Sí | Solo **Gestión de novedades** (sin tablero ni calendario como menú principal). Ve solicitudes de sus **clientes asignados**. Aprueba tipos operativos (Hora extra, disponibilidad, etc.) | No | No | Sí (**solo lectura** de sus clientes asignados) | No |
+| **GP** (Gestión de proyectos) | Coordinación operativa | Sí | Solo **Gestión de novedades** (sin tablero ni calendario como menú principal). Ve solicitudes de sus **clientes asignados**. Aprueba tipos operativos (Hora extra, disponibilidad, etc.) | No | No | Sí (**solo lectura** de sus clientes asignados) | **No** el Directorio completo; **sí Mallas de turnos** (ver/editar/aprobar) solo en clientes asignados |
 | **Analista de conciliaciones** | Conciliaciones / facturación | Sí | **No** (solo módulo Conciliaciones — **CRUD completo**) | No | No | No | No |
 | **Nómina** | Área financiera / nómina | Sí | Tablero, calendario y gestión. Ve **todas las áreas**. **No** aprueba solicitudes de novedades: solo **verifica** donde aplique; en **Conciliaciones** tiene **solo lectura** de todo el módulo | No | No | Sí (lectura: calculadora y bajas, reporte de rotación) | No |
 | **Consultor** (Microsoft) | Externo | Redirige a **`/consultor`**, no al admin staff | Radicación y seguimiento en portal consultor | No | No | No | No |
@@ -81,6 +81,7 @@ Al entrar a **`/admin`** con sesión válida, según el rol aparecen tarjetas co
 - **Capital Humano Onboarding (monitor n8n)** — contratación en tiempo real desde DynamoDB; **sí** aplica a **Admin CH** y **Equipo CH**; **no** aplica a **CAC**.
 - **Onboarding (maestro de personal)** — módulo madre con personal activo, bajas, SENA, staff, licencias, calculadora, extranjeros, pólizas y capacitaciones. Aplica a **Super administrador**, **CAC**, **Admin CH**, **Equipo CH**; **GP** y **Nómina** ven el módulo en modo lectura con su alcance.
 - **Módulo de administración** (Directorio) — **Super administrador** y **CAC**; **Admin CH** y **Equipo CH** **no** tienen esta tarjeta.
+- **Mallas de turnos** — tarjeta propia para **GP** (sin abrir el resto del Directorio): editar y aprobar/reaprobar mallas de sus **clientes asignados**. **Super administrador** y **CAC** entran por el módulo de administración.
 
 ### Grupos Cognito (Conciliaciones)
 

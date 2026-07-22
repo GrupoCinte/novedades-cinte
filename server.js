@@ -667,6 +667,8 @@ const {
     getMallaTurnoAprobacionStatus,
     getMallaNocturnoConfig,
     upsertMallaNocturnoConfig,
+    listAssignedClientesForGpUserId,
+    resolveGpInternalUserIdForScope,
     ensureConciliacionesFacturacionTable,
     ensureConciliacionesFacturacionHistorialTable,
     ensureConciliacionesServicioNotificacionesTable,
@@ -882,7 +884,9 @@ registerDirectorioRoutes({
     getMallaTurnoAprobacionStatus,
     getMallaNocturnoConfig,
     upsertMallaNocturnoConfig,
-    getColaboradorByCedula
+    getColaboradorByCedula,
+    listAssignedClientesForGpUserId,
+    resolveGpInternalUserIdForScope
 });
 
 // Conciliaciones queda detras de un flag: por defecto OFF (apagado en produccion).
