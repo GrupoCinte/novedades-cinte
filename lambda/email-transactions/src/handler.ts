@@ -8,13 +8,16 @@ import { UserStatusUpdateEmail } from './templates/UserStatusUpdateEmail.js';
 import { ConciliacionCorreoLiderEmail } from './templates/ConciliacionCorreoLiderEmail.js';
 import { ConciliacionServicioFinalizadaEmail } from './templates/ConciliacionServicioFinalizadaEmail.js';
 import { ConciliacionStakeholdersAvisoEmail } from './templates/ConciliacionStakeholdersAvisoEmail.js';
+import { TimeEntryConfirmationEmail } from './templates/TimeEntryConfirmationEmail.js';
 import { sendHtmlEmailWithInlineLogo } from './sesSend.js';
-import type {
+
+import type { 
   ConciliacionCorreoLiderEvent,
   ConciliacionServicioFinalizadaEvent,
   ConciliacionStakeholdersAvisoEvent,
   FormSubmittedNotificationEvent,
   FormStatusChangedNotificationEvent,
+  TimeEntryConfirmationEvent,
   TransactionalEmailEvent
 } from './types.js';
 
@@ -86,6 +89,24 @@ function parseConciliacionStakeholdersAviso(
   return data as ConciliacionStakeholdersAvisoEvent;
 }
 
+function parseTimeEntryEvent(data: Partial<TimeEntryConfirmationEvent>): TimeEntryConfirmationEvent {
+  if (data?.eventType !== 'time_entry_confirmation') {
+    throw new Error('eventType invalido');
+  }
+  if (!data?.eventId) throw new Error('eventId requerido');
+  if (!data?.entryId) throw new Error('entryId requerido');
+  const email = String(data?.consultant?.email || '').trim();
+  if (!email.includes('@')) throw new Error('consultant.email invalido');
+  if (!['created', 'updated', 'deleted'].includes(String(data?.action || ''))) {
+    throw new Error('action invalida');
+  }
+  if (!String(data?.entryData?.date || '').trim()) throw new Error('entryData.date requerido');
+  if (!String(data?.entryData?.description || '').trim()) throw new Error('entryData.description requerido');
+  if (!String(data?.entryData?.client || '').trim()) throw new Error('entryData.client requerido');
+  if (!String(data?.entryData?.schedule || '').trim()) throw new Error('entryData.schedule requerido');
+  return data as TimeEntryConfirmationEvent;
+}
+
 function parseEventPayload(rawEvent: unknown): TransactionalEmailEvent {
   const payload = parseRawPayload(rawEvent);
   const data = payload as Partial<TransactionalEmailEvent>;
@@ -98,6 +119,11 @@ function parseEventPayload(rawEvent: unknown): TransactionalEmailEvent {
   if (data?.eventType === 'conciliacion_stakeholders_aviso') {
     return parseConciliacionStakeholdersAviso(data as Partial<ConciliacionStakeholdersAvisoEvent>);
   }
+
+  if (data?.eventType === 'time_entry_confirmation') {
+    return parseTimeEntryEvent(data as Partial<TimeEntryConfirmationEvent>);
+  }
+
   if (data?.eventType !== 'form_submitted' && data?.eventType !== 'form_status_changed') {
     throw new Error('eventType invalido');
   }
@@ -265,6 +291,24 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
         });
       }
       return json(200, { ok: true, eventId: payload.eventId, messageIds });
+    }
+
+    if (payload.eventType === 'time_entry_confirmation') {
+      const html = await render(React.createElement(TimeEntryConfirmationEmail, { payload }));
+      const subject = `Confirmación: entrada ${payload.action === 'created' ? 'creada' : payload.action === 'updated' ? 'actualizada' : 'eliminada'}`;
+      
+      const result = await sendHtmlEmailWithInlineLogo(sesClient, {
+        from: fromEmail,
+        to: payload.consultant.email,
+        subject,
+        html
+      });
+      
+      return json(200, {
+        ok: true,
+        eventId: payload.eventId,
+        messageIds: { to: result.MessageId || null }
+      });
     }
 
     if (payload.eventType === 'form_status_changed') {
