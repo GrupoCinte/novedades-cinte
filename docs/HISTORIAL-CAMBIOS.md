@@ -20,6 +20,15 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-24 18:18:42 · `testing` · `e9f7a21f`
+- **Commit:** `e9f7a21f6cbe26a293c4539c82b50f706734fba7`
+- **Ticket:** —
+- **Requerimiento funcional:** En Mallas de turnos y Turnos nocturnos, el calendario ya no se recorta en pantallas pequeñas: se puede hacer scroll para ver todo el mes.
+- **Componente técnico:** `react-frontend/src/MallasTurnosPage.jsx` (layout del grid del calendario y panel de asignación masiva).
+- **Cambios (uno a uno):**
+  - Grid del calendario con altura intrínseca (`minmax(…, auto)`) y sin `overflow-hidden` que impedía el scroll.
+  - Panel de asignación apilado bajo el calendario en móvil (`flex-col` / `md:flex-row`) con tope de altura.
+
 ### 2026-07-24 11:57:46 · `testing` · `f8324c53`
 - **Commit:** `f8324c536ab13ea286806156e1511d250bb1b5e9`
 - **Ticket:** —
