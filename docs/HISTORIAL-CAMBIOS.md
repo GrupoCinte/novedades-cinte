@@ -21,6 +21,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
 
+### 2026-07-24 10:58:52 · `testing` · `ce7fda15`
+- **Commit:** `ce7fda15294baef5d829d827e521c6ae73b0223e`
+- **Ticket:** —
+- **Requerimiento funcional:** Evitar que candidatos con fecha de ingreso ya pasada (Danny, Sara, Marlon, Christiane) aparezcan en Próximos por interpretar mal `11/03/2026` como noviembre.
+- **Componente técnico:** `parseFechaInicioSmart` / `toIsoYmd` en `onboardingPromotionService.js`; `tests/parseFechaInicioSmart.test.js`.
+- **Cambios (uno a uno):**
+  - Fechas numéricas con `/` `.` `-` se leen siempre como DD/MM/YYYY (Colombia).
+  - Se bloquea el fallback `new Date('MM/DD/YYYY')` de V8.
+  - Tests de regresión con los 4 casos del incidente y formatos largo/abreviado/ISO.
+
 ### 2026-07-24 10:46:11 · `testing` · `91fafe21`
 - **Commit:** `91fafe21f770e4b87ac75531cbce2d144c2e917e`
 - **Ticket:** —
