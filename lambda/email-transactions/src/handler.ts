@@ -210,14 +210,15 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
     if (payload.eventType === 'conciliacion_stakeholders_aviso') {
       const html = await render(React.createElement(ConciliacionStakeholdersAvisoEmail, { payload }));
       const ml = monthLabel(payload.servicio.anio, payload.servicio.mes);
-      const kindLabel =
-        payload.kind === 'enviada'
-          ? 'enviada al líder'
-          : payload.kind === 'aprobada'
-            ? 'aprobada'
-            : payload.kind === 'rechazada'
-              ? 'rechazada'
-              : 'cerrada parcial';
+      const KIND_LABEL_MAP: Record<string, string> = {
+        enviada: 'enviada al líder',
+        aprobada: 'aprobada',
+        rechazada: 'rechazada',
+        parcial: 'cerrada parcial'
+      };
+      
+      const kindLabel = KIND_LABEL_MAP[payload.kind] || 'cerrada parcial';
+      
       const subject = `Conciliación ${kindLabel} — ${payload.servicio.cliente} / ${payload.servicio.serviceName} (${ml})`;
       const settled = await Promise.allSettled(
         payload.recipients.map((r) =>
@@ -295,7 +296,15 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
 
     if (payload.eventType === 'time_entry_confirmation') {
       const html = await render(React.createElement(TimeEntryConfirmationEmail, { payload }));
-      const subject = `Confirmación: entrada ${payload.action === 'created' ? 'creada' : payload.action === 'updated' ? 'actualizada' : 'eliminada'}`;
+      const ACTION_LABEL_MAP: Record<string, string> = {
+        created: 'creada',
+        updated: 'actualizada',
+        deleted: 'eliminada'
+      };
+      
+      const actionLabel = ACTION_LABEL_MAP[payload.action] || 'eliminada';
+      
+      const subject = `Confirmación: entrada ${actionLabel}`;
       
       const result = await sendHtmlEmailWithInlineLogo(sesClient, {
         from: fromEmail,
