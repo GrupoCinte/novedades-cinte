@@ -21,6 +21,17 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
 
+### 2026-07-24 10:40:55 · `testing` · `ca37edb0`
+- **Commit:** `ca37edb0aabee8967a7042982cf78b956aa39b89`
+- **Ticket:** —
+- **Requerimiento funcional:** Los candidatos que finalizan el proceso n8n (estado Finalizado en Dynamo) vuelven a reflejarse en Capital Humano → Próximos a ingresar, tras el desacople del poller a Lambda.
+- **Componente técnico:** `lambda/contratacion-stream` (intake onboarding en estados terminales), `src/onboarding/onboardingPromotionService.js` (parser fecha larga), `src/onboarding/onboardingDynamoPromotionSync.js` + `initContratacionRealtime.js` (reconcile con AUTOPROMOTE), `POST /api/onboarding/intake`, `scripts/backfill-onboarding-promocion-dynamo.js`.
+- **Cambios (uno a uno):**
+  - Lambda stream: además del WebSocket, llama `POST /api/onboarding/intake` cuando el status es terminal.
+  - Portal: reconcile periódico Dynamo→Postgres si `ONBOARDING_AUTOPROMOTE=true` aunque el poller esté apagado.
+  - Parser de `fecha_inicio` acepta formato n8n `"27 de julio de 2026"`.
+  - Script de backfill dry-run/`--apply` para recuperar Finalizados ya cerrados.
+
 ### 2026-07-21 19:12:34 · `fix/AUT-576-gp-acceso-mallas` · `74ee8be1`
 - **Commit:** `74ee8be1162fde532b29e28b3604b704e8980320`
 - **Ticket:** AUT-576
