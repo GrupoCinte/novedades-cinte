@@ -673,7 +673,10 @@ function registerOnboardingRoutes(deps) {
                     fecha_baja_efectiva = COALESCE($3::date, CURRENT_DATE),
                     tiempo_permanencia_meses = CASE
                         WHEN fecha_ingreso IS NOT NULL
-                        THEN ROUND(EXTRACT(EPOCH FROM (COALESCE($3::date, CURRENT_DATE) - fecha_ingreso)) / (60*60*24*30.4375), 2)
+                        THEN ROUND(
+                            EXTRACT(EPOCH FROM (
+                                COALESCE($3::date, CURRENT_DATE)::timestamp - fecha_ingreso::timestamp
+                            )) / (60*60*24*30.4375), 2)
                         ELSE tiempo_permanencia_meses
                     END,
                     updated_at = NOW()
