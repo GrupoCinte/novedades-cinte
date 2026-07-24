@@ -20,6 +20,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-24 11:37:38 · `testing` · `0ba2586c`
+- **Commit:** `0ba2586c97d49570c466e50a3796cd1c0af2cebd`
+- **Ticket:** —
+- **Requerimiento funcional:** Corregir fallo al tramitar baja desde la ficha (error genérico al confirmar motivo y fecha).
+- **Componente técnico:** `registerOnboardingRoutes.js` (PATCH `/personal/:cedula/baja`, cálculo de `tiempo_permanencia_meses`).
+- **Cambios (uno a uno):**
+  - Resta de fechas casteada a `timestamp` para que `EXTRACT(EPOCH …)` reciba intervalo y no entero.
+
 ### 2026-07-24 11:27:17 · `testing` · `10441c0d`
 - **Commit:** `10441c0df3ef250a06a52c731c8c97283fd7ef05`
 - **Ticket:** —
