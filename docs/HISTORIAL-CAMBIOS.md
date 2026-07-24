@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-24 11:22:14 · `testing` · `2b0a9855`
+- **Commit:** `2b0a98557bf6bc5e9edb084dd408588e98ec037c`
+- **Ticket:** —
+- **Requerimiento funcional:** En Personal Activo, los filtros avanzados pasan a desplegables (Sexo, Tipo de contrato, Profesión, Tipo de identificación, Departamento, Ciudad) y se quita País.
+- **Componente técnico:** `registerOnboardingRoutes.js` (filtros + catálogo DISTINCT), `views.jsx`, `api.js`.
+- **Cambios (uno a uno):**
+  - Endpoint `GET /api/onboarding/catalogos/colaborador-valores/:campo`.
+  - Query de personal acepta los nuevos filtros.
+  - UI Personal Activo: selects desde valores reales de `colaboradores`; sin País.
+
 
 ### 2026-07-24 11:10:56 · `testing` · `977b6474`
 - **Commit:** `977b6474865c7428f1accf2f63c12ce808c9b6a2`
