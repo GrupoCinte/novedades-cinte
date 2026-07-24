@@ -21,6 +21,15 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
 
+### 2026-07-24 10:46:11 · `testing` · `91fafe21`
+- **Commit:** `91fafe21f770e4b87ac75531cbce2d144c2e917e`
+- **Ticket:** —
+- **Requerimiento funcional:** Evitar que la promoción automática falle cuando Dynamo trae edad o fechas en texto libre (p. ej. “25 años”, “29 de septiembre de 2026”).
+- **Componente técnico:** `onboardingPromotionService.js` (`sanitizeExtendedPayloadForDb`), `colaboradoresExtendedColumns.js`.
+- **Cambios (uno a uno):**
+  - Sanitiza campos extended tipados antes del UPDATE a `colaboradores`.
+  - Omite valores no coerceables para no hacer rollback del upsert base.
+
 ### 2026-07-24 10:40:55 · `testing` · `ca37edb0`
 - **Commit:** `ca37edb0aabee8967a7042982cf78b956aa39b89`
 - **Ticket:** —
