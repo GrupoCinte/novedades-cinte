@@ -20,6 +20,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-24 11:27:17 · `testing` · `10441c0d`
+- **Commit:** `10441c0df3ef250a06a52c731c8c97283fd7ef05`
+- **Ticket:** —
+- **Requerimiento funcional:** En Personal Activo, los filtros avanzados vuelven a mostrar opciones reales (Sexo, Tipo de contrato, Profesión, etc.) en lugar de solo “Todos”.
+- **Componente técnico:** `react-frontend/src/onboarding/views.jsx` (carga de catálogos DISTINCT).
+- **Cambios (uno a uno):**
+  - Se deja de exigir `auth.token` para cargar catálogos; la sesión ya autentica por cookie HttpOnly con `credentials: include`.
+
 ### 2026-07-24 11:22:14 · `testing` · `2b0a9855`
 - **Commit:** `2b0a98557bf6bc5e9edb084dd408588e98ec037c`
 - **Ticket:** —
