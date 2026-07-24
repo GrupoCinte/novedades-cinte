@@ -21,8 +21,8 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
 
-### 2026-07-24 16:57:10 · `feat/AUT-261-carga-manual-actividades-consultor` · `846af53`
-- **Commit:** `846af534edce84378eab8fb397a5d6c4eaeec393`
+### 2026-07-24 16:57:10 · `feat/AUT-261-carga-manual-actividades-consultor` · `70f776f`
+- **Commit:** `70f776f1e29e92ffca33dbbfa1bc655cbb4125b7`
 - **Ticket:** AUT-261
 - **Requerimiento funcional:** Carga manual de horas trabajadas para consultores con validación de cliente asignado en ficha, hora fin > hora inicio y visualización del historial de actividades con flujo de estados (pendiente, aprobado, rechazado).
 - **Componente técnico:** `src/actividades/actividadesStore.js`, `src/actividades/registerActividadesRoutes.js`, `schema.postgres.sql`, `src/startup.js`, `server.js`, `react-frontend/src/consultor/actividades/MisActividadesModule.jsx`, `react-frontend/src/consultor/actividades/actividadesApi.js`, `tests/actividadesRoutes.test.js`.
