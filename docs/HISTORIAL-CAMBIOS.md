@@ -21,6 +21,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
 
+### 2026-07-24 11:10:56 · `testing` · `977b6474`
+- **Commit:** `977b6474865c7428f1accf2f63c12ce808c9b6a2`
+- **Ticket:** —
+- **Requerimiento funcional:** En Personal Activo, la columna deja de llamarse Cargo Cinte y muestra el Puesto del colaborador, igual que en el resto del módulo.
+- **Componente técnico:** `react-frontend/src/onboarding/views.jsx` (columnas `isPersonalActivo`).
+- **Cambios (uno a uno):**
+  - Columna `descriptivo_puesto_sig` / Cargo Cinte reemplazada por `puesto` / Puesto.
+
 ### 2026-07-24 10:58:52 · `testing` · `ce7fda15`
 - **Commit:** `ce7fda15294baef5d829d827e521c6ae73b0223e`
 - **Ticket:** —
