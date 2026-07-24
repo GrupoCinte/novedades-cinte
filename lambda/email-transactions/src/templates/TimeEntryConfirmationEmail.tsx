@@ -8,7 +8,7 @@ import {
   Html,
   Preview,
   Section,
-  Text
+  Text  
 } from '@react-email/components';
 import { Tailwind } from '@react-email/tailwind';
 import { resolveLogoUrl } from './branding.js';
@@ -64,16 +64,19 @@ export function TimeEntryConfirmationEmail({ payload }: Props) {
             {payload.action === 'created' && (
               <Section className="mt-6 rounded-lg bg-slate-50 p-4">
                 <Text className="m-0 text-sm text-slate-700">
-                  <strong>📅 Fecha:</strong> {payload.entryData.date}
+                  <strong>ID:</strong> {payload.entryId}
                 </Text>
                 <Text className="m-0 mt-2 text-sm text-slate-700">
-                  <strong>📝 Descripción:</strong> {payload.entryData.description}
+                  <strong>Fecha:</strong> {payload.entryData.date}
                 </Text>
                 <Text className="m-0 mt-2 text-sm text-slate-700">
-                  <strong>🏢 Cliente:</strong> {payload.entryData.client}
+                  <strong>Descripción:</strong> {payload.entryData.description}
                 </Text>
                 <Text className="m-0 mt-2 text-sm text-slate-700">
-                  <strong>⏰ Horario:</strong> {payload.entryData.schedule}
+                  <strong>Cliente:</strong> {payload.entryData.client}
+                </Text>
+                <Text className="m-0 mt-2 text-sm text-slate-700">
+                  <strong>Horario:</strong> {payload.entryData.schedule}
                 </Text>
               </Section>
             )}
@@ -84,23 +87,24 @@ export function TimeEntryConfirmationEmail({ payload }: Props) {
                 <Heading className="m-0 mt-6 text-lg text-slate-900">Cambios realizados:</Heading>
                 <Section className="mt-4 rounded-lg bg-slate-50 p-4">
                   {payload.previousData.date && payload.previousData.date !== payload.entryData.date && (
+                    
                     <Text className="m-0 text-sm text-slate-700">
-                      <strong>📅 Fecha:</strong> {payload.previousData.date} → {payload.entryData.date}
+                      <strong>Fecha:</strong> {payload.previousData.date} → {payload.entryData.date}
                     </Text>
                   )}
                   {payload.previousData.description && payload.previousData.description !== payload.entryData.description && (
                     <Text className="m-0 mt-2 text-sm text-slate-700">
-                      <strong>📝 Descripción:</strong> {payload.previousData.description} → {payload.entryData.description}
+                      <strong>Descripción:</strong> {payload.previousData.description} → {payload.entryData.description}
                     </Text>
                   )}
                   {payload.previousData.client && payload.previousData.client !== payload.entryData.client && (
                     <Text className="m-0 mt-2 text-sm text-slate-700">
-                      <strong>🏢 Cliente:</strong> {payload.previousData.client} → {payload.entryData.client}
+                      <strong>Cliente:</strong> {payload.previousData.client} → {payload.entryData.client}
                     </Text>
                   )}
                   {payload.previousData.schedule && payload.previousData.schedule !== payload.entryData.schedule && (
                     <Text className="m-0 mt-2 text-sm text-slate-700">
-                      <strong>⏰ Horario:</strong> {payload.previousData.schedule} → {payload.entryData.schedule}
+                      <strong>Horario:</strong> {payload.previousData.schedule} → {payload.entryData.schedule}
                     </Text>
                   )}
                 </Section>
@@ -111,16 +115,19 @@ export function TimeEntryConfirmationEmail({ payload }: Props) {
             {payload.action === 'deleted' && (
               <Section className="mt-6 rounded-lg bg-slate-50 p-4">
                 <Text className="m-0 text-sm text-slate-700">
-                  <strong>📅 Fecha:</strong> {payload.entryData.date}
+                  <strong>ID:</strong> {payload.entryId}
                 </Text>
                 <Text className="m-0 mt-2 text-sm text-slate-700">
-                  <strong>📝 Descripción:</strong> {payload.entryData.description}
+                  <strong>Fecha:</strong> {payload.entryData.date}
                 </Text>
                 <Text className="m-0 mt-2 text-sm text-slate-700">
-                  <strong>🏢 Cliente:</strong> {payload.entryData.client}
+                  <strong>Descripción:</strong> {payload.entryData.description}
                 </Text>
                 <Text className="m-0 mt-2 text-sm text-slate-700">
-                  <strong>⏰ Horario:</strong> {payload.entryData.schedule}
+                  <strong>Cliente:</strong> {payload.entryData.client}
+                </Text>
+                <Text className="m-0 mt-2 text-sm text-slate-700">
+                  <strong>Horario:</strong> {payload.entryData.schedule}
                 </Text>
               </Section>
             )}
