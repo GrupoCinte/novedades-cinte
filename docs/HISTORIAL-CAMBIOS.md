@@ -20,6 +20,17 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-24 11:57:46 · `testing` · `f8324c53`
+- **Commit:** `f8324c536ab13ea286806156e1511d250bb1b5e9`
+- **Ticket:** —
+- **Requerimiento funcional:** Bajas con la misma presentación que Personal Activo (sin Puesto), filtros avanzados equivalentes más los propios de baja, y pantallas de Capital Humano sin título/descripción de página (acciones en la barra de filtros). Además se reactivó en prod el sync Dynamo→ficha de Novedades Zoho.
+- **Componente técnico:** `views.jsx`, `OnboardingListView.jsx`, `FichaNovedadesView.jsx`, `CancelacionesView.jsx`, `CapitalHumanoModule.jsx`; env prod `FICHA_NOVEDADES_DYNAMO_SYNC_*`.
+- **Cambios (uno a uno):**
+  - Columnas Bajas: Cédula…Tipo contrato + Tipo + Motivo/F. baja/Permanencia (sin Puesto/País/Activo).
+  - Filtros Bajas = Activo (sin Puesto) + motivo, tipo personal, rango baja; catálogos DISTINCT también en Bajas.
+  - Eliminados headers h2/descripción; botones (Agregar, tabs Zoho, Aplicar analítica) al nivel de filtros.
+  - Prod: sync Zoho on start + cada 5 min; backfill ~278 fichas a staging.
+
 ### 2026-07-24 11:37:38 · `testing` · `0ba2586c`
 - **Commit:** `0ba2586c97d49570c466e50a3796cd1c0af2cebd`
 - **Ticket:** —
