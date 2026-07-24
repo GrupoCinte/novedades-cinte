@@ -93,3 +93,126 @@ export async function createActividadManual({ descripcion, fecha, horaInicio, ho
     };
   }
 }
+
+/**
+ * Consulta el cronómetro activo en curso (si existe).
+ */
+export async function fetchCronometroActivo() {
+  try {
+    const response = await fetch('/api/consultor/actividades/cronometro/activo', {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json'
+      },
+      credentials: 'include'
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const errorMsg = payload?.error || 'No se pudo verificar el estado del cronómetro.';
+      return { ok: false, error: errorMsg, status: response.status, activo: null };
+    }
+
+    return { ok: true, activo: payload?.activo || null };
+  } catch (err) {
+    return {
+      ok: false,
+      error: 'Error de red al verificar el cronómetro activo.',
+      activo: null
+    };
+  }
+}
+
+/**
+ * Inicia un nuevo cronómetro con la descripción dada.
+ */
+export async function iniciarCronometroApi({ descripcion }) {
+  try {
+    const headers = buildCsrfHeaders({
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    });
+
+    const response = await fetch('/api/consultor/actividades/cronometro/iniciar', {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ descripcion })
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const errorMsg = payload?.error || 'No se pudo iniciar el cronómetro.';
+      return { ok: false, error: errorMsg, status: response.status };
+    }
+
+    return { ok: true, actividad: payload?.actividad };
+  } catch (err) {
+    return {
+      ok: false,
+      error: 'Error de red al iniciar el cronómetro.'
+    };
+  }
+}
+
+/**
+ * Detiene el cronómetro en curso y guarda la actividad.
+ */
+export async function detenerCronometroApi() {
+  try {
+    const headers = buildCsrfHeaders({
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    });
+
+    const response = await fetch('/api/consultor/actividades/cronometro/detener', {
+      method: 'POST',
+      headers,
+      credentials: 'include'
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const errorMsg = payload?.error || 'No se pudo detener el cronómetro.';
+      return { ok: false, error: errorMsg, status: response.status };
+    }
+
+    return { ok: true, actividad: payload?.actividad };
+  } catch (err) {
+    return {
+      ok: false,
+      error: 'Error de red al detener el cronómetro.'
+    };
+  }
+}
+
+/**
+ * Cancela el cronómetro en curso sin guardar ninguna actividad.
+ */
+export async function cancelarCronometroApi() {
+  try {
+    const headers = buildCsrfHeaders({
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    });
+
+    const response = await fetch('/api/consultor/actividades/cronometro/cancelar', {
+      method: 'POST',
+      headers,
+      credentials: 'include'
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const errorMsg = payload?.error || 'No se pudo cancelar el cronómetro.';
+      return { ok: false, error: errorMsg, status: response.status };
+    }
+
+    return { ok: true, mensaje: payload?.mensaje };
+  } catch (err) {
+    return {
+      ok: false,
+      error: 'Error de red al cancelar el cronómetro.'
+    };
+  }
+}

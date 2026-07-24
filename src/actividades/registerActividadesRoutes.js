@@ -143,6 +143,96 @@ function registerActividadesRoutes({
             return res.status(500).json({ ok: false, error: 'No se pudo crear la entrada de tiempo.' });
         }
     });
+
+    app.get('/api/consultor/actividades/cronometro/activo', ...consultorAuth, async (req, res) => {
+        try {
+            const cedula = String(req.user?.cedula || '').trim();
+            if (!cedula) {
+                return res.status(403).json({ ok: false, error: 'Sesión de consultor sin cédula asociada.' });
+            }
+
+            const activo = typeof actividadesStore.getCronometroActivoByCedula === 'function'
+                ? await actividadesStore.getCronometroActivoByCedula(cedula)
+                : null;
+
+            return res.json({ ok: true, activo });
+        } catch (error) {
+            console.error('consultor actividades cronometro activo:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo consultar el estado del cronómetro.' });
+        }
+    });
+
+    app.post('/api/consultor/actividades/cronometro/iniciar', ...consultorAuth, async (req, res) => {
+        try {
+            const cedula = String(req.user?.cedula || '').trim();
+            if (!cedula) {
+                return res.status(403).json({ ok: false, error: 'Sesión de consultor sin cédula asociada.' });
+            }
+
+            const body = req.body || {};
+            const descripcion = String(body.descripcion || '').trim();
+            if (!descripcion) {
+                return res.status(400).json({ ok: false, error: 'La descripción es obligatoria para iniciar el cronómetro.' });
+            }
+            if (descripcion.length > 2000) {
+                return res.status(400).json({ ok: false, error: 'La descripción no puede superar los 2000 caracteres.' });
+            }
+
+            const result = await actividadesStore.iniciarCronometro({ cedula, descripcion });
+            if (result.kind === 'consultor_not_found') {
+                return res.status(404).json({ ok: false, error: 'No se encontró tu ficha activa de colaborador.' });
+            }
+            if (result.kind === 'client_not_assigned') {
+                return res.status(400).json({ ok: false, error: 'Debes tener un cliente asignado en tu ficha para iniciar el cronómetro.' });
+            }
+            if (result.kind === 'already_active') {
+                return res.status(409).json({ ok: false, error: 'Ya tienes un cronómetro en curso. Debes detenerlo o cancelarlo antes de iniciar otro.' });
+            }
+
+            return res.status(201).json({ ok: true, actividad: result.activity });
+        } catch (error) {
+            console.error('consultor actividades cronometro iniciar:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo iniciar el cronómetro.' });
+        }
+    });
+
+    app.post('/api/consultor/actividades/cronometro/detener', ...consultorAuth, async (req, res) => {
+        try {
+            const cedula = String(req.user?.cedula || '').trim();
+            if (!cedula) {
+                return res.status(403).json({ ok: false, error: 'Sesión de consultor sin cédula asociada.' });
+            }
+
+            const result = await actividadesStore.detenerCronometro({ cedula });
+            if (result.kind === 'no_active_timer') {
+                return res.status(400).json({ ok: false, error: 'No tienes ningún cronómetro en curso para detener.' });
+            }
+
+            return res.json({ ok: true, actividad: result.activity });
+        } catch (error) {
+            console.error('consultor actividades cronometro detener:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo detener el cronómetro.' });
+        }
+    });
+
+    app.post('/api/consultor/actividades/cronometro/cancelar', ...consultorAuth, async (req, res) => {
+        try {
+            const cedula = String(req.user?.cedula || '').trim();
+            if (!cedula) {
+                return res.status(403).json({ ok: false, error: 'Sesión de consultor sin cédula asociada.' });
+            }
+
+            const result = await actividadesStore.cancelarCronometro({ cedula });
+            if (result.kind === 'no_active_timer') {
+                return res.status(400).json({ ok: false, error: 'No tienes ningún cronómetro en curso para cancelar.' });
+            }
+
+            return res.json({ ok: true, mensaje: 'Cronómetro cancelado exitosamente.' });
+        } catch (error) {
+            console.error('consultor actividades cronometro cancelar:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo cancelar el cronómetro.' });
+        }
+    });
 }
 
 module.exports = { registerActividadesRoutes, parseBogotaDateTime };
