@@ -25,6 +25,8 @@ function buildApp(deps = {}) {
         getConciliacionesDashboardResumenForScope:
             deps.getConciliacionesDashboardResumenForScope
             ?? (async () => ({ ok: true, clientesCount: 0, globalTotales: {}, rows: [] })),
+        decideMasivoConciliacionEmailAccion:
+            deps.decideMasivoConciliacionEmailAccion ?? (async () => ({ ok: true, updated: 0 })),
         upsertConciliacionFacturacionForScope: deps.upsertConciliacionFacturacionForScope ?? stubAsync,
         applyConciliacionFacturacionRevisionForScope: deps.applyConciliacionFacturacionRevisionForScope ?? stubAsync,
         applyConciliacionFacturacionRevisionMasivaForScope: deps.applyConciliacionFacturacionRevisionMasivaForScope ?? stubAsync,
@@ -52,7 +54,13 @@ function buildApp(deps = {}) {
         getConciliacionEmailPlantillaCorreoLiderForScope:
             deps.getConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync,
         upsertConciliacionEmailPlantillaCorreoLiderForScope:
-            deps.upsertConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync
+            deps.upsertConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync,
+        getConciliacionEmailAccionContext:
+            deps.getConciliacionEmailAccionContext ?? stubAsync,
+        decideConciliacionEmailAccion:
+            deps.decideConciliacionEmailAccion ?? stubAsync,
+        finalizeConciliacionEmailAccion:
+            deps.finalizeConciliacionEmailAccion ?? stubAsync
     });
     return app;
 }
