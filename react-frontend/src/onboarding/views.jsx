@@ -258,9 +258,9 @@ export function PersonalView({
               { key: 'fecha_termino', label: 'F. término', render: (r) => fmtFecha(r.fecha_termino) },
               { key: 'tipo_contrato', label: 'Tipo contrato' },
               {
-                  key: 'descriptivo_puesto_sig',
-                  label: 'Cargo Cinte',
-                  render: (r) => chUpper(r.descriptivo_puesto_sig)
+                  key: 'puesto',
+                  label: 'Puesto',
+                  render: (r) => chUpper(r.puesto)
               }
           ]
         : [
