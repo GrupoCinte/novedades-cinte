@@ -185,7 +185,8 @@ export function PersonalView({
     }, [isBajas, token]);
 
     useEffect(() => {
-        if (!isPersonalActivoEarly || !token) return undefined;
+        // Sesión por cookie HttpOnly: auth.token suele ir vacío; axios ya manda credentials.
+        if (!isPersonalActivoEarly) return undefined;
         let alive = true;
         const load = async () => {
             try {
