@@ -196,12 +196,25 @@ function parseFechaInicioSmart(value) {
         return raw.slice(0, 10);
     }
 
+    // "may 22, 2026" / "dic 31, 2026" (agente extractor abreviado)
     const mEs = norm.match(/^([a-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})$/);
     if (mEs) {
         const mesKey = mEs[1];
         const dia = Number(mEs[2]);
         const anio = Number(mEs[3]);
         const mes = MESES_ES[mesKey];
+        if (mes && dia >= 1 && dia <= 31 && anio >= 1900 && anio <= 2999) {
+            const iso = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+            return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
+        }
+    }
+
+    // "27 de julio de 2026" / "28 de julio del 2026" (formato largo n8n)
+    const mLargo = norm.match(/^(\d{1,2})\s+de\s+([a-z]{3,})\s+(?:de|del)\s+(\d{4})$/);
+    if (mLargo) {
+        const dia = Number(mLargo[1]);
+        const mes = MESES_ES[mLargo[2]];
+        const anio = Number(mLargo[3]);
         if (mes && dia >= 1 && dia <= 31 && anio >= 1900 && anio <= 2999) {
             const iso = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
             return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
@@ -754,6 +767,7 @@ function buildExtendedUpdate(payload, cedula) {
 module.exports = {
     createOnboardingPromotionService,
     mapDynamoItemForPromotion,
+    parseFechaInicioSmart,
     isTerminalStatus,
     isRejectedStatus,
     TERMINAL_STATUSES,

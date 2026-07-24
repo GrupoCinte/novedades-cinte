@@ -244,6 +244,9 @@ function registerOnboardingRoutes(deps) {
         tipo_personal: z.enum(['consultor', 'staff', 'sena', 'alianza']).optional(),
         /** Si `from_dynamo_raw=true`, el `payload` se trata como item Dynamo crudo y se mapea automáticamente. */
         from_dynamo_raw: z.boolean().optional(),
+        event_type: z.enum(['INSERT', 'MODIFY', 'REMOVE', 'BATCH_IMPORT']).optional(),
+        sequence_number: z.string().max(200).optional().nullable(),
+        shard_id: z.string().max(500).optional().nullable(),
         payload: z.record(z.any())
     });
 
@@ -259,7 +262,9 @@ function registerOnboardingRoutes(deps) {
             const source = body.source || 'n8n_webhook';
             const payload = body.from_dynamo_raw ? mapDynamoItemForPromotion(body.payload) : body.payload;
             const result = await promotion.promoteToColaborador(payload, source, {
-                eventType: 'INSERT',
+                eventType: body.event_type || 'INSERT',
+                sequenceNumber: body.sequence_number || undefined,
+                shardId: body.shard_id || undefined,
                 forcePromote: Boolean(body.force_promote),
                 tipoPersonal: body.tipo_personal
             });
@@ -1629,15 +1634,18 @@ function registerOnboardingRoutes(deps) {
         const dynamoSyncOnStart =
             String(process.env.FICHA_NOVEDADES_DYNAMO_SYNC_ON_START || '').toLowerCase() === 'true';
         const dynamoSyncIntervalMs = Number(process.env.FICHA_NOVEDADES_DYNAMO_SYNC_INTERVAL_MS || 0) || 0;
+        const promoteIntervalMs = Number(process.env.ONBOARDING_DYNAMO_PROMOTE_INTERVAL_MS || 300000) || 0;
         return res.json({
             ok: true,
             intake_endpoint: intakeReady ? 'configured' : 'missing-key',
             autopromote_flag: autopromote,
             stream_poller: streamPoller,
+            dynamo_promote_interval_ms: promoteIntervalMs,
             dynamo_sync_on_start: dynamoSyncOnStart,
             dynamo_sync_interval_ms: dynamoSyncIntervalMs,
             last_sync_summary: getLastZohoDynamoSyncSummary(),
-            ready: intakeReady && (autopromote ? streamPoller : true)
+            // Autopromote ya no exige poller: Lambda /intake + reconcile periódico del portal.
+            ready: intakeReady
         });
     });
 

@@ -45,4 +45,25 @@ describe('mapDynamoItemForPromotion', () => {
         assert.equal(payload.correo_cinte, null);
         assert.equal(payload.email_personal, 'personal@mail.com');
     });
+
+    it('parsea fecha_inicio larga n8n "27 de julio de 2026"', () => {
+        const payload = mapDynamoItemForPromotion({
+            cedula: '1128052332',
+            'nombre y apellido': 'Pablo Gabriel Velilla Goenaga',
+            status: 'Finalizado',
+            fecha_inicio: '27 de julio de 2026',
+            email: 'pablivg@gmail.com'
+        });
+        assert.equal(payload.fecha_ingreso, '2026-07-27');
+    });
+
+    it('parsea fecha_ingreso "28 de julio del 2026"', () => {
+        const payload = mapDynamoItemForPromotion({
+            cedula: '53930907',
+            nombre: 'Aura Lorena Castellanos Chica',
+            status: 'Finalizado',
+            fecha_ingreso: '28 de julio del 2026'
+        });
+        assert.equal(payload.fecha_ingreso, '2026-07-28');
+    });
 });
