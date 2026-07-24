@@ -80,6 +80,9 @@ export const onboardingApi = {
     catalogoMotivoBaja: (token) => get(token, '/catalogos/motivo-baja'),
     catalogoCiudades: (token) => get(token, '/catalogos/ciudades'),
     catalogoPuestos: (token) => get(token, '/catalogos/puestos'),
+    /** DISTINCT desde colaboradores: sexo | tipo_contrato | profesion | tipo_identificacion | departamento | ciudad */
+    catalogoColaboradorValores: (token, campo) =>
+        get(token, `/catalogos/colaborador-valores/${encodeURIComponent(campo)}`),
     reporteRotacion: (token, params) => get(token, '/reportes/rotacion', params),
     reporteGraficas: (token, params) => get(token, '/reportes/graficas', params),
     health: (token) => get(token, '/health'),

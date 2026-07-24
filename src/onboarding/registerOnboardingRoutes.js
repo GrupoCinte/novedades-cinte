@@ -286,6 +286,12 @@ function registerOnboardingRoutes(deps) {
         empleador: z.string().max(200).optional(),
         puesto: z.string().max(200).optional(),
         modalidad_trabajo: z.string().max(120).optional(),
+        sexo: z.string().max(80).optional(),
+        tipo_contrato: z.string().max(200).optional(),
+        profesion: z.string().max(400).optional(),
+        tipo_identificacion: z.string().max(200).optional(),
+        departamento: z.string().max(200).optional(),
+        ciudad: z.string().max(200).optional(),
         motivo_baja: z.string().max(200).optional(),
         fecha_ingreso_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         fecha_ingreso_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -347,6 +353,30 @@ function registerOnboardingRoutes(deps) {
         if (filters.modalidad_trabajo) {
             params.push(String(filters.modalidad_trabajo).trim());
             where.push(`LOWER(TRIM(COALESCE(c.modalidad_trabajo, ''))) = LOWER($${p++})`);
+        }
+        if (filters.sexo) {
+            params.push(String(filters.sexo).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.sexo, ''))) = LOWER($${p++})`);
+        }
+        if (filters.tipo_contrato) {
+            params.push(String(filters.tipo_contrato).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.tipo_contrato, ''))) = LOWER($${p++})`);
+        }
+        if (filters.profesion) {
+            params.push(String(filters.profesion).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.profesion, ''))) = LOWER($${p++})`);
+        }
+        if (filters.tipo_identificacion) {
+            params.push(String(filters.tipo_identificacion).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.tipo_identificacion, ''))) = LOWER($${p++})`);
+        }
+        if (filters.departamento) {
+            params.push(String(filters.departamento).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.departamento, ''))) = LOWER($${p++})`);
+        }
+        if (filters.ciudad) {
+            params.push(String(filters.ciudad).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.ciudad, ''))) = LOWER($${p++})`);
         }
         if (filters.motivo_baja) {
             params.push(String(filters.motivo_baja).trim());
@@ -1112,6 +1142,33 @@ function registerOnboardingRoutes(deps) {
                  ORDER BY 1`
             );
             return res.json({ ok: true, items: q.rows });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    /** Valores DISTINCT desde `colaboradores` para filtros avanzados (desplegables). */
+    const COLAB_DISTINCT_FILTER_COLS = new Set([
+        'sexo',
+        'tipo_contrato',
+        'profesion',
+        'tipo_identificacion',
+        'departamento',
+        'ciudad'
+    ]);
+    app.get('/api/onboarding/catalogos/colaborador-valores/:campo', ...catGuard, async (req, res) => {
+        const campo = String(req.params.campo || '').trim();
+        if (!COLAB_DISTINCT_FILTER_COLS.has(campo)) {
+            return res.status(400).json({ ok: false, error: 'campo de catálogo no permitido' });
+        }
+        try {
+            const q = await pool.query(
+                `SELECT DISTINCT TRIM(c.${campo}) AS valor
+                 FROM colaboradores c
+                 WHERE c.${campo} IS NOT NULL AND TRIM(c.${campo}) <> ''
+                 ORDER BY 1`
+            );
+            return res.json({ ok: true, campo, items: q.rows.map((r) => r.valor).filter(Boolean) });
         } catch (e) {
             return res.status(500).json({ ok: false, error: e.message });
         }

@@ -141,9 +141,16 @@ export function PersonalView({
     const [clientes, setClientes] = useState([]);
     const [puestos, setPuestos] = useState([]);
     const [motivosBaja, setMotivosBaja] = useState([]);
+    const [catSexo, setCatSexo] = useState([]);
+    const [catTipoContrato, setCatTipoContrato] = useState([]);
+    const [catProfesion, setCatProfesion] = useState([]);
+    const [catTipoId, setCatTipoId] = useState([]);
+    const [catDepartamento, setCatDepartamento] = useState([]);
+    const [catCiudad, setCatCiudad] = useState([]);
     const token = auth?.token || '';
     const isBajas = activo === 'false';
     const hideEmpleadorFilter = tipoPersonal === 'consultor' && activo === 'true' && !endpointKey;
+    const isPersonalActivoEarly = tipoPersonal === 'consultor' && activo === 'true' && !endpointKey;
     const perms = useMemo(() => getOnboardingPermissions(auth), [auth]);
     const canCrear = perms.canEditFicha && !isBajas;
 
@@ -178,6 +185,36 @@ export function PersonalView({
     }, [isBajas, token]);
 
     useEffect(() => {
+        if (!isPersonalActivoEarly || !token) return undefined;
+        let alive = true;
+        const load = async () => {
+            try {
+                const [sexo, tipoContrato, profesion, tipoId, departamento, ciudad] = await Promise.all([
+                    onboardingApi.catalogoColaboradorValores(token, 'sexo'),
+                    onboardingApi.catalogoColaboradorValores(token, 'tipo_contrato'),
+                    onboardingApi.catalogoColaboradorValores(token, 'profesion'),
+                    onboardingApi.catalogoColaboradorValores(token, 'tipo_identificacion'),
+                    onboardingApi.catalogoColaboradorValores(token, 'departamento'),
+                    onboardingApi.catalogoColaboradorValores(token, 'ciudad')
+                ]);
+                if (!alive) return;
+                setCatSexo(Array.isArray(sexo?.items) ? sexo.items : []);
+                setCatTipoContrato(Array.isArray(tipoContrato?.items) ? tipoContrato.items : []);
+                setCatProfesion(Array.isArray(profesion?.items) ? profesion.items : []);
+                setCatTipoId(Array.isArray(tipoId?.items) ? tipoId.items : []);
+                setCatDepartamento(Array.isArray(departamento?.items) ? departamento.items : []);
+                setCatCiudad(Array.isArray(ciudad?.items) ? ciudad.items : []);
+            } catch {
+                /* catálogos opcionales */
+            }
+        };
+        load();
+        return () => {
+            alive = false;
+        };
+    }, [isPersonalActivoEarly, token]);
+
+    useEffect(() => {
         if (!isBajas) return undefined;
         let alive = true;
         onboardingApi
@@ -192,7 +229,7 @@ export function PersonalView({
     }, [isBajas, token]);
 
     const isProximos = endpointKey === 'listProximos';
-    const isPersonalActivo = tipoPersonal === 'consultor' && activo === 'true' && !endpointKey;
+    const isPersonalActivo = isPersonalActivoEarly;
 
     const params = useMemo(() => {
         const p = {
@@ -206,10 +243,11 @@ export function PersonalView({
         if (search) p.q = search;
         for (const [k, v] of Object.entries(filters)) {
             if (hideEmpleadorFilter && k === 'empleador') continue;
+            if (isPersonalActivoEarly && (k === 'pais' || k === 'modalidad_trabajo')) continue;
             if (v !== undefined && v !== '' && v !== null) p[k] = v;
         }
         return p;
-    }, [pageSize, page, sort, tipoPersonal, activo, search, filters, hideEmpleadorFilter]);
+    }, [pageSize, page, sort, tipoPersonal, activo, search, filters, hideEmpleadorFilter, isPersonalActivoEarly]);
 
     const handleSort = useCallback((columnKey) => {
         setSort((cur) => toggleSort(cur, columnKey));
@@ -310,10 +348,16 @@ export function PersonalView({
     const chipPairs = [
         [Boolean(search), search ? `Búsqueda: ${search.length > 18 ? `${search.slice(0, 16)}…` : search}` : ''],
         [Boolean(filters.cliente), filters.cliente ? `Cliente: ${String(filters.cliente).length > 16 ? `${String(filters.cliente).slice(0, 14)}…` : filters.cliente}` : ''],
-        [Boolean(filters.pais), filters.pais ? `País: ${filters.pais}` : ''],
+        [Boolean(filters.pais) && !isPersonalActivo, filters.pais ? `País: ${filters.pais}` : ''],
         [Boolean(filters.empleador) && !hideEmpleadorFilter, filters.empleador ? `Empleador: ${filters.empleador}` : ''],
         [Boolean(filters.puesto), filters.puesto ? `Puesto: ${filters.puesto}` : ''],
-        [Boolean(filters.modalidad_trabajo), filters.modalidad_trabajo ? `Modalidad: ${filters.modalidad_trabajo}` : ''],
+        [Boolean(filters.sexo), filters.sexo ? `Sexo: ${filters.sexo}` : ''],
+        [Boolean(filters.tipo_contrato), filters.tipo_contrato ? `Contrato: ${filters.tipo_contrato}` : ''],
+        [Boolean(filters.profesion), filters.profesion ? `Profesión: ${String(filters.profesion).length > 16 ? `${String(filters.profesion).slice(0, 14)}…` : filters.profesion}` : ''],
+        [Boolean(filters.tipo_identificacion), filters.tipo_identificacion ? `ID: ${filters.tipo_identificacion}` : ''],
+        [Boolean(filters.departamento), filters.departamento ? `Depto: ${filters.departamento}` : ''],
+        [Boolean(filters.ciudad), filters.ciudad ? `Ciudad: ${filters.ciudad}` : ''],
+        [Boolean(filters.modalidad_trabajo) && !isPersonalActivo, filters.modalidad_trabajo ? `Modalidad: ${filters.modalidad_trabajo}` : ''],
         [Boolean(filters.motivo_baja), filters.motivo_baja ? `Motivo: ${filters.motivo_baja.length > 16 ? `${filters.motivo_baja.slice(0, 14)}…` : filters.motivo_baja}` : ''],
         [Boolean(filters.tipo_personal_extra), filters.tipo_personal_extra ? `Tipo: ${filters.tipo_personal_extra}` : ''],
         [Boolean(filters.fecha_ingreso_desde || filters.fecha_ingreso_hasta), 'Rango ingreso'],
@@ -333,6 +377,11 @@ export function PersonalView({
             delete next.tipo_personal;
         }
         delete next.tipo_personal_extra;
+        if (isPersonalActivo) {
+            delete next.pais;
+            delete next.modalidad_trabajo;
+            delete next.empleador;
+        }
         setFilters(next);
         setPage(0);
         setPanelOpen(false);
@@ -501,6 +550,119 @@ export function PersonalView({
                                 <input {...nativeCalendarOnlyInputProps} type="date" value={draft.fecha_baja_desde || ''} onChange={(e) => setDraft((s) => ({ ...s, fecha_baja_desde: e.target.value }))} className={`${fieldCls} min-w-0 flex-1`} aria-label="Fecha de baja: desde" />
                                 <span className={`${isLight ? 'text-slate-500' : 'text-slate-400'} shrink-0 text-xs`}>a</span>
                                 <input {...nativeCalendarOnlyInputProps} type="date" value={draft.fecha_baja_hasta || ''} onChange={(e) => setDraft((s) => ({ ...s, fecha_baja_hasta: e.target.value }))} className={`${fieldCls} min-w-0 flex-1`} aria-label="Fecha de baja: hasta" />
+                            </div>
+                        </div>
+                    </>
+                ) : isPersonalActivo ? (
+                    <>
+                        <div className="flex flex-col gap-1.5">
+                            <label className={labelCls} htmlFor="pv-sexo">Sexo</label>
+                            <select
+                                id="pv-sexo"
+                                value={draft.sexo || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, sexo: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todos</option>
+                                {catSexo.map((v) => (
+                                    <option key={v} value={v}>{v}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label className={labelCls} htmlFor="pv-tipo-contrato">Tipo de contrato</label>
+                            <select
+                                id="pv-tipo-contrato"
+                                value={draft.tipo_contrato || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, tipo_contrato: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todos</option>
+                                {catTipoContrato.map((v) => (
+                                    <option key={v} value={v}>{v}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label className={labelCls} htmlFor="pv-profesion">Profesión</label>
+                            <select
+                                id="pv-profesion"
+                                value={draft.profesion || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, profesion: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todas</option>
+                                {catProfesion.map((v) => (
+                                    <option key={v} value={v}>{v}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label className={labelCls} htmlFor="pv-tipo-id">Tipo de identificación</label>
+                            <select
+                                id="pv-tipo-id"
+                                value={draft.tipo_identificacion || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, tipo_identificacion: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todos</option>
+                                {catTipoId.map((v) => (
+                                    <option key={v} value={v}>{v}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label className={labelCls} htmlFor="pv-departamento">Departamento</label>
+                            <select
+                                id="pv-departamento"
+                                value={draft.departamento || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, departamento: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todos</option>
+                                {catDepartamento.map((v) => (
+                                    <option key={v} value={v}>{v}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label className={labelCls} htmlFor="pv-ciudad">Ciudad</label>
+                            <select
+                                id="pv-ciudad"
+                                value={draft.ciudad || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, ciudad: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todas</option>
+                                {catCiudad.map((v) => (
+                                    <option key={v} value={v}>{v}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label className={labelCls} htmlFor="pv-puesto">Puesto</label>
+                            <select
+                                id="pv-puesto"
+                                value={draft.puesto || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todos los puestos</option>
+                                {puestos.map((p) => {
+                                    const label = String(p.puesto || p).trim();
+                                    if (!label) return null;
+                                    return (
+                                        <option key={label} value={label}>{label}</option>
+                                    );
+                                })}
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <span className={labelCls}>Rango fecha de ingreso</span>
+                            <div className="flex items-center gap-2">
+                                <input {...nativeCalendarOnlyInputProps} type="date" value={draft.fecha_ingreso_desde || ''} onChange={(e) => setDraft((s) => ({ ...s, fecha_ingreso_desde: e.target.value }))} className={`${fieldCls} min-w-0 flex-1`} aria-label="Fecha de ingreso: desde" />
+                                <span className={`${isLight ? 'text-slate-500' : 'text-slate-400'} shrink-0 text-xs`}>a</span>
+                                <input {...nativeCalendarOnlyInputProps} type="date" value={draft.fecha_ingreso_hasta || ''} onChange={(e) => setDraft((s) => ({ ...s, fecha_ingreso_hasta: e.target.value }))} className={`${fieldCls} min-w-0 flex-1`} aria-label="Fecha de ingreso: hasta" />
                             </div>
                         </div>
                     </>
