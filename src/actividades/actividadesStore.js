@@ -167,12 +167,94 @@ function createActividadesStore({ pool }) {
         return { kind: 'updated', activity: result.rows[0] };
     }
 
+    async function getCronometroActivoByCedula(cedula) {
+        const normalizedCedula = String(cedula || '').trim();
+        if (!normalizedCedula) return null;
+
+        const result = await pool.query(
+            `SELECT id, cedula, cliente, descripcion, inicio, fin, origen, estado, created_at, updated_at
+             FROM actividades_consultor
+             WHERE cedula = $1 AND origen = 'cronometro' AND fin IS NULL
+             LIMIT 1`,
+            [normalizedCedula]
+        );
+        return result.rows[0] || null;
+    }
+
+    async function iniciarCronometro({ cedula, descripcion }) {
+        const context = await getConsultorContextByCedula(cedula);
+        if (!context) return { kind: 'consultor_not_found' };
+
+        const cliente = String(context.cliente || '').trim();
+        if (!cliente) return { kind: 'client_not_assigned' };
+
+        const trimmedDesc = String(descripcion || '').trim();
+        if (!trimmedDesc) return { kind: 'description_required' };
+
+        try {
+            const result = await pool.query(
+                `INSERT INTO actividades_consultor
+                    (cedula, cliente, descripcion, inicio, fin, origen, estado)
+                 VALUES ($1, $2, $3, NOW(), NULL, 'cronometro', 'pendiente')
+                 RETURNING id, cedula, cliente, descripcion, inicio, fin, origen, estado, created_at, updated_at`,
+                [cedula, cliente, trimmedDesc]
+            );
+            return { kind: 'started', activity: result.rows[0] };
+        } catch (error) {
+            if (error && error.code === '23505') {
+                return { kind: 'already_active' };
+            }
+            throw error;
+        }
+    }
+
+    async function detenerCronometro({ cedula }) {
+        const normalizedCedula = String(cedula || '').trim();
+        if (!normalizedCedula) return { kind: 'consultor_not_found' };
+
+        const result = await pool.query(
+            `UPDATE actividades_consultor
+             SET fin = NOW(), updated_at = NOW()
+             WHERE cedula = $1 AND origen = 'cronometro' AND fin IS NULL
+             RETURNING id, cedula, cliente, descripcion, inicio, fin, origen, estado, created_at, updated_at`,
+            [normalizedCedula]
+        );
+
+        if (result.rowCount === 0) {
+            return { kind: 'no_active_timer' };
+        }
+
+        return { kind: 'stopped', activity: result.rows[0] };
+    }
+
+    async function cancelarCronometro({ cedula }) {
+        const normalizedCedula = String(cedula || '').trim();
+        if (!normalizedCedula) return { kind: 'consultor_not_found' };
+
+        const result = await pool.query(
+            `DELETE FROM actividades_consultor
+             WHERE cedula = $1 AND origen = 'cronometro' AND fin IS NULL
+             RETURNING id`,
+            [normalizedCedula]
+        );
+
+        if (result.rowCount === 0) {
+            return { kind: 'no_active_timer' };
+        }
+
+        return { kind: 'cancelled' };
+    }
+
     return {
         ensureActividadesConsultorTable,
         getConsultorContextByCedula,
         createManualActivity,
         listActividadesByCedula,
-        updateActividadEstado
+        updateActividadEstado,
+        getCronometroActivoByCedula,
+        iniciarCronometro,
+        detenerCronometro,
+        cancelarCronometro
     };
 }
 
