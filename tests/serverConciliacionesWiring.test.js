@@ -34,23 +34,23 @@ test('createDataLayer expone handlers ForScope de facturación conciliaciones', 
 
 test('assertConciliacionesRouteDeps rechaza upsertConciliacionFacturacionMasivaForScope ausente', () => {
     const dl = createDataLayerForTest();
+    const dummyFn = () => {};
+
     assert.throws(
         () =>
             assertConciliacionesRouteDeps({
                 app: {},
-                verificarToken: () => {},
-                allowAnyPanel: () => () => {},
-                applyScope: () => {},
-                listConciliacionesClientesForScope: dl.listConciliacionesClientesForScope,
-                getConciliacionResumenPorClienteMesForScope: dl.getConciliacionResumenPorClienteMesForScope,
-                getConciliacionResumenTodosClientesMesForScope: dl.getConciliacionResumenTodosClientesMesForScope,
-                listConciliacionNovedadesDetalleForScope: dl.listConciliacionNovedadesDetalleForScope,
-                getConciliacionesDashboardResumenForScope: dl.getConciliacionesDashboardResumenForScope,
-                upsertConciliacionFacturacionForScope: dl.upsertConciliacionFacturacionForScope,
-                applyConciliacionFacturacionRevisionForScope: dl.applyConciliacionFacturacionRevisionForScope,
-                applyConciliacionFacturacionRevisionMasivaForScope: dl.applyConciliacionFacturacionRevisionMasivaForScope,
-                applyConciliacionFacturacionAjustesForScope: dl.applyConciliacionFacturacionAjustesForScope,
-                listConciliacionFacturacionHistorialForScope: dl.listConciliacionFacturacionHistorialForScope,
+                verificarToken: dummyFn,
+                allowAnyPanel: () => dummyFn,
+                applyScope: dummyFn,
+                createConciliacionNovedadManualForScope: dummyFn,
+                getConciliacionEmailAccionContext: dummyFn,
+                decideConciliacionEmailAccion: dummyFn,
+                decideMasivoConciliacionEmailAccion: dummyFn,
+                getConciliacionEmailPlantillaCorreoLiderForScope: dummyFn,
+                upsertConciliacionEmailPlantillaCorreoLiderForScope: dummyFn,
+                enviarConciliacionServicioCorreoForScope: dummyFn,
+                ...dl,
                 upsertConciliacionFacturacionMasivaForScope: undefined,
                 listConciliacionesFacturacionForScope: dl.listConciliacionesFacturacionForScope
             }),
