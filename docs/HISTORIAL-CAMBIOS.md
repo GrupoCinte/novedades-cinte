@@ -21,8 +21,8 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
 
-### 2026-07-24 18:12:41 · `feat/AUT-262-cronometro-actividades-consultor` · `35d072d`
-- **Commit:** `35d072d7f6cbfcd1aa41501fb70d243f066d3e27`
+### 2026-07-24 18:12:41 · `feat/AUT-262-cronometro-actividades-consultor` · `78f9670`
+- **Commit:** `78f9670c22abb7af124ea0c117ee40c7ab3776d9`
 - **Ticket:** AUT-262
 - **Requerimiento funcional:** Registro de tiempo de trabajo mediante cronómetro en tiempo real para el consultor con persisistencia de estado al recargar, control de unicidad de temporizador activo y opción de cancelación sin guardar.
 - **Componente técnico:** `src/actividades/actividadesStore.js`, `src/actividades/registerActividadesRoutes.js`, `react-frontend/src/consultor/actividades/actividadesApi.js`, `react-frontend/src/consultor/actividades/MisActividadesModule.jsx`, `tests/actividadesRoutes.test.js`.
