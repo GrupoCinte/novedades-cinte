@@ -152,6 +152,26 @@ function normalizePromotionTextFields(payload) {
     return out;
 }
 
+/**
+ * Construye ISO `YYYY-MM-DD` solo si el calendario es válido (evita 31/02).
+ * @param {number} year
+ * @param {number} month 1-12
+ * @param {number} day 1-31
+ */
+function toIsoYmd(year, month, day) {
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+    if (year < 1900 || year > 2999 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+    const dt = new Date(Date.UTC(year, month - 1, day));
+    if (
+        dt.getUTCFullYear() !== year ||
+        dt.getUTCMonth() !== month - 1 ||
+        dt.getUTCDate() !== day
+    ) {
+        return null;
+    }
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 function parseDateOrNull(value) {
     if (value == null) return null;
     if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -160,6 +180,8 @@ function parseDateOrNull(value) {
     const s = String(value).trim();
     if (!s) return null;
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    // No usar `new Date('11/03/2026')`: en V8 es MM/DD (EE.UU.) y en Colombia es DD/MM.
+    if (/^\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}$/.test(s)) return null;
     const d = new Date(s);
     if (Number.isNaN(d.getTime())) return null;
     return d.toISOString().slice(0, 10);
@@ -219,17 +241,16 @@ function stripAccentsLower(s) {
 /**
  * Parser tolerante para `fecha_inicio` tal como la guarda n8n en DynamoDB.
  *
- * Acepta:
- * - ISO `YYYY-MM-DD` (con o sin tiempo) → respeta `slice(0, 10)`.
- * - Formato es-ES abreviado del agente IA: `"may 22, 2026"`, `"dic 31, 2026"`,
- *   incluyendo variantes con mes completo y mayúsculas/acentos.
+ * Acepta (prioridad):
+ * - ISO `YYYY-MM-DD` (con o sin tiempo).
+ * - Numérico con separadores **siempre DD/MM/YYYY** (Colombia): `11/03/2026`,
+ *   `09-04-2026`, `11.03.2026`. Nunca MM/DD vía `new Date(...)`.
+ * - Formato es-ES abreviado: `"may 22, 2026"`, `"dic 31, 2026"`.
+ * - Formato largo: `"27 de julio de 2026"`.
  * - Date instance válido.
  *
- * Devuelve `null` (en vez de basura) cuando:
- * - Está vacío / undefined.
- * - Es uno de los centinelas que n8n usa antes de tener el valor (`CARGANDO`,
- *   `PENDIENTE`, `PENDIENTE_VALOR`, ...). Evita que esos strings caigan a
- *   `new Date(...)` y produzcan fechas erróneas o `Invalid Date`.
+ * Devuelve `null` ante vacíos, centinelas n8n (`CARGANDO`, `PENDIENTE`, …)
+ * o fechas numéricas ambiguas inválidas de calendario.
  */
 function parseFechaInicioSmart(value) {
     if (value == null) return null;
@@ -242,20 +263,30 @@ function parseFechaInicioSmart(value) {
     if (SENTINEL_VALUES.has(norm)) return null;
 
     if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
-        return raw.slice(0, 10);
+        const y = Number(raw.slice(0, 4));
+        const m = Number(raw.slice(5, 7));
+        const d = Number(raw.slice(8, 10));
+        return toIsoYmd(y, m, d);
+    }
+
+    // Colombia / n8n histórico: DD/MM/YYYY (también - y .)
+    // Ejemplos reales: "11/03/2026" → 2026-03-11 (NO noviembre); "09/04/2026" → 2026-04-09.
+    const mNum = raw.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})$/);
+    if (mNum) {
+        let dia = Number(mNum[1]);
+        let mes = Number(mNum[2]);
+        let anio = Number(mNum[3]);
+        if (anio < 100) anio += anio >= 70 ? 1900 : 2000;
+        return toIsoYmd(anio, mes, dia);
     }
 
     // "may 22, 2026" / "dic 31, 2026" (agente extractor abreviado)
     const mEs = norm.match(/^([a-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})$/);
     if (mEs) {
-        const mesKey = mEs[1];
+        const mes = MESES_ES[mEs[1]];
         const dia = Number(mEs[2]);
         const anio = Number(mEs[3]);
-        const mes = MESES_ES[mesKey];
-        if (mes && dia >= 1 && dia <= 31 && anio >= 1900 && anio <= 2999) {
-            const iso = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-            return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
-        }
+        return toIsoYmd(anio, mes, dia);
     }
 
     // "27 de julio de 2026" / "28 de julio del 2026" (formato largo n8n)
@@ -264,10 +295,7 @@ function parseFechaInicioSmart(value) {
         const dia = Number(mLargo[1]);
         const mes = MESES_ES[mLargo[2]];
         const anio = Number(mLargo[3]);
-        if (mes && dia >= 1 && dia <= 31 && anio >= 1900 && anio <= 2999) {
-            const iso = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
-            return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : null;
-        }
+        return toIsoYmd(anio, mes, dia);
     }
 
     const fallback = parseDateOrNull(raw);
