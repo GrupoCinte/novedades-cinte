@@ -537,56 +537,46 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
 
     return (
         <div className="flex flex-col gap-4">
-            <header className="flex flex-wrap items-end justify-between gap-3">
-                <div>
-                    <h2 className={G.titleXl}>Novedades Zoho</h2>
-                    <p className={G.mutedSm}>
-                        {viewMode === 'inbox'
-                            ? 'Bandeja de revisión: salidas, extensiones, modificaciones y cancelaciones pendientes. Las integraciones se gestionan en En ingreso.'
-                            : 'Histórico de novedades ya aplicadas o rechazadas por Capital Humano.'}
-                    </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <div className="flex rounded-lg overflow-hidden border border-white/10">
-                        <button
-                            type="button"
-                            onClick={() => setViewMode('inbox')}
-                            className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'inbox')}`}
-                        >
-                            Por revisar
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setViewMode('historico')}
-                            className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'historico')}`}
-                        >
-                            Histórico{historicoCount > 0 ? ` (${historicoCount})` : ''}
-                        </button>
-                    </div>
-                    {viewMode === 'inbox' ? (
-                        <>
-                            <label className={`text-xs ${G.mutedSm}`}>Estado</label>
-                            <select
-                                value={statusFilter}
-                                onChange={(e) => setStatusFilter(e.target.value)}
-                                className={`rounded border px-2 py-1 text-xs ${isLight ? 'border-slate-300 bg-white' : 'border-slate-700 bg-slate-800'}`}
-                            >
-                                <option value="">Todos pendientes</option>
-                                <option value="pendiente">Pendiente</option>
-                                <option value="sin_match">Sin match</option>
-                            </select>
-                        </>
-                    ) : null}
+            <div className={`${G.filterBar} flex flex-wrap items-center justify-end gap-2`}>
+                <div className="flex rounded-lg overflow-hidden border border-white/10">
                     <button
                         type="button"
-                        onClick={load}
-                        disabled={loading}
-                        className="rounded-lg bg-[#2F7BB8] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                        onClick={() => setViewMode('inbox')}
+                        className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'inbox')}`}
                     >
-                        {loading ? 'Actualizando…' : 'Actualizar'}
+                        Por revisar
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setViewMode('historico')}
+                        className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'historico')}`}
+                    >
+                        Histórico{historicoCount > 0 ? ` (${historicoCount})` : ''}
                     </button>
                 </div>
-            </header>
+                {viewMode === 'inbox' ? (
+                    <>
+                        <label className={`text-xs ${G.mutedSm}`}>Estado</label>
+                        <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value)}
+                            className={`rounded border px-2 py-1 text-xs ${isLight ? 'border-slate-300 bg-white' : 'border-slate-700 bg-slate-800'}`}
+                        >
+                            <option value="">Todos pendientes</option>
+                            <option value="pendiente">Pendiente</option>
+                            <option value="sin_match">Sin match</option>
+                        </select>
+                    </>
+                ) : null}
+                <button
+                    type="button"
+                    onClick={load}
+                    disabled={loading}
+                    className="rounded-lg bg-[#2F7BB8] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+                >
+                    {loading ? 'Actualizando…' : 'Actualizar'}
+                </button>
+            </div>
 
             {error ? (
                 <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>

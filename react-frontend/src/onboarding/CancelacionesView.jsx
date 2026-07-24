@@ -131,26 +131,15 @@ export default function CancelacionesView({ auth, isLight }) {
     if (!canMonitor) {
         return (
             <div className="flex flex-col gap-4">
-                <header>
-                    <h2 className={G.titleXl}>Cancelaciones / eliminaciones</h2>
-                    <p className={G.mutedSm}>
-                        Necesitas acceso al panel Contratación (monitor n8n) para consultar candidatos rechazados o eliminados.
-                    </p>
-                </header>
+                <p className={G.mutedSm}>
+                    Necesitas acceso al panel Contratación (monitor n8n) para consultar candidatos rechazados o eliminados.
+                </p>
             </div>
         );
     }
 
     return (
         <div className="flex flex-col gap-4">
-            <header>
-                <h2 className={G.titleXl}>Cancelaciones / eliminaciones</h2>
-                <p className={G.mutedSm}>
-                    Candidatos del monitor n8n con status eliminado o rechazado (no incluye ingresos finalizados ni bajas del maestro).
-                    Clic en una fila para ver el detalle completo de la observación.
-                </p>
-            </header>
-
             {error ? (
                 <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">
                     {error}
