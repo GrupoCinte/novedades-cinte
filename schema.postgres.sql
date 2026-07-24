@@ -337,9 +337,23 @@ CREATE TABLE IF NOT EXISTS servicio_consultores (
     PRIMARY KEY (servicio_id, cedula)
 );
 
-DROP TRIGGER IF EXISTS trg_servicio_consultores_updated_at ON servicio_consultores;
-CREATE TRIGGER trg_servicio_consultores_updated_at
-BEFORE UPDATE ON servicio_consultores
-FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+-- ========= Actividades Consultor =========
+CREATE TABLE IF NOT EXISTS actividades_consultor (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cedula TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+    cliente TEXT NOT NULL,
+    descripcion TEXT NOT NULL,
+    inicio TIMESTAMPTZ NOT NULL,
+    fin TIMESTAMPTZ NULL,
+    origen TEXT NOT NULL CHECK (origen IN ('manual', 'cronometro')),
+    estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'aprobado', 'rechazado')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT chk_actividad_fin_posterior CHECK (fin IS NULL OR fin > inicio)
+);
+
+CREATE INDEX IF NOT EXISTS idx_actividades_consultor_listado ON actividades_consultor (cedula, inicio DESC) WHERE estado IN ('pendiente', 'aprobado', 'rechazado');
+CREATE UNIQUE INDEX IF NOT EXISTS uq_actividad_cronometro_activo ON actividades_consultor (cedula) WHERE origen = 'cronometro' AND fin IS NULL AND estado = 'pendiente';
 
 COMMIT;
+
