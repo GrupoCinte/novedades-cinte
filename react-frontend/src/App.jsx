@@ -8,6 +8,7 @@ import ConsultorProtectedLayout from './ConsultorProtectedLayout.jsx';
 import ConsultorPortalHome from './ConsultorPortalHome.jsx';
 import ConsultorNovedadesPage from './ConsultorNovedadesPage.jsx';
 import ConsultorModulePlaceholder from './ConsultorModulePlaceholder.jsx';
+import MisActividadesModule from './consultor/actividades/MisActividadesModule.jsx';
 import Login from './Login';
 import ForgotPassword from './ForgotPassword';
 import ResetPassword from './ResetPassword';
@@ -292,6 +293,7 @@ function App() {
           <Route path="/consultor" element={<ConsultorProtectedLayout />}>
             <Route index element={<ConsultorPortalHome />} />
             <Route path="novedades" element={<ConsultorNovedadesPage />} />
+            <Route path="mis-actividades" element={<MisActividadesModule />} />
             <Route
               path="vacaciones"
               element={<ConsultorModulePlaceholder title="Gestión de Vacaciones" />}
