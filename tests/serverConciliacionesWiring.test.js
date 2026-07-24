@@ -50,6 +50,7 @@ test('assertConciliacionesRouteDeps rechaza upsertConciliacionFacturacionMasivaF
                 applyConciliacionFacturacionRevisionForScope: dl.applyConciliacionFacturacionRevisionForScope,
                 applyConciliacionFacturacionRevisionMasivaForScope: dl.applyConciliacionFacturacionRevisionMasivaForScope,
                 applyConciliacionFacturacionAjustesForScope: dl.applyConciliacionFacturacionAjustesForScope,
+                createConciliacionNovedadManualForScope: dl.createConciliacionNovedadManualForScope,
                 listConciliacionFacturacionHistorialForScope: dl.listConciliacionFacturacionHistorialForScope,
                 upsertConciliacionFacturacionMasivaForScope: undefined,
                 listConciliacionesFacturacionForScope: dl.listConciliacionesFacturacionForScope

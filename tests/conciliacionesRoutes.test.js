@@ -49,6 +49,10 @@ function buildApp(deps = {}) {
         markConciliacionServicioEnviadaForScope: deps.markConciliacionServicioEnviadaForScope ?? stubAsync,
         markConciliacionServicioConciliadaForScope: deps.markConciliacionServicioConciliadaForScope ?? stubAsync,
         enviarConciliacionServicioCorreoForScope: deps.enviarConciliacionServicioCorreoForScope ?? stubAsync,
+        getConciliacionEmailAccionContext: deps.getConciliacionEmailAccionContext ?? stubAsync,
+        decideConciliacionEmailAccion: deps.decideConciliacionEmailAccion ?? stubAsync,
+        decideMasivoConciliacionEmailAccion: deps.decideMasivoConciliacionEmailAccion ?? stubAsync,
+        finalizeConciliacionEmailAccion: deps.finalizeConciliacionEmailAccion ?? stubAsync,
         getConciliacionEmailPlantillaCorreoLiderForScope:
             deps.getConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync,
         upsertConciliacionEmailPlantillaCorreoLiderForScope:
