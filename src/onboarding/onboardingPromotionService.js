@@ -18,9 +18,58 @@
  */
 
 const { z } = require('zod');
-const { COLABORADORES_EXTENDED_KEYS } = require('../colaboradores/colaboradoresExtendedColumns');
+const {
+    COLABORADORES_EXTENDED_KEYS,
+    COLABORADORES_EXTENDED_COLUMNS,
+    normalizeExtendedFieldForDb
+} = require('../colaboradores/colaboradoresExtendedColumns');
 const { applyLegacyEmergencyParse } = require('../contratacion/extractorToFichaMap');
 const { normalizeChListText, normalizeColabTextPatch } = require('./chTextNormalize');
+
+const EXT_SQL_TYPE_BY_KEY = Object.fromEntries(
+    (COLABORADORES_EXTENDED_COLUMNS || []).map((c) => [c.key, String(c.sqlType || 'TEXT').toUpperCase()])
+);
+
+/** Desenvuelve AttributeValue Dynamo mal aplanado: `{S:'x'}` / `{N:'1'}`. */
+function unwrapDynamoishValue(value) {
+    if (value == null) return value;
+    if (typeof value !== 'object' || Array.isArray(value)) return value;
+    if ('S' in value) return value.S;
+    if ('N' in value) return value.N;
+    if ('BOOL' in value) return value.BOOL;
+    if ('NULL' in value) return null;
+    return value;
+}
+
+/**
+ * Sanitiza payload extendido para columnas tipadas de Postgres.
+ * Omite valores que no se pueden coerce (evita tumbar el upsert base).
+ */
+function sanitizeExtendedPayloadForDb(extended) {
+    if (!extended || typeof extended !== 'object') return {};
+    const out = {};
+    for (const [key, raw] of Object.entries(extended)) {
+        let v = unwrapDynamoishValue(raw);
+        if (v == null || v === '') continue;
+        if (typeof v === 'object') continue;
+        const sqlType = EXT_SQL_TYPE_BY_KEY[key] || 'TEXT';
+        if (sqlType === 'DATE') {
+            const d = parseFechaInicioSmart(v);
+            if (d) out[key] = d;
+            continue;
+        }
+        if (sqlType === 'INTEGER') {
+            const n = parseInt(String(v).replace(/[^\d-]/g, ''), 10);
+            if (Number.isFinite(n) && n >= 0 && n < 150) out[key] = n;
+            continue;
+        }
+        const normalized = normalizeExtendedFieldForDb(key, v);
+        if (normalized !== undefined && normalized !== null && normalized !== '') {
+            out[key] = normalized;
+        }
+    }
+    return out;
+}
 
 /** Estados terminales de n8n que disparan el upsert real a `colaboradores`. */
 const TERMINAL_STATUSES = new Set([
@@ -636,7 +685,11 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
 
             const extPayload = normalizeColabTextPatch({
                 cedula: cedulaInsertada,
-                ...(normalizedValidated.extended && typeof normalizedValidated.extended === 'object' ? normalizedValidated.extended : {}),
+                ...sanitizeExtendedPayloadForDb(
+                    normalizedValidated.extended && typeof normalizedValidated.extended === 'object'
+                        ? normalizedValidated.extended
+                        : {}
+                ),
                 email_personal: normalizedValidated.email_personal,
                 codigo: normalizedValidated.codigo,
                 tipo_contrato: normalizedValidated.tipo_contrato,

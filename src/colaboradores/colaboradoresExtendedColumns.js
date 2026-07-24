@@ -162,12 +162,14 @@ function normalizeExtendedFieldForDb(key, value) {
         return Number.isFinite(n) ? n : null;
     }
     if (t === 'INTEGER') {
-        const n = parseInt(String(value), 10);
+        const n = parseInt(String(value).replace(/[^\d-]/g, ''), 10);
         return Number.isFinite(n) ? n : null;
     }
     if (t === 'DATE') {
-        const s = String(value).trim().slice(0, 10);
-        return s || null;
+        const raw = String(value).trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+        // Fechas largas n8n se parsean en onboardingPromotionService; aquí omitimos basura.
+        return null;
     }
     if (t === 'JSONB') {
         if (value === null || value === '') return null;
