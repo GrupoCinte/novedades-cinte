@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
+    Activity,
     ArrowDown,
     ArrowRightLeft,
     ArrowUp,
@@ -33,10 +34,12 @@ import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
 import { userIsGpMallasOnly } from './mallasAccess.js';
+import { userHasMonitoreoAccess } from './monitoreoAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
 import MallasTurnosModule from './MallasTurnosModule';
+import MonitoreoActividadesView from './MonitoreoActividadesView.jsx';
 import ColaboradorFichaFields from './components/ColaboradorFichaFields.jsx';
 import {
     initialStaffForm,
@@ -192,6 +195,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
     const gpMallasOnly = userIsGpMallasOnly(auth);
+    const canAccessMonitoreo = userHasMonitoreoAccess(auth);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -204,16 +208,24 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     }, [mainView]);
 
     useEffect(() => {
-        if (gpMallasOnly && mainView !== 'mallasTurnos') {
+        const gpAllowedViews = canAccessMonitoreo ? ['mallasTurnos', 'monitoreo'] : ['mallasTurnos'];
+        if (gpMallasOnly && !gpAllowedViews.includes(mainView)) {
             setMainView('mallasTurnos');
         }
-    }, [gpMallasOnly, mainView]);
+    }, [gpMallasOnly, canAccessMonitoreo, mainView]);
 
     const showTiCatalogSubmod = !gpMallasOnly && userHasRolesTiCatalogRead(auth);
     useEffect(() => {
         const v = searchParams.get('v');
+        if (v === 'monitoreo') {
+            if (canAccessMonitoreo) setMainView('monitoreo');
+            const next = new URLSearchParams(searchParams);
+            next.delete('v');
+            setSearchParams(next, { replace: true });
+            return;
+        }
         if (gpMallasOnly) {
-            setMainView('mallasTurnos');
+            if (mainView !== 'monitoreo' || !canAccessMonitoreo) setMainView('mallasTurnos');
             if (v) {
                 const next = new URLSearchParams(searchParams);
                 next.delete('v');
@@ -253,7 +265,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         const next = new URLSearchParams(searchParams);
         next.delete('v');
         setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly]);
+    }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly, canAccessMonitoreo, mainView]);
 
     const [msg, setMsg] = useState(null);
 
@@ -1068,15 +1080,28 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 }}
             />
             {gpMallasOnly ? (
-                <NavBtn
-                    active={mainView === 'mallasTurnos'}
-                    icon={CalendarDays}
-                    label="Mallas de turnos"
-                    onClick={() => {
-                        setMainView('mallasTurnos');
-                        setMobileMenuOpen(false);
-                    }}
-                />
+                <>
+                    <NavBtn
+                        active={mainView === 'mallasTurnos'}
+                        icon={CalendarDays}
+                        label="Mallas de turnos"
+                        onClick={() => {
+                            setMainView('mallasTurnos');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    {canAccessMonitoreo ? (
+                        <NavBtn
+                            active={mainView === 'monitoreo'}
+                            icon={Activity}
+                            label="Monitoreo de actividades"
+                            onClick={() => {
+                                setMainView('monitoreo');
+                                setMobileMenuOpen(false);
+                            }}
+                        />
+                    ) : null}
+                </>
             ) : (
                 <>
                     <NavBtn
@@ -1127,6 +1152,17 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             setMobileMenuOpen(false);
                         }}
                     />
+                    {canAccessMonitoreo ? (
+                        <NavBtn
+                            active={mainView === 'monitoreo'}
+                            icon={Activity}
+                            label="Monitoreo de actividades"
+                            onClick={() => {
+                                setMainView('monitoreo');
+                                setMobileMenuOpen(false);
+                            }}
+                        />
+                    ) : null}
                     {showTiCatalogSubmod ? (
                         <NavBtn
                             active={mainView === 'catalogoTi'}
@@ -1678,6 +1714,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     {mainView === 'mallasTurnos' ? (
                         <MallasTurnosModule token={token} auth={auth} />
                     ) : null}
+
+                    {mainView === 'monitoreo' && canAccessMonitoreo ? <MonitoreoActividadesView /> : null}
 
                     {mainView === 'cliente' ? (
                         <ModuleFiltersDrawer

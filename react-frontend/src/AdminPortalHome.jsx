@@ -179,11 +179,11 @@ export default function AdminPortalHome({ auth, onLogout }) {
             });
         } else if (userIsGpMallasOnly(auth) || (userHasMallasAccess(auth) && !userHasDirectorioPanel(auth))) {
             out.push({
-                key: 'mallas',
-                title: 'Mallas de turnos',
-                description: 'Asignación y aprobación de mallas de tus clientes asignados.',
-                path: '/admin/directorio?v=mallas-turnos',
-                Icon: CalendarDays
+                key: 'directorio',
+                title: 'Módulo de administración',
+                description: 'Mallas de turnos y monitoreo de actividades de tus clientes asignados.',
+                path: '/admin/directorio',
+                Icon: Building2
             });
         }
         return out;
