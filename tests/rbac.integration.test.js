@@ -54,7 +54,7 @@ describe('RBAC - permisos por tipo', () => {
   });
 
   it('gp ve gestión de novedades y onboarding (lectura acotada a sus clientes), sin contratacion ni comercial', () => {
-    assert.deepEqual([...(POLICY.gp?.panels || [])].sort(), ['conciliaciones', 'gestion', 'onboarding']);
+    assert.deepEqual([...(POLICY.gp?.panels || [])].sort(), ['conciliaciones', 'gestion', 'monitoreo', 'onboarding']);
     assert.equal(POLICY.gp.panels.includes('contratacion'), false);
     assert.equal(POLICY.gp.panels.includes('comercial'), false);
     assert.equal(POLICY.gp.panels.includes('directorio'), false);
@@ -83,10 +83,21 @@ describe('RBAC - permisos por tipo', () => {
   });
 
   it('POLICY.cac: dashboard/calendar/gestión/admin/directorio + onboarding; sin comercial ni contratación', () => {
-    assert.deepEqual([...POLICY.cac.panels].sort(), ['admin', 'calendar', 'dashboard', 'directorio', 'gestion', 'onboarding']);
+    assert.deepEqual([...POLICY.cac.panels].sort(), ['admin', 'calendar', 'dashboard', 'directorio', 'gestion', 'monitoreo', 'onboarding']);
     assert.equal(POLICY.cac.viewAllAreas, true);
     assert.equal(POLICY.cac.panels.includes('comercial'), false);
     assert.equal(POLICY.cac.panels.includes('contratacion'), false);
+  });
+
+  it('monitoreo solo está habilitado para super_admin, cac y gp', () => {
+    assert.equal(POLICY.super_admin.panels.includes('monitoreo'), true);
+    assert.equal(POLICY.cac.panels.includes('monitoreo'), true);
+    assert.equal(POLICY.gp.panels.includes('monitoreo'), true);
+    assert.equal(POLICY.admin_ch.panels.includes('monitoreo'), false);
+    assert.equal(POLICY.team_ch.panels.includes('monitoreo'), false);
+    assert.equal(POLICY.nomina.panels.includes('monitoreo'), false);
+    assert.equal(POLICY.comercial.panels.includes('monitoreo'), false);
+    assert.equal(POLICY.analista_conciliaciones.panels.includes('monitoreo'), false);
   });
 
   it('admin_ch y team_ch tienen viewAllAreas (listados novedades sin filtro por columna area)', () => {
