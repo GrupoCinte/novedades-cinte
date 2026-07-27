@@ -148,6 +148,7 @@ export async function iniciarCronometroApi({ descripcion }) {
 
     return { ok: true, actividad: payload?.actividad };
   } catch (err) {
+    console.error(err);
     return {
       ok: false,
       error: 'Error de red al iniciar el cronómetro.'
@@ -213,6 +214,73 @@ export async function cancelarCronometroApi() {
     return {
       ok: false,
       error: 'Error de red al cancelar el cronómetro.'
+    };
+  }
+}
+
+/**
+ * Actualiza una entrada de tiempo manual.
+ */
+export async function updateActividadApi(id, { descripcion, fecha, horaInicio, horaFin }) {
+  try {
+    const headers = buildCsrfHeaders({
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    });
+
+    const response = await fetch(`/api/consultor/actividades/${id}`, {
+      method: 'PUT',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        descripcion,
+        fecha,
+        horaInicio,
+        horaFin
+      })
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const errorMsg = payload?.error || 'No se pudo actualizar la entrada de tiempo.';
+      return { ok: false, error: errorMsg, status: response.status };
+    }
+
+    return { ok: true, actividad: payload?.actividad };
+  } catch {
+    return {
+      ok: false,
+      error: 'Error de red al actualizar la actividad.'
+    };
+  }
+}
+
+/**
+ * Elimina una entrada de tiempo.
+ */
+export async function deleteActividadApi(id) {
+  try {
+    const headers = buildCsrfHeaders({
+      Accept: 'application/json'
+    });
+
+    const response = await fetch(`/api/consultor/actividades/${id}`, {
+      method: 'DELETE',
+      headers,
+      credentials: 'include'
+    });
+
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const errorMsg = payload?.error || 'No se pudo eliminar la entrada de tiempo.';
+      return { ok: false, error: errorMsg, status: response.status };
+    }
+
+    return { ok: true, mensaje: payload?.mensaje };
+  } catch {
+    return {
+      ok: false,
+      error: 'Error de red al eliminar la actividad.'
     };
   }
 }
