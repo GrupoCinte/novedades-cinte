@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-27 12:23:36 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `814e4e82`
+- **Commit:** `814e4e8254edf7f40f3b872822a7788a218fde6f`
+- **Ticket:** AUT-207
+- **Requerimiento funcional:** En Novedades Zoho, tras un match correcto, la ficha muestra Actual alineado a Personal Activo y Propuesto enriquecido con datos del correo/Dynamo (no solo el extractor vacío).
+- **Componente técnico:** `src/onboarding/fichaNovedadesService.js`, `tests/fichaNovedadesService.test.js`.
+- **Cambios (uno a uno):**
+  - `enrichNormalizedFromMapped` fusiona planos Dynamo/`parsed_subject` en `payload_normalizado`.
+  - `getNovedadById` recalcula `diff_json` contra `colaboradores` en vivo.
+  - Comparación de fechas/números más robusta en `normalizeComparable`.
+
 ### 2026-07-24 18:18:42 · `testing` · `e9f7a21f`
 - **Commit:** `e9f7a21f6cbe26a293c4539c82b50f706734fba7`
 - **Ticket:** —
