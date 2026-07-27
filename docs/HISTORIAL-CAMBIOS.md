@@ -174,6 +174,30 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
   - Parser de `fecha_inicio` acepta formato n8n `"27 de julio de 2026"`.
   - Script de backfill dry-run/`--apply` para recuperar Finalizados ya cerrados.
 
+### 2026-07-27 10:56:19 · `feat/AUT-262-cronometro-actividades-consultor` · `f25fbbb`
+- **Commit:** `f25fbbbd27e3503f68e4968fb6f6c33ba089ff02`
+- **Ticket:** AUT-262
+- **Requerimiento funcional:** Ajuste de UI para permitir que la descripción en el historial haga salto de línea automático y que el campo de descripción al iniciar el cronómetro tenga auto-resize (crezca automáticamente) respetando el diseño responsive y el tema.
+- **Componente técnico:** `react-frontend/src/consultor/actividades/MisActividadesModule.jsx`.
+- **Cambios (uno a uno):**
+  - Se modificó la celda de la tabla del historial (`dash.tdCell`) aplicando un override de estilos `!whitespace-normal break-words` para evitar el truncado de descripciones largas.
+  - Se reemplazó el `input` de descripción del cronómetro por un `textarea` con `onInput` dinámico que permite el auto-resize manteniendo la altura base.
+  - Se interceptó el evento `onKeyDown` en el textarea para enviar el formulario con la tecla Enter.
+
+
+### 2026-07-24 18:12:41 · `feat/AUT-262-cronometro-actividades-consultor` · `78f9670`
+- **Commit:** `78f9670c22abb7af124ea0c117ee40c7ab3776d9`
+- **Ticket:** AUT-262
+- **Requerimiento funcional:** Registro de tiempo de trabajo mediante cronómetro en tiempo real para el consultor con persisistencia de estado al recargar, control de unicidad de temporizador activo y opción de cancelación sin guardar.
+- **Componente técnico:** `src/actividades/actividadesStore.js`, `src/actividades/registerActividadesRoutes.js`, `react-frontend/src/consultor/actividades/actividadesApi.js`, `react-frontend/src/consultor/actividades/MisActividadesModule.jsx`, `tests/actividadesRoutes.test.js`.
+- **Cambios (uno a uno):**
+  - Implementación de store de datos en Postgres para `getCronometroActivoByCedula`, `iniciarCronometro`, `detenerCronometro` y `cancelarCronometro` aprovechando el índice único `uq_actividad_cronometro_activo`.
+  - Rutas HTTP backend `/api/consultor/actividades/cronometro*` (GET activo, POST iniciar, POST detener, POST cancelar) protegidas con RBAC consultor y CSRF.
+  - Widget UI de Cronómetro en vivo (HH:MM:SS) en `MisActividadesModule.jsx` con sincronización automática de estado al recargar el portal (CA-3) y descarte de temporizador en curso (CA-4).
+  - Pruebas unitarias backend para inicio, detención, rechazo 409 de cronómetros duplicados y cancelación (`8/8 PASS`).
+
+
+
 ### 2026-07-24 16:57:10 · `feat/AUT-261-carga-manual-actividades-consultor` · `70f776f`
 - **Commit:** `70f776f1e29e92ffca33dbbfa1bc655cbb4125b7`
 - **Ticket:** AUT-261
