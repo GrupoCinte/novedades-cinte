@@ -144,6 +144,37 @@ function renderEstadoBadge(estado) {
   );
 }
 
+// Helpers extraídos para reducir la complejidad cognitiva (SonarCloud)
+function matchesFilters(act, filterFecha, filterCliente, filterSearch) {
+  if (filterFecha && formatIsoToBogotaDate(act.inicio) !== filterFecha) return false;
+  if (filterCliente && String(act.cliente || '').toLowerCase() !== String(filterCliente).toLowerCase()) return false;
+  if (filterSearch.trim() && !String(act.descripcion || '').toLowerCase().includes(filterSearch.trim().toLowerCase())) return false;
+  return true;
+}
+
+function extractClientOptions(actividades, cliente) {
+  const set = new Set();
+  if (cliente) set.add(cliente);
+  actividades.forEach((a) => {
+    if (a.cliente) set.add(a.cliente);
+  });
+  return Array.from(set);
+}
+
+function getActiveFilterCount(filterFecha, filterCliente, filterSearch) {
+  let count = 0;
+  if (filterFecha) count++;
+  if (filterCliente) count++;
+  if (filterSearch.trim()) count++;
+  return count;
+}
+
+function getChipText(activeFilterCount) {
+  if (activeFilterCount === 0) return 'Sin filtros activos';
+  if (activeFilterCount === 1) return '1 filtro activo';
+  return `${activeFilterCount} filtros activos`;
+}
+
 const navItemClass = (active, navInactive) =>
   `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
     active
@@ -453,7 +484,8 @@ function ActivityModal({
 
   return (
     <div
-      role="presentation"
+      role="dialog"
+      aria-modal="true"
       className="fixed inset-0 z-[999] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
       onClick={handleCloseModal}
       onKeyDown={(e) => {
@@ -461,7 +493,6 @@ function ActivityModal({
       }}
     >
       <div
-        role="presentation"
         className={`relative w-full max-w-2xl rounded-2xl border p-6 shadow-2xl backdrop-blur-md sm:p-8 transition-all ${
           isLight
             ? 'border-slate-200 bg-white text-slate-800'
@@ -793,9 +824,7 @@ export default function MisActividadesModule() {
   }, [filterFechaInicio, filterFechaFin, filterSearch]);
 
   const chipText = useMemo(() => {
-    if (activeFilterCount === 0) return 'Sin filtros activos';
-    if (activeFilterCount === 1) return '1 filtro activo';
-    return `${activeFilterCount} filtros activos`;
+    return getChipText(activeFilterCount);
   }, [activeFilterCount]);
 
   const hasActiveFilters = activeFilterCount > 0;
@@ -904,7 +933,8 @@ export default function MisActividadesModule() {
       
       const [{ value: fHr }, , { value: fMin }] = formatter.formatToParts(new Date(act.fin));
       setHoraFin(`${fHr}:${fMin}`);
-    } catch {
+    } catch (err) {
+      console.warn('Error formateando fechas de la actividad:', err);
       // Fallback
       setFecha(getTodayString());
       setHoraInicio('08:00');
