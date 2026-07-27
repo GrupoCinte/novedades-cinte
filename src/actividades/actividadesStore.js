@@ -126,6 +126,38 @@ function createActividadesStore({ pool }) {
         return { kind: 'created', activity: result.rows[0] };
     }
 
+    async function updateActividadPropia({ id, cedula, descripcion, inicio, fin }) {
+        const result = await pool.query(
+            `UPDATE actividades_consultor
+             SET descripcion = $3,
+                 inicio = $4,
+                 fin = $5,
+                 updated_at = NOW()
+             WHERE id = $1 AND cedula = $2
+             RETURNING id, cedula, cliente, descripcion, inicio, fin, origen, estado, created_at, updated_at`,
+            [id, cedula, descripcion, inicio, fin]
+        );
+        
+        if (result.rowCount === 0) {
+            return { kind: 'not_found' };
+        }
+        return { kind: 'updated', activity: result.rows[0] };
+    }
+
+    async function deleteActividadPropia({ id, cedula }) {
+        const result = await pool.query(
+            `DELETE FROM actividades_consultor
+             WHERE id = $1 AND cedula = $2
+             RETURNING id`,
+            [id, cedula]
+        );
+        
+        if (result.rowCount === 0) {
+            return { kind: 'not_found' };
+        }
+        return { kind: 'deleted' };
+    }
+
     async function listActividadesByCedula(cedula) {
         const normalizedCedula = String(cedula || '').trim();
         if (!normalizedCedula) return [];
@@ -249,6 +281,8 @@ function createActividadesStore({ pool }) {
         ensureActividadesConsultorTable,
         getConsultorContextByCedula,
         createManualActivity,
+        updateActividadPropia,
+        deleteActividadPropia,
         listActividadesByCedula,
         updateActividadEstado,
         getCronometroActivoByCedula,
