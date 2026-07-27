@@ -6,7 +6,9 @@ const {
     getAllowedFieldsForTipo,
     buildPatchFromNormalized,
     createFichaNovedadesService,
-    matchColaborador
+    matchColaborador,
+    enrichNormalizedFromMapped,
+    normalizeExtractorPayload
 } = require('../src/onboarding/fichaNovedadesService');
 
 describe('fichaNovedadesService helpers', () => {
@@ -59,6 +61,67 @@ describe('fichaNovedadesService helpers', () => {
         };
         await matchColaborador(pool, { codigo: '20260605', tipo_novedad: 'cancelacion_ingreso' });
         assert.ok(!queries[0].includes('activo = true'));
+    });
+
+    it('enrichNormalizedFromMapped completa campos planos cuando extractor MVP viene vacío', () => {
+        const fromExtractor = normalizeExtractorPayload({ ID_Registro: '20250322' }, 'modificacion_id');
+        const enriched = enrichNormalizedFromMapped(fromExtractor, {
+            tipo_novedad: 'modificacion_id',
+            id_registro: '20250322',
+            codigo_plano: '20250322',
+            cedula_plano: '1024598286',
+            nombre_plano: 'Diego Alberto Nuñez Sanchez',
+            cliente_plano: 'AVAL VALOR COMPARTIDO - AVC',
+            puesto: 'Analista',
+            parsed_subject: { fecha_termino: '2026-06-12' }
+        });
+        assert.equal(enriched.codigo, '20250322');
+        assert.equal(enriched.cedula, '1024598286');
+        assert.ok(String(enriched.nombre).toLowerCase().includes('diego'));
+        assert.ok(String(enriched.cliente).toUpperCase().includes('AVAL'));
+        assert.equal(String(enriched.puesto).toUpperCase(), 'ANALISTA');
+        assert.equal(enriched.fecha_termino, '2026-06-12');
+    });
+
+    it('buildDiff alinea Date PG con fecha ISO string', () => {
+        const diff = buildDiff(
+            { fecha_termino: new Date('2026-06-12T05:00:00.000Z') },
+            { fecha_termino: '2026-06-12' }
+        );
+        assert.equal(diff.length, 0);
+    });
+
+    it('getNovedadById recalcula diff contra colaboradores vivos', async () => {
+        const id = '11111111-1111-1111-1111-111111111111';
+        const pool = {
+            query: async (sql, params) => {
+                if (String(sql).includes('FROM ficha_novedades_staging')) {
+                    return {
+                        rows: [
+                            {
+                                id,
+                                status: 'pendiente',
+                                colaborador_cedula_match: '1024598286',
+                                payload_normalizado: { puesto: 'Lead', cliente: 'ACME' },
+                                diff_json: [{ field: 'puesto', before: 'Old', after: 'Lead' }]
+                            }
+                        ]
+                    };
+                }
+                if (String(sql).includes('FROM colaboradores')) {
+                    return {
+                        rows: [{ cedula: '1024598286', puesto: 'Dev', cliente: 'ACME' }]
+                    };
+                }
+                return { rows: [] };
+            }
+        };
+        const svc = createFichaNovedadesService({ pool });
+        const row = await svc.getNovedadById(id);
+        const fields = (row.diff_json || []).map((d) => d.field);
+        assert.ok(fields.includes('puesto'));
+        assert.equal(row.diff_json.find((d) => d.field === 'puesto').before, 'Dev');
+        assert.ok(!fields.includes('cliente'));
     });
 });
 

@@ -90,8 +90,17 @@ function normalizeComparable(value) {
     if (value == null || value === '') return null;
     if (typeof value === 'number') return value;
     if (typeof value === 'boolean') return value;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString().slice(0, 10);
+    }
     const s = String(value).trim();
-    return s || null;
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    if (/^-?\d+(\.\d+)?$/.test(s)) {
+        const n = Number(s);
+        if (!Number.isNaN(n)) return n;
+    }
+    return s;
 }
 
 /**
@@ -165,6 +174,9 @@ function mapDynamoZohoPayload(rawItem) {
     const cedulaPlano = readD(r.cedula);
     const nombrePlano = readD(r['nombre y apellido'] ?? r.nombre_y_apellido);
     const clientePlano = readD(r.cliente);
+    const puestoPlano = readD(r.puesto ?? r.Puesto_Cargo);
+    const fechaTerminoPlano = readD(r.fecha_termino ?? r.fechaTermino);
+    const fechaIngresoPlano = readD(r.fecha_ingreso ?? r.fechaIngreso);
 
     return {
         record_type: ZOHO_RECORD_TYPE,
@@ -177,6 +189,9 @@ function mapDynamoZohoPayload(rawItem) {
         received_at: r.received_at || r.receivedAt || r.fecha_recepcion || null,
         extractor_output: extractorObj,
         parsed_subject: parsedSubject,
+        puesto: puestoPlano,
+        fecha_termino: fechaTerminoPlano,
+        fecha_ingreso: fechaIngresoPlano,
         n8n_execution_id: trimOrNull(r.n8n_execution_id || r.n8nExecutionId),
         nombre_asunto: trimOrNull(r.nombreAsunto || parsedSubject.nombre || nombrePlano),
         cliente_asunto: trimOrNull(r.clienteAsunto || parsedSubject.cliente || clientePlano),
@@ -187,19 +202,87 @@ function mapDynamoZohoPayload(rawItem) {
     };
 }
 
+const CH_TEXT_KEYS = new Set([
+    'nombre',
+    'cliente',
+    'puesto',
+    'nombres',
+    'primer_apellido',
+    'segundo_apellido'
+]);
+
 function normalizeExtractorPayload(extractorOutput, tipoNovedad) {
     if (!extractorOutput || typeof extractorOutput !== 'object') return {};
     const flat = flattenExtractorOutput(extractorOutput);
     const out = {};
     for (const [k, v] of Object.entries(flat)) {
         if (v === undefined || v === null || v === '') continue;
-        if (['nombre', 'cliente', 'puesto', 'nombres', 'primer_apellido', 'segundo_apellido'].includes(k)) {
+        if (CH_TEXT_KEYS.has(k)) {
             out[k] = normalizeChListText(v);
         } else {
             out[k] = v;
         }
     }
     const tipo = String(tipoNovedad || '').trim().toLowerCase();
+    if (tipo === 'modificacion_id' && out.fecha_ingreso) {
+        out.vigente_desde = out.fecha_ingreso;
+        delete out.fecha_ingreso;
+    }
+    return out;
+}
+
+function isEmptyNormValue(value) {
+    return value === undefined || value === null || value === '';
+}
+
+function setNormalizedIfEmpty(out, key, value) {
+    if (!out || !key) return;
+    if (!isEmptyNormValue(out[key])) return;
+    if (isEmptyNormValue(value)) return;
+    if (CH_TEXT_KEYS.has(key)) {
+        out[key] = normalizeChListText(value);
+    } else {
+        out[key] = value;
+    }
+}
+
+/**
+ * Completa payload_normalizado con campos planos Dynamo / parsed_subject
+ * cuando el extractor lite/MVP no los trae (match OK pero ficha incompleta).
+ * @param {Record<string, unknown>} normalized
+ * @param {ReturnType<typeof mapDynamoZohoPayload>} mapped
+ */
+function enrichNormalizedFromMapped(normalized, mapped = {}) {
+    const out = { ...(normalized || {}) };
+    const parsed =
+        mapped.parsed_subject && typeof mapped.parsed_subject === 'object' ? mapped.parsed_subject : {};
+
+    setNormalizedIfEmpty(
+        out,
+        'codigo',
+        mapped.id_registro || mapped.codigo_plano || parsed.id_registro || parsed.codigo
+    );
+    setNormalizedIfEmpty(out, 'cedula', mapped.cedula_plano || parsed.cedula);
+    setNormalizedIfEmpty(
+        out,
+        'nombre',
+        mapped.nombre_asunto || mapped.nombre_plano || parsed.nombre
+    );
+    setNormalizedIfEmpty(
+        out,
+        'cliente',
+        mapped.cliente_asunto || mapped.cliente_plano || parsed.cliente
+    );
+    setNormalizedIfEmpty(out, 'puesto', parsed.puesto || mapped.puesto);
+    setNormalizedIfEmpty(out, 'fecha_termino', parsed.fecha_termino || mapped.fecha_termino);
+    setNormalizedIfEmpty(out, 'fecha_ingreso', parsed.fecha_ingreso || mapped.fecha_ingreso);
+
+    for (const [key, value] of Object.entries(parsed)) {
+        if (!key || key.startsWith('_')) continue;
+        setNormalizedIfEmpty(out, key, value);
+    }
+
+    const tipo = String(mapped.tipo_novedad || '').trim().toLowerCase();
     if (tipo === 'modificacion_id' && out.fecha_ingreso) {
         out.vigente_desde = out.fecha_ingreso;
         delete out.fecha_ingreso;
@@ -356,7 +439,10 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             };
         }
 
-        const normalized = normalizeExtractorPayload(mapped.extractor_output, mapped.tipo_novedad);
+        const normalized = enrichNormalizedFromMapped(
+            normalizeExtractorPayload(mapped.extractor_output, mapped.tipo_novedad),
+            mapped
+        );
         if (mapped.tipo_novedad === 'cancelacion_ingreso') {
             normalized.onboarding_status = 'cancelado_ingreso';
         }
@@ -526,7 +612,20 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
     async function getNovedadById(id) {
         const q = await pool.query(`SELECT * FROM ficha_novedades_staging WHERE id = $1::uuid LIMIT 1`, [id]);
-        return q.rows[0] || null;
+        const row = q.rows[0] || null;
+        if (!row) return null;
+        // Recalcular diff contra BD viva para que "Actual" refleje Personal Activo.
+        if (
+            ['pendiente', 'sin_match'].includes(row.status) &&
+            row.colaborador_cedula_match &&
+            row.payload_normalizado
+        ) {
+            const current = await loadColaboradorFull(pool, row.colaborador_cedula_match);
+            if (current) {
+                row.diff_json = buildDiff(current, row.payload_normalizado);
+            }
+        }
+        return row;
     }
 
     async function applyPatchToColaborador(cedula, patch) {
@@ -917,6 +1016,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         isTipoEligibleForBuzon,
         getAllowedFieldsForTipo,
         normalizeExtractorPayload,
+        enrichNormalizedFromMapped,
         mapDynamoZohoPayload
     };
 }
@@ -930,6 +1030,7 @@ module.exports = {
     getAllowedFieldsForTipo,
     buildPatchFromNormalized,
     normalizeExtractorPayload,
+    enrichNormalizedFromMapped,
     matchColaborador,
     mapDynamoZohoPayload,
     ZOHO_RECORD_TYPE,
