@@ -95,11 +95,6 @@ export function filterFacturacionRows(rows, filters) {
     });
 }
 
-/** Pills de resumen en workspace de servicio (nivel 2). */
-export function shouldShowFacturacionEstadosResumen(inWorkspace) {
-    return Boolean(inWorkspace);
-}
-
 /** Acción grupal: en workspace de servicio. */
 export function shouldShowFacturacionAccionGrupal(inWorkspace) {
     return Boolean(inWorkspace);
