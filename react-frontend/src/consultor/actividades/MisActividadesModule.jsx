@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
   Clock3,
@@ -93,7 +93,8 @@ function calculateDurationString(inicioIso, finIso) {
     const totalMinutes = Math.round((endMs - startMs) / (1000 * 60));
     const hours = Math.floor(totalMinutes / 60);
     const mins = totalMinutes % 60;
-    return `${hours}h ${mins > 0 ? `${mins}m` : '00m'}`;
+    const minsStr = mins > 0 ? `${mins}m` : '00m';
+    return `${hours}h ${minsStr}`;
   } catch {
     return '—';
   }
@@ -137,6 +138,621 @@ function renderEstadoBadge(estado) {
   );
 }
 
+const navItemClass = (active, navInactive) =>
+  `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
+    active
+      ? 'bg-[#2F7BB8] shadow-[0_4px_12px_rgba(47,123,184,0.3)] text-white'
+      : navInactive
+  }`;
+
+const navIconClass = (active, isLight) => {
+  if (active) return 'flex-shrink-0 text-white';
+  return isLight ? 'flex-shrink-0 text-slate-600' : 'flex-shrink-0 text-slate-500';
+};
+
+function ActivityRow({ act, dash }) {
+  const fechaStr = formatIsoToBogotaDate(act.inicio);
+  const horaInicioStr = formatIsoToBogotaTime(act.inicio);
+  const horaFinStr = formatIsoToBogotaTime(act.fin);
+  const duracionStr = calculateDurationString(act.inicio, act.fin);
+
+  return (
+    <tr className={dash.trHover}>
+      <td className={dash.tdDate}>
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-slate-400" />
+          <span>{fechaStr}</span>
+        </div>
+      </td>
+      <td className={dash.tdName}>
+        <span className="inline-flex items-center gap-1.5 rounded-md bg-[#2F7BB8]/15 px-2.5 py-1 text-xs font-semibold text-[#2F7BB8] dark:text-[#a8dcff]">
+          <Building2 className="h-3.5 w-3.5" />
+          {act.cliente}
+        </span>
+      </td>
+      <td className="p-4 font-mono text-xs">
+        {horaInicioStr}
+      </td>
+      <td className="p-4 font-mono text-xs">
+        {horaFinStr}
+      </td>
+      <td className="p-4 font-semibold text-xs text-sky-600 dark:text-sky-400">
+        <div className="flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5" />
+          <span>{duracionStr}</span>
+        </div>
+      </td>
+      <td className={dash.tdCell}>
+        {act.descripcion}
+      </td>
+      <td className="p-4">
+        {renderEstadoBadge(act.estado)}
+      </td>
+    </tr>
+  );
+}
+
+function MisActividadesSidebar({
+  mobileMenuOpen,
+  setMobileMenuOpen,
+  closeMobile,
+  sidebarOpen,
+  setSidebarOpen,
+  currentEmail,
+  currentRoleLabel,
+  navigate,
+  mt
+}) {
+  const {
+    menuFab,
+    scrim,
+    aside,
+    asideHeaderBorder,
+    isLight,
+    sidebarIconBtn,
+    email,
+    borderSubtle,
+    navInactive
+  } = mt;
+
+  const navItemClassLocal = (active) => navItemClass(active, navInactive);
+  const navIconClassLocal = (active) => navIconClass(active, isLight);
+
+  return (
+    <>
+      {/* Botón flotante móvil */}
+      <button
+        type="button"
+        onClick={() => setMobileMenuOpen(true)}
+        className={`md:hidden fixed top-4 left-4 z-40 flex h-10 w-10 items-center justify-center shadow-lg ${menuFab}`}
+        aria-label="Abrir menú actividades"
+      >
+        <Menu size={18} />
+      </button>
+
+      {mobileMenuOpen ? (
+        <button
+          type="button"
+          className={`md:hidden fixed inset-0 z-40 ${scrim}`}
+          aria-label="Cerrar menú"
+          onClick={closeMobile}
+        />
+      ) : null}
+
+      {/* Sidebar Drawer Móvil */}
+      <aside
+        className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${
+          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <AdminModuleSidebarBrand
+          variant="drawer"
+          isLight={isLight}
+          asideHeaderBorder={asideHeaderBorder}
+          moduleContext={
+            <>
+              <p className="text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">
+                ACTIVIDADES
+              </p>
+              <p className="text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">
+                Mis Actividades
+              </p>
+            </>
+          }
+          endAction={
+            <button
+              type="button"
+              onClick={closeMobile}
+              className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
+              aria-label="Cerrar menú"
+            >
+              <X size={16} />
+            </button>
+          }
+        />
+        <AdminModuleSidebarUser
+          sidebarOpen
+          currentEmail={currentEmail}
+          currentRoleLabel={currentRoleLabel}
+          emailClass={email}
+          borderSubtle={borderSubtle}
+          isLight={isLight}
+        />
+        <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
+          <button
+            type="button"
+            onClick={() => {
+              closeMobile();
+              navigate('/consultor');
+            }}
+            className={navItemClassLocal(false)}
+          >
+            <Home size={18} className={navIconClassLocal(false)} />
+            <span>Volver al portal</span>
+          </button>
+          <button type="button" className={navItemClassLocal(true)} onClick={closeMobile}>
+            <History size={18} className={navIconClassLocal(true)} />
+            <span>Historial</span>
+          </button>
+        </nav>
+        <AdminModuleSidebarFooter
+          auth={{ user: { email: currentEmail, role: 'consultor' } }}
+          onLogout={() => navigate('/consultor')}
+          sidebarOpen
+          borderSubtle={borderSubtle}
+          isLight={isLight}
+        />
+      </aside>
+
+      {/* Sidebar Escritorio */}
+      <aside
+        className={`hidden md:flex flex-col shrink-0 font-body transition-all duration-300 ${aside} ${
+          sidebarOpen ? 'w-72' : 'w-20'
+        }`}
+      >
+        <AdminModuleSidebarBrand
+          variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
+          isLight={isLight}
+          asideHeaderBorder={asideHeaderBorder}
+          moduleContext={
+            sidebarOpen ? (
+              <>
+                <p className="text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">
+                  ACTIVIDADES
+                </p>
+                <p className="text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">
+                  Mis Actividades
+                </p>
+              </>
+            ) : null
+          }
+          endAction={
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((prev) => !prev)}
+              className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
+              title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
+            >
+              {sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+            </button>
+          }
+        />
+
+        <AdminModuleSidebarUser
+          sidebarOpen={sidebarOpen}
+          currentEmail={currentEmail}
+          currentRoleLabel={currentRoleLabel}
+          emailClass={email}
+          borderSubtle={borderSubtle}
+          isLight={isLight}
+        />
+
+        {/* Navegación Escritorio (1. Volver al portal, 2. Historial) */}
+        <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
+          <button
+            type="button"
+            onClick={() => navigate('/consultor')}
+            className={navItemClassLocal(false)}
+            title="Volver al portal consultor"
+          >
+            <Home size={18} className={navIconClassLocal(false)} />
+            {sidebarOpen ? <span>Volver al portal</span> : null}
+          </button>
+          <button
+            type="button"
+            className={navItemClassLocal(true)}
+            title="Historial"
+          >
+            <History size={18} className={navIconClassLocal(true)} />
+            {sidebarOpen ? <span>Historial</span> : null}
+          </button>
+        </nav>
+
+        <AdminModuleSidebarFooter
+          auth={{ user: { email: currentEmail, role: 'consultor' } }}
+          onLogout={() => navigate('/consultor')}
+          sidebarOpen={sidebarOpen}
+          borderSubtle={borderSubtle}
+          isLight={isLight}
+        />
+      </aside>
+    </>
+  );
+}
+
+function ActivityModal({
+  isModalOpen,
+  handleCloseModal,
+  isLight,
+  saving,
+  handleSubmitForm,
+  errorMessage,
+  cliente,
+  fecha,
+  setFecha,
+  horaInicio,
+  setHoraInicio,
+  horaFin,
+  setHoraFin,
+  fieldErrors,
+  descripcion,
+  setDescripcion
+}) {
+  if (!isModalOpen) return null;
+
+  const baseInputClass = isLight
+    ? 'border-slate-300 bg-white text-slate-900'
+    : 'border-white/15 bg-[#082232] text-white';
+
+  const baseTextareaClass = isLight
+    ? 'border-slate-300 bg-white text-slate-900 placeholder:text-slate-400'
+    : 'border-white/15 bg-[#082232] text-white placeholder:text-slate-500';
+
+  const horaFinClass = fieldErrors.horaFin
+    ? 'border-red-500 focus:ring-red-500'
+    : baseInputClass;
+
+  const descClass = fieldErrors.descripcion
+    ? 'border-red-500 focus:ring-red-500'
+    : baseTextareaClass;
+
+  return (
+    <div
+      role="presentation"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+      onClick={handleCloseModal}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') handleCloseModal();
+      }}
+    >
+      <div
+        role="presentation"
+        className={`relative w-full max-w-2xl rounded-2xl border p-6 shadow-2xl backdrop-blur-md sm:p-8 transition-all ${
+          isLight
+            ? 'border-slate-200 bg-white text-slate-800'
+            : 'border-white/15 bg-[#04141E] text-slate-200'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        {/* Header del Modal */}
+        <div className="mb-6 flex items-center justify-between border-b pb-4 border-slate-200/60 dark:border-white/10">
+          <div className="flex items-center gap-3">
+            <div
+              className={`flex h-10 w-10 items-center justify-center rounded-xl border ${
+                isLight
+                  ? 'border-sky-200 bg-sky-50 text-sky-700'
+                  : 'border-[#65BCF7]/25 bg-[#2F7BB8]/14 text-[#a8dcff]'
+              }`}
+            >
+              <Plus className="h-5 w-5" aria-hidden />
+            </div>
+            <div>
+              <h2 className="font-heading text-lg font-extrabold sm:text-xl">
+                Agregar actividad
+              </h2>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Carga manual de horas de trabajo
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleCloseModal}
+            disabled={saving}
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Formulario Reutilizado */}
+        <form onSubmit={handleSubmitForm} className="space-y-5">
+          {errorMessage ? (
+            <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-red-700 dark:text-red-300">
+              <AlertCircle className="h-5 w-5 shrink-0 text-red-500" />
+              <p className="text-sm font-semibold">{errorMessage}</p>
+            </div>
+          ) : null}
+
+          {/* Cliente asignado (Solo lectura) */}
+          <div>
+            <label htmlFor="cliente-asignado-div" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Cliente asignado (Ficha)
+            </label>
+            <div
+              id="cliente-asignado-div"
+              className={`flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm font-semibold ${
+                isLight
+                  ? 'border-slate-200 bg-slate-100/80 text-slate-800'
+                  : 'border-white/10 bg-[#082232] text-slate-200'
+              }`}
+            >
+              <Building2 className="h-4 w-4 text-[#2F7BB8] shrink-0" aria-hidden />
+              <span>{cliente || 'Sin cliente asignado'}</span>
+              <span className="ml-auto rounded-md bg-[#2F7BB8]/20 px-2 py-0.5 text-xs text-[#2F7BB8] dark:text-[#a8dcff]">
+                Solo lectura
+              </span>
+            </div>
+          </div>
+
+          {/* Fila Fecha, Hora Inicio, Hora Fin */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            {/* Fecha */}
+            <div>
+              <label htmlFor="input-fecha" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Fecha <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="input-fecha"
+                type="date"
+                value={fecha}
+                onChange={(e) => setFecha(e.target.value)}
+                required
+                className={`w-full rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${baseInputClass}`}
+              />
+            </div>
+
+            {/* Hora Inicio */}
+            <div>
+              <label htmlFor="input-hora-inicio" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Hora Inicio <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="input-hora-inicio"
+                type="time"
+                value={horaInicio}
+                onChange={(e) => setHoraInicio(e.target.value)}
+                required
+                className={`w-full rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${baseInputClass}`}
+              />
+            </div>
+
+            {/* Hora Fin */}
+            <div>
+              <label htmlFor="input-hora-fin" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Hora Fin <span className="text-red-500">*</span>
+              </label>
+              <input
+                id="input-hora-fin"
+                type="time"
+                value={horaFin}
+                onChange={(e) => setHoraFin(e.target.value)}
+                required
+                className={`w-full rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${horaFinClass}`}
+              />
+              {fieldErrors.horaFin ? (
+                <p className="mt-1 text-xs font-medium text-red-500">
+                  {fieldErrors.horaFin}
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Descripción libre */}
+          <div>
+            <div className="mb-1.5 flex items-center justify-between">
+              <label htmlFor="input-descripcion" className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                Descripción <span className="text-red-500">*</span>
+              </label>
+              <span className="text-xs text-slate-400">
+                {descripcion.length} / 2000
+              </span>
+            </div>
+            <textarea
+              id="input-descripcion"
+              rows={3}
+              maxLength={2000}
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
+              placeholder="Describe las actividades desarrolladas..."
+              className={`w-full rounded-xl border p-3 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${descClass}`}
+            />
+            {fieldErrors.descripcion ? (
+              <p className="mt-1 text-xs font-medium text-red-500">
+                {fieldErrors.descripcion}
+              </p>
+            ) : null}
+          </div>
+
+          {/* Acciones Modal */}
+          <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200/60 dark:border-white/10">
+            <button
+              type="button"
+              onClick={handleCloseModal}
+              disabled={saving}
+              className="rounded-xl border border-slate-300 dark:border-white/15 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-white/10"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !cliente}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2F7BB8] px-5 py-2 text-sm font-semibold text-white transition-all hover:bg-[#25649a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#65BCF7] disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  <span>Guardando...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" aria-hidden />
+                  <span>Guardar actividad</span>
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ActivityFilterBar({
+  dash,
+  filterFecha,
+  setFilterFecha,
+  filterCliente,
+  setFilterCliente,
+  filterSearch,
+  setFilterSearch,
+  filtersPanelOpen,
+  setFiltersPanelOpen,
+  handleClearFilters,
+  hasActiveFilters,
+  chipText,
+  clientOptions,
+  isLight,
+  field
+}) {
+  return (
+    <div className={dash.filterBar}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
+          {/* Indicador Dinámico de Estado */}
+          <span className={dash.filtrosChip} title={chipText}>
+            {chipText}
+          </span>
+
+          {/* Búsqueda por Descripción */}
+          <div className="relative flex-1 min-w-[200px] max-w-xs">
+            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+            <input
+              type="text"
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+              placeholder="Buscar por descripción..."
+              className={`${field} h-9 w-full pl-8 text-xs placeholder:text-slate-400`}
+            />
+          </div>
+
+          {/* Selector de Fecha */}
+          <input
+            type="date"
+            value={filterFecha}
+            title="Filtrar por fecha"
+            onChange={(e) => setFilterFecha(e.target.value)}
+            className={`${field} h-9 text-xs font-medium`}
+          />
+
+          {/* Selector de Cliente */}
+          <select
+            value={filterCliente}
+            onChange={(e) => setFilterCliente(e.target.value)}
+            className={`${field} h-9 text-xs font-medium min-w-[140px]`}
+            title="Filtrar por cliente"
+          >
+            <option value="">Todos los clientes</option>
+            {clientOptions.map((cli) => (
+              <option key={cli} value={cli}>
+                {cli}
+              </option>
+            ))}
+          </select>
+
+          {/* Botón "Filtros avanzados" Popover */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setFiltersPanelOpen(!filtersPanelOpen)}
+              className={dash.filtrosAvanzadosBtn}
+            >
+              <Filter size={14} className="shrink-0 opacity-90" aria-hidden />
+              <span>Filtros avanzados</span>
+              {filtersPanelOpen ? (
+                <ChevronUp size={16} className="shrink-0 opacity-90" aria-hidden />
+              ) : (
+                <ChevronDown size={16} className="shrink-0 opacity-90" aria-hidden />
+              )}
+            </button>
+
+            {filtersPanelOpen ? (
+              <div
+                className={`absolute right-0 top-full mt-2 z-30 w-64 rounded-xl border p-3 shadow-xl backdrop-blur-md transition-all ${
+                  isLight
+                    ? 'border-slate-200 bg-white text-slate-800'
+                    : 'border-[#1a3a56] bg-[#0b1e30] text-slate-200'
+                }`}
+              >
+                <div className="flex items-center justify-between border-b pb-2 border-slate-200 dark:border-white/10 mb-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#2F7BB8] dark:text-[#65BCF7]">
+                    Opciones de filtrado
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setFiltersPanelOpen(false)}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilterFecha(getTodayString());
+                      setFiltersPanelOpen(false);
+                    }}
+                    className="w-full text-left rounded-lg px-3 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-[#0f2942]"
+                  >
+                    Ver actividades de hoy
+                  </button>
+                  {hasActiveFilters ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleClearFilters();
+                        setFiltersPanelOpen(false);
+                      }}
+                      className="w-full text-left rounded-lg px-3 py-2 text-red-600 dark:text-red-400 transition-colors hover:bg-red-50 dark:hover:bg-red-950/20"
+                    >
+                      Limpiar todos los filtros
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Botón Limpiar Filtros */}
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className={dash.borrarFiltros}
+              title="Limpiar todos los filtros"
+            >
+              <FilterX className="h-3.5 w-3.5" />
+              <span>Limpiar</span>
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Módulo consultor de Mis Actividades.
  * Soporta Carga Manual (HU-2) y Registro por Cronómetro (HU-3 / AUT-262).
@@ -150,14 +766,6 @@ export default function MisActividadesModule() {
   const mt = useModuleTheme();
   const {
     shell,
-    aside,
-    asideHeaderBorder,
-    scrim,
-    menuFab,
-    sidebarIconBtn,
-    navInactive,
-    email,
-    borderSubtle,
     mainCanvas,
     field,
     isLight
@@ -179,7 +787,7 @@ export default function MisActividadesModule() {
 
   // Estado del Cronómetro (HU-3)
   const [activeTimer, setActiveTimer] = useState(null);
-  const [timerNow, setTimerNow] = useState(Date.now());
+  const [timerNow, setTimerNow] = useState(0);
   const [timerDescripcion, setTimerDescripcion] = useState('');
   const [startingTimer, setStartingTimer] = useState(false);
   const [stoppingTimer, setStoppingTimer] = useState(false);
@@ -209,52 +817,56 @@ export default function MisActividadesModule() {
 
   const closeMobile = () => setMobileMenuOpen(false);
 
-  // Cargar contexto, historial de actividades y cronómetro activo
-  const loadInitialData = useCallback(async () => {
-    setLoadingContext(true);
-    setLoadingActividades(true);
-    setContextError('');
-
-    const [ctxRes, actRes, timerRes] = await Promise.all([
-      fetchConsultorActividadesContext(),
-      fetchActividadesList(),
-      fetchCronometroActivo()
-    ]);
-
-    setLoadingContext(false);
-    setLoadingActividades(false);
-
-    if (!ctxRes.ok) {
-      setContextError(ctxRes.error || 'No se pudo cargar la información de tu ficha.');
-      return;
-    }
-
-    if (!ctxRes.cliente) {
-      setContextError('Debes tener un cliente asignado en tu ficha para poder registrar actividades.');
-      return;
-    }
-
-    setCliente(ctxRes.cliente);
-
-    if (actRes.ok) {
-      setActividades(actRes.actividades || []);
-    }
-
-    if (timerRes && timerRes.ok && timerRes.activo) {
-      setActiveTimer(timerRes.activo);
-    } else {
-      setActiveTimer(null);
-    }
-  }, []);
-
   useEffect(() => {
-    loadInitialData();
-  }, [loadInitialData]);
+    let mounted = true;
+    const fetchInit = async () => {
+      setLoadingContext(true);
+      setLoadingActividades(true);
+      setContextError('');
+  
+      const [ctxRes, actRes, timerRes] = await Promise.all([
+        fetchConsultorActividadesContext(),
+        fetchActividadesList(),
+        fetchCronometroActivo()
+      ]);
+  
+      if (!mounted) return;
+  
+      setLoadingContext(false);
+      setLoadingActividades(false);
+  
+      if (!ctxRes.ok) {
+        setContextError(ctxRes.error || 'No se pudo cargar la información de tu ficha.');
+        return;
+      }
+  
+      if (!ctxRes.cliente) {
+        setContextError('Debes tener un cliente asignado en tu ficha para poder registrar actividades.');
+        return;
+      }
+  
+      setCliente(ctxRes.cliente);
+  
+      if (actRes.ok) {
+        setActividades(actRes.actividades || []);
+      }
+      
+      if (timerRes && timerRes.ok && timerRes.activo) {
+        setActiveTimer(timerRes.activo);
+      } else {
+        setActiveTimer(null);
+      }
+    };
+    fetchInit();
+    return () => { mounted = false; };
+  }, []);
 
   // Ticker en vivo cada segundo cuando hay un cronómetro activo
   useEffect(() => {
     if (!activeTimer) return;
-    setTimerNow(Date.now());
+    
+    // Instead of setting state immediately, let the interval handle it,
+    // or wrap in a setTimeout to avoid synchronous setState warning
     const intervalId = setInterval(() => {
       setTimerNow(Date.now());
     }, 1000);
@@ -273,21 +885,9 @@ export default function MisActividadesModule() {
   // Filtrado reactivo en el frontend
   const filteredActividades = useMemo(() => {
     return actividades.filter((act) => {
-      if (filterFecha) {
-        const fechaAct = formatIsoToBogotaDate(act.inicio);
-        if (fechaAct !== filterFecha) return false;
-      }
-      if (filterCliente) {
-        if (String(act.cliente || '').toLowerCase() !== String(filterCliente).toLowerCase()) {
-          return false;
-        }
-      }
-      if (filterSearch.trim()) {
-        const term = filterSearch.trim().toLowerCase();
-        if (!String(act.descripcion || '').toLowerCase().includes(term)) {
-          return false;
-        }
-      }
+      if (filterFecha && formatIsoToBogotaDate(act.inicio) !== filterFecha) return false;
+      if (filterCliente && String(act.cliente || '').toLowerCase() !== String(filterCliente).toLowerCase()) return false;
+      if (filterSearch.trim() && !String(act.descripcion || '').toLowerCase().includes(filterSearch.trim().toLowerCase())) return false;
       return true;
     });
   }, [actividades, filterFecha, filterCliente, filterSearch]);
@@ -445,175 +1045,20 @@ export default function MisActividadesModule() {
     await refreshHistory();
   };
 
-  const navItemClass = (active) =>
-    `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
-      active
-        ? 'bg-[#2F7BB8] shadow-[0_4px_12px_rgba(47,123,184,0.3)] text-white'
-        : navInactive
-    }`;
-
-  const navIconClass = (active) =>
-    `flex-shrink-0 ${active ? 'text-white' : isLight ? 'text-slate-600' : 'text-slate-500'}`;
 
   return (
     <div className={shell}>
-      {/* Botón flotante móvil */}
-      <button
-        type="button"
-        onClick={() => setMobileMenuOpen(true)}
-        className={`md:hidden fixed top-4 left-4 z-40 flex h-10 w-10 items-center justify-center shadow-lg ${menuFab}`}
-        aria-label="Abrir menú actividades"
-      >
-        <Menu size={18} />
-      </button>
-
-      {mobileMenuOpen ? (
-        <button
-          type="button"
-          className={`md:hidden fixed inset-0 z-40 ${scrim}`}
-          aria-label="Cerrar menú"
-          onClick={closeMobile}
-        />
-      ) : null}
-
-      {/* Sidebar Drawer Móvil */}
-      <aside
-        className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${
-          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        <AdminModuleSidebarBrand
-          variant="drawer"
-          isLight={isLight}
-          asideHeaderBorder={asideHeaderBorder}
-          moduleContext={
-            <>
-              <p className="text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">
-                ACTIVIDADES
-              </p>
-              <p className="text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">
-                Mis Actividades
-              </p>
-            </>
-          }
-          endAction={
-            <button
-              type="button"
-              onClick={closeMobile}
-              className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
-              aria-label="Cerrar menú"
-            >
-              <X size={16} />
-            </button>
-          }
-        />
-        <AdminModuleSidebarUser
-          sidebarOpen
-          currentEmail={currentEmail}
-          currentRoleLabel={currentRoleLabel}
-          emailClass={email}
-          borderSubtle={borderSubtle}
-          isLight={isLight}
-        />
-        {/* Navegación Móvil (1. Volver al portal, 2. Historial) */}
-        <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
-          <button
-            type="button"
-            onClick={() => {
-              closeMobile();
-              navigate('/consultor');
-            }}
-            className={navItemClass(false)}
-          >
-            <Home size={18} className={navIconClass(false)} />
-            <span>Volver al portal</span>
-          </button>
-          <button type="button" className={navItemClass(true)} onClick={closeMobile}>
-            <History size={18} className={navIconClass(true)} />
-            <span>Historial</span>
-          </button>
-        </nav>
-        <AdminModuleSidebarFooter
-          auth={{ user: { email: currentEmail, role: 'consultor' } }}
-          onLogout={() => navigate('/consultor')}
-          sidebarOpen
-          borderSubtle={borderSubtle}
-          isLight={isLight}
-        />
-      </aside>
-
-      {/* Sidebar Escritorio */}
-      <aside
-        className={`hidden md:flex flex-col shrink-0 font-body transition-all duration-300 ${aside} ${
-          sidebarOpen ? 'w-72' : 'w-20'
-        }`}
-      >
-        <AdminModuleSidebarBrand
-          variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
-          isLight={isLight}
-          asideHeaderBorder={asideHeaderBorder}
-          moduleContext={
-            sidebarOpen ? (
-              <>
-                <p className="text-[10px] font-heading font-black uppercase leading-tight tracking-widest text-[#65BCF7]">
-                  ACTIVIDADES
-                </p>
-                <p className="text-[10px] font-body font-bold uppercase leading-tight tracking-widest text-slate-400">
-                  Mis Actividades
-                </p>
-              </>
-            ) : null
-          }
-          endAction={
-            <button
-              type="button"
-              onClick={() => setSidebarOpen((prev) => !prev)}
-              className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
-              title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
-            >
-              {sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-            </button>
-          }
-        />
-
-        <AdminModuleSidebarUser
-          sidebarOpen={sidebarOpen}
-          currentEmail={currentEmail}
-          currentRoleLabel={currentRoleLabel}
-          emailClass={email}
-          borderSubtle={borderSubtle}
-          isLight={isLight}
-        />
-
-        {/* Navegación Escritorio (1. Volver al portal, 2. Historial) */}
-        <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
-          <button
-            type="button"
-            onClick={() => navigate('/consultor')}
-            className={navItemClass(false)}
-            title="Volver al portal consultor"
-          >
-            <Home size={18} className={navIconClass(false)} />
-            {sidebarOpen ? <span>Volver al portal</span> : null}
-          </button>
-          <button
-            type="button"
-            className={navItemClass(true)}
-            title="Historial"
-          >
-            <History size={18} className={navIconClass(true)} />
-            {sidebarOpen ? <span>Historial</span> : null}
-          </button>
-        </nav>
-
-        <AdminModuleSidebarFooter
-          auth={{ user: { email: currentEmail, role: 'consultor' } }}
-          onLogout={() => navigate('/consultor')}
-          sidebarOpen={sidebarOpen}
-          borderSubtle={borderSubtle}
-          isLight={isLight}
-        />
-      </aside>
+      <MisActividadesSidebar
+        mobileMenuOpen={mobileMenuOpen}
+        setMobileMenuOpen={setMobileMenuOpen}
+        closeMobile={closeMobile}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        currentEmail={currentEmail}
+        currentRoleLabel={currentRoleLabel}
+        navigate={navigate}
+        mt={mt}
+      />
 
       {/* ÁREA DE CONTENIDO PRINCIPAL (Usa GESTION_MODULE_PAGE_PADDING exacto del Administrador) */}
       <main className={mainCanvas}>
@@ -660,7 +1105,7 @@ export default function MisActividadesModule() {
             ) : null}
 
             {/* Alerta de Error de Contexto / Ficha sin Cliente */}
-            {contextError ? (
+            {contextError && (
               <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-5 text-red-600 dark:text-red-300">
                 <div className="flex items-start gap-3">
                   <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
@@ -670,7 +1115,18 @@ export default function MisActividadesModule() {
                   </div>
                 </div>
               </div>
-            ) : (
+            )}
+            
+            {!contextError && loadingActividades && (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <Loader2 className="h-9 w-9 animate-spin text-[#2F7BB8]" />
+                <p className="mt-3 text-sm font-medium text-slate-500 dark:text-slate-400">
+                  Cargando historial de actividades...
+                </p>
+              </div>
+            )}
+            
+            {!contextError && !loadingActividades && (
               <div className="space-y-4">
                 {/* WIDGET DEL CRONÓMETRO (HU-3 / AUT-262) */}
                 <div className={`${dash.card} p-5 shadow-md font-body transition-all border-l-4 ${activeTimer ? 'border-l-amber-500 bg-amber-500/5' : 'border-l-[#2F7BB8]'}`}>
@@ -800,129 +1256,23 @@ export default function MisActividadesModule() {
                 </div>
 
                 {/* BARRA DE FILTROS (Usando dash.filterBar, dash.filtrosChip y dash.filtrosAvanzadosBtn del Administrador) */}
-                <div className={dash.filterBar}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
-                      {/* Indicador Dinámico de Estado */}
-                      <span className={dash.filtrosChip} title={chipText}>
-                        {chipText}
-                      </span>
-
-                      {/* Búsqueda por Descripción */}
-                      <div className="relative flex-1 min-w-[200px] max-w-xs">
-                        <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                        <input
-                          type="text"
-                          value={filterSearch}
-                          onChange={(e) => setFilterSearch(e.target.value)}
-                          placeholder="Buscar por descripción..."
-                          className={`${field} h-9 w-full pl-8 text-xs placeholder:text-slate-400`}
-                        />
-                      </div>
-
-                      {/* Selector de Fecha */}
-                      <input
-                        type="date"
-                        value={filterFecha}
-                        title="Filtrar por fecha"
-                        onChange={(e) => setFilterFecha(e.target.value)}
-                        className={`${field} h-9 text-xs font-medium`}
-                      />
-
-                      {/* Selector de Cliente */}
-                      <select
-                        value={filterCliente}
-                        onChange={(e) => setFilterCliente(e.target.value)}
-                        className={`${field} h-9 text-xs font-medium min-w-[140px]`}
-                        title="Filtrar por cliente"
-                      >
-                        <option value="">Todos los clientes</option>
-                        {clientOptions.map((cli) => (
-                          <option key={cli} value={cli}>
-                            {cli}
-                          </option>
-                        ))}
-                      </select>
-
-                      {/* Botón "Filtros avanzados" Popover */}
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setFiltersPanelOpen(!filtersPanelOpen)}
-                          className={dash.filtrosAvanzadosBtn}
-                        >
-                          <Filter size={14} className="shrink-0 opacity-90" aria-hidden />
-                          <span>Filtros avanzados</span>
-                          {filtersPanelOpen ? (
-                            <ChevronUp size={16} className="shrink-0 opacity-90" aria-hidden />
-                          ) : (
-                            <ChevronDown size={16} className="shrink-0 opacity-90" aria-hidden />
-                          )}
-                        </button>
-
-                        {filtersPanelOpen ? (
-                          <div
-                            className={`absolute right-0 top-full mt-2 z-30 w-64 rounded-xl border p-3 shadow-xl backdrop-blur-md transition-all ${
-                              isLight
-                                ? 'border-slate-200 bg-white text-slate-800'
-                                : 'border-[#1a3a56] bg-[#0b1e30] text-slate-200'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between border-b pb-2 border-slate-200 dark:border-white/10 mb-2">
-                              <span className="text-xs font-bold uppercase tracking-wider text-[#2F7BB8] dark:text-[#65BCF7]">
-                                Opciones de filtrado
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setFiltersPanelOpen(false)}
-                                className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
-                              >
-                                <X size={14} />
-                              </button>
-                            </div>
-                            <div className="space-y-1.5 text-xs">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setFilterFecha(getTodayString());
-                                  setFiltersPanelOpen(false);
-                                }}
-                                className="w-full text-left rounded-lg px-3 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-[#0f2942]"
-                              >
-                                Ver actividades de hoy
-                              </button>
-                              {hasActiveFilters ? (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    handleClearFilters();
-                                    setFiltersPanelOpen(false);
-                                  }}
-                                  className="w-full text-left rounded-lg px-3 py-2 text-red-600 dark:text-red-400 transition-colors hover:bg-red-50 dark:hover:bg-red-950/20"
-                                >
-                                  Limpiar todos los filtros
-                                </button>
-                              ) : null}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {/* Botón Limpiar Filtros */}
-                      {hasActiveFilters ? (
-                        <button
-                          type="button"
-                          onClick={handleClearFilters}
-                          className={dash.borrarFiltros}
-                          title="Limpiar todos los filtros"
-                        >
-                          <FilterX className="h-3.5 w-3.5" />
-                          <span>Limpiar</span>
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
+                <ActivityFilterBar
+                  dash={dash}
+                  filterFecha={filterFecha}
+                  setFilterFecha={setFilterFecha}
+                  filterCliente={filterCliente}
+                  setFilterCliente={setFilterCliente}
+                  filterSearch={filterSearch}
+                  setFilterSearch={setFilterSearch}
+                  filtersPanelOpen={filtersPanelOpen}
+                  setFiltersPanelOpen={setFiltersPanelOpen}
+                  handleClearFilters={handleClearFilters}
+                  hasActiveFilters={hasActiveFilters}
+                  chipText={chipText}
+                  clientOptions={clientOptions}
+                  isLight={isLight}
+                  field={field}
+                />
 
                 {/* TABLA DEL HISTORIAL (Usando dash.card, dash.thead, dash.tbody, dash.trHover y celdas del Administrador) */}
                 {loadingActividades ? (
@@ -961,59 +1311,9 @@ export default function MisActividadesModule() {
                           </tr>
                         </thead>
                         <tbody className={dash.tbody}>
-                          {filteredActividades.map((act) => {
-                            const fechaStr = formatIsoToBogotaDate(act.inicio);
-                            const horaInicioStr = formatIsoToBogotaTime(act.inicio);
-                            const horaFinStr = formatIsoToBogotaTime(act.fin);
-                            const duracionStr = calculateDurationString(act.inicio, act.fin);
-
-                            return (
-                              <tr
-                                key={act.id}
-                                className={dash.trHover}
-                              >
-                                <td className={dash.tdDate}>
-                                  <div className="flex items-center gap-2">
-                                    <Calendar className="h-4 w-4 text-slate-400" />
-                                    <span>{fechaStr}</span>
-                                  </div>
-                                </td>
-                                <td className={dash.tdName}>
-                                  <span className="inline-flex items-center gap-1.5 rounded-md bg-[#2F7BB8]/15 px-2.5 py-1 text-xs font-semibold text-[#2F7BB8] dark:text-[#a8dcff]">
-                                    <Building2 className="h-3.5 w-3.5" />
-                                    {act.cliente}
-                                  </span>
-                                </td>
-                                <td className="p-4 font-mono text-xs">
-                                  {horaInicioStr}
-                                </td>
-                                <td className="p-4 font-mono text-xs">
-                                  {horaFinStr}
-                                </td>
-                                <td className="p-4 font-semibold text-xs text-sky-600 dark:text-sky-400">
-                                  <div className="flex items-center gap-1.5">
-                                    <Clock className="h-3.5 w-3.5" />
-                                    <span>{duracionStr}</span>
-                                  </div>
-                                </td>
-                                <td className={`${dash.tdCell} max-w-[20rem] !whitespace-normal break-words`}>
-                                  {act.descripcion}
-                                </td>
-                                <td className="p-4 text-xs font-medium text-slate-500 capitalize">
-                                  {act.origen === 'cronometro' ? (
-                                    <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-semibold">
-                                      <Clock3 className="h-3 w-3" /> Cronómetro
-                                    </span>
-                                  ) : (
-                                    <span>Manual</span>
-                                  )}
-                                </td>
-                                <td className="p-4">
-                                  {renderEstadoBadge(act.estado)}
-                                </td>
-                              </tr>
-                            );
-                          })}
+                          {filteredActividades.map((act) => (
+                            <ActivityRow key={act.id} act={act} dash={dash} />
+                          ))}
                         </tbody>
                       </table>
                     </div>
@@ -1025,207 +1325,25 @@ export default function MisActividadesModule() {
         </div>
       </main>
 
-      {/* MODAL DE CREACIÓN DE ACTIVIDAD MANUAL (HU-2) */}
-      {isModalOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
-          onClick={handleCloseModal}
-        >
-          <div
-            className={`relative w-full max-w-2xl rounded-2xl border p-6 shadow-2xl backdrop-blur-md sm:p-8 transition-all ${
-              isLight
-                ? 'border-slate-200 bg-white text-slate-800'
-                : 'border-white/15 bg-[#04141E] text-slate-200'
-            }`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header del Modal */}
-            <div className="mb-6 flex items-center justify-between border-b pb-4 border-slate-200/60 dark:border-white/10">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-xl border ${
-                    isLight
-                      ? 'border-sky-200 bg-sky-50 text-sky-700'
-                      : 'border-[#65BCF7]/25 bg-[#2F7BB8]/14 text-[#a8dcff]'
-                  }`}
-                >
-                  <Plus className="h-5 w-5" aria-hidden />
-                </div>
-                <div>
-                  <h2 className="font-heading text-lg font-extrabold sm:text-xl">
-                    Agregar actividad manual
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Carga manual de horas de trabajo
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleCloseModal}
-                disabled={saving}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-white/10 dark:hover:text-white"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Formulario Reutilizado */}
-            <form onSubmit={handleSubmitForm} className="space-y-5">
-              {errorMessage ? (
-                <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-red-700 dark:text-red-300">
-                  <AlertCircle className="h-5 w-5 shrink-0 text-red-500" />
-                  <p className="text-sm font-semibold">{errorMessage}</p>
-                </div>
-              ) : null}
-
-              {/* Cliente asignado (Solo lectura) */}
-              <div>
-                <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Cliente asignado (Ficha)
-                </label>
-                <div
-                  className={`flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm font-semibold ${
-                    isLight
-                      ? 'border-slate-200 bg-slate-100/80 text-slate-800'
-                      : 'border-white/10 bg-[#082232] text-slate-200'
-                  }`}
-                >
-                  <Building2 className="h-4 w-4 text-[#2F7BB8] shrink-0" aria-hidden />
-                  <span>{cliente || 'Sin cliente asignado'}</span>
-                  <span className="ml-auto rounded-md bg-[#2F7BB8]/20 px-2 py-0.5 text-xs text-[#2F7BB8] dark:text-[#a8dcff]">
-                    Solo lectura
-                  </span>
-                </div>
-              </div>
-
-              {/* Fila Fecha, Hora Inicio, Hora Fin */}
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {/* Fecha */}
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Fecha <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={fecha}
-                    onChange={(e) => setFecha(e.target.value)}
-                    required
-                    className={`w-full rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${
-                      isLight
-                        ? 'border-slate-300 bg-white text-slate-900'
-                        : 'border-white/15 bg-[#082232] text-white'
-                    }`}
-                  />
-                </div>
-
-                {/* Hora Inicio */}
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Hora Inicio <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="time"
-                    value={horaInicio}
-                    onChange={(e) => setHoraInicio(e.target.value)}
-                    required
-                    className={`w-full rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${
-                      isLight
-                        ? 'border-slate-300 bg-white text-slate-900'
-                        : 'border-white/15 bg-[#082232] text-white'
-                    }`}
-                  />
-                </div>
-
-                {/* Hora Fin */}
-                <div>
-                  <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Hora Fin <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="time"
-                    value={horaFin}
-                    onChange={(e) => setHoraFin(e.target.value)}
-                    required
-                    className={`w-full rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${
-                      fieldErrors.horaFin
-                        ? 'border-red-500 focus:ring-red-500'
-                        : isLight
-                          ? 'border-slate-300 bg-white text-slate-900'
-                          : 'border-white/15 bg-[#082232] text-white'
-                    }`}
-                  />
-                  {fieldErrors.horaFin ? (
-                    <p className="mt-1 text-xs font-medium text-red-500">
-                      {fieldErrors.horaFin}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-
-              {/* Descripción libre */}
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                    Descripción <span className="text-red-500">*</span>
-                  </label>
-                  <span className="text-xs text-slate-400">
-                    {descripcion.length} / 2000
-                  </span>
-                </div>
-                <textarea
-                  rows={3}
-                  maxLength={2000}
-                  value={descripcion}
-                  onChange={(e) => setDescripcion(e.target.value)}
-                  placeholder="Describe las actividades desarrolladas..."
-                  className={`w-full rounded-xl border p-3 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${
-                    fieldErrors.descripcion
-                      ? 'border-red-500 focus:ring-red-500'
-                      : isLight
-                        ? 'border-slate-300 bg-white text-slate-900 placeholder:text-slate-400'
-                        : 'border-white/15 bg-[#082232] text-white placeholder:text-slate-500'
-                  }`}
-                />
-                {fieldErrors.descripcion ? (
-                  <p className="mt-1 text-xs font-medium text-red-500">
-                    {fieldErrors.descripcion}
-                  </p>
-                ) : null}
-              </div>
-
-              {/* Acciones Modal */}
-              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200/60 dark:border-white/10">
-                <button
-                  type="button"
-                  onClick={handleCloseModal}
-                  disabled={saving}
-                  className="rounded-xl border border-slate-300 dark:border-white/15 px-4 py-2 text-sm font-semibold hover:bg-slate-100 dark:hover:bg-white/10"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving || !cliente}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2F7BB8] px-5 py-2 text-sm font-semibold text-white transition-all hover:bg-[#25649a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#65BCF7] disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                      <span>Guardando...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4" aria-hidden />
-                      <span>Guardar actividad</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      ) : null}
+      {/* MODAL DE CREACIÓN DE ACTIVIDAD (REUTILIZADO HU-2) */}
+      <ActivityModal
+        isModalOpen={isModalOpen}
+        handleCloseModal={handleCloseModal}
+        isLight={isLight}
+        saving={saving}
+        handleSubmitForm={handleSubmitForm}
+        errorMessage={errorMessage}
+        cliente={cliente}
+        fecha={fecha}
+        setFecha={setFecha}
+        horaInicio={horaInicio}
+        setHoraInicio={setHoraInicio}
+        horaFin={horaFin}
+        setHoraFin={setHoraFin}
+        fieldErrors={fieldErrors}
+        descripcion={descripcion}
+        setDescripcion={setDescripcion}
+      />
     </div>
   );
 }
