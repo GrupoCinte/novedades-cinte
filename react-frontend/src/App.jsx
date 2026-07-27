@@ -27,6 +27,7 @@ import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess, userHasConciliacionesAccess } from './comercialAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
 import { userHasMallasAccess } from './mallasAccess';
+import { userHasMonitoreoAccess } from './monitoreoAccess';
 import { cognitoSignOut } from './cognitoAuth';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { pathIsAdminModuleShell, ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
@@ -65,6 +66,7 @@ function adminPortalModuleCount(auth) {
   if (userHasCotizadorAccess(auth)) n += 1;
   if (userHasContratacionPanel(auth) || userHasOnboardingPanel(auth)) n += 1;
   if (userHasDirectorioPanel(auth)) n += 1;
+  if (userHasMonitoreoAccess(auth)) n += 1;
   return n;
 }
 
@@ -418,7 +420,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {(() => {
-                  return userHasMallasAccess(auth) || userHasDirectorioPanel(auth) ? (
+                  return userHasMallasAccess(auth) || userHasDirectorioPanel(auth) || userHasMonitoreoAccess(auth) ? (
                     <DirectorioClienteColaboradorModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                   ) : (
                     <Navigate to="/admin" replace />
