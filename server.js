@@ -88,8 +88,10 @@ const { toClientNovedad } = require('./src/novedadesMapper');
 const { createDataLayer } = require('./src/dataLayer');
 const { createCotizadorStore } = require('./src/cotizador/cotizadorStore');
 const { createTiRolesStore } = require('./src/cotizador/tiRolesStore');
+const { createActividadesStore } = require('./src/actividades/actividadesStore');
 const { registerCotizadorRoutes } = require('./src/cotizador/registerCotizadorRoutes');
 const { registerTiRolesRoutes } = require('./src/cotizador/registerTiRolesRoutes');
+const { registerActividadesRoutes } = require('./src/actividades/registerActividadesRoutes');
 const { registerContratacionRoutes } = require('./src/contratacion/registerContratacionRoutes');
 const { registerOnboardingRoutes } = require('./src/onboarding/registerOnboardingRoutes');
 const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
@@ -767,6 +769,7 @@ const { registerEntraRoutes } = require('./src/auth/registerEntraRoutes');
 const { startServer } = require('./src/startup');
 const cotizadorStore = createCotizadorStore({ pool });
 const tiRolesStore = createTiRolesStore({ pool });
+const actividadesStore = createActividadesStore({ pool });
 
 const secureEntraCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
 const sameSiteEntra = isProduction ? 'strict' : 'lax';
@@ -986,6 +989,13 @@ registerOnboardingRoutes({
     updateColaboradorByCedula
 });
 
+registerActividadesRoutes({
+    app,
+    verificarToken,
+    requireEntraConsultor,
+    actividadesStore
+});
+
 startServer({
     app,
     pool,
@@ -1027,6 +1037,7 @@ startServer({
     ensureColaboradorTarifaHistorialTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
+    ensureActividadesConsultorTable: actividadesStore.ensureActividadesConsultorTable,
     PORT,
     COGNITO_ENABLED,
     COGNITO_REGION,
