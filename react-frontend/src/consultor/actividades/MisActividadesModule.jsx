@@ -173,6 +173,125 @@ function getChipText(activeFilterCount) {
   return `${activeFilterCount} filtros activos`;
 }
 
+async function executeFetchInit({
+  mounted,
+  setLoadingContext,
+  setLoadingActividades,
+  setContextError,
+  setCliente,
+  setActividades,
+  setActiveTimer
+}) {
+  setLoadingContext(true);
+  setLoadingActividades(true);
+  setContextError('');
+
+  const [ctxRes, actRes, timerRes] = await Promise.all([
+    fetchConsultorActividadesContext(),
+    fetchActividadesList(),
+    fetchCronometroActivo()
+  ]);
+
+  if (!mounted.current) return;
+
+  setLoadingContext(false);
+  setLoadingActividades(false);
+
+  if (!ctxRes.ok) {
+    setContextError(ctxRes.error || 'No se pudo cargar la información de tu ficha.');
+    return;
+  }
+
+  if (!ctxRes.cliente) {
+    setContextError('Debes tener un cliente asignado en tu ficha para poder registrar actividades.');
+    return;
+  }
+
+  setCliente(ctxRes.cliente);
+
+  if (actRes.ok) {
+    setActividades(actRes.actividades || []);
+  }
+  
+  if (timerRes && timerRes.ok && timerRes.activo) {
+    setActiveTimer(timerRes.activo);
+  } else {
+    setActiveTimer(null);
+  }
+}
+
+async function executeSubmitForm({
+  e,
+  cliente,
+  descripcion,
+  fecha,
+  horaInicio,
+  horaFin,
+  activityToEdit,
+  setErrorMessage,
+  setFieldErrors,
+  setSaving,
+  setIsModalOpen,
+  setActivityToEdit,
+  setSuccessMessage,
+  refreshHistory
+}) {
+  e.preventDefault();
+  setErrorMessage('');
+  const errors = {};
+
+  if (!cliente) {
+    setErrorMessage('Debes tener un cliente asignado en tu ficha para poder registrar una actividad.');
+    return;
+  }
+
+  const trimmedDesc = descripcion.trim();
+  if (!trimmedDesc) {
+    errors.descripcion = 'La descripción es obligatoria.';
+  }
+
+  if (getTimeInMinutes(horaFin) <= getTimeInMinutes(horaInicio)) {
+    errors.horaFin = 'La hora de fin debe ser mayor que la hora de inicio.';
+  }
+
+  if (Object.keys(errors).length > 0) {
+    setFieldErrors(errors);
+    return;
+  }
+
+  setFieldErrors({});
+  setSaving(true);
+
+  let res;
+  if (activityToEdit) {
+    res = await updateActividadApi(activityToEdit.id, {
+      descripcion: trimmedDesc,
+      fecha,
+      horaInicio,
+      horaFin
+    });
+  } else {
+    res = await createActividadManual({
+      descripcion: trimmedDesc,
+      fecha,
+      horaInicio,
+      horaFin
+    });
+  }
+
+  setSaving(false);
+
+  if (!res.ok) {
+    setErrorMessage(res.error || 'No se pudo guardar la actividad.');
+    return;
+  }
+
+  setIsModalOpen(false);
+  setActivityToEdit(null);
+  setSuccessMessage(activityToEdit ? 'Actividad actualizada con éxito.' : 'Entrada manual de tiempo registrada con éxito.');
+  await refreshHistory();
+}
+
 const navItemClass = (active, navInactive) =>
   `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
     active
@@ -475,10 +594,9 @@ function ActivityModal({
     : baseTextareaClass;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+    <dialog
+      open
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm m-0 border-none bg-transparent h-full max-h-none w-full max-w-none"
       onClick={handleCloseModal}
       onKeyDown={(e) => {
         if (e.key === 'Escape') handleCloseModal();
@@ -663,7 +781,7 @@ function ActivityModal({
           </div>
         </form>
       </div>
-    </div>
+    </dialog>
   );
 }
 
@@ -877,47 +995,17 @@ export default function MisActividadesModule() {
   const closeMobile = () => setMobileMenuOpen(false);
 
   useEffect(() => {
-    let mounted = true;
-    const fetchInit = async () => {
-      setLoadingContext(true);
-      setLoadingActividades(true);
-      setContextError('');
-  
-      const [ctxRes, actRes, timerRes] = await Promise.all([
-        fetchConsultorActividadesContext(),
-        fetchActividadesList(),
-        fetchCronometroActivo()
-      ]);
-  
-      if (!mounted) return;
-  
-      setLoadingContext(false);
-      setLoadingActividades(false);
-  
-      if (!ctxRes.ok) {
-        setContextError(ctxRes.error || 'No se pudo cargar la información de tu ficha.');
-        return;
-      }
-  
-      if (!ctxRes.cliente) {
-        setContextError('Debes tener un cliente asignado en tu ficha para poder registrar actividades.');
-        return;
-      }
-  
-      setCliente(ctxRes.cliente);
-  
-      if (actRes.ok) {
-        setActividades(actRes.actividades || []);
-      }
-      
-      if (timerRes && timerRes.ok && timerRes.activo) {
-        setActiveTimer(timerRes.activo);
-      } else {
-        setActiveTimer(null);
-      }
-    };
-    fetchInit();
-    return () => { mounted = false; };
+    const mounted = { current: true };
+    executeFetchInit({
+      mounted,
+      setLoadingContext,
+      setLoadingActividades,
+      setContextError,
+      setCliente,
+      setActividades,
+      setActiveTimer
+    });
+    return () => { mounted.current = false; };
   }, []);
 
   // Ticker en vivo cada segundo cuando hay un cronómetro activo
@@ -1098,60 +1186,22 @@ export default function MisActividadesModule() {
   };
 
   const handleSubmitForm = async (e) => {
-    e.preventDefault();
-    setErrorMessage('');
-    const errors = {};
-
-    if (!cliente) {
-      setErrorMessage('Debes tener un cliente asignado en tu ficha para poder registrar una actividad.');
-      return;
-    }
-
-    const trimmedDesc = descripcion.trim();
-    if (!trimmedDesc) {
-      errors.descripcion = 'La descripción es obligatoria.';
-    }
-
-    if (getTimeInMinutes(horaFin) <= getTimeInMinutes(horaInicio)) {
-      errors.horaFin = 'La hora de fin debe ser mayor que la hora de inicio.';
-    }
-
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors);
-      return;
-    }
-
-    setFieldErrors({});
-    setSaving(true);
-
-    let res;
-    if (activityToEdit) {
-      res = await updateActividadApi(activityToEdit.id, {
-        descripcion: trimmedDesc,
-        fecha,
-        horaInicio,
-        horaFin
-      });
-    } else {
-      res = await createActividadManual({
-        descripcion: trimmedDesc,
-        fecha,
-        horaInicio,
-        horaFin
-      });
-    }
-
-    setSaving(false);
-
-    if (!res.ok) {
-      setErrorMessage(res.error || 'No se pudo guardar la actividad.');
-      return;
-    }
-
-    setIsModalOpen(false);
-    setActivityToEdit(null);
-    setSuccessMessage(activityToEdit ? 'Actividad actualizada con éxito.' : 'Entrada manual de tiempo registrada con éxito.');
-    await refreshHistory();
+    await executeSubmitForm({
+      e,
+      cliente,
+      descripcion,
+      fecha,
+      horaInicio,
+      horaFin,
+      activityToEdit,
+      setErrorMessage,
+      setFieldErrors,
+      setSaving,
+      setIsModalOpen,
+      setActivityToEdit,
+      setSuccessMessage,
+      refreshHistory
+    });
   };
 
 
