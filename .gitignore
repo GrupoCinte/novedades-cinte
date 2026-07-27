@@ -1,5 +1,6 @@
 # Reglas y estado local del editor (no versionar)
 .cursor/
+agents/
 
 # Dependencias
 node_modules/
