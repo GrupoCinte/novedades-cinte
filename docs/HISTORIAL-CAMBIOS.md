@@ -20,6 +20,15 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-27 12:21:51 · `fix/AUT-214-eliminar-bolitas-facturacion` · `bf5a1a01`
+- **Commit:** `bf5a1a01c40b3de7627f23825e16963ac99c5ff1`
+- **Ticket:** AUT-214
+- **Requerimiento funcional:** En la cola de cierres de Facturación ya no se muestran las bolitas/stepper de estados de facturación; la tarjeta conserva progreso, estado de servicio y totales.
+- **Componente técnico:** `ConciliacionesColaCierresCard.jsx`, eliminado `ConciliacionesFacturacionEstadosResumen.jsx`, helper `shouldShowFacturacionEstadosResumen` en `facturacionLogic.js`.
+- **Cambios (uno a uno):**
+  - Removido el stepper de chulos/conteos de la tarjeta de cola.
+  - Eliminado el componente y el helper sin consumidores.
+
 ### 2026-07-24 18:18:42 · `testing` · `e9f7a21f`
 - **Commit:** `e9f7a21f6cbe26a293c4539c82b50f706734fba7`
 - **Ticket:** —
