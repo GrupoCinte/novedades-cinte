@@ -768,22 +768,24 @@ export default function MisActividadesModule() {
                         </div>
                       </div>
                     ) : (
-                      <form onSubmit={handleIniciarCronometro} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <form onSubmit={handleIniciarCronometro} className="flex flex-col sm:flex-row items-stretch sm:items-start gap-3">
                         <div className="relative flex-1">
-                          <input
-                            type="text"
+                          <textarea
                             value={timerDescripcion}
                             onChange={(e) => setTimerDescripcion(e.target.value)}
+                            onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.form.requestSubmit(); } }}
                             disabled={startingTimer || loadingContext || Boolean(contextError)}
                             placeholder="¿En qué estás trabajando? Describe la actividad y presiona Iniciar..."
-                            className={`${field} h-11 w-full text-sm placeholder:text-slate-400`}
+                            className={`${field} min-h-[2.75rem] w-full text-sm placeholder:text-slate-400 resize-none overflow-hidden py-2.5`}
                             maxLength={2000}
+                            rows={1}
                           />
                         </div>
                         <button
                           type="submit"
                           disabled={startingTimer || !timerDescripcion.trim() || loadingContext || Boolean(contextError)}
-                          className={GESTION_TOOLBAR_PRIMARY_BTN}
+                          className={`${GESTION_TOOLBAR_PRIMARY_BTN} mt-0 sm:mt-0 shrink-0`}
                         >
                           {startingTimer ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -994,7 +996,7 @@ export default function MisActividadesModule() {
                                     <span>{duracionStr}</span>
                                   </div>
                                 </td>
-                                <td className={dash.tdCell}>
+                                <td className={`${dash.tdCell} max-w-[20rem] !whitespace-normal break-words`}>
                                   {act.descripcion}
                                 </td>
                                 <td className="p-4 text-xs font-medium text-slate-500 capitalize">
