@@ -87,7 +87,8 @@ function calculateDurationString(inicioIso, finIso) {
     const totalMinutes = Math.round((endMs - startMs) / (1000 * 60));
     const hours = Math.floor(totalMinutes / 60);
     const mins = totalMinutes % 60;
-    return `${hours}h ${mins > 0 ? `${mins}m` : '00m'}`;
+    const minsStr = mins > 0 ? `${mins}m` : '00m';
+    return `${hours}h ${minsStr}`;
   } catch {
     return '—';
   }
@@ -126,8 +127,10 @@ const navItemClass = (active, navInactive) =>
       : navInactive
   }`;
 
-const navIconClass = (active, isLight) =>
-  `flex-shrink-0 ${active ? 'text-white' : isLight ? 'text-slate-600' : 'text-slate-500'}`;
+const navIconClass = (active, isLight) => {
+  if (active) return 'flex-shrink-0 text-white';
+  return isLight ? 'flex-shrink-0 text-slate-600' : 'flex-shrink-0 text-slate-500';
+};
 
 function ActivityRow({ act, dash }) {
   const fechaStr = formatIsoToBogotaDate(act.inicio);
@@ -397,16 +400,22 @@ function ActivityModal({
 
   return (
     <div
+      role="presentation"
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
       onClick={handleCloseModal}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') handleCloseModal();
+      }}
     >
       <div
+        role="presentation"
         className={`relative w-full max-w-2xl rounded-2xl border p-6 shadow-2xl backdrop-blur-md sm:p-8 transition-all ${
           isLight
             ? 'border-slate-200 bg-white text-slate-800'
             : 'border-white/15 bg-[#04141E] text-slate-200'
         }`}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
       >
         {/* Header del Modal */}
         <div className="mb-6 flex items-center justify-between border-b pb-4 border-slate-200/60 dark:border-white/10">
@@ -450,10 +459,11 @@ function ActivityModal({
 
           {/* Cliente asignado (Solo lectura) */}
           <div>
-            <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <label htmlFor="cliente-asignado-div" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Cliente asignado (Ficha)
             </label>
             <div
+              id="cliente-asignado-div"
               className={`flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-sm font-semibold ${
                 isLight
                   ? 'border-slate-200 bg-slate-100/80 text-slate-800'
@@ -472,10 +482,11 @@ function ActivityModal({
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {/* Fecha */}
             <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <label htmlFor="input-fecha" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Fecha <span className="text-red-500">*</span>
               </label>
               <input
+                id="input-fecha"
                 type="date"
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
@@ -486,10 +497,11 @@ function ActivityModal({
 
             {/* Hora Inicio */}
             <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <label htmlFor="input-hora-inicio" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Hora Inicio <span className="text-red-500">*</span>
               </label>
               <input
+                id="input-hora-inicio"
                 type="time"
                 value={horaInicio}
                 onChange={(e) => setHoraInicio(e.target.value)}
@@ -500,10 +512,11 @@ function ActivityModal({
 
             {/* Hora Fin */}
             <div>
-              <label className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <label htmlFor="input-hora-fin" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Hora Fin <span className="text-red-500">*</span>
               </label>
               <input
+                id="input-hora-fin"
                 type="time"
                 value={horaFin}
                 onChange={(e) => setHoraFin(e.target.value)}
@@ -521,7 +534,7 @@ function ActivityModal({
           {/* Descripción libre */}
           <div>
             <div className="mb-1.5 flex items-center justify-between">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <label htmlFor="input-descripcion" className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Descripción <span className="text-red-500">*</span>
               </label>
               <span className="text-xs text-slate-400">
@@ -529,6 +542,7 @@ function ActivityModal({
               </span>
             </div>
             <textarea
+              id="input-descripcion"
               rows={3}
               maxLength={2000}
               value={descripcion}
@@ -984,7 +998,7 @@ export default function MisActividadesModule() {
             ) : null}
 
             {/* Alerta de Error de Contexto / Ficha sin Cliente */}
-            {contextError ? (
+            {contextError && (
               <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-5 text-red-600 dark:text-red-300">
                 <div className="flex items-start gap-3">
                   <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
@@ -994,14 +1008,18 @@ export default function MisActividadesModule() {
                   </div>
                 </div>
               </div>
-            ) : loadingActividades ? (
+            )}
+            
+            {!contextError && loadingActividades && (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <Loader2 className="h-9 w-9 animate-spin text-[#2F7BB8]" />
                 <p className="mt-3 text-sm font-medium text-slate-500 dark:text-slate-400">
                   Cargando historial de actividades...
                 </p>
               </div>
-            ) : (
+            )}
+            
+            {!contextError && !loadingActividades && (
               <div className="space-y-4">
                 {/* BARRA DE FILTROS (Usando dash.filterBar, dash.filtrosChip y dash.filtrosAvanzadosBtn del Administrador) */}
                 <ActivityFilterBar

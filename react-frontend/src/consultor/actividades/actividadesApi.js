@@ -20,7 +20,7 @@ export async function fetchConsultorActividadesContext() {
     }
 
     return { ok: true, cliente: payload?.cliente || null };
-  } catch (err) {
+  } catch {
     return {
       ok: false,
       error: 'Error de red al consultar el cliente asignado.'
@@ -48,7 +48,7 @@ export async function fetchActividadesList() {
     }
 
     return { ok: true, actividades: payload?.actividades || [] };
-  } catch (err) {
+  } catch {
     return {
       ok: false,
       error: 'Error de red al obtener el historial de actividades.',
@@ -86,7 +86,7 @@ export async function createActividadManual({ descripcion, fecha, horaInicio, ho
     }
 
     return { ok: true, actividad: payload?.actividad };
-  } catch (err) {
+  } catch {
     return {
       ok: false,
       error: 'Error de red al guardar la actividad.'

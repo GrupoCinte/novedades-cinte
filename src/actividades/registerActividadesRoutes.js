@@ -33,16 +33,16 @@ function registerActividadesRoutes({
     actividadesStore
 }) {
     if (!app || typeof app.get !== 'function' || typeof app.post !== 'function') {
-        throw new Error('registerActividadesRoutes: app es obligatorio.');
+        throw new TypeError('registerActividadesRoutes: app es obligatorio.');
     }
     if (typeof verificarToken !== 'function') {
-        throw new Error('registerActividadesRoutes: verificarToken es obligatorio.');
+        throw new TypeError('registerActividadesRoutes: verificarToken es obligatorio.');
     }
     if (typeof requireEntraConsultor !== 'function') {
-        throw new Error('registerActividadesRoutes: requireEntraConsultor es obligatorio.');
+        throw new TypeError('registerActividadesRoutes: requireEntraConsultor es obligatorio.');
     }
     if (!actividadesStore || typeof actividadesStore.getConsultorContextByCedula !== 'function' || typeof actividadesStore.createManualActivity !== 'function') {
-        throw new Error('registerActividadesRoutes: actividadesStore es obligatorio.');
+        throw new TypeError('registerActividadesRoutes: actividadesStore es obligatorio.');
     }
 
     const consultorAuth = [verificarToken, requireEntraConsultor];
