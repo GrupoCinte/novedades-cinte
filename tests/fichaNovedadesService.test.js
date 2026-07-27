@@ -9,7 +9,9 @@ const {
     matchColaborador,
     enrichNormalizedFromMapped,
     normalizeExtractorPayload,
-    rebuildNormalizedFromStagingRow
+    rebuildNormalizedFromStagingRow,
+    groupInboxByCedula,
+    SIBLING_CLOSE_REASON
 } = require('../src/onboarding/fichaNovedadesService');
 
 describe('fichaNovedadesService helpers', () => {
@@ -145,12 +147,63 @@ describe('fichaNovedadesService helpers', () => {
         assert.equal(rebuilt.normalized.pais, 'Colombia');
     });
 
+    it('groupInboxByCedula agrupa por cédula y deja sin_match suelto', () => {
+        const grouped = groupInboxByCedula([
+            {
+                id: 'a',
+                status: 'pendiente',
+                colaborador_cedula_match: '1024598286',
+                tipo_novedad: 'salida',
+                created_at: '2026-07-01T10:00:00Z',
+                diff_count: 2
+            },
+            {
+                id: 'b',
+                status: 'pendiente',
+                colaborador_cedula_match: '1024598286',
+                tipo_novedad: 'modificacion_id',
+                created_at: '2026-07-02T10:00:00Z',
+                diff_count: 1
+            },
+            {
+                id: 'c',
+                status: 'pendiente',
+                colaborador_cedula_match: '1024598286',
+                tipo_novedad: 'extension',
+                created_at: '2026-07-03T10:00:00Z',
+                diff_count: 4
+            },
+            {
+                id: 'd',
+                status: 'sin_match',
+                colaborador_cedula_match: null,
+                tipo_novedad: 'salida',
+                created_at: '2026-07-04T10:00:00Z',
+                diff_count: 0
+            }
+        ]);
+        assert.equal(grouped.length, 2);
+        const grupo = grouped.find((g) => g.group_key === 'cedula:1024598286');
+        assert.ok(grupo);
+        assert.equal(grupo.fichas_count, 3);
+        assert.equal(grupo.latest_id, 'c');
+        assert.equal(grupo.diff_count, 4);
+        assert.equal(grupo.fichas.length, 3);
+        const solo = grouped.find((g) => g.id === 'd');
+        assert.ok(solo);
+        assert.equal(solo.fichas_count, 1);
+    });
+
     it('getNovedadById recalcula diff contra colaboradores vivos', async () => {
         const id = '11111111-1111-1111-1111-111111111111';
         let updatedPayload = null;
         const pool = {
             query: async (sql, params) => {
-                if (String(sql).includes('FROM ficha_novedades_staging') && String(sql).includes('SELECT')) {
+                if (
+                    String(sql).includes('FROM ficha_novedades_staging') &&
+                    String(sql).includes('SELECT') &&
+                    String(sql).includes('WHERE id =')
+                ) {
                     return {
                         rows: [
                             {
@@ -161,6 +214,24 @@ describe('fichaNovedadesService helpers', () => {
                                 payload_raw: {},
                                 payload_normalizado: { puesto: 'Lead', cliente: 'ACME' },
                                 diff_json: [{ field: 'puesto', before: 'Old', after: 'Lead' }]
+                            }
+                        ]
+                    };
+                }
+                if (
+                    String(sql).includes('FROM ficha_novedades_staging') &&
+                    String(sql).includes('colaborador_cedula_match') &&
+                    String(sql).includes("status = 'pendiente'")
+                ) {
+                    return {
+                        rows: [
+                            {
+                                id,
+                                tipo_novedad: 'salida',
+                                status: 'pendiente',
+                                diff_count: 1,
+                                received_at: new Date(),
+                                created_at: new Date()
                             }
                         ]
                     };
@@ -184,6 +255,7 @@ describe('fichaNovedadesService helpers', () => {
         assert.equal(row.diff_json.find((d) => d.field === 'puesto').before, 'Dev');
         assert.ok(!fields.includes('cliente'));
         assert.ok(updatedPayload);
+        assert.equal(row.fichas_count, 1);
     });
 });
 
@@ -386,10 +458,22 @@ describe('createFichaNovedadesService.ingestFromHttp', () => {
 describe('createFichaNovedadesService.listNovedades scope', () => {
     function createListMockPool() {
         const allRows = [
-            { id: '1', status: 'pendiente', tipo_novedad: 'salida', created_at: new Date() },
-            { id: '2', status: 'sin_match', tipo_novedad: 'extension', created_at: new Date() },
-            { id: '3', status: 'aplicado', tipo_novedad: 'salida', reviewed_at: new Date(), created_at: new Date() },
-            { id: '4', status: 'rechazado', tipo_novedad: 'extension', reviewed_at: new Date(), created_at: new Date() }
+            {
+                id: '1',
+                status: 'pendiente',
+                tipo_novedad: 'salida',
+                created_at: new Date(),
+                colaborador_cedula_match: '1024598286',
+                payload_raw: {},
+                payload_normalizado: { puesto: 'ANALISTA' },
+                diff_json: [
+                    { field: 'puesto', before: 'Analista', after: 'ANALISTA' },
+                    { field: 'empleador', before: 'CINTE', after: 'ACME' }
+                ]
+            },
+            { id: '2', status: 'sin_match', tipo_novedad: 'extension', created_at: new Date(), payload_raw: {}, payload_normalizado: {}, diff_json: [] },
+            { id: '3', status: 'aplicado', tipo_novedad: 'salida', reviewed_at: new Date(), created_at: new Date(), diff_count: 1 },
+            { id: '4', status: 'rechazado', tipo_novedad: 'extension', reviewed_at: new Date(), created_at: new Date(), diff_count: 0 }
         ];
         const sqlLog = [];
 
@@ -406,10 +490,30 @@ describe('createFichaNovedadesService.listNovedades scope', () => {
                     const filtered = filterRows(allRows, sql, params);
                     return { rows: [{ total: filtered.length }] };
                 }
+                if (sql.includes('FROM colaboradores') && sql.includes('ANY')) {
+                    return {
+                        rows: [{ cedula: '1024598286', puesto: 'Analista', cliente: 'ACME', nombre: 'TEST' }]
+                    };
+                }
+                if (sql.includes('UPDATE ficha_novedades_staging')) {
+                    return { rows: [] };
+                }
                 const filtered = filterRows(allRows, sql, params);
+                if (sql.includes('jsonb_array_length')) {
+                    return {
+                        rows: filtered.map((r) => ({
+                            ...r,
+                            diff_count: r.diff_count != null ? r.diff_count : parseDiffLen(r.diff_json)
+                        }))
+                    };
+                }
                 return { rows: filtered };
             }
         };
+
+        function parseDiffLen(diffJson) {
+            return Array.isArray(diffJson) ? diffJson.length : 0;
+        }
 
         function filterRows(rows, sql, params) {
             let out = rows.filter((r) => r.tipo_novedad !== 'integracion');
@@ -459,6 +563,17 @@ describe('createFichaNovedadesService.listNovedades scope', () => {
         await svc.listNovedades({});
         assert.ok(sqlLog.some((q) => q.sql.includes("status IN ('pendiente', 'sin_match')")));
     });
+
+    it('inbox recalcula diff_count vivo (ignora falsos cambios guardados)', async () => {
+        const { pool, sqlLog } = createListMockPool();
+        const svc = createFichaNovedadesService({ pool });
+        const r = await svc.listNovedades({ scope: 'inbox' });
+        const pendiente = r.items.find((i) => i.id === '1');
+        assert.ok(pendiente);
+        // Guardado tenía 2 filas (casing + empleador); vivo: puesto casefold = 0 cambios reales vs BD.
+        assert.equal(pendiente.diff_count, 0);
+        assert.ok(sqlLog.some((q) => q.sql.includes('UPDATE ficha_novedades_staging')));
+    });
 });
 
 const NOVEDAD_EDIT_ID = '00000000-0000-4000-8000-000000000010';
@@ -474,11 +589,42 @@ function createUpdateNovedadMockPool(rowOverrides = {}) {
         diff_json: [{ field: 'fecha_termino', before: null, after: '2026-06-12' }],
         ...rowOverrides
     };
+    const siblings = new Map();
 
     const pool = {
         query: async (sql, params) => {
             if (sql.includes('SELECT * FROM ficha_novedades_staging WHERE id')) {
                 return { rows: [{ ...storedRow }] };
+            }
+            if (
+                sql.includes('FROM ficha_novedades_staging') &&
+                sql.includes('colaborador_cedula_match') &&
+                sql.includes("status = 'pendiente'") &&
+                sql.includes('jsonb_array_length')
+            ) {
+                const list = [
+                    {
+                        id: storedRow.id,
+                        tipo_novedad: storedRow.tipo_novedad,
+                        subject: storedRow.subject,
+                        status: storedRow.status,
+                        diff_count: Array.isArray(storedRow.diff_json) ? storedRow.diff_json.length : 0,
+                        received_at: storedRow.received_at || new Date(),
+                        created_at: storedRow.created_at || new Date(),
+                        id_registro: storedRow.id_registro
+                    },
+                    ...[...siblings.values()].map((s) => ({
+                        id: s.id,
+                        tipo_novedad: s.tipo_novedad,
+                        subject: s.subject,
+                        status: s.status,
+                        diff_count: 1,
+                        received_at: s.received_at || new Date(),
+                        created_at: s.created_at || new Date(),
+                        id_registro: s.id_registro
+                    }))
+                ];
+                return { rows: list.filter((r) => r.status === 'pendiente') };
             }
             if (sql.includes('SELECT * FROM colaboradores WHERE cedula')) {
                 return {
@@ -497,13 +643,28 @@ function createUpdateNovedadMockPool(rowOverrides = {}) {
                     ...storedRow,
                     payload_normalizado: JSON.parse(params[1]),
                     diff_json: JSON.parse(params[2]),
-                    reviewed_by: params[3]
+                    reviewed_by: params[3] != null ? params[3] : storedRow.reviewed_by
                 };
                 return { rows: [] };
             }
             if (sql.includes("status = 'aplicado'")) {
                 storedRow = { ...storedRow, status: 'aplicado' };
                 return { rows: [] };
+            }
+            if (
+                sql.includes("status = 'rechazado'") &&
+                sql.includes('colaborador_cedula_match') &&
+                sql.includes('id <>')
+            ) {
+                const closed = [];
+                for (const [sid, s] of siblings.entries()) {
+                    if (s.status === 'pendiente') {
+                        s.status = 'rechazado';
+                        s.error = params[3];
+                        closed.push({ id: sid });
+                    }
+                }
+                return { rows: closed, rowCount: closed.length };
             }
             if (sql.includes('FROM cat_motivo_baja')) {
                 return { rows: [{ motivo: 'Termino de Servicio' }] };
@@ -527,7 +688,11 @@ function createUpdateNovedadMockPool(rowOverrides = {}) {
 
     return {
         pool,
-        getStored: () => storedRow
+        getStored: () => storedRow,
+        addSibling: (row) => {
+            siblings.set(row.id, { status: 'pendiente', tipo_novedad: 'modificacion_id', ...row });
+        },
+        getSibling: (id) => siblings.get(id)
     };
 }
 
@@ -595,6 +760,45 @@ describe('createFichaNovedadesService.approveNovedad tras edición', () => {
 
         assert.equal(result.ok, true);
         assert.equal(result.status, 'aplicado');
+        assert.equal(result.siblings_closed, 0);
         assert.equal(appliedPatch, null);
+    });
+
+    it('closeSiblings rechaza hermanas pendientes del mismo colaborador', async () => {
+        const siblingId = '00000000-0000-4000-8000-000000000099';
+        const { pool, addSibling, getSibling } = createUpdateNovedadMockPool();
+        addSibling({ id: siblingId, colaborador_cedula_match: EDIT_CEDULA });
+        const svc = createFichaNovedadesService({
+            pool,
+            updateColaboradorByCedula: async (cedula) => ({ cedula })
+        });
+
+        const result = await svc.approveNovedad(
+            NOVEDAD_EDIT_ID,
+            { email: 'reviewer@test.com' },
+            { closeSiblings: true }
+        );
+
+        assert.equal(result.ok, true);
+        assert.equal(result.siblings_closed, 1);
+        assert.equal(getSibling(siblingId).status, 'rechazado');
+        assert.equal(getSibling(siblingId).error, SIBLING_CLOSE_REASON);
+    });
+
+    it('sin closeSiblings deja hermanas en pendiente', async () => {
+        const siblingId = '00000000-0000-4000-8000-000000000098';
+        const { pool, addSibling, getSibling } = createUpdateNovedadMockPool();
+        addSibling({ id: siblingId, colaborador_cedula_match: EDIT_CEDULA });
+        const svc = createFichaNovedadesService({
+            pool,
+            updateColaboradorByCedula: async (cedula) => ({ cedula })
+        });
+
+        const result = await svc.approveNovedad(NOVEDAD_EDIT_ID, { email: 'reviewer@test.com' }, {
+            closeSiblings: false
+        });
+
+        assert.equal(result.siblings_closed, 0);
+        assert.equal(getSibling(siblingId).status, 'pendiente');
     });
 });

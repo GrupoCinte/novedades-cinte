@@ -190,7 +190,7 @@ function draftFromDiff(diffRows) {
     return draft;
 }
 
-function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, onItemChange }) {
+function DiffModal({ item, groupFichas = null, auth, isLight, readOnly = false, onClose, onUpdated, onItemChange }) {
     const G = buildMonitorGlassModalTheme(isLight);
     const token = auth?.token || '';
     const [localItem, setLocalItem] = useState(item);
@@ -200,13 +200,39 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
     const [rejectReason, setRejectReason] = useState('');
     const [editMode, setEditMode] = useState(false);
     const [draftEdits, setDraftEdits] = useState({});
+    const [confirmApprove, setConfirmApprove] = useState(false);
 
     useEffect(() => {
         setLocalItem(item);
         setEditMode(false);
         setDraftEdits({});
         setError('');
+        setConfirmApprove(false);
     }, [item]);
+
+    const fichasList = useMemo(() => {
+        if (Array.isArray(localItem?.fichas) && localItem.fichas.length > 0) return localItem.fichas;
+        if (Array.isArray(groupFichas) && groupFichas.length > 0) return groupFichas;
+        return localItem?.id
+            ? [
+                  {
+                      id: localItem.id,
+                      tipo_novedad: localItem.tipo_novedad,
+                      subject: localItem.subject,
+                      status: localItem.status,
+                      diff_count: Array.isArray(localItem.diff_json) ? localItem.diff_json.length : 0,
+                      received_at: localItem.received_at,
+                      created_at: localItem.created_at,
+                      id_registro: localItem.id_registro
+                  }
+              ]
+            : [];
+    }, [localItem, groupFichas]);
+
+    const siblingPendingCount = useMemo(
+        () => fichasList.filter((f) => f.id !== localItem?.id && String(f.status).toLowerCase() === 'pendiente').length,
+        [fichasList, localItem?.id]
+    );
 
     const diff = useMemo(() => {
         const raw = localItem?.diff_json;
@@ -289,6 +315,41 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
         }
     };
 
+    const selectFicha = async (fichaId) => {
+        if (!fichaId || fichaId === localItem?.id || busy || editMode) return;
+        setBusy(true);
+        setError('');
+        try {
+            const data = await onboardingApi.getFichaNovedad(token, fichaId);
+            const updated = data?.item;
+            if (updated) {
+                const merged = {
+                    ...updated,
+                    fichas: updated.fichas?.length ? updated.fichas : fichasList
+                };
+                setLocalItem(merged);
+                if (typeof onItemChange === 'function') onItemChange(merged);
+                setEditMode(false);
+                setDraftEdits({});
+            }
+        } catch (e) {
+            setError(e?.response?.data?.error || e?.message || 'No se pudo cargar la ficha');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const doApprove = (closeSiblings) =>
+        run(() => onboardingApi.aprobarFichaNovedad(token, localItem.id, { close_siblings: closeSiblings }));
+
+    const onApproveClick = () => {
+        if (siblingPendingCount > 0) {
+            setConfirmApprove(true);
+            return;
+        }
+        doApprove(false);
+    };
+
     return (
         <div className={`fixed inset-0 z-[80] flex items-center justify-center p-4 ${G.overlayCls}`} role="dialog" aria-modal="true">
             <div className={`w-full ${monitorGlassModalSizeCls('lg')} flex max-h-[90vh] flex-col overflow-hidden rounded-2xl ${G.modalCls}`}>
@@ -309,6 +370,32 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                 </header>
 
                 <div className="flex-1 overflow-y-auto px-5 py-4">
+                    {fichasList.length > 1 ? (
+                        <div className={`mb-4 rounded-xl border p-3 ${G.cardCls}`}>
+                            <label className={`mb-1 block text-xs font-semibold ${G.textCls}`} htmlFor="ficha-zoho-select">
+                                Fichas del consultor ({fichasList.length})
+                            </label>
+                            <select
+                                id="ficha-zoho-select"
+                                value={localItem?.id || ''}
+                                disabled={busy || editMode}
+                                onChange={(e) => selectFicha(e.target.value)}
+                                className={`w-full rounded-lg border px-3 py-2 text-sm ${isLight ? 'border-slate-300 bg-white' : 'border-white/10 bg-black/20'}`}
+                            >
+                                {fichasList.map((f) => (
+                                    <option key={f.id} value={f.id}>
+                                        {(TIPO_LABELS[f.tipo_novedad] || f.tipo_novedad || 'Ficha') +
+                                            ' · ' +
+                                            fmtFecha(f.received_at || f.created_at) +
+                                            ' · ' +
+                                            (f.diff_count ?? 0) +
+                                            ' cambios'}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    ) : null}
+
                     <div className={`mb-4 grid gap-2 text-sm sm:grid-cols-2 ${G.textCls}`}>
                         <div>
                             <span className={G.textMuted}>Colaborador: </span>
@@ -490,7 +577,7 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                                     <button
                                         type="button"
                                         disabled={busy || decisionBlocked}
-                                        onClick={() => run(() => onboardingApi.aprobarFichaNovedad(token, localItem.id))}
+                                        onClick={onApproveClick}
                                         className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                                     >
                                         Aprobar
@@ -501,6 +588,59 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                     )}
                 </footer>
             </div>
+
+            {confirmApprove ? (
+                <div
+                    className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby="confirm-close-siblings-title"
+                >
+                    <div className={`w-full max-w-md rounded-2xl p-5 shadow-xl ${isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100 border border-white/10'}`}>
+                        <h4 id="confirm-close-siblings-title" className="text-base font-semibold">
+                            ¿Cerrar las otras fichas abiertas?
+                        </h4>
+                        <p className={`mt-2 text-sm ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                            Este consultor tiene {siblingPendingCount} ficha
+                            {siblingPendingCount === 1 ? '' : 's'} pendiente
+                            {siblingPendingCount === 1 ? '' : 's'} además de la actual. Si confirma, se
+                            rechazarán sin aplicar cambios.
+                        </p>
+                        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setConfirmApprove(false)}
+                                className={`rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-50 ${isLight ? 'border-slate-300' : 'border-white/20'}`}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                    setConfirmApprove(false);
+                                    doApprove(false);
+                                }}
+                                className="rounded-xl border border-[#2F7BB8]/50 px-4 py-2 text-sm font-semibold text-[#2F7BB8] disabled:opacity-50"
+                            >
+                                Solo esta
+                            </button>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                    setConfirmApprove(false);
+                                    doApprove(true);
+                                }}
+                                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                            >
+                                Aprobar y cerrar las demás
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }
@@ -515,6 +655,7 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
     const [statusFilter, setStatusFilter] = useState('');
     const [historicoCount, setHistoricoCount] = useState(0);
     const [selected, setSelected] = useState(null);
+    const [selectedGroupFichas, setSelectedGroupFichas] = useState(null);
     const [refreshNotice, setRefreshNotice] = useState('');
 
     const load = useCallback(async () => {
@@ -556,8 +697,19 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
             },
             {
                 key: 'tipo_novedad',
-                label: 'Tipo',
-                render: (r) => <TipoBadge value={r.tipo_novedad} isLight={isLight} />
+                label: viewMode === 'inbox' ? 'Tipos' : 'Tipo',
+                render: (r) => {
+                    if (viewMode === 'inbox' && Array.isArray(r.tipos) && r.tipos.length > 1) {
+                        return (
+                            <span className="flex flex-wrap gap-1">
+                                {r.tipos.map((t) => (
+                                    <TipoBadge key={t} value={t} isLight={isLight} />
+                                ))}
+                            </span>
+                        );
+                    }
+                    return <TipoBadge value={r.tipo_novedad} isLight={isLight} />;
+                }
             },
             { key: 'id_registro', label: 'ID Zoho' },
             { key: 'colaborador_nombre_snap', label: 'Colaborador' },
@@ -576,6 +728,21 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
         if (viewMode === 'historico') {
             base.push({ key: 'reviewed_by', label: 'Revisado por' });
         } else {
+            base.push({
+                key: 'fichas_count',
+                label: 'Fichas',
+                render: (r) => {
+                    const n = r.fichas_count != null ? Number(r.fichas_count) : 1;
+                    const cls = isLight
+                        ? 'bg-slate-100 text-slate-800 border border-slate-200'
+                        : 'bg-white/10 text-slate-200 border border-white/10';
+                    return (
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ${cls}`}>
+                            {n}
+                        </span>
+                    );
+                }
+            });
             base.push({ key: 'diff_count', label: 'Cambios' });
         }
         return base;
@@ -656,9 +823,17 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
                           : 'Sin novedades en el histórico.'
                 }
                 onRowClick={async (row) => {
+                    const openId = row.latest_id || row.id;
+                    const groupFichas = Array.isArray(row.fichas) ? row.fichas : null;
+                    setSelectedGroupFichas(groupFichas);
                     try {
-                        const detail = await onboardingApi.getFichaNovedad(token, row.id);
-                        setSelected(detail?.item || row);
+                        const detail = await onboardingApi.getFichaNovedad(token, openId);
+                        const item = detail?.item || row;
+                        if (groupFichas?.length && (!item.fichas || item.fichas.length < groupFichas.length)) {
+                            item.fichas = groupFichas;
+                            item.fichas_count = groupFichas.length;
+                        }
+                        setSelected(item);
                     } catch {
                         setSelected(row);
                     }
@@ -668,10 +843,14 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
             {selected ? (
                 <DiffModal
                     item={selected}
+                    groupFichas={selectedGroupFichas}
                     auth={auth}
                     isLight={isLight}
                     readOnly={viewMode === 'historico'}
-                    onClose={() => setSelected(null)}
+                    onClose={() => {
+                        setSelected(null);
+                        setSelectedGroupFichas(null);
+                    }}
                     onUpdated={load}
                     onItemChange={setSelected}
                 />

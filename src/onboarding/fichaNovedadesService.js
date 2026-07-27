@@ -514,6 +514,114 @@ async function loadColaboradorFull(pool, cedula) {
     return q.rows[0] || null;
 }
 
+/**
+ * @param {import('pg').Pool} pool
+ * @param {string[]} cedulas
+ * @returns {Promise<Map<string, object>>}
+ */
+async function loadColaboradoresFullByCedulas(pool, cedulas = []) {
+    const unique = [...new Set((cedulas || []).map(normalizeCedula).filter(Boolean))];
+    const map = new Map();
+    if (unique.length === 0) return map;
+    const q = await pool.query(`SELECT * FROM colaboradores WHERE cedula = ANY($1::text[])`, [unique]);
+    for (const row of q.rows || []) {
+        if (row?.cedula) map.set(String(row.cedula), row);
+    }
+    return map;
+}
+
+function parseDiffJsonLen(diffJson) {
+    if (Array.isArray(diffJson)) return diffJson.length;
+    const parsed = parseJsonField(diffJson);
+    return Array.isArray(parsed) ? parsed.length : 0;
+}
+
+const SIBLING_CLOSE_REASON = 'Cerrada por aprobación de otra ficha del mismo colaborador';
+
+function fichaSortTs(row) {
+    const d = row?.received_at || row?.created_at;
+    if (!d) return 0;
+    const t = new Date(d).getTime();
+    return Number.isNaN(t) ? 0 : t;
+}
+
+function toFichaListEntry(row) {
+    return {
+        id: row.id,
+        tipo_novedad: row.tipo_novedad,
+        subject: row.subject,
+        status: row.status,
+        diff_count: row.diff_count != null ? Number(row.diff_count) : 0,
+        received_at: row.received_at,
+        created_at: row.created_at,
+        id_registro: row.id_registro,
+        match_strategy: row.match_strategy
+    };
+}
+
+/**
+ * Agrupa inbox: por cédula matcheada; sin_match quedan 1:1.
+ * @param {Array<object>} items filas planas con diff_count
+ * @returns {Array<object>}
+ */
+function groupInboxByCedula(items = []) {
+    const groups = new Map();
+    const singles = [];
+
+    for (const row of items || []) {
+        const status = String(row.status || '').toLowerCase();
+        const ced = normalizeCedula(row.colaborador_cedula_match);
+        if (status === 'sin_match' || !ced) {
+            singles.push({
+                ...row,
+                id: row.id,
+                latest_id: row.id,
+                fichas_count: 1,
+                fichas: [toFichaListEntry(row)],
+                tipos: row.tipo_novedad ? [row.tipo_novedad] : [],
+                group_key: row.id
+            });
+            continue;
+        }
+        if (!groups.has(ced)) groups.set(ced, []);
+        groups.get(ced).push(row);
+    }
+
+    const groupedRows = [];
+    for (const [ced, rows] of groups.entries()) {
+        const sorted = [...rows].sort((a, b) => fichaSortTs(b) - fichaSortTs(a));
+        const latest = sorted[0];
+        const fichas = sorted.map(toFichaListEntry);
+        const tipos = [...new Set(sorted.map((r) => r.tipo_novedad).filter(Boolean))];
+        groupedRows.push({
+            id: latest.id,
+            latest_id: latest.id,
+            tipo_novedad: latest.tipo_novedad,
+            id_registro: latest.id_registro,
+            subject: latest.subject,
+            status: latest.status,
+            cedula_detectada: latest.cedula_detectada,
+            colaborador_cedula_match: ced,
+            colaborador_nombre_snap: latest.colaborador_nombre_snap,
+            received_at: latest.received_at,
+            created_at: latest.created_at,
+            reviewed_by: latest.reviewed_by,
+            reviewed_at: latest.reviewed_at,
+            n8n_execution_id: latest.n8n_execution_id,
+            match_strategy: latest.match_strategy,
+            diff_count: latest.diff_count != null ? Number(latest.diff_count) : 0,
+            fichas_count: fichas.length,
+            fichas,
+            tipos,
+            group_key: `cedula:${ced}`
+        });
+    }
+
+    const out = [...groupedRows, ...singles];
+    out.sort((a, b) => fichaSortTs(b) - fichaSortTs(a));
+    return out;
+}
+
 /** Último resumen de sync Dynamo → Postgres (compartido entre instancias del servicio). */
 let lastZohoDynamoSyncSummary = null;
 
@@ -709,18 +817,80 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
         const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
         params.push(limit, offset);
-        const q = await pool.query(
-            `SELECT id, tipo_novedad, id_registro, subject, status,
-                    cedula_detectada, colaborador_cedula_match, colaborador_nombre_snap,
-                    received_at, created_at, reviewed_by, reviewed_at, n8n_execution_id,
-                    match_strategy,
-                    jsonb_array_length(diff_json) AS diff_count
-             FROM ficha_novedades_staging
-             ${whereSql}
-             ORDER BY ${orderBy}
-             LIMIT $${p++} OFFSET $${p++}`,
-            params
-        );
+        // Inbox: traer payloads para recalcular diff_count vivo (el JSON guardado suele estar hinchado).
+        const selectSql = isHistoricoList
+            ? `SELECT id, tipo_novedad, id_registro, subject, status,
+                      cedula_detectada, colaborador_cedula_match, colaborador_nombre_snap,
+                      received_at, created_at, reviewed_by, reviewed_at, n8n_execution_id,
+                      match_strategy,
+                      jsonb_array_length(COALESCE(diff_json, '[]'::jsonb)) AS diff_count
+               FROM ficha_novedades_staging
+               ${whereSql}
+               ORDER BY ${orderBy}
+               LIMIT $${p++} OFFSET $${p++}`
+            : `SELECT id, tipo_novedad, id_registro, subject, status,
+                      cedula_detectada, colaborador_cedula_match, colaborador_nombre_snap,
+                      received_at, created_at, reviewed_by, reviewed_at, n8n_execution_id,
+                      match_strategy, payload_raw, payload_normalizado, diff_json
+               FROM ficha_novedades_staging
+               ${whereSql}
+               ORDER BY ${orderBy}
+               LIMIT $${p++} OFFSET $${p++}`;
+        const q = await pool.query(selectSql, params);
+
+        let items = q.rows;
+        if (!isHistoricoList && items.length > 0) {
+            const cedulas = items.map((r) => r.colaborador_cedula_match).filter(Boolean);
+            const colabMap = await loadColaboradoresFullByCedulas(pool, cedulas);
+            const persistJobs = [];
+            items = items.map((row) => {
+                const { normalized } = rebuildNormalizedFromStagingRow(row);
+                let diffJson = [];
+                const ced = normalizeCedula(row.colaborador_cedula_match);
+                if (ced && colabMap.has(ced)) {
+                    diffJson = buildDiff(colabMap.get(ced), normalized);
+                }
+                persistJobs.push({
+                    id: row.id,
+                    normalized,
+                    diffJson,
+                    prevLen: parseDiffJsonLen(row.diff_json)
+                });
+                return {
+                    id: row.id,
+                    tipo_novedad: row.tipo_novedad,
+                    id_registro: row.id_registro,
+                    subject: row.subject,
+                    status: row.status,
+                    cedula_detectada: row.cedula_detectada,
+                    colaborador_cedula_match: row.colaborador_cedula_match,
+                    colaborador_nombre_snap: row.colaborador_nombre_snap,
+                    received_at: row.received_at,
+                    created_at: row.created_at,
+                    reviewed_by: row.reviewed_by,
+                    reviewed_at: row.reviewed_at,
+                    n8n_execution_id: row.n8n_execution_id,
+                    match_strategy: row.match_strategy,
+                    diff_count: diffJson.length
+                };
+            });
+            // Persistir solo si el conteo cambió (evita escrituras inútiles).
+            await Promise.all(
+                persistJobs
+                    .filter((j) => j.prevLen !== j.diffJson.length)
+                    .map((j) =>
+                        pool.query(
+                            `UPDATE ficha_novedades_staging
+                             SET payload_normalizado = $2::jsonb,
+                                 diff_json = $3::jsonb
+                             WHERE id = $1::uuid AND status IN ('pendiente', 'sin_match')`,
+                            [j.id, JSON.stringify(j.normalized), JSON.stringify(j.diffJson)]
+                        )
+                    )
+            );
+            items = groupInboxByCedula(items);
+        }
+
         const countQ = await pool.query(
             `SELECT COUNT(*)::int AS total FROM ficha_novedades_staging ${whereSql}`,
             params.slice(0, params.length - 2)
@@ -734,10 +904,12 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
              WHERE status IN ('aplicado', 'rechazado') AND ${buzonTipoExclusionSql()}`
         );
         return {
-            items: q.rows,
-            total: countQ.rows[0]?.total || 0,
+            items,
+            // Inbox agrupado: total de filas de tabla = grupos; pendingCount sigue siendo fichas.
+            total: isHistoricoList ? countQ.rows[0]?.total || 0 : items.length,
             pendingCount: pendingQ.rows[0]?.pending || 0,
-            historicoCount: historicoQ.rows[0]?.total || 0
+            historicoCount: historicoQ.rows[0]?.total || 0,
+            fichasTotal: isHistoricoList ? undefined : countQ.rows[0]?.total || 0
         };
     }
 
@@ -770,6 +942,30 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
              WHERE id = $1::uuid AND status IN ('pendiente', 'sin_match')`,
             [id, JSON.stringify(normalized), JSON.stringify(diffJson)]
         );
+
+        // Hermanas del mismo consultor (para selector en modal).
+        const ced = normalizeCedula(row.colaborador_cedula_match);
+        if (ced && row.status === 'pendiente') {
+            const sibs = await pool.query(
+                `SELECT id, tipo_novedad, subject, status, id_registro, match_strategy,
+                        received_at, created_at,
+                        jsonb_array_length(COALESCE(diff_json, '[]'::jsonb)) AS diff_count
+                 FROM ficha_novedades_staging
+                 WHERE colaborador_cedula_match = $1
+                   AND status = 'pendiente'
+                   AND ${buzonTipoExclusionSql()}
+                 ORDER BY COALESCE(received_at, created_at) DESC NULLS LAST`,
+                [ced]
+            );
+            row.fichas = (sibs.rows || []).map(toFichaListEntry);
+            row.fichas_count = row.fichas.length;
+            row.latest_id = row.fichas[0]?.id || row.id;
+        } else {
+            row.fichas = [toFichaListEntry({ ...row, diff_count: diffJson.length })];
+            row.fichas_count = 1;
+            row.latest_id = row.id;
+        }
+
         return row;
     }
 
@@ -802,7 +998,8 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         return q.rows[0];
     }
 
-    async function approveNovedad(id, reviewer = {}) {
+    async function approveNovedad(id, reviewer = {}, options = {}) {
+        const closeSiblings = options.closeSiblings === true;
         const row = await getNovedadById(id);
         if (!row) throw Object.assign(new Error('Novedad no encontrada'), { status: 404 });
         if (!['pendiente', 'sin_match'].includes(row.status)) {
@@ -884,7 +1081,26 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
              WHERE id = $1::uuid`,
             [id, reviewedBy]
         );
-        return { ok: true, status: 'aplicado', cedula };
+
+        let siblingsClosed = 0;
+        if (closeSiblings) {
+            const closed = await pool.query(
+                `UPDATE ficha_novedades_staging
+                 SET status = 'rechazado',
+                     reviewed_by = $3,
+                     reviewed_at = NOW(),
+                     processed_at = NOW(),
+                     error = $4
+                 WHERE colaborador_cedula_match = $1
+                   AND status = 'pendiente'
+                   AND id <> $2::uuid
+                 RETURNING id`,
+                [normalizeCedula(cedula), id, reviewedBy, SIBLING_CLOSE_REASON]
+            );
+            siblingsClosed = closed.rowCount || closed.rows?.length || 0;
+        }
+
+        return { ok: true, status: 'aplicado', cedula, siblings_closed: siblingsClosed };
     }
 
     async function rejectNovedad(id, reviewer = {}, reason = null) {
@@ -1189,9 +1405,11 @@ module.exports = {
     normalizeExtractorPayload,
     enrichNormalizedFromMapped,
     rebuildNormalizedFromStagingRow,
+    groupInboxByCedula,
     matchColaborador,
     mapDynamoZohoPayload,
     MONEY_FIELDS,
+    SIBLING_CLOSE_REASON,
     ZOHO_RECORD_TYPE,
     BUZON_EXCLUDED_TIPOS,
     WHITELIST_BY_TIPO,
