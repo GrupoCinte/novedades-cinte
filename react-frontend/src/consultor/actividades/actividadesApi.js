@@ -148,6 +148,7 @@ export async function iniciarCronometroApi({ descripcion }) {
 
     return { ok: true, actividad: payload?.actividad };
   } catch (err) {
+    console.error(err);
     return {
       ok: false,
       error: 'Error de red al iniciar el cronómetro.'
