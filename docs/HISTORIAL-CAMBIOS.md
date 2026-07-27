@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-27 13:11:23 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `0ecc4d57`
+- **Commit:** `0ecc4d57dc2c57c1bf67bc7c3bb5372081526e12`
+- **Ticket:** AUT-207
+- **Requerimiento funcional:** En Novedades Zoho, el diff deja de marcar falsos cambios (solo mayúsculas, país/nacionalidad, empleador=cliente) y muestra montos en pesos; el código Zoho de modificaciones usa el ID de persona; fichas pendientes se re-aplanan al abrir.
+- **Componente técnico:** `src/contratacion/extractorToFichaMap.js`, `src/onboarding/fichaNovedadesService.js`, `react-frontend/src/onboarding/FichaNovedadesView.jsx`, espejo frontend del mapa, tests.
+- **Cambios (uno a uno):**
+  - Mapa: sin Cliente→empleador; sin Codigo_Oportunidad→codigo; Esquema_Contratacion→tipo+esquema; Modalidad solo modalidad; nacionalidad→país canónico.
+  - Diff case-insensitive y money numérico; UI con formato COP.
+  - Enrich fuerza código de persona; rebuild retroactivo en GET pendiente/sin_match con `__manual_edits`.
+
 ### 2026-07-27 12:23:36 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `814e4e82`
 - **Commit:** `814e4e8254edf7f40f3b872822a7788a218fde6f`
 - **Ticket:** AUT-207
