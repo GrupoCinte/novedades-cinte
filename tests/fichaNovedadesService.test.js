@@ -8,7 +8,8 @@ const {
     createFichaNovedadesService,
     matchColaborador,
     enrichNormalizedFromMapped,
-    normalizeExtractorPayload
+    normalizeExtractorPayload,
+    rebuildNormalizedFromStagingRow
 } = require('../src/onboarding/fichaNovedadesService');
 
 describe('fichaNovedadesService helpers', () => {
@@ -91,22 +92,82 @@ describe('fichaNovedadesService helpers', () => {
         assert.equal(diff.length, 0);
     });
 
+    it('buildDiff ignora cambio solo de mayúsculas/minúsculas en puesto', () => {
+        const diff = buildDiff({ puesto: 'Analista' }, { puesto: 'ANALISTA' });
+        assert.equal(diff.length, 0);
+    });
+
+    it('buildDiff trata money numérico y string como iguales', () => {
+        const diff = buildDiff({ sueldo_nomina: 5000000 }, { sueldo_nomina: '5000000' });
+        assert.equal(diff.length, 0);
+    });
+
+    it('enrichNormalizedFromMapped fuerza codigo de persona sobre oportunidad', () => {
+        const enriched = enrichNormalizedFromMapped(
+            { codigo: 'OPP-999', puesto: 'Dev' },
+            {
+                tipo_novedad: 'modificacion_id',
+                id_registro: '20250322',
+                codigo_plano: 'OPP-999'
+            }
+        );
+        assert.equal(enriched.codigo, '20250322');
+    });
+
+    it('rebuildNormalizedFromStagingRow corrige empleador=cliente legacy', () => {
+        const rebuilt = rebuildNormalizedFromStagingRow({
+            status: 'pendiente',
+            tipo_novedad: 'modificacion_id',
+            id_registro: '20250322',
+            payload_raw: {
+                record_type: 'zoho_novedad',
+                tipo_novedad: 'modificacion_id',
+                id_registro: '20250322',
+                extractor_output: {
+                    ID_Registro: '20250322',
+                    I_Informacion_General: {
+                        Cliente: 'ACME CORP',
+                        Codigo_Oportunidad: 'OPP-1'
+                    },
+                    III_Informacion_Candidato: { Nacionalidad: 'Colombiana' }
+                }
+            },
+            payload_normalizado: {
+                codigo: 'OPP-1',
+                cliente: 'ACME CORP',
+                empleador: 'ACME CORP',
+                pais: 'Colombiana'
+            }
+        });
+        assert.equal(rebuilt.normalized.codigo, '20250322');
+        assert.equal(rebuilt.normalized.cliente, 'ACME CORP');
+        assert.equal(rebuilt.normalized.empleador, undefined);
+        assert.equal(rebuilt.normalized.pais, 'Colombia');
+    });
+
     it('getNovedadById recalcula diff contra colaboradores vivos', async () => {
         const id = '11111111-1111-1111-1111-111111111111';
+        let updatedPayload = null;
         const pool = {
             query: async (sql, params) => {
-                if (String(sql).includes('FROM ficha_novedades_staging')) {
+                if (String(sql).includes('FROM ficha_novedades_staging') && String(sql).includes('SELECT')) {
                     return {
                         rows: [
                             {
                                 id,
                                 status: 'pendiente',
+                                id_registro: '20250322',
                                 colaborador_cedula_match: '1024598286',
+                                payload_raw: {},
                                 payload_normalizado: { puesto: 'Lead', cliente: 'ACME' },
                                 diff_json: [{ field: 'puesto', before: 'Old', after: 'Lead' }]
                             }
                         ]
                     };
+                }
+                if (String(sql).includes('UPDATE ficha_novedades_staging')) {
+                    updatedPayload = params[1];
+                    return { rows: [] };
                 }
                 if (String(sql).includes('FROM colaboradores')) {
                     return {
@@ -122,6 +183,7 @@ describe('fichaNovedadesService helpers', () => {
         assert.ok(fields.includes('puesto'));
         assert.equal(row.diff_json.find((d) => d.field === 'puesto').before, 'Dev');
         assert.ok(!fields.includes('cliente'));
+        assert.ok(updatedPayload);
     });
 });
 

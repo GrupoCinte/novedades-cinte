@@ -3,16 +3,72 @@
  */
 const { isSentinel, parseFechaInicioSmart, parseSalarioCop, concatEmergencyContact } = require('../shared/n8nFieldNormalizers');
 
-/** @type {Array<[string, string, { date?: boolean, money?: boolean, master?: string }]>} */
+/** Campos monetarios del flatten (para diff/UI). */
+const EXTRACTOR_MONEY_KEYS = [
+    'tarifa_cliente',
+    'tarifa_promedio_mes',
+    'venta_total',
+    'costo_empresa',
+    'costos_personal',
+    'costo_equipo_computo',
+    'costo_licencias_teams_correo',
+    'otros_costos',
+    'sueldo_nomina'
+];
+
+const NACIONALIDAD_TO_PAIS = {
+    colombiana: 'Colombia',
+    colombiano: 'Colombia',
+    venezuela: 'Venezuela',
+    venezolana: 'Venezuela',
+    venezolano: 'Venezuela',
+    ecuatoriana: 'Ecuador',
+    ecuatoriano: 'Ecuador',
+    peruana: 'Perú',
+    peruano: 'Perú',
+    mexicana: 'México',
+    mexicano: 'México',
+    argentina: 'Argentina',
+    argentino: 'Argentina',
+    chilena: 'Chile',
+    chileno: 'Chile',
+    espanola: 'España',
+    espanol: 'España',
+    española: 'España',
+    español: 'España',
+    estadounidense: 'Estados Unidos',
+    brasilena: 'Brasil',
+    brasileno: 'Brasil',
+    brasileña: 'Brasil',
+    brasileño: 'Brasil'
+};
+
+/**
+ * Nacionalidad Zoho → país canónico (evita "Colombiana" vs "Colombia" en diff).
+ * @param {unknown} raw
+ * @returns {string|undefined}
+ */
+function nacionalidadToPais(raw) {
+    if (raw == null) return undefined;
+    const s = String(raw).trim();
+    if (!s) return undefined;
+    const fold = s
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase();
+    if (NACIONALIDAD_TO_PAIS[fold]) return NACIONALIDAD_TO_PAIS[fold];
+    if (fold === 'colombia') return 'Colombia';
+    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+/** @type {Array<[string, string, { date?: boolean, money?: boolean, master?: string, paisFromNacionalidad?: boolean }]>} */
 const EXTRACTOR_PATH_MAP = [
     ['ID_Registro', 'codigo'],
     ['I_Informacion_General.Tipo_Servicio', 'tipo_servicio'],
     ['I_Informacion_General.Cliente', 'cliente', { master: 'cliente' }],
-    ['I_Informacion_General.Cliente', 'empleador'],
     ['I_Informacion_General.Proyecto', 'cliente_proyecto'],
     ['I_Informacion_General.Tipo_Ingreso', 'tipo_ingreso'],
     ['I_Informacion_General.Modalidad_Asignacion', 'modalidad_contrato'],
-    ['I_Informacion_General.Modalidad_Asignacion', 'esquema_contrato'],
     ['I_Informacion_General.Servicio', 'frente_proyecto'],
     ['I_Informacion_General.Duracion', 'duracion_servicio'],
     ['I_Informacion_General.Fecha_Inicio', 'fecha_ingreso', { date: true }],
@@ -20,7 +76,6 @@ const EXTRACTOR_PATH_MAP = [
     ['I_Informacion_General.Fecha_Salida', 'fecha_notificacion_termino', { date: true }],
     ['I_Informacion_General.Ejecutivo_Comercial', 'comercial'],
     ['I_Informacion_General.Analista_AT', 'analista_at'],
-    ['I_Informacion_General.Codigo_Oportunidad', 'codigo'],
     ['II_Informacion_Financiera.Tarifa', 'tarifa_cliente', { money: true }],
     ['II_Informacion_Financiera.Tarifa_Promedio_Mes', 'tarifa_promedio_mes', { money: true }],
     ['II_Informacion_Financiera.Venta_Total', 'venta_total', { money: true }],
@@ -30,7 +85,6 @@ const EXTRACTOR_PATH_MAP = [
     ['II_Informacion_Financiera.Costos_Correo_Antivirus', 'costo_licencias_teams_correo', { money: true }],
     ['II_Informacion_Financiera.Otros_Costos', 'otros_costos', { money: true }],
     ['II_Informacion_Financiera.Consideraciones', 'consideraciones_financieras'],
-    ['II_Informacion_Financiera.Doc_Soporte_Venta', 'tipo_contrato'],
     ['II_Informacion_Financiera.Facturar_Servicio_A', 'facturar_servicio_a'],
     ['III_Informacion_Candidato.Nombre', 'nombre', { master: 'nombre' }],
     ['III_Informacion_Candidato.Primer_Nombre', 'nombres'],
@@ -41,7 +95,7 @@ const EXTRACTOR_PATH_MAP = [
     ['III_Informacion_Candidato.Identificacion_Tipo', 'tipo_identificacion'],
     ['III_Informacion_Candidato.Identificacion_Numero', 'numero_identidad'],
     ['III_Informacion_Candidato.Identificacion_Numero', 'cedula', { master: 'cedula' }],
-    ['III_Informacion_Candidato.Nacionalidad', 'pais'],
+    ['III_Informacion_Candidato.Nacionalidad', 'pais', { paisFromNacionalidad: true }],
     ['III_Informacion_Candidato.Fecha_Nacimiento', 'fecha_nacimiento', { date: true }],
     ['III_Informacion_Candidato.Lugar_Nacimiento', 'lugar_nacimiento'],
     ['III_Informacion_Candidato.Edad', 'edad'],
@@ -66,6 +120,7 @@ const EXTRACTOR_PATH_MAP = [
     ['IV_Informacion_Contratacion.Perfil_Cargo', 'perfil_cargo'],
     ['IV_Informacion_Contratacion.Descriptivo_CINTE', 'descriptivo_puesto_sig'],
     ['IV_Informacion_Contratacion.Esquema_Contratacion', 'esquema_contrato'],
+    ['IV_Informacion_Contratacion.Esquema_Contratacion', 'tipo_contrato'],
     ['IV_Informacion_Contratacion.Tipo_Remuneracion', 'periodicidad_pago'],
     ['IV_Informacion_Contratacion.Ingreso_Basico', 'sueldo_nomina', { money: true }],
     ['IV_Informacion_Contratacion.Ingreso_Basico_letras', 'ingreso_basico_letras'],
@@ -124,6 +179,9 @@ function normalizeMappedValue(raw, opts = {}) {
     if (opts.money) {
         const n = parseSalarioCop(raw);
         return n != null ? n : String(raw).trim();
+    }
+    if (opts.paisFromNacionalidad) {
+        return nacionalidadToPais(raw);
     }
     const s = String(raw).trim();
     return s || undefined;
@@ -243,8 +301,10 @@ function applyLegacyEmergencyParse(row) {
 
 module.exports = {
     EXTRACTOR_PATH_MAP,
+    EXTRACTOR_MONEY_KEYS,
     flattenExtractorOutput,
     flattenExtractorForDynamo,
     applyLegacyEmergencyParse,
-    getByPath
+    getByPath,
+    nacionalidadToPais
 };

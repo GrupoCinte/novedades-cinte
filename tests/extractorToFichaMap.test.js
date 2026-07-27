@@ -5,7 +5,8 @@ const path = require('node:path');
 const {
     flattenExtractorOutput,
     EXTRACTOR_PATH_MAP,
-    getByPath
+    getByPath,
+    nacionalidadToPais
 } = require('../src/contratacion/extractorToFichaMap');
 
 function loadSampleOutput() {
@@ -39,5 +40,39 @@ describe('extractorToFichaMap', () => {
     it('getByPath reads nested blocks', () => {
         const output = loadSampleOutput();
         assert.equal(getByPath(output, 'I_Informacion_General.Cliente'), 'EXPERIAN COLOMBIA');
+    });
+
+    it('no mapea Cliente a empleador ni Codigo_Oportunidad a codigo', () => {
+        const flat = flattenExtractorOutput({
+            ID_Registro: '20250322',
+            I_Informacion_General: {
+                Cliente: 'ACME CORP',
+                Codigo_Oportunidad: 'OPP-999',
+                Modalidad_Asignacion: 'Presencial',
+                Servicio: 'Frente X'
+            },
+            II_Informacion_Financiera: {
+                Doc_Soporte_Venta: 'OC-123'
+            },
+            IV_Informacion_Contratacion: {
+                Esquema_Contratacion: 'Contrato Indefinido'
+            }
+        });
+        assert.equal(flat.codigo, '20250322');
+        assert.equal(flat.cliente, 'ACME CORP');
+        assert.equal(flat.empleador, undefined);
+        assert.equal(flat.modalidad_contrato, 'Presencial');
+        assert.equal(flat.esquema_contrato, 'Contrato Indefinido');
+        assert.equal(flat.tipo_contrato, 'Contrato Indefinido');
+        assert.equal(flat.frente_proyecto, 'Frente X');
+        assert.notEqual(flat.tipo_contrato, 'OC-123');
+    });
+
+    it('nacionalidadToPais canoniza Colombiana → Colombia', () => {
+        assert.equal(nacionalidadToPais('Colombiana'), 'Colombia');
+        const flat = flattenExtractorOutput({
+            III_Informacion_Candidato: { Nacionalidad: 'Colombiana' }
+        });
+        assert.equal(flat.pais, 'Colombia');
     });
 });

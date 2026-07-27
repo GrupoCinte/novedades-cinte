@@ -116,8 +116,51 @@ const FIELD_LABELS = {
     activo: 'Activo',
     nombre: 'Nombre',
     cliente: 'Cliente',
-    puesto: 'Puesto'
+    puesto: 'Puesto',
+    empleador: 'Empleador',
+    pais: 'País',
+    tipo_contrato: 'Tipo de contrato',
+    esquema_contrato: 'Esquema de contrato',
+    modalidad_contrato: 'Modalidad (contrato)',
+    frente_proyecto: 'Frente y/o proyecto',
+    gerente_servicio: 'Gerente de servicio',
+    email_gerente_servicio: 'E-mail gerente de servicio',
+    sueldo_nomina: 'Sueldo nómina',
+    tarifa_cliente: 'Tarifa (cliente)',
+    tarifa_promedio_mes: 'Tarifa promedio mes',
+    costos_personal: 'Costos personal',
+    costo_equipo_computo: 'Costo equipo de cómputo',
+    costo_licencias_teams_correo: 'Costos licencias Teams / correo',
+    otros_costos: 'Otros costos',
+    cliente_proyecto: 'Cliente / Proyecto'
 };
+
+const MONEY_FIELDS = new Set([
+    'tarifa_cliente',
+    'tarifa_promedio_mes',
+    'venta_total',
+    'costo_empresa',
+    'costos_personal',
+    'costo_equipo_computo',
+    'costo_licencias_teams_correo',
+    'otros_costos',
+    'sueldo_nomina',
+    'utilidad',
+    'rt_aprox'
+]);
+
+const copFormatter = new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    maximumFractionDigits: 0
+});
+
+function formatCop(n) {
+    if (n == null || n === '') return '—';
+    const num = typeof n === 'number' ? n : Number(String(n).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(num)) return String(n);
+    return copFormatter.format(num);
+}
 
 function fieldLabel(field) {
     return FIELD_LABELS[field] || field;
@@ -129,6 +172,12 @@ function isDateField(field) {
         field.endsWith('_termino') ||
         field.startsWith('fecha_')
     );
+}
+
+function formatDiffValue(field, value) {
+    if (value == null || value === '') return '—';
+    if (MONEY_FIELDS.has(field)) return formatCop(value);
+    return String(value);
 }
 
 function draftFromDiff(diffRows) {
@@ -356,7 +405,9 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                                                 <span className="block font-mono text-[10px] text-slate-400">{row.field}</span>
                                                 <span className="font-medium">{fieldLabel(row.field)}</span>
                                             </td>
-                                            <td className="px-3 py-2 text-rose-400">{String(row.before ?? '—')}</td>
+                                            <td className="px-3 py-2 text-rose-400 tabular-nums">
+                                                {formatDiffValue(row.field, row.before)}
+                                            </td>
                                             <td className="px-3 py-2">
                                                 {editMode ? (
                                                     <input
@@ -372,7 +423,9 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                                                         aria-label={`Valor propuesto ${fieldLabel(row.field)}`}
                                                     />
                                                 ) : (
-                                                    <span className="text-emerald-400">{String(row.after ?? '—')}</span>
+                                                    <span className="text-emerald-400 tabular-nums">
+                                                        {formatDiffValue(row.field, row.after)}
+                                                    </span>
                                                 )}
                                             </td>
                                         </tr>

@@ -2,9 +2,13 @@
  * Buzón de novedades Zoho: ingest HTTP/Dynamo, match activos en PG, diff y apply con revisión CH.
  */
 
-const { flattenExtractorOutput } = require('../contratacion/extractorToFichaMap');
+const {
+    flattenExtractorOutput,
+    EXTRACTOR_MONEY_KEYS
+} = require('../contratacion/extractorToFichaMap');
 const { COLABORADORES_EXTENDED_KEYS } = require('../colaboradores/colaboradoresExtendedColumns');
 const { normalizeChListText } = require('./chTextNormalize');
+const { parseSalarioCop } = require('../shared/n8nFieldNormalizers');
 const { insertTarifaHistorial } = require('../conciliaciones/conciliacionTarifaHistorial');
 const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAsignaciones');
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
@@ -12,6 +16,8 @@ const { applyRegistroBajaColaborador } = require('./bajaColaborador');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
+
+const MONEY_FIELDS = new Set([...EXTRACTOR_MONEY_KEYS, 'utilidad', 'rt_aprox']);
 
 const MVP_TIPOS = new Set(['integracion', 'modificacion_id']);
 
@@ -103,6 +109,42 @@ function normalizeComparable(value) {
     return s;
 }
 
+function normalizeMoneyComparable(value) {
+    if (value == null || value === '') return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const parsed = parseSalarioCop(value);
+    if (parsed != null) return parsed;
+    const n = Number(String(value).replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Igualdad canónica para diff (casefold texto, numérico money).
+ * @param {string} field
+ * @param {unknown} before
+ * @param {unknown} after
+ */
+function valuesEqualForDiff(field, before, after) {
+    if (MONEY_FIELDS.has(field)) {
+        const b = normalizeMoneyComparable(before);
+        const a = normalizeMoneyComparable(after);
+        if (b == null && a == null) return true;
+        if (b == null || a == null) return false;
+        return b === a;
+    }
+    const bNorm = normalizeComparable(before);
+    const aNorm = normalizeComparable(after);
+    if (bNorm == null && aNorm == null) return true;
+    if (bNorm == null || aNorm == null) return false;
+    if (typeof bNorm === 'number' || typeof aNorm === 'number') {
+        return Number(bNorm) === Number(aNorm);
+    }
+    if (typeof bNorm === 'boolean' || typeof aNorm === 'boolean') {
+        return bNorm === aNorm;
+    }
+    return String(bNorm).toLocaleUpperCase('es') === String(aNorm).toLocaleUpperCase('es');
+}
+
 /**
  * @param {Record<string, unknown>} currentRow
  * @param {Record<string, unknown>} proposed
@@ -120,10 +162,13 @@ function buildDiff(currentRow, proposed) {
         const after = proposed && proposed[field] !== undefined ? proposed[field] : undefined;
         if (after === undefined) continue;
         const before = currentRow ? currentRow[field] : null;
-        const bNorm = normalizeComparable(before);
-        const aNorm = normalizeComparable(after);
-        if (bNorm === aNorm) continue;
-        if (bNorm == null && aNorm == null) continue;
+        if (valuesEqualForDiff(field, before, after)) continue;
+        const bNorm = MONEY_FIELDS.has(field)
+            ? normalizeMoneyComparable(before) ?? normalizeComparable(before)
+            : normalizeComparable(before);
+        const aNorm = MONEY_FIELDS.has(field)
+            ? normalizeMoneyComparable(after) ?? normalizeComparable(after)
+            : normalizeComparable(after);
         diff.push({ field, before: bNorm, after: aNorm });
     }
     return diff;
@@ -150,8 +195,9 @@ function normalizeEditValue(field, value) {
         if (s === 'true' || s === '1') return true;
         if (s === 'false' || s === '0') return false;
     }
-    const numericFields = new Set(['venta_total', 'costo_empresa', 'duracion_servicio', 'sueldo_nomina']);
-    if (numericFields.has(field)) {
+    if (MONEY_FIELDS.has(field) || field === 'duracion_servicio') {
+        const money = normalizeMoneyComparable(s);
+        if (money != null) return money;
         const n = Number(s);
         if (!Number.isNaN(n)) return n;
     }
@@ -257,11 +303,6 @@ function enrichNormalizedFromMapped(normalized, mapped = {}) {
     const parsed =
         mapped.parsed_subject && typeof mapped.parsed_subject === 'object' ? mapped.parsed_subject : {};
 
-    setNormalizedIfEmpty(
-        out,
-        'codigo',
-        mapped.id_registro || mapped.codigo_plano || parsed.id_registro || parsed.codigo
-    );
     setNormalizedIfEmpty(out, 'cedula', mapped.cedula_plano || parsed.cedula);
     setNormalizedIfEmpty(
         out,
@@ -278,8 +319,15 @@ function enrichNormalizedFromMapped(normalized, mapped = {}) {
     setNormalizedIfEmpty(out, 'fecha_ingreso', parsed.fecha_ingreso || mapped.fecha_ingreso);
 
     for (const [key, value] of Object.entries(parsed)) {
-        if (!key || key.startsWith('_')) continue;
+        if (!key || key.startsWith('_') || key === 'codigo' || key === 'id_registro') continue;
         setNormalizedIfEmpty(out, key, value);
+    }
+
+    // Código de persona: forzar id_registro / plano (nunca Codigo_Oportunidad residual).
+    const codigoPersona =
+        mapped.id_registro || mapped.codigo_plano || parsed.id_registro || parsed.codigo;
+    if (!isEmptyNormValue(codigoPersona)) {
+        out.codigo = String(codigoPersona).trim();
     }
 
     const tipo = String(mapped.tipo_novedad || '').trim().toLowerCase();
@@ -287,7 +335,90 @@ function enrichNormalizedFromMapped(normalized, mapped = {}) {
         out.vigente_desde = out.fecha_ingreso;
         delete out.fecha_ingreso;
     }
+
+    if (
+        out.empleador != null &&
+        out.cliente != null &&
+        String(out.empleador).toLocaleUpperCase('es') === String(out.cliente).toLocaleUpperCase('es')
+    ) {
+        delete out.empleador;
+    }
+
     return out;
+}
+
+/**
+ * Re-aplana extractor + enrich desde staging (retroactivo pendiente/sin_match).
+ * Preserva `__manual_edits` de ediciones CH previas.
+ * @param {object} row fila ficha_novedades_staging
+ * @returns {{ normalized: Record<string, unknown>, mapped: ReturnType<typeof mapDynamoZohoPayload> }}
+ */
+function rebuildNormalizedFromStagingRow(row) {
+    const raw = parseJsonField(row?.payload_raw) || {};
+    const prevNorm = parseJsonField(row?.payload_normalizado) || {};
+    const rawItem = {
+        record_type: ZOHO_RECORD_TYPE,
+        ...raw,
+        tipo_novedad: raw.tipo_novedad || row?.tipo_novedad,
+        id_registro: raw.id_registro || row?.id_registro,
+        subject: raw.subject || row?.subject,
+        codigo: raw.codigo || raw.id_registro || row?.id_registro
+    };
+    if (!rawItem.extractor_output && prevNorm.extractor_output) {
+        rawItem.extractor_output = prevNorm.extractor_output;
+    }
+
+    const mapped = mapDynamoZohoPayload(rawItem);
+    if (!mapped.tipo_novedad) mapped.tipo_novedad = row?.tipo_novedad || null;
+    if (!mapped.id_registro) mapped.id_registro = row?.id_registro || null;
+
+    const hasExtractor =
+        mapped.extractor_output &&
+        typeof mapped.extractor_output === 'object' &&
+        Object.keys(mapped.extractor_output).length > 0;
+
+    let normalized;
+    if (hasExtractor) {
+        normalized = enrichNormalizedFromMapped(
+            normalizeExtractorPayload(mapped.extractor_output, mapped.tipo_novedad || row?.tipo_novedad),
+            mapped
+        );
+    } else {
+        // Sin extractor: conservar payload previo (edits/planos) y solo saneamiento.
+        normalized = { ...prevNorm };
+        delete normalized.__manual_edits;
+        if (!isEmptyNormValue(row?.id_registro)) {
+            normalized.codigo = String(row.id_registro).trim();
+        } else if (!isEmptyNormValue(mapped.id_registro)) {
+            normalized.codigo = String(mapped.id_registro).trim();
+        }
+        if (
+            normalized.empleador != null &&
+            normalized.cliente != null &&
+            String(normalized.empleador).toLocaleUpperCase('es') ===
+                String(normalized.cliente).toLocaleUpperCase('es')
+        ) {
+            delete normalized.empleador;
+        }
+    }
+
+    const manual =
+        prevNorm.__manual_edits && typeof prevNorm.__manual_edits === 'object'
+            ? prevNorm.__manual_edits
+            : {};
+    for (const [key, value] of Object.entries(manual)) {
+        if (!key || key.startsWith('_')) continue;
+        if (value === null || value === undefined || value === '') {
+            delete normalized[key];
+        } else {
+            normalized[key] = value;
+        }
+    }
+    if (Object.keys(manual).length > 0) {
+        normalized.__manual_edits = manual;
+    }
+
+    return { normalized, mapped };
 }
 
 function buildMatchSnapshot(row) {
@@ -614,17 +745,31 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         const q = await pool.query(`SELECT * FROM ficha_novedades_staging WHERE id = $1::uuid LIMIT 1`, [id]);
         const row = q.rows[0] || null;
         if (!row) return null;
-        // Recalcular diff contra BD viva para que "Actual" refleje Personal Activo.
-        if (
-            ['pendiente', 'sin_match'].includes(row.status) &&
-            row.colaborador_cedula_match &&
-            row.payload_normalizado
-        ) {
+        if (!['pendiente', 'sin_match'].includes(row.status)) {
+            return row;
+        }
+
+        const { normalized } = rebuildNormalizedFromStagingRow(row);
+        row.payload_normalizado = normalized;
+
+        let diffJson = Array.isArray(row.diff_json)
+            ? row.diff_json
+            : parseJsonField(row.diff_json) || [];
+        if (row.colaborador_cedula_match) {
             const current = await loadColaboradorFull(pool, row.colaborador_cedula_match);
             if (current) {
-                row.diff_json = buildDiff(current, row.payload_normalizado);
+                diffJson = buildDiff(current, normalized);
             }
         }
+        row.diff_json = diffJson;
+
+        await pool.query(
+            `UPDATE ficha_novedades_staging
+             SET payload_normalizado = $2::jsonb,
+                 diff_json = $3::jsonb
+             WHERE id = $1::uuid AND status IN ('pendiente', 'sin_match')`,
+            [id, JSON.stringify(normalized), JSON.stringify(diffJson)]
+        );
         return row;
     }
 
@@ -819,6 +964,11 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         const diffRows = Array.isArray(row.diff_json) ? row.diff_json : parseJsonField(row.diff_json) || [];
         const diffFields = new Set(diffRows.map((d) => d.field).filter(Boolean));
         const normalized = { ...(row.payload_normalizado || {}) };
+        const manualEdits = {
+            ...(normalized.__manual_edits && typeof normalized.__manual_edits === 'object'
+                ? normalized.__manual_edits
+                : {})
+        };
 
         for (const key of editKeys) {
             if (!diffFields.has(key)) {
@@ -833,10 +983,13 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             const val = normalizeEditValue(key, edits[key]);
             if (val === null || val === '') {
                 delete normalized[key];
+                manualEdits[key] = null;
             } else {
                 normalized[key] = val;
+                manualEdits[key] = val;
             }
         }
+        normalized.__manual_edits = manualEdits;
 
         const colab = await loadColaboradorFull(pool, cedula);
         if (!colab) throw Object.assign(new Error('Colaborador no encontrado'), { status: 404 });
@@ -855,7 +1008,11 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             [id, JSON.stringify(normalized), JSON.stringify(diffJson), reviewedBy]
         );
 
-        return getNovedadById(id);
+        // Devolver fila ya actualizada sin re-aplanar (preserva __manual_edits recién guardados).
+        row.payload_normalizado = normalized;
+        row.diff_json = diffJson;
+        row.reviewed_by = reviewedBy;
+        return row;
     }
 
     /**
@@ -1031,8 +1188,10 @@ module.exports = {
     buildPatchFromNormalized,
     normalizeExtractorPayload,
     enrichNormalizedFromMapped,
+    rebuildNormalizedFromStagingRow,
     matchColaborador,
     mapDynamoZohoPayload,
+    MONEY_FIELDS,
     ZOHO_RECORD_TYPE,
     BUZON_EXCLUDED_TIPOS,
     WHITELIST_BY_TIPO,
