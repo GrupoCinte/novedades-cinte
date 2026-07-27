@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-27 15:37:03 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `fb2ec369`
+- **Commit:** `fb2ec369c55617ad914e5f7eb585ea8f5baea031`
+- **Ticket:** AUT-207
+- **Requerimiento funcional:** En Novedades Zoho, más fichas encuentran al consultor cuando el correo trae nombre con tildes o el payload viene vacío (lee el asunto); las salidas también cruzan inactivos. Los filtros del buzón usan el mismo patrón del resto de Capital Humano (barra + panel Estado/Tipo/Match).
+- **Componente técnico:** `src/onboarding/fichaNovedadesService.js` (fold nombre, subject hints, código persona), `FichaNovedadesView.jsx` (OnboardingFiltersBar/Drawer), `extractorToFichaMap` espejo, tests.
+- **Cambios (uno a uno):**
+  - Match por nombre con fold de tildes; extracción de nombre/cliente desde subject Zoho.
+  - No usa IDs de ticket como código de persona; salidas/cancelación permiten colaborador inactivo.
+  - Filtros UI: drawer Estado/Tipo/Match + búsqueda; badges de estrategia de match.
+
 ### 2026-07-27 13:32:59 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `3e0b2854`
 - **Commit:** `3e0b28542a86bb0323980fd354d06162538f43bb`
 - **Ticket:** AUT-207
