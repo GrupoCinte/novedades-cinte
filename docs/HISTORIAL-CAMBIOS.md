@@ -20,6 +20,15 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-27 16:48:47 · `testing` · `7f98345d`
+- **Commit:** `7f98345d6cb01e44487a15b3625e8304377d49d2`
+- **Ticket:** AUT-214 (origen AUT-573)
+- **Requerimiento funcional:** En la cola de cierres de facturación ya no se muestran las bolitas/stepper de estados; se mantienen progreso, estado de servicio y totales.
+- **Componente técnico:** eliminado `ConciliacionesFacturacionEstadosResumen.jsx`; tarjeta `ConciliacionesColaCierresCard.jsx`; limpieza en `facturacionLogic.js`.
+- **Cambios (uno a uno):**
+  - Se quitó el stepper visual de bolitas en la tarjeta de cola.
+  - Se eliminó el componente y helpers asociados sin uso.
+
 ### 2026-07-27 16:12:09 · `fix/AUT-545-cancelaciones-sort-keys-asc-desc` · `31762cee`
 - **Commit:** `31762ceee46eb3ba72cd6fd341f16ae41246eb0e`
 - **Ticket:** AUT-545
