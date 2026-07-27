@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-27 15:50:30 · `fix/AUT-552-listo-export-tras-aprobacion` · `c0e12189`
+- **Commit:** `c0e12189bea8472de057f0c4ecab2362f1088d9a`
+- **Ticket:** AUT-552
+- **Requerimiento funcional:** Tras aprobar el último consultor en facturación, el servicio pasa a listo para exportar y la cola se actualiza, desbloqueando el paso 3 sin quedar atascado en revisión.
+- **Componente técnico:** `src/conciliaciones/conciliacionesQueries.js` (`ensureListoExportTrasAprobacion` en revisión/masiva), `react-frontend/src/conciliaciones/facturacionLogic.js` (`resolveRefreshTargets` refresca cola), `tests/facturacionRefreshLogic.test.js`.
+- **Cambios (uno a uno):**
+  - Tras COMMIT de aprobación individual/masiva se promueve a LISTO_EXPORT si el agregado está completo.
+  - Masiva usa `skipListoExport` por fila y un ensure al final.
+  - El portal refresca la cola en background tras revisión/masiva.
+
 ### 2026-07-27 15:37:03 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `fb2ec369`
 - **Commit:** `fb2ec369c55617ad914e5f7eb585ea8f5baea031`
 - **Ticket:** AUT-207

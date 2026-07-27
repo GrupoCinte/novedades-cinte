@@ -6,15 +6,15 @@ test('resolveRefreshTargets: workspace refresca resumen silencioso en revisión/
 
     assert.deepEqual(resolveRefreshTargets({ hasServicioSel: true, mutationKind: 'revision' }), {
         resumen: true,
-        cola: false,
+        cola: true,
         resumenSilent: true,
-        colaBackground: false
+        colaBackground: true
     });
     assert.deepEqual(resolveRefreshTargets({ hasServicioSel: true, mutationKind: 'masiva' }), {
         resumen: true,
-        cola: false,
+        cola: true,
         resumenSilent: true,
-        colaBackground: false
+        colaBackground: true
     });
 });
 
@@ -40,9 +40,9 @@ test('resolveRefreshTargets: vista cola y cambio estado servicio', async () => {
 
     assert.deepEqual(resolveRefreshTargets({ hasServicioSel: false, mutationKind: 'revision' }), {
         resumen: false,
-        cola: false,
+        cola: true,
         resumenSilent: false,
-        colaBackground: false
+        colaBackground: true
     });
     assert.deepEqual(resolveRefreshTargets({ hasServicioSel: false }), {
         resumen: false,

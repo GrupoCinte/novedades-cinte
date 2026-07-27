@@ -734,11 +734,12 @@ export function resolveRefreshTargets({ hasServicioSel, mutationKind } = {}) {
         return { resumen: false, cola: true, resumenSilent: false, colaBackground: true };
     }
     if (kind === 'revision' || kind === 'masiva') {
+        // Refrescar cola en background para sincronizar LISTO_EXPORT tras última aprobación (AUT-552).
         return {
             resumen: inWorkspace,
-            cola: false,
+            cola: true,
             resumenSilent: inWorkspace,
-            colaBackground: false
+            colaBackground: true
         };
     }
     if (kind === 'ajustes' || kind === 'revert') {
