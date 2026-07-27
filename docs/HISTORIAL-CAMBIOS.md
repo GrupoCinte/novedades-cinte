@@ -20,6 +20,46 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-27 15:37:03 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `fb2ec369`
+- **Commit:** `fb2ec369c55617ad914e5f7eb585ea8f5baea031`
+- **Ticket:** AUT-207
+- **Requerimiento funcional:** En Novedades Zoho, más fichas encuentran al consultor cuando el correo trae nombre con tildes o el payload viene vacío (lee el asunto); las salidas también cruzan inactivos. Los filtros del buzón usan el mismo patrón del resto de Capital Humano (barra + panel Estado/Tipo/Match).
+- **Componente técnico:** `src/onboarding/fichaNovedadesService.js` (fold nombre, subject hints, código persona), `FichaNovedadesView.jsx` (OnboardingFiltersBar/Drawer), `extractorToFichaMap` espejo, tests.
+- **Cambios (uno a uno):**
+  - Match por nombre con fold de tildes; extracción de nombre/cliente desde subject Zoho.
+  - No usa IDs de ticket como código de persona; salidas/cancelación permiten colaborador inactivo.
+  - Filtros UI: drawer Estado/Tipo/Match + búsqueda; badges de estrategia de match.
+
+### 2026-07-27 13:32:59 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `3e0b2854`
+- **Commit:** `3e0b28542a86bb0323980fd354d06162538f43bb`
+- **Ticket:** AUT-207
+- **Requerimiento funcional:** En Novedades Zoho, el buzón agrupa por consultor (cédula) en lugar de acumular filas; dentro del modal se elige qué ficha revisar; al aprobar se puede cerrar (rechazar) las demás pendientes del mismo consultor.
+- **Componente técnico:** `fichaNovedadesService.js` (`groupInboxByCedula`, `approveNovedad` closeSiblings), rutas aprobar, `FichaNovedadesView.jsx`, tests.
+- **Cambios (uno a uno):**
+  - Listado inbox agrupado: badge Fichas + cambios de la más reciente; `sin_match` sueltas.
+  - Selector de ficha en el modal; confirmación al aprobar con hermanas.
+  - Conteo de cambios del listado recalculado vivo (incluido en el mismo flujo).
+
+### 2026-07-27 13:11:23 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `0ecc4d57`
+- **Commit:** `0ecc4d57dc2c57c1bf67bc7c3bb5372081526e12`
+- **Ticket:** AUT-207
+- **Requerimiento funcional:** En Novedades Zoho, el diff deja de marcar falsos cambios (solo mayúsculas, país/nacionalidad, empleador=cliente) y muestra montos en pesos; el código Zoho de modificaciones usa el ID de persona; fichas pendientes se re-aplanan al abrir.
+- **Componente técnico:** `src/contratacion/extractorToFichaMap.js`, `src/onboarding/fichaNovedadesService.js`, `react-frontend/src/onboarding/FichaNovedadesView.jsx`, espejo frontend del mapa, tests.
+- **Cambios (uno a uno):**
+  - Mapa: sin Cliente→empleador; sin Codigo_Oportunidad→codigo; Esquema_Contratacion→tipo+esquema; Modalidad solo modalidad; nacionalidad→país canónico.
+  - Diff case-insensitive y money numérico; UI con formato COP.
+  - Enrich fuerza código de persona; rebuild retroactivo en GET pendiente/sin_match con `__manual_edits`.
+
+### 2026-07-27 12:23:36 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `814e4e82`
+- **Commit:** `814e4e8254edf7f40f3b872822a7788a218fde6f`
+- **Ticket:** AUT-207
+- **Requerimiento funcional:** En Novedades Zoho, tras un match correcto, la ficha muestra Actual alineado a Personal Activo y Propuesto enriquecido con datos del correo/Dynamo (no solo el extractor vacío).
+- **Componente técnico:** `src/onboarding/fichaNovedadesService.js`, `tests/fichaNovedadesService.test.js`.
+- **Cambios (uno a uno):**
+  - `enrichNormalizedFromMapped` fusiona planos Dynamo/`parsed_subject` en `payload_normalizado`.
+  - `getNovedadById` recalcula `diff_json` contra `colaboradores` en vivo.
+  - Comparación de fechas/números más robusta en `normalizeComparable`.
+
 ### 2026-07-24 18:18:42 · `testing` · `e9f7a21f`
 - **Commit:** `e9f7a21f6cbe26a293c4539c82b50f706734fba7`
 - **Ticket:** —

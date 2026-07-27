@@ -4,6 +4,11 @@ import SortableGestionDataTable from './SortableGestionDataTable.jsx';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import { fmtFecha, fmtFechaHora } from './views.jsx';
 import { buildMonitorGlassModalTheme, monitorGlassModalSizeCls } from '../shared/modals/monitorGlassModalTheme.js';
+import OnboardingFiltersBar, { buildChipLabel } from './OnboardingFiltersBar.jsx';
+import OnboardingFiltersDrawer, {
+    drawerFieldCls,
+    drawerLabelCls
+} from './OnboardingFiltersDrawer.jsx';
 
 const TIPO_LABELS = {
     integracion: 'Integración',
@@ -26,8 +31,31 @@ const MATCH_LABELS = {
     cedula: 'Cédula',
     nombre_cliente: 'Nombre + cliente',
     nombre: 'Nombre',
-    manual: 'Manual CH'
+    manual: 'Manual CH',
+    nombre_fold_activo: 'Nombre (fold)',
+    nombre_fold_inactivo: 'Nombre (inactivo)',
+    nombre_cedula_manual_audit: 'Nombre (auditoría)',
+    audit_nombre: 'Nombre (auditoría)'
 };
+
+const TIPO_FILTER_OPTIONS = [
+    { value: '', label: 'Todos los tipos' },
+    { value: 'modificacion_id', label: 'Modificación ID' },
+    { value: 'salida', label: 'Salida' },
+    { value: 'extension', label: 'Extensión' },
+    { value: 'cancelacion_ingreso', label: 'Cancelación ingreso' },
+    { value: 'cancelacion_salida', label: 'Cancelación salida' }
+];
+
+const MATCH_FILTER_OPTIONS = [
+    { value: '', label: 'Todo match' },
+    { value: 'codigo', label: 'Código Zoho' },
+    { value: 'cedula', label: 'Cédula' },
+    { value: 'nombre_cliente', label: 'Nombre + cliente' },
+    { value: 'nombre', label: 'Nombre' },
+    { value: 'manual', label: 'Manual CH' },
+    { value: '__sin__', label: 'Sin match / vacío' }
+];
 
 function MatchStrategyBadge({ value, isLight }) {
     const label = MATCH_LABELS[value] || value || '—';
@@ -116,8 +144,51 @@ const FIELD_LABELS = {
     activo: 'Activo',
     nombre: 'Nombre',
     cliente: 'Cliente',
-    puesto: 'Puesto'
+    puesto: 'Puesto',
+    empleador: 'Empleador',
+    pais: 'País',
+    tipo_contrato: 'Tipo de contrato',
+    esquema_contrato: 'Esquema de contrato',
+    modalidad_contrato: 'Modalidad (contrato)',
+    frente_proyecto: 'Frente y/o proyecto',
+    gerente_servicio: 'Gerente de servicio',
+    email_gerente_servicio: 'E-mail gerente de servicio',
+    sueldo_nomina: 'Sueldo nómina',
+    tarifa_cliente: 'Tarifa (cliente)',
+    tarifa_promedio_mes: 'Tarifa promedio mes',
+    costos_personal: 'Costos personal',
+    costo_equipo_computo: 'Costo equipo de cómputo',
+    costo_licencias_teams_correo: 'Costos licencias Teams / correo',
+    otros_costos: 'Otros costos',
+    cliente_proyecto: 'Cliente / Proyecto'
 };
+
+const MONEY_FIELDS = new Set([
+    'tarifa_cliente',
+    'tarifa_promedio_mes',
+    'venta_total',
+    'costo_empresa',
+    'costos_personal',
+    'costo_equipo_computo',
+    'costo_licencias_teams_correo',
+    'otros_costos',
+    'sueldo_nomina',
+    'utilidad',
+    'rt_aprox'
+]);
+
+const copFormatter = new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    maximumFractionDigits: 0
+});
+
+function formatCop(n) {
+    if (n == null || n === '') return '—';
+    const num = typeof n === 'number' ? n : Number(String(n).replace(/[^0-9.-]/g, ''));
+    if (!Number.isFinite(num)) return String(n);
+    return copFormatter.format(num);
+}
 
 function fieldLabel(field) {
     return FIELD_LABELS[field] || field;
@@ -131,6 +202,12 @@ function isDateField(field) {
     );
 }
 
+function formatDiffValue(field, value) {
+    if (value == null || value === '') return '—';
+    if (MONEY_FIELDS.has(field)) return formatCop(value);
+    return String(value);
+}
+
 function draftFromDiff(diffRows) {
     const draft = {};
     for (const row of diffRows) {
@@ -141,7 +218,7 @@ function draftFromDiff(diffRows) {
     return draft;
 }
 
-function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, onItemChange }) {
+function DiffModal({ item, groupFichas = null, auth, isLight, readOnly = false, onClose, onUpdated, onItemChange }) {
     const G = buildMonitorGlassModalTheme(isLight);
     const token = auth?.token || '';
     const [localItem, setLocalItem] = useState(item);
@@ -151,13 +228,39 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
     const [rejectReason, setRejectReason] = useState('');
     const [editMode, setEditMode] = useState(false);
     const [draftEdits, setDraftEdits] = useState({});
+    const [confirmApprove, setConfirmApprove] = useState(false);
 
     useEffect(() => {
         setLocalItem(item);
         setEditMode(false);
         setDraftEdits({});
         setError('');
+        setConfirmApprove(false);
     }, [item]);
+
+    const fichasList = useMemo(() => {
+        if (Array.isArray(localItem?.fichas) && localItem.fichas.length > 0) return localItem.fichas;
+        if (Array.isArray(groupFichas) && groupFichas.length > 0) return groupFichas;
+        return localItem?.id
+            ? [
+                  {
+                      id: localItem.id,
+                      tipo_novedad: localItem.tipo_novedad,
+                      subject: localItem.subject,
+                      status: localItem.status,
+                      diff_count: Array.isArray(localItem.diff_json) ? localItem.diff_json.length : 0,
+                      received_at: localItem.received_at,
+                      created_at: localItem.created_at,
+                      id_registro: localItem.id_registro
+                  }
+              ]
+            : [];
+    }, [localItem, groupFichas]);
+
+    const siblingPendingCount = useMemo(
+        () => fichasList.filter((f) => f.id !== localItem?.id && String(f.status).toLowerCase() === 'pendiente').length,
+        [fichasList, localItem?.id]
+    );
 
     const diff = useMemo(() => {
         const raw = localItem?.diff_json;
@@ -240,6 +343,41 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
         }
     };
 
+    const selectFicha = async (fichaId) => {
+        if (!fichaId || fichaId === localItem?.id || busy || editMode) return;
+        setBusy(true);
+        setError('');
+        try {
+            const data = await onboardingApi.getFichaNovedad(token, fichaId);
+            const updated = data?.item;
+            if (updated) {
+                const merged = {
+                    ...updated,
+                    fichas: updated.fichas?.length ? updated.fichas : fichasList
+                };
+                setLocalItem(merged);
+                if (typeof onItemChange === 'function') onItemChange(merged);
+                setEditMode(false);
+                setDraftEdits({});
+            }
+        } catch (e) {
+            setError(e?.response?.data?.error || e?.message || 'No se pudo cargar la ficha');
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    const doApprove = (closeSiblings) =>
+        run(() => onboardingApi.aprobarFichaNovedad(token, localItem.id, { close_siblings: closeSiblings }));
+
+    const onApproveClick = () => {
+        if (siblingPendingCount > 0) {
+            setConfirmApprove(true);
+            return;
+        }
+        doApprove(false);
+    };
+
     return (
         <div className={`fixed inset-0 z-[80] flex items-center justify-center p-4 ${G.overlayCls}`} role="dialog" aria-modal="true">
             <div className={`w-full ${monitorGlassModalSizeCls('lg')} flex max-h-[90vh] flex-col overflow-hidden rounded-2xl ${G.modalCls}`}>
@@ -260,6 +398,32 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                 </header>
 
                 <div className="flex-1 overflow-y-auto px-5 py-4">
+                    {fichasList.length > 1 ? (
+                        <div className={`mb-4 rounded-xl border p-3 ${G.cardCls}`}>
+                            <label className={`mb-1 block text-xs font-semibold ${G.textCls}`} htmlFor="ficha-zoho-select">
+                                Fichas del consultor ({fichasList.length})
+                            </label>
+                            <select
+                                id="ficha-zoho-select"
+                                value={localItem?.id || ''}
+                                disabled={busy || editMode}
+                                onChange={(e) => selectFicha(e.target.value)}
+                                className={`w-full rounded-lg border px-3 py-2 text-sm ${isLight ? 'border-slate-300 bg-white' : 'border-white/10 bg-black/20'}`}
+                            >
+                                {fichasList.map((f) => (
+                                    <option key={f.id} value={f.id}>
+                                        {(TIPO_LABELS[f.tipo_novedad] || f.tipo_novedad || 'Ficha') +
+                                            ' · ' +
+                                            fmtFecha(f.received_at || f.created_at) +
+                                            ' · ' +
+                                            (f.diff_count ?? 0) +
+                                            ' cambios'}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    ) : null}
+
                     <div className={`mb-4 grid gap-2 text-sm sm:grid-cols-2 ${G.textCls}`}>
                         <div>
                             <span className={G.textMuted}>Colaborador: </span>
@@ -356,7 +520,9 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                                                 <span className="block font-mono text-[10px] text-slate-400">{row.field}</span>
                                                 <span className="font-medium">{fieldLabel(row.field)}</span>
                                             </td>
-                                            <td className="px-3 py-2 text-rose-400">{String(row.before ?? '—')}</td>
+                                            <td className="px-3 py-2 text-rose-400 tabular-nums">
+                                                {formatDiffValue(row.field, row.before)}
+                                            </td>
                                             <td className="px-3 py-2">
                                                 {editMode ? (
                                                     <input
@@ -372,7 +538,9 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                                                         aria-label={`Valor propuesto ${fieldLabel(row.field)}`}
                                                     />
                                                 ) : (
-                                                    <span className="text-emerald-400">{String(row.after ?? '—')}</span>
+                                                    <span className="text-emerald-400 tabular-nums">
+                                                        {formatDiffValue(row.field, row.after)}
+                                                    </span>
                                                 )}
                                             </td>
                                         </tr>
@@ -437,7 +605,7 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                                     <button
                                         type="button"
                                         disabled={busy || decisionBlocked}
-                                        onClick={() => run(() => onboardingApi.aprobarFichaNovedad(token, localItem.id))}
+                                        onClick={onApproveClick}
                                         className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                                     >
                                         Aprobar
@@ -448,21 +616,84 @@ function DiffModal({ item, auth, isLight, readOnly = false, onClose, onUpdated, 
                     )}
                 </footer>
             </div>
+
+            {confirmApprove ? (
+                <div
+                    className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4"
+                    role="alertdialog"
+                    aria-modal="true"
+                    aria-labelledby="confirm-close-siblings-title"
+                >
+                    <div className={`w-full max-w-md rounded-2xl p-5 shadow-xl ${isLight ? 'bg-white text-slate-900' : 'bg-slate-900 text-slate-100 border border-white/10'}`}>
+                        <h4 id="confirm-close-siblings-title" className="text-base font-semibold">
+                            ¿Cerrar las otras fichas abiertas?
+                        </h4>
+                        <p className={`mt-2 text-sm ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                            Este consultor tiene {siblingPendingCount} ficha
+                            {siblingPendingCount === 1 ? '' : 's'} pendiente
+                            {siblingPendingCount === 1 ? '' : 's'} además de la actual. Si confirma, se
+                            rechazarán sin aplicar cambios.
+                        </p>
+                        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => setConfirmApprove(false)}
+                                className={`rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-50 ${isLight ? 'border-slate-300' : 'border-white/20'}`}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                    setConfirmApprove(false);
+                                    doApprove(false);
+                                }}
+                                className="rounded-xl border border-[#2F7BB8]/50 px-4 py-2 text-sm font-semibold text-[#2F7BB8] disabled:opacity-50"
+                            >
+                                Solo esta
+                            </button>
+                            <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                    setConfirmApprove(false);
+                                    doApprove(true);
+                                }}
+                                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                            >
+                                Aprobar y cerrar las demás
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
         </div>
     );
 }
 
 export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
     const G = buildGestionTableDash(Boolean(isLight));
+    const labelCls = drawerLabelCls(isLight);
+    const fieldCls = drawerFieldCls(isLight);
     const token = auth?.token || '';
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [viewMode, setViewMode] = useState('inbox');
-    const [statusFilter, setStatusFilter] = useState('');
+    const [filters, setFilters] = useState({});
+    const [draft, setDraft] = useState({});
+    const [panelOpen, setPanelOpen] = useState(false);
+    const [search, setSearch] = useState('');
     const [historicoCount, setHistoricoCount] = useState(0);
     const [selected, setSelected] = useState(null);
+    const [selectedGroupFichas, setSelectedGroupFichas] = useState(null);
     const [refreshNotice, setRefreshNotice] = useState('');
+
+    const statusFilter = filters.status || '';
+    const tipoFilter = filters.tipo_novedad || '';
+    const matchFilter = filters.match || '';
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -470,7 +701,8 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
         setRefreshNotice('');
         try {
             const params = { limit: 200, scope: viewMode };
-            if (viewMode === 'inbox' && statusFilter) params.status = statusFilter;
+            if (statusFilter) params.status = statusFilter;
+            if (tipoFilter) params.tipo_novedad = tipoFilter;
             const data = await onboardingApi.listFichaNovedades(token, params);
             setRows(data?.items || []);
             setHistoricoCount(data?.historicoCount ?? 0);
@@ -483,15 +715,100 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
         } finally {
             setLoading(false);
         }
-    }, [token, viewMode, statusFilter, onPendingCount]);
+    }, [token, viewMode, statusFilter, tipoFilter, onPendingCount]);
 
     useEffect(() => {
         load();
     }, [load]);
 
     useEffect(() => {
-        if (viewMode === 'historico') setStatusFilter('');
+        setFilters({});
+        setDraft({});
+        setSearch('');
+        setPanelOpen(false);
     }, [viewMode]);
+
+    const statusOptions =
+        viewMode === 'historico'
+            ? [
+                  { value: '', label: 'Todos histórico' },
+                  { value: 'aplicado', label: 'Aplicado' },
+                  { value: 'rechazado', label: 'Rechazado' }
+              ]
+            : [
+                  { value: '', label: 'Todos pendientes' },
+                  { value: 'pendiente', label: 'Pendiente' },
+                  { value: 'sin_match', label: 'Sin match' }
+              ];
+
+    const chipPairs = useMemo(
+        () => [
+            [Boolean(statusFilter), statusFilter ? `Estado: ${STATUS_LABELS[statusFilter] || statusFilter}` : ''],
+            [Boolean(tipoFilter), tipoFilter ? `Tipo: ${TIPO_LABELS[tipoFilter] || tipoFilter}` : ''],
+            [
+                Boolean(matchFilter),
+                matchFilter
+                    ? `Match: ${
+                          MATCH_FILTER_OPTIONS.find((o) => o.value === matchFilter)?.label || matchFilter
+                      }`
+                    : ''
+            ],
+            [Boolean(String(search || '').trim()), search ? `Búsqueda: ${String(search).trim()}` : '']
+        ],
+        [statusFilter, tipoFilter, matchFilter, search]
+    );
+    const chipLabel = useMemo(() => buildChipLabel(chipPairs), [chipPairs]);
+
+    const openPanel = () => {
+        setDraft({ ...filters });
+        setPanelOpen(true);
+    };
+    const applyDraft = () => {
+        setFilters({ ...draft });
+        setPanelOpen(false);
+    };
+    const clearAll = () => {
+        setDraft({});
+        setFilters({});
+        setSearch('');
+        setPanelOpen(false);
+    };
+
+    const filteredRows = useMemo(() => {
+        const q = String(search || '')
+            .trim()
+            .toLowerCase();
+        return rows.filter((r) => {
+            if (matchFilter) {
+                const strat = String(r.match_strategy || '').trim();
+                let matchOk = false;
+                if (matchFilter === '__sin__') {
+                    matchOk = !strat || String(r.status).toLowerCase() === 'sin_match';
+                } else if (strat === matchFilter) {
+                    matchOk = true;
+                } else if (matchFilter === 'nombre' && /^nombre/i.test(strat)) {
+                    matchOk = true;
+                } else if (matchFilter === 'manual' && /manual|audit/i.test(strat)) {
+                    matchOk = true;
+                }
+                if (!matchOk) return false;
+            }
+            if (!q) return true;
+            const hay = [
+                r.subject,
+                r.colaborador_nombre_snap,
+                r.id_registro,
+                r.tipo_novedad,
+                r.status,
+                r.match_strategy,
+                ...(Array.isArray(r.tipos) ? r.tipos : [])
+            ]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase();
+            return hay.includes(q);
+        });
+    }, [rows, matchFilter, search]);
 
     const columns = useMemo(() => {
         const base = [
@@ -503,8 +820,19 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
             },
             {
                 key: 'tipo_novedad',
-                label: 'Tipo',
-                render: (r) => <TipoBadge value={r.tipo_novedad} isLight={isLight} />
+                label: viewMode === 'inbox' ? 'Tipos' : 'Tipo',
+                render: (r) => {
+                    if (viewMode === 'inbox' && Array.isArray(r.tipos) && r.tipos.length > 1) {
+                        return (
+                            <span className="flex flex-wrap gap-1">
+                                {r.tipos.map((t) => (
+                                    <TipoBadge key={t} value={t} isLight={isLight} />
+                                ))}
+                            </span>
+                        );
+                    }
+                    return <TipoBadge value={r.tipo_novedad} isLight={isLight} />;
+                }
             },
             { key: 'id_registro', label: 'ID Zoho' },
             { key: 'colaborador_nombre_snap', label: 'Colaborador' },
@@ -523,6 +851,21 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
         if (viewMode === 'historico') {
             base.push({ key: 'reviewed_by', label: 'Revisado por' });
         } else {
+            base.push({
+                key: 'fichas_count',
+                label: 'Fichas',
+                render: (r) => {
+                    const n = r.fichas_count != null ? Number(r.fichas_count) : 1;
+                    const cls = isLight
+                        ? 'bg-slate-100 text-slate-800 border border-slate-200'
+                        : 'bg-white/10 text-slate-200 border border-white/10';
+                    return (
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums ${cls}`}>
+                            {n}
+                        </span>
+                    );
+                }
+            });
             base.push({ key: 'diff_count', label: 'Cambios' });
         }
         return base;
@@ -537,46 +880,109 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className={`${G.filterBar} flex flex-wrap items-center justify-end gap-2`}>
-                <div className="flex rounded-lg overflow-hidden border border-white/10">
-                    <button
-                        type="button"
-                        onClick={() => setViewMode('inbox')}
-                        className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'inbox')}`}
-                    >
-                        Por revisar
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setViewMode('historico')}
-                        className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'historico')}`}
-                    >
-                        Histórico{historicoCount > 0 ? ` (${historicoCount})` : ''}
-                    </button>
-                </div>
-                {viewMode === 'inbox' ? (
-                    <>
-                        <label className={`text-xs ${G.mutedSm}`}>Estado</label>
-                        <select
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
-                            className={`rounded border px-2 py-1 text-xs ${isLight ? 'border-slate-300 bg-white' : 'border-slate-700 bg-slate-800'}`}
-                        >
-                            <option value="">Todos pendientes</option>
-                            <option value="pendiente">Pendiente</option>
-                            <option value="sin_match">Sin match</option>
-                        </select>
-                    </>
-                ) : null}
-                <button
-                    type="button"
-                    onClick={load}
-                    disabled={loading}
-                    className="rounded-lg bg-[#2F7BB8] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
-                >
-                    {loading ? 'Actualizando…' : 'Actualizar'}
-                </button>
+            <div className={G.filterBar}>
+                <OnboardingFiltersBar
+                    chipLabel={chipLabel}
+                    panelOpen={panelOpen}
+                    onToggle={() => (panelOpen ? setPanelOpen(false) : openPanel())}
+                    search={search}
+                    onSearchChange={setSearch}
+                    searchPlaceholder="Buscar asunto / colaborador / ID Zoho…"
+                    isLight={isLight}
+                    rightSlot={
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div
+                                className={`flex overflow-hidden rounded-lg border ${
+                                    isLight ? 'border-slate-200' : 'border-white/10'
+                                }`}
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => setViewMode('inbox')}
+                                    className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'inbox')}`}
+                                >
+                                    Por revisar
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setViewMode('historico')}
+                                    className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'historico')}`}
+                                >
+                                    Histórico{historicoCount > 0 ? ` (${historicoCount})` : ''}
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={load}
+                                disabled={loading}
+                                className={`${G.btnPrimaryCinte} text-xs`}
+                            >
+                                {loading ? 'Actualizando…' : 'Actualizar'}
+                            </button>
+                        </div>
+                    }
+                />
             </div>
+
+            <OnboardingFiltersDrawer
+                open={panelOpen}
+                onClose={() => setPanelOpen(false)}
+                onClear={clearAll}
+                onApply={applyDraft}
+                isLight={isLight}
+            >
+                <div className="flex flex-col gap-1.5">
+                    <label className={labelCls} htmlFor="zoho-filtro-estado">
+                        Estado
+                    </label>
+                    <select
+                        id="zoho-filtro-estado"
+                        value={draft.status || ''}
+                        onChange={(e) => setDraft((s) => ({ ...s, status: e.target.value }))}
+                        className={fieldCls}
+                    >
+                        {statusOptions.map((o) => (
+                            <option key={o.value || 'all-status'} value={o.value}>
+                                {o.label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label className={labelCls} htmlFor="zoho-filtro-tipo">
+                        Tipo
+                    </label>
+                    <select
+                        id="zoho-filtro-tipo"
+                        value={draft.tipo_novedad || ''}
+                        onChange={(e) => setDraft((s) => ({ ...s, tipo_novedad: e.target.value }))}
+                        className={fieldCls}
+                    >
+                        {TIPO_FILTER_OPTIONS.map((o) => (
+                            <option key={o.value || 'all-tipo'} value={o.value}>
+                                {o.label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label className={labelCls} htmlFor="zoho-filtro-match">
+                        Match
+                    </label>
+                    <select
+                        id="zoho-filtro-match"
+                        value={draft.match || ''}
+                        onChange={(e) => setDraft((s) => ({ ...s, match: e.target.value }))}
+                        className={fieldCls}
+                    >
+                        {MATCH_FILTER_OPTIONS.map((o) => (
+                            <option key={o.value || 'all-match'} value={o.value}>
+                                {o.label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            </OnboardingFiltersDrawer>
 
             {error ? (
                 <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>
@@ -593,7 +999,7 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
 
             <SortableGestionDataTable
                 columns={columns}
-                rows={rows}
+                rows={filteredRows}
                 isLight={isLight}
                 emptyText={
                     loading
@@ -603,9 +1009,17 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
                           : 'Sin novedades en el histórico.'
                 }
                 onRowClick={async (row) => {
+                    const openId = row.latest_id || row.id;
+                    const groupFichas = Array.isArray(row.fichas) ? row.fichas : null;
+                    setSelectedGroupFichas(groupFichas);
                     try {
-                        const detail = await onboardingApi.getFichaNovedad(token, row.id);
-                        setSelected(detail?.item || row);
+                        const detail = await onboardingApi.getFichaNovedad(token, openId);
+                        const item = detail?.item || row;
+                        if (groupFichas?.length && (!item.fichas || item.fichas.length < groupFichas.length)) {
+                            item.fichas = groupFichas;
+                            item.fichas_count = groupFichas.length;
+                        }
+                        setSelected(item);
                     } catch {
                         setSelected(row);
                     }
@@ -615,10 +1029,14 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
             {selected ? (
                 <DiffModal
                     item={selected}
+                    groupFichas={selectedGroupFichas}
                     auth={auth}
                     isLight={isLight}
                     readOnly={viewMode === 'historico'}
-                    onClose={() => setSelected(null)}
+                    onClose={() => {
+                        setSelected(null);
+                        setSelectedGroupFichas(null);
+                    }}
                     onUpdated={load}
                     onItemChange={setSelected}
                 />

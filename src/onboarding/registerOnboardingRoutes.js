@@ -1480,6 +1480,10 @@ function registerOnboardingRoutes(deps) {
         reason: z.string().max(2000).optional().nullable()
     });
 
+    const fichaNovedadesApproveSchema = z.object({
+        close_siblings: z.boolean().optional()
+    });
+
     const fichaNovedadesLinkSchema = z.object({
         cedula: z.string().min(5).max(20)
     });
@@ -1607,15 +1611,25 @@ function registerOnboardingRoutes(deps) {
         if (!parsed.success) {
             return res.status(400).json({ ok: false, error: 'Id inválido' });
         }
+        const bodyParsed = fichaNovedadesApproveSchema.safeParse(req.body || {});
+        if (!bodyParsed.success) {
+            return res.status(400).json({ ok: false, error: 'Body inválido', detail: bodyParsed.error.errors });
+        }
         try {
-            const result = await fichaNovedades.approveNovedad(parsed.data.id, req.user || {});
+            const result = await fichaNovedades.approveNovedad(parsed.data.id, req.user || {}, {
+                closeSiblings: bodyParsed.data.close_siblings === true
+            });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
                 actorRole: req.user && req.user.role,
                 action: 'ficha_novedad_aprobar',
                 entityType: 'ficha_novedades_staging',
                 entityId: parsed.data.id,
-                metadata: { cedula: result.cedula }
+                metadata: {
+                    cedula: result.cedula,
+                    close_siblings: bodyParsed.data.close_siblings === true,
+                    siblings_closed: result.siblings_closed
+                }
             });
             return res.json(result);
         } catch (e) {

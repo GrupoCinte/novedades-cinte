@@ -2,9 +2,13 @@
  * Buzón de novedades Zoho: ingest HTTP/Dynamo, match activos en PG, diff y apply con revisión CH.
  */
 
-const { flattenExtractorOutput } = require('../contratacion/extractorToFichaMap');
+const {
+    flattenExtractorOutput,
+    EXTRACTOR_MONEY_KEYS
+} = require('../contratacion/extractorToFichaMap');
 const { COLABORADORES_EXTENDED_KEYS } = require('../colaboradores/colaboradoresExtendedColumns');
 const { normalizeChListText } = require('./chTextNormalize');
+const { parseSalarioCop } = require('../shared/n8nFieldNormalizers');
 const { insertTarifaHistorial } = require('../conciliaciones/conciliacionTarifaHistorial');
 const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAsignaciones');
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
@@ -12,6 +16,8 @@ const { applyRegistroBajaColaborador } = require('./bajaColaborador');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
+
+const MONEY_FIELDS = new Set([...EXTRACTOR_MONEY_KEYS, 'utilidad', 'rt_aprox']);
 
 const MVP_TIPOS = new Set(['integracion', 'modificacion_id']);
 
@@ -90,8 +96,53 @@ function normalizeComparable(value) {
     if (value == null || value === '') return null;
     if (typeof value === 'number') return value;
     if (typeof value === 'boolean') return value;
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return value.toISOString().slice(0, 10);
+    }
     const s = String(value).trim();
-    return s || null;
+    if (!s) return null;
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+    if (/^-?\d+(\.\d+)?$/.test(s)) {
+        const n = Number(s);
+        if (!Number.isNaN(n)) return n;
+    }
+    return s;
+}
+
+function normalizeMoneyComparable(value) {
+    if (value == null || value === '') return null;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    const parsed = parseSalarioCop(value);
+    if (parsed != null) return parsed;
+    const n = Number(String(value).replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Igualdad canónica para diff (casefold texto, numérico money).
+ * @param {string} field
+ * @param {unknown} before
+ * @param {unknown} after
+ */
+function valuesEqualForDiff(field, before, after) {
+    if (MONEY_FIELDS.has(field)) {
+        const b = normalizeMoneyComparable(before);
+        const a = normalizeMoneyComparable(after);
+        if (b == null && a == null) return true;
+        if (b == null || a == null) return false;
+        return b === a;
+    }
+    const bNorm = normalizeComparable(before);
+    const aNorm = normalizeComparable(after);
+    if (bNorm == null && aNorm == null) return true;
+    if (bNorm == null || aNorm == null) return false;
+    if (typeof bNorm === 'number' || typeof aNorm === 'number') {
+        return Number(bNorm) === Number(aNorm);
+    }
+    if (typeof bNorm === 'boolean' || typeof aNorm === 'boolean') {
+        return bNorm === aNorm;
+    }
+    return String(bNorm).toLocaleUpperCase('es') === String(aNorm).toLocaleUpperCase('es');
 }
 
 /**
@@ -111,10 +162,13 @@ function buildDiff(currentRow, proposed) {
         const after = proposed && proposed[field] !== undefined ? proposed[field] : undefined;
         if (after === undefined) continue;
         const before = currentRow ? currentRow[field] : null;
-        const bNorm = normalizeComparable(before);
-        const aNorm = normalizeComparable(after);
-        if (bNorm === aNorm) continue;
-        if (bNorm == null && aNorm == null) continue;
+        if (valuesEqualForDiff(field, before, after)) continue;
+        const bNorm = MONEY_FIELDS.has(field)
+            ? normalizeMoneyComparable(before) ?? normalizeComparable(before)
+            : normalizeComparable(before);
+        const aNorm = MONEY_FIELDS.has(field)
+            ? normalizeMoneyComparable(after) ?? normalizeComparable(after)
+            : normalizeComparable(after);
         diff.push({ field, before: bNorm, after: aNorm });
     }
     return diff;
@@ -141,8 +195,9 @@ function normalizeEditValue(field, value) {
         if (s === 'true' || s === '1') return true;
         if (s === 'false' || s === '0') return false;
     }
-    const numericFields = new Set(['venta_total', 'costo_empresa', 'duracion_servicio', 'sueldo_nomina']);
-    if (numericFields.has(field)) {
+    if (MONEY_FIELDS.has(field) || field === 'duracion_servicio') {
+        const money = normalizeMoneyComparable(s);
+        if (money != null) return money;
         const n = Number(s);
         if (!Number.isNaN(n)) return n;
     }
@@ -165,6 +220,9 @@ function mapDynamoZohoPayload(rawItem) {
     const cedulaPlano = readD(r.cedula);
     const nombrePlano = readD(r['nombre y apellido'] ?? r.nombre_y_apellido);
     const clientePlano = readD(r.cliente);
+    const puestoPlano = readD(r.puesto ?? r.Puesto_Cargo);
+    const fechaTerminoPlano = readD(r.fecha_termino ?? r.fechaTermino);
+    const fechaIngresoPlano = readD(r.fecha_ingreso ?? r.fechaIngreso);
 
     return {
         record_type: ZOHO_RECORD_TYPE,
@@ -177,6 +235,9 @@ function mapDynamoZohoPayload(rawItem) {
         received_at: r.received_at || r.receivedAt || r.fecha_recepcion || null,
         extractor_output: extractorObj,
         parsed_subject: parsedSubject,
+        puesto: puestoPlano,
+        fecha_termino: fechaTerminoPlano,
+        fecha_ingreso: fechaIngresoPlano,
         n8n_execution_id: trimOrNull(r.n8n_execution_id || r.n8nExecutionId),
         nombre_asunto: trimOrNull(r.nombreAsunto || parsedSubject.nombre || nombrePlano),
         cliente_asunto: trimOrNull(r.clienteAsunto || parsedSubject.cliente || clientePlano),
@@ -187,13 +248,22 @@ function mapDynamoZohoPayload(rawItem) {
     };
 }
 
+const CH_TEXT_KEYS = new Set([
+    'nombre',
+    'cliente',
+    'puesto',
+    'nombres',
+    'primer_apellido',
+    'segundo_apellido'
+]);
+
 function normalizeExtractorPayload(extractorOutput, tipoNovedad) {
     if (!extractorOutput || typeof extractorOutput !== 'object') return {};
     const flat = flattenExtractorOutput(extractorOutput);
     const out = {};
     for (const [k, v] of Object.entries(flat)) {
         if (v === undefined || v === null || v === '') continue;
-        if (['nombre', 'cliente', 'puesto', 'nombres', 'primer_apellido', 'segundo_apellido'].includes(k)) {
+        if (CH_TEXT_KEYS.has(k)) {
             out[k] = normalizeChListText(v);
         } else {
             out[k] = v;
@@ -205,6 +275,150 @@ function normalizeExtractorPayload(extractorOutput, tipoNovedad) {
         delete out.fecha_ingreso;
     }
     return out;
+}
+
+function isEmptyNormValue(value) {
+    return value === undefined || value === null || value === '';
+}
+
+function setNormalizedIfEmpty(out, key, value) {
+    if (!out || !key) return;
+    if (!isEmptyNormValue(out[key])) return;
+    if (isEmptyNormValue(value)) return;
+    if (CH_TEXT_KEYS.has(key)) {
+        out[key] = normalizeChListText(value);
+    } else {
+        out[key] = value;
+    }
+}
+
+/**
+ * Completa payload_normalizado con campos planos Dynamo / parsed_subject
+ * cuando el extractor lite/MVP no los trae (match OK pero ficha incompleta).
+ * @param {Record<string, unknown>} normalized
+ * @param {ReturnType<typeof mapDynamoZohoPayload>} mapped
+ */
+function enrichNormalizedFromMapped(normalized, mapped = {}) {
+    const out = { ...(normalized || {}) };
+    const parsed =
+        mapped.parsed_subject && typeof mapped.parsed_subject === 'object' ? mapped.parsed_subject : {};
+
+    setNormalizedIfEmpty(out, 'cedula', mapped.cedula_plano || parsed.cedula);
+    setNormalizedIfEmpty(
+        out,
+        'nombre',
+        mapped.nombre_asunto || mapped.nombre_plano || parsed.nombre
+    );
+    setNormalizedIfEmpty(
+        out,
+        'cliente',
+        mapped.cliente_asunto || mapped.cliente_plano || parsed.cliente
+    );
+    setNormalizedIfEmpty(out, 'puesto', parsed.puesto || mapped.puesto);
+    setNormalizedIfEmpty(out, 'fecha_termino', parsed.fecha_termino || mapped.fecha_termino);
+    setNormalizedIfEmpty(out, 'fecha_ingreso', parsed.fecha_ingreso || mapped.fecha_ingreso);
+
+    for (const [key, value] of Object.entries(parsed)) {
+        if (!key || key.startsWith('_') || key === 'codigo' || key === 'id_registro') continue;
+        setNormalizedIfEmpty(out, key, value);
+    }
+
+    // Código de persona: forzar id_registro / plano (nunca Codigo_Oportunidad residual).
+    const codigoPersona =
+        mapped.id_registro || mapped.codigo_plano || parsed.id_registro || parsed.codigo;
+    if (!isEmptyNormValue(codigoPersona)) {
+        out.codigo = String(codigoPersona).trim();
+    }
+
+    const tipo = String(mapped.tipo_novedad || '').trim().toLowerCase();
+    if (tipo === 'modificacion_id' && out.fecha_ingreso) {
+        out.vigente_desde = out.fecha_ingreso;
+        delete out.fecha_ingreso;
+    }
+
+    if (
+        out.empleador != null &&
+        out.cliente != null &&
+        String(out.empleador).toLocaleUpperCase('es') === String(out.cliente).toLocaleUpperCase('es')
+    ) {
+        delete out.empleador;
+    }
+
+    return out;
+}
+
+/**
+ * Re-aplana extractor + enrich desde staging (retroactivo pendiente/sin_match).
+ * Preserva `__manual_edits` de ediciones CH previas.
+ * @param {object} row fila ficha_novedades_staging
+ * @returns {{ normalized: Record<string, unknown>, mapped: ReturnType<typeof mapDynamoZohoPayload> }}
+ */
+function rebuildNormalizedFromStagingRow(row) {
+    const raw = parseJsonField(row?.payload_raw) || {};
+    const prevNorm = parseJsonField(row?.payload_normalizado) || {};
+    const rawItem = {
+        record_type: ZOHO_RECORD_TYPE,
+        ...raw,
+        tipo_novedad: raw.tipo_novedad || row?.tipo_novedad,
+        id_registro: raw.id_registro || row?.id_registro,
+        subject: raw.subject || row?.subject,
+        codigo: raw.codigo || raw.id_registro || row?.id_registro
+    };
+    if (!rawItem.extractor_output && prevNorm.extractor_output) {
+        rawItem.extractor_output = prevNorm.extractor_output;
+    }
+
+    const mapped = mapDynamoZohoPayload(rawItem);
+    if (!mapped.tipo_novedad) mapped.tipo_novedad = row?.tipo_novedad || null;
+    if (!mapped.id_registro) mapped.id_registro = row?.id_registro || null;
+
+    const hasExtractor =
+        mapped.extractor_output &&
+        typeof mapped.extractor_output === 'object' &&
+        Object.keys(mapped.extractor_output).length > 0;
+
+    let normalized;
+    if (hasExtractor) {
+        normalized = enrichNormalizedFromMapped(
+            normalizeExtractorPayload(mapped.extractor_output, mapped.tipo_novedad || row?.tipo_novedad),
+            mapped
+        );
+    } else {
+        // Sin extractor: conservar payload previo (edits/planos) y solo saneamiento.
+        normalized = { ...prevNorm };
+        delete normalized.__manual_edits;
+        if (!isEmptyNormValue(row?.id_registro)) {
+            normalized.codigo = String(row.id_registro).trim();
+        } else if (!isEmptyNormValue(mapped.id_registro)) {
+            normalized.codigo = String(mapped.id_registro).trim();
+        }
+        if (
+            normalized.empleador != null &&
+            normalized.cliente != null &&
+            String(normalized.empleador).toLocaleUpperCase('es') ===
+                String(normalized.cliente).toLocaleUpperCase('es')
+        ) {
+            delete normalized.empleador;
+        }
+    }
+
+    const manual =
+        prevNorm.__manual_edits && typeof prevNorm.__manual_edits === 'object'
+            ? prevNorm.__manual_edits
+            : {};
+    for (const [key, value] of Object.entries(manual)) {
+        if (!key || key.startsWith('_')) continue;
+        if (value === null || value === undefined || value === '') {
+            delete normalized[key];
+        } else {
+            normalized[key] = value;
+        }
+    }
+    if (Object.keys(manual).length > 0) {
+        normalized.__manual_edits = manual;
+    }
+
+    return { normalized, mapped };
 }
 
 function buildMatchSnapshot(row) {
@@ -232,14 +446,83 @@ function buildIngestEnrichment(matchRow, matchStrategy, diffJson) {
  * @param {{ allowInactive?: boolean }} [options]
  * @returns {Promise<{ row: object|null, strategy: string|null }>}
  */
+/** Fold para comparar nombres de persona (tildes + puntuación). */
+function foldPersonName(value) {
+    return foldForMatch(value)
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Extrae nombre/cliente del subject Zoho cuando el payload trae "nada".
+ * @param {string|null|undefined} subject
+ * @returns {{ nombre: string|null, cliente: string|null }}
+ */
+function extractPersonHintsFromSubject(subject) {
+    const s = String(subject || '').replace(/\s+/g, ' ').trim();
+    if (!s) return { nombre: null, cliente: null };
+
+    let m = s.match(/Modificaci[oó]n sobre ID\s+\d+\s*-\s*(.+?)(?:-([^-()]+))?(?:\s*\(|$)/i);
+    if (m) {
+        return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
+    }
+    m = s.match(/Extensi[oó]n\s*-\s*(.+?)\s*\/\s*(.+?)\s*$/i);
+    if (m) {
+        return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
+    }
+    m = s.match(/Salida de\s+(.+?)\s+-\s+(.+?)(?:\s*\(|$)/i);
+    if (m) {
+        return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
+    }
+    m = s.match(/Cancelaci[oó]n de Ingreso\s+\d+\s*-\s*(.+?)\s+-\s*(.+?)(?:\s*\(|$)/i);
+    if (m) {
+        return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
+    }
+    return { nombre: null, cliente: null };
+}
+
+/** Códigos de persona Zoho / CH; evita IDs de ticket (p.ej. 16366). */
+function isLikelyPersonCodigo(codigo) {
+    const c = trimOrNull(codigo);
+    if (!c) return false;
+    if (/^20\d{5,}$/.test(c)) return true;
+    if (/[A-Za-z]/.test(c)) return true;
+    return c.length >= 8;
+}
+
+const NOMBRE_FOLD_SQL = `trim(regexp_replace(
+    regexp_replace(
+      lower(translate(trim(coalesce(nombre, '')),
+        'áàäâÁÀÄÂéèëêÉÈËÊíìïîÍÌÏÎóòöôÓÒÖÔúùüûÚÙÜÛñÑ',
+        'aaaaAAAAeeeeEEEEiiiiIIIIooooOOOOuuuuUUUUnN')),
+      '[^a-z0-9\\s]+', ' ', 'g'),
+    '\\s+', ' ', 'g'))`;
+
+const CLIENTE_FOLD_SQL = `trim(regexp_replace(
+    regexp_replace(
+      lower(translate(trim(coalesce(cliente, '')),
+        'áàäâÁÀÄÂéèëêÉÈËÊíìïîÍÌÏÎóòöôÓÒÖÔúùüûÚÙÜÛñÑ',
+        'aaaaAAAAeeeeEEEEiiiiIIIIooooOOOOuuuuUUUUnN')),
+      '[^a-z0-9\\s]+', ' ', 'g'),
+    '\\s+', ' ', 'g'))`;
+
 async function matchColaborador(pool, hints = {}, options = {}) {
-    const codigo = trimOrNull(hints.codigo);
+    const fromSubject = extractPersonHintsFromSubject(hints.subject);
+    const codigoRaw = trimOrNull(hints.codigo);
+    const codigo = isLikelyPersonCodigo(codigoRaw) ? codigoRaw : null;
     const cedula = normalizeCedula(hints.cedula);
-    const nombre = hints.nombre ? normalizeChListText(hints.nombre) : null;
-    const cliente = hints.cliente ? normalizeChListText(hints.cliente) : null;
+    const nombreRaw = trimOrNull(hints.nombre) || fromSubject.nombre;
+    const clienteRaw = trimOrNull(hints.cliente) || fromSubject.cliente;
+    const nombre = nombreRaw ? normalizeChListText(nombreRaw) : null;
+    const cliente = clienteRaw ? normalizeChListText(clienteRaw) : null;
+    const nombreFold = foldPersonName(nombreRaw || '');
+    const clienteFold = foldPersonName(clienteRaw || '');
     const tipo = String(hints.tipo_novedad || '').trim().toLowerCase();
     const allowInactive =
-        options.allowInactive === true || tipo === 'cancelacion_ingreso';
+        options.allowInactive === true ||
+        tipo === 'cancelacion_ingreso' ||
+        tipo === 'salida';
     const activoClause = allowInactive ? '' : ' AND activo = true';
 
     if (codigo) {
@@ -265,28 +548,33 @@ async function matchColaborador(pool, hints = {}, options = {}) {
         if (q.rows[0]) return { row: q.rows[0], strategy: 'cedula' };
     }
 
-    if (nombre && cliente) {
+    if (nombreFold && clienteFold) {
         const q = await pool.query(
             `SELECT cedula, nombre, cliente, codigo
              FROM colaboradores
-             WHERE LOWER(TRIM(nombre)) = LOWER($1)
-               AND LOWER(TRIM(cliente)) = LOWER($2)${activoClause}
+             WHERE ${NOMBRE_FOLD_SQL} = $1
+               AND ${CLIENTE_FOLD_SQL} = $2${activoClause}
              ORDER BY activo DESC, updated_at DESC NULLS LAST
              LIMIT 1`,
-            [nombre, cliente]
+            [nombreFold, clienteFold]
         );
         if (q.rows[0]) return { row: q.rows[0], strategy: 'nombre_cliente' };
     }
 
-    if (nombre) {
+    if (nombreFold) {
         const q = await pool.query(
             `SELECT cedula, nombre, cliente, codigo
              FROM colaboradores
-             WHERE LOWER(TRIM(nombre)) = LOWER($1)${activoClause}
+             WHERE ${NOMBRE_FOLD_SQL} = $1${activoClause}
              ORDER BY activo DESC, updated_at DESC NULLS LAST
-             LIMIT 1`,
-            [nombre]
+             LIMIT 2`,
+            [nombreFold]
         );
+        if (q.rows.length === 1) return { row: q.rows[0], strategy: 'nombre' };
+        if (q.rows.length > 1 && clienteFold) {
+            const byCli = q.rows.find((r) => foldPersonName(r.cliente) === clienteFold);
+            if (byCli) return { row: byCli, strategy: 'nombre_cliente' };
+        }
         if (q.rows[0]) return { row: q.rows[0], strategy: 'nombre' };
     }
 
@@ -298,6 +586,114 @@ async function loadColaboradorFull(pool, cedula) {
     if (!ced) return null;
     const q = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [ced]);
     return q.rows[0] || null;
+}
+
+/**
+ * @param {import('pg').Pool} pool
+ * @param {string[]} cedulas
+ * @returns {Promise<Map<string, object>>}
+ */
+async function loadColaboradoresFullByCedulas(pool, cedulas = []) {
+    const unique = [...new Set((cedulas || []).map(normalizeCedula).filter(Boolean))];
+    const map = new Map();
+    if (unique.length === 0) return map;
+    const q = await pool.query(`SELECT * FROM colaboradores WHERE cedula = ANY($1::text[])`, [unique]);
+    for (const row of q.rows || []) {
+        if (row?.cedula) map.set(String(row.cedula), row);
+    }
+    return map;
+}
+
+function parseDiffJsonLen(diffJson) {
+    if (Array.isArray(diffJson)) return diffJson.length;
+    const parsed = parseJsonField(diffJson);
+    return Array.isArray(parsed) ? parsed.length : 0;
+}
+
+const SIBLING_CLOSE_REASON = 'Cerrada por aprobación de otra ficha del mismo colaborador';
+
+function fichaSortTs(row) {
+    const d = row?.received_at || row?.created_at;
+    if (!d) return 0;
+    const t = new Date(d).getTime();
+    return Number.isNaN(t) ? 0 : t;
+}
+
+function toFichaListEntry(row) {
+    return {
+        id: row.id,
+        tipo_novedad: row.tipo_novedad,
+        subject: row.subject,
+        status: row.status,
+        diff_count: row.diff_count != null ? Number(row.diff_count) : 0,
+        received_at: row.received_at,
+        created_at: row.created_at,
+        id_registro: row.id_registro,
+        match_strategy: row.match_strategy
+    };
+}
+
+/**
+ * Agrupa inbox: por cédula matcheada; sin_match quedan 1:1.
+ * @param {Array<object>} items filas planas con diff_count
+ * @returns {Array<object>}
+ */
+function groupInboxByCedula(items = []) {
+    const groups = new Map();
+    const singles = [];
+
+    for (const row of items || []) {
+        const status = String(row.status || '').toLowerCase();
+        const ced = normalizeCedula(row.colaborador_cedula_match);
+        if (status === 'sin_match' || !ced) {
+            singles.push({
+                ...row,
+                id: row.id,
+                latest_id: row.id,
+                fichas_count: 1,
+                fichas: [toFichaListEntry(row)],
+                tipos: row.tipo_novedad ? [row.tipo_novedad] : [],
+                group_key: row.id
+            });
+            continue;
+        }
+        if (!groups.has(ced)) groups.set(ced, []);
+        groups.get(ced).push(row);
+    }
+
+    const groupedRows = [];
+    for (const [ced, rows] of groups.entries()) {
+        const sorted = [...rows].sort((a, b) => fichaSortTs(b) - fichaSortTs(a));
+        const latest = sorted[0];
+        const fichas = sorted.map(toFichaListEntry);
+        const tipos = [...new Set(sorted.map((r) => r.tipo_novedad).filter(Boolean))];
+        groupedRows.push({
+            id: latest.id,
+            latest_id: latest.id,
+            tipo_novedad: latest.tipo_novedad,
+            id_registro: latest.id_registro,
+            subject: latest.subject,
+            status: latest.status,
+            cedula_detectada: latest.cedula_detectada,
+            colaborador_cedula_match: ced,
+            colaborador_nombre_snap: latest.colaborador_nombre_snap,
+            received_at: latest.received_at,
+            created_at: latest.created_at,
+            reviewed_by: latest.reviewed_by,
+            reviewed_at: latest.reviewed_at,
+            n8n_execution_id: latest.n8n_execution_id,
+            match_strategy: latest.match_strategy,
+            diff_count: latest.diff_count != null ? Number(latest.diff_count) : 0,
+            fichas_count: fichas.length,
+            fichas,
+            tipos,
+            group_key: `cedula:${ced}`
+        });
+    }
+
+    const out = [...groupedRows, ...singles];
+    out.sort((a, b) => fichaSortTs(b) - fichaSortTs(a));
+    return out;
 }
 
 /** Último resumen de sync Dynamo → Postgres (compartido entre instancias del servicio). */
@@ -356,7 +752,10 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             };
         }
 
-        const normalized = normalizeExtractorPayload(mapped.extractor_output, mapped.tipo_novedad);
+        const normalized = enrichNormalizedFromMapped(
+            normalizeExtractorPayload(mapped.extractor_output, mapped.tipo_novedad),
+            mapped
+        );
         if (mapped.tipo_novedad === 'cancelacion_ingreso') {
             normalized.onboarding_status = 'cancelado_ingreso';
         }
@@ -370,6 +769,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             cedula: cedulaDetectada,
             nombre: normalized.nombre || mapped.nombre_asunto || mapped.nombre_plano,
             cliente: normalized.cliente || mapped.cliente_asunto || mapped.cliente_plano,
+            subject: mapped.subject || rawItem.subject,
             tipo_novedad: mapped.tipo_novedad
         });
 
@@ -492,18 +892,80 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
         const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
         params.push(limit, offset);
-        const q = await pool.query(
-            `SELECT id, tipo_novedad, id_registro, subject, status,
-                    cedula_detectada, colaborador_cedula_match, colaborador_nombre_snap,
-                    received_at, created_at, reviewed_by, reviewed_at, n8n_execution_id,
-                    match_strategy,
-                    jsonb_array_length(diff_json) AS diff_count
-             FROM ficha_novedades_staging
-             ${whereSql}
-             ORDER BY ${orderBy}
-             LIMIT $${p++} OFFSET $${p++}`,
-            params
-        );
+        // Inbox: traer payloads para recalcular diff_count vivo (el JSON guardado suele estar hinchado).
+        const selectSql = isHistoricoList
+            ? `SELECT id, tipo_novedad, id_registro, subject, status,
+                      cedula_detectada, colaborador_cedula_match, colaborador_nombre_snap,
+                      received_at, created_at, reviewed_by, reviewed_at, n8n_execution_id,
+                      match_strategy,
+                      jsonb_array_length(COALESCE(diff_json, '[]'::jsonb)) AS diff_count
+               FROM ficha_novedades_staging
+               ${whereSql}
+               ORDER BY ${orderBy}
+               LIMIT $${p++} OFFSET $${p++}`
+            : `SELECT id, tipo_novedad, id_registro, subject, status,
+                      cedula_detectada, colaborador_cedula_match, colaborador_nombre_snap,
+                      received_at, created_at, reviewed_by, reviewed_at, n8n_execution_id,
+                      match_strategy, payload_raw, payload_normalizado, diff_json
+               FROM ficha_novedades_staging
+               ${whereSql}
+               ORDER BY ${orderBy}
+               LIMIT $${p++} OFFSET $${p++}`;
+        const q = await pool.query(selectSql, params);
+
+        let items = q.rows;
+        if (!isHistoricoList && items.length > 0) {
+            const cedulas = items.map((r) => r.colaborador_cedula_match).filter(Boolean);
+            const colabMap = await loadColaboradoresFullByCedulas(pool, cedulas);
+            const persistJobs = [];
+            items = items.map((row) => {
+                const { normalized } = rebuildNormalizedFromStagingRow(row);
+                let diffJson = [];
+                const ced = normalizeCedula(row.colaborador_cedula_match);
+                if (ced && colabMap.has(ced)) {
+                    diffJson = buildDiff(colabMap.get(ced), normalized);
+                }
+                persistJobs.push({
+                    id: row.id,
+                    normalized,
+                    diffJson,
+                    prevLen: parseDiffJsonLen(row.diff_json)
+                });
+                return {
+                    id: row.id,
+                    tipo_novedad: row.tipo_novedad,
+                    id_registro: row.id_registro,
+                    subject: row.subject,
+                    status: row.status,
+                    cedula_detectada: row.cedula_detectada,
+                    colaborador_cedula_match: row.colaborador_cedula_match,
+                    colaborador_nombre_snap: row.colaborador_nombre_snap,
+                    received_at: row.received_at,
+                    created_at: row.created_at,
+                    reviewed_by: row.reviewed_by,
+                    reviewed_at: row.reviewed_at,
+                    n8n_execution_id: row.n8n_execution_id,
+                    match_strategy: row.match_strategy,
+                    diff_count: diffJson.length
+                };
+            });
+            // Persistir solo si el conteo cambió (evita escrituras inútiles).
+            await Promise.all(
+                persistJobs
+                    .filter((j) => j.prevLen !== j.diffJson.length)
+                    .map((j) =>
+                        pool.query(
+                            `UPDATE ficha_novedades_staging
+                             SET payload_normalizado = $2::jsonb,
+                                 diff_json = $3::jsonb
+                             WHERE id = $1::uuid AND status IN ('pendiente', 'sin_match')`,
+                            [j.id, JSON.stringify(j.normalized), JSON.stringify(j.diffJson)]
+                        )
+                    )
+            );
+            items = groupInboxByCedula(items);
+        }
+
         const countQ = await pool.query(
             `SELECT COUNT(*)::int AS total FROM ficha_novedades_staging ${whereSql}`,
             params.slice(0, params.length - 2)
@@ -517,16 +979,69 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
              WHERE status IN ('aplicado', 'rechazado') AND ${buzonTipoExclusionSql()}`
         );
         return {
-            items: q.rows,
-            total: countQ.rows[0]?.total || 0,
+            items,
+            // Inbox agrupado: total de filas de tabla = grupos; pendingCount sigue siendo fichas.
+            total: isHistoricoList ? countQ.rows[0]?.total || 0 : items.length,
             pendingCount: pendingQ.rows[0]?.pending || 0,
-            historicoCount: historicoQ.rows[0]?.total || 0
+            historicoCount: historicoQ.rows[0]?.total || 0,
+            fichasTotal: isHistoricoList ? undefined : countQ.rows[0]?.total || 0
         };
     }
 
     async function getNovedadById(id) {
         const q = await pool.query(`SELECT * FROM ficha_novedades_staging WHERE id = $1::uuid LIMIT 1`, [id]);
-        return q.rows[0] || null;
+        const row = q.rows[0] || null;
+        if (!row) return null;
+        if (!['pendiente', 'sin_match'].includes(row.status)) {
+            return row;
+        }
+
+        const { normalized } = rebuildNormalizedFromStagingRow(row);
+        row.payload_normalizado = normalized;
+
+        let diffJson = Array.isArray(row.diff_json)
+            ? row.diff_json
+            : parseJsonField(row.diff_json) || [];
+        if (row.colaborador_cedula_match) {
+            const current = await loadColaboradorFull(pool, row.colaborador_cedula_match);
+            if (current) {
+                diffJson = buildDiff(current, normalized);
+            }
+        }
+        row.diff_json = diffJson;
+
+        await pool.query(
+            `UPDATE ficha_novedades_staging
+             SET payload_normalizado = $2::jsonb,
+                 diff_json = $3::jsonb
+             WHERE id = $1::uuid AND status IN ('pendiente', 'sin_match')`,
+            [id, JSON.stringify(normalized), JSON.stringify(diffJson)]
+        );
+
+        // Hermanas del mismo consultor (para selector en modal).
+        const ced = normalizeCedula(row.colaborador_cedula_match);
+        if (ced && row.status === 'pendiente') {
+            const sibs = await pool.query(
+                `SELECT id, tipo_novedad, subject, status, id_registro, match_strategy,
+                        received_at, created_at,
+                        jsonb_array_length(COALESCE(diff_json, '[]'::jsonb)) AS diff_count
+                 FROM ficha_novedades_staging
+                 WHERE colaborador_cedula_match = $1
+                   AND status = 'pendiente'
+                   AND ${buzonTipoExclusionSql()}
+                 ORDER BY COALESCE(received_at, created_at) DESC NULLS LAST`,
+                [ced]
+            );
+            row.fichas = (sibs.rows || []).map(toFichaListEntry);
+            row.fichas_count = row.fichas.length;
+            row.latest_id = row.fichas[0]?.id || row.id;
+        } else {
+            row.fichas = [toFichaListEntry({ ...row, diff_count: diffJson.length })];
+            row.fichas_count = 1;
+            row.latest_id = row.id;
+        }
+
+        return row;
     }
 
     async function applyPatchToColaborador(cedula, patch) {
@@ -558,7 +1073,8 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         return q.rows[0];
     }
 
-    async function approveNovedad(id, reviewer = {}) {
+    async function approveNovedad(id, reviewer = {}, options = {}) {
+        const closeSiblings = options.closeSiblings === true;
         const row = await getNovedadById(id);
         if (!row) throw Object.assign(new Error('Novedad no encontrada'), { status: 404 });
         if (!['pendiente', 'sin_match'].includes(row.status)) {
@@ -640,7 +1156,26 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
              WHERE id = $1::uuid`,
             [id, reviewedBy]
         );
-        return { ok: true, status: 'aplicado', cedula };
+
+        let siblingsClosed = 0;
+        if (closeSiblings) {
+            const closed = await pool.query(
+                `UPDATE ficha_novedades_staging
+                 SET status = 'rechazado',
+                     reviewed_by = $3,
+                     reviewed_at = NOW(),
+                     processed_at = NOW(),
+                     error = $4
+                 WHERE colaborador_cedula_match = $1
+                   AND status = 'pendiente'
+                   AND id <> $2::uuid
+                 RETURNING id`,
+                [normalizeCedula(cedula), id, reviewedBy, SIBLING_CLOSE_REASON]
+            );
+            siblingsClosed = closed.rowCount || closed.rows?.length || 0;
+        }
+
+        return { ok: true, status: 'aplicado', cedula, siblings_closed: siblingsClosed };
     }
 
     async function rejectNovedad(id, reviewer = {}, reason = null) {
@@ -720,6 +1255,11 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         const diffRows = Array.isArray(row.diff_json) ? row.diff_json : parseJsonField(row.diff_json) || [];
         const diffFields = new Set(diffRows.map((d) => d.field).filter(Boolean));
         const normalized = { ...(row.payload_normalizado || {}) };
+        const manualEdits = {
+            ...(normalized.__manual_edits && typeof normalized.__manual_edits === 'object'
+                ? normalized.__manual_edits
+                : {})
+        };
 
         for (const key of editKeys) {
             if (!diffFields.has(key)) {
@@ -734,10 +1274,13 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             const val = normalizeEditValue(key, edits[key]);
             if (val === null || val === '') {
                 delete normalized[key];
+                manualEdits[key] = null;
             } else {
                 normalized[key] = val;
+                manualEdits[key] = val;
             }
         }
+        normalized.__manual_edits = manualEdits;
 
         const colab = await loadColaboradorFull(pool, cedula);
         if (!colab) throw Object.assign(new Error('Colaborador no encontrado'), { status: 404 });
@@ -756,7 +1299,11 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             [id, JSON.stringify(normalized), JSON.stringify(diffJson), reviewedBy]
         );
 
-        return getNovedadById(id);
+        // Devolver fila ya actualizada sin re-aplanar (preserva __manual_edits recién guardados).
+        row.payload_normalizado = normalized;
+        row.diff_json = diffJson;
+        row.reviewed_by = reviewedBy;
+        return row;
     }
 
     /**
@@ -917,6 +1464,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         isTipoEligibleForBuzon,
         getAllowedFieldsForTipo,
         normalizeExtractorPayload,
+        enrichNormalizedFromMapped,
         mapDynamoZohoPayload
     };
 }
@@ -930,8 +1478,16 @@ module.exports = {
     getAllowedFieldsForTipo,
     buildPatchFromNormalized,
     normalizeExtractorPayload,
+    enrichNormalizedFromMapped,
+    rebuildNormalizedFromStagingRow,
+    groupInboxByCedula,
     matchColaborador,
+    extractPersonHintsFromSubject,
+    foldPersonName,
+    isLikelyPersonCodigo,
     mapDynamoZohoPayload,
+    MONEY_FIELDS,
+    SIBLING_CLOSE_REASON,
     ZOHO_RECORD_TYPE,
     BUZON_EXCLUDED_TIPOS,
     WHITELIST_BY_TIPO,
