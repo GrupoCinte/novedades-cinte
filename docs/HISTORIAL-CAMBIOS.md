@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-27 16:12:09 · `fix/AUT-545-cancelaciones-sort-keys-asc-desc` · `31762cee`
+- **Commit:** `31762ceee46eb3ba72cd6fd341f16ae41246eb0e`
+- **Ticket:** AUT-545
+- **Requerimiento funcional:** En Cancelaciones, al hacer clic en el nombre de una columna la tabla ordena de forma ascendente/descendente de verdad (ya no parece “congelada” o desordenada cuando hay varias filas CARGANDO o con la misma cédula).
+- **Componente técnico:** `CancelacionesView.jsx` (rowKey por executionId), `cancelacionesSort.js` (comparador), `SortableGestionDataTable.jsx` (key por defecto), tests `cancelacionesSort.test.js`.
+- **Cambios (uno a uno):**
+  - Keys de fila estables por ejecución para que React reordene el DOM.
+  - Comparador numérico de cédula; sentinels CARGANDO/vacío al final; desempate por executionId.
+  - Tests de asc/desc y toggleSort.
+
 ### 2026-07-27 15:50:30 · `fix/AUT-552-listo-export-tras-aprobacion` · `c0e12189`
 - **Commit:** `c0e12189bea8472de057f0c4ecab2362f1088d9a`
 - **Ticket:** AUT-552

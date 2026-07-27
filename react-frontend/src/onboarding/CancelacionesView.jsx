@@ -5,28 +5,11 @@ import SortableGestionDataTable from './SortableGestionDataTable.jsx';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import { CANCELACIONES_DEFAULT_SORT, toggleSort } from './onboardingSortDefaults.js';
 import { fmtFecha } from './views.jsx';
-import {
-    isMonitorCancellation,
-    mapCancellationRow
-} from './cancelacionesFilter.js';
+import { isMonitorCancellation, mapCancellationRow } from './cancelacionesFilter.js';
+import { compareCancellationRows } from './cancelacionesSort.js';
 import { buildMonitorGlassModalTheme, monitorGlassModalSizeCls } from '../shared/modals/monitorGlassModalTheme.js';
 
 const SORT_KEYS = ['cedula', 'nombre', 'cliente', 'puesto', 'status', 'fecha_inicio', 'fecha_evento'];
-
-function compareRows(a, b, key, dir) {
-    const mul = dir === 'desc' ? -1 : 1;
-    if (key === 'fecha_evento') {
-        return (a._eventMs - b._eventMs) * mul;
-    }
-    if (key === 'fecha_inicio') {
-        const av = a.fecha_inicio || '';
-        const bv = b.fecha_inicio || '';
-        return av.localeCompare(bv, 'es') * mul;
-    }
-    const av = String(a[key] ?? '');
-    const bv = String(b[key] ?? '');
-    return av.localeCompare(bv, 'es', { sensitivity: 'base' }) * mul;
-}
 
 function ObservacionCell({ text, isLight }) {
     const value = String(text || '').trim();
@@ -96,9 +79,9 @@ export default function CancelacionesView({ auth, isLight }) {
     const rows = useMemo(() => {
         const mapped = executions.filter(isMonitorCancellation).map(mapCancellationRow);
         return [...mapped].sort((a, b) => {
-            const cmp = compareRows(a, b, sort.key, sort.dir);
+            const cmp = compareCancellationRows(a, b, sort.key, sort.dir);
             if (cmp !== 0) return cmp;
-            return compareRows(a, b, 'fecha_evento', 'asc');
+            return compareCancellationRows(a, b, 'fecha_evento', 'asc');
         });
     }, [executions, sort]);
 
@@ -153,6 +136,8 @@ export default function CancelacionesView({ auth, isLight }) {
                 sort={sort}
                 onSort={handleSort}
                 sortableKeys={SORT_KEYS}
+                // Clave estable por ejecución: cédula/CARGANDO se repiten y rompían el reorden visual (AUT-545).
+                rowKey={(r) => r.executionId || `${r.cedula || 'x'}-${r.fecha_evento || ''}-${r._eventMs || 0}`}
                 emptyText={loading ? 'Cargando…' : 'Sin cancelaciones o eliminaciones en el monitor.'}
                 onRowClick={setDetalleRow}
             />
