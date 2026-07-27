@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-27 13:32:59 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `3e0b2854`
+- **Commit:** `3e0b28542a86bb0323980fd354d06162538f43bb`
+- **Ticket:** AUT-207
+- **Requerimiento funcional:** En Novedades Zoho, el buzón agrupa por consultor (cédula) en lugar de acumular filas; dentro del modal se elige qué ficha revisar; al aprobar se puede cerrar (rechazar) las demás pendientes del mismo consultor.
+- **Componente técnico:** `fichaNovedadesService.js` (`groupInboxByCedula`, `approveNovedad` closeSiblings), rutas aprobar, `FichaNovedadesView.jsx`, tests.
+- **Cambios (uno a uno):**
+  - Listado inbox agrupado: badge Fichas + cambios de la más reciente; `sin_match` sueltas.
+  - Selector de ficha en el modal; confirmación al aprobar con hermanas.
+  - Conteo de cambios del listado recalculado vivo (incluido en el mismo flujo).
+
 ### 2026-07-27 13:11:23 · `fix/AUT-207-ficha-campos-zoho-vs-bd` · `0ecc4d57`
 - **Commit:** `0ecc4d57dc2c57c1bf67bc7c3bb5372081526e12`
 - **Ticket:** AUT-207
