@@ -21,6 +21,17 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
 
+### 2026-07-27 10:56:19 · `feat/AUT-262-cronometro-actividades-consultor` · `f25fbbb`
+- **Commit:** `f25fbbbd27e3503f68e4968fb6f6c33ba089ff02`
+- **Ticket:** AUT-262
+- **Requerimiento funcional:** Ajuste de UI para permitir que la descripción en el historial haga salto de línea automático y que el campo de descripción al iniciar el cronómetro tenga auto-resize (crezca automáticamente) respetando el diseño responsive y el tema.
+- **Componente técnico:** `react-frontend/src/consultor/actividades/MisActividadesModule.jsx`.
+- **Cambios (uno a uno):**
+  - Se modificó la celda de la tabla del historial (`dash.tdCell`) aplicando un override de estilos `!whitespace-normal break-words` para evitar el truncado de descripciones largas.
+  - Se reemplazó el `input` de descripción del cronómetro por un `textarea` con `onInput` dinámico que permite el auto-resize manteniendo la altura base.
+  - Se interceptó el evento `onKeyDown` en el textarea para enviar el formulario con la tecla Enter.
+
+
 ### 2026-07-24 18:12:41 · `feat/AUT-262-cronometro-actividades-consultor` · `78f9670`
 - **Commit:** `78f9670c22abb7af124ea0c117ee40c7ab3776d9`
 - **Ticket:** AUT-262
