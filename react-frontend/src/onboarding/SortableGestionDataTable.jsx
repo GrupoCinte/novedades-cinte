@@ -20,7 +20,12 @@ export default function SortableGestionDataTable({
     const getRowKey =
         typeof rowKey === 'function'
             ? rowKey
-            : (row, idx) => row?.id ?? row?.cedula ?? row?.executionId ?? idx;
+            : (row, idx) => {
+                  // Preferir id de ejecución/negocio antes que cédula (puede repetirse o ser CARGANDO).
+                  const stable = row?.executionId ?? row?.id ?? row?.ticketId;
+                  if (stable != null && String(stable).trim() !== '') return String(stable);
+                  return `row-${idx}-${String(row?.cedula ?? '')}-${String(row?.fecha_evento ?? row?.fecha_inicio ?? '')}`;
+              };
 
     const isSortable = (col) => {
         if (!col?.key || col.sortable === false) return false;
