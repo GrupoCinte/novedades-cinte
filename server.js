@@ -91,6 +91,7 @@ const { createTiRolesStore } = require('./src/cotizador/tiRolesStore');
 const { registerCotizadorRoutes } = require('./src/cotizador/registerCotizadorRoutes');
 const { registerTiRolesRoutes } = require('./src/cotizador/registerTiRolesRoutes');
 const { registerContratacionRoutes } = require('./src/contratacion/registerContratacionRoutes');
+const { registerOnboardingRoutes } = require('./src/onboarding/registerOnboardingRoutes');
 const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
 const { registerConciliacionesRoutes } = require('./src/conciliaciones/registerConciliacionesRoutes');
 const { createEmailNotificationsPublisher } = require('./src/notifications/emailNotificationsPublisher');
@@ -229,6 +230,9 @@ app.use(cors({
             if (corsAllowTryCloudflare && parsed.hostname.endsWith('.trycloudflare.com')) {
                 return callback(null, true);
             }
+            if (parsed.hostname.endsWith('.amplifyapp.com') || parsed.hostname.endsWith('.loca.lt')) {
+                return callback(null, true);
+            }
         } catch {
             // Ignorar origen malformado y rechazar.
         }
@@ -236,7 +240,7 @@ app.use(cors({
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-cinte-xsrf', 'X-Request-Id'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-cinte-xsrf', 'X-Request-Id', 'Bypass-Tunnel-Reminder'],
     exposedHeaders: ['X-Request-Id']
 }));
 
@@ -301,6 +305,8 @@ app.use((req, res, next) => {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
     if (String(req.get('authorization') || '').startsWith('Bearer ')) return next();
     if (CSRF_SKIP_PATHS.has(p)) return next();
+    // Aprobar/rechazar conciliación desde enlace de correo (auth por token de un solo uso).
+    if (p.startsWith('/api/conciliaciones/email-accion/')) return next();
     const hdr = String(req.get('x-cinte-xsrf') || req.get('x-xsrf-token') || '').trim();
     if (!hdr || !cookie || hdr !== cookie) {
         return res.status(403).json({ ok: false, error: 'CSRF token inválido o ausente' });
@@ -308,7 +314,16 @@ app.use((req, res, next) => {
     return next();
 });
 
-app.use('/assets', express.static(path.join(__dirname, 'assets')));
+app.use(
+    '/assets',
+    (req, res, next) => {
+        // Logo/assets embebidos en correos (origen distinto: Gmail/Outlook web). Sin esto Helmet
+        // deja Cross-Origin-Resource-Policy: same-origin y el <img> queda roto.
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        next();
+    },
+    express.static(path.join(__dirname, 'assets'))
+);
 
 const AUTH_RATE_LIMIT_WINDOW_MIN = Number(process.env.AUTH_RATE_LIMIT_WINDOW_MIN || 15);
 const AUTH_RATE_LIMIT_MAX = Number(process.env.AUTH_RATE_LIMIT_MAX || 10);
@@ -484,6 +499,18 @@ const contratacionWsTokenLimiter = rateLimit({
     message: { success: false, message: 'Demasiadas solicitudes de ticket WebSocket. Intente más tarde.' }
 });
 
+const CONCILIACION_EMAIL_RATE_LIMIT_WINDOW_MIN = Number(process.env.CONCILIACION_EMAIL_RATE_LIMIT_WINDOW_MIN || 15);
+const CONCILIACION_EMAIL_RATE_LIMIT_MAX = Number(process.env.CONCILIACION_EMAIL_RATE_LIMIT_MAX || 40);
+
+const emailAccionLimiter = rateLimit({
+    windowMs: CONCILIACION_EMAIL_RATE_LIMIT_WINDOW_MIN * 60 * 1000,
+    max: CONCILIACION_EMAIL_RATE_LIMIT_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => `email-accion:${ipKeyGenerator(req.ip || '127.0.0.1')}`,
+    message: { ok: false, error: 'Demasiados intentos. Espera unos minutos.' }
+});
+
 const CONTRATACION_WS_TICKET_TTL_SEC = Number(process.env.CONTRATACION_WS_TICKET_TTL_SEC || 300);
 const contratacionWsSecret = (process.env.CONTRATACION_WS_SECRET || SECRET_KEY || '').trim();
 
@@ -553,11 +580,6 @@ const cognitoIdpClient = new CognitoIdentityProviderClient({
         }
     } : {})
 });
-const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
-    cognitoClient: cognitoIdpClient,
-    userPoolId: COGNITO_USER_POOL_ID,
-    getNovedadRuleByType
-});
 const emailNotificationsPublisher = createEmailNotificationsPublisher({
     lambdaClient,
     functionName: EMAIL_LAMBDA_FUNCTION_NAME,
@@ -624,6 +646,7 @@ const {
     ensureNovedadesHoraExtraAlertColumns,
     ensureNovedadesHeDomingoObservacionColumn,
     ensureNovedadesNominaVerificacionColumns,
+    ensureNovedadesNominaProcesadoColumns,
     ensureNovedadesHorasRecargoDomingoColumn,
     ensureNovedadesModalidadVotacionUnidadColumns,
     ensureNovedadesObservacionesColumn,
@@ -636,19 +659,38 @@ const {
     ensureReubicacionesPipelineTable,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
+    ensureMallaTurnoAprobacionTable,
+    ensureMallaNocturnoConfigTable,
+    ensureNovedadesMallaOrigenRefColumn,
     listMallaTurnosCeldasRange,
     upsertMallaTurnosCeldas,
+    getMallaTurnoAprobacionStatus,
+    getMallaNocturnoConfig,
+    upsertMallaNocturnoConfig,
+    listAssignedClientesForGpUserId,
+    resolveGpInternalUserIdForScope,
+    ensureConciliacionesFacturacionTable,
+    ensureConciliacionesFacturacionHistorialTable,
+    ensureConciliacionesServicioNotificacionesTable,
+    ensureConciliacionesServicioCierreTable,
+    ensureConciliacionesEmailPlantillasTable,
+    ensureConciliacionesEmailAccionesTable,
+    ensureConciliacionesNovedadConsumoTable,
+    ensureColaboradorAsignacionesTable,
+    ensureColaboradorTarifaHistorialTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     getColaboradorByCedula,
     getColaboradorByEmail,
     getClientesList,
     getLideresByCliente,
+    listGpEmailsForCliente,
     listClientesLideresPaged,
     listClientesLideresByClienteSummaryPaged,
     getClientesNitMapFromLideres,
     insertClienteLider,
     updateClienteLiderById,
+    deleteClienteLiderById,
     listColaboradoresPaged,
     insertColaborador,
     updateColaboradorByCedula,
@@ -661,13 +703,43 @@ const {
     linkGpCognitoSubByEmail,
     migrateExcelIfNeeded,
     getScopedNovedades,
+    buildScopedNovedadesWhere,
     listScopedDistinctClientes,
     getHoraExtraAlerts,
     listHoraExtraByCedulaForDomingoPolicy,
     listConciliacionesClientesForScope,
     getConciliacionResumenPorClienteMesForScope,
+    getConciliacionResumenTodosClientesMesForScope,
     listConciliacionNovedadesDetalleForScope,
-    getConciliacionesDashboardResumenForScope
+    getConciliacionesDashboardResumenForScope,
+    upsertConciliacionFacturacionForScope,
+    applyConciliacionFacturacionRevisionForScope,
+    applyConciliacionFacturacionRevisionMasivaForScope,
+    applyConciliacionFacturacionAjustesForScope,
+    createConciliacionNovedadManualForScope,
+    listConciliacionFacturacionHistorialForScope,
+    upsertConciliacionFacturacionMasivaForScope,
+    deleteConciliacionFacturacionForScope,
+    listConciliacionesFacturacionForScope,
+    getColaCierresPorMesForScope,
+    listServiciosForScope,
+    createServicioForScope,
+    updateServicioForScope,
+    deleteServicioForScope,
+    listServicioConsultoresForScope,
+    listConsultoresDisponiblesClienteForScope,
+    upsertServicioConsultoresForScope,
+    listDashboardLiderClienteRowsForScope,
+    exportConciliacionServicioExcelForScope,
+    markConciliacionServicioEnviadaForScope,
+    markConciliacionServicioConciliadaForScope,
+    enviarConciliacionServicioCorreoForScope,
+    getConciliacionEmailAccionContext,
+    decideConciliacionEmailAccion,
+    decideMasivoConciliacionEmailAccion,
+    finalizeConciliacionEmailAccion,
+    getConciliacionEmailPlantillaCorreoLiderForScope,
+    upsertConciliacionEmailPlantillaCorreoLiderForScope
 } = createDataLayer({
     pool,
     fs,
@@ -676,7 +748,18 @@ const {
     normalizeCatalogValue,
     normalizeCedula,
     canRoleViewType,
-    getAreaFromRole
+    getAreaFromRole,
+    emailNotificationsPublisher,
+    frontendUrl: FRONTEND_URL,
+    cognitoClient: cognitoIdpClient,
+    cognitoUserPoolId: COGNITO_USER_POOL_ID
+});
+
+const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
+    cognitoClient: cognitoIdpClient,
+    userPoolId: COGNITO_USER_POOL_ID,
+    getNovedadRuleByType,
+    resolveGpEmailsForCliente: listGpEmailsForCliente
 });
 
 const { registerRoutes } = require('./src/registerRoutes');
@@ -733,6 +816,7 @@ registerRoutes({
     allowPanel,
     applyScope,
     getScopedNovedades,
+    buildScopedNovedadesWhere,
     listScopedDistinctClientes,
     getHoraExtraAlerts,
     listHoraExtraByCedulaForDomingoPolicy,
@@ -783,6 +867,7 @@ registerDirectorioRoutes({
     listClientesLideresByClienteSummaryPaged,
     insertClienteLider,
     updateClienteLiderById,
+    deleteClienteLiderById,
     listColaboradoresPaged,
     insertColaborador,
     updateColaboradorByCedula,
@@ -795,19 +880,61 @@ registerDirectorioRoutes({
     linkGpCognitoSubByEmail,
     normalizeCedula,
     listMallaTurnosCeldasRange,
-    upsertMallaTurnosCeldas
+    upsertMallaTurnosCeldas,
+    getMallaTurnoAprobacionStatus,
+    getMallaNocturnoConfig,
+    upsertMallaNocturnoConfig,
+    getColaboradorByCedula,
+    listAssignedClientesForGpUserId,
+    resolveGpInternalUserIdForScope
 });
 
-registerConciliacionesRoutes({
-    app,
-    verificarToken,
-    allowAnyPanel,
-    applyScope,
-    listConciliacionesClientesForScope,
-    getConciliacionResumenPorClienteMesForScope,
-    listConciliacionNovedadesDetalleForScope,
-    getConciliacionesDashboardResumenForScope
-});
+// Conciliaciones queda detras de un flag: por defecto OFF (apagado en produccion).
+// Activar en QA/entornos de prueba con CONCILIACIONES_MODULE_ENABLED=true.
+const conciliacionesModuleEnabled = String(process.env.CONCILIACIONES_MODULE_ENABLED || 'false').toLowerCase() === 'true';
+if (conciliacionesModuleEnabled) {
+    registerConciliacionesRoutes({
+        app,
+        verificarToken,
+        allowAnyPanel,
+        applyScope,
+        listConciliacionesClientesForScope,
+        getConciliacionResumenPorClienteMesForScope,
+        getConciliacionResumenTodosClientesMesForScope,
+        listConciliacionNovedadesDetalleForScope,
+        getConciliacionesDashboardResumenForScope,
+        upsertConciliacionFacturacionForScope,
+        applyConciliacionFacturacionRevisionForScope,
+        applyConciliacionFacturacionRevisionMasivaForScope,
+        applyConciliacionFacturacionAjustesForScope,
+        createConciliacionNovedadManualForScope,
+        listConciliacionFacturacionHistorialForScope,
+        upsertConciliacionFacturacionMasivaForScope,
+        deleteConciliacionFacturacionForScope,
+        listConciliacionesFacturacionForScope,
+        getColaCierresPorMesForScope,
+        listServiciosForScope,
+        createServicioForScope,
+        updateServicioForScope,
+        deleteServicioForScope,
+        listServicioConsultoresForScope,
+        listConsultoresDisponiblesClienteForScope,
+        upsertServicioConsultoresForScope,
+        listDashboardLiderClienteRowsForScope,
+        exportConciliacionServicioExcelForScope,
+        markConciliacionServicioEnviadaForScope,
+        markConciliacionServicioConciliadaForScope,
+        enviarConciliacionServicioCorreoForScope,
+        getConciliacionEmailAccionContext,
+        decideConciliacionEmailAccion,
+        decideMasivoConciliacionEmailAccion,
+        finalizeConciliacionEmailAccion,
+        getConciliacionEmailPlantillaCorreoLiderForScope,
+        upsertConciliacionEmailPlantillaCorreoLiderForScope,
+        pool,
+        emailAccionLimiter
+    });
+}
 
 registerCotizadorRoutes({
     app,
@@ -846,6 +973,19 @@ registerContratacionRoutes({
     wsTicketTtlSec: CONTRATACION_WS_TICKET_TTL_SEC
 });
 
+registerOnboardingRoutes({
+    app,
+    pool,
+    verificarToken,
+    allowPanel,
+    allowRoles,
+    disallowRoles,
+    adminActionLimiter,
+    catalogLimiter,
+    normalizeCedula,
+    updateColaboradorByCedula
+});
+
 startServer({
     app,
     pool,
@@ -860,6 +1000,7 @@ startServer({
     ensureNovedadesHoraExtraAlertColumns,
     ensureNovedadesHeDomingoObservacionColumn,
     ensureNovedadesNominaVerificacionColumns,
+    ensureNovedadesNominaProcesadoColumns,
     ensureNovedadesHorasRecargoDomingoColumn,
     ensureNovedadesModalidadVotacionUnidadColumns,
     ensureNovedadesObservacionesColumn,
@@ -872,6 +1013,18 @@ startServer({
     ensureReubicacionesPipelineTable,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
+    ensureMallaTurnoAprobacionTable,
+    ensureMallaNocturnoConfigTable,
+    ensureNovedadesMallaOrigenRefColumn,
+    ensureConciliacionesFacturacionTable,
+    ensureConciliacionesFacturacionHistorialTable,
+    ensureConciliacionesServicioNotificacionesTable,
+    ensureConciliacionesServicioCierreTable,
+    ensureConciliacionesEmailPlantillasTable,
+    ensureConciliacionesEmailAccionesTable,
+    ensureConciliacionesNovedadConsumoTable,
+    ensureColaboradorAsignacionesTable,
+    ensureColaboradorTarifaHistorialTable,
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     PORT,
@@ -880,6 +1033,7 @@ startServer({
     COGNITO_USER_POOL_ID,
     COGNITO_APP_CLIENT_SECRET,
     s3Client,
+    S3_ENABLED,
     S3_BUCKET_NAME,
     S3_REGION,
     S3_AUTH_MODE

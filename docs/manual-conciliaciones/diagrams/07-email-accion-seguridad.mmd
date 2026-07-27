@@ -1,0 +1,12 @@
+sequenceDiagram
+    participant Lider as Lider_correo
+    participant FE as EmailAccionPage
+    participant API as Backend
+    participant DB as PostgreSQL
+
+    Lider->>FE: Abre enlace con token en query (frontend)
+    FE->>API: GET /api/conciliaciones/email-accion/context?token=
+    API->>DB: SELECT por token_hash
+    FE->>API: POST /api/conciliaciones/email-accion/approve body token
+    API->>DB: BEGIN / SELECT FOR UPDATE / accion / UPDATE usado_at / COMMIT
+    API-->>FE: ok estado CONCILIADA o DEVUELTA

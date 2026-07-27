@@ -67,4 +67,118 @@ export interface FormStatusChangedNotificationEvent {
 
 export type TransactionalEmailEvent =
   | FormSubmittedNotificationEvent
-  | FormStatusChangedNotificationEvent;
+  | FormStatusChangedNotificationEvent
+  | ConciliacionServicioFinalizadaEvent
+  | ConciliacionCorreoLiderEvent
+  | ConciliacionStakeholdersAvisoEvent;
+
+export interface ConciliacionCorreoLiderEvent {
+  eventType: 'conciliacion_correo_lider';
+  eventId: string;
+  occurredAt: string;
+  conciliacionServicioId: string;
+  recipient: { name?: string; email: string };
+  asunto: string;
+  introHtml: string;
+  tableHtml: string;
+  cierreHtml?: string;
+  columnas?: string[];
+  plazoLabel?: string | null;
+  ttlHours?: number | null;
+  expiraAt?: string | null;
+  servicio: {
+    id: string;
+    serviceName: string;
+    cliente: string;
+    anio: number;
+    mes: number;
+  };
+  sentBy?: {
+    email?: string | null;
+    nombre?: string | null;
+  };
+  meta: {
+    source: string;
+    env: string;
+  };
+  actions?: {
+    viewUrl?: string;
+    approveUrl?: string;
+    rejectUrl?: string;
+  };
+}
+
+export interface ConciliacionStakeholdersAvisoEvent {
+  eventType: 'conciliacion_stakeholders_aviso';
+  eventId: string;
+  occurredAt: string;
+  kind: 'enviada' | 'aprobada' | 'rechazada' | 'parcial';
+  conciliacionServicioId: string;
+  recipients: Array<{ name?: string; email: string }>;
+  servicio: {
+    id: string;
+    serviceName: string;
+    cliente: string;
+    anio: number;
+    mes: number;
+  };
+  lider?: {
+    email?: string | null;
+    nombre?: string | null;
+  };
+  sentBy?: {
+    email?: string | null;
+    nombre?: string | null;
+  };
+  resumen?: {
+    aprobados?: number;
+    rechazados?: number;
+  };
+  admin?: {
+    actionUrl?: string;
+  };
+  meta: {
+    source: string;
+    env: string;
+  };
+}
+
+export interface ConciliacionServicioFinalizadaEvent {
+  eventType: 'conciliacion_servicio_finalizada';
+  eventId: string;
+  occurredAt: string;
+  conciliacionServicioId: string;
+  recipients: Array<{ name?: string; email: string }>;
+  servicio: {
+    id: string;
+    serviceName: string;
+    cliente: string;
+    anio: number;
+    mes: number;
+    billingType?: string;
+    billingMode?: string;
+  };
+  totales: {
+    tarifaSum: number;
+    incrementoSum: number;
+    deduccionSum: number;
+    facturaSum: number;
+  };
+  consultores: Array<{
+    nombre: string;
+    cedula: string;
+    estado: string;
+    facturaCop: number;
+  }>;
+  approvedBy?: {
+    email?: string | null;
+    nombre?: string | null;
+  };
+  admin: {
+    actionUrl: string;
+  };
+  meta: {
+    source: string;
+    env: string;
+  };
+}

@@ -1,0 +1,17 @@
+{
+  "name": "contratacion-stream-lambda",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "package": "node scripts/package-lambda.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.927.0",
+    "@aws-sdk/client-dynamodb": "^3.927.0",
+    "@aws-sdk/lib-dynamodb": "^3.927.0",
+    "@aws-sdk/util-dynamodb": "^3.927.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

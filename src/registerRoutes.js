@@ -5,28 +5,78 @@ const {
 } = require('./rbac');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
 const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
-const { computeHoraExtraSplitBogota, resolveHoraExtraLabel } = require('./heBogotaSplit');
-const { formatCantidadNovedad, getCantidadMedidaKind } = require('./novedadCantidadFormat');
+const { computeHoraExtraSplitBogota, resolveHoraExtraLabel, collectRecargoDayKeysInInterval } = require('./heBogotaSplit');
+const { triggerDomingoRecargoRecomputeForInterval, recomputeAndPersistDomingoRecargoGroup } = require('./heDomingoRecargoGroup');
+const {
+    formatCantidadNovedad,
+    formatCantidadNovedadExcelPlain,
+    medidaExcelLabel,
+    getCantidadMedidaKind,
+    getDiasEfectivosNovedad,
+    countCalendarDaysInclusive,
+    countBusinessDaysInclusive: countBusinessDaysInclusiveCantidad
+} = require('./novedadCantidadFormat');
+const {
+    shouldSplitNovedadByCalendarMonth,
+    splitDateRangeByCalendarMonth,
+    computeSegmentCantidadHoras,
+    buildSegmentObservacion
+} = require('./novedadMonthlySplit');
 const {
     buildHoraExtraExportSlices,
     compensacionDominicalExcelEtiqueta,
-    formatTipoNovedadHeSlice
+    formatTipoNovedadHeSlice,
+    formatTipoNovedadHeLegacy,
+    msRangeToExcelHoraFields
 } = require('./novedadHeExcelExport');
 const { parseTimeOrNull: parseTimeOrNullForExport } = require('./utils');
 const {
     computeHeDomingoCompensacionPreview,
     buildHeDomingoCompObservacionLine,
-    formatHeDomingoCompTipoSuffix,
     buildSyntheticHoraExtraRow,
     isYmdEnVentanaCompensatorio
 } = require('./heDomingoCompensacion');
 const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
+const { markNominaProcesado } = require('./nominaProcesadoService');
 const festivosService = require('./festivosService');
 const { decodePossiblyMisencodedText } = require('./novedadesMapper');
 const { validateObservacionesRechazo } = require('./novedadPersistValidation');
 
 // Inicializar festivos en background al arrancar el servidor
 festivosService.initFestivosCache();
+
+/**
+ * Compensatorio por votación/jurado: jornadas electorales habilitadas (2026).
+ * Solo se permite radicar contra una de estas fechas de votación.
+ * Ventana de disfrute por modalidad: 45 días calendario para jurado, 30 para votación (medio día).
+ */
+const FECHAS_VOTACION_HABILITADAS = new Set(['2026-05-31', '2026-06-21']);
+const DIAS_DISFRUTE_JURADO = 45;
+const DIAS_DISFRUTE_VOTO = 30;
+
+/** Normaliza un valor de hora a HH:MM:SS para comparación lexicográfica del mismo día. */
+function toHmsForCompare(value) {
+    return String(value || '').trim().slice(0, 8);
+}
+
+/**
+ * Detecta si una nueva franja [nuevoIni, nuevoFin) se solapa con alguna de las franjas
+ * existentes (cada una con { hora_inicio, hora_fin }). Los bordes que se tocan
+ * (fin == inicio) NO cuentan como solape. Devuelve la franja existente que choca o null.
+ */
+function findVotacionFranjaSolapada(nuevoIniRaw, nuevoFinRaw, existentes = []) {
+    const nuevoIni = toHmsForCompare(nuevoIniRaw);
+    const nuevoFin = toHmsForCompare(nuevoFinRaw);
+    if (!nuevoIni || !nuevoFin) return null;
+    return (
+        (existentes || []).find((r) => {
+            const exIni = toHmsForCompare(r && r.hora_inicio);
+            const exFin = toHmsForCompare(r && r.hora_fin);
+            if (!exIni || !exFin) return false;
+            return nuevoIni < exFin && exIni < nuevoFin;
+        }) || null
+    );
+}
 
 /** HH:MM para Excel; tolera hora de un dígito desde BD. */
 function formatHoraMinutaParaExcel(value) {
@@ -56,39 +106,79 @@ function itemIsHoraExtraTipo(it) {
 }
 
 /**
- * Solo export Excel: enriquece «Tipo Novedad» para Hora Extra listando tipologías (nunca «Mixta»).
+ * Solo export Excel: etiquetas canónicas HE para fila legacy (sin desglose por componentes).
  */
 function formatTipoNovedadParaExportExcel(it) {
     const tipo = String(it?.tipoNovedad || '').trim();
     if (!itemIsHoraExtraTipo(it)) return tipo;
-    const partes = [];
-    const hd = Number(it?.horasDiurnas || 0);
-    const hn = Number(it?.horasNocturnas || 0);
-    const rdd = Number(it?.horasRecargoDomingoDiurnas || 0);
-    const rdn = Number(it?.horasRecargoDomingoNocturnas || 0);
-    const rTot = Number(it?.horasRecargoDomingo || 0);
-    if (hd > 0) partes.push('Hora Diurna');
-    if (hn > 0) partes.push('Hora Nocturna');
-    if (rdd > 0) partes.push('Recargo dominical diurno');
-    if (rdn > 0) partes.push('Recargo dominical nocturno');
-    if (rTot > 0 && rdd === 0 && rdn === 0) partes.push('Recargo dominical');
-    if (partes.length === 0) {
-        const raw = String(it?.tipoHoraExtra || '').trim();
-        const fold = raw
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .toLowerCase();
-        if (fold === 'diurna') partes.push('Hora Diurna');
-        else if (fold === 'nocturna') partes.push('Hora Nocturna');
-        else if (fold === 'mixta') {
-            partes.push('Hora Diurna', 'Hora Nocturna');
-        } else if (raw) partes.push(raw);
+    return formatTipoNovedadHeLegacy(it);
+}
+
+/** Columnas Excel de procesado nómina (post-aprobación). */
+/** Fecha de la decisión para el Excel: aprobación (o rechazo) formateada, '' si sigue pendiente. */
+function resolveFechaAprobacionExcel(it) {
+    const iso = it?.estado === 'Rechazado' ? it?.rechazadoEn : it?.aprobadoEn;
+    return iso ? new Date(iso).toLocaleString('es-ES') : '';
+}
+
+function appendNominaProcesadoExcelFields(baseRow, it) {
+    return {
+        ...baseRow,
+        nominaProcesado: it.nominaProcesado ? 'Sí' : 'No',
+        nominaProcesadoEn: it.nominaProcesadoEn
+            ? new Date(it.nominaProcesadoEn).toLocaleString('es-ES')
+            : '',
+        nominaProcesadoPorCorreo: it.nominaProcesadoPorCorreo || '',
+        nominaProcesadoLote: it.nominaProcesadoLote || ''
+    };
+}
+
+/** Query params compartidos entre listado y export Excel de novedades. */
+function parseNovedadesListQuery(query) {
+    const tipo = String(query?.tipo || '').trim();
+    const estado = String(query?.estado || '').trim();
+    const nombre = String(query?.nombre || '').trim();
+    const cliente = String(query?.cliente || '').trim();
+    const createdFrom = String(query?.createdFrom || '').trim();
+    const createdTo = String(query?.createdTo || '').trim();
+    const gpUserId = String(query?.gpUserId || '').trim();
+    const leadTimeBucketRaw = String(query?.leadTimeBucket || '').trim();
+    const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
+    const nominaProcesadoRaw = String(query?.nominaProcesado || '').trim().toLowerCase();
+    const nominaProcesado = nominaProcesadoRaw === 'si' || nominaProcesadoRaw === 'no' ? nominaProcesadoRaw : '';
+    const fechaInicioDesdeRaw = String(query?.fechaInicioDesde || '').trim();
+    const fechaInicioHastaRaw = String(query?.fechaInicioHasta || '').trim();
+    const fechaInicioDesde = /^\d{4}-\d{2}-\d{2}$/.test(fechaInicioDesdeRaw) ? fechaInicioDesdeRaw : '';
+    const fechaInicioHasta = /^\d{4}-\d{2}-\d{2}$/.test(fechaInicioHastaRaw) ? fechaInicioHastaRaw : '';
+    return {
+        tipo,
+        estado,
+        nombre,
+        cliente,
+        createdFrom,
+        createdTo,
+        ...(gpUserId ? { gpUserId } : {}),
+        ...(leadTimeBucket ? { leadTimeBucket } : {}),
+        ...(nominaProcesado ? { nominaProcesado } : {}),
+        ...(fechaInicioDesde ? { fechaInicioDesde } : {}),
+        ...(fechaInicioHasta ? { fechaInicioHasta } : {})
+    };
+}
+
+/** Cantidad y unidad para export Excel (numérico plano + columna Unidad). */
+function buildExcelCantidadUnidadFields(tipoNovedad, cantidadRaw, it) {
+    const kind = getCantidadMedidaKind(tipoNovedad, it);
+    let value = cantidadRaw;
+    if (kind === 'days') {
+        value = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, it.fechaInicio, it.fechaFin, it);
+    } else if (kind === 'money') {
+        const m = it.montoCop != null && it.montoCop !== '' ? Number(it.montoCop) : NaN;
+        value = Number.isFinite(m) && m > 0 ? m : Number(cantidadRaw || 0);
     }
-    let base;
-    if (partes.length === 0) base = tipo || 'Hora Extra';
-    else base = `Hora Extra / ${partes.join(', ')}`;
-    const suf = formatHeDomingoCompTipoSuffix(String(it?.heDomingoObservacion || ''));
-    return suf ? base + suf : base;
+    return {
+        cantidad: formatCantidadNovedadExcelPlain(value, kind),
+        unidad: medidaExcelLabel(kind)
+    };
 }
 
 /**
@@ -100,57 +190,56 @@ function buildExcelRowHoraExtraSlice(opts) {
     const {
         it,
         slice,
-        observacionHeDomingo,
         correoActor,
         esPorHoras
     } = opts;
     const obs = String(it.heDomingoObservacion || '').trim();
     const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, slice.sliceKey);
-    const tipoNovedad = formatTipoNovedadHeSlice(it, slice.tipoLabel);
-    const ck = slice.columnKey;
+    const tipoNovedad = formatTipoNovedadHeSlice(it, slice);
     const h = Number(slice.hours || 0);
-    const cantidad = formatCantidadNovedad(it.tipoNovedad, h, it);
-    return {
-        novedadId: it.id || '',
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, h, it);
+    const timeExcel =
+        slice.startMs != null && slice.endMs != null
+            ? msRangeToExcelHoraFields(slice.startMs, slice.endMs)
+            : null;
+    return appendNominaProcesadoExcelFields({
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        fechaAprobacion: resolveFechaAprobacionExcel(it),
+        aprobadoPor: it.estado === 'Pendiente' ? '' : correoActor,
         nombre: it.nombre || '',
         cedula: it.cedula || '',
         correo: it.correoSolicitante || '',
         cliente: it.cliente || '',
         tipoNovedad,
-        fechaInicio: it.fechaInicio || '',
-        fechaFin: it.fechaFin || '',
+        fechaInicio: timeExcel?.fechaInicio || it.fechaInicio || '',
+        fechaFin: timeExcel?.fechaFin || it.fechaFin || '',
         cantidad,
-        horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
-        horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
-        horasDiurnas: ck === 'horasDiurnas' && h > 0 ? h : '',
-        horasNocturnas: ck === 'horasNocturnas' && h > 0 ? h : '',
-        horasRecargoDomingo: ck === 'horasRecargoDomingo' && h > 0 ? h : '',
-        horasRecargoDomingoDiurnas: ck === 'horasRecargoDomingoDiurnas' && h > 0 ? h : '',
-        horasRecargoDomingoNocturnas: ck === 'horasRecargoDomingoNocturnas' && h > 0 ? h : '',
+        unidad,
+        horaInicial: esPorHoras ? (timeExcel?.horaInicial || formatHoraMinutaParaExcel(it.horaInicio)) : '',
+        horaFinal: esPorHoras ? (timeExcel?.horaFinal || formatHoraMinutaParaExcel(it.horaFin)) : '',
         compensacionDominical,
-        observacionHeDomingo,
         observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
-        asignadoRoles: it.asignacionRolesEtiqueta || '—',
-        aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
-    };
+        asignadoRoles: it.asignacionRolesEtiqueta || '—'
+    }, it);
 }
 
 /** HE sin componentes >0: una fila como antes + columnas compensación / id. */
 function buildExcelRowHoraExtraLegacy(opts) {
-    const { it, observacionHeDomingo, correoActor, esPorHoras } = opts;
+    const { it, correoActor, esPorHoras } = opts;
     const obs = String(it.heDomingoObservacion || '').trim();
     const rdd = Number(it.horasRecargoDomingoDiurnas || 0);
     const rdn = Number(it.horasRecargoDomingoNocturnas || 0);
     const rTot = Number(it.horasRecargoDomingo || 0);
-    const recargoAny = rdd > 0 || rdn > 0 || rTot > 0;
+    const recargoAny = rdd > 0 || rdn > 0 || rTot > 0 || Number(it.horasRecargoNocturno || 0) > 0;
     const sliceKeyForComp = recargoAny ? 'recargo_diurno' : 'diurna';
     const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, sliceKeyForComp);
-    return {
-        novedadId: it.id || '',
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, it.cantidadHoras, it);
+    return appendNominaProcesadoExcelFields({
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        fechaAprobacion: resolveFechaAprobacionExcel(it),
+        aprobadoPor: it.estado === 'Pendiente' ? '' : correoActor,
         nombre: it.nombre || '',
         cedula: it.cedula || '',
         correo: it.correoSolicitante || '',
@@ -158,31 +247,25 @@ function buildExcelRowHoraExtraLegacy(opts) {
         tipoNovedad: formatTipoNovedadParaExportExcel(it),
         fechaInicio: it.fechaInicio || '',
         fechaFin: it.fechaFin || '',
-        cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
+        cantidad,
+        unidad,
         horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
         horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
-        horasDiurnas: Number(it.horasDiurnas || 0) > 0 ? Number(it.horasDiurnas) : '',
-        horasNocturnas: Number(it.horasNocturnas || 0) > 0 ? Number(it.horasNocturnas) : '',
-        horasRecargoDomingo: Number(it.horasRecargoDomingo || 0) > 0 ? Number(it.horasRecargoDomingo) : '',
-        horasRecargoDomingoDiurnas:
-            Number(it.horasRecargoDomingoDiurnas || 0) > 0 ? Number(it.horasRecargoDomingoDiurnas) : '',
-        horasRecargoDomingoNocturnas:
-            Number(it.horasRecargoDomingoNocturnas || 0) > 0 ? Number(it.horasRecargoDomingoNocturnas) : '',
         compensacionDominical,
-        observacionHeDomingo,
         observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
-        asignadoRoles: it.asignacionRolesEtiqueta || '—',
-        aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
-    };
+        asignadoRoles: it.asignacionRolesEtiqueta || '—'
+    }, it);
 }
 
 function buildExcelRowOtroTipo(opts) {
-    const { it, observacionHeDomingo, correoActor, esPorHoras } = opts;
-    return {
-        novedadId: it.id || '',
+    const { it, correoActor, esPorHoras } = opts;
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, it.cantidadHoras, it);
+    return appendNominaProcesadoExcelFields({
         fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        fechaAprobacion: resolveFechaAprobacionExcel(it),
+        aprobadoPor: it.estado === 'Pendiente' ? '' : correoActor,
         nombre: it.nombre || '',
         cedula: it.cedula || '',
         correo: it.correoSolicitante || '',
@@ -190,22 +273,16 @@ function buildExcelRowOtroTipo(opts) {
         tipoNovedad: String(it.tipoNovedad || '').trim(),
         fechaInicio: it.fechaInicio || '',
         fechaFin: it.fechaFin || '',
-        cantidad: formatCantidadNovedad(it.tipoNovedad, it.cantidadHoras, it),
+        cantidad,
+        unidad,
         horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
         horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
-        horasDiurnas: '',
-        horasNocturnas: '',
-        horasRecargoDomingo: '',
-        horasRecargoDomingoDiurnas: '',
-        horasRecargoDomingoNocturnas: '',
         compensacionDominical: '',
-        observacionHeDomingo,
         observaciones: String(it.observaciones || '').trim(),
         valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
         estado: it.estado || '',
-        asignadoRoles: it.asignacionRolesEtiqueta || '—',
-        aprobadoPorCorreo: it.estado === 'Pendiente' ? '' : correoActor
-    };
+        asignadoRoles: it.asignacionRolesEtiqueta || '—'
+    }, it);
 }
 
 const { randomUUID } = require('node:crypto');
@@ -281,6 +358,7 @@ function registerRoutes(deps) {
         allowPanel,
         applyScope,
         getScopedNovedades,
+        buildScopedNovedadesWhere,
         listScopedDistinctClientes,
         getHoraExtraAlerts,
         listHoraExtraByCedulaForDomingoPolicy,
@@ -862,6 +940,11 @@ function registerRoutes(deps) {
                 ProposedPassword: String(newPassword),
                 AccessToken: cognitoAccessToken
             });
+            // Invalidar la sesión de aplicación actual para evitar reutilizar un JWT revocado
+            // en cambios sucesivos (AUT-462).
+            revokeAppSessionToken(req.authToken);
+            res.clearCookie('cinteSession', { path: '/api', sameSite, secure: secureCookie });
+            res.clearCookie('cinteXsrf', { path: '/', sameSite, secure: secureCookie });
             return res.json({ ok: true, message: 'Contrasena actualizada. Vuelve a iniciar sesion.' });
         } catch (error) {
             console.error('Error change-password:', error);
@@ -909,25 +992,8 @@ function registerRoutes(deps) {
 
     app.get('/api/novedades', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
         try {
-            const tipo = String(req.query.tipo || '').trim();
-            const estado = String(req.query.estado || '').trim();
-            const nombre = String(req.query.nombre || '').trim();
-            const cliente = String(req.query.cliente || '').trim();
-            const createdFrom = String(req.query.createdFrom || '').trim();
-            const createdTo = String(req.query.createdTo || '').trim();
-            const gpUserId = String(req.query.gpUserId || '').trim();
-            const leadTimeBucketRaw = String(req.query.leadTimeBucket || '').trim();
-            const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
-            const rows = await getScopedNovedades(req.scope, {
-                tipo,
-                estado,
-                nombre,
-                cliente,
-                createdFrom,
-                createdTo,
-                ...(gpUserId ? { gpUserId } : {}),
-                ...(leadTimeBucket ? { leadTimeBucket } : {})
-            });
+            const listOpts = parseNovedadesListQuery(req.query);
+            const rows = await getScopedNovedades(req.scope, listOpts);
             const page = Math.max(1, Number(req.query.page || 1));
             const limitRaw = Number(req.query.limit || 0);
             const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 0;
@@ -957,25 +1023,8 @@ function registerRoutes(deps) {
     app.get('/api/novedades/export-excel', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
         try {
             const ExcelJS = require('exceljs');
-            const tipo = String(req.query.tipo || '').trim();
-            const estado = String(req.query.estado || '').trim();
-            const nombre = String(req.query.nombre || '').trim();
-            const cliente = String(req.query.cliente || '').trim();
-            const createdFrom = String(req.query.createdFrom || '').trim();
-            const createdTo = String(req.query.createdTo || '').trim();
-            const gpUserId = String(req.query.gpUserId || '').trim();
-            const leadTimeBucketRaw = String(req.query.leadTimeBucket || '').trim();
-            const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
-            const rows = await getScopedNovedades(req.scope, {
-                tipo,
-                estado,
-                nombre,
-                cliente,
-                createdFrom,
-                createdTo,
-                ...(gpUserId ? { gpUserId } : {}),
-                ...(leadTimeBucket ? { leadTimeBucket } : {})
-            });
+            const listOpts = parseNovedadesListQuery(req.query);
+            const rows = await getScopedNovedades(req.scope, listOpts);
             if (rows.length > exportMaxRows) {
                 return res.status(413).json({
                     ok: false,
@@ -983,7 +1032,11 @@ function registerRoutes(deps) {
                 });
             }
             const items = rows.map(toClientNovedad);
-            const heDomingoDep = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow };
+            const heDomingoDep = {
+                toUtcMsFromDateAndTime,
+                resolveFallbackDateKeyFromRow,
+                festivosSet: await festivosService.getFestivosSet()
+            };
             const sundaySetsExport = buildSundayReportedSetsFromHeRows(
                 rows.filter(rowIsHoraExtraTipo),
                 buildConsultantKeyHeDomingo,
@@ -991,8 +1044,9 @@ function registerRoutes(deps) {
             );
 
             const columns = [
-                { header: 'ID novedad', key: 'novedadId', width: 38 },
                 { header: 'Fecha Creación', key: 'fechaCreacion', width: 20 },
+                { header: 'Fecha Aprobación', key: 'fechaAprobacion', width: 20 },
+                { header: 'Aprobado por', key: 'aprobadoPor', width: 32 },
                 { header: 'Nombre', key: 'nombre', width: 28 },
                 { header: 'Cédula', key: 'cedula', width: 14 },
                 { header: 'Correo', key: 'correo', width: 30 },
@@ -1001,20 +1055,18 @@ function registerRoutes(deps) {
                 { header: 'Fecha Inicio', key: 'fechaInicio', width: 14 },
                 { header: 'Fecha Fin', key: 'fechaFin', width: 14 },
                 { header: 'Cantidad', key: 'cantidad', width: 18 },
+                { header: 'Unidad', key: 'unidad', width: 10 },
                 { header: 'Hora inicial', key: 'horaInicial', width: 12 },
                 { header: 'Hora final', key: 'horaFinal', width: 12 },
-                { header: 'Horas diurnas', key: 'horasDiurnas', width: 14 },
-                { header: 'Horas nocturnas', key: 'horasNocturnas', width: 14 },
-                { header: 'Horas recargo domingo', key: 'horasRecargoDomingo', width: 18 },
-                { header: 'Recargo dominical/festivos — diurno', key: 'horasRecargoDomingoDiurnas', width: 22 },
-                { header: 'Recargo dominical/festivos — nocturno', key: 'horasRecargoDomingoNocturnas', width: 24 },
                 { header: 'Compensación dominical', key: 'compensacionDominical', width: 32 },
-                { header: 'Observación HE domingo', key: 'observacionHeDomingo', width: 48 },
                 { header: 'Observaciones', key: 'observaciones', width: 48 },
                 { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
                 { header: 'Estado', key: 'estado', width: 14 },
-                { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 },
-                { header: 'Aprobado / rechazado por (correo)', key: 'aprobadoPorCorreo', width: 32 }
+                { header: 'Procesado nómina', key: 'nominaProcesado', width: 16 },
+                { header: 'Procesado nómina (fecha)', key: 'nominaProcesadoEn', width: 22 },
+                { header: 'Procesado nómina (correo)', key: 'nominaProcesadoPorCorreo', width: 28 },
+                { header: 'Procesado nómina (lote)', key: 'nominaProcesadoLote', width: 22 },
+                { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 }
             ];
 
             const wb = new ExcelJS.Workbook();
@@ -1568,27 +1620,26 @@ function registerRoutes(deps) {
                 if (!fd) {
                     return res.status(422).json({ ok: false, error: 'La fecha de disfrute es obligatoria.' });
                 }
-                const fvYm = fv.slice(0, 7);
-                const mesEnCursoYm = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }).slice(0, 7);
-                if (fvYm !== mesEnCursoYm) {
+                if (!FECHAS_VOTACION_HABILITADAS.has(fv)) {
                     return res.status(422).json({
                         ok: false,
-                        error: 'La fecha de la jornada electoral debe pertenecer al mes calendario en curso (cualquier día de ese mes).'
+                        error: 'La fecha de la jornada electoral no está habilitada. Selecciona una de las jornadas válidas.'
                     });
                 }
-                const maxVentana = ymdAddCalendarDaysUTC(fv, 30);
+                const diasVentana = modalidadKey === 'solo_jurado' ? DIAS_DISFRUTE_JURADO : DIAS_DISFRUTE_VOTO;
+                const maxVentana = ymdAddCalendarDaysUTC(fv, diasVentana);
                 const hoyBogotaYmd = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
                 if (!maxVentana || ymdCompareStrings(hoyBogotaYmd, maxVentana) > 0) {
                     return res.status(422).json({
                         ok: false,
                         error:
-                            'Plazo vencido: el compensatorio debe solicitarse dentro de los 30 días calendario posteriores a la votación'
+                            `Plazo vencido: el compensatorio debe solicitarse dentro de los ${diasVentana} días calendario posteriores a la votación`
                     });
                 }
                 if (ymdCompareStrings(fd, fv) < 0 || ymdCompareStrings(fd, maxVentana) > 0) {
                     return res.status(422).json({
                         ok: false,
-                        error: 'La fecha de disfrute debe estar dentro de los 30 días calendario siguientes a la votación'
+                        error: `La fecha de disfrute debe estar dentro de los ${diasVentana} días calendario siguientes a la votación`
                     });
                 }
 
@@ -1653,6 +1704,37 @@ function registerRoutes(deps) {
                         ok: false,
                         error: 'Ya existe una solicitud de esta misma modalidad para esta jornada electoral'
                     });
+                }
+
+                /**
+                 * Votación (medio día): si ya existe otra radicación de votación para la MISMA
+                 * fecha de disfrute (p. ej. una por la jornada del 31-may y otra por la del 21-jun),
+                 * sus franjas horarias no pueden solaparse. Los bordes que se tocan (fin == inicio)
+                 * no cuentan como solape. Comparación lexicográfica de HH:MM:SS sobre el mismo día.
+                 */
+                if (modalidadKey === 'solo_voto' && horaInicio && horaFin) {
+                    const solapeQ = await pool.query(
+                        `SELECT hora_inicio, hora_fin, fecha_votacion FROM novedades
+                         WHERE cedula = $1
+                           AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                               = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                           AND coalesce(modalidad, '') = 'solo_voto'
+                           AND fecha_inicio = $3::date
+                           AND fecha_votacion IS DISTINCT FROM $4::date
+                           AND hora_inicio IS NOT NULL AND hora_fin IS NOT NULL
+                           AND estado IN ('Pendiente'::novedad_estado, 'Aprobado'::novedad_estado)`,
+                        [cedulaNorm, tipoCanonInsert, fd, fv]
+                    );
+                    const solapada = findVotacionFranjaSolapada(horaInicio, horaFin, solapeQ.rows);
+                    if (solapada) {
+                        const exIni = toHmsForCompare(solapada.hora_inicio).slice(0, 5);
+                        const exFin = toHmsForCompare(solapada.hora_fin).slice(0, 5);
+                        return res.status(409).json({
+                            ok: false,
+                            error:
+                                `Ya tienes una solicitud de votación para ese mismo día de disfrute en un horario que se cruza (${exIni}–${exFin}). Elige una franja que no se solape.`
+                        });
+                    }
                 }
                 insertModalidad = modalidadKey;
                 insertFechaVotacion = fv;
@@ -1899,7 +1981,7 @@ function registerRoutes(deps) {
                         if (!isYmdEnVentanaCompensatorio(prevHeDom.domingoTrabajadoYmd, rawDiaComp)) {
                             return res.status(400).json({
                                 ok: false,
-                                error: `Indica un día compensatorio entre ${prevHeDom.compensatorioTiempoMinYmd} y ${prevHeDom.compensatorioTiempoMaxYmd} (15 días calendario posteriores al domingo trabajado).`
+                                error: `Indica un día compensatorio entre ${prevHeDom.compensatorioTiempoMinYmd} y ${prevHeDom.compensatorioTiempoMaxYmd} (lunes a sábado de la semana siguiente al domingo trabajado).`
                             });
                         }
                         heDomingoObservacionInsert = buildHeDomingoCompObservacionLine({
@@ -1955,50 +2037,7 @@ function registerRoutes(deps) {
                 insertFechaFin = null;
             }
 
-            /**
-             * Anti-duplicados (spec evitar-duplicados-radicacion-novedad):
-             * Bloquear si la misma cédula ya tiene una novedad PENDIENTE con el mismo tipo y mismas
-             * fechas/horas. No aplica a `compensatorio_votacion_jurado` (tiene su propia regla previa).
-             * Defensa en profundidad: SELECT preventivo aquí + índice único parcial en BD + manejo del
-             * 23505 más abajo (carrera entre POST simultáneos).
-             */
-            if (
-                novedadTypeKey !== 'compensatorio_votacion_jurado' &&
-                insertFechaInicio
-            ) {
-                const dupPend = await pool.query(
-                    `SELECT id FROM novedades
-                     WHERE cedula = $1
-                       AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
-                           = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
-                       AND fecha_inicio = $3::date
-                       AND COALESCE(fecha_fin, fecha_inicio) = COALESCE($4::date, $3::date)
-                       AND COALESCE(hora_inicio, TIME '00:00:00') = COALESCE($5::time, TIME '00:00:00')
-                       AND COALESCE(hora_fin,    TIME '00:00:00') = COALESCE($6::time, TIME '00:00:00')
-                       AND estado = 'Pendiente'::novedad_estado
-                     LIMIT 1`,
-                    [
-                        cedulaNorm,
-                        tipoNovedad,
-                        insertFechaInicio,
-                        insertFechaFin,
-                        horaInicio,
-                        horaFin
-                    ]
-                );
-                if (dupPend.rows.length) {
-                    return res.status(409).json({
-                        ok: false,
-                        error:
-                            'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
-                    });
-                }
-            }
-
-            let insertResult;
-            try {
-                insertResult = await pool.query(
-                `INSERT INTO novedades (
+            const INSERT_NOVEDAD_SQL = `INSERT INTO novedades (
                     nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
                     fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
                     cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion,
@@ -2012,102 +2051,318 @@ function registerRoutes(deps) {
                     $24, $25::date, $26, $27,
                     'Pendiente'::novedad_estado
                 )
-                RETURNING id`,
-                [
+                RETURNING id`;
+
+            const buildInsertParams = ({
+                segFechaInicio,
+                segFechaFin,
+                segCantidadHoras,
+                segObservaciones
+            }) => [
+                nombreColaborador,
+                cedulaNorm,
+                correoSolicitanteFinal,
+                cliente,
+                lider,
+                gpUserIdSnapshot,
+                tipoNovedad,
+                area,
+                fecha,
+                horaInicio,
+                horaFin,
+                segFechaInicio,
+                segFechaFin,
+                segCantidadHoras,
+                horasDiurnas,
+                horasNocturnas,
+                horasRecargoDomingo,
+                horasRecargoDomingoDiurnas,
+                horasRecargoDomingoNocturnas,
+                tipoHoraExtra,
+                archivoRuta,
+                montoCop,
+                heDomingoObservacionInsert || null,
+                insertModalidad,
+                insertFechaVotacion || null,
+                insertUnidad || null,
+                segObservaciones
+            ];
+
+            const isPendingDuplicateError = (insertError) =>
+                String(insertError?.code || '') === '23505' &&
+                String(insertError?.constraint || '') === 'uq_novedades_pendiente_dedup';
+
+            const pendingDuplicateResponse = () =>
+                res.status(409).json({
+                    ok: false,
+                    error:
+                        'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
+                });
+
+            /**
+             * Anti-duplicados (spec evitar-duplicados-radicacion-novedad):
+             * Bloquear si la misma cédula ya tiene una novedad PENDIENTE con el mismo tipo y mismas
+             * fechas/horas. No aplica a `compensatorio_votacion_jurado` (tiene su propia regla previa).
+             */
+            const findPendingDuplicateForInsert = async (dbClient, fi, ff) => {
+                if (novedadTypeKey === 'compensatorio_votacion_jurado' || !fi) {
+                    return null;
+                }
+                const dupPend = await dbClient.query(
+                    `SELECT id FROM novedades
+                     WHERE cedula = $1
+                       AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                           = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                       AND fecha_inicio = $3::date
+                       AND COALESCE(fecha_fin, fecha_inicio) = COALESCE($4::date, $3::date)
+                       AND COALESCE(hora_inicio, TIME '00:00:00') = COALESCE($5::time, TIME '00:00:00')
+                       AND COALESCE(hora_fin,    TIME '00:00:00') = COALESCE($6::time, TIME '00:00:00')
+                       AND estado = 'Pendiente'::novedad_estado
+                     LIMIT 1`,
+                    [cedulaNorm, tipoNovedad, fi, ff, horaInicio, horaFin]
+                );
+                return dupPend.rows.length ? dupPend.rows[0].id : null;
+            };
+
+            const cantidadDeps = {
+                countCalendarDaysInclusive,
+                countBusinessDaysInclusive: countBusinessDaysInclusiveCantidad
+            };
+
+            const publishFormSubmittedForRow = async ({
+                novedadId,
+                rowFechaInicio,
+                rowFechaFin,
+                rowCantidadHoras
+            }) => {
+                const emailPayload = buildFormSubmittedNotificationEvent({
+                    novedadId,
+                    body,
                     nombreColaborador,
-                    cedulaNorm,
-                    correoSolicitanteFinal,
                     cliente,
                     lider,
-                    gpUserIdSnapshot,
                     tipoNovedad,
-                    area,
-                    fecha,
-                    horaInicio,
-                    horaFin,
-                    insertFechaInicio,
-                    insertFechaFin,
-                    cantidadHoras,
-                    horasDiurnas,
-                    horasNocturnas,
-                    horasRecargoDomingo,
-                    horasRecargoDomingoDiurnas,
-                    horasRecargoDomingoNocturnas,
-                    tipoHoraExtra,
-                    archivoRuta,
+                    fechaInicio: rowFechaInicio,
+                    fechaFin: rowFechaFin,
+                    cantidadHoras: rowCantidadHoras,
                     montoCop,
-                    heDomingoObservacionInsert || null,
-                    insertModalidad,
-                    insertFechaVotacion || null,
-                    insertUnidad || null,
-                    observacionesPersist
-                ]
-            );
-            } catch (insertError) {
-                if (
-                    String(insertError?.code || '') === '23505' &&
-                    String(insertError?.constraint || '') === 'uq_novedades_pendiente_dedup'
-                ) {
-                    return res.status(409).json({
-                        ok: false,
-                        error:
-                            'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
+                    correoSolicitanteResolved: correoSolicitanteFinal
+                });
+                try {
+                    if (typeof resolveApproverEmailsForNovedad === 'function') {
+                        const { emails, reason, insights } = await resolveApproverEmailsForNovedad(tipoNovedad, {
+                            cliente
+                        });
+                        emailPayload.admin.notifyTo = emails;
+                        if (emails.length === 0) {
+                            console.warn(
+                                '[email-notifications] notifyTo vacío desde Cognito; la Lambda no usará EMAIL_ADMIN_TO* (solo correo al solicitante).',
+                                { novedadId, tipoNovedad, reason, insights }
+                            );
+                        }
+                    }
+                } catch (resolverErr) {
+                    emailPayload.admin.notifyTo = [];
+                    console.error('[email-notifications] Error resolviendo correos de approvers (Cognito)', {
+                        novedadId,
+                        tipoNovedad,
+                        message: resolverErr?.message || String(resolverErr)
                     });
+                }
+                try {
+                    const publishResult = await emailNotificationsPublisher?.publishFormSubmitted?.(emailPayload);
+                    if (publishResult?.accepted) {
+                        console.log('[email-notifications] Evento form_submitted aceptado.', {
+                            eventId: emailPayload.eventId,
+                            requestId: publishResult.requestId
+                        });
+                    } else if (!publishResult?.skipped) {
+                        console.warn('[email-notifications] Evento no aceptado.', {
+                            eventId: emailPayload.eventId,
+                            statusCode: publishResult?.statusCode || 0
+                        });
+                    }
+                } catch (notifyError) {
+                    console.error('[email-notifications] Error publicando evento form_submitted', {
+                        eventId: emailPayload.eventId,
+                        message: notifyError?.message || String(notifyError)
+                    });
+                }
+            };
+
+            const applyMonthlySplit =
+                novedadTypeKey !== 'vacaciones_dinero' &&
+                insertFechaFin &&
+                shouldSplitNovedadByCalendarMonth(novedadTypeKey, insertFechaInicio, insertFechaFin);
+
+            if (applyMonthlySplit) {
+                const originalFi = insertFechaInicio;
+                const originalFf = insertFechaFin;
+                const segments = splitDateRangeByCalendarMonth(originalFi, originalFf);
+                if (!segments.length) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'No se pudo dividir el rango de fechas por mes calendario.'
+                    });
+                }
+
+                const segmentRows = [];
+                for (const seg of segments) {
+                    const segCantidad = computeSegmentCantidadHoras(
+                        novedadTypeKey,
+                        seg.fechaInicio,
+                        seg.fechaFin,
+                        cantidadDeps
+                    );
+                    if (segCantidad <= 0) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: `El segmento ${seg.segmentIndex}/${seg.segmentTotal} no contiene días válidos para ${tipoNovedad}.`
+                        });
+                    }
+                    const dupId = await findPendingDuplicateForInsert(pool, seg.fechaInicio, seg.fechaFin);
+                    if (dupId) {
+                        return pendingDuplicateResponse();
+                    }
+                    segmentRows.push({
+                        ...seg,
+                        cantidadHoras: segCantidad,
+                        observaciones: buildSegmentObservacion(
+                            observacionesPersist,
+                            seg.segmentIndex,
+                            seg.segmentTotal,
+                            originalFi,
+                            originalFf
+                        )
+                    });
+                }
+
+                const dbClient = typeof pool.connect === 'function' ? await pool.connect() : pool;
+                const insertedIds = [];
+                try {
+                    if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                        await dbClient.query('BEGIN');
+                    }
+                    for (const seg of segmentRows) {
+                        let insertResult;
+                        try {
+                            insertResult = await dbClient.query(
+                                INSERT_NOVEDAD_SQL,
+                                buildInsertParams({
+                                    segFechaInicio: seg.fechaInicio,
+                                    segFechaFin: seg.fechaFin,
+                                    segCantidadHoras: seg.cantidadHoras,
+                                    segObservaciones: seg.observaciones
+                                })
+                            );
+                        } catch (insertError) {
+                            if (isPendingDuplicateError(insertError)) {
+                                if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                                    await dbClient.query('ROLLBACK');
+                                }
+                                return pendingDuplicateResponse();
+                            }
+                            throw insertError;
+                        }
+                        insertedIds.push(String(insertResult?.rows?.[0]?.id || ''));
+                    }
+                    if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                        await dbClient.query('COMMIT');
+                    }
+                } catch (splitInsertError) {
+                    if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                        try {
+                            await dbClient.query('ROLLBACK');
+                        } catch (_rollbackErr) {
+                            /* ignore */
+                        }
+                    }
+                    throw splitInsertError;
+                } finally {
+                    if (typeof dbClient.release === 'function') {
+                        dbClient.release();
+                    }
+                }
+
+                for (let i = 0; i < segmentRows.length; i += 1) {
+                    await publishFormSubmittedForRow({
+                        novedadId: insertedIds[i],
+                        rowFechaInicio: segmentRows[i].fechaInicio,
+                        rowFechaFin: segmentRows[i].fechaFin,
+                        rowCantidadHoras: segmentRows[i].cantidadHoras
+                    });
+                }
+
+                if (novedadTypeKey === 'hora_extra') {
+                    const festivosSetHePost = await festivosService.getFestivosSet();
+                    const domingoKeys = new Set();
+                    for (const seg of segmentRows) {
+                        const segStartMs = toUtcMsFromDateAndTime(seg.fechaInicio, horaInicio);
+                        const segEndMs = toUtcMsFromDateAndTime(seg.fechaFin, horaFin);
+                        for (const k of collectRecargoDayKeysInInterval(segStartMs, segEndMs, festivosSetHePost)) {
+                            domingoKeys.add(k);
+                        }
+                    }
+                    if (domingoKeys.size) {
+                        await recomputeAndPersistDomingoRecargoGroup(
+                            pool,
+                            cedulaNorm,
+                            [...domingoKeys],
+                            festivosSetHePost
+                        );
+                    }
+                }
+
+                return res.json({
+                    ok: true,
+                    success: true,
+                    id: insertedIds[0] || '',
+                    ids: insertedIds,
+                    splitCount: insertedIds.length
+                });
+            }
+
+            const dupIdSingle = await findPendingDuplicateForInsert(pool, insertFechaInicio, insertFechaFin);
+            if (dupIdSingle) {
+                return pendingDuplicateResponse();
+            }
+
+            let insertResult;
+            try {
+                insertResult = await pool.query(
+                    INSERT_NOVEDAD_SQL,
+                    buildInsertParams({
+                        segFechaInicio: insertFechaInicio,
+                        segFechaFin: insertFechaFin,
+                        segCantidadHoras: cantidadHoras,
+                        segObservaciones: observacionesPersist
+                    })
+                );
+            } catch (insertError) {
+                if (isPendingDuplicateError(insertError)) {
+                    return pendingDuplicateResponse();
                 }
                 throw insertError;
             }
             const novedadId = insertResult?.rows?.[0]?.id || '';
-            const emailPayload = buildFormSubmittedNotificationEvent({
+            if (novedadTypeKey === 'hora_extra') {
+                const heStartMs = toUtcMsFromDateAndTime(insertFechaInicio, horaInicio);
+                const heEndMs = toUtcMsFromDateAndTime(insertFechaFin, horaFin);
+                const festivosSetHePost = await festivosService.getFestivosSet();
+                await triggerDomingoRecargoRecomputeForInterval(
+                    pool,
+                    cedulaNorm,
+                    heStartMs,
+                    heEndMs,
+                    festivosSetHePost
+                );
+            }
+            await publishFormSubmittedForRow({
                 novedadId,
-                body,
-                nombreColaborador,
-                cliente,
-                lider,
-                tipoNovedad,
-                fechaInicio: insertFechaInicio,
-                fechaFin: insertFechaFin,
-                cantidadHoras,
-                montoCop,
-                correoSolicitanteResolved: correoSolicitanteFinal
+                rowFechaInicio: insertFechaInicio,
+                rowFechaFin: insertFechaFin,
+                rowCantidadHoras: cantidadHoras
             });
-            try {
-                if (typeof resolveApproverEmailsForNovedad === 'function') {
-                    const { emails, reason, insights } = await resolveApproverEmailsForNovedad(tipoNovedad);
-                    emailPayload.admin.notifyTo = emails;
-                    if (emails.length === 0) {
-                        console.warn(
-                            '[email-notifications] notifyTo vacío desde Cognito; la Lambda no usará EMAIL_ADMIN_TO* (solo correo al solicitante).',
-                            { novedadId, tipoNovedad, reason, insights }
-                        );
-                    }
-                }
-            } catch (resolverErr) {
-                emailPayload.admin.notifyTo = [];
-                console.error('[email-notifications] Error resolviendo correos de approvers (Cognito)', {
-                    novedadId,
-                    tipoNovedad,
-                    message: resolverErr?.message || String(resolverErr)
-                });
-            }
-            try {
-                const publishResult = await emailNotificationsPublisher?.publishFormSubmitted?.(emailPayload);
-                if (publishResult?.accepted) {
-                    console.log('[email-notifications] Evento form_submitted aceptado.', {
-                        eventId: emailPayload.eventId,
-                        requestId: publishResult.requestId
-                    });
-                } else if (!publishResult?.skipped) {
-                    console.warn('[email-notifications] Evento no aceptado.', {
-                        eventId: emailPayload.eventId,
-                        statusCode: publishResult?.statusCode || 0
-                    });
-                }
-            } catch (notifyError) {
-                console.error('[email-notifications] Error publicando evento form_submitted', {
-                    eventId: emailPayload.eventId,
-                    message: notifyError?.message || String(notifyError)
-                });
-            }
             return res.json({ ok: true, success: true, id: novedadId });
         } catch (error) {
             console.error('Error al guardar:', error);
@@ -2131,7 +2386,11 @@ function registerRoutes(deps) {
             }
 
             if (!s3Client) {
-                return res.status(400).json({ ok: false, error: 'S3 no está configurado en backend' });
+                return res.status(400).json({
+                    ok: false,
+                    error:
+                        'S3 no está configurado en backend. Revise .env: S3_ENABLED=true requiere S3_BUCKET_NAME y credenciales AWS (S3_AUTH_MODE=keys → AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).'
+                });
             }
 
             const command = new GetObjectCommand({
@@ -2165,7 +2424,11 @@ function registerRoutes(deps) {
                 workbookBuffer = await fs.promises.readFile(absolutePath);
             } else {
                 if (!s3Client) {
-                    return res.status(400).json({ ok: false, error: 'S3 no está configurado en backend' });
+                    return res.status(400).json({
+                        ok: false,
+                        error:
+                            'S3 no está configurado en backend. Revise .env: S3_ENABLED=true requiere S3_BUCKET_NAME y credenciales AWS (S3_AUTH_MODE=keys → AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).'
+                    });
                 }
                 const s3Out = await s3Client.send(new GetObjectCommand({
                     Bucket: S3_BUCKET_NAME,
@@ -2192,6 +2455,21 @@ function registerRoutes(deps) {
         } catch (error) {
             console.error('Error previsualizando Excel:', error);
             return res.status(500).json({ ok: false, error: 'No se pudo previsualizar el archivo Excel.' });
+        }
+    });
+
+    app.post('/api/novedades/nomina-procesar', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
+        try {
+            const result = await markNominaProcesado({
+                pool,
+                req,
+                buildScopedNovedadesWhere,
+                body: req.body
+            });
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('Error nomina-procesar:', error);
+            return res.status(500).json({ ok: false, error: 'Error al marcar procesado nómina' });
         }
     });
 
@@ -2445,4 +2723,10 @@ function registerRoutes(deps) {
     });
 }
 
-module.exports = { registerRoutes };
+module.exports = {
+    registerRoutes,
+    findVotacionFranjaSolapada,
+    FECHAS_VOTACION_HABILITADAS,
+    DIAS_DISFRUTE_JURADO,
+    DIAS_DISFRUTE_VOTO
+};

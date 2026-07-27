@@ -4,6 +4,7 @@ const {
     initContratacionRealtime,
     shutdownContratacionRealtime
 } = require('./contratacion/initContratacionRealtime');
+const { ensureOnboardingSchema } = require('./onboarding/onboardingSchema');
 
 async function startServer(deps) {
     const {
@@ -20,6 +21,7 @@ async function startServer(deps) {
         ensureNovedadesHoraExtraAlertColumns,
         ensureNovedadesHeDomingoObservacionColumn,
         ensureNovedadesNominaVerificacionColumns,
+        ensureNovedadesNominaProcesadoColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         ensureNovedadesModalidadVotacionUnidadColumns,
         ensureNovedadesObservacionesColumn,
@@ -32,6 +34,18 @@ async function startServer(deps) {
         ensureReubicacionesPipelineTable,
         ensureMallaTurnosCeldaTable,
         ensureMallaTurnoAsignacionTable,
+        ensureMallaTurnoAprobacionTable,
+        ensureMallaNocturnoConfigTable,
+        ensureNovedadesMallaOrigenRefColumn,
+        ensureConciliacionesFacturacionTable,
+        ensureConciliacionesFacturacionHistorialTable,
+        ensureConciliacionesServicioNotificacionesTable,
+        ensureConciliacionesServicioCierreTable,
+        ensureConciliacionesEmailPlantillasTable,
+        ensureConciliacionesEmailAccionesTable,
+        ensureConciliacionesNovedadConsumoTable,
+        ensureColaboradorAsignacionesTable,
+        ensureColaboradorTarifaHistorialTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         PORT,
@@ -40,6 +54,7 @@ async function startServer(deps) {
         COGNITO_USER_POOL_ID,
         COGNITO_APP_CLIENT_SECRET,
         s3Client,
+        S3_ENABLED,
         S3_BUCKET_NAME,
         S3_REGION,
         S3_AUTH_MODE
@@ -57,6 +72,7 @@ async function startServer(deps) {
     await ensureNovedadesHoraExtraAlertColumns();
     await ensureNovedadesHeDomingoObservacionColumn();
     await ensureNovedadesNominaVerificacionColumns();
+    await ensureNovedadesNominaProcesadoColumns();
     await ensureNovedadesHorasRecargoDomingoColumn();
     await ensureNovedadesModalidadVotacionUnidadColumns();
     await ensureNovedadesObservacionesColumn();
@@ -69,8 +85,37 @@ async function startServer(deps) {
     await ensureReubicacionesPipelineTable();
     await ensureMallaTurnosCeldaTable();
     await ensureMallaTurnoAsignacionTable();
+    await ensureMallaTurnoAprobacionTable();
+    await ensureMallaNocturnoConfigTable();
+    await ensureNovedadesMallaOrigenRefColumn();
+    await ensureConciliacionesFacturacionTable();
+    await ensureConciliacionesFacturacionHistorialTable();
+    await ensureConciliacionesServicioNotificacionesTable();
+    await ensureConciliacionesServicioCierreTable();
+    await ensureConciliacionesEmailPlantillasTable();
+    await ensureConciliacionesEmailAccionesTable();
+    await ensureConciliacionesNovedadConsumoTable();
+    await ensureColaboradorAsignacionesTable();
+    await ensureColaboradorTarifaHistorialTable();
+    try {
+        const { migrateColaboradoresToAsignaciones } = require('./conciliaciones/colaboradorAsignaciones');
+        await migrateColaboradoresToAsignaciones(pool);
+    } catch (e) {
+        logger.warn({ error: e?.message }, 'Migración colaborador_asignaciones omitida');
+    }
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
+    /**
+     * Onboarding: extensión de `colaboradores` (tipo_personal, baja, SENA, ALIANZA, puente Dynamo)
+     * + tablas satélite (calculadora, licencias, extranjeros, pólizas, capacitaciones, headhunting)
+     * + catálogos (motivo_baja, ciudades, EPS/AFP/ARL/CCF) + buzón staging + log ETL.
+     * Idempotente: si la BD no es owner se loguea WARN y se sigue.
+     */
+    try {
+        await ensureOnboardingSchema({ pool, logger });
+    } catch (e) {
+        logger.error({ error: e && e.message ? e.message : e }, 'Onboarding schema: error de DDL (continúa arranque)');
+    }
 
     const server = app.listen(PORT, () => {
         logger.info({ port: PORT }, `Servidor listo en http://localhost:${PORT}`);
@@ -94,6 +139,10 @@ async function startServer(deps) {
                     logger.warn('S3 usando access keys locales (modo temporal).');
                 }
             }
+        } else if (S3_ENABLED) {
+            logger.warn(
+                'S3_ENABLED=true pero falta S3_BUCKET_NAME (o está vacío): soportes en S3 no funcionarán hasta completar .env (ver .env.example).'
+            );
         } else {
             logger.warn('S3 inactivo: usando almacenamiento local en /assets/uploads.');
         }
@@ -143,7 +192,7 @@ async function startServer(deps) {
     process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
     try {
-        initContratacionRealtime(server);
+        initContratacionRealtime(server, { pool });
     } catch (e) {
         logger.error({ error: e.message }, 'Contratación (realtime): no se pudo inicializar');
     }

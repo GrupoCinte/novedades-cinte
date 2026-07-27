@@ -6,22 +6,21 @@ const TIPOS_LINEA = NOVEDAD_TYPES.map((t) => `• **${t}**`).join('\n');
 
 const WELCOME_BUBBLE_TEXT =
     '¡Hola! Recuerda que estoy aquí para ayudarte a entender el sistema de gestión de novedades. ¿Te ayudo?';
-// Tiempo visible antes de iniciar el fade-out (ms)
 const WELCOME_BUBBLE_VISIBLE_MS = 5000;
-// Duración del fade-out (ms); debe coincidir con la clase tailwind `duration-700`.
 const WELCOME_BUBBLE_FADE_MS = 700;
 
 function buildWelcomeText(ctx) {
     const lines = [
-        '¡Hola! Recuerda que estoy aquí para ayudarte a **entender el sistema de gestión de novedades**.',
-        'Puedo orientarte en **Dashboard general**, **Gestión de Novedades**, **Calendario** y **Alertas HE**.',
+        '¡Hola! Soy **CINTEBot**, tu asistente sobre **novedades** en este portal.',
+        'Puedo orientarte en **Dashboard general** (KPIs, filtros por mes, **cliente** y tipo), **Gestión de Novedades** (tabla, detalle, exportación Excel), **Alertas de Hora Extra** y **Calendario**.',
+        'El portal admite **tema claro u oscuro**; el asistente sigue la preferencia que elijas en el menú de cuenta.',
     ];
     if (ctx?.role === 'super_admin') {
         lines.push(
-            'Como **super administrador** también ves el **filtro por GP** y la acción **Eliminar** en el detalle.'
+            'Con tu rol de **super administrador** también aplican el **filtro por GP** en listados y la acción **Eliminar** en el detalle de una novedad (con motivo obligatorio).'
         );
     }
-    lines.push('Elige una tarjeta abajo o escríbeme tu duda.');
+    lines.push('Elige una tarjeta o escribe tu consulta:');
     return lines.join('\n\n');
 }
 
@@ -190,6 +189,7 @@ function matchIntentByFreeText(lower) {
     return null;
 }
 
+// Formatea texto con **negrita** y saltos de línea
 function FormatText({ text }) {
     const lines = text.split('\n');
     return (
@@ -209,6 +209,7 @@ function FormatText({ text }) {
     );
 }
 
+// Indicador de escritura
 function TypingDots() {
     return (
         <div className="flex items-center gap-1 px-4 py-3">
@@ -223,21 +224,28 @@ function TypingDots() {
     );
 }
 
-/**
- * Asistente CINTEBot anclado al header global.
- *
- * El componente renderiza un tile cuadrado (estilo barra superior) con el
- * gradient azul-índigo y los efectos originales (hover scale, ping, badge de
- * no-leídos). El panel del chat se despliega como popover absolute alineado a
- * la derecha del tile (igual patrón que `accountMenuPanel` en
- * `UserAccountMenu`). Además, mientras el chat está cerrado y el usuario aún
- * no ha descartado el saludo, muestra un bocadillo flotante invitando a abrir
- * el asistente.
- */
-export default function ChatWidget({ ctx }) {
+// ─────────────────────────────────────────────────────────────────────────────
+export default function ChatWidget({ ctx, placement = 'floating', sidebarExpanded = true, isLight = false, forceOpen = undefined, setForceOpen = undefined }) {
+    const isInline = placement === 'inline';
+    const isSidebar = placement === 'sidebar';
+    const isDocked = isInline || isSidebar;
     const welcomeText = useMemo(() => buildWelcomeText(ctx), [ctx?.role, ctx?.pendientesCount]);
 
     const [open, setOpen] = useState(false);
+
+    useEffect(() => {
+        if (forceOpen !== undefined) {
+            setOpen(forceOpen);
+        }
+    }, [forceOpen]);
+
+    const toggleOpen = () => {
+        const next = !open;
+        setOpen(next);
+        if (typeof setForceOpen === 'function') {
+            setForceOpen(next);
+        }
+    };
     const [messages, setMessages] = useState(() => [
         {
             id: 0,
@@ -250,20 +258,14 @@ export default function ChatWidget({ ctx }) {
     const [input, setInput] = useState('');
     const [activeCategory, setActiveCategory] = useState('todos');
     const [unread, setUnread] = useState(0);
-    // Bocadillo de bienvenida: aparece SIEMPRE al montar (cada login / recarga
-    // del módulo Novedades) y se auto-oculta a los 5s con un fade gradual.
-    const [bubbleVisible, setBubbleVisible] = useState(true);
+    const [bubbleVisible, setBubbleVisible] = useState(isInline);
     const [bubbleFading, setBubbleFading] = useState(false);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
     const wrapRef = useRef(null);
 
-    /**
-     * Programa el ciclo de vida del bocadillo: visible → fading → unmount.
-     * Se reinicia si vuelve a hacerse visible (no ocurre hoy, pero es robusto).
-     */
     useEffect(() => {
-        if (!bubbleVisible) return undefined;
+        if (!isInline || !bubbleVisible) return undefined;
         setBubbleFading(false);
         const fadeTimer = setTimeout(() => setBubbleFading(true), WELCOME_BUBBLE_VISIBLE_MS);
         const removeTimer = setTimeout(
@@ -274,7 +276,14 @@ export default function ChatWidget({ ctx }) {
             clearTimeout(fadeTimer);
             clearTimeout(removeTimer);
         };
-    }, [bubbleVisible]);
+    }, [isInline, bubbleVisible]);
+
+    useEffect(() => {
+        if (isInline && !sidebarExpanded) {
+            setBubbleVisible(false);
+            setBubbleFading(false);
+        }
+    }, [isInline, sidebarExpanded]);
 
     useEffect(() => {
         setMessages((prev) => {
@@ -302,7 +311,7 @@ export default function ChatWidget({ ctx }) {
     }, [open]);
 
     useEffect(() => {
-        if (!open) return undefined;
+        if (!open || !isInline) return undefined;
         const onDocMouseDown = (e) => {
             if (!wrapRef.current?.contains(e.target)) setOpen(false);
         };
@@ -315,7 +324,7 @@ export default function ChatWidget({ ctx }) {
             document.removeEventListener('mousedown', onDocMouseDown);
             window.removeEventListener('keydown', onKey);
         };
-    }, [open]);
+    }, [open, isInline]);
 
     const dismissBubble = () => {
         setBubbleFading(true);
@@ -366,86 +375,157 @@ export default function ChatWidget({ ctx }) {
 
     const formatTime = (date) => date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-    return (
-        <div ref={wrapRef} className="relative inline-flex">
-            {/* ── Bocadillo de bienvenida (solo cuando el chat está cerrado) ── */}
-            {bubbleVisible && !open && (
-                <div
-                    role="status"
-                    aria-live="polite"
-                    className={`pointer-events-auto absolute right-0 top-[calc(100%+12px)] z-[70] hidden w-72 max-w-[min(18rem,calc(100vw-1.5rem))] rounded-2xl border border-blue-400/30 bg-[#0f172a] px-3 py-2.5 text-[12px] leading-snug text-slate-100 shadow-2xl transition-opacity duration-700 ease-out sm:block ${
-                        bubbleFading ? 'opacity-0' : 'opacity-100'
+    const sidebarLeftPx = sidebarExpanded ? 268 : 76;
+    const triggerSize = isInline ? 'h-10 w-10 sm:h-11 sm:w-11' : isSidebar ? 'h-11 w-11' : 'h-14 w-14';
+    const triggerRounded = isDocked || isInline ? 'rounded-xl' : 'rounded-2xl';
+    const triggerIconSize = isInline ? 20 : isSidebar ? 18 : 22;
+
+    const welcomeBubblePanelClass = isLight
+        ? 'border-blue-300/50 bg-white text-slate-700 shadow-2xl'
+        : 'border-blue-400/30 bg-[#0f172a] text-slate-100 shadow-2xl';
+    const welcomeBubbleArrowClass = isLight
+        ? 'border-r border-b border-blue-300/50 bg-white'
+        : 'border-r border-b border-blue-400/30 bg-[#0f172a]';
+
+    const welcomeBubble =
+        isInline && sidebarExpanded && bubbleVisible && !open ? (
+            <div
+                role="status"
+                aria-live="polite"
+                className={`pointer-events-auto absolute bottom-full z-[220] mb-2 hidden w-72 max-w-[min(18rem,calc(100vw-1.5rem))] rounded-2xl border px-3 py-2.5 text-[12px] leading-snug transition-opacity duration-700 ease-out sm:block ${
+                    sidebarExpanded ? 'left-0' : 'left-1/2 -translate-x-1/2'
+                } ${welcomeBubblePanelClass} ${bubbleFading ? 'opacity-0' : 'opacity-100'}`}
+            >
+                <button
+                    type="button"
+                    onClick={dismissBubble}
+                    aria-label="Cerrar mensaje de bienvenida"
+                    className={`absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-md transition-colors ${
+                        isLight
+                            ? 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                            : 'text-slate-400 hover:bg-slate-700/60 hover:text-slate-200'
                     }`}
                 >
-                    <button
-                        type="button"
-                        onClick={dismissBubble}
-                        aria-label="Cerrar mensaje de bienvenida"
-                        className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-700/60 hover:text-slate-200"
-                    >
-                        <X size={12} />
-                    </button>
-                    <div className="flex items-start gap-2 pr-4">
-                        <span className="mt-0.5 inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 shadow">
-                            <Bot size={12} className="text-white" />
-                        </span>
-                        <p className="font-body">{WELCOME_BUBBLE_TEXT}</p>
-                    </div>
-                    {/* Flecha que apunta hacia arriba al tile */}
-                    <span
-                        aria-hidden="true"
-                        className="absolute right-3 top-[-6px] h-3 w-3 rotate-45 border-l border-t border-blue-400/30 bg-[#0f172a]"
-                    />
+                    <X size={12} />
+                </button>
+                <div className="flex items-start gap-2 pr-4">
+                    <span className="mt-0.5 inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-indigo-700 shadow">
+                        <Bot size={12} className="text-white" />
+                    </span>
+                    <p className="font-body">{WELCOME_BUBBLE_TEXT}</p>
                 </div>
-            )}
+                <span
+                    aria-hidden="true"
+                    className={`absolute bottom-[-6px] h-3 w-3 rotate-45 ${
+                        sidebarExpanded ? 'left-5' : 'left-1/2 -translate-x-1/2'
+                    } ${welcomeBubbleArrowClass}`}
+                />
+            </div>
+        ) : null;
 
-            {/* ── Tile (botón anclado al header) ────────────────────────── */}
-            <button
-                type="button"
-                onClick={() => setOpen((o) => !o)}
-                aria-expanded={open}
-                aria-haspopup="dialog"
-                title="Asistente CINTE"
-                className="group relative inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-xl border border-blue-400/30 bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-[0_0_24px_rgba(59,130,246,0.45)] transition-all duration-200 hover:scale-110 hover:shadow-[0_0_32px_rgba(59,130,246,0.6)] active:scale-95 sm:h-11 sm:w-11"
+    const chatTrigger = (
+        <button
+            onClick={() => setOpen((o) => !o)}
+            className={
+                isInline
+                    ? 'group relative inline-flex shrink-0 items-center justify-center overflow-visible'
+                    : isSidebar
+                      ? 'group relative mx-auto block'
+                      : 'group fixed bottom-6 right-6 z-50'
+            }
+            title="Asistente CINTE"
+            type="button"
+            aria-expanded={open}
+            aria-haspopup="dialog"
+        >
+            <div
+                className={`relative flex ${triggerSize} items-center justify-center ${triggerRounded} border border-blue-400/30 bg-gradient-to-br from-blue-600 to-indigo-700 shadow-[0_0_20px_rgba(59,130,246,0.4)] transition-all hover:scale-105 hover:shadow-[0_0_28px_rgba(59,130,246,0.55)] active:scale-95`}
             >
-                {open ? <ChevronDown size={20} /> : <Bot size={20} />}
+                {open ? (
+                    <ChevronDown size={triggerIconSize} className="text-white" />
+                ) : (
+                    <Bot size={triggerIconSize} className="text-white" />
+                )}
                 {!open && (
-                    <span className="pointer-events-none absolute inset-0 animate-ping rounded-xl opacity-40 ring-2 ring-blue-500/50" />
+                    <span className={`absolute inset-0 animate-ping ${triggerRounded} opacity-40 ring-2 ring-blue-500/50`} />
                 )}
                 {unread > 0 && !open && (
-                    <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-[10px] font-black text-white shadow-lg">
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[9px] font-black text-white shadow-lg">
                         {unread}
                     </span>
                 )}
-            </button>
+            </div>
+            {!open && !isDocked ? (
+                <span className="pointer-events-none absolute right-16 top-1/2 z-10 -translate-y-1/2 whitespace-nowrap rounded-lg border border-slate-700 bg-[#1e293b] px-3 py-1.5 text-xs font-medium text-slate-200 opacity-0 shadow-xl transition-opacity group-hover:opacity-100">
+                    Asistente CINTE
+                </span>
+            ) : null}
+        </button>
+    );
 
-            {/* ── Panel del chat (popover anclado al tile) ─────────────── */}
+    const chatWindowShellClass = isLight
+        ? 'border-slate-200/80 bg-white shadow-2xl'
+        : 'border-slate-700/70 bg-[#0f172a] shadow-2xl';
+    const chatHeaderClass = isLight
+        ? 'border-b border-slate-200 bg-gradient-to-r from-blue-50 to-indigo-50'
+        : 'border-b border-slate-700/60 bg-gradient-to-r from-blue-700/20 to-indigo-700/10';
+    const chatHeaderTitleClass = isLight ? 'text-slate-900' : 'text-white';
+    const chatHeaderSubClass = isLight ? 'text-emerald-700' : 'text-emerald-400';
+    const chatCloseBtnClass = isLight
+        ? 'border-slate-200 bg-slate-100 text-slate-500 hover:bg-rose-50 hover:text-rose-600'
+        : 'border-slate-700 bg-slate-800 text-slate-400 hover:bg-rose-500/20 hover:text-rose-400';
+    const botBubbleClass = isLight
+        ? 'rounded-tl-sm border border-slate-200 bg-slate-50 text-slate-800'
+        : 'rounded-tl-sm border border-slate-700/60 bg-[#1e293b] text-slate-200';
+    const botIconWrapClass = isLight
+        ? 'border border-blue-200 bg-blue-50'
+        : 'border border-blue-500/30 bg-blue-600/20';
+    const botIconClass = isLight ? 'text-blue-600' : 'text-blue-400';
+    const categoryIdleClass = isLight
+        ? 'border-slate-200 bg-slate-100 text-slate-600 hover:border-slate-300 hover:text-slate-800'
+        : 'border-slate-700 bg-slate-800 text-slate-400 hover:border-slate-500 hover:text-slate-200';
+    const intentBtnClass = isLight
+        ? 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700'
+        : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-blue-500/50 hover:bg-blue-600/20 hover:text-blue-300';
+    const inputClass = isLight
+        ? 'border-slate-300 bg-white text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500/50'
+        : 'border-slate-700 bg-slate-800 text-slate-200 placeholder:text-slate-500 focus:border-blue-500 focus:ring-blue-500/50';
+    const footerBorderClass = isLight ? 'border-slate-200' : 'border-slate-700/60';
+    const timestampClass = isLight ? 'text-slate-400' : 'text-slate-600';
+
+    const chatWindow = (
             <div
-                role="dialog"
-                aria-modal="false"
-                aria-label="Asistente CINTE"
                 className={`
-                    absolute right-0 top-[calc(100%+8px)] z-[80] flex w-[370px] max-w-[calc(100vw-1.5rem)] flex-col rounded-2xl border border-slate-700/70 bg-[#0f172a] shadow-2xl
-                    transition-all duration-300 origin-top-right
-                    ${open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-95 opacity-0'}
+                    fixed z-[200] flex w-[min(370px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] flex-col rounded-2xl border border-slate-700/70 bg-[#0f172a] shadow-2xl
+                    transition-all duration-300 origin-bottom-right
+                    ${chatWindowShellClass}
+                    ${open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none invisible scale-90 opacity-0'}
                 `}
-                style={{ maxHeight: 'min(600px, calc(100vh - 120px))' }}
+                style={{
+                    maxHeight: 'min(600px, calc(100dvh - max(6rem, env(safe-area-inset-bottom) + 5rem)))',
+                    ...(isDocked
+                        ? {
+                              left: Math.max(8, sidebarLeftPx),
+                              bottom: 'max(1rem, env(safe-area-inset-bottom, 0px))'
+                          }
+                        : { right: 16, bottom: 'max(6rem, calc(env(safe-area-inset-bottom, 0px) + 5rem))' })
+                }}
             >
-                <div className="flex flex-shrink-0 items-center gap-3 rounded-t-2xl border-b border-slate-700/60 bg-gradient-to-r from-blue-700/20 to-indigo-700/10 px-4 py-3">
+                <div className={`flex flex-shrink-0 items-center gap-3 rounded-t-2xl px-4 py-3 ${chatHeaderClass}`}>
                     <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-blue-600 shadow-md">
                         <Sparkles size={16} className="text-white" />
                     </div>
                     <div className="min-w-0 flex-1">
-                        <p className="text-sm font-bold leading-tight text-white">CINTEBot</p>
-                        <p className="flex items-center gap-1 text-[10px] font-semibold text-emerald-400">
+                        <p className={`text-sm font-bold leading-tight ${chatHeaderTitleClass}`}>CINTEBot</p>
+                        <p className={`flex items-center gap-1 text-[10px] font-semibold ${chatHeaderSubClass}`}>
                             <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
                             En línea · Novedades y gestión
                         </p>
                     </div>
                     <button
                         type="button"
-                        onClick={() => setOpen(false)}
-                        className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-slate-700 bg-slate-800 text-slate-400 transition-all hover:bg-rose-500/20 hover:text-rose-400"
+                        onClick={toggleOpen}
+                        className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border transition-all ${chatCloseBtnClass}`}
                     >
                         <X size={13} />
                     </button>
@@ -455,8 +535,8 @@ export default function ChatWidget({ ctx }) {
                     {messages.map((msg) => (
                         <div key={msg.id} className={`flex gap-2 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                             {msg.role === 'bot' && (
-                                <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-blue-500/30 bg-blue-600/20">
-                                    <Bot size={13} className="text-blue-400" />
+                                <div className={`mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${botIconWrapClass}`}>
+                                    <Bot size={13} className={botIconClass} />
                                 </div>
                             )}
                             <div className={`flex max-w-[85%] flex-col gap-0.5 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
@@ -466,23 +546,23 @@ export default function ChatWidget({ ctx }) {
                                         ${
                                             msg.role === 'user'
                                                 ? 'rounded-tr-sm bg-blue-600 text-white'
-                                                : 'rounded-tl-sm border border-slate-700/60 bg-[#1e293b] text-slate-200'
+                                                : botBubbleClass
                                         }
                                     `}
                                 >
                                     <FormatText text={msg.text} />
                                 </div>
-                                <span className="px-1 text-[9px] text-slate-600">{formatTime(msg.timestamp)}</span>
+                                <span className={`px-1 text-[9px] ${timestampClass}`}>{formatTime(msg.timestamp)}</span>
                             </div>
                         </div>
                     ))}
 
                     {typing && (
                         <div className="flex gap-2">
-                            <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-blue-500/30 bg-blue-600/20">
-                                <Bot size={13} className="text-blue-400" />
+                            <div className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg ${botIconWrapClass}`}>
+                                <Bot size={13} className={botIconClass} />
                             </div>
-                            <div className="rounded-2xl rounded-tl-sm border border-slate-700/60 bg-[#1e293b]">
+                            <div className={`rounded-2xl rounded-tl-sm border ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700/60 bg-[#1e293b]'}`}>
                                 <TypingDots />
                             </div>
                         </div>
@@ -490,7 +570,7 @@ export default function ChatWidget({ ctx }) {
                     <div ref={messagesEndRef} />
                 </div>
 
-                <div className="flex-shrink-0 border-t border-slate-700/60">
+                <div className={`flex-shrink-0 border-t ${footerBorderClass}`}>
                     <div className="scrollbar-none flex gap-1 overflow-x-auto px-3 pb-1 pt-2.5">
                         {CATEGORIES.map((cat) => (
                             <button
@@ -502,7 +582,7 @@ export default function ChatWidget({ ctx }) {
                                     ${
                                         activeCategory === cat.id
                                             ? 'border-blue-500 bg-blue-600 text-white'
-                                            : 'border-slate-700 bg-slate-800 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                                            : categoryIdleClass
                                     }
                                 `}
                             >
@@ -518,7 +598,7 @@ export default function ChatWidget({ ctx }) {
                                 type="button"
                                 onClick={() => handleIntent(intent)}
                                 disabled={typing}
-                                className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-300 transition-all hover:border-blue-500/50 hover:bg-blue-600/20 hover:text-blue-300 disabled:cursor-not-allowed disabled:opacity-40"
+                                className={`flex items-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-xs transition-all disabled:cursor-not-allowed disabled:opacity-40 ${intentBtnClass}`}
                             >
                                 <span>{intent.icon}</span>
                                 <span className="leading-tight">{intent.label}</span>
@@ -534,7 +614,7 @@ export default function ChatWidget({ ctx }) {
                             onChange={(e) => setInput(e.target.value)}
                             placeholder="Escribe tu pregunta..."
                             disabled={typing}
-                            className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 outline-none transition-all placeholder:text-slate-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500/50 disabled:opacity-50"
+                            className={`flex-1 rounded-xl border px-3 py-2 text-sm outline-none transition-all focus:ring-1 disabled:opacity-50 ${inputClass}`}
                         />
                         <button
                             type="submit"
@@ -546,6 +626,31 @@ export default function ChatWidget({ ctx }) {
                     </form>
                 </div>
             </div>
-        </div>
+    );
+
+    if (isInline) {
+        return (
+            <div ref={wrapRef} className="relative inline-flex">
+                {welcomeBubble}
+                {chatTrigger}
+                {chatWindow}
+            </div>
+        );
+    }
+
+    if (isSidebar) {
+        return (
+            <div className="relative mx-auto w-full min-w-0 max-w-[11rem] overflow-visible pb-1 pt-1">
+                {chatTrigger}
+                {chatWindow}
+            </div>
+        );
+    }
+
+    return (
+        <>
+            {chatTrigger}
+            {chatWindow}
+        </>
     );
 }

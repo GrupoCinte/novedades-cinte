@@ -1,0 +1,5 @@
+stateDiagram-v2
+    [*] --> EN_REVISION
+    EN_REVISION --> LISTO_EXPORT: Todos APROBADO_FINANZAS
+    LISTO_EXPORT --> ENVIADA: Descarga Excel
+    ENVIADA --> CONCILIADA: Marcar conciliada

@@ -1,12 +1,15 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { buildDynamoLowLevelClientConfig } = require('./awsDynamoClientConfig');
-const { mapDynamoItemToExecution } = require('./utils/mappers');
+const { isOnboardingMonitorItem, mapDynamoItemToExecution } = require('./utils/mappers');
 const { scanAllItems, queryAllItems, DEFAULT_MAX } = require('./utils/dynamoPaged');
 const { validate, validateQuery } = require('./middleware/validate');
 const { emailQuerySchema } = require('./schemas/users');
 const { eliminarCandidatoSchema } = require('./schemas/eliminarCandidato');
+const { finalizarCandidatoSchema } = require('./schemas/finalizarCandidato');
 const { signContratacionWsTicket } = require('./wsTicket');
+const { getOnboardingPromotionService } = require('./initContratacionRealtime');
+const { mapDynamoItemForPromotion } = require('../onboarding/onboardingPromotionService');
 
 function buildKpiBaseline() {
     return {
@@ -56,14 +59,16 @@ function registerContratacionRoutes(deps) {
         if (!configured || !docClient) return notConfigured(res);
         try {
             const items = await scanAllItems(docClient, tableName, { maxItems });
-            const executions = items.map(mapDynamoItemToExecution);
+            const onboardingItems = items.filter(isOnboardingMonitorItem);
+            const executions = onboardingItems.map(mapDynamoItemToExecution);
             return res.json({
                 success: true,
                 count: executions.length,
                 executions,
                 meta: {
                     region: process.env.AWS_REGION || 'us-east-1',
-                    dynamoScanItemCount: items.length
+                    dynamoScanItemCount: items.length,
+                    zohoNovedadFilteredCount: items.length - onboardingItems.length
                 }
             });
         } catch (error) {
@@ -190,6 +195,69 @@ function registerContratacionRoutes(deps) {
                     });
                 }
                 console.error('Contratación eliminar-candidato:', error.message);
+                return res.status(500).json({
+                    success: false,
+                    message: error.message || 'No se pudo actualizar el registro.'
+                });
+            }
+        }
+    );
+
+    app.post(
+        '/api/contratacion/finalizar-candidato',
+        ...guard,
+        allowRoles(['super_admin', 'admin_ch']),
+        contratacionEliminarLimiter,
+        validate(finalizarCandidatoSchema),
+        async (req, res) => {
+            if (!configured || !docClient) return notConfigured(res);
+            try {
+                const { executionId, obs_finalizado_manual } = req.body;
+                const ts = new Date().toISOString();
+
+                const command = new UpdateCommand({
+                    TableName: tableName,
+                    Key: { whatsapp_number: executionId },
+                    UpdateExpression:
+                        'SET #st = :st, obs_finalizado_manual = :obs, ts_validacion_completada = :ts',
+                    ExpressionAttributeNames: { '#st': 'status' },
+                    ExpressionAttributeValues: {
+                        ':st': 'Finalizado',
+                        ':obs': obs_finalizado_manual,
+                        ':ts': ts
+                    },
+                    ConditionExpression: 'attribute_exists(whatsapp_number)',
+                    ReturnValues: 'ALL_NEW'
+                });
+
+                const out = await docClient.send(command);
+                const execution = mapDynamoItemToExecution(out.Attributes);
+
+                const promo = getOnboardingPromotionService();
+                if (promo && out.Attributes) {
+                    try {
+                        const payload = mapDynamoItemForPromotion(out.Attributes);
+                        await promo.promoteToColaborador(payload, 'manual', { eventType: 'MODIFY' });
+                    } catch (promoErr) {
+                        console.warn(
+                            'Contratación finalizar-candidato: autopromote falló (Dynamo ya actualizado):',
+                            promoErr.message
+                        );
+                    }
+                }
+
+                return res.json({
+                    success: true,
+                    execution
+                });
+            } catch (error) {
+                if (error.name === 'ConditionalCheckFailedException') {
+                    return res.status(404).json({
+                        success: false,
+                        message: 'No se encontró el candidato (whatsapp_number).'
+                    });
+                }
+                console.error('Contratación finalizar-candidato:', error.message);
                 return res.status(500).json({
                     success: false,
                     message: error.message || 'No se pudo actualizar el registro.'

@@ -171,7 +171,7 @@ function createAuthHelpers(deps) {
         const roleFromClaims = normalizeRoleOrNull(claims['custom:role'] || claims.role);
         const role = roleFromGroups || roleFromClaims || '';
         if (!role) {
-            const err = new Error('Usuario Cognito sin rol asignado. Agrega el usuario a un grupo (super_admin/cac/admin_ch/team_ch/gp/comercial/nomina).');
+            const err = new Error('Usuario Cognito sin rol asignado. Agrega el usuario a un grupo (super_admin/cac/admin_ch/team_ch/gp/comercial/nomina/analista_conciliaciones).');
             err.status = 403;
             throw err;
         }

@@ -15,6 +15,8 @@ const {
     isSundayBogotaYmd
 } = require('./heDomingoBogota');
 const conciliacionesQueries = require('./conciliaciones/conciliacionesQueries');
+const serviciosDynamoData = require('./conciliaciones/serviciosDynamoData');
+const festivosService = require('./festivosService');
 
 function createDataLayer(deps) {
     const {
@@ -25,14 +27,19 @@ function createDataLayer(deps) {
         normalizeCatalogValue,
         normalizeCedula,
         canRoleViewType,
-        getAreaFromRole
+        getAreaFromRole,
+        emailNotificationsPublisher = null,
+        frontendUrl = '',
+        cognitoClient = null,
+        cognitoUserPoolId = ''
     } = deps;
 
     async function ensureUserRoleEnumValues() {
         const enumStatements = [
             { role: 'nomina', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'nomina'` },
             { role: 'sst', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'sst'` },
-            { role: 'cac', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'cac'` }
+            { role: 'cac', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'cac'` },
+            { role: 'analista_conciliaciones', sql: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'analista_conciliaciones'` }
         ];
         for (const item of enumStatements) {
             try {
@@ -176,6 +183,28 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureNovedadesNominaProcesadoColumns() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_procesado_en TIMESTAMPTZ NULL');
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_procesado_por_user_id UUID NULL'
+            );
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_procesado_por_email TEXT NULL');
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS nomina_procesado_lote TEXT NULL');
+            await pool.query(`
+                CREATE INDEX IF NOT EXISTS idx_novedades_nomina_procesado_en
+                ON novedades (nomina_procesado_en)
+                WHERE nomina_procesado_en IS NOT NULL
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[DB] Permisos insuficientes para columnas de procesado nómina en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     async function ensureNovedadesHorasRecargoDomingoColumn() {
         try {
             await pool.query(
@@ -186,6 +215,9 @@ function createDataLayer(deps) {
             );
             await pool.query(
                 'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_recargo_domingo_nocturnas NUMERIC(8,2) NOT NULL DEFAULT 0'
+            );
+            await pool.query(
+                'ALTER TABLE novedades ADD COLUMN IF NOT EXISTS horas_recargo_nocturno NUMERIC(8,2) NOT NULL DEFAULT 0'
             );
         } catch (error) {
             if (String(error?.code || '') === '42501') {
@@ -645,6 +677,362 @@ function createDataLayer(deps) {
         }
     }
 
+    async function ensureConciliacionesFacturacionTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_facturacion (
+                    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    anio                INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+                    mes                 INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+                    proyecto            TEXT NULL,
+                    observaciones       TEXT NULL,
+                    fecha_cierre        DATE NOT NULL DEFAULT CURRENT_DATE,
+                    horas_facturadas    NUMERIC(8,2) NOT NULL DEFAULT 0,
+                    estado              VARCHAR(50) NOT NULL DEFAULT 'PENDIENTE',
+                    factura_fv          VARCHAR(100) NULL,
+                    fecha_radicacion    DATE NULL,
+                    motivo_devolucion   TEXT NULL,
+                    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_conciliaciones_facturacion_colab_mes UNIQUE (cedula, anio, mes)
+                )
+            `);
+            await pool.query('CREATE INDEX IF NOT EXISTS idx_conciliaciones_facturacion_mes_anio ON conciliaciones_facturacion(anio, mes)');
+
+            // Migraciones dinámicas para las nuevas columnas
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS estado VARCHAR(50) NOT NULL DEFAULT 'PENDIENTE'`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS factura_fv VARCHAR(100) NULL`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS fecha_radicacion DATE NULL`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS motivo_devolucion TEXT NULL`);
+            await pool.query(`ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS tarifa_override NUMERIC(14,2) NULL`);
+            await pool.query(
+                `ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS montos_novedad_override JSONB NOT NULL DEFAULT '{}'`
+            );
+            await pool.query(
+                `ALTER TABLE conciliaciones_facturacion ADD COLUMN IF NOT EXISTS cantidad_horas_novedad_override JSONB NOT NULL DEFAULT '{}'`
+            );
+
+            // Tablas de servicios (facturacion): crearlas antes de alterarlas para no romper el arranque
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS servicios (
+                    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cliente             TEXT NOT NULL,
+                    nombre_servicio     TEXT NOT NULL,
+                    inicio_contrato     DATE NOT NULL,
+                    dia_cierre          INTEGER NOT NULL,
+                    modo_facturacion    VARCHAR(100) NOT NULL,
+                    horas_base          NUMERIC(8,2) NULL,
+                    tipo_facturacion    VARCHAR(100) NULL,
+                    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS servicio_consultores (
+                    servicio_id         UUID NOT NULL REFERENCES servicios(id) ON DELETE CASCADE,
+                    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    licencias           TEXT NULL,
+                    equipo              TEXT NULL,
+                    otras_dotaciones    TEXT NULL,
+                    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    PRIMARY KEY (servicio_id, cedula)
+                )
+            `);
+
+            // Columnas para servicios (idempotente para BD que ya tenian la tabla)
+            await pool.query(`ALTER TABLE servicios ADD COLUMN IF NOT EXISTS horas_base NUMERIC(8,2) NULL`);
+            await pool.query(`ALTER TABLE servicios ADD COLUMN IF NOT EXISTS tipo_facturacion VARCHAR(100) NULL`);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para crear/alterar conciliaciones_facturacion.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesFacturacionHistorialTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_facturacion_historial (
+                    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    facturacion_id    UUID NOT NULL REFERENCES conciliaciones_facturacion(id) ON DELETE CASCADE,
+                    cedula            TEXT NOT NULL,
+                    anio              INTEGER NOT NULL,
+                    mes               INTEGER NOT NULL,
+                    accion            VARCHAR(20) NOT NULL,
+                    etapa             VARCHAR(20) NOT NULL,
+                    estado_anterior   VARCHAR(50) NOT NULL,
+                    estado_nuevo      VARCHAR(50) NOT NULL,
+                    observacion       TEXT NOT NULL,
+                    actor_user_id     UUID NULL,
+                    actor_email       TEXT NOT NULL,
+                    actor_nombre      TEXT NOT NULL,
+                    actor_role        user_role NOT NULL,
+                    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(
+                'CREATE INDEX IF NOT EXISTS idx_conc_fact_hist_colab_mes ON conciliaciones_facturacion_historial(cedula, anio, mes)'
+            );
+            await pool.query(
+                `ALTER TABLE conciliaciones_facturacion_historial ADD COLUMN IF NOT EXISTS detalle JSONB NULL`
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para crear conciliaciones_facturacion_historial.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesServicioNotificacionesTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_servicio_notificaciones (
+                    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    servicio_id TEXT NOT NULL,
+                    anio        INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+                    mes         INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+                    tipo        VARCHAR(50) NOT NULL DEFAULT 'SERVICIO_FINALIZADO',
+                    event_id    TEXT NOT NULL,
+                    sent_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_conc_serv_notif UNIQUE (servicio_id, anio, mes, tipo)
+                )
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para conciliaciones_servicio_notificaciones.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesServicioCierreTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_servicio_cierre (
+                    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    servicio_id             TEXT NOT NULL,
+                    anio                    INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+                    mes                     INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+                    estado_servicio         VARCHAR(30) NOT NULL DEFAULT 'EN_REVISION',
+                    enviada_at              TIMESTAMPTZ NULL,
+                    enviada_por_user_id     UUID NULL,
+                    enviada_por_email       TEXT NULL,
+                    conciliada_at           TIMESTAMPTZ NULL,
+                    conciliada_por_user_id  UUID NULL,
+                    conciliada_por_email    TEXT NULL,
+                    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_conc_servicio_cierre UNIQUE (servicio_id, anio, mes)
+                )
+            `);
+            await pool.query(
+                `CREATE INDEX IF NOT EXISTS idx_conc_servicio_cierre_mes ON conciliaciones_servicio_cierre(anio, mes)`
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para conciliaciones_servicio_cierre.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesEmailPlantillasTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_email_plantillas (
+                    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    tipo                VARCHAR(50) NOT NULL UNIQUE,
+                    asunto_template     TEXT NOT NULL,
+                    intro_template      TEXT NOT NULL,
+                    cierre_template     TEXT NOT NULL DEFAULT '',
+                    columnas_default    JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_by_email    TEXT NULL
+                )
+            `);
+            const { defaultPlantillaCorreoLider } = require('./conciliaciones/conciliacionEmailPlantilla');
+            const defaults = defaultPlantillaCorreoLider();
+            await pool.query(
+                `INSERT INTO conciliaciones_email_plantillas
+                    (tipo, asunto_template, intro_template, cierre_template, columnas_default)
+                 VALUES ($1, $2, $3, $4, $5::jsonb)
+                 ON CONFLICT (tipo) DO NOTHING`,
+                [
+                    defaults.tipo,
+                    defaults.asuntoTemplate,
+                    defaults.introTemplate,
+                    defaults.cierreTemplate,
+                    JSON.stringify(defaults.columnasDefault)
+                ]
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para conciliaciones_email_plantillas.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesEmailAccionesTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_email_acciones (
+                    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    token_hash       TEXT NOT NULL UNIQUE,
+                    servicio_id      TEXT NOT NULL,
+                    anio             INTEGER NOT NULL,
+                    mes              INTEGER NOT NULL,
+                    accion           VARCHAR(20) NOT NULL,
+                    recipient_email  TEXT NOT NULL,
+                    event_id         TEXT NULL,
+                    usado_at         TIMESTAMPTZ NULL,
+                    expira_at        TIMESTAMPTZ NOT NULL,
+                    observacion      TEXT NULL,
+                    columnas_json    JSONB NULL,
+                    created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(
+                'CREATE INDEX IF NOT EXISTS idx_conc_email_acc_servicio ON conciliaciones_email_acciones(servicio_id, anio, mes)'
+            );
+            await pool.query(
+                `ALTER TABLE conciliaciones_email_acciones
+                 ADD COLUMN IF NOT EXISTS columnas_json JSONB NULL`
+            );
+            // Ampliar CHECK legacy approve/reject → incluir view (drop/recreate constraint si existe)
+            try {
+                await pool.query(
+                    `ALTER TABLE conciliaciones_email_acciones DROP CONSTRAINT IF EXISTS conciliaciones_email_acciones_accion_check`
+                );
+                await pool.query(
+                    `ALTER TABLE conciliaciones_email_acciones
+                     ADD CONSTRAINT conciliaciones_email_acciones_accion_check
+                     CHECK (accion IN ('approve', 'reject', 'view'))`
+                );
+            } catch (e) {
+                console.warn('[Conciliaciones] No se pudo actualizar CHECK accion email_acciones:', e?.message || e);
+            }
+
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_email_decisiones (
+                    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    token_id         UUID NOT NULL REFERENCES conciliaciones_email_acciones(id) ON DELETE CASCADE,
+                    servicio_id      TEXT NOT NULL,
+                    anio             INTEGER NOT NULL,
+                    mes              INTEGER NOT NULL,
+                    cedula           TEXT NOT NULL,
+                    decision         VARCHAR(20) NOT NULL CHECK (decision IN ('APROBADO', 'RECHAZADO')),
+                    observacion      TEXT NULL,
+                    decided_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_conc_email_decision_token_cedula UNIQUE (token_id, cedula)
+                )
+            `);
+            await pool.query(
+                'CREATE INDEX IF NOT EXISTS idx_conc_email_dec_token ON conciliaciones_email_decisiones(token_id)'
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para conciliaciones_email_acciones.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureConciliacionesNovedadConsumoTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS conciliaciones_novedad_consumo (
+                    id                      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    novedad_id              UUID NOT NULL,
+                    facturacion_id          UUID NOT NULL REFERENCES conciliaciones_facturacion(id) ON DELETE CASCADE,
+                    cedula                  TEXT NOT NULL,
+                    anio                    INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+                    mes                     INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+                    servicio_id             TEXT NULL,
+                    consumido_en            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    consumido_por_user_id   UUID NULL,
+                    CONSTRAINT uq_conc_novedad_consumo UNIQUE (novedad_id)
+                )
+            `);
+            await pool.query(
+                `CREATE INDEX IF NOT EXISTS idx_conc_novedad_consumo_fact ON conciliaciones_novedad_consumo(facturacion_id)`
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para conciliaciones_novedad_consumo.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureColaboradorAsignacionesTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS colaborador_asignaciones (
+                    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cedula          TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    cliente         TEXT NOT NULL,
+                    codigo_zoho     TEXT NULL,
+                    tarifa          NUMERIC(14,2) NOT NULL DEFAULT 0,
+                    fecha_inicio    DATE NULL,
+                    fecha_fin       DATE NULL,
+                    activo          BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    CONSTRAINT uq_colaborador_asignacion_cliente UNIQUE (cedula, cliente)
+                )
+            `);
+            await pool.query(
+                `CREATE INDEX IF NOT EXISTS idx_colaborador_asignaciones_cedula ON colaborador_asignaciones(cedula)`
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para colaborador_asignaciones.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureColaboradorTarifaHistorialTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS colaborador_tarifa_historial (
+                    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cedula          TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+                    cliente         TEXT NOT NULL,
+                    tarifa          NUMERIC(14,2) NOT NULL,
+                    vigente_desde   DATE NOT NULL,
+                    vigente_hasta   DATE NULL,
+                    source          TEXT NULL,
+                    staging_id      UUID NULL,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(
+                `CREATE INDEX IF NOT EXISTS idx_tarifa_historial_cedula_cliente
+                 ON colaborador_tarifa_historial(cedula, cliente, vigente_desde)`
+            );
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Conciliaciones] Permisos insuficientes para colaborador_tarifa_historial.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** Varias personas por franja/día, acotadas por cliente del directorio. */
     async function ensureMallaTurnoAsignacionTable() {
         try {
@@ -663,6 +1051,30 @@ function createDataLayer(deps) {
             await pool.query(
                 'CREATE INDEX IF NOT EXISTS idx_malla_turno_asignacion_lookup ON malla_turno_asignacion (cliente, fecha, franja)'
             );
+            await pool.query(
+                'ALTER TABLE malla_turno_asignacion ADD COLUMN IF NOT EXISTS hora_inicio TIME NULL'
+            );
+            await pool.query(
+                'ALTER TABLE malla_turno_asignacion ADD COLUMN IF NOT EXISTS hora_fin TIME NULL'
+            );
+            // AUT-550: separar Mallas de Turnos nocturnos. Ambas vistas comparten la franja
+            // 22_06; el origen distingue a qué pestaña pertenece cada asignación.
+            await pool.query(
+                "ALTER TABLE malla_turno_asignacion ADD COLUMN IF NOT EXISTS origen TEXT NOT NULL DEFAULT 'mallas'"
+            );
+            // Migración idempotente: las filas 22_06 con horario explícito provienen de
+            // Turnos nocturnos (Mallas nunca guarda horas en su franja noche).
+            await pool.query(
+                "UPDATE malla_turno_asignacion SET origen = 'nocturnos' WHERE franja = '22_06' AND hora_inicio IS NOT NULL AND origen <> 'nocturnos'"
+            );
+            // El unique pasa a incluir el origen para que una misma persona pueda estar el
+            // mismo día en la malla diurna/noche y en turnos nocturnos sin colisionar.
+            await pool.query(
+                'ALTER TABLE malla_turno_asignacion DROP CONSTRAINT IF EXISTS uq_malla_turno_asignacion'
+            );
+            await pool.query(
+                'ALTER TABLE malla_turno_asignacion ADD CONSTRAINT uq_malla_turno_asignacion UNIQUE (cliente, fecha, franja, cedula, origen)'
+            );
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Mallas] Permisos insuficientes para crear malla_turno_asignacion.');
@@ -672,38 +1084,197 @@ function createDataLayer(deps) {
         }
     }
 
+    /** Horario global de la franja Turnos nocturnos (singleton id=1). */
+    async function ensureMallaNocturnoConfigTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS malla_nocturno_config (
+                    id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+                    hora_inicio TIME NOT NULL DEFAULT '22:00',
+                    hora_fin TIME NOT NULL DEFAULT '06:00',
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+            `);
+            await pool.query(`
+                INSERT INTO malla_nocturno_config (id, hora_inicio, hora_fin)
+                VALUES (1, '22:00', '06:00')
+                ON CONFLICT (id) DO NOTHING
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Mallas] Permisos insuficientes para crear malla_nocturno_config.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    /** Registro irreversible de aprobación mensual por cliente y variant (mallas | nocturnos). */
+    async function ensureMallaTurnoAprobacionTable() {
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS malla_turno_aprobacion (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    cliente TEXT NOT NULL,
+                    anio SMALLINT NOT NULL,
+                    mes SMALLINT NOT NULL CHECK (mes BETWEEN 1 AND 12),
+                    variant TEXT NOT NULL CHECK (variant IN ('mallas', 'nocturnos')),
+                    aprobado_por_user_id UUID NULL,
+                    aprobado_por_email TEXT NOT NULL,
+                    aprobado_por_rol TEXT NOT NULL,
+                    aprobado_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    novedades_generadas INT NOT NULL DEFAULT 0,
+                    CONSTRAINT uq_malla_turno_aprobacion UNIQUE (cliente, anio, mes, variant)
+                )
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Mallas] Permisos insuficientes para crear malla_turno_aprobacion.');
+                return;
+            }
+            throw error;
+        }
+    }
+
+    async function ensureNovedadesMallaOrigenRefColumn() {
+        try {
+            await pool.query('ALTER TABLE novedades ADD COLUMN IF NOT EXISTS malla_origen_ref TEXT NULL');
+            await pool.query(`
+                CREATE UNIQUE INDEX IF NOT EXISTS uq_novedades_malla_origen_ref
+                ON novedades (malla_origen_ref) WHERE malla_origen_ref IS NOT NULL
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Mallas] Permisos insuficientes para malla_origen_ref en novedades.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     const MALLA_FRANJAS = new Set(['06_14', '14_22', '22_06']);
+
+    const {
+        buildConfigPayload: buildNocturnoConfigPayload,
+        buildConfigPayloadFromDb: buildNocturnoConfigFromDb,
+        normalizeTimeFromDb: normalizeNocturnoTimeFromDb,
+        DEFAULT_HORA_INICIO: defaultNocturnoHoraInicio,
+        DEFAULT_HORA_FIN: defaultNocturnoHoraFin
+    } = require('./directorio/mallaNocturnoConfig');
+
+    /**
+     * @returns {Promise<{ horaInicio: string, horaFin: string, cantidadHoras: number, label: string }>}
+     */
+    async function getMallaNocturnoConfig() {
+        const q = await pool.query(
+            'SELECT hora_inicio, hora_fin FROM malla_nocturno_config WHERE id = 1 LIMIT 1'
+        );
+        const row = q.rows?.[0];
+        if (!row) {
+            return buildNocturnoConfigPayload(defaultNocturnoHoraInicio, defaultNocturnoHoraFin);
+        }
+        const config = buildNocturnoConfigFromDb(row.hora_inicio, row.hora_fin);
+        if (config.storedInvalid) {
+            console.warn('[Mallas] malla_nocturno_config inválida en BD; devolviendo defaults.', {
+                horaInicio: row.hora_inicio,
+                horaFin: row.hora_fin,
+                error: config.storedError
+            });
+        }
+        return config;
+    }
+
+    /**
+     * @param {{ horaInicio: string, horaFin: string }} payload
+     */
+    async function upsertMallaNocturnoConfig(payload) {
+        const built = buildNocturnoConfigPayload(payload.horaInicio, payload.horaFin);
+        await pool.query(
+            `INSERT INTO malla_nocturno_config (id, hora_inicio, hora_fin, updated_at)
+             VALUES (1, $1::time, $2::time, NOW())
+             ON CONFLICT (id) DO UPDATE SET
+                hora_inicio = EXCLUDED.hora_inicio,
+                hora_fin = EXCLUDED.hora_fin,
+                updated_at = NOW()`,
+            [built.horaInicio, built.horaFin]
+        );
+        return built;
+    }
 
     /**
      * @param {{ cliente: string, desde: string, hasta: string }} rango YYYY-MM-DD inclusive
      * @returns {Promise<Array<{ fecha: string, franja: string, cedula: string, orden: number, nombre: string, codigo: string | null }>>}
      */
-    async function listMallaTurnosCeldasRange({ cliente, desde, hasta }) {
+    async function listMallaTurnosCeldasRange({ cliente, desde, hasta, origen }) {
         const cli = normalizeCatalogValue(cliente);
         if (!cli) {
             throw Object.assign(new Error('Cliente es obligatorio'), { status: 400 });
         }
+        // AUT-550: filtro opcional por origen (mallas | nocturnos) para no mezclar pestañas.
+        const origenFilter = origen === 'mallas' || origen === 'nocturnos' ? origen : null;
+        const params = [cli, desde, hasta];
+        let origenWhere = '';
+        if (origenFilter) {
+            params.push(origenFilter);
+            origenWhere = ` AND a.origen = $${params.length}`;
+        }
         const q = await pool.query(
-            `SELECT a.fecha::text AS fecha, a.franja, a.cedula, a.orden, c.nombre, c.codigo
+            `SELECT a.fecha::text AS fecha, a.franja, a.cedula, a.orden,
+                    a.hora_inicio, a.hora_fin, a.origen,
+                    c.nombre, c.codigo
              FROM malla_turno_asignacion a
              INNER JOIN colaboradores c ON c.cedula = a.cedula
-             WHERE a.cliente = $1 AND a.fecha >= $2::date AND a.fecha <= $3::date
+             WHERE a.cliente = $1 AND a.fecha >= $2::date AND a.fecha <= $3::date${origenWhere}
              ORDER BY a.fecha ASC, a.franja ASC, a.orden ASC, a.cedula ASC`,
-            [cli, desde, hasta]
+            params
         );
         return (q.rows || []).map((row) => ({
             fecha: String(row.fecha),
             franja: String(row.franja),
             cedula: String(row.cedula),
             orden: Number(row.orden) || 0,
+            origen: row.origen === 'nocturnos' ? 'nocturnos' : 'mallas',
             nombre: String(row.nombre || ''),
-            codigo: row.codigo != null && String(row.codigo).trim() !== '' ? String(row.codigo).trim() : null
+            codigo: row.codigo != null && String(row.codigo).trim() !== '' ? String(row.codigo).trim() : null,
+            horaInicio: row.hora_inicio
+                ? normalizeNocturnoTimeFromDb(row.hora_inicio)
+                : null,
+            horaFin: row.hora_fin ? normalizeNocturnoTimeFromDb(row.hora_fin, defaultNocturnoHoraFin) : null
         }));
     }
 
     /**
-     * Reemplaza por completo cada (cliente, fecha, franja) según patches.
-     * @param {{ cliente: string, patches: Array<{ fecha: string, franja: string, cedulas: string[] }> }} payload
+     * @param {{ cliente: string, anio: number, mes: number, variant: 'mallas'|'nocturnos' }} q
+     */
+    async function getMallaTurnoAprobacionStatus({ cliente, anio, mes, variant }) {
+        const cli = normalizeCatalogValue(cliente);
+        if (!cli) {
+            throw Object.assign(new Error('Cliente es obligatorio'), { status: 400 });
+        }
+        const q = await pool.query(
+            `SELECT aprobado_en, novedades_generadas, aprobado_por_email
+             FROM malla_turno_aprobacion
+             WHERE cliente = $1 AND anio = $2 AND mes = $3 AND variant = $4
+             LIMIT 1`,
+            [cli, anio, mes, variant]
+        );
+        const row = q.rows?.[0];
+        if (!row) {
+            return { aprobada: false, aprobadoEn: null, novedadesGeneradas: 0, aprobadoPorEmail: null };
+        }
+        return {
+            aprobada: true,
+            aprobadoEn: row.aprobado_en ? row.aprobado_en.toISOString() : null,
+            novedadesGeneradas: Number(row.novedades_generadas) || 0,
+            aprobadoPorEmail: String(row.aprobado_por_email || '').trim() || null
+        };
+    }
+
+    /**
+     * Actualiza celdas (cliente, fecha, franja) según patches.
+     * mode `replace`: borra la celda y reinserta la lista (modal editar día).
+     * mode `merge`: agrega/actualiza cédulas sin borrar las demás (asignación masiva).
+     * @param {{ cliente: string, patches: Array<{ fecha: string, franja: string, cedulas: string[], horaInicio?: string, horaFin?: string, mode?: 'replace'|'merge' }> }} payload
      */
     async function upsertMallaTurnosCeldas({ cliente: clienteRaw, patches }) {
         const cliente = normalizeCatalogValue(clienteRaw);
@@ -717,11 +1288,21 @@ function createDataLayer(deps) {
             for (const raw of list) {
                 const fecha = String(raw.fecha || '').trim();
                 const franja = String(raw.franja || '').trim();
+                const mode = raw.mode === 'merge' ? 'merge' : 'replace';
+                // AUT-550: el origen (mallas | nocturnos) aísla los datos de cada pestaña
+                // aunque compartan la franja 22_06.
+                const origen = raw.origen === 'nocturnos' ? 'nocturnos' : 'mallas';
                 if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
                     throw Object.assign(new Error('Fecha inválida'), { status: 400 });
                 }
                 if (!MALLA_FRANJAS.has(franja)) {
                     throw Object.assign(new Error('Franja inválida'), { status: 400 });
+                }
+                if (origen === 'nocturnos' && franja !== '22_06') {
+                    throw Object.assign(
+                        new Error('Turnos nocturnos solo admite la franja 22:00–06:00'),
+                        { status: 400 }
+                    );
                 }
                 const rawList = Array.isArray(raw.cedulas) ? raw.cedulas : [];
                 const seen = new Set();
@@ -733,10 +1314,131 @@ function createDataLayer(deps) {
                     cedulas.push(ced);
                     if (cedulas.length >= 10) break;
                 }
-                await dbClient.query(
-                    `DELETE FROM malla_turno_asignacion WHERE cliente = $1 AND fecha = $2::date AND franja = $3`,
-                    [cliente, fecha, franja]
-                );
+                let horaInicio = null;
+                let horaFin = null;
+                const rawHi = raw.horaInicio != null ? String(raw.horaInicio).trim() : '';
+                const rawHf = raw.horaFin != null ? String(raw.horaFin).trim() : '';
+                // El horario solo aplica a turnos nocturnos; en Mallas la franja noche no lleva horas.
+                if (origen === 'nocturnos' && (rawHi || rawHf)) {
+                    if (franja !== '22_06') {
+                        throw Object.assign(new Error('Horario solo aplica a turnos nocturnos'), { status: 400 });
+                    }
+                    if (!rawHi || !rawHf) {
+                        throw Object.assign(new Error('horaInicio y horaFin deben enviarse juntos'), {
+                            status: 400
+                        });
+                    }
+                    const built = buildNocturnoConfigPayload(rawHi, rawHf);
+                    horaInicio = built.horaInicio;
+                    horaFin = built.horaFin;
+                }
+
+                const nocturnoBand =
+                    origen === 'nocturnos' && franja === '22_06' && horaInicio != null && horaFin != null;
+
+                if (mode === 'merge') {
+                    if (cedulas.length === 0) {
+                        continue;
+                    }
+                    const bandParams = nocturnoBand
+                        ? [cliente, fecha, franja, origen, horaInicio, horaFin]
+                        : [cliente, fecha, franja, origen];
+                    const bandWhere = nocturnoBand
+                        ? `cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4
+                           AND hora_inicio IS NOT DISTINCT FROM $5::time
+                           AND hora_fin IS NOT DISTINCT FROM $6::time`
+                        : 'cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4';
+                    const countQ = await dbClient.query(
+                        `SELECT cedula FROM malla_turno_asignacion WHERE ${bandWhere}`,
+                        bandParams
+                    );
+                    const existingInBand = new Set(
+                        (countQ.rows || []).map((r) => String(r.cedula || ''))
+                    );
+                    let existingAllFranja = existingInBand;
+                    if (nocturnoBand) {
+                        const allQ = await dbClient.query(
+                            `SELECT cedula FROM malla_turno_asignacion
+                             WHERE cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4`,
+                            [cliente, fecha, franja, origen]
+                        );
+                        existingAllFranja = new Set(
+                            (allQ.rows || []).map((r) => String(r.cedula || ''))
+                        );
+                    }
+                    const newCedulas = cedulas.filter((c) => !existingInBand.has(c));
+                    if (existingInBand.size + newCedulas.length > 10) {
+                        throw Object.assign(
+                            new Error('Máximo 10 personas por franja y día'),
+                            { status: 400 }
+                        );
+                    }
+                    let ordenBase = existingInBand.size;
+                    for (const ced of cedulas) {
+                        const chk = await dbClient.query(
+                            `SELECT activo FROM colaboradores
+                             WHERE cedula = $1
+                               AND lower(trim(COALESCE(cliente, ''))) = lower(trim($2))
+                             LIMIT 1`,
+                            [ced, cliente]
+                        );
+                        if (!chk.rows[0]) {
+                            throw Object.assign(
+                                new Error('Colaborador no encontrado o no pertenece al cliente seleccionado'),
+                                { status: 400 }
+                            );
+                        }
+                        if (!chk.rows[0].activo) {
+                            throw Object.assign(
+                                new Error('El colaborador debe estar activo para asignarlo en la malla'),
+                                { status: 400 }
+                            );
+                        }
+                        if (nocturnoBand && existingAllFranja.has(ced) && !existingInBand.has(ced)) {
+                            throw Object.assign(
+                                new Error('Colaborador ya asignado en otro horario este día'),
+                                { status: 400 }
+                            );
+                        }
+                        const isNew = !existingInBand.has(ced);
+                        const orden = isNew ? ordenBase++ : null;
+                        if (isNew) {
+                            await dbClient.query(
+                                `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, hora_inicio, hora_fin, origen, updated_at)
+                                 VALUES ($1, $2::date, $3, $4, $5, $6::time, $7::time, $8, NOW())`,
+                                [cliente, fecha, franja, ced, orden, horaInicio, horaFin, origen]
+                            );
+                        } else if (horaInicio != null && horaFin != null) {
+                            const updateWhere = nocturnoBand
+                                ? `cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4 AND cedula = $5
+                                   AND hora_inicio IS NOT DISTINCT FROM $6::time
+                                   AND hora_fin IS NOT DISTINCT FROM $7::time`
+                                : 'cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4 AND cedula = $5';
+                            await dbClient.query(
+                                `UPDATE malla_turno_asignacion
+                                 SET hora_inicio = $6::time, hora_fin = $7::time, updated_at = NOW()
+                                 WHERE ${updateWhere}`,
+                                [cliente, fecha, franja, origen, ced, horaInicio, horaFin]
+                            );
+                        }
+                    }
+                    continue;
+                }
+
+                if (nocturnoBand) {
+                    await dbClient.query(
+                        `DELETE FROM malla_turno_asignacion
+                         WHERE cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4
+                           AND hora_inicio IS NOT DISTINCT FROM $5::time
+                           AND hora_fin IS NOT DISTINCT FROM $6::time`,
+                        [cliente, fecha, franja, origen, horaInicio, horaFin]
+                    );
+                } else {
+                    await dbClient.query(
+                        `DELETE FROM malla_turno_asignacion WHERE cliente = $1 AND fecha = $2::date AND franja = $3 AND origen = $4`,
+                        [cliente, fecha, franja, origen]
+                    );
+                }
                 let orden = 0;
                 for (const ced of cedulas) {
                     const chk = await dbClient.query(
@@ -758,9 +1460,9 @@ function createDataLayer(deps) {
                         });
                     }
                     await dbClient.query(
-                        `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, updated_at)
-                         VALUES ($1, $2::date, $3, $4, $5, NOW())`,
-                        [cliente, fecha, franja, ced, orden]
+                        `INSERT INTO malla_turno_asignacion (cliente, fecha, franja, cedula, orden, hora_inicio, hora_fin, origen, updated_at)
+                         VALUES ($1, $2::date, $3, $4, $5, $6::time, $7::time, $8, NOW())`,
+                        [cliente, fecha, franja, ced, orden, horaInicio, horaFin, origen]
                     );
                     orden += 1;
                 }
@@ -1175,6 +1877,20 @@ function createDataLayer(deps) {
         return q.rows[0] || null;
     }
 
+    async function deleteClienteLiderById(idRaw) {
+        const id = String(idRaw || '').trim();
+        if (!/^[0-9a-f-]{36}$/i.test(id)) {
+            throw Object.assign(new Error('Id inválido'), { status: 400 });
+        }
+        const q = await pool.query(
+            `DELETE FROM clientes_lideres
+             WHERE id = $1::uuid
+             RETURNING id, cliente, lider, activo, gp_user_id, nit`,
+            [id]
+        );
+        return q.rows[0] || null;
+    }
+
     async function deleteColaboradorByCedula(cedulaRaw) {
         const ced = normalizeCedula(cedulaRaw);
         if (!ced) throw Object.assign(new Error('Cédula inválida'), { status: 400 });
@@ -1467,6 +2183,34 @@ function createDataLayer(deps) {
     }
 
     /**
+     * Correos GP asignados al cliente en catálogo (`clientes_lideres.gp_user_id`).
+     * Misma regla de alcance que el listado de novedades para rol `gp`.
+     * @param {string} clienteRaw
+     * @returns {Promise<string[]>}
+     */
+    async function listGpEmailsForCliente(clienteRaw) {
+        const raw = normalizeCatalogValue(clienteRaw);
+        if (!raw) return [];
+        const clientesCanonico = await getClientesList();
+        const { map } = buildFoldToCanonicoMap(clientesCanonico);
+        const canonical = matchExcelClienteABd(raw, map);
+        const clienteParaQuery = canonical || raw;
+        const q = await pool.query(
+            `SELECT DISTINCT lower(btrim(u.email)) AS email
+             FROM clientes_lideres cl
+             INNER JOIN users u ON u.id = cl.gp_user_id AND u.role = 'gp'::user_role
+             WHERE cl.activo IS NOT FALSE
+               AND lower(btrim(cl.cliente)) = lower(btrim($1::text))
+               AND COALESCE(u.is_active, TRUE) IS NOT FALSE
+               AND NULLIF(btrim(u.email), '') IS NOT NULL`,
+            [clienteParaQuery]
+        );
+        return (q.rows || [])
+            .map((r) => String(r.email || '').trim().toLowerCase())
+            .filter((e) => e.includes('@'));
+    }
+
+    /**
      * Resuelve el users.id interno del GP para scoping.
      * Prioriza email de sesión (Cognito), con fallback al gpUserId recibido en scope.
      * @param {{ gpEmail?: string|null, gpUserId?: string|null }} scope
@@ -1504,6 +2248,9 @@ function createDataLayer(deps) {
         const cliente = String(options?.cliente || '').trim().toLowerCase();
         const createdFrom = String(options?.createdFrom || '').trim();
         const createdTo = String(options?.createdTo || '').trim();
+        const nominaProcesado = String(options?.nominaProcesado || '').trim().toLowerCase();
+        const fechaInicioDesde = String(options?.fechaInicioDesde || '').trim();
+        const fechaInicioHasta = String(options?.fechaInicioHasta || '').trim();
         const whereParts = [];
         const params = [];
         if (!scope?.canViewAllAreas && Array.isArray(scope?.areas) && scope.areas.length > 0) {
@@ -1543,6 +2290,19 @@ function createDataLayer(deps) {
         if (/^\d{4}-\d{2}-\d{2}$/.test(createdTo)) {
             params.push(createdTo);
             whereParts.push(`nov.creado_en::date <= $${params.length}::date`);
+        }
+        if (nominaProcesado === 'si') {
+            whereParts.push('nov.nomina_procesado_en IS NOT NULL');
+        } else if (nominaProcesado === 'no') {
+            whereParts.push('nov.nomina_procesado_en IS NULL');
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(fechaInicioDesde)) {
+            params.push(fechaInicioDesde);
+            whereParts.push(`nov.fecha_inicio >= $${params.length}::date`);
+        }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(fechaInicioHasta)) {
+            params.push(fechaInicioHasta);
+            whereParts.push(`nov.fecha_inicio <= $${params.length}::date`);
         }
         /** Super admin / CAC: filtrar por GP según catálogo `clientes_lideres` (clientes asignados a ese usuario GP), alineado con el alcance del rol `gp`. */
         const gpUserIdOpt = String(options?.gpUserId || '').trim();
@@ -1609,12 +2369,14 @@ function createDataLayer(deps) {
                 nov.id, nov.nombre, nov.cedula, nov.correo_solicitante, nov.cliente, nov.lider, nov.gp_user_id, nov.tipo_novedad, nov.area,
                 nov.modalidad, nov.fecha_votacion, nov.unidad,
                 nov.fecha, nov.hora_inicio, nov.hora_fin, nov.fecha_inicio, nov.fecha_fin, nov.cantidad_horas, nov.tipo_hora_extra, nov.horas_diurnas, nov.horas_nocturnas, nov.horas_recargo_domingo,
-                nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas,
+                nov.horas_recargo_domingo_diurnas, nov.horas_recargo_domingo_nocturnas, nov.horas_recargo_nocturno,
                 nov.monto_cop, nov.soporte_ruta, nov.estado, nov.creado_en, nov.aprobado_en, nov.aprobado_por_rol, nov.rechazado_en, nov.rechazado_por_rol,
                 nov.alerta_he_resuelta_estado, nov.alerta_he_resuelta_en, nov.alerta_he_resuelta_por_email, nov.alerta_he_origen,
+                nov.nomina_procesado_en, nov.nomina_procesado_por_user_id, nov.nomina_procesado_por_email, nov.nomina_procesado_lote,
                 nov.he_domingo_observacion,
                 nov.observaciones,
                 nov.observaciones_rechazo,
+                nov.malla_origen_ref,
                 COALESCE(NULLIF(BTRIM(nov.aprobado_por_email), ''), NULLIF(BTRIM(ua.email), '')) AS aprobado_por_correo,
                 COALESCE(NULLIF(BTRIM(nov.rechazado_por_email), ''), NULLIF(BTRIM(ur.email), '')) AS rechazado_por_correo
              FROM novedades nov
@@ -1986,48 +2748,246 @@ function createDataLayer(deps) {
         listAssignedClientesForGpUserId,
         resolveGpInternalUserIdForScope,
         normalizeCedula,
-        canRoleViewType
+        canRoleViewType,
+        getFestivosSet: () => festivosService.getFestivosSet(),
+        emailNotificationsPublisher,
+        frontendUrl: String(frontendUrl || '').trim(),
+        cognitoClient,
+        cognitoUserPoolId: String(cognitoUserPoolId || '').trim(),
+        listServicios: (scope) => serviciosDynamoData.listServicios(conciliacionesDeps, scope),
+        getConciliacionResumenPorClienteMes: (...args) =>
+            conciliacionesQueries.getConciliacionResumenPorClienteMes(...args)
     };
 
     async function listConciliacionesClientesForScope(scope) {
         return conciliacionesQueries.listConciliacionesClientes(conciliacionesDeps, scope);
     }
 
-    async function getConciliacionResumenPorClienteMesForScope(scope, clienteRaw, year, month) {
+    async function getConciliacionResumenPorClienteMesForScope(scope, clienteRaw, year, month, impactOpts) {
         const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
         if (!chk.ok) return chk;
+        const opts = conciliacionesQueries.novedadesImpactOptionsFromBillingType(impactOpts);
         const payload = await conciliacionesQueries.getConciliacionResumenPorClienteMes(
             conciliacionesDeps,
             scope,
             chk.canon,
             year,
-            month
+            month,
+            opts
         );
         return { ok: true, clienteCanon: chk.canon, ...payload };
     }
 
-    async function listConciliacionNovedadesDetalleForScope(scope, clienteRaw, cedulaRaw, year, month) {
+    async function getConciliacionResumenTodosClientesMesForScope(scope, year, month) {
+        const payload = await conciliacionesQueries.getConciliacionResumenTodosClientesMes(
+            conciliacionesDeps,
+            scope,
+            year,
+            month
+        );
+        return { ok: true, allClients: true, ...payload };
+    }
+
+    async function listConciliacionNovedadesDetalleForScope(scope, clienteRaw, cedulaRaw, year, month, impactOpts) {
         const chk = await conciliacionesQueries.assertClienteConciliacionPermitido(conciliacionesDeps, scope, clienteRaw);
         if (!chk.ok) return chk;
+        const opts = conciliacionesQueries.novedadesImpactOptionsFromBillingType(impactOpts);
         const items = await conciliacionesQueries.listConciliacionNovedadesDetalle(
             conciliacionesDeps,
             scope,
             chk.canon,
             cedulaRaw,
             year,
-            month
+            month,
+            opts
         );
-        return { ok: true, clienteCanon: chk.canon, items };
+        return { ok: true, clienteCanon: chk.canon, ...items };
+    }
+
+    async function applyConciliacionFacturacionAjustesForScope(scope, payload, actor) {
+        return conciliacionesQueries.applyConciliacionFacturacionAjustes(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function createConciliacionNovedadManualForScope(scope, payload, actor) {
+        return conciliacionesQueries.createConciliacionNovedadManual(conciliacionesDeps, scope, payload, actor);
     }
 
     async function getConciliacionesDashboardResumenForScope(scope, year, month) {
+        const servicios = await serviciosDynamoData.listServicios(conciliacionesDeps, scope);
         const payload = await conciliacionesQueries.getConciliacionesDashboardResumen(
             conciliacionesDeps,
             scope,
             year,
-            month
+            month,
+            servicios
         );
         return { ok: true, ...payload };
+    }
+
+    async function applyConciliacionFacturacionRevisionForScope(scope, payload, actor) {
+        return conciliacionesQueries.applyConciliacionFacturacionRevision(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function applyConciliacionFacturacionRevisionMasivaForScope(scope, payload, actor) {
+        return conciliacionesQueries.applyConciliacionFacturacionRevisionMasiva(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function listConciliacionFacturacionHistorialForScope(scope, query) {
+        return conciliacionesQueries.listConciliacionFacturacionHistorial(conciliacionesDeps, scope, query);
+    }
+
+    async function upsertConciliacionFacturacionForScope(scope, payload) {
+        return conciliacionesQueries.upsertConciliacionFacturacion(conciliacionesDeps, scope, payload);
+    }
+
+    async function upsertConciliacionFacturacionMasivaForScope(scope, payload) {
+        return conciliacionesQueries.upsertConciliacionFacturacionMasiva(conciliacionesDeps, scope, payload);
+    }
+
+    async function deleteConciliacionFacturacionForScope(scope, payload, actor) {
+        return conciliacionesQueries.revertConciliacionFacturacion(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function listDashboardLiderClienteRowsForScope(scope, year, month) {
+        return conciliacionesQueries.listDashboardLiderClienteRows(conciliacionesDeps, scope, year, month);
+    }
+
+    async function exportConciliacionServicioExcelForScope(scope, query) {
+        const { buildConciliacionServicioExcelWorkbook } = require('./conciliaciones/conciliacionExportExcel');
+        return buildConciliacionServicioExcelWorkbook(conciliacionesDeps, scope, query);
+    }
+
+    async function markConciliacionServicioEnviadaForScope(scope, payload, actor) {
+        const { markServicioEnviada } = require('./conciliaciones/conciliacionServicioCierre');
+        const servicioId = String(payload?.servicioId || '').trim();
+        const year = Number(payload?.year ?? payload?.anio);
+        const month = Number(payload?.month ?? payload?.mes);
+        const revActor = {
+            userId: actor?.id || actor?.sub || null,
+            email: actor?.email || ''
+        };
+        return markServicioEnviada(pool, { servicioId, year, month, actor: revActor });
+    }
+
+    async function markConciliacionServicioConciliadaForScope(scope, payload, actor) {
+        return conciliacionesQueries.markConciliacionServicioConciliada(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function enviarConciliacionServicioCorreoForScope(scope, payload, actor) {
+        const { enviarCorreoConciliacionServicio } = require('./conciliaciones/conciliacionServicioEmail');
+        return enviarCorreoConciliacionServicio(conciliacionesDeps, scope, payload, actor);
+    }
+
+    async function getConciliacionEmailAccionContext(token) {
+        const { getEmailActionContext } = require('./conciliaciones/conciliacionEmailAccion');
+        return getEmailActionContext(conciliacionesDeps, token);
+    }
+
+    async function decideConciliacionEmailAccion(token, payload) {
+        const { executeEmailActionDecide } = require('./conciliaciones/conciliacionEmailAccion');
+        return executeEmailActionDecide(conciliacionesDeps, token, payload);
+    }
+
+    async function decideMasivoConciliacionEmailAccion(token, payload) {
+        const { executeEmailActionDecideMasivo } = require('./conciliaciones/conciliacionEmailAccion');
+        return executeEmailActionDecideMasivo(conciliacionesDeps, token, payload);
+    }
+
+    async function finalizeConciliacionEmailAccion(token) {
+        const { executeEmailActionFinalize } = require('./conciliaciones/conciliacionEmailAccion');
+        return executeEmailActionFinalize(conciliacionesDeps, { role: 'super_admin' }, token);
+    }
+
+    async function getConciliacionEmailPlantillaCorreoLiderForScope(scope) {
+        const role = String(scope?.role || '').trim().toLowerCase();
+        if (role !== 'analista_conciliaciones' && role !== 'super_admin') {
+            const error = new Error('No autorizado');
+            error.status = 403;
+            throw error;
+        }
+        const { getCorreoLiderPlantilla } = require('./conciliaciones/conciliacionEmailPlantilla');
+        return getCorreoLiderPlantilla(pool);
+    }
+
+    async function upsertConciliacionEmailPlantillaCorreoLiderForScope(scope, payload, actor) {
+        const role = String(scope?.role || '').trim().toLowerCase();
+        if (role !== 'analista_conciliaciones' && role !== 'super_admin') {
+            const error = new Error('No autorizado');
+            error.status = 403;
+            throw error;
+        }
+        const { upsertCorreoLiderPlantilla } = require('./conciliaciones/conciliacionEmailPlantilla');
+        return upsertCorreoLiderPlantilla(pool, payload, actor);
+    }
+
+    async function listConciliacionesFacturacionForScope(scope, year, month) {
+        return conciliacionesQueries.listConciliacionesFacturacion(conciliacionesDeps, scope, year, month);
+    }
+
+    const serviciosListCache = new Map();
+    const SERVICIOS_LIST_CACHE_TTL_MS = 20_000;
+
+    function serviciosScopeCacheKey(scope) {
+        const role = String(scope?.role || '');
+        const gp = String(scope?.gpUserId || scope?.internalUserId || '');
+        const areas = (Array.isArray(scope?.areas) ? scope.areas : []).join('\u0001');
+        return `${role}|${gp}|${areas}`;
+    }
+
+    function invalidateServiciosListCache() {
+        serviciosListCache.clear();
+    }
+
+    async function listServiciosForScope(scope) {
+        const key = serviciosScopeCacheKey(scope);
+        const hit = serviciosListCache.get(key);
+        if (hit && Date.now() - hit.at < SERVICIOS_LIST_CACHE_TTL_MS) {
+            return hit.data;
+        }
+        const data = await serviciosDynamoData.listServicios(conciliacionesDeps, scope);
+        serviciosListCache.set(key, { at: Date.now(), data });
+        return data;
+    }
+
+    async function getColaCierresPorMesForScope(scope, year, month, clienteOpcional) {
+        const servicios = await listServiciosForScope(scope);
+        const payload = await conciliacionesQueries.getColaCierresPorMes(
+            conciliacionesDeps,
+            scope,
+            year,
+            month,
+            clienteOpcional,
+            servicios
+        );
+        return { ok: true, ...payload };
+    }
+
+    async function createServicioForScope(scope, payload) {
+        invalidateServiciosListCache();
+        return serviciosDynamoData.createServicio(conciliacionesDeps, scope, payload);
+    }
+
+    async function updateServicioForScope(scope, idServicio, payload) {
+        invalidateServiciosListCache();
+        return serviciosDynamoData.updateServicio(conciliacionesDeps, scope, idServicio, payload);
+    }
+
+    async function deleteServicioForScope(scope, idServicio) {
+        invalidateServiciosListCache();
+        return serviciosDynamoData.deleteServicio(conciliacionesDeps, scope, idServicio);
+    }
+
+    async function listServicioConsultoresForScope(scope, idServicio, options = {}) {
+        return serviciosDynamoData.listServicioConsultores(conciliacionesDeps, scope, idServicio, options);
+    }
+
+    async function listConsultoresDisponiblesClienteForScope(scope, cliente, options = {}) {
+        return serviciosDynamoData.listConsultoresDisponiblesCliente(conciliacionesDeps, scope, cliente, options);
+    }
+
+    async function upsertServicioConsultoresForScope(scope, idServicio, cedulas) {
+        invalidateServiciosListCache();
+        return serviciosDynamoData.upsertServicioConsultores(conciliacionesDeps, scope, idServicio, cedulas);
     }
 
     return {
@@ -2042,6 +3002,7 @@ function createDataLayer(deps) {
         ensureNovedadesHoraExtraAlertColumns,
         ensureNovedadesHeDomingoObservacionColumn,
         ensureNovedadesNominaVerificacionColumns,
+        ensureNovedadesNominaProcesadoColumns,
         ensureNovedadesHorasRecargoDomingoColumn,
         ensureNovedadesModalidadVotacionUnidadColumns,
         ensureNovedadesObservacionesColumn,
@@ -2055,19 +3016,38 @@ function createDataLayer(deps) {
         ensureReubicacionesPipelineTable,
         ensureMallaTurnosCeldaTable,
         ensureMallaTurnoAsignacionTable,
+        ensureMallaTurnoAprobacionTable,
+        ensureMallaNocturnoConfigTable,
+        ensureNovedadesMallaOrigenRefColumn,
         listMallaTurnosCeldasRange,
         upsertMallaTurnosCeldas,
+        getMallaTurnoAprobacionStatus,
+        getMallaNocturnoConfig,
+        upsertMallaNocturnoConfig,
+        listAssignedClientesForGpUserId,
+        resolveGpInternalUserIdForScope,
+        ensureConciliacionesFacturacionTable,
+        ensureConciliacionesFacturacionHistorialTable,
+        ensureConciliacionesServicioNotificacionesTable,
+        ensureConciliacionesServicioCierreTable,
+        ensureConciliacionesEmailPlantillasTable,
+        ensureConciliacionesEmailAccionesTable,
+        ensureConciliacionesNovedadConsumoTable,
+        ensureColaboradorAsignacionesTable,
+        ensureColaboradorTarifaHistorialTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         getColaboradorByCedula,
         getColaboradorByEmail,
         getClientesList,
         getLideresByCliente,
+        listGpEmailsForCliente,
         listClientesLideresPaged,
         listClientesLideresByClienteSummaryPaged,
         getClientesNitMapFromLideres,
         insertClienteLider,
         updateClienteLiderById,
+        deleteClienteLiderById,
         listColaboradoresPaged,
         insertColaborador,
         updateColaboradorByCedula,
@@ -2079,14 +3059,44 @@ function createDataLayer(deps) {
         clearGpUserReferences,
         linkGpCognitoSubByEmail,
         migrateExcelIfNeeded,
+        buildScopedNovedadesWhere,
         getScopedNovedades,
         listScopedDistinctClientes,
         getHoraExtraAlerts,
         listHoraExtraByCedulaForDomingoPolicy,
         listConciliacionesClientesForScope,
         getConciliacionResumenPorClienteMesForScope,
+        getConciliacionResumenTodosClientesMesForScope,
         listConciliacionNovedadesDetalleForScope,
-        getConciliacionesDashboardResumenForScope
+        getConciliacionesDashboardResumenForScope,
+        upsertConciliacionFacturacionForScope,
+        applyConciliacionFacturacionRevisionForScope,
+        applyConciliacionFacturacionRevisionMasivaForScope,
+        applyConciliacionFacturacionAjustesForScope,
+        createConciliacionNovedadManualForScope,
+        listConciliacionFacturacionHistorialForScope,
+        upsertConciliacionFacturacionMasivaForScope,
+        deleteConciliacionFacturacionForScope,
+        listDashboardLiderClienteRowsForScope,
+        exportConciliacionServicioExcelForScope,
+        markConciliacionServicioEnviadaForScope,
+        markConciliacionServicioConciliadaForScope,
+        enviarConciliacionServicioCorreoForScope,
+        getConciliacionEmailAccionContext,
+        decideConciliacionEmailAccion,
+        decideMasivoConciliacionEmailAccion,
+        finalizeConciliacionEmailAccion,
+        getConciliacionEmailPlantillaCorreoLiderForScope,
+        upsertConciliacionEmailPlantillaCorreoLiderForScope,
+        listConciliacionesFacturacionForScope,
+        getColaCierresPorMesForScope,
+        listServiciosForScope,
+        createServicioForScope,
+        updateServicioForScope,
+        deleteServicioForScope,
+        listServicioConsultoresForScope,
+        listConsultoresDisponiblesClienteForScope,
+        upsertServicioConsultoresForScope
     };
 }
 

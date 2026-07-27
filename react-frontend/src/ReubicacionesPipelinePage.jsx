@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDown, ArrowUp, Plus, Pencil, Trash2 } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
+import { buildGestionTableDash } from './gestionTableDashTheme.js';
+import ModuleFiltersToolbar from './shared/filters/ModuleFiltersToolbar.jsx';
+import ModuleFiltersDrawer from './shared/filters/ModuleFiltersDrawer.jsx';
+import {
+    buildReubicacionesChipLabel,
+    REUBICACIONES_FILTER_DEFAULTS
+} from './admin/directorioFilters.js';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
 
@@ -101,9 +108,37 @@ function emptyForm() {
  * @typedef {{ seq: number, reset?: boolean, fechaFinDesde?: string, fechaFinHasta?: string, semaforo?: string }} PipelineNavIntent
  */
 
-export default function ReubicacionesPipelinePage({ token, navIntent }) {
-    const { isLight, field, compactBtn, labelMuted, tableSurface, tableThead, tableRowBorder, headingAccent } =
-        useModuleTheme();
+export default function ReubicacionesPipelinePage(props) {
+    return (
+        <ReubicacionesPipelineErrorBoundary>
+            <ReubicacionesPipelinePageInner {...props} />
+        </ReubicacionesPipelineErrorBoundary>
+    );
+}
+
+class ReubicacionesPipelineErrorBoundary extends Component {
+    state = { error: null };
+
+    static getDerivedStateFromError(error) {
+        return { error };
+    }
+
+    render() {
+        if (this.state.error) {
+            return (
+                <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800/50 dark:bg-red-950/30 dark:text-red-100">
+                    No se pudo mostrar Reubicaciones: {String(this.state.error?.message || this.state.error)}
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
+
+function ReubicacionesPipelinePageInner({ token, navIntent }) {
+    const { isLight, field, labelMuted, headingAccent } = useModuleTheme();
+    const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
+    const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
     const [items, setItems] = useState([]);
     const [total, setTotal] = useState(0);
@@ -130,6 +165,8 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
     const [editForm, setEditForm] = useState(emptyForm);
     const [editSaving, setEditSaving] = useState(false);
 
+    const [confirmDeleteRow, setConfirmDeleteRow] = useState(null);
+
     const totalPages = Math.max(1, Math.ceil((Number(total) || 0) / pageSize));
     const safePage = Math.min(Math.max(1, page), totalPages);
     const offset = (safePage - 1) * pageSize;
@@ -149,18 +186,18 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
             const active = sort.key === colKey;
             const alignCls = align === 'right' ? 'text-right' : 'text-left';
             return (
-                <th className={`${alignCls} p-2 whitespace-nowrap`}>
+                <th className={`${alignCls} p-4 whitespace-nowrap font-semibold`}>
                     <button
                         type="button"
                         onClick={() => handleSortHeader(colKey)}
-                        className="inline-flex items-center gap-1 cursor-pointer font-medium text-inherit bg-transparent border-0 p-0 hover:text-[#65BCF7]"
+                        className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 font-semibold text-inherit hover:text-[#65BCF7]"
                     >
                         {label}
                         {active ? (
                             sort.dir === 'asc' ? (
-                                <ArrowUp size={14} className="text-[#65BCF7] shrink-0" />
+                                <ArrowUp size={14} className="shrink-0 text-[#65BCF7]" />
                             ) : (
-                                <ArrowDown size={14} className="text-[#65BCF7] shrink-0" />
+                                <ArrowDown size={14} className="shrink-0 text-[#65BCF7]" />
                             )
                         ) : null}
                     </button>
@@ -169,6 +206,34 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
         }
         return Cmp;
     }, [sort, handleSortHeader]);
+
+    const chipLabel = useMemo(
+        () =>
+            buildReubicacionesChipLabel({
+                q: appliedQ,
+                fechaFinDesde,
+                fechaFinHasta,
+                semaforo: semaforoFiltro,
+                pageSize
+            }),
+        [appliedQ, fechaFinDesde, fechaFinHasta, semaforoFiltro, pageSize]
+    );
+
+    const clearFilters = useCallback(() => {
+        setQ(REUBICACIONES_FILTER_DEFAULTS.q);
+        setAppliedQ(REUBICACIONES_FILTER_DEFAULTS.q);
+        setFechaFinDesde(REUBICACIONES_FILTER_DEFAULTS.fechaFinDesde);
+        setFechaFinHasta(REUBICACIONES_FILTER_DEFAULTS.fechaFinHasta);
+        setSemaforoFiltro(REUBICACIONES_FILTER_DEFAULTS.semaforo);
+        setPageSize(REUBICACIONES_FILTER_DEFAULTS.pageSize);
+        setPage(1);
+    }, []);
+
+    const applyDrawerFilters = useCallback(() => {
+        setAppliedQ(q);
+        setPage(1);
+        setFiltersPanelOpen(false);
+    }, [q]);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -300,7 +365,6 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
 
     const deleteRow = async (row) => {
         if (!row?.id) return;
-        if (!window.confirm(`¿Eliminar el seguimiento de reubicación para la cédula ${row.cedula}?`)) return;
         try {
             const res = await fetch(`/api/directorio/reubicaciones-pipeline/${row.id}`, {
                 method: 'DELETE',
@@ -310,6 +374,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
             const j = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
             flash('Registro eliminado.');
+            setConfirmDeleteRow(null);
             await load();
         } catch (err) {
             flash(err.message || 'No se pudo eliminar.', false);
@@ -328,17 +393,14 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
     );
 
     const Th = SortTh;
+    const rangeFrom = !total ? 0 : offset + 1;
+    const rangeTo = Math.min(Number(total) || 0, offset + items.length);
 
     return (
-        <div className="space-y-4 w-full max-w-[95rem]">
-            <p className={`text-xs ${labelMuted}`}>
-                Seguimiento de reubicaciones (PIPELINE): una fila por consultor en el directorio. Consultor, tipo de
-                contrato, cliente actual y tarifa se toman en vivo de la ficha del colaborador.
-            </p>
-
+        <div className={dash.moduleTabShellFull}>
             {msg ? (
                 <div
-                    className={`px-3 py-2 rounded text-sm ${
+                    className={`rounded-lg px-3 py-2 text-sm ${
                         msg.ok ? 'bg-emerald-900/40 text-emerald-200' : 'bg-red-900/40 text-red-200'
                     }`}
                 >
@@ -346,199 +408,213 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                 </div>
             ) : null}
 
-            <div className="flex flex-wrap gap-2 items-end justify-between w-full">
-                <div className="flex flex-wrap gap-2 items-end flex-1 min-w-0">
-                    <button type="button" onClick={() => setCreateOpen(true)} className={toolbarBtn}>
-                        <span className="inline-flex items-center gap-2">
-                            <Plus size={16} /> Nuevo registro
-                        </span>
-                    </button>
-                    <div className="flex-1 min-w-[140px]">
-                        <label className={`block text-xs ${labelMuted} mb-1`}>Buscar</label>
-                        <input
-                            className={`w-full ${field}`}
-                            value={q}
-                            onChange={(e) => setQ(e.target.value)}
-                            placeholder="Cédula, nombre, destino o causal"
-                        />
-                    </div>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setAppliedQ(q);
-                            setPage(1);
-                        }}
-                        className={toolbarBtn}
-                    >
-                        Buscar
-                    </button>
-                    <button type="button" onClick={load} className={compactBtn}>
-                        Refrescar
-                    </button>
-                    <div>
-                        <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin desde</label>
-                        <input
-                            {...nativeCalendarOnlyInputProps}
-                            type="date"
-                            className={`min-w-[10rem] ${field}`}
-                            value={fechaFinDesde}
-                            onChange={(e) => {
-                                setFechaFinDesde(e.target.value);
-                                setPage(1);
-                            }}
-                        />
-                    </div>
-                    <div>
-                        <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin hasta</label>
-                        <input
-                            {...nativeCalendarOnlyInputProps}
-                            type="date"
-                            className={`min-w-[10rem] ${field}`}
-                            value={fechaFinHasta}
-                            onChange={(e) => {
-                                setFechaFinHasta(e.target.value);
-                                setPage(1);
-                            }}
-                        />
-                    </div>
-                    <div className="min-w-[11rem]">
-                        <label className={`block text-xs ${labelMuted} mb-1`}>Semáforo</label>
-                        <select
-                            className={`w-full ${field}`}
-                            value={semaforoFiltro}
-                            onChange={(e) => {
-                                setSemaforoFiltro(e.target.value);
-                                setPage(1);
-                            }}
-                        >
-                            <option value="">Todos</option>
-                            <option value="Amarillo,Rojo,Vencido">En riesgo (amarillo + urgente + vencido)</option>
-                            {SEMAFORO_CODES.map((code) => (
-                                <option key={code} value={code}>
-                                    {SEMAFORO_LABELS[code]}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                </div>
-                <div className="shrink-0">
-                    <label className={`block text-xs ${labelMuted} mb-1`}>Filas</label>
-                    <select className={field} value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))}>
-                        <option value={10}>10</option>
-                        <option value={20}>20</option>
-                        <option value={50}>50</option>
-                    </select>
-                </div>
-            </div>
+            <ModuleFiltersToolbar
+                chipLabel={chipLabel}
+                filtersPanelOpen={filtersPanelOpen}
+                onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                toggleId="reubicaciones-filtros-toggle"
+                panelId="reubicaciones-filtros-panel"
+                dash={dash}
+            >
+                <button type="button" onClick={() => setCreateOpen(true)} className={dash.toolbarBtn}>
+                    <span className="inline-flex items-center gap-2">
+                        <Plus size={16} /> Nuevo registro
+                    </span>
+                </button>
+                <button type="button" onClick={load} className={dash.compactBtn}>
+                    Refrescar
+                </button>
+            </ModuleFiltersToolbar>
 
-            <p className={`text-xs ${labelMuted}`}>
-                Total: {total}
-                {total > 0 ? ` · Página ${safePage} de ${totalPages}` : ''}
-                . Clic en un encabezado de columna para ordenar (el orden aplica a todo el resultado filtrado).
-            </p>
-
-            <div className={tableSurface}>
-                <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                        <thead className={tableThead}>
-                            <tr>
-                                <Th colKey="cedula" label="Cédula" />
-                                <Th colKey="consultor" label="Consultor" />
-                                <Th colKey="tipo_contrato" label="Tipo contrato" />
-                                <Th colKey="cliente_actual" label="Cliente actual" />
-                                <Th colKey="cliente_destino" label="Cliente destino" />
-                                <Th colKey="causal" label="Causal" />
-                                <Th colKey="fecha_fin" label="Fecha fin" />
-                                <Th colKey="dias_restantes" label="Días rest." align="right" />
-                                <Th colKey="semaforo" label="Semáforo" />
-                                <Th colKey="tarifa" label="Tarifa actual" />
-                                <th className="text-left p-2 whitespace-nowrap">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading ? (
-                                <tr>
-                                    <td colSpan={11} className={`p-4 text-center ${labelMuted}`}>
-                                        Cargando…
-                                    </td>
+            <div className={`${dash.cardFlex} min-h-0 flex-1`}>
+                <div className={dash.tableWrap}>
+                    <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
+                        <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
+                            <thead>
+                                <tr className={dash.thead}>
+                                    <Th colKey="cedula" label="Cédula" />
+                                    <Th colKey="consultor" label="Consultor" />
+                                    <Th colKey="tipo_contrato" label="Tipo contrato" />
+                                    <Th colKey="cliente_actual" label="Cliente actual" />
+                                    <Th colKey="cliente_destino" label="Cliente destino" />
+                                    <Th colKey="causal" label="Causal" />
+                                    <Th colKey="fecha_fin" label="Fecha fin" />
+                                    <Th colKey="dias_restantes" label="Días rest." align="right" />
+                                    <Th colKey="semaforo" label="Semáforo" />
+                                    <Th colKey="tarifa" label="Tarifa actual" />
+                                    <th className="p-4 pr-6 font-semibold whitespace-nowrap">Acciones</th>
                                 </tr>
-                            ) : items.length === 0 ? (
-                                <tr>
-                                    <td colSpan={11} className={`p-4 text-center ${labelMuted}`}>
-                                        Sin registros. Cree uno con «Nuevo registro» (la cédula debe existir en
-                                        Consultores).
-                                    </td>
-                                </tr>
-                            ) : (
-                                items.map((row) => (
-                                    <tr key={row.id} className={tableRowBorder}>
-                                        <td className="p-2 whitespace-nowrap">{row.cedula}</td>
-                                        <td className="p-2">{row.consultor || '—'}</td>
-                                        <td className="p-2">{row.tipo_contrato || '—'}</td>
-                                        <td className="p-2">{row.cliente_actual || '—'}</td>
-                                        <td className="p-2">{row.cliente_destino || '—'}</td>
-                                        <td className="p-2 max-w-[12rem] truncate" title={row.causal || ''}>
-                                            {row.causal || '—'}
-                                        </td>
-                                        <td className="p-2 whitespace-nowrap">{String(row.fecha_fin || '').slice(0, 10)}</td>
-                                        <td className="p-2 text-right whitespace-nowrap">
-                                            {row.dias_restantes != null ? row.dias_restantes : '—'}
-                                        </td>
-                                        <td className="p-2 whitespace-nowrap">
-                                            <SemaforoBadge code={row.semaforo} isLight={isLight} />
-                                        </td>
-                                        <td className="p-2 whitespace-nowrap">{formatTarifaDisplay(row)}</td>
-                                        <td className="p-2 whitespace-nowrap">
-                                            <div className="flex items-center gap-2">
-                                                <button
-                                                    type="button"
-                                                    className={`inline-flex items-center gap-1 ${headingAccent} hover:underline`}
-                                                    onClick={() => openEdit(row)}
-                                                >
-                                                    <Pencil size={14} /> Editar
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="inline-flex items-center gap-1 text-red-400 hover:text-red-300 hover:underline"
-                                                    onClick={() => deleteRow(row)}
-                                                >
-                                                    <Trash2 size={14} /> Eliminar
-                                                </button>
-                                            </div>
+                            </thead>
+                            <tbody className={dash.tbody}>
+                                {loading ? (
+                                    <tr>
+                                        <td colSpan={11} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                            Cargando…
                                         </td>
                                     </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
+                                ) : items.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={11} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                            Sin registros. Cree uno con «Nuevo registro» (la cédula debe existir en Consultores).
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    items.map((row) => (
+                                        <tr key={row.id} className={dash.trHover}>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
+                                            <td className={dash.tdName}>{row.consultor || '—'}</td>
+                                            <td className={dash.tdCell}>{row.tipo_contrato || '—'}</td>
+                                            <td className={dash.tdCell}>{row.cliente_actual || '—'}</td>
+                                            <td className={dash.tdCell}>{row.cliente_destino || '—'}</td>
+                                            <td className={dash.tdCell} title={row.causal || ''}>
+                                                {row.causal || '—'}
+                                            </td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>
+                                                {String(row.fecha_fin || '').slice(0, 10)}
+                                            </td>
+                                            <td className={`${dash.tdMuted} text-right whitespace-nowrap`}>
+                                                {row.dias_restantes != null ? row.dias_restantes : '—'}
+                                            </td>
+                                            <td className="p-4 whitespace-nowrap">
+                                                <SemaforoBadge code={row.semaforo} isLight={isLight} />
+                                            </td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>
+                                                {formatTarifaDisplay(row)}
+                                            </td>
+                                            <td className="p-4 pr-6 whitespace-nowrap">
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        className={`inline-flex items-center gap-1 ${headingAccent} hover:underline`}
+                                                        onClick={() => openEdit(row)}
+                                                    >
+                                                        <Pencil size={14} /> Editar
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        className="inline-flex items-center gap-1 text-red-400 hover:text-red-300 hover:underline"
+                                                        onClick={() => setConfirmDeleteRow(row)}
+                                                    >
+                                                        <Trash2 size={14} /> Eliminar
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    {!loading && total > 0 ? (
+                        <div className={dash.footerBar}>
+                            <span>
+                                Mostrando {rangeFrom}–{rangeTo} de {total} · Página {safePage} de {totalPages}
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    disabled={safePage <= 1}
+                                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                                    className={dash.compactBtn}
+                                >
+                                    Anterior
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={safePage >= totalPages}
+                                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                                    className={dash.compactBtn}
+                                >
+                                    Siguiente
+                                </button>
+                            </div>
+                        </div>
+                    ) : null}
                 </div>
             </div>
 
-            {!loading && total > 0 ? (
-                <div className={`flex flex-wrap items-center justify-between gap-2 ${labelMuted}`}>
-                    <span>
-                        Página {safePage} de {totalPages}
-                    </span>
-                    <div className="flex items-center gap-2">
-                        <button
-                            type="button"
-                            disabled={safePage <= 1}
-                            onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            className={compactBtn}
-                        >
-                            Anterior
-                        </button>
-                        <button
-                            type="button"
-                            disabled={safePage >= totalPages}
-                            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            className={compactBtn}
-                        >
-                            Siguiente
-                        </button>
-                    </div>
+            <ModuleFiltersDrawer
+                open={filtersPanelOpen}
+                onClose={() => setFiltersPanelOpen(false)}
+                onClear={clearFilters}
+                onApply={applyDrawerFilters}
+                dash={dash}
+                panelId="reubicaciones-filtros-panel"
+                titleId="reubicaciones-filtros-drawer-title"
+            >
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-q" className={dash.filtrosDrawerLabel}>
+                        Buscar
+                    </label>
+                    <input
+                        id="reubicaciones-drawer-q"
+                        className={`${field} w-full text-sm`}
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                        placeholder="Cédula, nombre, destino o causal"
+                    />
                 </div>
-            ) : null}
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-desde" className={dash.filtrosDrawerLabel}>
+                        Fecha fin desde
+                    </label>
+                    <input
+                        {...nativeCalendarOnlyInputProps}
+                        id="reubicaciones-drawer-desde"
+                        type="date"
+                        className={`${field} w-full text-sm`}
+                        value={fechaFinDesde}
+                        onChange={(e) => setFechaFinDesde(e.target.value)}
+                    />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-hasta" className={dash.filtrosDrawerLabel}>
+                        Fecha fin hasta
+                    </label>
+                    <input
+                        {...nativeCalendarOnlyInputProps}
+                        id="reubicaciones-drawer-hasta"
+                        type="date"
+                        className={`${field} w-full text-sm`}
+                        value={fechaFinHasta}
+                        onChange={(e) => setFechaFinHasta(e.target.value)}
+                    />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-semaforo" className={dash.filtrosDrawerLabel}>
+                        Semáforo
+                    </label>
+                    <select
+                        id="reubicaciones-drawer-semaforo"
+                        className={`${field} w-full text-sm`}
+                        value={semaforoFiltro}
+                        onChange={(e) => setSemaforoFiltro(e.target.value)}
+                    >
+                        <option value="">Todos</option>
+                        <option value="Amarillo,Rojo,Vencido">En riesgo (amarillo + urgente + vencido)</option>
+                        {SEMAFORO_CODES.map((code) => (
+                            <option key={code} value={code}>
+                                {SEMAFORO_LABELS[code]}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-pagesize" className={dash.filtrosDrawerLabel}>
+                        Mostrar por página
+                    </label>
+                    <select
+                        id="reubicaciones-drawer-pagesize"
+                        className={`${field} w-full text-sm`}
+                        value={pageSize}
+                        onChange={(e) => setPageSize(Number(e.target.value))}
+                    >
+                        <option value={10}>10 por página</option>
+                        <option value={20}>20 por página</option>
+                        <option value={50}>50 por página</option>
+                    </select>
+                </div>
+            </ModuleFiltersDrawer>
 
             {createOpen ? (
                 <div className={modalShell}>
@@ -587,7 +663,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                                 />
                             </div>
                             <div className="flex justify-end gap-2 pt-2">
-                                <button type="button" className={compactBtn} onClick={() => setCreateOpen(false)}>
+                                <button type="button" className={dash.compactBtn} onClick={() => setCreateOpen(false)}>
                                     Cancelar
                                 </button>
                                 <button type="submit" disabled={createSaving} className={toolbarBtn}>
@@ -641,7 +717,7 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                             <div className="flex justify-end gap-2 pt-2">
                                 <button
                                     type="button"
-                                    className={compactBtn}
+                                    className={dash.compactBtn}
                                     onClick={() => {
                                         setEditOpen(false);
                                         setEditRow(null);
@@ -654,6 +730,33 @@ export default function ReubicacionesPipelinePage({ token, navIntent }) {
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            ) : null}
+
+            {confirmDeleteRow ? (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div
+                        className="modal-glass-scrim absolute inset-0 transition-opacity"
+                        onClick={() => setConfirmDeleteRow(null)}
+                    />
+                    <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
+                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
+                            ¿Eliminar el seguimiento de reubicación para la cédula{' '}
+                            <strong>{confirmDeleteRow.cedula}</strong>?
+                        </p>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button type="button" className={dash.compactBtn} onClick={() => setConfirmDeleteRow(null)}>
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                className="px-3 py-2 rounded-md bg-rose-600/90 text-white text-sm font-semibold"
+                                onClick={() => deleteRow(confirmDeleteRow)}
+                            >
+                                Eliminar
+                            </button>
+                        </div>
                     </div>
                 </div>
             ) : null}

@@ -101,8 +101,8 @@ export const NOVEDAD_RULES = {
   'Compensatorio por votación/jurado': {
     requiredDocuments: ['Certificado de jurado o electoral (según la modalidad elegida)'],
     formatLinks: [],
-    approvers: ['admin_ch'],
-    viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina'],
+    approvers: ['super_admin', 'gp', 'admin_ch'],
+    viewers: ['super_admin', 'cac', 'admin_ch', 'team_ch', 'nomina', 'gp'],
     requiresDayCount: false,
     requiresTimeRange: false,
     autoCalendarDays: true
@@ -127,7 +127,7 @@ export const NOVEDAD_RULES = {
     montoDiligenciadoPorAprobador: true
   },
   'Hora Extra': {
-    requiredDocuments: [],
+    requiredDocuments: ['Pantallazo, documento de aceptación o evidencia de aprobación de la HE'],
     formatLinks: [],
     approvers: ['gp'],
     viewers: ['super_admin', 'gp', 'admin_ch', 'team_ch', 'cac', 'nomina'],
@@ -209,6 +209,7 @@ const TIPO_ALIAS_SNAKE = {
   licencia_no_remunerada: 'Licencia no remunerada',
   permiso_no_remunerado: 'Permiso no remunerado',
   permiso_compensatorio_tiempo: 'Permiso compensatorio en tiempo',
+  compensatorio_votacion: 'Compensatorio por votación/jurado',
   compensatorio_votacion_jurado: 'Compensatorio por votación/jurado',
   incapacidad: 'Incapacidad',
   hora_extra: 'Hora Extra',

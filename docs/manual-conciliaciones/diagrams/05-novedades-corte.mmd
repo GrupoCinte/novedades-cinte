@@ -1,0 +1,9 @@
+flowchart TD
+    N1[Novedad Aprobada] --> Eleg{Elegible}
+    N2[Mismo cliente] --> Eleg
+    N3[No consumida] --> Eleg
+    Eleg -->|Si al aprobar analista| Consumo[Snapshot consumo]
+    Consumo --> Bloq[No entran nuevas mismo mes]
+    Bloq --> Arrastre[Arrastre mes siguiente si no consumida]
+    Dev[DEVUELTA o Revertir] --> Libera[Libera consumos]
+    Libera --> Eleg

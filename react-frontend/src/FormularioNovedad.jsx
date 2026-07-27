@@ -35,6 +35,20 @@ const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const MSG_EXCEL_PLANTILLA_GENERICO =
     '❌ Este tipo de novedad requiere al menos un archivo Excel (.xls o .xlsx) con el formato diligenciado.';
 
+/**
+ * Compensatorio por votación/jurado: jornadas electorales habilitadas (2026).
+ * Solo se permite radicar contra una de estas dos fechas de votación.
+ * La ventana de disfrute depende de la modalidad: 45 días calendario para jurado,
+ * 30 días calendario para votación (medio día).
+ */
+const FECHAS_VOTACION_HABILITADAS = [
+    { value: '2026-05-31', label: '31 de mayo de 2026 (primera vuelta)' },
+    { value: '2026-06-21', label: '21 de junio de 2026 (segunda vuelta)' }
+];
+const FECHAS_VOTACION_HABILITADAS_SET = new Set(FECHAS_VOTACION_HABILITADAS.map((f) => f.value));
+const DIAS_DISFRUTE_JURADO = 45;
+const DIAS_DISFRUTE_VOTO = 30;
+
 const URL_POLITICA_DATOS_PERSONALES =
     'https://grupocinte.com/politica-de-tratamiento-y-proteccion-de-datos-personales/';
 
@@ -333,23 +347,12 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
 
     /**
      * Restricción Compensatorio por votación/jurado:
-     * - Fecha de la votación: cualquier día del mes calendario en curso (zona local; puede ser futuro dentro del mes).
-     * - Fecha de disfrute: hasta 30 días calendario posteriores a la fecha de votación elegida.
-     * Importante: usar año/mes derivados del navegador para no caer en el pivote UTC del input date.
+     * - Fecha de la votación: solo una de las jornadas electorales habilitadas (FECHAS_VOTACION_HABILITADAS).
+     * - Fecha de disfrute: hasta 45 días calendario después si fue jurado, o 30 días si fue votación (medio día).
      */
-    const fechaVotacionTodayParts = useMemo(() => {
-        const d = new Date();
-        return { year: d.getFullYear(), month: d.getMonth() };
-    }, []);
-    const fechaVotacionMinYmd = useMemo(() => {
-        const { year, month } = fechaVotacionTodayParts;
-        return `${year}-${String(month + 1).padStart(2, '0')}-01`;
-    }, [fechaVotacionTodayParts]);
-    const fechaVotacionMaxYmd = useMemo(() => {
-        const { year, month } = fechaVotacionTodayParts;
-        const lastDay = new Date(year, month + 1, 0).getDate();
-        return `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-    }, [fechaVotacionTodayParts]);
+    const diasVentanaDisfrute = modalidadCompVotacion === 'solo_jurado'
+        ? DIAS_DISFRUTE_JURADO
+        : DIAS_DISFRUTE_VOTO;
     const fechaDisfruteMinYmd = useMemo(() => {
         const v = String(formData.fechaVotacion || '').trim();
         if (!v) return undefined;
@@ -361,9 +364,9 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         const [y, m, d] = v.split('-').map(Number);
         if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return undefined;
         const base = new Date(y, m - 1, d);
-        base.setDate(base.getDate() + 30);
+        base.setDate(base.getDate() + diasVentanaDisfrute);
         return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}`;
-    }, [formData.fechaVotacion]);
+    }, [formData.fechaVotacion, diasVentanaDisfrute]);
     const rule = useMemo(() => getNovedadRule(formData.tipo), [formData.tipo]);
     const docsVotacion = useMemo(() => {
         if (!esCompensatorioVotacion) return null;
@@ -697,12 +700,9 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
             || fechaFinPermisoDiasAntesDeMin
         );
 
-    const fechaVotacionFueraDeMes = esCompensatorioVotacion
+    const fechaVotacionNoHabilitada = esCompensatorioVotacion
         && Boolean(String(formData.fechaVotacion || '').trim())
-        && (
-            String(formData.fechaVotacion) < fechaVotacionMinYmd
-            || String(formData.fechaVotacion) > fechaVotacionMaxYmd
-        );
+        && !FECHAS_VOTACION_HABILITADAS_SET.has(String(formData.fechaVotacion).trim());
 
     const fechaDisfruteFueraVentana = esCompensatorioVotacion
         && Boolean(String(formData.fechaDisfruteVotacion || '').trim())
@@ -717,7 +717,7 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
         !String(formData.modalidadVotacion || '').trim()
         || !String(formData.fechaVotacion || '').trim()
         || !String(formData.fechaDisfruteVotacion || '').trim()
-        || fechaVotacionFueraDeMes
+        || fechaVotacionNoHabilitada
         || fechaDisfruteFueraVentana
         || (esCompVotacionMedioDia && (
             !String(formData.horaDisfruteInicio || '').trim()
@@ -1777,22 +1777,17 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 <label className={labelCls}>Fecha de la votación {reqStar}</label>
-                                                <input
-                                                    {...nativeCalendarOnlyInputProps}
+                                                <select
                                                     name="fechaVotacion"
                                                     value={formData.fechaVotacion}
                                                     onChange={handleChange}
-                                                    type="date"
-                                                    min={fechaVotacionMinYmd}
-                                                    max={fechaVotacionMaxYmd}
                                                     className={inputCls}
-                                                />
-                                                {formData.fechaVotacion && festivosSet.has(formData.fechaVotacion) && (
-                                                    <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
-                                                )}
-                                                {formData.fechaVotacion && !festivosSet.has(formData.fechaVotacion) && new Date(`${formData.fechaVotacion}T12:00:00Z`).getUTCDay() === 0 && (
-                                                    <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un domingo</div>
-                                                )}
+                                                >
+                                                    <option value="">Selecciona la jornada…</option>
+                                                    {FECHAS_VOTACION_HABILITADAS.map((f) => (
+                                                        <option key={f.value} value={f.value}>{f.label}</option>
+                                                    ))}
+                                                </select>
                                             </div>
                                             <div className="flex flex-col gap-1">
                                                 <label className={labelCls}>Fecha de disfrute {reqStar}</label>
@@ -1808,9 +1803,11 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                                     className={`${inputCls} disabled:opacity-50`}
                                                 />
                                                 <small className={theme.helperMutedPlain}>
-                                                    {String(formData.fechaVotacion || '').trim()
-                                                        ? 'Hasta 30 días calendario después de la fecha de votación.'
-                                                        : 'Selecciona primero la fecha de votación.'}
+                                                    {!String(formData.fechaVotacion || '').trim()
+                                                        ? 'Selecciona primero la fecha de votación.'
+                                                        : !modalidadCompVotacion
+                                                            ? 'Selecciona primero la modalidad (jurado o votación).'
+                                                            : `Hasta ${diasVentanaDisfrute} días calendario después de la fecha de votación.`}
                                                 </small>
                                                 {formData.fechaDisfruteVotacion && festivosSet.has(formData.fechaDisfruteVotacion) && (
                                                     <div className="text-xs text-rose-500 font-bold mt-1">⚠️ Es un festivo nacional</div>
@@ -1964,6 +1961,11 @@ export default function FormularioNovedad({ consultorSession = null, onSessionCh
                                         <div className={theme.hintLine}>
                                             Formato militar <strong className={theme.hintStrong}>HH:mm</strong> en reloj <strong className={theme.hintStrong}>America/Bogotá</strong> (civil Colombia). La fecha/hora fin debe ser mayor que la de inicio.
                                         </div>
+                                        {isHoraExtra && detalleFormularioActivo && (
+                                            <p className={`md:col-span-2 ${theme.helperMutedPlain}`}>
+                                                Hora Extra: debes adjuntar un pantallazo, documento de aceptación o evidencia de aprobación de la hora extra en la sección de soportes.
+                                            </p>
+                                        )}
                                         {(horaInicioFormatoInvalido || horaFinFormatoInvalido) && (
                                             <div className="md:col-span-2 text-sm text-[#ff6b6b] font-body">
                                                 Formato de hora inválido. Usa formato 24H: HH:mm (ejemplo: 20:00).

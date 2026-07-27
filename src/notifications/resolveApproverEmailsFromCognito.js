@@ -49,13 +49,152 @@ async function resolveEmailViaAdminGetUser(cognitoClient, userPoolId, username) 
 }
 
 /**
+ * Lista emails de usuarios Cognito en uno o más grupos (RBAC → nombre real vía ListGroups).
+ * @param {object} opts
+ * @param {import('@aws-sdk/client-cognito-identity-provider').CognitoIdentityProviderClient} opts.cognitoClient
+ * @param {string} opts.userPoolId
+ * @param {string[]} opts.groupNames
+ * @param {{ error?: Function, warn?: Function }} [opts.logger]
+ * @returns {Promise<{ emails: string[], recipients: { email: string, name: string }[], insights: object[] }>}
+ */
+async function listEmailsFromCognitoGroups({
+    cognitoClient,
+    userPoolId,
+    groupNames,
+    logger = console
+}) {
+    const pool = String(userPoolId || '').trim();
+    const log = logger && typeof logger.error === 'function' ? logger : console;
+    const warn = logger && typeof logger.warn === 'function' ? logger.warn.bind(logger) : console.warn.bind(console);
+    const empty = { emails: [], recipients: [], insights: [] };
+
+    if (!cognitoClient || !pool) return empty;
+
+    const nameMap = new Map();
+    try {
+        let next;
+        do {
+            const out = await cognitoClient.send(
+                new ListGroupsCommand({
+                    UserPoolId: pool,
+                    Limit: 60,
+                    NextToken: next
+                })
+            );
+            for (const g of out.Groups || []) {
+                const raw = String(g.GroupName || '').trim();
+                if (!raw) continue;
+                nameMap.set(normalizeGroupKey(raw), raw);
+            }
+            next = out.NextToken;
+        } while (next);
+    } catch (err) {
+        warn('[cognito-groups] ListGroups falló; se usarán nombres RBAC tal cual', {
+            code: err?.name,
+            message: err?.message || String(err)
+        });
+    }
+
+    const seen = new Set();
+    const emails = [];
+    const recipients = [];
+    /** @type {object[]} */
+    const insights = [];
+
+    for (const groupName of groupNames || []) {
+        const gn = String(groupName || '').trim();
+        if (!gn) continue;
+        const actualGn = nameMap.get(normalizeGroupKey(gn)) || gn;
+        let usersSeen = 0;
+        let emailsFromGroup = 0;
+        let listError = null;
+        let nextToken;
+        try {
+            do {
+                const out = await cognitoClient.send(
+                    new ListUsersInGroupCommand({
+                        UserPoolId: pool,
+                        GroupName: actualGn,
+                        NextToken: nextToken
+                    })
+                );
+                const batch = out.Users || [];
+                usersSeen += batch.length;
+                for (const user of batch) {
+                    const byName = attrsToMap(user.Attributes);
+                    let email = String(byName.email || '').trim().toLowerCase();
+                    let verifiedOk = isEmailVerifiedForNotify(byName);
+                    const name =
+                        String(byName.name || byName.given_name || '').trim() ||
+                        (email.includes('@') ? email : '');
+
+                    if (!email.includes('@') && user.Username && String(user.Username).includes('@')) {
+                        email = String(user.Username).trim().toLowerCase();
+                        verifiedOk = true;
+                    }
+
+                    if (!email.includes('@') && user.Username) {
+                        try {
+                            const fetched = await resolveEmailViaAdminGetUser(cognitoClient, pool, user.Username);
+                            if (fetched) {
+                                email = fetched;
+                                verifiedOk = true;
+                            }
+                        } catch (e) {
+                            warn('[cognito-groups] AdminGetUser falló', {
+                                rbacGroup: gn,
+                                cognitoGroup: actualGn,
+                                username: user.Username,
+                                message: e?.message || String(e)
+                            });
+                        }
+                    }
+
+                    if (!email.includes('@') || !verifiedOk || seen.has(email)) continue;
+                    seen.add(email);
+                    emails.push(email);
+                    recipients.push({ email, name: name || email });
+                    emailsFromGroup += 1;
+                }
+                nextToken = out.NextToken;
+            } while (nextToken);
+        } catch (err) {
+            listError = err?.message || String(err);
+            log.error('[cognito-groups] ListUsersInGroup failed', {
+                rbacGroup: gn,
+                cognitoGroup: actualGn,
+                code: err?.name,
+                message: listError
+            });
+        }
+        insights.push({
+            rbacGroup: gn,
+            cognitoGroup: actualGn,
+            groupResolved: actualGn !== gn,
+            usersSeen,
+            emailsFromGroup,
+            listError
+        });
+    }
+
+    return { emails, recipients, insights };
+}
+
+/**
  * @param {object} opts
  * @param {import('@aws-sdk/client-cognito-identity-provider').CognitoIdentityProviderClient} opts.cognitoClient
  * @param {string} opts.userPoolId
  * @param {(typeName: string) => object|null} opts.getNovedadRuleByType
+ * @param {(cliente: string) => Promise<string[]>} [opts.resolveGpEmailsForCliente]
  * @param {{ error?: Function, warn?: Function }} [opts.logger]
  */
-function createResolveApproverEmailsFromCognito({ cognitoClient, userPoolId, getNovedadRuleByType, logger = console }) {
+function createResolveApproverEmailsFromCognito({
+    cognitoClient,
+    userPoolId,
+    getNovedadRuleByType,
+    resolveGpEmailsForCliente,
+    logger = console
+}) {
     const pool = String(userPoolId || '').trim();
     const log = logger && typeof logger.error === 'function' ? logger : console;
     const warn = logger && typeof logger.warn === 'function' ? logger.warn.bind(logger) : console.warn.bind(console);
@@ -96,11 +235,21 @@ function createResolveApproverEmailsFromCognito({ cognitoClient, userPoolId, get
         return cachedGroupMapPromise;
     }
 
+    async function listEmailsInGroups(groupNames) {
+        return listEmailsFromCognitoGroups({
+            cognitoClient,
+            userPoolId: pool,
+            groupNames,
+            logger
+        });
+    }
+
     /**
      * @param {string} tipoNovedad
+     * @param {{ cliente?: string }} [options]
      * @returns {Promise<{ emails: string[], reason: string, insights?: object[] }>}
      */
-    async function resolveApproverEmailsForNovedad(tipoNovedad) {
+    async function resolveApproverEmailsForNovedad(tipoNovedad, options = {}) {
         const emptyInsight = (reason, extra = {}) => ({ emails: [], reason, insights: [], ...extra });
 
         if (!cognitoClient || !pool) {
@@ -124,6 +273,61 @@ function createResolveApproverEmailsFromCognito({ cognitoClient, userPoolId, get
         for (const groupName of approvers) {
             const gn = String(groupName || '').trim();
             if (!gn) continue;
+
+            if (
+                normalizeGroupKey(gn) === 'gp'
+                && rule.gpNotifyByCliente === true
+            ) {
+                const clienteNorm = String(options?.cliente || '').trim();
+                let emailsFromGroup = 0;
+                let gpError = null;
+                if (!clienteNorm) {
+                    warn('[approver-emails] gpNotifyByCliente sin cliente; se omite GP', { tipoNovedad });
+                    insights.push({
+                        rbacGroup: gn,
+                        source: 'catalogo_cliente',
+                        skipped: 'missing_cliente',
+                        emailsFromGroup: 0
+                    });
+                    continue;
+                }
+                if (typeof resolveGpEmailsForCliente !== 'function') {
+                    warn('[approver-emails] gpNotifyByCliente sin resolver GP en BD', { tipoNovedad });
+                    insights.push({
+                        rbacGroup: gn,
+                        source: 'catalogo_cliente',
+                        skipped: 'no_resolver',
+                        emailsFromGroup: 0
+                    });
+                    continue;
+                }
+                try {
+                    const gpEmails = await resolveGpEmailsForCliente(clienteNorm);
+                    for (const emailRaw of gpEmails) {
+                        const email = String(emailRaw || '').trim().toLowerCase();
+                        if (!email.includes('@') || seen.has(email)) continue;
+                        seen.add(email);
+                        emails.push(email);
+                        emailsFromGroup += 1;
+                    }
+                } catch (err) {
+                    gpError = err?.message || String(err);
+                    log.error('[approver-emails] resolveGpEmailsForCliente failed', {
+                        tipoNovedad,
+                        cliente: clienteNorm,
+                        message: gpError
+                    });
+                }
+                insights.push({
+                    rbacGroup: gn,
+                    source: 'catalogo_cliente',
+                    cliente: clienteNorm,
+                    emailsFromGroup,
+                    listError: gpError
+                });
+                continue;
+            }
+
             const actualGn = nameMap.get(normalizeGroupKey(gn)) || gn;
             let usersSeen = 0;
             let emailsFromGroup = 0;
@@ -202,9 +406,10 @@ function createResolveApproverEmailsFromCognito({ cognitoClient, userPoolId, get
         };
     }
 
-    return { resolveApproverEmailsForNovedad };
+    return { resolveApproverEmailsForNovedad, listEmailsInGroups };
 }
 
 module.exports = {
-    createResolveApproverEmailsFromCognito
+    createResolveApproverEmailsFromCognito,
+    listEmailsFromCognitoGroups
 };

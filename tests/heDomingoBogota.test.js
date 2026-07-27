@@ -10,7 +10,9 @@ const {
     sundayTierFromCount,
     sundayStatsForConsultantMonth,
     resolveFallbackBogotaYmdFromRow,
-    resolveHourSplitBogotaForRow
+    resolveHourSplitBogotaForRow,
+    buildHeDomingoPolicyText,
+    resolveDominicalCoeficientesText
 } = require('../src/heDomingoBogota');
 const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('../src/novedadHeTime');
 
@@ -183,4 +185,18 @@ test('agregación: domingo + festivo no-domingo solo cuenta 1 (el domingo)', () 
     assert.equal(st.count, 1);
     assert.equal(st.tier, 1);
     assert.deepEqual(st.dates, ['2026-05-17']);
+});
+
+test('resolveDominicalCoeficientesText: 0,80 antes de julio 2026; 0,90 desde julio', () => {
+    assert.deepEqual(resolveDominicalCoeficientesText('2026-06'), { low: '0,80', high: '1,80' });
+    assert.deepEqual(resolveDominicalCoeficientesText('2026-07'), { low: '0,90', high: '1,90' });
+});
+
+test('buildHeDomingoPolicyText: coeficientes según monthKey', () => {
+    const t1Jun = buildHeDomingoPolicyText('2026-06', 1, 1, ['2026-06-07']);
+    assert.ok(t1Jun.includes('0,80'), t1Jun);
+    assert.ok(!t1Jun.includes('0,90'), t1Jun);
+    const t3Jul = buildHeDomingoPolicyText('2026-07', 3, 3, ['2026-07-05', '2026-07-12', '2026-07-19']);
+    assert.ok(t3Jul.includes('1,90'), t3Jul);
+    assert.ok(!t3Jul.includes('1,80'), t3Jul);
 });

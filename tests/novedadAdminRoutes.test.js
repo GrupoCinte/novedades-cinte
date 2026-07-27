@@ -44,6 +44,7 @@ function buildAppWithRole(role) {
                             horas_recargo_domingo: 0,
                             horas_recargo_domingo_diurnas: 0,
                             horas_recargo_domingo_nocturnas: 0,
+                            horas_recargo_nocturno: 0,
                             tipo_hora_extra: null,
                             monto_cop: null,
                             soporte_ruta: null,

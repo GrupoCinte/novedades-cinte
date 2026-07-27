@@ -4,10 +4,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
     computeHoraExtraSplitBogota,
+    computeHoraExtraGroupSplitBogota,
     collectHeDiurnaNocturnaSegmentsBogota,
     collectRecargoDomingoDiurnaNocturnaSegmentsBogota,
     formatHeSegmentListBogota,
-    RECARGO_DOMINGO_MAX_HORAS
+    resolveRecargoDomingoMaxHorasForDayKey,
+    RECARGO_DOMINGO_MAX_HORAS_PRE_42,
+    RECARGO_DOMINGO_MAX_HORAS_42,
+    JORNADA_42_CUTOFF_YMD
 } = require('../src/heBogotaSplit');
 const { toUtcMsFromDateAndTime } = require('../src/novedadHeTime');
 
@@ -27,7 +31,7 @@ test('computeHoraExtraSplitBogota: exceso domingo (civil Bogotá) recargo diurno
     const start = toUtcMsFromDateAndTime('2025-04-06', '12:00:00');
     const end = toUtcMsFromDateAndTime('2025-04-07', '01:00:00');
     const s = computeHoraExtraSplitBogota(start, end);
-    assert.ok(Math.abs(s.horasRecargoDomingo - RECARGO_DOMINGO_MAX_HORAS) < 0.02);
+    assert.ok(Math.abs(s.horasRecargoDomingo - RECARGO_DOMINGO_MAX_HORAS_PRE_42) < 0.02);
     assert.ok(Math.abs(s.horasRecargoDomingoDiurnas - 7) < 0.05);
     assert.ok(Math.abs(s.horasRecargoDomingoNocturnas - 0.33) < 0.05);
     assert.ok(s.nocturnas > 5.4);
@@ -73,8 +77,8 @@ test('computeHoraExtraSplitBogota: domingo 11:00–22:00 civil Bogotá, recargo 
     const start = toUtcMsFromDateAndTime('2025-04-06', '11:00:00');
     const end = toUtcMsFromDateAndTime('2025-04-06', '22:00:00');
     const s = computeHoraExtraSplitBogota(start, end);
-    assert.ok(Math.abs(s.horasRecargoDomingo - RECARGO_DOMINGO_MAX_HORAS) < 0.02);
-    assert.ok(Math.abs(s.horasRecargoDomingoDiurnas - RECARGO_DOMINGO_MAX_HORAS) < 0.02);
+    assert.ok(Math.abs(s.horasRecargoDomingo - RECARGO_DOMINGO_MAX_HORAS_PRE_42) < 0.02);
+    assert.ok(Math.abs(s.horasRecargoDomingoDiurnas - RECARGO_DOMINGO_MAX_HORAS_PRE_42) < 0.02);
     assert.ok(s.horasRecargoDomingoNocturnas < 0.05);
     assert.ok(s.nocturnas >= 2.9, `nocturnas=${s.nocturnas}`);
     assert.ok(s.diurnas > 0.5 && s.diurnas < 1, `diurnas=${s.diurnas}`);
@@ -125,13 +129,13 @@ test('computeHoraExtraSplitBogota: festivo no-domingo con festivosSet manda HE a
     assert.equal(s.total, 4);
 });
 
-test('computeHoraExtraSplitBogota: festivo no-domingo respeta tope RECARGO_DOMINGO_MAX_HORAS', () => {
+test('computeHoraExtraSplitBogota: festivo no-domingo respeta tope PRE_42 (antes 15-jul)', () => {
     /* Lunes 18/05/2026 festivo, jornada larga 06:00–22:00 (16h): primeras 7,33h al recargo, resto a HE */
     const start = toUtcMsFromDateAndTime('2026-05-18', '06:00:00');
     const end = toUtcMsFromDateAndTime('2026-05-18', '22:00:00');
     const festivosSet = new Set(['2026-05-18']);
     const s = computeHoraExtraSplitBogota(start, end, festivosSet);
-    assert.ok(Math.abs(s.horasRecargoDomingo - RECARGO_DOMINGO_MAX_HORAS) < 0.02, `recargo=${s.horasRecargoDomingo}`);
+    assert.ok(Math.abs(s.horasRecargoDomingo - RECARGO_DOMINGO_MAX_HORAS_PRE_42) < 0.02, `recargo=${s.horasRecargoDomingo}`);
     assert.ok(s.diurnas + s.nocturnas > 8);
     assert.ok(Math.abs(s.total - 16) < 0.05, `total=${s.total}`);
 });
@@ -173,4 +177,137 @@ test('collectRecargoDomingoDiurnaNocturnaSegmentsBogota: festivo no-domingo sin 
     const { diurna, nocturna } = collectRecargoDomingoDiurnaNocturnaSegmentsBogota(start, end);
     assert.equal(diurna.length, 0);
     assert.equal(nocturna.length, 0);
+});
+
+test('computeHoraExtraGroupSplitBogota: dos franjas mismo domingo comparten tope 7.33', () => {
+    const row1Start = toUtcMsFromDateAndTime('2025-04-06', '06:00:00');
+    const row1End = toUtcMsFromDateAndTime('2025-04-06', '10:00:00');
+    const row2Start = toUtcMsFromDateAndTime('2025-04-06', '14:00:00');
+    const row2End = toUtcMsFromDateAndTime('2025-04-06', '22:00:00');
+    const splits = computeHoraExtraGroupSplitBogota(
+        [
+            { rowKey: 'a', startMs: row1Start, endMs: row1End },
+            { rowKey: 'b', startMs: row2Start, endMs: row2End }
+        ],
+        new Set()
+    );
+    const a = splits.get('a');
+    const b = splits.get('b');
+    assert.ok(a);
+    assert.ok(b);
+    const totalRecargo = a.horasRecargoDomingo + b.horasRecargoDomingo;
+    assert.ok(Math.abs(totalRecargo - RECARGO_DOMINGO_MAX_HORAS_PRE_42) < 0.02);
+    assert.equal(a.horasRecargoDomingo, 4);
+    assert.ok(Math.abs(b.horasRecargoDomingo - 3.33) < 0.02);
+    assert.ok(b.diurnas + b.nocturnas > 4);
+});
+
+test('computeHoraExtraGroupSplitBogota: franjas con hueco continúan presupuesto en segunda franja', () => {
+    const d = '2025-04-06';
+    const splits = computeHoraExtraGroupSplitBogota(
+        [
+            {
+                rowKey: 'am',
+                startMs: toUtcMsFromDateAndTime(d, '06:00:00'),
+                endMs: toUtcMsFromDateAndTime(d, '10:00:00')
+            },
+            {
+                rowKey: 'pm',
+                startMs: toUtcMsFromDateAndTime(d, '18:00:00'),
+                endMs: toUtcMsFromDateAndTime(d, '22:00:00')
+            }
+        ],
+        new Set()
+    );
+    const am = splits.get('am');
+    const pm = splits.get('pm');
+    assert.equal(am.horasRecargoDomingo, 4);
+    assert.ok(Math.abs(pm.horasRecargoDomingo - 3.33) < 0.02);
+    assert.ok(pm.diurnas + pm.nocturnas > 0.6);
+});
+
+test('computeHoraExtraGroupSplitBogota: fila aislada equivale a computeHoraExtraSplitBogota', () => {
+    const start = toUtcMsFromDateAndTime('2025-04-06', '11:00:00');
+    const end = toUtcMsFromDateAndTime('2025-04-06', '22:00:00');
+    const single = computeHoraExtraSplitBogota(start, end);
+    const group = computeHoraExtraGroupSplitBogota([{ rowKey: 'x', startMs: start, endMs: end }], new Set());
+    const gx = group.get('x');
+    assert.ok(gx);
+    assert.equal(single.total, gx.total);
+    assert.equal(single.horasRecargoDomingo, gx.horasRecargoDomingo);
+    assert.equal(single.diurnas, gx.diurnas);
+    assert.equal(single.nocturnas, gx.nocturnas);
+});
+
+test('computeHoraExtraSplitBogota: sábado noche a domingo sin recargo dominical (AUT-568)', () => {
+    const start = toUtcMsFromDateAndTime('2026-03-07', '22:00:00');
+    const end = toUtcMsFromDateAndTime('2026-03-08', '10:00:00');
+    const s = computeHoraExtraSplitBogota(start, end);
+    assert.equal(s.horasRecargoDomingo, 0);
+    assert.equal(s.horasRecargoDomingoDiurnas, 0);
+    assert.equal(s.horasRecargoDomingoNocturnas, 0);
+    assert.ok(s.nocturnas > 7, `nocturnas=${s.nocturnas}`);
+    assert.ok(s.diurnas >= 3.9, `diurnas=${s.diurnas}`);
+    assert.ok(Math.abs(s.total - 12) < 0.05, `total=${s.total}`);
+});
+
+test('computeHoraExtraSplitBogota: HE que inicia domingo mantiene recargo 7,33 h', () => {
+    const start = toUtcMsFromDateAndTime('2026-03-08', '06:00:00');
+    const end = toUtcMsFromDateAndTime('2026-03-08', '14:00:00');
+    const s = computeHoraExtraSplitBogota(start, end);
+    assert.ok(s.horasRecargoDomingo > 0);
+    assert.ok(Math.abs(s.horasRecargoDomingo - RECARGO_DOMINGO_MAX_HORAS_PRE_42) < 0.05 || s.horasRecargoDomingo === 8);
+});
+
+test('resolveRecargoDomingoMaxHorasForDayKey: corte jornada 42 h', () => {
+    assert.equal(JORNADA_42_CUTOFF_YMD, '2026-07-15');
+    assert.equal(resolveRecargoDomingoMaxHorasForDayKey('2026-07-14'), RECARGO_DOMINGO_MAX_HORAS_PRE_42);
+    assert.equal(resolveRecargoDomingoMaxHorasForDayKey('2026-07-15'), RECARGO_DOMINGO_MAX_HORAS_42);
+    assert.equal(resolveRecargoDomingoMaxHorasForDayKey('2026-07-19'), RECARGO_DOMINGO_MAX_HORAS_42);
+});
+
+test('computeHoraExtraSplitBogota: domingo pre-corte 2026-07-12 tope 7,33', () => {
+    /* Domingo 12/07/2026 */
+    const start = toUtcMsFromDateAndTime('2026-07-12', '11:00:00');
+    const end = toUtcMsFromDateAndTime('2026-07-12', '22:00:00');
+    const s = computeHoraExtraSplitBogota(start, end);
+    assert.ok(Math.abs(s.horasRecargoDomingo - RECARGO_DOMINGO_MAX_HORAS_PRE_42) < 0.02);
+    assert.ok(Math.abs(s.total - 11) < 0.05);
+});
+
+test('computeHoraExtraSplitBogota: domingo post-corte 2026-07-19 tope 7,00', () => {
+    /* Domingo 19/07/2026 */
+    const start = toUtcMsFromDateAndTime('2026-07-19', '11:00:00');
+    const end = toUtcMsFromDateAndTime('2026-07-19', '22:00:00');
+    const s = computeHoraExtraSplitBogota(start, end);
+    assert.ok(Math.abs(s.horasRecargoDomingo - RECARGO_DOMINGO_MAX_HORAS_42) < 0.02, `recargo=${s.horasRecargoDomingo}`);
+    assert.ok(Math.abs(s.horasRecargoDomingoDiurnas - 7) < 0.05);
+    assert.ok(s.horasRecargoDomingoNocturnas < 0.05);
+    assert.ok(s.diurnas + s.nocturnas > 3.9);
+    assert.ok(Math.abs(s.total - 11) < 0.05);
+});
+
+test('computeHoraExtraGroupSplitBogota: post-corte dos franjas comparten tope 7', () => {
+    const d = '2026-07-19';
+    const splits = computeHoraExtraGroupSplitBogota(
+        [
+            {
+                rowKey: 'a',
+                startMs: toUtcMsFromDateAndTime(d, '06:00:00'),
+                endMs: toUtcMsFromDateAndTime(d, '10:00:00')
+            },
+            {
+                rowKey: 'b',
+                startMs: toUtcMsFromDateAndTime(d, '14:00:00'),
+                endMs: toUtcMsFromDateAndTime(d, '22:00:00')
+            }
+        ],
+        new Set()
+    );
+    const a = splits.get('a');
+    const b = splits.get('b');
+    const totalRecargo = a.horasRecargoDomingo + b.horasRecargoDomingo;
+    assert.ok(Math.abs(totalRecargo - RECARGO_DOMINGO_MAX_HORAS_42) < 0.02, `totalRec=${totalRecargo}`);
+    assert.equal(a.horasRecargoDomingo, 4);
+    assert.ok(Math.abs(b.horasRecargoDomingo - 3) < 0.02);
 });

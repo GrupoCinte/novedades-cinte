@@ -280,4 +280,66 @@ CREATE TRIGGER trg_clientes_lideres_updated_at
 BEFORE UPDATE ON clientes_lideres
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ========= Conciliaciones Facturacion =========
+CREATE TABLE IF NOT EXISTS conciliaciones_facturacion (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+    anio                INTEGER NOT NULL CHECK (anio >= 2000 AND anio <= 2100),
+    mes                 INTEGER NOT NULL CHECK (mes >= 1 AND mes <= 12),
+    proyecto            TEXT NULL,
+    observaciones       TEXT NULL,
+    fecha_cierre        DATE NOT NULL DEFAULT CURRENT_DATE,
+    horas_facturadas    NUMERIC(8,2) NOT NULL DEFAULT 0,
+    estado              VARCHAR(50) NOT NULL DEFAULT 'PENDIENTE',
+    factura_fv          VARCHAR(100) NULL,
+    fecha_radicacion    DATE NULL,
+    motivo_devolucion   TEXT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_conciliaciones_facturacion_colab_mes UNIQUE (cedula, anio, mes)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conciliaciones_facturacion_mes_anio ON conciliaciones_facturacion(anio, mes);
+
+DROP TRIGGER IF EXISTS trg_conciliaciones_facturacion_updated_at ON conciliaciones_facturacion;
+CREATE TRIGGER trg_conciliaciones_facturacion_updated_at
+BEFORE UPDATE ON conciliaciones_facturacion
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ========= Servicios (Facturacion) =========
+CREATE TABLE IF NOT EXISTS servicios (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cliente             TEXT NOT NULL,
+    nombre_servicio     TEXT NOT NULL,
+    inicio_contrato     DATE NOT NULL,
+    dia_cierre          INTEGER NOT NULL,
+    modo_facturacion    VARCHAR(100) NOT NULL,
+    horas_base          NUMERIC(8,2) NULL,
+    tipo_facturacion    VARCHAR(100) NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+DROP TRIGGER IF EXISTS trg_servicios_updated_at ON servicios;
+CREATE TRIGGER trg_servicios_updated_at
+BEFORE UPDATE ON servicios
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ========= Servicio Consultores (Asignaciones) =========
+CREATE TABLE IF NOT EXISTS servicio_consultores (
+    servicio_id         UUID NOT NULL REFERENCES servicios(id) ON DELETE CASCADE,
+    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
+    licencias           TEXT NULL,
+    equipo              TEXT NULL,
+    otras_dotaciones    TEXT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (servicio_id, cedula)
+);
+
+DROP TRIGGER IF EXISTS trg_servicio_consultores_updated_at ON servicio_consultores;
+CREATE TRIGGER trg_servicio_consultores_updated_at
+BEFORE UPDATE ON servicio_consultores
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 COMMIT;

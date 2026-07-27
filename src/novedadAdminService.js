@@ -3,6 +3,9 @@
 const { canRoleViewType } = require('./rbac');
 const { validateMergedNovedadForAdmin, toYmd, toHms, nonNegNum } = require('./novedadPersistValidation');
 const { toUtcMsFromDateAndTime } = require('./novedadHeTime');
+const { collectRecargoDayKeysInInterval } = require('./heBogotaSplit');
+const { recomputeAndPersistDomingoRecargoGroup } = require('./heDomingoRecargoGroup');
+const festivosService = require('./festivosService');
 
 const PATCH_CAMEL_TO_SNAKE = {
     nombre: 'nombre',
@@ -24,6 +27,7 @@ const PATCH_CAMEL_TO_SNAKE = {
     horasRecargoDomingo: 'horas_recargo_domingo',
     horasRecargoDomingoDiurnas: 'horas_recargo_domingo_diurnas',
     horasRecargoDomingoNocturnas: 'horas_recargo_domingo_nocturnas',
+    horasRecargoNocturno: 'horas_recargo_nocturno',
     tipoHoraExtra: 'tipo_hora_extra',
     montoCop: 'monto_cop',
     estado: 'estado',
@@ -153,7 +157,8 @@ function mergeAdminPatch(existingRow, body, normalizeEstado, parseDateOrNull, pa
             snake === 'horas_nocturnas' ||
             snake === 'horas_recargo_domingo' ||
             snake === 'horas_recargo_domingo_diurnas' ||
-            snake === 'horas_recargo_domingo_nocturnas'
+            snake === 'horas_recargo_domingo_nocturnas' ||
+            snake === 'horas_recargo_nocturno'
         ) {
             const n = nonNegNum(v, 0);
             if (n === null) return { error: 'Las horas deben ser números mayores o iguales a cero.', merged: null, appliedKeys: [] };
@@ -248,7 +253,8 @@ function appendSetForColumn(setParts, vals, col, val) {
         col === 'horas_nocturnas' ||
         col === 'horas_recargo_domingo' ||
         col === 'horas_recargo_domingo_diurnas' ||
-        col === 'horas_recargo_domingo_nocturnas'
+        col === 'horas_recargo_domingo_nocturnas' ||
+        col === 'horas_recargo_nocturno'
     ) {
         setParts.push(`${col} = $${i}::numeric`);
         vals.push(nonNegNum(val, 0) ?? 0);
@@ -341,6 +347,31 @@ async function adminPatchNovedad({ pool, req, idParam, normalizeEstado, parseDat
     const sql = `UPDATE novedades SET ${setParts.join(', ')} WHERE id = $${i}::uuid`;
     vals.push(row.id);
     await pool.query(sql, vals);
+
+    const tipoFold = String(merged.tipo_novedad || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+    const heTimeKeys = new Set(['fechaInicio', 'fechaFin', 'horaInicio', 'horaFin']);
+    const heTimeChanged = appliedKeys.some((k) => heTimeKeys.has(k));
+    if (tipoFold === 'hora extra' && heTimeChanged) {
+        const festivosSet = await festivosService.getFestivosSet();
+        const dayKeys = new Set();
+        const oldStartMs = toUtcMsFromDateAndTime(row.fecha_inicio, row.hora_inicio);
+        const oldEndMs = toUtcMsFromDateAndTime(row.fecha_fin, row.hora_fin);
+        for (const k of collectRecargoDayKeysInInterval(oldStartMs, oldEndMs, festivosSet)) dayKeys.add(k);
+        const newStartMs = toUtcMsFromDateAndTime(merged.fecha_inicio, merged.hora_inicio);
+        const newEndMs = toUtcMsFromDateAndTime(merged.fecha_fin, merged.hora_fin);
+        for (const k of collectRecargoDayKeysInInterval(newStartMs, newEndMs, festivosSet)) dayKeys.add(k);
+        if (dayKeys.size) {
+            await recomputeAndPersistDomingoRecargoGroup(
+                pool,
+                String(merged.cedula || row.cedula || '').trim(),
+                [...dayKeys],
+                festivosSet
+            );
+        }
+    }
 
     return { status: 200, body: { ok: true, success: true } };
 }

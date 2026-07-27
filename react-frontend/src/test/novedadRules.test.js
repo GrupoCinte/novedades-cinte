@@ -281,9 +281,11 @@ describe('NOVEDAD_RULES – reglas de negocio por tipo', () => {
 
   describe('Compensatorio por votación/jurado', () => {
     const rule = NOVEDAD_RULES['Compensatorio por votación/jurado'];
-    it('no incluye gp en viewers (alineado con src/rbac.js)', () => {
-      expect(rule.viewers).not.toContain('gp');
+    it('incluye gp en viewers y como aprobador (alineado con src/rbac.js)', () => {
+      expect(rule.viewers).toContain('gp');
       expect(rule.viewers).toContain('nomina');
+      expect(rule.approvers).toContain('gp');
+      expect(rule.approvers).toContain('admin_ch');
     });
     it('sin modalidad en contexto: medida días por defecto (p. ej. jurado legacy)', () => {
       expect(getCantidadMedidaKind('Compensatorio por votación/jurado')).toBe('days');

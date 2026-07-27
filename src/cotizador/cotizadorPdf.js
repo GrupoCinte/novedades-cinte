@@ -58,6 +58,7 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
         const resultados = Array.isArray(cotizacion?.resultados) ? cotizacion.resultados : [];
         const refCodigo = String(cotizacion?.codigo || '').trim();
         const fechaLabel = resolveFechaGeneracionLabel(cotizacion);
+        const titulo = String(cotizacion?.titulo || '').trim();
 
         const marginLeft = 40;
         const contentW = 515;
@@ -92,6 +93,13 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
             });
             curY += 18;
         }
+        if (titulo) {
+            doc.fontSize(12).fillColor('#0f2437').text(`Asunto: ${titulo}`, marginLeft, curY, {
+                width: contentW,
+                align: 'left'
+            });
+            curY += 20;
+        }
 
         const headerBlockBottom = curY;
         doc.y = headerBlockBottom + 8;
@@ -99,6 +107,18 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
 
         doc.fontSize(11).fillColor('#111827').text(`Cliente: ${cliente}`);
         doc.text(`NIT: ${nit}`);
+        
+        const contactoNombre = String(cotizacion?.contacto_nombre || '').trim();
+        const contactoCargo = String(cotizacion?.contacto_cargo || '').trim();
+        const contactoCorreo = String(cotizacion?.contacto_correo || '').trim();
+
+        if (contactoNombre) {
+            doc.text(`Contacto: ${contactoNombre}${contactoCargo ? ` - ${contactoCargo}` : ''}`);
+        }
+        if (contactoCorreo) {
+            doc.text(`Correo Contacto: ${contactoCorreo}`);
+        }
+
         doc.text(`Comercial: ${comercial}`);
         doc.text(`Plazo de pago: ${plazo} dias`);
         doc.text(`Margen aplicado: ${margenPct.toFixed(2)}%`);
@@ -124,7 +144,7 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
         let total = 0;
         doc.fillColor('#0f172a');
         for (const item of resultados) {
-            if (y > 760) {
+            if (y > 740) {
                 doc.addPage();
                 y = 50;
             }
@@ -146,7 +166,38 @@ async function buildCotizacionPdfBuffer(cotizacion = {}) {
         y += 10;
         doc.fontSize(12).fillColor('#0f2437').text(`Total estimado (${meses} meses): ${money(total, moneda)}`, startX, y, { align: 'right' });
 
+        const notas = String(cotizacion?.notas || '').trim();
+        const terminos = String(cotizacion?.terminos || '').trim();
+
+        if (notas || terminos) {
+            y += 24;
+            if (y > 700) {
+                doc.addPage();
+                y = 50;
+            }
+            if (notas) {
+                doc.fontSize(10).fillColor('#0f2437').text('Notas:', startX, y);
+                y += 14;
+                doc.fontSize(9).fillColor('#334155').text(notas, startX, y, { width: 515 });
+                y += doc.heightOfString(notas, { width: 515 }) + 10;
+            }
+            if (terminos) {
+                if (y > 700) {
+                    doc.addPage();
+                    y = 50;
+                }
+                doc.fontSize(10).fillColor('#0f2437').text('Condiciones de pago:', startX, y);
+                y += 14;
+                doc.fontSize(9).fillColor('#334155').text(terminos, startX, y, { width: 515 });
+                y += doc.heightOfString(terminos, { width: 515 }) + 10;
+            }
+        }
+
         y += 32;
+        if (y > 720) {
+            doc.addPage();
+            y = 50;
+        }
         doc.fontSize(9).fillColor('#475569').text(
             'Este documento es una propuesta comercial referencial sujeta a validacion contractual, alcance del servicio y condiciones finales acordadas con el cliente.',
             startX,

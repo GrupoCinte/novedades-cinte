@@ -1,0 +1,7 @@
+stateDiagram-v2
+    [*] --> PENDIENTE
+    PENDIENTE --> APROBADO_ANALISTA: Analista aprueba
+    DEVUELTA --> APROBADO_ANALISTA: Analista re-aprueba
+    APROBADO_ANALISTA --> APROBADO_FINANZAS: Nomina aprueba
+    APROBADO_ANALISTA --> DEVUELTA: Nomina rechaza
+    APROBADO_FINANZAS --> PENDIENTE: Revertir

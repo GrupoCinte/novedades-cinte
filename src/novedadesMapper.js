@@ -117,6 +117,7 @@ function toClientNovedad(row) {
         horasRecargoDomingo: Number(row.horas_recargo_domingo || 0),
         horasRecargoDomingoDiurnas: Number(row.horas_recargo_domingo_diurnas || 0),
         horasRecargoDomingoNocturnas: Number(row.horas_recargo_domingo_nocturnas || 0),
+        horasRecargoNocturno: Number(row.horas_recargo_nocturno || 0),
         tipoHoraExtra: row.tipo_hora_extra || '',
         montoCop: row.monto_cop != null && row.monto_cop !== '' ? Number(row.monto_cop) : null,
         soporteRuta: isLocalSupport ? soportePrincipal : '',
@@ -134,13 +135,18 @@ function toClientNovedad(row) {
         alertaHeResueltaEstado: String(row.alerta_he_resuelta_estado || '').trim(),
         alertaHeResueltaEn: row.alerta_he_resuelta_en ? row.alerta_he_resuelta_en.toISOString() : '',
         alertaHeResueltaPorCorreo: pickEmailLikeOnly(row.alerta_he_resuelta_por_email),
+        nominaProcesado: row.nomina_procesado_en != null,
+        nominaProcesadoEn: row.nomina_procesado_en ? row.nomina_procesado_en.toISOString() : '',
+        nominaProcesadoPorCorreo: pickEmailLikeOnly(row.nomina_procesado_por_email),
+        nominaProcesadoLote: String(row.nomina_procesado_lote || '').trim(),
         heDomingoObservacion: decodePossiblyMisencodedText(String(row.he_domingo_observacion || '').trim()),
         asignacionRolesEtiqueta: asignacion.asignacionRolesEtiqueta,
         modalidad: row.modalidad != null ? String(row.modalidad).trim() : '',
         fechaVotacion: pgDateToYmd(row.fecha_votacion),
         unidad: row.unidad != null ? String(row.unidad).trim() : '',
         observaciones: decodePossiblyMisencodedText(String(row.observaciones || '')),
-        observacionesRechazo: decodePossiblyMisencodedText(String(row.observaciones_rechazo || ''))
+        observacionesRechazo: decodePossiblyMisencodedText(String(row.observaciones_rechazo || '')),
+        mallaOrigenRef: row.malla_origen_ref ? String(row.malla_origen_ref) : null
     };
 }
 

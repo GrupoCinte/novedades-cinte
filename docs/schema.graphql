@@ -1,0 +1,38 @@
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+type Mutation {
+  putService(baseHours: Int!, billingMode: BillingMode!, billingType: BillingType!, client: String!, closingDay: Int!, initDate: AWSDate!, serviceName: String!): Result
+}
+
+type Query {
+  services(client: String!): [Service]
+}
+
+type Result {
+  success: Boolean!
+}
+
+type Service {
+  baseHours: Int!
+  billingMode: BillingMode!
+  billingType: BillingType!
+  client: String!
+  closingDay: Int!
+  initDate: AWSDate!
+  serviceName: String!
+}
+
+enum BillingMode {
+  BUSINESS_DAYS
+  CALENDAR_DAYS
+  HOURS
+}
+
+enum BillingType {
+  ADVANCE_MONTH
+  CURRENT_MONTH
+  EXPIRED_MONTH
+}

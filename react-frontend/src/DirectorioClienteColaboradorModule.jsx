@@ -5,6 +5,7 @@ import {
     ArrowRightLeft,
     ArrowUp,
     Building2,
+    CalendarDays,
     ChevronLeft,
     ChevronRight,
     Home,
@@ -15,20 +16,34 @@ import {
     X
 } from 'lucide-react';
 import { useModuleTheme } from './moduleTheme.js';
+import GestionDataTable from './onboarding/GestionDataTable.jsx';
+import GestionModalShell from './shared/modals/GestionModalShell.jsx';
+import { buildGestionTableDash } from './gestionTableDashTheme.js';
+import ModuleFiltersToolbar from './shared/filters/ModuleFiltersToolbar.jsx';
+import ModuleFiltersDrawer from './shared/filters/ModuleFiltersDrawer.jsx';
+import {
+    buildClienteChipLabel,
+    buildConsultoresChipLabel,
+    CLIENTE_FILTER_DEFAULTS,
+    CONSULTORES_FILTER_DEFAULTS
+} from './admin/directorioFilters.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
+import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
+import { userIsGpMallasOnly } from './mallasAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
+import MallasTurnosModule from './MallasTurnosModule';
+import ColaboradorFichaFields from './components/ColaboradorFichaFields.jsx';
 import {
     initialStaffForm,
     mapRowToStaffForm,
     buildStaffColaboradorPayload,
-    CO_CONSULTOR_SECTIONS,
-    getFieldMeta
+    CO_TABS
 } from './constants/colaboradoresConsultorFields.js';
-import { currencyNarrowSymbol, formatMoneyAmountOnly, parseMoneyInput } from './multiCurrencyMoney.js';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -64,6 +79,8 @@ function nitSoloDigitos(value) {
     return String(value || '').replace(/\D/g, '');
 }
 
+const CLIENTE_INTERNO_CINTE = 'CINTE';
+
 function resolveGpUserIdFromCatalogRows(rows, cliente, lider) {
     const fc = foldCatalogMatch(cliente);
     const fl = foldCatalogMatch(lider);
@@ -73,27 +90,74 @@ function resolveGpUserIdFromCatalogRows(rows, cliente, lider) {
     return String(hit.gp_user_id);
 }
 
-function GpUserSelect({ value, onChange, options, className }) {
-    const missing = value && !options.some((g) => g.id === value);
+function cedulaForGpUserId(gsOptions, gpUserId) {
+    const id = String(gpUserId || '').trim();
+    if (!id) return '';
+    const hit = gsOptions.find((o) => o.gp_user_id === id);
+    return hit?.cedula || '';
+}
+
+function gpUserIdForCedula(gsOptions, cedula) {
+    const c = String(cedula || '').trim();
+    if (!c) return null;
+    const hit = gsOptions.find((o) => o.cedula === c);
+    return hit?.gp_user_id ? String(hit.gp_user_id) : null;
+}
+
+function gsDisplayForCliente(resumen, leaderRows, gpLabelById) {
+    if (resumen) {
+        const gpN = Number(resumen.gp_distinct_count) || 0;
+        if (gpN > 1) {
+            return { label: 'Gerentes de servicio distintos por líder', conflict: true };
+        }
+        if (resumen.gp_user_id) {
+            const id = String(resumen.gp_user_id);
+            const backendName = String(resumen.gp_full_name || '').trim();
+            return {
+                label: backendName || gpLabelById.get(id) || '—',
+                conflict: false
+            };
+        }
+        return { label: '—', conflict: false };
+    }
+    const gpIds = [...new Set(leaderRows.map((r) => r.gp_user_id).filter(Boolean).map(String))];
+    if (gpIds.length > 1) {
+        return { label: 'Gerentes de servicio distintos por líder', conflict: true };
+    }
+    if (gpIds.length === 1) {
+        return { label: gpLabelById.get(gpIds[0]) || '—', conflict: false };
+    }
+    return { label: '—', conflict: false };
+}
+
+function nitDisplayForCliente(resumen, leaderRows) {
+    if (resumen) return String(resumen.nit || '').trim() || '—';
+    const fromRows = leaderRows.map((r) => nitSoloDigitos(r.nit)).find(Boolean);
+    return fromRows || '—';
+}
+
+function GerenteServicioSelect({ value, onChange, options, loading, className, missingLabel }) {
+    const missing = value && !options.some((o) => o.value === value);
+    if (loading) {
+        return <p className="text-xs opacity-70">Cargando lista…</p>;
+    }
     return (
         <select className={className} value={value} onChange={onChange}>
-            <option value="">— Sin GP —</option>
+            <option value="">— Sin Gerente de Servicio —</option>
             {missing ? (
-                <option value={value}>
-                    {value} (GP inactivo o no listado)
-                </option>
+                <option value={value}>{missingLabel || `${value} (no listado)`}</option>
             ) : null}
-            {options.map((g) => (
-                <option key={g.id} value={g.id}>
-                    {(g.full_name || g.email || '').trim()} ({g.email})
-                    {!g.is_active ? ' — inactivo' : ''}
+            {options.map((o) => (
+                <option key={o.cedula} value={o.value} disabled={o.disabled}>
+                    {o.label}
+                    {o.inactive ? ' — inactivo' : ''}
                 </option>
             ))}
         </select>
     );
 }
 
-export default function DirectorioClienteColaboradorModule({ token, auth }) {
+export default function DirectorioClienteColaboradorModule({ token, auth, onLogout }) {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
     const mt = useModuleTheme();
@@ -101,7 +165,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         shell,
         aside,
         asideHeaderBorder,
-        asideFooterBorder,
         scrim,
         menuFab,
         sidebarIconBtn,
@@ -109,7 +172,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         email,
         borderSubtle,
         mainCanvas,
-        topBar,
         headingAccent,
         labelMuted,
         field,
@@ -129,14 +191,36 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const currentEmail = String(auth?.user?.email || auth?.claims?.email || 'sin-correo').toLowerCase();
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
+    const gpMallasOnly = userIsGpMallasOnly(auth);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
+    const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     /** Vista principal del sidebar */
-    const [mainView, setMainView] = useState('cliente');
+    const [mainView, setMainView] = useState(() => (gpMallasOnly ? 'mallasTurnos' : 'cliente'));
 
-    const showTiCatalogSubmod = userHasRolesTiCatalogRead(auth);
+    useEffect(() => {
+        setFiltersPanelOpen(false);
+    }, [mainView]);
+
+    useEffect(() => {
+        if (gpMallasOnly && mainView !== 'mallasTurnos') {
+            setMainView('mallasTurnos');
+        }
+    }, [gpMallasOnly, mainView]);
+
+    const showTiCatalogSubmod = !gpMallasOnly && userHasRolesTiCatalogRead(auth);
     useEffect(() => {
         const v = searchParams.get('v');
+        if (gpMallasOnly) {
+            setMainView('mallasTurnos');
+            if (v) {
+                const next = new URLSearchParams(searchParams);
+                next.delete('v');
+                setSearchParams(next, { replace: true });
+            }
+            return;
+        }
         if (v === 'dashboard') {
             setMainView('dashboardAdmin');
             const next = new URLSearchParams(searchParams);
@@ -146,6 +230,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         }
         if (v === 'reubicaciones') {
             setMainView('reubicaciones');
+            const next = new URLSearchParams(searchParams);
+            next.delete('v');
+            setSearchParams(next, { replace: true });
+            return;
+        }
+        if (v === 'mallas-turnos') {
+            setMainView('mallasTurnos');
             const next = new URLSearchParams(searchParams);
             next.delete('v');
             setSearchParams(next, { replace: true });
@@ -162,7 +253,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         const next = new URLSearchParams(searchParams);
         next.delete('v');
         setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams, showTiCatalogSubmod]);
+    }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly]);
 
     const [msg, setMsg] = useState(null);
 
@@ -175,27 +266,24 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const [clLoading, setClLoading] = useState(false);
     /** Cliente seleccionado en tabla agrupada (nombre canónico igual a BD). */
     const [selectedCatalogCliente, setSelectedCatalogCliente] = useState(null);
-    /** Modal detalle: lista de líderes del cliente */
-    const [leadersModalCliente, setLeadersModalCliente] = useState(null);
-    const [addLiderModalOpen, setAddLiderModalOpen] = useState(false);
-    const [addLiderForm, setAddLiderForm] = useState({ lider: '', gp_user_id: '', nit: '' });
+    /** Modal unificado detalle cliente: view | edit | addLider */
+    const [clienteDetailModal, setClienteDetailModal] = useState(null);
+    const [addLiderForm, setAddLiderForm] = useState({ lider: '', gp_colaborador_cedula: '', nit: '' });
     const [clienteModalOpen, setClienteModalOpen] = useState(false);
     const [clienteForm, setClienteForm] = useState({ cliente: '', nit: '', lider: '', gp_colaborador_cedula: '' });
     const [confirmDeactivateCatalog, setConfirmDeactivateCatalog] = useState(false);
-    /** Modal editar cliente (nombre + GP desde colaboradores). */
-    const [editClienteModalOpen, setEditClienteModalOpen] = useState(false);
+    const [confirmDeleteLiderRow, setConfirmDeleteLiderRow] = useState(null);
+    const [confirmDeleteColaboradorRow, setConfirmDeleteColaboradorRow] = useState(null);
     const [editClienteOriginalName, setEditClienteOriginalName] = useState('');
     const [editClienteForm, setEditClienteForm] = useState({ nombre: '', nit: '', gp_colaborador_cedula: '' });
     const [editClienteNitHint, setEditClienteNitHint] = useState('');
     const [editClienteTargetRows, setEditClienteTargetRows] = useState([]);
     const [editClienteRowsLoading, setEditClienteRowsLoading] = useState(false);
-    const [editClienteGpOptions, setEditClienteGpOptions] = useState([]);
-    const [editClienteGpOptionsLoading, setEditClienteGpOptionsLoading] = useState(false);
-    /** Aviso si hay un GP único en catálogo pero no se pudo preseleccionar colaborador por correo. */
+    /** Aviso si hay un GS único en catálogo pero no se pudo preseleccionar colaborador CINTE. */
     const [editClienteGpSelectHint, setEditClienteGpSelectHint] = useState('');
     const [editClienteSaving, setEditClienteSaving] = useState(false);
-    const [clienteGpOptions, setClienteGpOptions] = useState([]);
-    const [clienteGpOptionsLoading, setClienteGpOptionsLoading] = useState(false);
+    const [gsCinteOptions, setGsCinteOptions] = useState([]);
+    const [gsCinteOptionsLoading, setGsCinteOptionsLoading] = useState(false);
 
     const [coItems, setCoItems] = useState([]);
     const [coTotal, setCoTotal] = useState(0);
@@ -212,12 +300,17 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const [staffModalOpen, setStaffModalOpen] = useState(false);
     const [staffModalMode, setStaffModalMode] = useState('create');
     const [coForm, setCoForm] = useState(() => initialStaffForm());
+    const [staffFichaTab, setStaffFichaTab] = useState(CO_TABS[0]?.id || 'general');
     const [catalogClientes, setCatalogClientes] = useState([]);
     const [liderOptions, setLiderOptions] = useState([]);
     const [liderLoading, setLiderLoading] = useState(false);
 
     const [gpItems, setGpItems] = useState([]);
-    const [gpSelectOptions, setGpSelectOptions] = useState([]);
+
+    const detailResumenRow = useMemo(() => {
+        if (!clienteDetailModal?.cliente) return null;
+        return clItems.find((g) => g.cliente === clienteDetailModal.cliente) || null;
+    }, [clienteDetailModal, clItems]);
 
     /** Navegación remota hacia Reubicaciones (dashboard): incrementar `seq` para aplicar filtros en la página hija. */
     const [reubicacionesNavIntent, setReubicacionesNavIntent] = useState(() => ({ seq: 0 }));
@@ -445,7 +538,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 if (!res.ok || cancelled) return;
                 const items = data.items || [];
                 setGpItems(items);
-                setGpSelectOptions(items);
             } catch {
                 /* ignore */
             }
@@ -479,7 +571,27 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             if (!res.ok) throw new Error(data.error || res.statusText);
             flash('Actualizado.');
             await loadCatalogo();
-            if (leadersModalCliente) await fetchLeadersForCliente(leadersModalCliente);
+            if (clienteDetailModal?.cliente) await fetchLeadersForCliente(clienteDetailModal.cliente);
+            if (mainView === 'consultores') loadCatalogoActivoForStaff();
+        } catch (err) {
+            flash(String(err.message || err), false);
+        }
+    }
+
+    async function deleteLiderRow(row) {
+        if (!row?.id) return;
+        try {
+            const res = await fetch(`/api/directorio/clientes-lideres/${row.id}`, {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: authHeaders(token)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || res.statusText);
+            flash('Líder eliminado del catálogo.');
+            setConfirmDeleteLiderRow(null);
+            if (clienteDetailModal?.cliente) await fetchLeadersForCliente(clienteDetailModal.cliente);
+            await loadCatalogo();
             if (mainView === 'consultores') loadCatalogoActivoForStaff();
         } catch (err) {
             flash(String(err.message || err), false);
@@ -488,32 +600,50 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
 
     async function openClienteModalCreate() {
         setClienteForm({ cliente: '', nit: '', lider: '', gp_colaborador_cedula: '' });
-        setClienteGpOptions([]);
-        setClienteGpOptionsLoading(true);
+        setGsCinteOptions([]);
+        setGsCinteOptionsLoading(true);
         setClienteModalOpen(true);
         try {
-            const opts = await fetchColaboradoresAllPagesForGpSelect();
-            setClienteGpOptions(opts);
+            const opts = await fetchStaffCinteForGsSelect();
+            setGsCinteOptions(opts);
         } catch (e) {
             flash(String(e.message || e), false);
         } finally {
-            setClienteGpOptionsLoading(false);
+            setGsCinteOptionsLoading(false);
         }
     }
 
-    function openLeadersModalForCliente(cliente) {
-        setLeadersModalCliente(cliente);
-        setAddLiderModalOpen(false);
-        void fetchLeadersForCliente(cliente);
+    function closeClienteDetailModal() {
+        setEditClienteGpSelectHint('');
+        setEditClienteNitHint('');
+        setClienteDetailModal(null);
+        setLeadersModalRows([]);
     }
 
-    /** Todos los colaboradores (activos e inactivos), una fila por cédula; seleccionable si tiene correo Cinte. */
-    async function fetchColaboradoresAllPagesForGpSelect() {
+    async function ensureGsCinteOptionsLoaded() {
+        if (gsCinteOptions.length > 0) return gsCinteOptions;
+        if (gsCinteOptionsLoading) return gsCinteOptions;
+        setGsCinteOptionsLoading(true);
+        try {
+            const opts = await fetchStaffCinteForGsSelect();
+            setGsCinteOptions(opts);
+            return opts;
+        } catch (e) {
+            flash(String(e.message || e), false);
+            return [];
+        } finally {
+            setGsCinteOptionsLoading(false);
+        }
+    }
+
+    /** Colaboradores CINTE (activos e inactivos) para select Gerente de Servicio. */
+    async function fetchStaffCinteForGsSelect() {
         const all = [];
         let offset = 0;
         const limit = 200;
         for (;;) {
             const u = new URLSearchParams();
+            u.set('cliente', CLIENTE_INTERNO_CINTE);
             u.set('activo', 'all');
             u.set('limit', String(limit));
             u.set('offset', String(offset));
@@ -530,18 +660,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             const gid = row.gp_user_id ? String(row.gp_user_id).trim() : '';
             const nm = (row.nombre || '').trim();
             const em = (row.correo_cinte || '').trim();
-            const correoNorm = em.toLowerCase();
-            let label = nm || cedula || '—';
-            if (em) label += ` (${em})`;
-            if (cedula) label += ` · ${cedula}`;
-            if (!row.activo) label += ' — inactivo';
-            if (!em) label += ' — sin correo Cinte';
+            const label = nm || '—';
             return {
                 cedula,
                 value: cedula,
                 label,
                 disabled: !em,
-                correoNorm,
+                inactive: !row.activo,
                 gp_user_id: gid || null
             };
         });
@@ -551,28 +676,18 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         return opts;
     }
 
-    function closeEditClienteModal() {
-        setEditClienteGpSelectHint('');
-        setEditClienteNitHint('');
-        setEditClienteModalOpen(false);
-    }
-
-    async function openEditClienteModalForCliente(cliente) {
+    async function loadEditClienteDataForModal(cliente, gsOpts) {
         const original = String(cliente || '').trim();
         if (!original) {
             flash('Cliente no válido.', false);
             return;
         }
-        setSelectedCatalogCliente(original);
         setEditClienteOriginalName(original);
         setEditClienteForm({ nombre: original, nit: '', gp_colaborador_cedula: '' });
         setEditClienteTargetRows([]);
-        setEditClienteGpOptions([]);
         setEditClienteGpSelectHint('');
         setEditClienteNitHint('');
-        setEditClienteModalOpen(true);
         setEditClienteRowsLoading(true);
-        setEditClienteGpOptionsLoading(true);
         try {
             const u = new URLSearchParams();
             u.set('cliente', original);
@@ -598,54 +713,63 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             const gpIds = [...new Set(rows.map((r) => r.gp_user_id).filter(Boolean).map(String))];
             let initialGpCedula = '';
             let gpSelectHint = '';
-            let opts = [];
-            try {
-                opts = await fetchColaboradoresAllPagesForGpSelect();
-            } catch (e2) {
-                flash(String(e2.message || e2), false);
-            }
-            setEditClienteGpOptions(opts);
             if (gpIds.length === 1) {
-                const uid = gpIds[0];
-                let gpEmailNorm = '';
-                let gpUserFound = false;
-                let gHit = gpItems.find((g) => String(g.id) === uid);
-                if (gHit) gpUserFound = true;
-                if (gHit?.email) gpEmailNorm = String(gHit.email).trim().toLowerCase();
-                if (!gpEmailNorm) {
-                    try {
-                        const gpRes = await fetch('/api/directorio/gp', { headers: authHeaders(token) });
-                        const gpJson = await gpRes.json().catch(() => ({}));
-                        const gpRows = gpRes.ok && Array.isArray(gpJson.items) ? gpJson.items : [];
-                        const g2 = gpRows.find((g) => String(g.id) === uid);
-                        if (g2) gpUserFound = true;
-                        if (g2?.email) gpEmailNorm = String(g2.email).trim().toLowerCase();
-                    } catch {
-                        /* ignore */
-                    }
+                initialGpCedula = cedulaForGpUserId(gsOpts, gpIds[0]);
+                if (!initialGpCedula) {
+                    gpSelectHint =
+                        'El Gerente de Servicio del catálogo no está en la lista CINTE; elija manualmente en la lista.';
                 }
-                if (gpEmailNorm) {
-                    const match = opts.find((o) => !o.disabled && o.correoNorm === gpEmailNorm);
-                    initialGpCedula = match?.cedula || '';
-                    if (!initialGpCedula) {
-                        gpSelectHint =
-                            'No hay colaborador con el mismo correo Cinte que el usuario GP; elija manualmente en la lista.';
-                    }
-                } else if (gpUserFound) {
-                    gpSelectHint = 'El usuario GP no tiene correo registrado; elija manualmente en la lista.';
-                } else {
-                    gpSelectHint = 'El GP del catálogo no está en la lista de usuarios GP; elija manualmente en la lista.';
-                }
+            } else if (gpIds.length > 1) {
+                gpSelectHint =
+                    'Había Gerentes de Servicio distintos por líder; el valor que elijas unificará el GS en todas las filas.';
             }
             setEditClienteGpSelectHint(gpSelectHint);
             setEditClienteForm({ nombre: original, nit: initialNit, gp_colaborador_cedula: initialGpCedula });
         } catch (e) {
             flash(String(e.message || e), false);
-            closeEditClienteModal();
+            setClienteDetailModal((m) => (m ? { ...m, mode: 'view' } : null));
         } finally {
             setEditClienteRowsLoading(false);
-            setEditClienteGpOptionsLoading(false);
         }
+    }
+
+    async function openClienteDetailModal(cliente, mode = 'view') {
+        const c = String(cliente || '').trim();
+        if (!c) {
+            flash('Cliente no válido.', false);
+            return;
+        }
+        setSelectedCatalogCliente(c);
+        setEditClienteGpSelectHint('');
+        setEditClienteNitHint('');
+        setClienteDetailModal({ cliente: c, mode });
+        void fetchLeadersForCliente(c);
+        const gsOpts = await ensureGsCinteOptionsLoaded();
+        if (mode === 'edit') {
+            await loadEditClienteDataForModal(c, gsOpts);
+        }
+    }
+
+    async function prepareAddLiderForm() {
+        if (!clienteDetailModal?.cliente) return;
+        const gsOpts = await ensureGsCinteOptionsLoaded();
+        const rows = leadersModalRows;
+        const firstGp = rows.map((r) => r.gp_user_id).find(Boolean);
+        const nitFromRows = rows.map((r) => nitSoloDigitos(r.nit)).find(Boolean) || '';
+        setAddLiderForm({
+            lider: '',
+            gp_colaborador_cedula: firstGp ? cedulaForGpUserId(gsOpts, String(firstGp)) : '',
+            nit: nitFromRows
+        });
+        setClienteDetailModal((m) => (m ? { ...m, mode: 'addLider' } : null));
+    }
+
+    async function enterClienteDetailEditMode() {
+        if (!clienteDetailModal?.cliente) return;
+        const c = clienteDetailModal.cliente;
+        setClienteDetailModal({ cliente: c, mode: 'edit' });
+        const gsOpts = await ensureGsCinteOptionsLoaded();
+        await loadEditClienteDataForModal(c, gsOpts);
     }
 
     function handleCoSortHeader(columnKey) {
@@ -669,7 +793,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             flash('El NIT es obligatorio (al menos un dígito).', false);
             return;
         }
-        const gpCedula = String(editClienteForm.gp_colaborador_cedula || '').trim() || null;
+        const gpUserId = gpUserIdForCedula(gsCinteOptions, editClienteForm.gp_colaborador_cedula);
         if (!editClienteTargetRows.length) {
             flash('No hay filas de catálogo para este cliente.', false);
             return;
@@ -683,7 +807,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     headers: authHeaders(token),
                     body: JSON.stringify({
                         cliente: nombre,
-                        gp_colaborador_cedula: gpCedula,
+                        gp_user_id: gpUserId,
                         nit: nitDigits
                     })
                 });
@@ -692,13 +816,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             }
             await loadCatalogo();
             flash('Cliente actualizado.');
-            closeEditClienteModal();
             if (selectedCatalogCliente === editClienteOriginalName) {
                 setSelectedCatalogCliente(nombre);
             }
-            if (leadersModalCliente === editClienteOriginalName) {
-                setLeadersModalCliente(nombre);
-            }
+            setClienteDetailModal({ cliente: nombre, mode: 'view' });
+            setEditClienteGpSelectHint('');
+            setEditClienteNitHint('');
+            await fetchLeadersForCliente(nombre);
             if (mainView === 'consultores') await loadCatalogoActivoForStaff();
         } catch (err) {
             flash(String(err.message || err), false);
@@ -707,46 +831,36 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
         }
     }
 
-    function openAddLiderModal() {
-        if (!leadersModalCliente) return;
-        const rows = leadersModalRows;
-        const firstGp = rows.map((r) => r.gp_user_id).find(Boolean);
-        const nitFromRows = rows.map((r) => nitSoloDigitos(r.nit)).find(Boolean) || '';
-        setAddLiderForm({
-            lider: '',
-            gp_user_id: firstGp ? String(firstGp) : '',
-            nit: nitFromRows
-        });
-        setAddLiderModalOpen(true);
-    }
-
     async function submitAddLiderModal(e) {
         e.preventDefault();
-        if (!leadersModalCliente) return;
+        if (!clienteDetailModal?.cliente) return;
         const nitDigits = nitSoloDigitos(addLiderForm.nit);
         if (!nitDigits) {
             flash('El NIT es obligatorio (al menos un dígito).', false);
             return;
         }
         try {
-            const gpVal = addLiderForm.gp_user_id ? String(addLiderForm.gp_user_id).trim() : null;
+            const clienteName = clienteDetailModal.cliente;
+            const gpCedula = addLiderForm.gp_colaborador_cedula
+                ? String(addLiderForm.gp_colaborador_cedula).trim()
+                : null;
             const res = await fetch('/api/directorio/clientes-lideres', {
                 method: 'POST',
                 credentials: 'include',
                 headers: authHeaders(token),
                 body: JSON.stringify({
-                    cliente: leadersModalCliente,
+                    cliente: clienteName,
                     lider: addLiderForm.lider,
                     nit: nitDigits,
-                    gp_user_id: gpVal
+                    gp_colaborador_cedula: gpCedula
                 })
             });
             const data = await res.json().catch(() => ({}));
             if (!res.ok) throw new Error(data.error || res.statusText);
             flash('Líder agregado al catálogo.');
-            setAddLiderModalOpen(false);
+            setClienteDetailModal({ cliente: clienteName, mode: 'view' });
             await loadCatalogo();
-            if (leadersModalCliente) await fetchLeadersForCliente(leadersModalCliente);
+            await fetchLeadersForCliente(clienteName);
             if (mainView === 'consultores') loadCatalogoActivoForStaff();
             refreshGpList();
         } catch (err) {
@@ -761,7 +875,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             if (!res.ok) return;
             const items = data.items || [];
             setGpItems(items);
-            setGpSelectOptions(items);
         } catch {
             /* ignore */
         }
@@ -876,10 +989,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
 
     async function deleteColaboradorRow(row) {
         if (!row?.cedula) return;
-        const ok = window.confirm(
-            `¿Eliminar definitivamente al colaborador con cédula ${row.cedula}? Esta acción no se puede deshacer.`
-        );
-        if (!ok) return;
         try {
             const res = await fetch(`/api/directorio/colaboradores/${encodeURIComponent(row.cedula)}`, {
                 method: 'DELETE',
@@ -890,6 +999,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
             if (!res.ok) throw new Error(data.error || res.statusText);
             flash('Colaborador eliminado.');
             setSelectedCoCedula(null);
+            setConfirmDeleteColaboradorRow(null);
             loadColaboradores();
         } catch (err) {
             flash(String(err.message || err), false);
@@ -947,7 +1057,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     );
 
     const sidebarNav = () => (
-        <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
+        <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
             <NavBtn
                 active={false}
                 icon={Home}
@@ -957,87 +1067,80 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     setMobileMenuOpen(false);
                 }}
             />
-            <NavBtn
-                active={mainView === 'dashboardAdmin'}
-                icon={LayoutDashboard}
-                label="Dashboard"
-                onClick={() => {
-                    setMainView('dashboardAdmin');
-                    setMobileMenuOpen(false);
-                }}
-            />
-            <NavBtn
-                active={mainView === 'cliente'}
-                icon={Building2}
-                label="Cliente"
-                onClick={() => {
-                    setMainView('cliente');
-                    setMobileMenuOpen(false);
-                }}
-            />
-            <NavBtn
-                active={mainView === 'consultores'}
-                icon={Users}
-                label="Consultores / Staff"
-                onClick={() => {
-                    setCoTipoContrato('');
-                    setCoQ('');
-                    setMainView('consultores');
-                    setMobileMenuOpen(false);
-                }}
-            />
-            <NavBtn
-                active={mainView === 'reubicaciones'}
-                icon={ArrowRightLeft}
-                label="Reubicaciones"
-                onClick={() => {
-                    setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
-                    setMainView('reubicaciones');
-                    setMobileMenuOpen(false);
-                }}
-            />
-            {showTiCatalogSubmod ? (
+            {gpMallasOnly ? (
                 <NavBtn
-                    active={mainView === 'catalogoTi'}
-                    icon={Layers}
-                    label="Catálogo roles TI"
+                    active={mainView === 'mallasTurnos'}
+                    icon={CalendarDays}
+                    label="Mallas de turnos"
                     onClick={() => {
-                        setMainView('catalogoTi');
+                        setMainView('mallasTurnos');
                         setMobileMenuOpen(false);
                     }}
                 />
-            ) : null}
-        </nav>
-    );
-
-    const sidebarFooter = (compact) => (
-        <div className={`border-t ${borderSubtle} ${compact ? 'p-4' : 'p-2'}`}>
-            {compact ? (
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
-                            <Building2 size={13} className={headingAccent} />
-                        </div>
-                        <div className="min-w-0 overflow-hidden">
-                            <p className={`text-[10px] font-body font-black whitespace-nowrap leading-tight truncate ${email}`}>
-                                {currentEmail}
-                            </p>
-                            <p className={`text-[9px] font-body font-semibold whitespace-nowrap leading-tight ${headingAccent}`}>
-                                {currentRoleLabel}
-                            </p>
-                        </div>
-                    </div>
-                </div>
             ) : (
-                <div className="flex flex-col items-center gap-2 py-1">
-                    <div className="flex justify-center" title={`${currentEmail} · ${currentRoleLabel}`}>
-                        <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[#2F7BB8]/30 bg-[#2F7BB8]/20">
-                            <Building2 size={15} className={headingAccent} />
-                        </div>
-                    </div>
-                </div>
+                <>
+                    <NavBtn
+                        active={mainView === 'dashboardAdmin'}
+                        icon={LayoutDashboard}
+                        label="Dashboard"
+                        onClick={() => {
+                            setMainView('dashboardAdmin');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    <NavBtn
+                        active={mainView === 'cliente'}
+                        icon={Building2}
+                        label="Cliente"
+                        onClick={() => {
+                            setMainView('cliente');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    <NavBtn
+                        active={mainView === 'consultores'}
+                        icon={Users}
+                        label="Consultores / Staff"
+                        onClick={() => {
+                            setCoTipoContrato('');
+                            setCoQ('');
+                            setMainView('consultores');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    <NavBtn
+                        active={mainView === 'reubicaciones'}
+                        icon={ArrowRightLeft}
+                        label="Reubicaciones"
+                        onClick={() => {
+                            setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
+                            setMainView('reubicaciones');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    <NavBtn
+                        active={mainView === 'mallasTurnos'}
+                        icon={CalendarDays}
+                        label="Mallas de turnos"
+                        onClick={() => {
+                            setMainView('mallasTurnos');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    {showTiCatalogSubmod ? (
+                        <NavBtn
+                            active={mainView === 'catalogoTi'}
+                            icon={Layers}
+                            label="Catálogo roles TI"
+                            onClick={() => {
+                                setMainView('catalogoTi');
+                                setMobileMenuOpen(false);
+                            }}
+                        />
+                    ) : null}
+                </>
             )}
-        </div>
+        </nav>
     );
 
     const clTotalPages = Math.max(1, Math.ceil((Number(clTotal) || 0) / clPageSize));
@@ -1050,12 +1153,143 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
     const coRangeFrom = !coTotal ? 0 : (safeCoPage - 1) * coPageSize + 1;
     const coRangeTo = Math.min(Number(coTotal) || 0, safeCoPage * coPageSize);
 
+    const clienteChipLabel = useMemo(
+        () => buildClienteChipLabel({ activo: clActivo, pageSize: clPageSize }),
+        [clActivo, clPageSize]
+    );
+    const consultoresChipLabel = useMemo(
+        () => buildConsultoresChipLabel({ activo: coActivo, tipoContrato: coTipoContrato, pageSize: coPageSize }),
+        [coActivo, coTipoContrato, coPageSize]
+    );
+
+    const liderRoseBtnCls =
+        'rounded-lg border border-rose-500/40 px-3 py-1 text-xs font-semibold text-rose-400 transition-all hover:bg-rose-500/10';
+
+    const catalogClientColumns = useMemo(
+        () => [
+            {
+                key: 'nit',
+                label: 'NIT',
+                cellClassName: dash.tdName,
+                render: (g) => String(g.nit || '').trim() || '—'
+            },
+            {
+                key: 'cliente',
+                label: 'Cliente',
+                cellClassName: dash.tdCell,
+                render: (g) => g.cliente
+            },
+            {
+                key: 'lideres',
+                label: 'Líderes (activos / total)',
+                cellClassName: dash.tdCell,
+                render: (g) => `${Number(g.active_count) || 0} / ${Number(g.total_count) || 0}`
+            },
+            {
+                key: 'gs',
+                label: 'Gerente de servicio',
+                cellClassName: dash.tdMuted,
+                render: (g) => {
+                    const gpN = Number(g.gp_distinct_count) || 0;
+                    if (gpN > 1) {
+                        return (
+                            <span className={isLight ? 'font-medium text-amber-700' : 'font-medium text-amber-300/90'}>
+                                GS distintos por líder
+                            </span>
+                        );
+                    }
+                    if (g.gp_user_id) {
+                        const id = String(g.gp_user_id);
+                        const backendName = String(g.gp_full_name || '').trim();
+                        return backendName || gpLabelById.get(id) || '—';
+                    }
+                    return '—';
+                }
+            },
+            {
+                key: 'borrar',
+                label: 'Eliminar',
+                cellClassName: dash.tdCell,
+                render: (g) => (
+                    <button
+                        type="button"
+                        className={liderRoseBtnCls}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedCatalogCliente(g.cliente);
+                            setConfirmDeactivateCatalog(true);
+                        }}
+                    >
+                        Eliminar
+                    </button>
+                )
+            }
+        ],
+        [gpLabelById, isLight, dash.tdName, dash.tdCell, dash.tdMuted]
+    );
+
+    const leadersModalColumns = useMemo(
+        () => [
+            {
+                key: 'lider',
+                label: 'Líder',
+                cellClassName: dash.tdName,
+                render: (row) => row.lider
+            },
+            {
+                key: 'activo',
+                label: 'Activo',
+                cellClassName: dash.tdCell,
+                render: (row) => (row.activo ? 'Sí' : 'No')
+            },
+            {
+                key: 'acciones',
+                label: 'Acciones',
+                cellClassName: dash.tdCell,
+                render: (row) => (
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            className={dash.actionBtn}
+                            onClick={() => patchCatalogo(row, { activo: !row.activo })}
+                        >
+                            {row.activo ? 'Desactivar' : 'Activar'}
+                        </button>
+                        <button
+                            type="button"
+                            className={liderRoseBtnCls}
+                            onClick={() => setConfirmDeleteLiderRow(row)}
+                        >
+                            Eliminar
+                        </button>
+                    </div>
+                )
+            }
+        ],
+        [dash.actionBtn, dash.tdName, dash.tdCell]
+    );
+
+    const clearClienteFilters = useCallback(() => {
+        setClActivo(CLIENTE_FILTER_DEFAULTS.activo);
+        setClPageSize(CLIENTE_FILTER_DEFAULTS.pageSize);
+        setClQ(CLIENTE_FILTER_DEFAULTS.q);
+        setClPage(1);
+    }, []);
+
+    const clearConsultoresFilters = useCallback(() => {
+        setCoActivo(CONSULTORES_FILTER_DEFAULTS.activo);
+        setCoTipoContrato(CONSULTORES_FILTER_DEFAULTS.tipoContrato);
+        setCoPageSize(CONSULTORES_FILTER_DEFAULTS.pageSize);
+        setCoQ(CONSULTORES_FILTER_DEFAULTS.q);
+        setCoPage(1);
+    }, []);
+
     return (
         <div className={shell}>
             <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
-                className={`md:hidden fixed top-16 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
+                className={`md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú administración"
             >
                 <Menu size={18} />
@@ -1064,7 +1298,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 <div className={`md:hidden fixed inset-0 z-40 ${scrim}`} onClick={() => setMobileMenuOpen(false)} />
             ) : null}
             <aside
-                className={`md:hidden fixed top-0 left-0 h-full w-72 z-50 shadow-2xl transform transition-transform duration-300 flex flex-col font-body ${aside} ${
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${
                     mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}
             >
@@ -1091,15 +1325,21 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    accentClass={headingAccent}
+                />
                 {sidebarNav()}
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`text-[10px] font-body font-black truncate ${email}`}>{currentEmail}</p>
-                    <p className={`text-[10px] font-body font-semibold uppercase ${headingAccent}`}>{currentRoleLabel}</p>
-                </div>
+                <AdminModuleSidebarFooter auth={auth} onLogout={onLogout} sidebarOpen borderSubtle={borderSubtle} isLight={isLight} />
             </aside>
 
             <aside
-                className={`flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 transition-all duration-300 ease-in-out overflow-hidden font-body ${aside} ${
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden font-body shadow-2xl transition-all duration-300 ease-in-out md:flex ${aside} ${
                     sidebarOpen ? 'w-64' : 'w-16'
                 }`}
             >
@@ -1128,26 +1368,26 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    accentClass={headingAccent}
+                />
                 {sidebarNav()}
-                {sidebarFooter(sidebarOpen)}
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
             </aside>
 
             <div className="flex flex-col flex-1 min-h-0 min-w-0">
-                <header className={`flex items-center justify-between px-4 md:px-8 py-3 shrink-0 md:pl-6 ${topBar}`}>
-                    <div>
-                        <h1 className={`text-lg md:text-xl font-heading font-bold ${headingAccent}`}>Módulo de administración</h1>
-                        <p className={`text-xs mt-1 ${labelMuted}`}>
-                            {mainView === 'catalogoTi'
-                                ? 'Submódulo Catálogo roles TI: taxonomía financiera y perfiles del cliente interno en cotizador.'
-                                : mainView === 'reubicaciones'
-                                  ? 'Submódulo Reubicaciones: seguimiento PIPELINE (fecha fin, destino y causal; datos del consultor desde el directorio).'
-                                  : mainView === 'dashboardAdmin'
-                                    ? 'Dashboard: KPIs y gráficas solo de clientes, consultores y reubicaciones (sin catálogo roles TI).'
-                                    : 'Catálogo por cliente (líderes y GP) y colaboradores (roles autorizados).'}
-                        </p>
-                    </div>
-                </header>
-
                 {msg ? (
                     <div
                         className={`mx-4 md:mx-8 mt-3 px-3 py-2 rounded text-sm shrink-0 ${
@@ -1158,7 +1398,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     </div>
                 ) : null}
 
-                <main className={`flex-1 overflow-y-auto p-4 md:p-8 ${mainCanvas}`}>
+                <main className={`flex-1 overflow-y-auto p-4 md:p-6 ${mainCanvas}`}>
                     {mainView === 'dashboardAdmin' ? (
                         <div className="space-y-4 w-full max-w-[95rem]">
                             <AdministracionDashboardPage token={token} onDrillDown={administracionDrillDown} />
@@ -1166,671 +1406,724 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                     ) : null}
 
                     {mainView === 'cliente' && (
-                        <div className="space-y-4 w-full max-w-[95rem]">
-                            <div className="flex flex-wrap gap-2 items-center">
+                        <div className={dash.moduleTabShellFull}>
+                            <ModuleFiltersToolbar
+                                chipLabel={clienteChipLabel}
+                                filtersPanelOpen={filtersPanelOpen}
+                                onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                                toggleId="directorio-cliente-filtros-toggle"
+                                panelId="directorio-cliente-filtros-panel"
+                                dash={dash}
+                            >
+                                <input
+                                    type="search"
+                                    className={`${field} w-[min(100%,11rem)] max-w-[13rem] shrink-0 text-sm`}
+                                    value={clQ}
+                                    onChange={(e) => {
+                                        setClQ(e.target.value);
+                                        setClPage(1);
+                                    }}
+                                    placeholder="Buscar cliente o líder"
+                                />
                                 <button
                                     type="button"
                                     onClick={openClienteModalCreate}
-                                    className="px-4 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold hover:bg-[#25649a]"
+                                    className={`${dash.btnPrimaryCinte} shrink-0`}
                                 >
                                     Crear nuevo cliente
                                 </button>
-                            </div>
-                            <p className={`text-xs ${labelMuted}`}>
-                                Una fila por cliente del catálogo (líderes activos / total). Clic en la fila abre el
-                                detalle de líderes. «Editar» renombra el cliente, el NIT y el GP en bloque. «Borrar»
-                                desactiva todos los líderes (no borra filas en base de datos); con el filtro «Activos»
-                                (predeterminado) el cliente deja de mostrarse. Paginación 10 / 20 / 50.
+                            </ModuleFiltersToolbar>
+                            <p className={`${dash.mutedSm} px-1`}>
+                                Haz clic en una fila para ver detalle del cliente.
                             </p>
-                            <div className="flex flex-wrap gap-2 items-end">
-                                <div>
-                                    <label className={`block text-xs ${labelMuted} mb-1`}>Estado</label>
-                                    <select
-                                        className={field}
-                                        value={clActivo}
-                                        onChange={(e) => setClActivo(e.target.value)}
-                                    >
-                                        <option value="all">Todos</option>
-                                        <option value="true">Activos</option>
-                                        <option value="false">Inactivos</option>
-                                    </select>
-                                </div>
-                                <div className="flex-1 min-w-[160px]">
-                                    <label className={`block text-xs ${labelMuted} mb-1`}>Buscar</label>
-                                    <input
-                                        className={`w-full ${field}`}
-                                        value={clQ}
-                                        onChange={(e) => setClQ(e.target.value)}
-                                        placeholder="Texto en cliente o líder"
-                                    />
-                                </div>
-                                <div>
-                                    <label className={`block text-xs ${labelMuted} mb-1`}>Filas</label>
-                                    <select
-                                        className={field}
-                                        value={clPageSize}
-                                        onChange={(e) => setClPageSize(Number(e.target.value))}
-                                    >
-                                        <option value={10}>10 por página</option>
-                                        <option value={20}>20 por página</option>
-                                        <option value={50}>50 por página</option>
-                                    </select>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => loadCatalogo()}
-                                    className={toolbarBtn}
-                                >
-                                    Refrescar
-                                </button>
-                            </div>
-                            <p className={`text-xs ${labelMuted}`}>
-                                Total clientes: {clTotal}
-                                {clTotal > 0
-                                    ? ` · Mostrando ${clRangeFrom}–${clRangeTo} (página ${safeClPage} de ${clTotalPages})`
-                                    : ''}
-                            </p>
-                            <div className={tableSurface}>
-                                <table className="min-w-full text-sm">
-                                    <thead className={tableThead}>
-                                        <tr>
-                                            <th className="text-left p-2 w-10"></th>
-                                            <th className="text-left p-2">Cliente</th>
-                                            <th className="text-left p-2">NIT</th>
-                                            <th className="text-left p-2">Líderes (activos / total)</th>
-                                            <th className="text-left p-2">GP</th>
-                                            <th className="text-left p-2 whitespace-nowrap">Editar</th>
-                                            <th className="text-left p-2 whitespace-nowrap">Borrar</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {clLoading ? (
-                                            <tr>
-                                                <td colSpan={7} className={`p-4 text-center ${labelMuted}`}>
-                                                    Cargando…
-                                                </td>
-                                            </tr>
-                                        ) : clItems.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={7} className={`p-4 text-center ${labelMuted}`}>
-                                                    Sin datos
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            clItems.map((g) => {
-                                                const activeCount = Number(g.active_count) || 0;
-                                                const totalCount = Number(g.total_count) || 0;
-                                                const gpN = Number(g.gp_distinct_count) || 0;
-                                                let gpText = '—';
-                                                let gpConflict = false;
-                                                if (gpN > 1) {
-                                                    gpConflict = true;
-                                                    gpText = 'GP distintos por líder';
-                                                } else if (g.gp_user_id) {
-                                                    const id = String(g.gp_user_id);
-                                                    const backendName = String(g.gp_full_name || '').trim();
-                                                    gpText =
-                                                        backendName || gpLabelById.get(id) || 'GP no disponible';
-                                                }
-                                                return (
-                                                <tr
-                                                    key={g.cliente}
-                                                    className={`${tableRowBorder} cursor-pointer ${
-                                                        selectedCatalogCliente === g.cliente
-                                                            ? isLight
-                                                                ? 'bg-sky-100'
-                                                                : 'bg-[#0f2942]/80'
-                                                            : ''
-                                                    }`}
-                                                    onClick={() => {
-                                                        setSelectedCatalogCliente(g.cliente);
-                                                        openLeadersModalForCliente(g.cliente);
-                                                    }}
-                                                >
-                                                    <td className="p-2">
-                                                        <input
-                                                            type="radio"
-                                                            className="accent-[#65BCF7]"
-                                                            checked={selectedCatalogCliente === g.cliente}
-                                                            onChange={() => {
-                                                                setSelectedCatalogCliente(g.cliente);
-                                                                openLeadersModalForCliente(g.cliente);
-                                                            }}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                        />
-                                                    </td>
-                                                    <td className="p-2 font-medium">{g.cliente}</td>
-                                                    <td className="p-2 tabular-nums">
-                                                        {String(g.nit || '').trim() || '—'}
-                                                    </td>
-                                                    <td className="p-2">
-                                                        {activeCount} / {totalCount}
-                                                    </td>
-                                                    <td
-                                                        className={`p-2 ${gpConflict ? (isLight ? 'text-amber-700' : 'text-amber-300/90') : labelMuted}`}
-                                                    >
-                                                        {gpText}
-                                                    </td>
-                                                    <td className="p-2 whitespace-nowrap">
-                                                        <button
-                                                            type="button"
-                                                            className={softBtn}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                void openEditClienteModalForCliente(g.cliente);
-                                                            }}
-                                                        >
-                                                            Editar
-                                                        </button>
-                                                    </td>
-                                                    <td className="p-2 whitespace-nowrap">
-                                                        <button
-                                                            type="button"
-                                                            className="px-2 py-1 rounded-md border border-rose-500/40 text-xs font-semibold text-rose-300 hover:bg-rose-500/10"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                setSelectedCatalogCliente(g.cliente);
-                                                                setConfirmDeactivateCatalog(true);
-                                                            }}
-                                                        >
-                                                            Borrar
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                                );
-                                            })
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                            {!clLoading && clTotal > 0 ? (
-                                <div className={`flex flex-wrap items-center justify-between gap-2 ${barInset}`}>
-                                    <span>
-                                        Página {safeClPage} de {clTotalPages}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setClPage((p) => Math.max(1, p - 1))}
-                                            disabled={safeClPage <= 1}
-                                            className={compactBtn}
-                                        >
-                                            Anterior
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setClPage((p) => Math.min(clTotalPages, p + 1))}
-                                            disabled={safeClPage >= clTotalPages}
-                                            className={compactBtn}
-                                        >
-                                            Siguiente
-                                        </button>
+                            <div className="min-h-0 flex-1 flex flex-col">
+                                <GestionDataTable
+                                    columns={catalogClientColumns}
+                                    rows={clLoading ? [] : clItems.map((g) => ({ ...g, id: g.cliente }))}
+                                    isLight={isLight}
+                                    emptyText={clLoading ? 'Cargando…' : 'Sin datos'}
+                                    onRowClick={(g) => {
+                                        setSelectedCatalogCliente(g.cliente);
+                                        void openClienteDetailModal(g.cliente, 'view');
+                                    }}
+                                />
+                                {!clLoading && clTotal > 0 ? (
+                                    <div className={dash.footerBar}>
+                                        <span>
+                                            Mostrando {clRangeFrom}–{clRangeTo} de {clTotal} · Página {safeClPage} de{' '}
+                                            {clTotalPages}
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setClPage((p) => Math.max(1, p - 1))}
+                                                disabled={safeClPage <= 1}
+                                                className={dash.compactBtn}
+                                            >
+                                                Anterior
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setClPage((p) => Math.min(clTotalPages, p + 1))}
+                                                disabled={safeClPage >= clTotalPages}
+                                                className={dash.compactBtn}
+                                            >
+                                                Siguiente
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                            ) : null}
+                                ) : null}
+                            </div>
                         </div>
                     )}
 
                     {mainView === 'consultores' && (
-                        <div className="space-y-4 w-full max-w-[95rem]">
-                            <div className="flex flex-wrap gap-2 items-center">
+                        <div className={dash.moduleTabShellFull}>
+                            <ModuleFiltersToolbar
+                                chipLabel={consultoresChipLabel}
+                                filtersPanelOpen={filtersPanelOpen}
+                                onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                                toggleId="directorio-consultores-filtros-toggle"
+                                panelId="directorio-consultores-filtros-panel"
+                                dash={dash}
+                            >
+                                <input
+                                    type="search"
+                                    className={`${field} w-[min(100%,11rem)] max-w-[13rem] shrink-0 text-sm`}
+                                    value={coQ}
+                                    onChange={(e) => {
+                                        setCoQ(e.target.value);
+                                        setCoPage(1);
+                                    }}
+                                    placeholder="Buscar consultor"
+                                />
                                 <button
                                     type="button"
                                     onClick={openStaffModalCreate}
-                                    className="px-4 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold hover:bg-[#25649a]"
+                                    className={`${dash.toolbarBtn} shrink-0 bg-[#2F7BB8] text-white hover:bg-[#25649a] border-[#2F7BB8]`}
                                 >
-                                    Crear
+                                    Crear colaborador
                                 </button>
+                            </ModuleFiltersToolbar>
+                            <div className={`${dash.cardFlex} min-h-0 flex-1`}>
+                                <div className={dash.tableWrap}>
+                                    <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
+                                        <table className="w-full min-w-[960px] border-collapse text-left">
+                                            <thead>
+                                                <tr className={dash.thead}>
+                                                    <th className="w-10 p-4 pl-6 font-semibold" />
+                                                    {(
+                                                        [
+                                                            ['cedula', 'Cédula'],
+                                                            ['codigo', 'Código'],
+                                                            ['nombre', 'Nombre'],
+                                                            ['correo', 'Correo'],
+                                                            ['cliente', 'Cliente'],
+                                                            ['lider', 'Líder'],
+                                                            ['activo', 'Activo']
+                                                        ]
+                                                    ).map(([col, label]) => (
+                                                        <th key={col} className="p-4 font-semibold">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleCoSortHeader(col)}
+                                                                className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 font-semibold text-inherit hover:text-[#65BCF7]"
+                                                            >
+                                                                {label}
+                                                                {coSort.key === col ? (
+                                                                    coSort.dir === 'asc' ? (
+                                                                        <ArrowUp size={14} className="text-[#65BCF7]" />
+                                                                    ) : (
+                                                                        <ArrowDown size={14} className="text-[#65BCF7]" />
+                                                                    )
+                                                                ) : null}
+                                                            </button>
+                                                        </th>
+                                                    ))}
+                                                    <th className="p-4 font-semibold whitespace-nowrap">Editar</th>
+                                                    <th className="p-4 pr-6 font-semibold">Acciones</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className={dash.tbody}>
+                                                {coLoading ? (
+                                                    <tr>
+                                                        <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                                            Cargando…
+                                                        </td>
+                                                    </tr>
+                                                ) : coItems.length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                                            Sin datos
+                                                        </td>
+                                                    </tr>
+                                                ) : (
+                                                    coItems.map((row) => (
+                                                        <tr
+                                                            key={row.cedula}
+                                                            className={`${dash.trHover} cursor-pointer ${
+                                                                selectedCoCedula === row.cedula
+                                                                    ? isLight
+                                                                        ? 'bg-sky-100'
+                                                                        : 'bg-[#0f2942]/80'
+                                                                    : ''
+                                                            }`}
+                                                            onClick={() =>
+                                                                setSelectedCoCedula((cur) =>
+                                                                    cur === row.cedula ? null : row.cedula
+                                                                )
+                                                            }
+                                                        >
+                                                            <td className="p-4 pl-6">
+                                                                <input
+                                                                    type="radio"
+                                                                    className="accent-[#65BCF7]"
+                                                                    checked={selectedCoCedula === row.cedula}
+                                                                    onChange={() => setSelectedCoCedula(row.cedula)}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                />
+                                                            </td>
+                                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
+                                                            <td className={dash.tdCell} title={row.codigo || ''}>
+                                                                {row.codigo || '—'}
+                                                            </td>
+                                                            <td className={dash.tdName}>{row.nombre}</td>
+                                                            <td className={dash.tdCell}>{row.correo_cinte || '—'}</td>
+                                                            <td className={dash.tdCell}>{row.cliente || '—'}</td>
+                                                            <td className={dash.tdCell}>{row.lider_catalogo || '—'}</td>
+                                                            <td className={dash.tdMuted}>{row.activo ? 'Sí' : 'No'}</td>
+                                                            <td className="p-4 whitespace-nowrap">
+                                                                <button
+                                                                    type="button"
+                                                                    className={dash.actionBtn}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        openStaffModalEditForRow(row);
+                                                                    }}
+                                                                >
+                                                                    Editar
+                                                                </button>
+                                                            </td>
+                                                            <td className="p-4 pr-6 whitespace-nowrap">
+                                                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                                    <button
+                                                                        type="button"
+                                                                        className="text-[#65BCF7] hover:underline"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            patchColaborador(row.cedula, {
+                                                                                activo: !row.activo
+                                                                            });
+                                                                        }}
+                                                                    >
+                                                                        {row.activo ? 'Desactivar' : 'Activar'}
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="text-red-400 hover:text-red-300 hover:underline"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setConfirmDeleteColaboradorRow(row);
+                                                                        }}
+                                                                    >
+                                                                        Eliminar
+                                                                    </button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                )}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    {!coLoading && coTotal > 0 ? (
+                                        <div className={dash.footerBar}>
+                                            <span>
+                                                Mostrando {coRangeFrom}–{coRangeTo} de {coTotal} · Página {safeCoPage} de{' '}
+                                                {coTotalPages}
+                                            </span>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCoPage((p) => Math.max(1, p - 1))}
+                                                    disabled={safeCoPage <= 1}
+                                                    className={dash.compactBtn}
+                                                >
+                                                    Anterior
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCoPage((p) => Math.min(coTotalPages, p + 1))}
+                                                    disabled={safeCoPage >= coTotalPages}
+                                                    className={dash.compactBtn}
+                                                >
+                                                    Siguiente
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : null}
+                                </div>
                             </div>
-                            <div className="flex flex-wrap gap-2 items-end">
+                        </div>
+                    )}
+
+                    {mainView === 'catalogoTi' && showTiCatalogSubmod ? (
+                        <RolesTiCatalogPage token={token} auth={auth} embedInDirectorio />
+                    ) : null}
+
+                    {mainView === 'reubicaciones' ? (
+                        <ReubicacionesPipelinePage token={token} navIntent={reubicacionesNavIntent} />
+                    ) : null}
+
+                    {mainView === 'mallasTurnos' ? (
+                        <MallasTurnosModule token={token} auth={auth} />
+                    ) : null}
+
+                    {mainView === 'cliente' ? (
+                        <ModuleFiltersDrawer
+                            open={filtersPanelOpen}
+                            onClose={() => setFiltersPanelOpen(false)}
+                            onClear={clearClienteFilters}
+                            dash={dash}
+                            panelId="directorio-cliente-filtros-panel"
+                            titleId="directorio-cliente-filtros-drawer-title"
+                        >
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="directorio-cliente-estado" className={dash.filtrosDrawerLabel}>
+                                    Estado
+                                </label>
                                 <select
-                                    className={field}
-                                    value={coActivo}
-                                    onChange={(e) => setCoActivo(e.target.value)}
+                                    id="directorio-cliente-estado"
+                                    className={`${field} w-full text-sm`}
+                                    value={clActivo}
+                                    onChange={(e) => {
+                                        setClActivo(e.target.value);
+                                        setClPage(1);
+                                    }}
                                 >
                                     <option value="all">Todos</option>
                                     <option value="true">Activos</option>
                                     <option value="false">Inactivos</option>
                                 </select>
-                                <input
-                                    className={`flex-1 min-w-[160px] ${field}`}
-                                    value={coQ}
-                                    onChange={(e) => setCoQ(e.target.value)}
-                                    placeholder="Buscar"
-                                />
-                                <div>
-                                    <label className={`block text-xs ${labelMuted} mb-1`}>Filas</label>
-                                    <select
-                                        className={field}
-                                        value={coPageSize}
-                                        onChange={(e) => setCoPageSize(Number(e.target.value))}
-                                    >
-                                        <option value={10}>10 por página</option>
-                                        <option value={20}>20 por página</option>
-                                        <option value={50}>50 por página</option>
-                                    </select>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={() => loadColaboradores()}
-                                    className={toolbarBtn}
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="directorio-cliente-pagesize" className={dash.filtrosDrawerLabel}>
+                                    Mostrar por página
+                                </label>
+                                <select
+                                    id="directorio-cliente-pagesize"
+                                    className={`${field} w-full text-sm`}
+                                    value={clPageSize}
+                                    onChange={(e) => {
+                                        setClPageSize(Number(e.target.value));
+                                        setClPage(1);
+                                    }}
                                 >
-                                    Refrescar
-                                </button>
+                                    <option value={10}>10 por página</option>
+                                    <option value={20}>20 por página</option>
+                                    <option value={50}>50 por página</option>
+                                </select>
                             </div>
-                            <p className={`text-xs ${labelMuted}`}>
-                                Total: {coTotal}
-                                {coTotal > 0
-                                    ? ` · Mostrando ${coRangeFrom}–${coRangeTo} (página ${safeCoPage} de ${coTotalPages})`
-                                    : ''}
-                                . Clic en un encabezado para ordenar (el orden aplica a todo el resultado filtrado).
-                            </p>
-                            <div className={tableSurface}>
-                                <table className="min-w-full text-sm">
-                                    <thead className={tableThead}>
-                                        <tr>
-                                            <th className="text-left p-2 w-10"></th>
-                                            {(
-                                                [
-                                                    ['cedula', 'Cédula'],
-                                                    ['codigo', 'Código'],
-                                                    ['nombre', 'Nombre'],
-                                                    ['correo', 'Correo'],
-                                                    ['cliente', 'Cliente'],
-                                                    ['lider', 'Líder'],
-                                                    ['activo', 'Activo']
-                                                ]
-                                            ).map(([col, label]) => (
-                                                <th key={col} className="text-left p-2">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleCoSortHeader(col)}
-                                                        className="inline-flex items-center gap-1 hover:text-[#65BCF7] cursor-pointer font-medium text-inherit bg-transparent border-0 p-0"
-                                                    >
-                                                        {label}
-                                                        {coSort.key === col ? (
-                                                            coSort.dir === 'asc' ? (
-                                                                <ArrowUp size={14} className="text-[#65BCF7]" />
-                                                            ) : (
-                                                                <ArrowDown size={14} className="text-[#65BCF7]" />
-                                                            )
-                                                        ) : null}
-                                                    </button>
-                                                </th>
-                                            ))}
-                                            <th className="text-left p-2 whitespace-nowrap">Editar</th>
-                                            <th className="text-left p-2">Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {coLoading ? (
-                                            <tr>
-                                                <td colSpan={10} className="p-4 text-center">
-                                                    Cargando…
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            coItems.map((row) => (
-                                                <tr
-                                                    key={row.cedula}
-                                                    className={`${tableRowBorder} cursor-pointer ${
-                                                        selectedCoCedula === row.cedula
-                                                            ? isLight
-                                                                ? 'bg-sky-100'
-                                                                : 'bg-[#0f2942]/80'
-                                                            : ''
-                                                    }`}
-                                                    onClick={() =>
-                                                        setSelectedCoCedula((cur) =>
-                                                            cur === row.cedula ? null : row.cedula
-                                                        )
-                                                    }
-                                                >
-                                                    <td className="p-2">
-                                                        <input
-                                                            type="radio"
-                                                            className="accent-[#65BCF7]"
-                                                            checked={selectedCoCedula === row.cedula}
-                                                            onChange={() => setSelectedCoCedula(row.cedula)}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                        />
-                                                    </td>
-                                                    <td className="p-2 whitespace-nowrap">{row.cedula}</td>
-                                                    <td className="p-2 max-w-[8rem] truncate" title={row.codigo || ''}>
-                                                        {row.codigo || '—'}
-                                                    </td>
-                                                    <td className="p-2">{row.nombre}</td>
-                                                    <td className="p-2">{row.correo_cinte || '—'}</td>
-                                                    <td className="p-2">{row.cliente || '—'}</td>
-                                                    <td className="p-2">{row.lider_catalogo || '—'}</td>
-                                                    <td className="p-2">{row.activo ? 'Sí' : 'No'}</td>
-                                                    <td className="p-2 whitespace-nowrap">
-                                                        <button
-                                                            type="button"
-                                                            className={softBtn}
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                openStaffModalEditForRow(row);
-                                                            }}
-                                                        >
-                                                            Editar
-                                                        </button>
-                                                    </td>
-                                                    <td className="p-2 whitespace-nowrap">
-                                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                                            <button
-                                                                type="button"
-                                                                className="text-[#65BCF7] hover:underline"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    patchColaborador(row.cedula, {
-                                                                        activo: !row.activo
-                                                                    });
-                                                                }}
-                                                            >
-                                                                {row.activo ? 'Desactivar' : 'Activar'}
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                className="text-red-400 hover:text-red-300 hover:underline"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    deleteColaboradorRow(row);
-                                                                }}
-                                                            >
-                                                                Eliminar
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                            {!coLoading && coTotal > 0 ? (
-                                <div className={`flex flex-wrap items-center justify-between gap-2 ${barInset}`}>
-                                    <span>
-                                        Página {safeCoPage} de {coTotalPages}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setCoPage((p) => Math.max(1, p - 1))}
-                                            disabled={safeCoPage <= 1}
-                                            className={compactBtn}
-                                        >
-                                            Anterior
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setCoPage((p) => Math.min(coTotalPages, p + 1))}
-                                            disabled={safeCoPage >= coTotalPages}
-                                            className={compactBtn}
-                                        >
-                                            Siguiente
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : null}
-                        </div>
-                    )}
-
-                    {mainView === 'catalogoTi' && showTiCatalogSubmod ? (
-                        <div className="space-y-4 w-full max-w-[95rem]">
-                            <RolesTiCatalogPage token={token} auth={auth} embedInDirectorio />
-                        </div>
+                            <button type="button" onClick={() => loadCatalogo()} className={dash.toolbarBtn}>
+                                Refrescar
+                            </button>
+                        </ModuleFiltersDrawer>
                     ) : null}
 
-                    {mainView === 'reubicaciones' ? (
-                        <div className="space-y-4 w-full max-w-[95rem]">
-                            <ReubicacionesPipelinePage token={token} navIntent={reubicacionesNavIntent} />
-                        </div>
+                    {mainView === 'consultores' ? (
+                        <ModuleFiltersDrawer
+                            open={filtersPanelOpen}
+                            onClose={() => setFiltersPanelOpen(false)}
+                            onClear={clearConsultoresFilters}
+                            dash={dash}
+                            panelId="directorio-consultores-filtros-panel"
+                            titleId="directorio-consultores-filtros-drawer-title"
+                        >
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="directorio-consultores-activo" className={dash.filtrosDrawerLabel}>
+                                    Activo
+                                </label>
+                                <select
+                                    id="directorio-consultores-activo"
+                                    className={`${field} w-full text-sm`}
+                                    value={coActivo}
+                                    onChange={(e) => {
+                                        setCoActivo(e.target.value);
+                                        setCoPage(1);
+                                    }}
+                                >
+                                    <option value="all">Todos</option>
+                                    <option value="true">Activos</option>
+                                    <option value="false">Inactivos</option>
+                                </select>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="directorio-consultores-tipo" className={dash.filtrosDrawerLabel}>
+                                    Tipo de contrato
+                                </label>
+                                <input
+                                    id="directorio-consultores-tipo"
+                                    className={`${field} w-full text-sm`}
+                                    value={coTipoContrato}
+                                    onChange={(e) => {
+                                        setCoTipoContrato(e.target.value);
+                                        setCoPage(1);
+                                    }}
+                                    placeholder="Ej. Indefinido, Obra labor…"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                <label htmlFor="directorio-consultores-pagesize" className={dash.filtrosDrawerLabel}>
+                                    Mostrar por página
+                                </label>
+                                <select
+                                    id="directorio-consultores-pagesize"
+                                    className={`${field} w-full text-sm`}
+                                    value={coPageSize}
+                                    onChange={(e) => {
+                                        setCoPageSize(Number(e.target.value));
+                                        setCoPage(1);
+                                    }}
+                                >
+                                    <option value={10}>10 por página</option>
+                                    <option value={20}>20 por página</option>
+                                    <option value={50}>50 por página</option>
+                                </select>
+                            </div>
+                            <button type="button" onClick={() => loadColaboradores()} className={dash.toolbarBtn}>
+                                Refrescar
+                            </button>
+                        </ModuleFiltersDrawer>
                     ) : null}
                 </main>
             </div>
 
-            {clienteModalOpen ? (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div
-                        className="modal-glass-scrim absolute inset-0 transition-opacity"
-                        onClick={() => setClienteModalOpen(false)}
-                    />
-                    <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
-                            <h2 className="text-lg font-heading font-bold text-[var(--text)]">Crear cliente (y primer líder)</h2>
+            <GestionModalShell
+                open={clienteModalOpen}
+                onClose={() => setClienteModalOpen(false)}
+                title="Crear cliente (y primer líder)"
+                subtitle="Alta en catálogo cliente-líder"
+                size="md"
+                footer={(
+                    <div className="flex flex-wrap gap-2 justify-end w-full">
+                        <button type="submit" form="cliente-create-form" className={dash.btnPrimaryCinte}>
+                            Guardar
+                        </button>
+                        <button type="button" className={dash.borrarFiltros} onClick={() => setClienteModalOpen(false)}>
+                            Cancelar
+                        </button>
+                    </div>
+                )}
+            >
+                <form id="cliente-create-form" onSubmit={submitClienteModal} className="space-y-4">
+                    <div>
+                        <label className={`block ${dash.filtrosDrawerLabel} mb-1`}>Cliente</label>
+                        <input
+                            className={`w-full ${field}`}
+                            value={clienteForm.cliente}
+                            onChange={(e) => setClienteForm((f) => ({ ...f, cliente: e.target.value }))}
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label className={`block ${dash.filtrosDrawerLabel} mb-1`}>NIT</label>
+                        <input
+                            className={`w-full ${field}`}
+                            value={clienteForm.nit}
+                            onChange={(e) => setClienteForm((f) => ({ ...f, nit: e.target.value }))}
+                            inputMode="numeric"
+                            autoComplete="off"
+                            placeholder="Solo números"
+                            required
+                        />
+                        <p className={`text-xs ${dash.modalMuted} mt-1`}>Obligatorio; se guardan solo dígitos.</p>
+                    </div>
+                    <div>
+                        <label className={`block ${dash.filtrosDrawerLabel} mb-1`}>Líder</label>
+                        <input
+                            className={`w-full ${field}`}
+                            value={clienteForm.lider}
+                            onChange={(e) => setClienteForm((f) => ({ ...f, lider: e.target.value }))}
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label className={`block ${dash.filtrosDrawerLabel} mb-1`}>Gerente de Servicio asignado</label>
+                        <GerenteServicioSelect
+                            className={`w-full ${field}`}
+                            value={clienteForm.gp_colaborador_cedula}
+                            onChange={(e) =>
+                                setClienteForm((f) => ({
+                                    ...f,
+                                    gp_colaborador_cedula: e.target.value
+                                }))
+                            }
+                            options={gsCinteOptions}
+                            loading={gsCinteOptionsLoading}
+                        />
+                        {!gsCinteOptionsLoading && gsCinteOptions.length === 0 ? (
+                            <p className={`text-xs ${dash.modalMuted} mt-1`}>
+                                No hay colaboradores CINTE en el directorio.
+                            </p>
+                        ) : !gsCinteOptionsLoading ? (
+                            <p className={`text-xs ${dash.modalMuted} mt-1`}>
+                                Solo personal con cliente CINTE. Si no tiene correo Cinte, no puede seleccionarse.
+                            </p>
+                        ) : null}
+                    </div>
+                </form>
+            </GestionModalShell>
+
+            <GestionModalShell
+                open={Boolean(clienteDetailModal)}
+                onClose={() => {
+                    if (!editClienteSaving) closeClienteDetailModal();
+                }}
+                disableClose={editClienteSaving}
+                title="Cliente"
+                subtitle={clienteDetailModal?.cliente || ''}
+                size="wide"
+                footer={
+                    clienteDetailModal?.mode === 'view' ? (
+                        <div className="flex flex-wrap gap-2 justify-end w-full">
                             <button
                                 type="button"
-                                onClick={() => setClienteModalOpen(false)}
-                                className="rounded-lg p-2 text-[rgba(159,179,200,0.95)] hover:bg-slate-800/50"
-                                aria-label="Cerrar"
+                                onClick={() => void enterClienteDetailEditMode()}
+                                className={dash.btnPrimaryCinte}
                             >
-                                <X size={18} />
+                                Editar cliente
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void prepareAddLiderForm()}
+                                className={dash.btnPrimaryCinte}
+                            >
+                                Agregar líder
+                            </button>
+                            <button type="button" className={dash.borrarFiltros} onClick={() => closeClienteDetailModal()}>
+                                Cerrar
                             </button>
                         </div>
-                        <form onSubmit={submitClienteModal} className="p-5 space-y-4 overflow-y-auto">
+                    ) : clienteDetailModal?.mode === 'edit' ? (
+                        <div className="flex flex-wrap gap-2 justify-end w-full">
+                            <button
+                                type="submit"
+                                form="cliente-detail-edit-form"
+                                disabled={editClienteRowsLoading || editClienteSaving}
+                                className={`${dash.btnPrimaryCinte} disabled:opacity-40`}
+                            >
+                                {editClienteSaving ? 'Guardando…' : 'Guardar'}
+                            </button>
+                            <button
+                                type="button"
+                                disabled={editClienteSaving}
+                                className={`${dash.borrarFiltros} disabled:opacity-40`}
+                                onClick={() => {
+                                    setEditClienteGpSelectHint('');
+                                    setEditClienteNitHint('');
+                                    setClienteDetailModal((m) => (m ? { cliente: m.cliente, mode: 'view' } : null));
+                                }}
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                    ) : clienteDetailModal?.mode === 'addLider' ? (
+                        <div className="flex flex-wrap gap-2 justify-end w-full">
+                            <button type="submit" form="cliente-detail-add-lider-form" className={dash.btnPrimaryCinte}>
+                                Guardar
+                            </button>
+                            <button
+                                type="button"
+                                className={dash.borrarFiltros}
+                                onClick={() =>
+                                    setClienteDetailModal((m) => (m ? { cliente: m.cliente, mode: 'view' } : null))
+                                }
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                    ) : null
+                }
+            >
+                {clienteDetailModal?.mode === 'view' ? (
+                    <div className="space-y-4">
+                        <div className={`${dash.modalGrid} ${dash.modalInfoGrid}`}>
                             <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Cliente</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={clienteForm.cliente}
-                                    onChange={(e) => setClienteForm((f) => ({ ...f, cliente: e.target.value }))}
-                                    required
-                                />
+                                <p className={dash.labelFilter}>Nombre</p>
+                                <p className="mt-1 font-semibold">{clienteDetailModal.cliente}</p>
                             </div>
                             <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>NIT</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={clienteForm.nit}
-                                    onChange={(e) => setClienteForm((f) => ({ ...f, nit: e.target.value }))}
-                                    inputMode="numeric"
-                                    autoComplete="off"
-                                    placeholder="Solo números"
-                                    required
-                                />
-                                <p className={`text-xs ${labelMuted} mt-1`}>Obligatorio; se guardan solo dígitos.</p>
+                                <p className={dash.labelFilter}>NIT</p>
+                                <p className="mt-1 tabular-nums">
+                                    {nitDisplayForCliente(detailResumenRow, leadersModalRows)}
+                                </p>
                             </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={clienteForm.lider}
-                                    onChange={(e) => setClienteForm((f) => ({ ...f, lider: e.target.value }))}
-                                    required
-                                />
+                            <div className="md:col-span-2">
+                                <p className={dash.labelFilter}>Gerente de Servicio asignado</p>
+                                {(() => {
+                                    const gsInfo = gsDisplayForCliente(
+                                        detailResumenRow,
+                                        leadersModalRows,
+                                        gpLabelById
+                                    );
+                                    return (
+                                        <p
+                                            className={`mt-1 ${
+                                                gsInfo.conflict
+                                                    ? isLight
+                                                        ? 'text-amber-700'
+                                                        : 'text-amber-300/90'
+                                                    : ''
+                                            }`}
+                                        >
+                                            {gsInfo.label}
+                                        </p>
+                                    );
+                                })()}
                             </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>GP asignado</label>
-                                {clienteGpOptionsLoading ? (
-                                    <p className={`text-xs ${labelMuted}`}>Cargando lista…</p>
-                                ) : (
-                                    <select
+                        </div>
+                        <div>
+                            <h3 className={`${dash.titleLg} mb-3`}>Líderes</h3>
+                            <GestionDataTable
+                                columns={leadersModalColumns}
+                                rows={leadersModalLoading ? [] : leadersModalRows}
+                                isLight={isLight}
+                                emptyText={leadersModalLoading ? 'Cargando líderes…' : 'Sin líderes para este cliente'}
+                            />
+                        </div>
+                    </div>
+                ) : null}
+
+                {clienteDetailModal?.mode === 'edit' ? (
+                    <form id="cliente-detail-edit-form" onSubmit={submitEditClienteModal} className="space-y-4">
+                        {editClienteRowsLoading ? (
+                            <p className={dash.modalMuted}>Cargando datos del catálogo…</p>
+                        ) : (
+                            <>
+                                <p className={`text-xs ${dash.modalMuted}`}>
+                                    Los cambios se aplican a todas las filas del cliente en el catálogo (
+                                    {editClienteTargetRows.length} líder
+                                    {editClienteTargetRows.length === 1 ? '' : 'es'}).
+                                </p>
+                                {[
+                                    ...new Set(
+                                        editClienteTargetRows.map((r) => r.gp_user_id).filter(Boolean).map(String)
+                                    )
+                                ].length > 1 ? (
+                                    <p className={`text-xs ${isLight ? 'text-amber-800' : 'text-amber-300/90'}`}>
+                                        Había Gerentes de Servicio distintos por líder; el valor que elijas unificará el
+                                        GS en todas las filas.
+                                    </p>
+                                ) : null}
+                                <div>
+                                    <label className={`block ${dash.filtrosDrawerLabel} mb-1`}>Nombre del cliente</label>
+                                    <input
                                         className={`w-full ${field}`}
-                                        value={clienteForm.gp_colaborador_cedula}
+                                        value={editClienteForm.nombre}
                                         onChange={(e) =>
-                                            setClienteForm((f) => ({
+                                            setEditClienteForm((f) => ({ ...f, nombre: e.target.value }))
+                                        }
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className={`block ${dash.filtrosDrawerLabel} mb-1`}>NIT</label>
+                                    <input
+                                        className={`w-full ${field}`}
+                                        value={editClienteForm.nit}
+                                        onChange={(e) => setEditClienteForm((f) => ({ ...f, nit: e.target.value }))}
+                                        inputMode="numeric"
+                                        autoComplete="off"
+                                        placeholder="Solo números"
+                                        required
+                                    />
+                                    {editClienteNitHint ? (
+                                        <p className={`text-xs mt-1 ${isLight ? 'text-amber-800' : 'text-amber-300/90'}`}>
+                                            {editClienteNitHint}
+                                        </p>
+                                    ) : (
+                                        <p className={`text-xs ${dash.modalMuted} mt-1`}>
+                                            Se aplica a todas las filas del cliente; solo dígitos.
+                                        </p>
+                                    )}
+                                </div>
+                                <div>
+                                    <label className={`block ${dash.filtrosDrawerLabel} mb-1`}>
+                                        Gerente de Servicio asignado
+                                    </label>
+                                    <GerenteServicioSelect
+                                        className={`w-full ${field}`}
+                                        value={editClienteForm.gp_colaborador_cedula}
+                                        options={gsCinteOptions}
+                                        loading={gsCinteOptionsLoading}
+                                        onChange={(e) =>
+                                            setEditClienteForm((f) => ({
                                                 ...f,
                                                 gp_colaborador_cedula: e.target.value
                                             }))
                                         }
-                                    >
-                                        <option value="">— Sin GP —</option>
-                                        {clienteGpOptions.map((o) => (
-                                            <option key={o.cedula} value={o.value} disabled={o.disabled}>
-                                                {o.label}
-                                            </option>
-                                        ))}
-                                    </select>
-                                )}
-                                {!clienteGpOptionsLoading && clienteGpOptions.length === 0 ? (
-                                    <p className={`text-xs ${labelMuted} mt-1`}>No hay colaboradores en el directorio.</p>
-                                ) : !clienteGpOptionsLoading ? (
-                                    <p className={`text-xs ${labelMuted} mt-1`}>
-                                        Si el colaborador no tiene correo Cinte, no puede seleccionarse.
-                                    </p>
-                                ) : null}
-                            </div>
-                            <div className="flex gap-2 pt-2">
-                                <button
-                                    type="submit"
-                                    className="px-4 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold"
-                                >
-                                    Guardar
-                                </button>
-                                <button
-                                    type="button"
-                                    className={outlineBtn}
-                                    onClick={() => setClienteModalOpen(false)}
-                                >
-                                    Cancelar
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            ) : null}
-
-            {editClienteModalOpen ? (
-                <div className="fixed inset-0 z-[55] flex items-center justify-center p-4">
-                    <div
-                        className="modal-glass-scrim absolute inset-0 transition-opacity"
-                        onClick={() => !editClienteSaving && closeEditClienteModal()}
-                    />
-                    <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
-                            <h2 className="text-lg font-heading font-bold text-[var(--text)]">Editar cliente</h2>
-                            <button
-                                type="button"
-                                disabled={editClienteSaving}
-                                onClick={() => closeEditClienteModal()}
-                                className="rounded-lg p-2 text-[rgba(159,179,200,0.95)] hover:bg-slate-800/50 disabled:opacity-40"
-                                aria-label="Cerrar"
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <form onSubmit={submitEditClienteModal} className="p-5 space-y-4 overflow-y-auto">
-                            {editClienteRowsLoading ? (
-                                <p className={`text-sm ${labelMuted}`}>Cargando datos del catálogo…</p>
-                            ) : (
-                                <>
-                                    <p className={`text-xs ${labelMuted}`}>
-                                        Los cambios se aplican a todas las filas del cliente en el catálogo (
-                                        {editClienteTargetRows.length} líder
-                                        {editClienteTargetRows.length === 1 ? '' : 'es'}).
-                                    </p>
-                                    {[
-                                        ...new Set(
-                                            editClienteTargetRows.map((r) => r.gp_user_id).filter(Boolean).map(String)
-                                        )
-                                    ].length > 1 ? (
-                                        <p className="text-xs text-amber-300/90">
-                                            Había GP distintos por líder; el valor que elijas unificará el GP en todas
-                                            las filas.
+                                    />
+                                    {editClienteGpSelectHint ? (
+                                        <p className={`text-xs mt-1 ${isLight ? 'text-amber-800' : 'text-amber-300/90'}`}>
+                                            {editClienteGpSelectHint}
                                         </p>
-                                    ) : null}
-                                    <div>
-                                        <label className={`block text-xs ${labelMuted} mb-1`}>Nombre del cliente</label>
-                                        <input
-                                            className={`w-full ${field}`}
-                                            value={editClienteForm.nombre}
-                                            onChange={(e) =>
-                                                setEditClienteForm((f) => ({ ...f, nombre: e.target.value }))
-                                            }
-                                            required
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className={`block text-xs ${labelMuted} mb-1`}>NIT</label>
-                                        <input
-                                            className={`w-full ${field}`}
-                                            value={editClienteForm.nit}
-                                            onChange={(e) =>
-                                                setEditClienteForm((f) => ({ ...f, nit: e.target.value }))
-                                            }
-                                            inputMode="numeric"
-                                            autoComplete="off"
-                                            placeholder="Solo números"
-                                            required
-                                        />
-                                        {editClienteNitHint ? (
-                                            <p className={`text-xs mt-1 ${isLight ? 'text-amber-800' : 'text-amber-300/90'}`}>
-                                                {editClienteNitHint}
-                                            </p>
-                                        ) : (
-                                            <p className={`text-xs ${labelMuted} mt-1`}>
-                                                Se aplica a todas las filas del cliente; solo dígitos.
-                                            </p>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <label className={`block text-xs ${labelMuted} mb-1`}>
-                                            GP (lista completa de colaboradores)
-                                        </label>
-                                        {editClienteGpOptionsLoading ? (
-                                            <p className={`text-xs ${labelMuted}`}>Cargando lista…</p>
-                                        ) : (
-                                            <select
-                                                className={`w-full ${field}`}
-                                                value={editClienteForm.gp_colaborador_cedula}
-                                                onChange={(e) =>
-                                                    setEditClienteForm((f) => ({
-                                                        ...f,
-                                                        gp_colaborador_cedula: e.target.value
-                                                    }))
-                                                }
-                                            >
-                                                <option value="">— Sin GP —</option>
-                                                {editClienteGpOptions.map((o, idx) => (
-                                                    <option
-                                                        key={`${o.cedula || 'sin-cedula'}-${idx}`}
-                                                        value={o.value}
-                                                        disabled={o.disabled}
-                                                    >
-                                                        {o.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        )}
-                                        {!editClienteGpOptionsLoading && editClienteGpOptions.length === 0 ? (
-                                            <p className={`text-xs ${labelMuted} mt-1`}>
-                                                No hay colaboradores en el directorio.
-                                            </p>
-                                        ) : !editClienteGpOptionsLoading ? (
-                                            <p className={`text-xs ${labelMuted} mt-1`}>
-                                                Si el colaborador no tiene correo Cinte, no puede seleccionarse.
-                                            </p>
-                                        ) : null}
-                                        {editClienteGpSelectHint ? (
-                                            <p className={`text-xs mt-1 ${isLight ? 'text-amber-800' : 'text-amber-300/90'}`}>
-                                                {editClienteGpSelectHint}
-                                            </p>
-                                        ) : null}
-                                    </div>
-                                </>
-                            )}
-                            <div className="flex gap-2 pt-2">
-                                <button
-                                    type="submit"
-                                    disabled={editClienteRowsLoading || editClienteSaving}
-                                    className="px-4 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold disabled:opacity-40"
-                                >
-                                    {editClienteSaving ? 'Guardando…' : 'Guardar'}
-                                </button>
-                                <button
-                                    type="button"
-                                    disabled={editClienteSaving}
-                                    className={`${outlineBtn} disabled:opacity-40`}
-                                    onClick={() => closeEditClienteModal()}
-                                >
-                                    Cancelar
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            ) : null}
+                                    ) : (
+                                        <p className={`text-xs ${dash.modalMuted} mt-1`}>
+                                            Solo personal con cliente CINTE.
+                                        </p>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </form>
+                ) : null}
+
+                {clienteDetailModal?.mode === 'addLider' ? (
+                    <form id="cliente-detail-add-lider-form" onSubmit={submitAddLiderModal} className="space-y-4">
+                        <div>
+                            <label className={`block ${dash.filtrosDrawerLabel} mb-1`}>NIT</label>
+                            <input
+                                className={`w-full ${field}`}
+                                value={addLiderForm.nit}
+                                readOnly
+                                disabled
+                                inputMode="numeric"
+                                autoComplete="off"
+                                placeholder="NIT del cliente"
+                                required
+                            />
+                            <p className={`text-xs ${dash.modalMuted} mt-1`}>Heredado del cliente; no editable.</p>
+                        </div>
+                        <div>
+                            <label className={`block ${dash.filtrosDrawerLabel} mb-1`}>Líder</label>
+                            <input
+                                className={`w-full ${field}`}
+                                value={addLiderForm.lider}
+                                onChange={(e) => setAddLiderForm((f) => ({ ...f, lider: e.target.value }))}
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className={`block ${dash.filtrosDrawerLabel} mb-1`}>
+                                Gerente de Servicio asignado
+                            </label>
+                            <GerenteServicioSelect
+                                className={`w-full ${field}`}
+                                value={addLiderForm.gp_colaborador_cedula}
+                                options={gsCinteOptions}
+                                loading={gsCinteOptionsLoading}
+                                onChange={(e) =>
+                                    setAddLiderForm((f) => ({
+                                        ...f,
+                                        gp_colaborador_cedula: e.target.value
+                                    }))
+                                }
+                            />
+                            <p className={`text-xs ${dash.modalMuted} mt-1`}>Solo personal con cliente CINTE.</p>
+                        </div>
+                    </form>
+                ) : null}
+            </GestionModalShell>
 
             {staffModalOpen ? (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1852,272 +2145,37 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                                 <X size={18} />
                             </button>
                         </div>
-                        <form onSubmit={submitStaffModal} className="p-5 space-y-4 overflow-y-auto">
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Cédula (solo dígitos)</label>
-                                <input
-                                    className={`w-full ${field} disabled:opacity-50`}
-                                    value={coForm.cedula}
-                                    onChange={(e) => setCoForm((f) => ({ ...f, cedula: e.target.value }))}
-                                    disabled={staffModalMode === 'edit'}
-                                    required={staffModalMode === 'create'}
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Nombres y Apellidos</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={coForm.nombre}
-                                    onChange={(e) => setCoForm((f) => ({ ...f, nombre: e.target.value }))}
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Correo Cinte</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={coForm.correo_cinte}
-                                    onChange={(e) => setCoForm((f) => ({ ...f, correo_cinte: e.target.value }))}
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Cliente</label>
-                                <select
-                                    className={`w-full ${field}`}
-                                    value={coForm.cliente}
-                                    onChange={(e) => {
-                                        const v = e.target.value;
-                                        setCoForm((f) => ({ ...f, cliente: v, lider_catalogo: '' }));
-                                        fetchLideresForCliente(v);
-                                    }}
-                                >
-                                    <option value="">— Seleccionar —</option>
-                                    {catalogClientes.map((c) => (
-                                        <option key={c} value={c}>
-                                            {c}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
-                                <select
-                                    className={`w-full ${field}`}
-                                    value={coForm.lider_catalogo}
-                                    onChange={(e) => setCoForm((f) => ({ ...f, lider_catalogo: e.target.value }))}
-                                    disabled={!coForm.cliente || liderLoading}
-                                >
-                                    <option value="">
-                                        {!coForm.cliente ? 'Elige un cliente primero' : liderLoading ? 'Cargando…' : '— Seleccionar —'}
-                                    </option>
-                                    {liderOptions.map((l) => (
-                                        <option key={l} value={l}>
-                                            {l}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-                            <p className={`text-xs ${labelMuted}`}>
-                                El GP se toma automáticamente del par cliente–líder en el catálogo (si está definido).
-                            </p>
-
-                            <div className="border-t border-[var(--border)] pt-4 mt-4 space-y-6">
-                                <p className="text-sm font-semibold text-[var(--text)]">Ficha extendida</p>
-                                {CO_CONSULTOR_SECTIONS.map((sec) => (
-                                    <div key={sec.title} className="space-y-3">
-                                        <h3
-                                            className={`text-xs font-bold uppercase tracking-wide ${labelMuted}`}
-                                        >
-                                            {sec.title}
-                                        </h3>
-                                        <div className="grid gap-3 sm:grid-cols-2">
-                                            {sec.keys.map((key) => {
-                                                const meta = getFieldMeta(key);
-                                                if (!meta) return null;
-                                                const val = coForm[key] ?? '';
-                                                const cellWide =
-                                                    meta.kind === 'textarea' ? 'sm:col-span-2' : '';
-                                                let control;
-                                                if (meta.kind === 'bool') {
-                                                    control = (
-                                                        <select
-                                                            className={`w-full ${field}`}
-                                                            value={val}
-                                                            onChange={(e) =>
-                                                                setCoForm((f) => ({
-                                                                    ...f,
-                                                                    [key]: e.target.value
-                                                                }))
-                                                            }
-                                                        >
-                                                            <option value="">Sin especificar</option>
-                                                            <option value="true">Sí</option>
-                                                            <option value="false">No</option>
-                                                        </select>
-                                                    );
-                                                } else if (meta.kind === 'date') {
-                                                    control = (
-                                                        <input
-                                                            {...nativeCalendarOnlyInputProps}
-                                                            type="date"
-                                                            className={`w-full ${field}`}
-                                                            value={val}
-                                                            onChange={(e) =>
-                                                                setCoForm((f) => ({
-                                                                    ...f,
-                                                                    [key]: e.target.value
-                                                                }))
-                                                            }
-                                                        />
-                                                    );
-                                                } else if (meta.kind === 'money') {
-                                                    const ccy = coForm.montos_divisa?.[key] || 'COP';
-                                                    const sym = currencyNarrowSymbol(ccy);
-                                                    control = (
-                                                        <div className="flex flex-wrap gap-2 items-center">
-                                                            <select
-                                                                className={`w-[4.75rem] shrink-0 rounded-md border px-2 py-2 text-sm ${field}`}
-                                                                value={ccy}
-                                                                onChange={(e) => {
-                                                                    const next = e.target.value;
-                                                                    setCoForm((f) => {
-                                                                        const prevCcy = f.montos_divisa?.[key] || 'COP';
-                                                                        const rawVal = f[key];
-                                                                        const n = parseMoneyInput(rawVal, prevCcy);
-                                                                        const nextMd = {
-                                                                            ...(f.montos_divisa || {}),
-                                                                            [key]: next
-                                                                        };
-                                                                        if (
-                                                                            n != null &&
-                                                                            Number.isFinite(n)
-                                                                        ) {
-                                                                            return {
-                                                                                ...f,
-                                                                                montos_divisa: nextMd,
-                                                                                [key]: formatMoneyAmountOnly(n, next)
-                                                                            };
-                                                                        }
-                                                                        return {
-                                                                            ...f,
-                                                                            montos_divisa: nextMd
-                                                                        };
-                                                                    });
-                                                                }}
-                                                            >
-                                                                <option value="COP">COP</option>
-                                                                <option value="CLP">CLP</option>
-                                                                <option value="USD">USD</option>
-                                                            </select>
-                                                            <span
-                                                                className={`text-sm tabular-nums shrink-0 ${labelMuted}`}
-                                                                title={ccy}
-                                                            >
-                                                                {sym}
-                                                            </span>
-                                                            <input
-                                                                type="text"
-                                                                inputMode="decimal"
-                                                                className={`min-w-0 flex-1 rounded-md border px-3 py-2 ${field}`}
-                                                                value={val}
-                                                                onChange={(e) =>
-                                                                    setCoForm((f) => ({
-                                                                        ...f,
-                                                                        [key]: e.target.value
-                                                                    }))
-                                                                }
-                                                                onBlur={(e) => {
-                                                                    const rawBlur = e.target.value;
-                                                                    setCoForm((f) => {
-                                                                        const cur =
-                                                                            f.montos_divisa?.[key] ||
-                                                                            'COP';
-                                                                        const n = parseMoneyInput(
-                                                                            rawBlur,
-                                                                            cur
-                                                                        );
-                                                                        if (
-                                                                            n == null ||
-                                                                            !Number.isFinite(n)
-                                                                        ) {
-                                                                            return { ...f, [key]: '' };
-                                                                        }
-                                                                        return {
-                                                                            ...f,
-                                                                            [key]: formatMoneyAmountOnly(
-                                                                                n,
-                                                                                cur
-                                                                            )
-                                                                        };
-                                                                    });
-                                                                }}
-                                                            />
-                                                        </div>
-                                                    );
-                                                } else if (
-                                                    meta.kind === 'number' ||
-                                                    meta.kind === 'int'
-                                                ) {
-                                                    control = (
-                                                        <input
-                                                            type="text"
-                                                            inputMode="decimal"
-                                                            className={`w-full ${field}`}
-                                                            value={val}
-                                                            onChange={(e) =>
-                                                                setCoForm((f) => ({
-                                                                    ...f,
-                                                                    [key]: e.target.value
-                                                                }))
-                                                            }
-                                                        />
-                                                    );
-                                                } else if (meta.kind === 'textarea') {
-                                                    control = (
-                                                        <textarea
-                                                            rows={3}
-                                                            className={`w-full ${field}`}
-                                                            value={val}
-                                                            onChange={(e) =>
-                                                                setCoForm((f) => ({
-                                                                    ...f,
-                                                                    [key]: e.target.value
-                                                                }))
-                                                            }
-                                                        />
-                                                    );
-                                                } else {
-                                                    control = (
-                                                        <input
-                                                            type="text"
-                                                            className={`w-full ${field}`}
-                                                            value={val}
-                                                            onChange={(e) =>
-                                                                setCoForm((f) => ({
-                                                                    ...f,
-                                                                    [key]: e.target.value
-                                                                }))
-                                                            }
-                                                        />
-                                                    );
-                                                }
-                                                return (
-                                                    <div key={key} className={cellWide}>
-                                                        <label
-                                                            className={`block text-xs ${labelMuted} mb-1`}
-                                                        >
-                                                            {meta.label}
-                                                        </label>
-                                                        {control}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
+                        <form onSubmit={submitStaffModal} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                            <div className="border-b border-[var(--border)] px-5 flex flex-wrap gap-1">
+                                {CO_TABS.map((tab) => (
+                                    <button
+                                        key={tab.id}
+                                        type="button"
+                                        onClick={() => setStaffFichaTab(tab.id)}
+                                        className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${
+                                            staffFichaTab === tab.id
+                                                ? 'border-[#2F7BB8] text-[var(--text)]'
+                                                : `border-transparent ${labelMuted}`
+                                        }`}
+                                    >
+                                        {tab.shortTitle || tab.title}
+                                    </button>
                                 ))}
                             </div>
+                            <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-5">
+                                <ColaboradorFichaFields
+                                    value={coForm}
+                                    onChange={(patch) => setCoForm((f) => ({ ...f, ...patch }))}
+                                    mode={staffModalMode}
+                                    clientes={catalogClientes}
+                                    liderOptions={liderOptions}
+                                    liderLoading={liderLoading}
+                                    onClienteChange={(v) => fetchLideresForCliente(v)}
+                                    activeTabId={staffFichaTab}
+                                />
+                            </div>
 
-                            <div className="flex gap-2 pt-2">
+                            <div className="flex gap-2 border-t border-[var(--border)] p-5">
                                 <button
                                     type="submit"
                                     className="px-4 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold"
@@ -2137,206 +2195,101 @@ export default function DirectorioClienteColaboradorModule({ token, auth }) {
                 </div>
             ) : null}
 
-            {confirmDeactivateCatalog && selectedCatalogCliente ? (
+            {confirmDeleteColaboradorRow ? (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div
                         className="modal-glass-scrim absolute inset-0 transition-opacity"
-                        onClick={() => setConfirmDeactivateCatalog(false)}
+                        onClick={() => setConfirmDeleteColaboradorRow(null)}
                     />
                     <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
-                        <p className="text-sm text-[#e6edf3]">
-                            ¿Desactivar <strong>todos los líderes</strong> del cliente{' '}
-                            <strong>{selectedCatalogCliente}</strong> en el catálogo? Los registros permanecen en la
-                            base de datos; con el filtro «Activos» el cliente dejará de mostrarse en la tabla.
+                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
+                            ¿Eliminar definitivamente al colaborador con cédula{' '}
+                            <strong>{confirmDeleteColaboradorRow.cedula}</strong>? Esta acción no se puede deshacer.
                         </p>
                         <div className="mt-4 flex gap-2 justify-end">
                             <button
                                 type="button"
                                 className={outlineBtn}
-                                onClick={() => setConfirmDeactivateCatalog(false)}
+                                onClick={() => setConfirmDeleteColaboradorRow(null)}
                             >
                                 Cancelar
                             </button>
                             <button
                                 type="button"
                                 className="px-3 py-2 rounded-md bg-rose-600/90 text-white text-sm font-semibold"
-                                onClick={async () => {
-                                    try {
-                                        await deactivateAllRowsForClient(selectedCatalogCliente);
-                                        flash('Cliente desactivado en catálogo (todos los líderes).');
-                                        setConfirmDeactivateCatalog(false);
-                                        setSelectedCatalogCliente(null);
-                                        setLeadersModalCliente(null);
-                                        setLeadersModalRows([]);
-                                        await loadCatalogo();
-                                        if (mainView === 'consultores') loadCatalogoActivoForStaff();
-                                    } catch (err) {
-                                        flash(String(err.message || err), false);
-                                    }
-                                }}
+                                onClick={() => deleteColaboradorRow(confirmDeleteColaboradorRow)}
                             >
-                                Desactivar todo
+                                Eliminar
                             </button>
                         </div>
                     </div>
                 </div>
             ) : null}
 
-            {leadersModalCliente ? (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div
-                        className="modal-glass-scrim absolute inset-0 transition-opacity"
-                        onClick={() => {
-                            if (!addLiderModalOpen) {
-                                setLeadersModalCliente(null);
-                                setLeadersModalRows([]);
-                            }
-                        }}
-                    />
-                    <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
-                            <div>
-                                <h2 className="text-lg font-heading font-bold text-[var(--text)]">Líderes</h2>
-                                <p className={`text-xs ${labelMuted} mt-0.5`}>{leadersModalCliente}</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    setLeadersModalCliente(null);
-                                    setAddLiderModalOpen(false);
-                                    setLeadersModalRows([]);
-                                }}
-                                className="rounded-lg p-2 text-[rgba(159,179,200,0.95)] hover:bg-slate-800/50"
-                                aria-label="Cerrar"
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <div className="p-4 space-y-3 overflow-y-auto flex-1">
-                            <button
-                                type="button"
-                                onClick={openAddLiderModal}
-                                className="px-3 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold"
-                            >
-                                Agregar líder
-                            </button>
-                            <div className={tableSurface}>
-                                <table className="min-w-full text-sm">
-                                    <thead className={tableThead}>
-                                        <tr>
-                                            <th className="text-left p-2">Líder</th>
-                                            <th className="text-left p-2">Activo</th>
-                                            <th className="text-left p-2">Acción</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {leadersModalLoading ? (
-                                            <tr>
-                                                <td colSpan={3} className={`p-4 text-center ${labelMuted}`}>
-                                                    Cargando líderes…
-                                                </td>
-                                            </tr>
-                                        ) : leadersModalRows.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={3} className={`p-4 text-center ${labelMuted}`}>
-                                                    Sin líderes para este cliente
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            leadersModalRows.map((row) => (
-                                                <tr key={row.id} className={tableRowBorder}>
-                                                    <td className="p-2">{row.lider}</td>
-                                                    <td className="p-2">{row.activo ? 'Sí' : 'No'}</td>
-                                                    <td className="p-2">
-                                                        <button
-                                                            type="button"
-                                                            className="text-[#65BCF7] hover:underline text-xs"
-                                                            onClick={() => patchCatalogo(row, { activo: !row.activo })}
-                                                        >
-                                                            {row.activo ? 'Desactivar líder' : 'Activar líder'}
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
+            <GestionModalShell
+                open={Boolean(confirmDeactivateCatalog && selectedCatalogCliente)}
+                onClose={() => setConfirmDeactivateCatalog(false)}
+                title="Desactivar cliente"
+                size="md"
+                footer={(
+                    <div className="flex flex-wrap gap-2 justify-end w-full">
+                        <button type="button" className={dash.borrarFiltros} onClick={() => setConfirmDeactivateCatalog(false)}>
+                            Cancelar
+                        </button>
+                        <button
+                            type="button"
+                            className="px-3 py-2 rounded-md bg-rose-600/90 text-white text-sm font-semibold"
+                            onClick={async () => {
+                                try {
+                                    await deactivateAllRowsForClient(selectedCatalogCliente);
+                                    flash('Cliente desactivado en catálogo (todos los líderes).');
+                                    setConfirmDeactivateCatalog(false);
+                                    setSelectedCatalogCliente(null);
+                                    closeClienteDetailModal();
+                                    await loadCatalogo();
+                                    if (mainView === 'consultores') loadCatalogoActivoForStaff();
+                                } catch (err) {
+                                    flash(String(err.message || err), false);
+                                }
+                            }}
+                        >
+                            Desactivar todo
+                        </button>
                     </div>
-                </div>
-            ) : null}
+                )}
+            >
+                <p className={`text-sm ${dash.modalMuted}`}>
+                    ¿Desactivar <strong>todos los líderes</strong> del cliente{' '}
+                    <strong>{selectedCatalogCliente}</strong> en el catálogo? Los registros permanecen en la base de
+                    datos; con el filtro «Activos» el cliente dejará de mostrarse en la tabla.
+                </p>
+            </GestionModalShell>
 
-            {addLiderModalOpen && leadersModalCliente ? (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-                    <div
-                        className="modal-glass-scrim absolute inset-0 transition-opacity"
-                        onClick={() => setAddLiderModalOpen(false)}
-                    />
-                    <div className="modal-glass-sheet font-body relative flex max-h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-[var(--border)] p-0 shadow-2xl">
-                        <div className="flex items-center justify-between border-b border-[var(--border)] bg-[var(--surface-soft)] px-5 py-4">
-                            <h2 className="text-lg font-heading font-bold text-[var(--text)]">Agregar líder</h2>
-                            <button
-                                type="button"
-                                onClick={() => setAddLiderModalOpen(false)}
-                                className="rounded-lg p-2 text-[rgba(159,179,200,0.95)] hover:bg-slate-800/50"
-                                aria-label="Cerrar"
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
-                        <form onSubmit={submitAddLiderModal} className="p-5 space-y-4">
-                            <p className={`text-xs ${labelMuted}`}>Cliente: {leadersModalCliente}</p>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>NIT</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={addLiderForm.nit}
-                                    onChange={(e) => setAddLiderForm((f) => ({ ...f, nit: e.target.value }))}
-                                    inputMode="numeric"
-                                    autoComplete="off"
-                                    placeholder="Mismo NIT del cliente"
-                                    required
-                                />
-                                <p className={`text-xs ${labelMuted} mt-1`}>Obligatorio; se guardan solo dígitos.</p>
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Líder</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={addLiderForm.lider}
-                                    onChange={(e) => setAddLiderForm((f) => ({ ...f, lider: e.target.value }))}
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>GP asignado</label>
-                                <GpUserSelect
-                                    className={`w-full ${field}`}
-                                    value={addLiderForm.gp_user_id}
-                                    options={gpSelectOptions}
-                                    onChange={(e) => setAddLiderForm((f) => ({ ...f, gp_user_id: e.target.value }))}
-                                />
-                            </div>
-                            <div className="flex gap-2 pt-2">
-                                <button
-                                    type="submit"
-                                    className="px-4 py-2 rounded-md bg-[#2F7BB8] text-white text-sm font-semibold"
-                                >
-                                    Guardar
-                                </button>
-                                <button
-                                    type="button"
-                                    className={outlineBtn}
-                                    onClick={() => setAddLiderModalOpen(false)}
-                                >
-                                    Cancelar
-                                </button>
-                            </div>
-                        </form>
+            <GestionModalShell
+                open={Boolean(confirmDeleteLiderRow)}
+                onClose={() => setConfirmDeleteLiderRow(null)}
+                title="Eliminar líder"
+                size="md"
+                footer={(
+                    <div className="flex flex-wrap gap-2 justify-end w-full">
+                        <button type="button" className={dash.borrarFiltros} onClick={() => setConfirmDeleteLiderRow(null)}>
+                            Cancelar
+                        </button>
+                        <button
+                            type="button"
+                            className="px-3 py-2 rounded-md bg-rose-600/90 text-white text-sm font-semibold"
+                            onClick={() => deleteLiderRow(confirmDeleteLiderRow)}
+                        >
+                            Eliminar
+                        </button>
                     </div>
-                </div>
-            ) : null}
+                )}
+            >
+                <p className={`text-sm ${dash.modalMuted}`}>
+                    ¿Eliminar definitivamente al líder <strong>{confirmDeleteLiderRow?.lider}</strong> del catálogo?
+                    Esta acción no se puede deshacer.
+                </p>
+            </GestionModalShell>
         </div>
     );
 }

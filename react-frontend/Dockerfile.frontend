@@ -1,10 +1,13 @@
 FROM node:20-alpine AS build
 WORKDIR /app
-COPY package*.json ./
+# Flag Vite embebido en build (QA: VITE_CONCILIACIONES_ENABLED=true en .env del host).
+ARG VITE_CONCILIACIONES_ENABLED=false
+ENV VITE_CONCILIACIONES_ENABLED=$VITE_CONCILIACIONES_ENABLED
+COPY react-frontend/package*.json ./
 RUN npm ci
-COPY . .
+COPY react-frontend/ .
 RUN npm run build
 
 FROM caddy:2-alpine
 COPY --from=build /app/dist /usr/share/caddy
-COPY Caddyfile.frontend /etc/caddy/Caddyfile
+COPY react-frontend/Caddyfile.frontend /etc/caddy/Caddyfile

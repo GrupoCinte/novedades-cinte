@@ -47,6 +47,21 @@ function isSundayBogotaYmd(ymd) {
 
 /**
  * @param {string} ymd YYYY-MM-DD (fecha Bogotá)
+ * @returns {boolean}
+ */
+function isSaturdayBogotaYmd(ymd) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || '').trim());
+    if (!m) return false;
+    const y = Number(m[1]);
+    const mo = Number(m[2]);
+    const d = Number(m[3]);
+    if (!y || mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+    const middayBogotaAsUtc = Date.UTC(y, mo - 1, d, 17, 0, 0, 0);
+    return new Date(middayBogotaAsUtc).getUTCDay() === 6;
+}
+
+/**
+ * @param {string} ymd YYYY-MM-DD (fecha Bogotá)
  * @param {Set<string>} [festivosSet]
  * @returns {boolean}
  */
@@ -99,6 +114,21 @@ function splitHoursByBogotaDay(startMs, endMs) {
     return byDay;
 }
 
+/** Recargo domingo/festivo 90 % (Ley 2466) desde julio 2026; antes 80 %. */
+const RECARGO_PCT_MONTH_CUTOFF = '2026-07';
+
+/**
+ * @param {string} monthKey YYYY-MM
+ * @returns {{ low: string, high: string }} textos de coeficiente (coma decimal)
+ */
+function resolveDominicalCoeficientesText(monthKey) {
+    const mk = String(monthKey || '').trim().slice(0, 7);
+    if (/^\d{4}-\d{2}$/.test(mk) && mk >= RECARGO_PCT_MONTH_CUTOFF) {
+        return { low: '0,90', high: '1,90' };
+    }
+    return { low: '0,80', high: '1,80' };
+}
+
 /**
  * @param {string} monthKey YYYY-MM
  * @param {number} tier 1 | 2 | 3
@@ -109,24 +139,25 @@ function buildHeDomingoPolicyText(monthKey, tier, sundayDistinctCount, sundayDat
     const fechas = Array.isArray(sundayDatesSorted) && sundayDatesSorted.length
         ? sundayDatesSorted.join(', ')
         : '—';
+    const { low, high } = resolveDominicalCoeficientesText(monthKey);
     if (tier === 1) {
         return (
             `Hora Extra en domingo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingo distinto reportado con HE; `
-            + 'aplica coeficiente 0,80; puede optar por compensatorio en tiempo o compensatorio en dinero. '
+            + `aplica coeficiente ${low}; puede optar por compensatorio en tiempo o compensatorio en dinero. `
             + `Días con reporte: ${fechas}.`
         );
     }
     if (tier === 2) {
         return (
             `Hora Extra en domingo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingos distintos reportados con HE; `
-            + 'aplica coeficiente 0,80 y compensación de 1 día de descanso en la misma semana. '
+            + `aplica coeficiente ${low} y compensación de 1 día de descanso en la misma semana. `
             + `Días con reporte: ${fechas}.`
         );
     }
     if (tier === 3) {
         return (
             `Hora Extra en domingo (${monthKey}): el consultor acumula ${sundayDistinctCount} domingos distintos reportados con HE; `
-            + 'aplica coeficiente 1,80. '
+            + `aplica coeficiente ${high}. `
             + `Días con reporte: ${fechas}.`
         );
     }
@@ -250,9 +281,12 @@ module.exports = {
     bogotaDateKeyFromMs,
     bogotaMidnightUtcMsFromYmd,
     isSundayBogotaYmd,
+    isSaturdayBogotaYmd,
     isDomingoOFestivoBogotaYmd,
     isDiaRecargoDominicalBogotaYmd,
     splitHoursByBogotaDay,
+    RECARGO_PCT_MONTH_CUTOFF,
+    resolveDominicalCoeficientesText,
     buildHeDomingoPolicyText,
     sundayTierFromCount,
     sundayStatsForConsultantMonth,

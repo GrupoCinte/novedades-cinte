@@ -85,6 +85,56 @@ const COLABORADORES_EXTENDED_COLUMNS = [
     { key: 'iso_9001_contextualizacion', sqlType: 'TEXT', label: 'Contextualización ISO 9001' },
     { key: 'sgsti_descripcion', sqlType: 'TEXT', label: 'Sistema gestión seguridad de la información' },
     { key: 'iso_14001_ambiental', sqlType: 'TEXT', label: 'ISO 14001 ambiental' },
+    { key: 'tipo_servicio', sqlType: 'TEXT', label: 'Tipo de servicio' },
+    { key: 'tipo_ingreso', sqlType: 'TEXT', label: 'Tipo de ingreso' },
+    { key: 'duracion_servicio', sqlType: 'TEXT', label: 'Duración del servicio' },
+    { key: 'analista_at', sqlType: 'TEXT', label: 'Analista AT' },
+    { key: 'tarifa_promedio_mes', sqlType: 'NUMERIC(18,2)', label: 'Tarifa promedio / mes' },
+    { key: 'venta_total', sqlType: 'NUMERIC(18,2)', label: 'Venta total' },
+    { key: 'costos_personal', sqlType: 'NUMERIC(18,2)', label: 'Costos personal' },
+    { key: 'otros_costos', sqlType: 'NUMERIC(18,2)', label: 'Otros costos' },
+    { key: 'facturar_servicio_a', sqlType: 'TEXT', label: 'Facturar servicio a' },
+    { key: 'consideraciones_financieras', sqlType: 'TEXT', label: 'Consideraciones financieras' },
+    { key: 'clasificacion_candidato', sqlType: 'TEXT', label: 'Clasificación candidato' },
+    { key: 'segundo_idioma', sqlType: 'TEXT', label: 'Segundo idioma' },
+    { key: 'telefono_fijo', sqlType: 'TEXT', label: 'Teléfono fijo' },
+    { key: 'emergencia_1_nombre', sqlType: 'TEXT', label: 'Emergencia 1 — nombre' },
+    { key: 'emergencia_1_parentesco', sqlType: 'TEXT', label: 'Emergencia 1 — parentesco' },
+    { key: 'emergencia_1_telefono', sqlType: 'TEXT', label: 'Emergencia 1 — teléfono' },
+    { key: 'emergencia_1_email', sqlType: 'TEXT', label: 'Emergencia 1 — e-mail' },
+    { key: 'emergencia_2_nombre', sqlType: 'TEXT', label: 'Emergencia 2 — nombre' },
+    { key: 'emergencia_2_parentesco', sqlType: 'TEXT', label: 'Emergencia 2 — parentesco' },
+    { key: 'emergencia_2_telefono', sqlType: 'TEXT', label: 'Emergencia 2 — teléfono' },
+    { key: 'emergencia_2_email', sqlType: 'TEXT', label: 'Emergencia 2 — e-mail' },
+    { key: 'perfil_cargo', sqlType: 'TEXT', label: 'Perfil del cargo' },
+    { key: 'ingreso_flexible', sqlType: 'TEXT', label: 'Ingreso flexible' },
+    { key: 'recargos_nocturnos', sqlType: 'TEXT', label: 'Recargos nocturnos' },
+    { key: 'otros_ingresos', sqlType: 'TEXT', label: 'Otros ingresos' },
+    { key: 'carga_prestacional', sqlType: 'TEXT', label: 'Carga prestacional aplicable' },
+    { key: 'ingreso_basico_letras', sqlType: 'TEXT', label: 'Ingreso básico en letras' },
+    { key: 'funciones_puesto', sqlType: 'TEXT', label: 'Funciones del puesto' },
+    { key: 'ejecucion_horario_no_habil', sqlType: 'TEXT', label: 'Ejecución horario no hábil' },
+    { key: 'horario_laboral', sqlType: 'TEXT', label: 'Horario laboral' },
+    { key: 'direccion_proyecto', sqlType: 'TEXT', label: 'Dirección del proyecto' },
+    { key: 'politica_viaticos', sqlType: 'TEXT', label: 'Política de viáticos' },
+    { key: 'consideraciones_gch', sqlType: 'TEXT', label: 'Consideraciones GCH' },
+    { key: 'consideraciones_gos', sqlType: 'TEXT', label: 'Consideraciones GOS' },
+    { key: 'contacto_focal_1_nombre', sqlType: 'TEXT', label: 'Focal 1 — nombre' },
+    { key: 'contacto_focal_1_cargo', sqlType: 'TEXT', label: 'Focal 1 — cargo' },
+    { key: 'contacto_focal_1_movil', sqlType: 'TEXT', label: 'Focal 1 — móvil' },
+    { key: 'contacto_focal_1_email', sqlType: 'TEXT', label: 'Focal 1 — e-mail' },
+    { key: 'contacto_focal_2_nombre', sqlType: 'TEXT', label: 'Focal 2 — nombre' },
+    { key: 'contacto_focal_2_cargo', sqlType: 'TEXT', label: 'Focal 2 — cargo' },
+    { key: 'contacto_focal_2_movil', sqlType: 'TEXT', label: 'Focal 2 — móvil' },
+    { key: 'contacto_focal_2_email', sqlType: 'TEXT', label: 'Focal 2 — e-mail' },
+    { key: 'contacto_admin_nombre', sqlType: 'TEXT', label: 'Contacto admin — nombre' },
+    { key: 'contacto_admin_cargo', sqlType: 'TEXT', label: 'Contacto admin — cargo' },
+    { key: 'contacto_admin_movil', sqlType: 'TEXT', label: 'Contacto admin — móvil' },
+    { key: 'contacto_admin_email', sqlType: 'TEXT', label: 'Contacto admin — e-mail' },
+    { key: 'requiere_pc', sqlType: 'TEXT', label: 'Requiere PC' },
+    { key: 'requiere_correo_corp', sqlType: 'TEXT', label: 'Requiere correo corporativo' },
+    { key: 'requiere_antivirus', sqlType: 'TEXT', label: 'Requiere antivirus' },
+    { key: 'requerimientos_dotacion', sqlType: 'TEXT', label: 'Requerimientos especiales dotación' },
     /** ISO 4217 por campo monetario extendido (COP | CLP | USD). Solo campos con monto informado. */
     { key: 'montos_divisa', sqlType: 'JSONB', label: 'Divisas montos' }
 ];
@@ -112,12 +162,14 @@ function normalizeExtendedFieldForDb(key, value) {
         return Number.isFinite(n) ? n : null;
     }
     if (t === 'INTEGER') {
-        const n = parseInt(String(value), 10);
+        const n = parseInt(String(value).replace(/[^\d-]/g, ''), 10);
         return Number.isFinite(n) ? n : null;
     }
     if (t === 'DATE') {
-        const s = String(value).trim().slice(0, 10);
-        return s || null;
+        const raw = String(value).trim();
+        if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+        // Fechas largas n8n se parsean en onboardingPromotionService; aquí omitimos basura.
+        return null;
     }
     if (t === 'JSONB') {
         if (value === null || value === '') return null;

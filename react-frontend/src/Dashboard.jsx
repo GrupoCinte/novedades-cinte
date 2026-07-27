@@ -1,7 +1,17 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, BarChart, Bar } from 'recharts';
-import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2, Filter, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Download, Eye, LayoutDashboard, Calendar, TrendingUp, Briefcase, BadgeCheck, Clock, Users, Activity, ChevronLeft, ChevronRight, Code2, Menu, FileText, FileImage, FileSpreadsheet, Bell, Home, Trash2 } from 'lucide-react';
+import NovedadesFiltersToolbar from './novedades/NovedadesFiltersToolbar.jsx';
+import NovedadesFiltersDrawer from './novedades/NovedadesFiltersDrawer.jsx';
+import { buildGestionTableDash, withNovedadesTabShellAliases } from './gestionTableDashTheme.js';
+import {
+    applyClientSideFilters,
+    buildFiltrosResumen,
+    creadoEnRangeForMonthIndex,
+    filtersToGestionParams,
+    filtersToNominaProcesarBody
+} from './novedades/novedadesFilters.js';
 import {
     getNovedadRule,
     NOVEDAD_TYPES,
@@ -20,24 +30,26 @@ import {
     formatHeSegmentListBogota
 } from './heNovedadBogotaClient.js';
 import { formatHeDomingoCompGestionResumen } from './heDomingoCompDisplay.js';
+import {
+    HE_TIPO_CANONICO,
+    HE_TIPO_CATALOGO_ORDEN,
+    formatHeTiposResumenParaItem,
+    formatHeTipoNovedadDisplay
+} from './novedadHeTipoCatalog.js';
 import { parseMontoCOPInput, formatMontoCOPLocale } from './copMoneyFormat.js';
 import { useModuleTheme } from './moduleTheme.js';
 import AdminModuleSidebarBrand from './AdminModuleSidebarBrand.jsx';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
+import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
+import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
-/** Primer y último día (YYYY-MM-DD) del mes 0–11 en `year`, para filtros de creación en Gestión. */
-function creadoEnRangeForMonthIndex(monthIndex, year) {
-    const mi = Number(monthIndex);
-    if (!Number.isFinite(mi) || mi < 0 || mi > 11) return { desde: '', hasta: '' };
-    const y = Number(year);
-    if (!Number.isFinite(y)) return { desde: '', hasta: '' };
-    const pad = (n) => String(n).padStart(2, '0');
-    const lastDay = new Date(y, mi + 1, 0).getDate();
-    return {
-        desde: `${y}-${pad(mi + 1)}-01`,
-        hasta: `${y}-${pad(mi + 1)}-${pad(lastDay)}`
-    };
-}
+const NOVEDADES_FILTER_TABS = new Set([
+    'DashboardGeneral',
+    'Calendario',
+    'Análisis Avanzado',
+    'Gestión',
+    'Alertas HE'
+]);
 
 /** Gestión / UI: tipo compensatorio por votación (jurado). */
 function esTipoCompensatorioVotacionJurado(tipo) {
@@ -53,12 +65,6 @@ function esTipoDisponibilidadConMontoDiligenciado(item) {
     if (!item) return false;
     const rule = getNovedadRule(item.tipoNovedad);
     return Boolean(rule?.montoDiligenciadoPorAprobador);
-}
-
-/** Si el dashboard tiene `fMes` seleccionado, Gestión usa rango de creado_en en el año actual (no equivale a getItemDate del dashboard). */
-function creadoEnRangeForDashboardMesFilter(fMesStr, year = new Date().getFullYear()) {
-    if (fMesStr === '' || fMesStr == null) return { desde: '', hasta: '' };
-    return creadoEnRangeForMonthIndex(Number(fMesStr), year);
 }
 
 /** Texto visible en selects de GP: solo nombre de directorio, sin correo. */
@@ -151,28 +157,13 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     const dash = useMemo(() => {
         const L = isLight;
-        const card = L
-            ? 'rounded-2xl border border-slate-200 bg-white shadow-md'
-            : 'rounded-2xl border border-slate-700/50 bg-[#1e293b] shadow-lg';
+        const g = withNovedadesTabShellAliases(buildGestionTableDash(L));
         return {
-            card,
-            cardFlex: `${card} flex flex-col h-full overflow-hidden`,
-            filterBar: L
-                ? 'flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-md'
-                : 'flex flex-col gap-3 rounded-2xl border border-slate-700/50 bg-[#1e293b] px-5 py-4 shadow-lg',
-            titleXl: L ? 'text-xl font-bold text-slate-900' : 'text-xl font-bold text-white',
-            titleLg: L ? 'text-lg font-bold text-slate-900' : 'text-lg font-bold text-white',
-            title2xl: L ? 'text-2xl font-bold text-slate-900' : 'text-2xl font-bold text-white',
+            ...g,
             title3xl: L ? 'text-3xl font-bold text-slate-900' : 'text-3xl font-bold text-white',
-            muted: L ? 'text-slate-600' : 'text-slate-400',
-            mutedSm: L ? 'text-sm text-slate-600' : 'text-sm text-slate-400',
-            labelUpper: L ? 'text-xs font-bold uppercase tracking-widest text-slate-500' : 'text-xs font-bold uppercase tracking-widest text-slate-400',
-            labelFilter: L ? 'text-xs font-semibold uppercase tracking-wider text-slate-600' : 'text-xs font-semibold uppercase tracking-wider text-slate-500',
-            divider: L ? 'h-px flex-1 min-w-[1rem] bg-slate-200' : 'h-px flex-1 min-w-[1rem] bg-slate-700/50',
             clearBtn: L
                 ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-50 px-3 py-1.5 text-xs text-slate-600 transition-all hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600'
                 : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition-all hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400',
-            kpiSub: L ? 'text-sm font-medium text-slate-600' : 'text-sm font-medium text-slate-400',
             legendLine: L ? 'text-slate-600' : 'text-slate-300',
             legendDash: L ? 'text-slate-500' : 'text-slate-400',
             avatarRing: L ? 'border-2 border-white bg-slate-300 text-[10px] font-bold text-slate-700' : 'border-2 border-[#1e293b] bg-slate-600 text-[10px] font-bold text-slate-300',
@@ -192,57 +183,10 @@ export default function Dashboard({ token, auth, onLogout }) {
                 ? 'rounded-lg border border-slate-200 bg-slate-100 px-3 py-1 text-sm font-bold text-slate-700'
                 : 'rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-sm font-bold text-slate-300',
             nameEmpl: L ? 'font-medium text-slate-900' : 'font-medium text-slate-200',
-            gestionHead: L ? 'border-b border-slate-200 bg-white' : 'border-b border-slate-700/50 bg-[#1e293b]',
-            tableWrap: L ? 'flex w-full min-h-0 flex-1 flex-col bg-slate-50' : 'flex w-full min-h-0 flex-1 flex-col bg-[#0f172a]/50',
-            thead: L
-                ? 'sticky top-0 z-10 border-b border-slate-200 bg-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-600 shadow-sm'
-                : 'sticky top-0 z-10 border-b border-slate-700/50 bg-[#1e293b] text-xs font-semibold uppercase tracking-wider text-slate-400 shadow-sm',
-            tbody: L ? 'divide-y divide-slate-200 text-sm text-slate-800' : 'divide-y divide-slate-700/50 text-sm',
-            trHover: L ? 'transition-colors hover:bg-slate-100' : 'transition-colors hover:bg-slate-800/80',
-            tdDate: L ? 'p-4 pl-6 text-slate-500' : 'p-4 pl-6 text-slate-400',
-            tdName: L ? 'p-4 font-semibold text-slate-900' : 'p-4 font-semibold text-slate-200',
             tdCell: L ? 'p-4 text-slate-700' : 'p-4 text-slate-300',
-            tdMuted: L ? 'p-4 text-slate-500' : 'p-4 text-slate-400',
             tdSmall: L ? 'text-xs text-slate-500' : 'text-xs text-slate-500',
             tdEmphasis: L ? 'break-all font-medium text-slate-900' : 'break-all font-medium text-slate-100',
             tdLead: L ? 'block break-words leading-snug text-slate-800' : 'block break-words leading-snug text-slate-200',
-            footerBar: L
-                ? 'flex items-center justify-between border-t border-slate-200 bg-white px-4 py-3 text-xs text-slate-600'
-                : 'flex items-center justify-between border-t border-slate-700/50 bg-[#1e293b] px-4 py-3 text-xs text-slate-300',
-            actionBtn: L
-                ? 'flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1 text-xs font-medium text-slate-700 shadow-sm transition-all hover:border-sky-400 hover:bg-sky-50 hover:text-sky-800'
-                : 'flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300 shadow-sm transition-all hover:border-blue-500/50 hover:bg-blue-600/20 hover:text-blue-400',
-            borrarFiltros: L
-                ? 'rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 transition-all hover:bg-slate-100'
-                : 'rounded-lg border border-slate-600 px-3 py-2 text-sm text-slate-300 transition-all hover:bg-slate-700/60',
-            filtrosAvanzadosBtn: L
-                ? 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-600/35 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-900 shadow-sm transition-all hover:bg-cyan-100'
-                : 'inline-flex shrink-0 items-center gap-2 rounded-xl border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm font-semibold text-cyan-100 shadow-sm transition-all hover:bg-cyan-500/20',
-            filtrosPanelMobile: L
-                ? 'grid max-h-[min(70vh,28rem)] grid-cols-1 gap-3 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 shadow-inner md:max-h-none md:grid-cols-2 md:overflow-visible xl:grid-cols-3'
-                : 'grid max-h-[min(70vh,28rem)] grid-cols-1 gap-3 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900/40 p-3 shadow-inner md:max-h-none md:grid-cols-2 md:overflow-visible xl:grid-cols-3',
-            filtrosDrawerBackdrop: L
-                ? 'fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm animate-in fade-in duration-200'
-                : 'fixed inset-0 z-40 bg-[#0f172a]/70 backdrop-blur-sm animate-in fade-in duration-200',
-            filtrosDrawerPanel: L
-                ? 'fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl animate-in slide-in-from-right duration-200'
-                : 'fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-sm flex-col border-l border-slate-700 bg-[#1e293b] shadow-2xl animate-in slide-in-from-right duration-200',
-            filtrosDrawerHeader: L
-                ? 'flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4'
-                : 'flex items-center justify-between gap-3 border-b border-slate-700/60 px-5 py-4',
-            filtrosDrawerBody: 'flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4',
-            filtrosDrawerFooter: L
-                ? 'flex items-center justify-between gap-3 border-t border-slate-200 px-5 py-4'
-                : 'flex items-center justify-between gap-3 border-t border-slate-700/60 px-5 py-4',
-            filtrosDrawerLabel: L
-                ? 'text-xs font-semibold uppercase tracking-wider text-slate-600'
-                : 'text-xs font-semibold uppercase tracking-wider text-slate-300',
-            filtrosDrawerCta: L
-                ? 'rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#004D87]'
-                : 'rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#004D87]',
-            filtrosChip: L
-                ? 'inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-lg border border-slate-300 bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700'
-                : 'inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-lg border border-slate-600 bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300',
             emptyHe: L ? 'rounded-xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600' : 'rounded-xl border border-slate-700 bg-slate-900/40 p-6 text-sm text-slate-400',
             calShell: L
                 ? 'animate-in fade-in zoom-in-95 flex h-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white pb-20 shadow-md duration-300'
@@ -274,8 +218,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                 : 'rounded-xl border border-slate-600 bg-[#0f172a] px-4 py-3 text-sm shadow-xl',
             riesgoNombre: L ? 'text-sm font-bold leading-tight text-slate-900' : 'text-sm font-bold leading-tight text-slate-200',
             modalBackdrop: L
-                ? 'fixed inset-0 z-50 flex animate-in items-center justify-center bg-slate-900/40 p-4 backdrop-blur fade-in duration-200'
-                : 'fixed inset-0 z-50 flex animate-in items-center justify-center bg-[#0f172a]/90 p-4 backdrop-blur fade-in duration-200',
+                ? 'fixed inset-0 z-[240] flex animate-in items-center justify-center bg-slate-900/40 p-4 backdrop-blur fade-in duration-200'
+                : 'fixed inset-0 z-[240] flex animate-in items-center justify-center bg-[#0f172a]/90 p-4 backdrop-blur fade-in duration-200',
             modalCard: L
                 ? 'relative flex w-full min-w-0 max-w-4xl flex-col overflow-x-hidden rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]'
                 : 'relative flex w-full min-w-0 max-w-4xl flex-col overflow-x-hidden rounded-2xl border border-slate-700 bg-[#1e293b] p-6 shadow-2xl animate-in zoom-in-95 duration-200 md:max-h-[88vh]',
@@ -378,6 +322,12 @@ export default function Dashboard({ token, auth, onLogout }) {
         const rule = getNovedadRule(item.tipoNovedad);
         return Array.isArray(rule.approvers) && rule.approvers.includes(currentRole);
     };
+    const canMarkNominaProcesado = currentRole === 'nomina' || currentRole === 'super_admin' || currentRole === 'cac';
+    const canSelectItemForNominaProcesado = (item) =>
+        canMarkNominaProcesado
+        && item?.estado === 'Aprobado'
+        && !item?.nominaProcesado
+        && Boolean(item?.id);
 
     // Calendar State
     const [currentMonth, setCurrentMonth] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
@@ -385,24 +335,23 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [calendarView, setCalendarView] = useState('monthly');
     const [currentDay, setCurrentDay] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()));
 
-    // Dashboard general — filtros
-    const [fMes, setFMes] = useState('');         // '' = todos, '0'-'11' = ene-dic
-    const [fClienteInicio, setFClienteInicio] = useState('');
     const [dashboardClientesList, setDashboardClientesList] = useState([]);
-    const [fTipoInicio, setFTipoInicio] = useState(''); // '' = todos los tipos
 
-    // Gestión table filters
+    // Filtros compartidos del módulo Novedades
     const [fTipo, setFTipo] = useState('');
     const [fEstado, setFEstado] = useState('');
     const [fNombre, setFNombre] = useState('');
     const [fCliente, setFCliente] = useState('');
     const [fCreadoDesde, setFCreadoDesde] = useState('');
     const [fCreadoHasta, setFCreadoHasta] = useState('');
-    const [fClienteCalendario, setFClienteCalendario] = useState('');
     /** Filtro por GP asociado (snapshot `novedades.gp_user_id`); solo efectivo para rol `super_admin` en API. */
     const [fGpUserId, setFGpUserId] = useState('');
     /** '' | '0'..'3' — franja de tiempo hasta decisión (KPI dashboard); ver `leadTimeBucket` en API. */
     const [fLeadTimeBucket, setFLeadTimeBucket] = useState('');
+    /** '' | 'si' | 'no' — capa procesado nómina (solo Gestión / API). */
+    const [fNominaProcesado, setFNominaProcesado] = useState('');
+    const [fFechaInicioDesde, setFFechaInicioDesde] = useState('');
+    const [fFechaInicioHasta, setFFechaInicioHasta] = useState('');
     const [gpFilterOptions, setGpFilterOptions] = useState([]);
     const isSuperAdminNovedades = currentRole === 'super_admin' || currentRole === 'cac';
     /** Temporal: ocultar el botón «Editar» en el modal de gestión (API PATCH sigue disponible). */
@@ -444,8 +393,13 @@ export default function Dashboard({ token, auth, onLogout }) {
      */
     const [gestionDispMontoInput, setGestionDispMontoInput] = useState('$ ');
     const [gestionDispMontoError, setGestionDispMontoError] = useState('');
-    /** Panel colapsable de filtros avanzados en Gestión (todos los tamaños de pantalla). */
-    const [gestionFiltersPanelOpen, setGestionFiltersPanelOpen] = useState(false);
+    const [gestionSelectedIds, setGestionSelectedIds] = useState(() => new Set());
+    const [gestionNominaSelectAllFiltered, setGestionNominaSelectAllFiltered] = useState(false);
+    const [gestionNominaEligibleTotal, setGestionNominaEligibleTotal] = useState(null);
+    const [gestionNominaModalOpen, setGestionNominaModalOpen] = useState(false);
+    const [gestionNominaBusy, setGestionNominaBusy] = useState(false);
+    /** Drawer lateral de filtros avanzados (compartido entre pestañas del módulo). */
+    const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
     const navigate = useNavigate();
     /** Evita parpadeo “se cayó el panel”: en refetch con datos ya cargados no forzar `listLoading`. */
     const novedadesListCountRef = useRef(0);
@@ -511,18 +465,22 @@ export default function Dashboard({ token, auth, onLogout }) {
         const { signal } = opts;
         setGestionLoading(true);
         try {
-            const params = {
-                page: String(page),
-                limit: String(limit)
-            };
-            if (fTipo) params.tipo = fTipo;
-            if (fEstado) params.estado = fEstado;
-            if (fNombre) params.nombre = fNombre;
-            if (fCliente) params.cliente = fCliente;
-            if (fCreadoDesde) params.createdFrom = fCreadoDesde;
-            if (fCreadoHasta) params.createdTo = fCreadoHasta;
-            if (fGpUserId) params.gpUserId = fGpUserId;
-            if (fLeadTimeBucket && /^[0-3]$/.test(fLeadTimeBucket)) params.leadTimeBucket = fLeadTimeBucket;
+            const params = filtersToGestionParams(
+                {
+                    fTipo,
+                    fEstado,
+                    fNombre,
+                    fCliente,
+                    fCreadoDesde,
+                    fCreadoHasta,
+                    fGpUserId,
+                    fLeadTimeBucket,
+                    fNominaProcesado,
+                    fFechaInicioDesde,
+                    fFechaInicioHasta
+                },
+                { page, limit }
+            );
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades?${query}`, {
                 credentials: 'include',
@@ -557,6 +515,9 @@ export default function Dashboard({ token, auth, onLogout }) {
         fCreadoHasta,
         fGpUserId,
         fLeadTimeBucket,
+        fNominaProcesado,
+        fFechaInicioDesde,
+        fFechaInicioHasta,
         token
     ]);
 
@@ -686,14 +647,6 @@ export default function Dashboard({ token, auth, onLogout }) {
         }
         return Array.isArray(calendarClientesList) ? calendarClientesList : [];
     }, [isSuperAdminNovedades, fGpUserId, dashboardClientesList, calendarClientesList]);
-
-    useEffect(() => {
-        if (!fClienteInicio) return;
-        const ok = dashboardClientesOptions.some(
-            (c) => String(c).trim().toLowerCase() === String(fClienteInicio).trim().toLowerCase()
-        );
-        if (!ok) setFClienteInicio('');
-    }, [dashboardClientesOptions, fClienteInicio]);
 
     useEffect(() => {
         if (!fCliente) return;
@@ -860,12 +813,14 @@ export default function Dashboard({ token, auth, onLogout }) {
             horasRecargoDomingo: String(it.horasRecargoDomingo ?? 0),
             horasRecargoDomingoDiurnas: String(it.horasRecargoDomingoDiurnas ?? 0),
             horasRecargoDomingoNocturnas: String(it.horasRecargoDomingoNocturnas ?? 0),
+            horasRecargoNocturno: String(it.horasRecargoNocturno ?? 0),
             tipoHoraExtra: it.tipoHoraExtra || '',
             montoCop: monto,
             estado: it.estado || 'Pendiente',
             heDomingoObservacion: it.heDomingoObservacion || '',
             observaciones: it.observaciones || '',
-            soporteRuta: sopRuta
+            soporteRuta: sopRuta,
+            mallaOrigenRef: it.mallaOrigenRef || ''
         };
     };
 
@@ -905,6 +860,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             horasRecargoDomingo: num(draft.horasRecargoDomingo),
             horasRecargoDomingoDiurnas: num(draft.horasRecargoDomingoDiurnas),
             horasRecargoDomingoNocturnas: num(draft.horasRecargoDomingoNocturnas),
+            horasRecargoNocturno: num(draft.horasRecargoNocturno),
             tipoHoraExtra: String(draft.tipoHoraExtra || '').trim() || null,
             montoCop,
             estado: String(draft.estado || 'Pendiente').trim(),
@@ -1119,19 +1075,50 @@ export default function Dashboard({ token, auth, onLogout }) {
         return new Date(NaN);
     };
 
-    // Ítems visibles en Dashboard general (mes + tipo + cliente; el alcance por rol viene de `items` / API)
-    const dashItems = useMemo(() => items.filter((it) => {
-        const d = getItemDate(it);
-        if (isNaN(d.getTime())) return true;
-        if (fMes !== '' && d.getMonth() !== Number(fMes)) return false;
-        if (fTipoInicio !== '' && it.tipoNovedad !== fTipoInicio) return false;
-        if (fClienteInicio !== '') {
-            const a = String(it.cliente || '').trim().toLowerCase();
-            const b = String(fClienteInicio).trim().toLowerCase();
-            if (a !== b) return false;
+    // Ítems visibles en Dashboard general, Calendario y Análisis (filtros compartidos; GP vía API en `items`)
+    const moduleFilters = useMemo(() => ({
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket,
+        fNominaProcesado,
+        fFechaInicioDesde,
+        fFechaInicioHasta
+    }), [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket, fNominaProcesado, fFechaInicioDesde, fFechaInicioHasta]);
+
+    const dashItems = useMemo(
+        () => applyClientSideFilters(items, moduleFilters),
+        [items, moduleFilters]
+    );
+
+    const tipoFilterOptions = useMemo(() => {
+        const set = new Set(NOVEDAD_TYPES);
+        for (const it of items) {
+            if (it?.tipoNovedad) set.add(it.tipoNovedad);
         }
-        return true;
-    }), [items, fMes, fTipoInicio, fClienteInicio]);
+        return [...set].sort((a, b) => a.localeCompare(b, 'es'));
+    }, [items]);
+
+    const novedadesFiltrosResumen = useMemo(
+        () => buildFiltrosResumen(moduleFilters),
+        [moduleFilters]
+    );
+
+    const handleNovedadesFilterChange = useCallback((patch) => {
+        if (Object.prototype.hasOwnProperty.call(patch, 'fTipo')) setFTipo(patch.fTipo);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fEstado')) setFEstado(patch.fEstado);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fCliente')) setFCliente(patch.fCliente);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fCreadoDesde')) setFCreadoDesde(patch.fCreadoDesde);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fCreadoHasta')) setFCreadoHasta(patch.fCreadoHasta);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fGpUserId')) setFGpUserId(patch.fGpUserId);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fNominaProcesado')) setFNominaProcesado(patch.fNominaProcesado);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fFechaInicioDesde')) setFFechaInicioDesde(patch.fFechaInicioDesde);
+        if (Object.prototype.hasOwnProperty.call(patch, 'fFechaInicioHasta')) setFFechaInicioHasta(patch.fFechaInicioHasta);
+    }, []);
 
     // ── Data Processing (based on dashItems) ─────────────────────────────────
     // 1. Top 5 Empleados
@@ -1153,47 +1140,6 @@ export default function Dashboard({ token, auth, onLogout }) {
     const typeData = Object.keys(typeDataMap).map(k => ({ name: k, value: typeDataMap[k] }));
     const typeDataSorted = useMemo(() => [...typeData].sort((a, b) => b.value - a.value), [typeData]);
     const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
-
-    const gestionFiltrosResumen = useMemo(() => {
-        const parts = [];
-        let n = 0;
-        if (String(fTipo || '').trim()) {
-            n += 1;
-            parts.push(`Tipo: ${fTipo}`);
-        }
-        if (String(fEstado || '').trim()) {
-            n += 1;
-            parts.push(`Estado: ${fEstado}`);
-        }
-        const nom = String(fNombre || '').trim();
-        if (nom) {
-            n += 1;
-            parts.push(nom.length > 22 ? `${nom.slice(0, 20)}…` : nom);
-        }
-        if (String(fCliente || '').trim()) {
-            n += 1;
-            const c = fCliente;
-            parts.push(c.length > 26 ? `${c.slice(0, 24)}…` : c);
-        }
-        if (String(fCreadoDesde || '').trim() || String(fCreadoHasta || '').trim()) {
-            n += 1;
-            parts.push('Rango fechas');
-        }
-        if (String(fGpUserId || '').trim()) {
-            n += 1;
-            parts.push('GP');
-        }
-        if (String(fLeadTimeBucket || '').trim() && /^[0-3]$/.test(fLeadTimeBucket)) {
-            const leadLabels = ['≤24 h', '1–3 d', '3–7 d', '>7 d'];
-            n += 1;
-            parts.push(`Tiempo decisión: ${leadLabels[Number(fLeadTimeBucket)] || fLeadTimeBucket}`);
-        }
-        const head = parts.slice(0, 2).join(', ');
-        const more = parts.length > 2 ? '…' : '';
-        const chipLabel =
-            n === 0 ? 'Sin filtros activos' : `${n} filtro${n === 1 ? '' : 's'} activo${n === 1 ? '' : 's'}${head ? ` (${head}${more})` : ''}`;
-        return { chipLabel };
-    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket]);
 
     // 3. Monitor de Tendencia – agrupa dashItems por mes del año en curso
     const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -1225,39 +1171,22 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [dashItems]);
 
     /**
-     * Abre Gestión aplicando filtros; rango creado_en solo si se pasan creadoDesde/creadoHasta o si hay fMes en el dashboard.
-     * Nota: en Gestión el rango es sobre creado_en; el filtro Mes del dashboard usa getItemDate (puede diferir).
+     * Abre Gestión aplicando filtros compartidos del módulo.
      */
     const navigateGestionWithDashboardFilters = useCallback((partial = {}) => {
-        const nextTipo = Object.prototype.hasOwnProperty.call(partial, 'tipo') ? partial.tipo : fTipoInicio;
-        const nextCliente = Object.prototype.hasOwnProperty.call(partial, 'cliente') ? partial.cliente : fClienteInicio;
-        const nextNombre = Object.prototype.hasOwnProperty.call(partial, 'nombre') ? partial.nombre : '';
-        const nextEstado = Object.prototype.hasOwnProperty.call(partial, 'estado') ? partial.estado : '';
-        const nextLeadTimeBucket = Object.prototype.hasOwnProperty.call(partial, 'leadTimeBucket')
-            ? String(partial.leadTimeBucket ?? '').trim()
-            : '';
-
-        let desde = '';
-        let hasta = '';
-        if (Object.prototype.hasOwnProperty.call(partial, 'creadoDesde') && Object.prototype.hasOwnProperty.call(partial, 'creadoHasta')) {
-            desde = partial.creadoDesde;
-            hasta = partial.creadoHasta;
-        } else if (fMes !== '') {
-            const r = creadoEnRangeForDashboardMesFilter(fMes);
-            desde = r.desde;
-            hasta = r.hasta;
+        if (Object.prototype.hasOwnProperty.call(partial, 'tipo')) setFTipo(partial.tipo || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'cliente')) setFCliente(partial.cliente || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'nombre')) setFNombre(partial.nombre || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'estado')) setFEstado(partial.estado || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'leadTimeBucket')) {
+            const b = String(partial.leadTimeBucket ?? '').trim();
+            setFLeadTimeBucket(b && /^[0-3]$/.test(b) ? b : '');
         }
-
-        setFTipo(nextTipo || '');
-        setFCliente(nextCliente || '');
-        setFNombre(nextNombre || '');
-        setFEstado(nextEstado || '');
-        setFLeadTimeBucket(nextLeadTimeBucket && /^[0-3]$/.test(nextLeadTimeBucket) ? nextLeadTimeBucket : '');
-        setFCreadoDesde(desde);
-        setFCreadoHasta(hasta);
+        if (Object.prototype.hasOwnProperty.call(partial, 'creadoDesde')) setFCreadoDesde(partial.creadoDesde || '');
+        if (Object.prototype.hasOwnProperty.call(partial, 'creadoHasta')) setFCreadoHasta(partial.creadoHasta || '');
         setCurrentPage(1);
         setActiveTab('Gestión');
-    }, [fTipoInicio, fClienteInicio, fMes]);
+    }, []);
 
     const MS_DAY = 86400000;
     /**
@@ -1310,16 +1239,21 @@ export default function Dashboard({ token, auth, onLogout }) {
         [horaExtraAlerts]
     );
 
+    const filteredAlertItems = useMemo(
+        () => applyClientSideFilters(alertItems, { ...moduleFilters, fNombre: '' }),
+        [alertItems, moduleFilters]
+    );
+
     /** Solo alertas por exceso de topes; la política de domingo no se muestra aquí (sigue en Excel). */
     const alertDisplayCards = useMemo(() => {
         const cards = [];
-        for (const it of alertItems) {
+        for (const it of filteredAlertItems) {
             const hasExcess = (Array.isArray(it.dailyReasons) && it.dailyReasons.length > 0)
                 || (Array.isArray(it.monthlyReasons) && it.monthlyReasons.length > 0);
             if (hasExcess) cards.push({ key: `excess-${it.id}`, it });
         }
         return cards;
-    }, [alertItems]);
+    }, [filteredAlertItems]);
 
     const alertasHeCount = alertDisplayCards.length;
     const alertasHeBadgeText = alertasHeCount > 99 ? '99+' : String(alertasHeCount);
@@ -1403,14 +1337,14 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket, pageSize]);
+    }, [fTipo, fEstado, fNombre, fCliente, fCreadoDesde, fCreadoHasta, fGpUserId, fLeadTimeBucket, fNominaProcesado, fFechaInicioDesde, fFechaInicioHasta, pageSize]);
     useEffect(() => {
         if (currentPage > totalPages) {
             setCurrentPage(totalPages);
         }
     }, [currentPage, totalPages]);
 
-    const pendientesCount = items.filter(i => i.estado === 'Pendiente').length;
+    const pendientesCount = dashItems.filter(i => i.estado === 'Pendiente').length;
 
     // --- CALENDAR LOGIC ---
     const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
@@ -1450,10 +1384,10 @@ export default function Dashboard({ token, auth, onLogout }) {
         return dates;
     };
 
-    const calendarSourceItems = useMemo(() => {
-        if (!fClienteCalendario) return items;
-        return items.filter((it) => String(it.cliente || '').trim() === fClienteCalendario);
-    }, [items, fClienteCalendario]);
+    const calendarSourceItems = useMemo(
+        () => applyClientSideFilters(items, moduleFilters),
+        [items, moduleFilters]
+    );
 
     const itemsByDate = calendarSourceItems.reduce((acc, it) => {
         const startDate = it.fechaInicio || toIsoDate(it.creadoEn);
@@ -1493,15 +1427,19 @@ export default function Dashboard({ token, auth, onLogout }) {
 
     const exportExcel = async () => {
         try {
-            const params = {};
-            if (fTipo) params.tipo = fTipo;
-            if (fEstado) params.estado = fEstado;
-            if (fNombre) params.nombre = fNombre;
-            if (fCliente) params.cliente = fCliente;
-            if (fCreadoDesde) params.createdFrom = fCreadoDesde;
-            if (fCreadoHasta) params.createdTo = fCreadoHasta;
-            if (fGpUserId) params.gpUserId = fGpUserId;
-            if (fLeadTimeBucket && /^[0-3]$/.test(fLeadTimeBucket)) params.leadTimeBucket = fLeadTimeBucket;
+            const params = filtersToGestionParams({
+                fTipo,
+                fEstado,
+                fNombre,
+                fCliente,
+                fCreadoDesde,
+                fCreadoHasta,
+                fGpUserId,
+                fLeadTimeBucket,
+                fNominaProcesado,
+                fFechaInicioDesde,
+                fFechaInicioHasta
+            });
             const query = new URLSearchParams(params).toString();
             const res = await fetch(`/api/novedades/export-excel?${query}`, {
                 headers: { Authorization: `Bearer ${token}` }
@@ -1528,7 +1466,156 @@ export default function Dashboard({ token, auth, onLogout }) {
         }
     };
 
-    const clearGestionFilters = () => {
+    const gestionSelectableOnPage = useMemo(
+        () => pagedItems.filter((it) => canSelectItemForNominaProcesado(it)),
+        [pagedItems, canMarkNominaProcesado]
+    );
+
+    const clearGestionNominaSelection = useCallback(() => {
+        setGestionSelectedIds(new Set());
+        setGestionNominaSelectAllFiltered(false);
+        setGestionNominaEligibleTotal(null);
+    }, []);
+
+    const gestionNominaHasSelection = gestionNominaSelectAllFiltered || gestionSelectedIds.size > 0;
+
+    useEffect(() => {
+        clearGestionNominaSelection();
+    }, [
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket,
+        fNominaProcesado,
+        fFechaInicioDesde,
+        fFechaInicioHasta,
+        clearGestionNominaSelection
+    ]);
+
+    useEffect(() => {
+        if (!gestionNominaSelectAllFiltered) {
+            setGestionNominaEligibleTotal(null);
+            return undefined;
+        }
+        const ac = new AbortController();
+        (async () => {
+            try {
+                const params = filtersToGestionParams(
+                    {
+                        fTipo,
+                        fEstado,
+                        fNombre,
+                        fCliente,
+                        fCreadoDesde,
+                        fCreadoHasta,
+                        fGpUserId,
+                        fLeadTimeBucket,
+                        fNominaProcesado: 'no',
+                        fFechaInicioDesde,
+                        fFechaInicioHasta
+                    },
+                    { page: 1, limit: 1 }
+                );
+                params.estado = 'Aprobado';
+                params.nominaProcesado = 'no';
+                const res = await fetch(`/api/novedades?${new URLSearchParams(params)}`, {
+                    credentials: 'include',
+                    headers: { Authorization: `Bearer ${token}` },
+                    signal: ac.signal
+                });
+                if (!res.ok) throw new Error('count_failed');
+                const data = await res.json();
+                setGestionNominaEligibleTotal(Number(data?.pagination?.total ?? 0));
+            } catch {
+                if (!ac.signal.aborted) setGestionNominaEligibleTotal(null);
+            }
+        })();
+        return () => ac.abort();
+    }, [
+        gestionNominaSelectAllFiltered,
+        fTipo,
+        fEstado,
+        fNombre,
+        fCliente,
+        fCreadoDesde,
+        fCreadoHasta,
+        fGpUserId,
+        fLeadTimeBucket,
+        fNominaProcesado,
+        fFechaInicioDesde,
+        fFechaInicioHasta,
+        token
+    ]);
+
+    const toggleGestionSelectId = (id) => {
+        const sid = String(id || '');
+        if (!sid) return;
+        setGestionNominaSelectAllFiltered(false);
+        setGestionNominaEligibleTotal(null);
+        setGestionSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(sid)) next.delete(sid);
+            else next.add(sid);
+            return next;
+        });
+    };
+
+    const toggleGestionSelectAllFiltered = () => {
+        if (gestionNominaSelectAllFiltered) {
+            setGestionNominaSelectAllFiltered(false);
+            setGestionNominaEligibleTotal(null);
+            return;
+        }
+        setGestionSelectedIds(new Set());
+        setGestionNominaSelectAllFiltered(true);
+    };
+
+    const submitNominaProcesado = async () => {
+        if (!gestionNominaSelectAllFiltered && !gestionSelectedIds.size) return;
+        setGestionNominaBusy(true);
+        setStateError(null);
+        try {
+            const body = gestionNominaSelectAllFiltered
+                ? {
+                    filters: filtersToNominaProcesarBody({
+                        fTipo,
+                        fEstado,
+                        fNombre,
+                        fCliente,
+                        fCreadoDesde,
+                        fCreadoHasta,
+                        fGpUserId,
+                        fLeadTimeBucket,
+                        fNominaProcesado: 'no',
+                        fFechaInicioDesde,
+                        fFechaInicioHasta
+                    })
+                }
+                : { ids: [...gestionSelectedIds] };
+            const res = await fetch('/api/novedades/nomina-procesar', {
+                method: 'POST',
+                credentials: 'include',
+                headers: gestionAdminHeaders(),
+                body: JSON.stringify(body)
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data?.error || 'No se pudo marcar procesado nómina');
+            setGestionNominaModalOpen(false);
+            clearGestionNominaSelection();
+            await loadGestionData(safePage, pageSize);
+            await loadData();
+        } catch (err) {
+            setStateError(err?.message || 'Error al marcar procesado nómina');
+        } finally {
+            setGestionNominaBusy(false);
+        }
+    };
+
+    const clearNovedadesFilters = () => {
         setFTipo('');
         setFEstado('');
         setFNombre('');
@@ -1537,6 +1624,9 @@ export default function Dashboard({ token, auth, onLogout }) {
         setFCreadoHasta('');
         setFGpUserId('');
         setFLeadTimeBucket('');
+        setFNominaProcesado('');
+        setFFechaInicioDesde('');
+        setFFechaInicioHasta('');
         setCurrentPage(1);
     };
 
@@ -1564,48 +1654,20 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [activeTab, navItems]);
 
     useEffect(() => {
-        if (activeTab !== 'Gestión') setGestionFiltersPanelOpen(false);
+        setFiltersPanelOpen(false);
     }, [activeTab]);
 
-    /** Tecla Escape cierra el drawer de filtros avanzados (módulo Gestión). */
+    /** Tecla Escape cierra el drawer de filtros avanzados. */
     useEffect(() => {
-        if (!gestionFiltersPanelOpen) return undefined;
+        if (!filtersPanelOpen) return undefined;
         const onKey = (e) => {
             if (e.key === 'Escape' || e.key === 'Esc') {
-                setGestionFiltersPanelOpen(false);
+                setFiltersPanelOpen(false);
             }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [gestionFiltersPanelOpen]);
-
-    const superAdminGpSelect = isSuperAdminNovedades ? (
-        <div className="flex flex-wrap items-center gap-2">
-            <label htmlFor="dash-filtro-gp" className={`${dash.labelFilter} whitespace-nowrap`}>
-                Filtrar por GS
-            </label>
-            <select
-                id="dash-filtro-gp"
-                value={fGpUserId}
-                onChange={(e) => setFGpUserId(e.target.value)}
-                className={`${fieldInput} min-w-[10rem] max-w-[18rem] cursor-pointer py-1.5 text-sm`}
-                title="Clientes asignados a este usuario GP en el catálogo directorio"
-            >
-                <option value="">Todos los GP</option>
-                <option value="__null__">Cliente sin GP en catálogo</option>
-                {gpFilterOptions.map((g) => {
-                    const id = String(g.id || '');
-                    const label = labelGpDirectorioOption(g);
-                    return (
-                        <option key={id || label} value={id}>
-                            {label}
-                            {g.is_active === false ? ' (inactivo)' : ''}
-                        </option>
-                    );
-                })}
-            </select>
-        </div>
-    ) : null;
+    }, [filtersPanelOpen]);
 
     return (
         <div className={shell}>
@@ -1613,7 +1675,7 @@ export default function Dashboard({ token, auth, onLogout }) {
             {/* ───────── MOBILE SIDEBAR ───────── */}
             <button
                 onClick={() => setMobileMenuOpen(true)}
-                className={`md:hidden fixed top-16 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
+                className={`md:hidden fixed top-4 left-4 z-40 w-10 h-10 flex items-center justify-center shadow-lg ${menuFab}`}
                 aria-label="Abrir menú"
             >
                 <Menu size={18} />
@@ -1625,7 +1687,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                 />
             )}
             <aside
-                className={`md:hidden fixed top-0 left-0 h-full w-72 z-50 shadow-2xl transform transition-transform duration-300 font-body ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col shadow-2xl transform font-body transition-transform duration-300 ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
                     }`}
             >
                 <AdminModuleSidebarBrand
@@ -1649,7 +1711,15 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </button>
                     )}
                 />
-                <nav className="p-3 flex flex-col gap-2">
+                <AdminModuleSidebarUser
+                    sidebarOpen
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
+                <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
                     <button
                         type="button"
                         onClick={() => {
@@ -1685,17 +1755,25 @@ export default function Dashboard({ token, auth, onLogout }) {
                         );
                     })}
                 </nav>
-                <div className={`mt-auto p-4 ${asideFooterBorder}`}>
-                    <p className={`text-[10px] font-body font-black truncate ${email}`}>{currentEmail}</p>
-                    <p className="text-[10px] text-[#65BCF7] font-body font-semibold uppercase">{currentRoleLabel}</p>
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    chatCtx={{
+                        pendientesCount,
+                        totalItems: items.length,
+                        dashItems: dashItems.length,
+                        role: currentRole
+                    }}
+                />
             </aside>
 
             {/* ───────── SIDEBAR COLAPSABLE ───────── */}
             <aside
                 className={`
-                    flex-shrink-0 flex-col hidden md:flex h-full shadow-2xl relative z-10 font-body
-                    transition-all duration-300 ease-in-out overflow-hidden
+                    relative z-10 hidden h-full flex-shrink-0 flex-col overflow-visible font-body shadow-2xl transition-all duration-300 ease-in-out md:flex
                     ${aside}
                     ${sidebarOpen ? 'w-64' : 'w-16'}
                 `}
@@ -1725,8 +1803,16 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </button>
                     )}
                 />
+                <AdminModuleSidebarUser
+                    sidebarOpen={sidebarOpen}
+                    currentEmail={currentEmail}
+                    currentRoleLabel={currentRoleLabel}
+                    emailClass={email}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                />
 
-                <nav className="flex flex-col gap-1 p-2 flex-1 mt-1">
+                <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
                     <button
                         type="button"
                         onClick={() => navigate('/admin')}
@@ -1780,127 +1866,41 @@ export default function Dashboard({ token, auth, onLogout }) {
                     })}
                 </nav>
 
-                <div className={`border-t ${borderSubtle} ${sidebarOpen ? 'p-4' : 'p-2'}`}>
-                    {sidebarOpen ? (
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center flex-shrink-0">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                                <div className="overflow-hidden">
-                                    <p className={`text-[10px] font-body font-black whitespace-nowrap leading-tight truncate ${email}`}>{currentEmail}</p>
-                                    <p className="text-[9px] text-[#65BCF7] font-body font-semibold whitespace-nowrap leading-tight">{currentRoleLabel}</p>
-                                </div>
-                            </div>
-                            <p className={`text-[9px] font-body font-bold uppercase tracking-widest text-center border-t pt-2 ${mt.isLight ? 'text-slate-400 border-slate-200' : 'text-slate-600 border-[#1a3a56]/50'}`}>
-                                Grupo CINTE · V2.0
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center gap-2 py-1">
-                            <div className="flex justify-center" title={`${currentEmail} - ${currentRoleLabel}`}>
-                                <div className="w-7 h-7 rounded-lg bg-[#2F7BB8]/20 border border-[#2F7BB8]/30 flex items-center justify-center">
-                                    <Code2 size={13} className="text-[#65BCF7]" />
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                </div>
+                <AdminModuleSidebarFooter
+                    auth={auth}
+                    onLogout={onLogout}
+                    sidebarOpen={sidebarOpen}
+                    borderSubtle={borderSubtle}
+                    isLight={isLight}
+                    chatCtx={{
+                        pendientesCount,
+                        totalItems: items.length,
+                        dashItems: dashItems.length,
+                        role: currentRole
+                    }}
+                />
             </aside>
 
             {/* Main Content Area */}
-            <main className={`flex-1 overflow-y-auto p-4 pt-12 md:pt-6 md:p-6 relative scroll-smooth ${mainCanvas}`}>
+            <main className={`flex-1 overflow-y-auto p-4 pt-14 md:pt-6 md:p-6 relative scroll-smooth ${mainCanvas}`}>
 
                 {/* ---------- Dashboard general ---------- */}
                 {activeTab === 'DashboardGeneral' && canAccessPanel('dashboard') && (
-                    <div className="flex flex-col gap-5 animate-in fade-in duration-300 min-h-[calc(100vh-9.5rem)]">
+                    <div className={dash.novedadesTabShell}>
 
-                        {/* ── Filtros: período, cliente, tipo ── */}
-                        <div className={dash.filterBar}>
-
-                            <div className="flex flex-wrap items-center gap-3">
-                                <div className="flex items-center gap-2">
-                                    <Calendar size={16} className="text-blue-400" />
-                                    <span className={dash.labelUpper}>Filtros</span>
-                                </div>
-                                <div className={dash.divider} />
-
-                                {/* Mes */}
-                                <div className="flex items-center gap-2">
-                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Mes</label>
-                                    <select
-                                        value={fMes}
-                                        onChange={(e) => { setFMes(e.target.value); }}
-                                        className={`${fieldInput} cursor-pointer py-1.5 text-sm`}
-                                    >
-                                        <option value="">Todos los meses</option>
-                                        {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((m, i) => (
-                                            <option key={i} value={String(i)}>{m}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                {/* Cliente (alcance según rol; API acotada) */}
-                                <div className="flex items-center gap-2">
-                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Cliente</label>
-                                    <select
-                                        value={fClienteInicio}
-                                        onChange={(e) => setFClienteInicio(e.target.value)}
-                                        className={`${fieldInput} min-w-[10rem] max-w-[22rem] cursor-pointer py-1.5 text-sm`}
-                                    >
-                                        <option value="">Todos los clientes</option>
-                                        {dashboardClientesOptions.map((c) => (
-                                            <option key={c} value={c}>{c}</option>
-                                        ))}
-                                    </select>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    <label className={`${dash.labelFilter} whitespace-nowrap`}>Tipo</label>
-                                    <select
-                                        value={fTipoInicio}
-                                        onChange={(e) => setFTipoInicio(e.target.value)}
-                                        className={`${fieldInput} min-w-[12rem] max-w-[20rem] cursor-pointer py-1.5 text-sm`}
-                                    >
-                                        <option value="">Todos los tipos</option>
-                                        {NOVEDAD_TYPES.map((tipo) => {
-                                            const n = items.filter((i) => i.tipoNovedad === tipo).length;
-                                            return (
-                                                <option key={tipo} value={tipo} title={`${n} en el total cargado`}>
-                                                    {tipo}{n > 0 ? ` (${n})` : ''}
-                                                </option>
-                                            );
-                                        })}
-                                    </select>
-                                </div>
-
-                                {superAdminGpSelect ? (
-                                    <>
-                                        <div className={dash.divider} />
-                                        {superAdminGpSelect}
-                                    </>
-                                ) : null}
-
-                                {/* Botón limpiar */}
-                                {(fMes !== '' || fClienteInicio !== '' || fTipoInicio !== '' || fGpUserId !== '') && (
-                                    <button
-                                        type="button"
-                                        onClick={() => { setFMes(''); setFClienteInicio(''); setFTipoInicio(''); setFGpUserId(''); }}
-                                        className={dash.clearBtn}
-                                    >
-                                        <X size={12} /> Limpiar filtros
-                                    </button>
-                                )}
-
-                                {/* Badge de resultados */}
-                                <div className="ml-auto flex items-center gap-2">
-                                    <span className={`text-xs ${dash.muted}`}>Mostrando</span>
-                                    <span className="text-sm font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
-                                        {dashItems.length} de {items.length} registros
-                                    </span>
-                                </div>
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            dash={dash}
+                        >
+                            <div className="ml-auto flex items-center gap-2">
+                                <span className={`text-xs ${dash.muted}`}>Mostrando</span>
+                                <span className="text-sm font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2.5 py-0.5 rounded-full">
+                                    {dashItems.length} de {items.length} registros
+                                </span>
                             </div>
-                        </div>
+                        </NovedadesFiltersToolbar>
 
                         {(() => {
                             const d = auth?.devDb;
@@ -2018,7 +2018,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         </h3>
                                         <p className={`text-xs ${dash.muted} mt-1`}>
                                             {leadTimeStats.n > 0
-                                                ? `Tiempo entre la creación y la decisión (Aprobado o Rechazado). Base: ${leadTimeStats.n} novedades (${leadTimeStats.aprobadas} aprobadas + ${leadTimeStats.rechazadas} rechazadas).`
+                                                ? 'Tiempo entre la creación y la decisión (Aprobado o Rechazado).'
                                                 : 'No hay suficientes registros resueltos (Aprobado/Rechazado) para mostrar este indicador.'}
                                         </p>
                                     </div>
@@ -2251,7 +2251,7 @@ export default function Dashboard({ token, auth, onLogout }) {
 
                 {/* ---------- GESTIÓN ---------- */}
                 {activeTab === 'Gestión' && canAccessPanel('gestion') && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-2 flex flex-col h-[calc(100vh-8.5rem)] md:h-[calc(100vh-7.5rem)]">
+                    <div className={dash.novedadesTabShellFull}>
                         {/* Banner de error de acción */}
                         {stateError && (
                             <div
@@ -2272,61 +2272,85 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 </button>
                             </div>
                         )}
-                        <div className={dash.cardFlex}>
-                            <div className={`sticky top-0 z-20 p-4 ${dash.gestionHead}`}>
-                                <h2 className={`${dash.titleXl} mb-3 md:mb-4`}>Gestión Operativa de Novedades</h2>
-
-                                {/* Barra compacta + panel colapsable (todos los tamaños de pantalla) */}
-                                <div className="mb-2 flex flex-col gap-2 md:gap-3">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <span className={dash.filtrosChip} title={gestionFiltrosResumen.chipLabel}>
-                                            {gestionFiltrosResumen.chipLabel}
-                                        </span>
-                                        <button
-                                            type="button"
-                                            id="gestion-filtros-avanzados-toggle"
-                                            aria-expanded={gestionFiltersPanelOpen}
-                                            aria-controls="gestion-filtros-avanzados-panel"
-                                            onClick={() => setGestionFiltersPanelOpen((o) => !o)}
-                                            className={dash.filtrosAvanzadosBtn}
-                                        >
-                                            <Filter size={16} className="shrink-0 opacity-90" aria-hidden />
-                                            <span>Filtros avanzados</span>
-                                            {gestionFiltersPanelOpen ? (
-                                                <ChevronUp size={18} className="shrink-0 opacity-90" aria-hidden />
-                                            ) : (
-                                                <ChevronDown size={18} className="shrink-0 opacity-90" aria-hidden />
-                                            )}
-                                        </button>
-                                        <input
-                                            type="search"
-                                            enterKeyHint="search"
-                                            placeholder="Buscar por nombre..."
-                                            value={fNombre}
-                                            onChange={(e) => setFNombre(e.target.value)}
-                                            className={`${fieldInput} w-[min(100%,11rem)] max-w-[13rem] shrink-0 text-sm`}
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={exportExcel}
-                                            className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[#2F7BB8] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#004D87] sm:px-4 font-body"
-                                            aria-label="Exportar reporte Excel"
-                                        >
-                                            <Download size={16} aria-hidden />
-                                            <span className="hidden sm:inline">Exportar Reporte Excel</span>
-                                            <span className="sm:hidden">Exportar</span>
-                                        </button>
-                                    </div>
-                                    {/* Filtros avanzados: ahora viven en un drawer lateral renderizado al final del tab Gestión. */}
-                                </div>
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            toggleId="gestion-filtros-avanzados-toggle"
+                            dash={dash}
+                        >
+                            <input
+                                type="search"
+                                enterKeyHint="search"
+                                placeholder="Buscar por nombre..."
+                                value={fNombre}
+                                onChange={(e) => setFNombre(e.target.value)}
+                                className={`${fieldInput} w-[min(100%,11rem)] max-w-[13rem] shrink-0 text-sm`}
+                            />
+                            <button
+                                type="button"
+                                onClick={exportExcel}
+                                className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-[#2F7BB8] px-3 py-2 text-sm font-medium text-white shadow-sm transition-all hover:bg-[#004D87] sm:px-4 font-body"
+                                aria-label="Exportar reporte Excel"
+                            >
+                                <Download size={16} aria-hidden />
+                                <span className="hidden sm:inline">Exportar Reporte Excel</span>
+                                <span className="sm:hidden">Exportar</span>
+                            </button>
+                        </NovedadesFiltersToolbar>
+                        {canMarkNominaProcesado && gestionNominaHasSelection ? (
+                            <div
+                                className={
+                                    isLight
+                                        ? 'mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-950'
+                                        : 'mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-3 text-sm text-violet-100'
+                                }
+                            >
+                                <span className="font-medium">
+                                    {gestionNominaSelectAllFiltered
+                                        ? `Todas las aprobadas pendientes de nómina del filtro${
+                                            gestionNominaEligibleTotal != null ? ` (${gestionNominaEligibleTotal})` : ''
+                                        } — todas las páginas`
+                                        : `${gestionSelectedIds.size} seleccionada(s)`}
+                                </span>
+                                <button
+                                    type="button"
+                                    disabled={gestionNominaBusy}
+                                    onClick={() => setGestionNominaModalOpen(true)}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-[#004D87] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#003a66] disabled:opacity-50"
+                                >
+                                    <BadgeCheck size={16} aria-hidden />
+                                    Marcar procesado nómina
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={gestionNominaBusy}
+                                    onClick={clearGestionNominaSelection}
+                                    className={isLight ? 'text-violet-800 underline hover:text-violet-950' : 'text-violet-200 underline hover:text-white'}
+                                >
+                                    Limpiar selección
+                                </button>
                             </div>
-
+                        ) : null}
+                        <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                             <div className={dash.tableWrap}>
                                 <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto">
                                     <table className="w-full text-left border-collapse whitespace-nowrap min-w-[900px] md:min-w-full">
                                         <thead>
                                             <tr className={dash.thead}>
-                                                <th className="p-4 pl-6 font-semibold">Creado</th>
+                                                {canMarkNominaProcesado ? (
+                                                    <th className="p-4 pl-6 font-semibold w-10">
+                                                        <input
+                                                            type="checkbox"
+                                                            className="h-4 w-4 rounded border-slate-400"
+                                                            checked={gestionNominaSelectAllFiltered}
+                                                            disabled={!gestionSelectableOnPage.length || gestionNominaBusy}
+                                                            onChange={toggleGestionSelectAllFiltered}
+                                                            aria-label="Seleccionar todas las aprobadas pendientes de nómina del filtro (todas las páginas)"
+                                                        />
+                                                    </th>
+                                                ) : null}
+                                                <th className={`p-4 font-semibold ${canMarkNominaProcesado ? '' : 'pl-6'}`}>Creado</th>
                                                 <th className="p-4 font-semibold">Nombre</th>
                                                 <th className="p-4 font-semibold">Cliente</th>
                                                 <th className="p-4 font-semibold">Tipo</th>
@@ -2340,9 +2364,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         </thead>
                                         <tbody className={dash.tbody}>
                                             {gestionLoading ? (
-                                                <tr><td colSpan="10" className={`p-12 text-center font-medium ${dash.muted}`}>Cargando base de datos...</td></tr>
+                                                <tr><td colSpan={canMarkNominaProcesado ? 11 : 10} className={`p-12 text-center font-medium ${dash.muted}`}>Cargando base de datos...</td></tr>
                                             ) : sortedItems.length === 0 ? (
-                                                <tr><td colSpan="10" className={`p-12 text-center font-medium ${dash.muted}`}>No se encontraron registros.</td></tr>
+                                                <tr><td colSpan={canMarkNominaProcesado ? 11 : 10} className={`p-12 text-center font-medium ${dash.muted}`}>No se encontraron registros.</td></tr>
                                             ) : (
                                                 pagedItems.map(it => {
                                                     const cread = new Date(it.creadoEn);
@@ -2357,7 +2381,22 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                         : '';
                                                     return (
                                                         <tr key={it.id ? String(it.id) : `${it.creadoEn}-${it.cedula}-${it.nombre}`} className={dash.trHover}>
-                                                            <td className={dash.tdDate}>{validCread}</td>
+                                                            {canMarkNominaProcesado ? (
+                                                                <td className="p-4 pl-6">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        className="h-4 w-4 rounded border-slate-400"
+                                                                        checked={
+                                                                            (gestionNominaSelectAllFiltered && canSelectItemForNominaProcesado(it))
+                                                                            || gestionSelectedIds.has(String(it.id))
+                                                                        }
+                                                                        disabled={!canSelectItemForNominaProcesado(it) || gestionNominaBusy}
+                                                                        onChange={() => toggleGestionSelectId(it.id)}
+                                                                        aria-label={`Seleccionar ${it.nombre || 'novedad'}`}
+                                                                    />
+                                                                </td>
+                                                            ) : null}
+                                                            <td className={`${dash.tdDate} ${canMarkNominaProcesado ? '' : 'pl-6'}`}>{validCread}</td>
                                                             <td className={dash.tdName}>{it.nombre}</td>
                                                             <td className={dash.tdCell}>{it.cliente || '-'}</td>
                                                             <td className={dash.tdMuted}>
@@ -2395,6 +2434,26 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                             }
                                                                         >
                                                                             Gestionada por alerta HE: {it.alertaHeResueltaEstado}
+                                                                        </span>
+                                                                    ) : null}
+                                                                    {it.nominaProcesado ? (
+                                                                        <span
+                                                                            className={
+                                                                                isLight
+                                                                                    ? 'inline-flex w-fit flex-col gap-0.5 rounded border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-900'
+                                                                                    : 'inline-flex w-fit flex-col gap-0.5 rounded border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-100'
+                                                                            }
+                                                                            title={[
+                                                                                it.nominaProcesadoPorCorreo,
+                                                                                it.nominaProcesadoLote
+                                                                            ].filter(Boolean).join(' · ')}
+                                                                        >
+                                                                            <span>Procesado nómina</span>
+                                                                            {it.nominaProcesadoEn ? (
+                                                                                <span className="font-normal opacity-90">
+                                                                                    {new Date(it.nominaProcesadoEn).toLocaleString('es-CO')}
+                                                                                </span>
+                                                                            ) : null}
                                                                         </span>
                                                                     ) : null}
                                                                     {it.estado === 'Rechazado' && String(it.observacionesRechazo || '').trim() ? (
@@ -2468,191 +2527,31 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 )}
                             </div>
                         </div>
-                        {gestionFiltersPanelOpen && (
-                            <>
-                                <div
-                                    className={dash.filtrosDrawerBackdrop}
-                                    onClick={() => setGestionFiltersPanelOpen(false)}
-                                    aria-hidden="true"
-                                />
-                                <aside
-                                    role="dialog"
-                                    aria-modal="true"
-                                    aria-labelledby="gestion-filtros-drawer-title"
-                                    className={dash.filtrosDrawerPanel}
-                                >
-                                    <header className={dash.filtrosDrawerHeader}>
-                                        <h3 id="gestion-filtros-drawer-title" className={dash.titleLg}>
-                                            Filtros avanzados
-                                        </h3>
-                                        <button
-                                            type="button"
-                                            onClick={() => setGestionFiltersPanelOpen(false)}
-                                            aria-label="Cerrar filtros avanzados"
-                                            className={dash.modalClose}
-                                        >
-                                            <X size={18} />
-                                        </button>
-                                    </header>
-                                    <div className={dash.filtrosDrawerBody}>
-                                        <div className="flex flex-col gap-1.5">
-                                            <label htmlFor="gestion-drawer-tipo" className={dash.filtrosDrawerLabel}>
-                                                Tipo
-                                            </label>
-                                            <select
-                                                id="gestion-drawer-tipo"
-                                                value={fTipo}
-                                                onChange={(e) => setFTipo(e.target.value)}
-                                                className={`${fieldInput} w-full text-sm`}
-                                            >
-                                                <option value="">Todos los tipos</option>
-                                                {Object.keys(typeDataMap).map((k) => (
-                                                    <option key={k} value={k}>{k}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        <div className="flex flex-col gap-1.5">
-                                            <label htmlFor="gestion-drawer-estado" className={dash.filtrosDrawerLabel}>
-                                                Estado
-                                            </label>
-                                            <select
-                                                id="gestion-drawer-estado"
-                                                value={fEstado}
-                                                onChange={(e) => setFEstado(e.target.value)}
-                                                className={`${fieldInput} w-full text-sm`}
-                                            >
-                                                <option value="">Todos los estados</option>
-                                                <option value="Pendiente">Pendientes</option>
-                                                <option value="Aprobado">Aprobados</option>
-                                                <option value="Rechazado">Rechazados</option>
-                                            </select>
-                                        </div>
-                                        <div className="flex flex-col gap-1.5">
-                                            <label htmlFor="gestion-drawer-cliente" className={dash.filtrosDrawerLabel}>
-                                                Cliente
-                                            </label>
-                                            <select
-                                                id="gestion-drawer-cliente"
-                                                value={fCliente}
-                                                onChange={(e) => setFCliente(e.target.value)}
-                                                className={`${fieldInput} w-full text-sm`}
-                                            >
-                                                <option value="">Todos los clientes</option>
-                                                {gestionClienteOptions.map((c) => (
-                                                    <option key={c} value={c}>{c}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                        {isSuperAdminNovedades ? (
-                                            <div className="flex flex-col gap-1.5">
-                                                <label htmlFor="gestion-drawer-gp" className={dash.filtrosDrawerLabel}>
-                                                    GP
-                                                </label>
-                                                <select
-                                                    id="gestion-drawer-gp"
-                                                    value={fGpUserId}
-                                                    onChange={(e) => setFGpUserId(e.target.value)}
-                                                    className={`${fieldInput} w-full text-sm`}
-                                                    title="Clientes asignados a este usuario GP en el catálogo directorio"
-                                                >
-                                                    <option value="">Todos los GP</option>
-                                                    <option value="__null__">Cliente sin GP en catálogo</option>
-                                                    {gpFilterOptions.map((g) => {
-                                                        const id = String(g.id || '');
-                                                        const label = labelGpDirectorioOption(g);
-                                                        return (
-                                                            <option key={id || label} value={id}>
-                                                                {label}{g.is_active === false ? ' (inactivo)' : ''}
-                                                            </option>
-                                                        );
-                                                    })}
-                                                </select>
-                                            </div>
-                                        ) : null}
-                                        <div className="flex flex-col gap-1.5">
-                                            <span className={dash.filtrosDrawerLabel}>Rango de fechas</span>
-                                            <div className="flex items-center gap-2">
-                                                <input
-                                                    {...nativeCalendarOnlyInputProps}
-                                                    type="date"
-                                                    value={fCreadoDesde}
-                                                    onChange={(e) => setFCreadoDesde(e.target.value)}
-                                                    className={`${fieldInput} min-w-0 flex-1 px-2 py-1.5 text-sm`}
-                                                    aria-label="Rango de fechas: desde"
-                                                />
-                                                <span className={`${dash.modalMuted} shrink-0 text-xs`}>a</span>
-                                                <input
-                                                    {...nativeCalendarOnlyInputProps}
-                                                    type="date"
-                                                    value={fCreadoHasta}
-                                                    onChange={(e) => setFCreadoHasta(e.target.value)}
-                                                    className={`${fieldInput} min-w-0 flex-1 px-2 py-1.5 text-sm`}
-                                                    aria-label="Rango de fechas: hasta"
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-col gap-1.5">
-                                            <label htmlFor="gestion-drawer-pagesize" className={dash.filtrosDrawerLabel}>
-                                                Mostrar por página
-                                            </label>
-                                            <select
-                                                id="gestion-drawer-pagesize"
-                                                value={pageSize}
-                                                onChange={(e) => setPageSize(Number(e.target.value))}
-                                                className={`${fieldInput} w-full text-sm`}
-                                            >
-                                                <option value={10}>10 por página</option>
-                                                <option value={20}>20 por página</option>
-                                                <option value={50}>50 por página</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                    <footer className={dash.filtrosDrawerFooter}>
-                                        <button
-                                            type="button"
-                                            onClick={clearGestionFilters}
-                                            className={dash.borrarFiltros}
-                                        >
-                                            Borrar filtros
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setGestionFiltersPanelOpen(false)}
-                                            className={dash.filtrosDrawerCta}
-                                        >
-                                            Aplicar filtros
-                                        </button>
-                                    </footer>
-                                </aside>
-                            </>
-                        )}
                     </div>
                 )}
 
                 {/* ---------- ALERTAS HE ---------- */}
                 {activeTab === 'Alertas HE' && canAccessPanel('gestion') && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-300 pb-2 flex flex-col h-[calc(100vh-8.5rem)] md:h-[calc(100vh-7.5rem)]">
-                        <div className={dash.cardFlex}>
-                            <div className={`sticky top-0 z-20 p-4 ${dash.gestionHead}`}>
-                                <h2 className={dash.titleXl}>Alertas HE</h2>
-                                <p className={`mt-1 text-sm ${dash.muted}`}>
-                                    Tarjetas: {alertasHeCount}
-                                    {' · '}
-                                    Exceso de topes: {alertasHeExcesoCardCount}
-                                </p>
-                                {superAdminGpSelect ? (
-                                    <div className={`mt-3 flex flex-wrap items-center gap-2 border-t pt-3 ${isLight ? 'border-slate-200' : 'border-slate-700/50'}`}>
-                                        {superAdminGpSelect}
-                                    </div>
-                                ) : null}
-                            </div>
-                            <div className="flex-1 overflow-auto p-4">
-                                {alertDisplayCards.length === 0 ? (
-                                    <div className={dash.emptyHe}>
-                                        No hay alertas pendientes para el rango seleccionado.
-                                    </div>
-                                ) : (
-                                    <div className="grid grid-cols-1 gap-3">
+                    <div className={dash.novedadesTabShellFull}>
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            dash={dash}
+                        >
+                            <p className={`ml-auto text-sm ${dash.muted}`}>
+                                Tarjetas: {alertasHeCount}
+                                {' · '}
+                                Exceso de topes: {alertasHeExcesoCardCount}
+                            </p>
+                        </NovedadesFiltersToolbar>
+                        <div className="min-h-0 flex-1 overflow-auto">
+                            {alertDisplayCards.length === 0 ? (
+                                <div className={dash.emptyHe}>
+                                    No hay alertas pendientes para el rango seleccionado.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 gap-3">
                                         {alertDisplayCards.map(({ key, it }) => (
                                             <div
                                                 key={key}
@@ -2727,34 +2626,21 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         ))}
                                     </div>
                                 )}
-                            </div>
                         </div>
                     </div>
                 )}
 
                 {/* ---------- CALENDARIO INTERACTIVO ---------- */}
                 {activeTab === 'Calendario' && canAccessPanel('calendar') && (
-                    <div className={dash.calShell}>
-                        <div className={dash.calSticky}>
-                            <div>
-                                <h2 className={`${dash.titleXl} flex items-center gap-2`}>
-                                    <Calendar className="text-blue-500" size={22} /> Agenda Operativa
-                                </h2>
-                                <p className={`${dash.mutedSm} mt-1`}>Vista interactiva mensual de las novedades del talento</p>
-                            </div>
-                            <div className="flex flex-wrap items-center justify-end gap-3">
-                                <select
-                                    value={fClienteCalendario}
-                                    onChange={(e) => setFClienteCalendario(e.target.value)}
-                                    className={`${fieldInput} max-w-[220px] text-sm`}
-                                    aria-label="Filtrar por cliente"
-                                >
-                                    <option value="">Todos los clientes</option>
-                                    {calendarClientesList.map((c) => (
-                                        <option key={c} value={c}>{c}</option>
-                                    ))}
-                                </select>
-                                {superAdminGpSelect}
+                    <div className={`${dash.novedadesTabShell} pb-20`}>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <NovedadesFiltersToolbar
+                                chipLabel={novedadesFiltrosResumen.chipLabel}
+                                filtersPanelOpen={filtersPanelOpen}
+                                onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                                dash={dash}
+                            />
+                            <div className="flex flex-wrap items-center justify-end gap-3 shrink-0">
                                 <div className={dash.calSegOuter}>
                                     <button
                                         onClick={() => setCalendarView('monthly')}
@@ -2789,6 +2675,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                             </div>
                         </div>
 
+                        <div className={`${dash.card} flex min-h-[calc(100vh-14rem)] flex-1 flex-col overflow-hidden`}>
                         <div className="flex-1 overflow-auto p-6">
                             {calendarView === 'monthly' ? (
                                 <div className={dash.calGrid}>
@@ -2877,25 +2764,21 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm bg-purple-500/20 border border-purple-500/50"></div> Licencia</div>
                             </div>
                         </div>
+                        </div>
                     </div>
                 )}
 
                 {/* ---------- ANÁLISIS AVANZADO ---------- */}
                 {activeTab === 'Análisis Avanzado' && canAccessPanel('dashboard') && (
-                    <div className="animate-in fade-in zoom-in-95 duration-300 pb-20 flex flex-col h-full gap-6">
-                        <div className={`${dash.card} p-6`}>
-                            <h2 className={`${dash.title2xl} mb-2 flex items-center gap-2`}>
-                                <TrendingUp className="text-purple-500" size={24} /> Inteligencia operativa (fase exploratoria)
-                            </h2>
-                            <p className={`text-sm ${dash.muted}`}>Modelos estadísticos descriptivos diseñados para futura integración con algoritmos de Machine Learning y predicción de anomalías.</p>
-                            {superAdminGpSelect ? (
-                                <div className={`mt-4 flex flex-wrap items-center gap-2 border-t pt-4 ${isLight ? 'border-slate-200' : 'border-slate-700/50'}`}>
-                                    {superAdminGpSelect}
-                                </div>
-                            ) : null}
-                        </div>
+                    <div className={`${dash.novedadesTabShell} pb-20`}>
+                        <NovedadesFiltersToolbar
+                            chipLabel={novedadesFiltrosResumen.chipLabel}
+                            filtersPanelOpen={filtersPanelOpen}
+                            onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
+                            dash={dash}
+                        />
 
-                        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
                             {/* Mapa de Frecuencia (Por Día de la Semana de creación) */}
                             <div className={`${dash.card} p-6`}>
                                 <h3 className={`${dash.titleXl} mb-1`}>Mapa de Frecuencia (Días de la Semana)</h3>
@@ -2907,7 +2790,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                         <BarChart data={(() => {
                                             const daysInfo = { 0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb' };
                                             const heatMap = { Dom: 0, Lun: 0, Mar: 0, Mié: 0, Jue: 0, Vie: 0, Sáb: 0 };
-                                            items.forEach(it => {
+                                            dashItems.forEach(it => {
                                                 if (!it?.creadoEn) return;
                                                 const d = new Date(it.creadoEn);
                                                 if (!isNaN(d.getTime())) {
@@ -2924,7 +2807,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 content={({ active, payload }) => {
                                                     if (!active || !payload?.length) return null;
                                                     const { name, count } = payload[0].payload;
-                                                    const total = items.length || 1;
+                                                    const total = dashItems.length || 1;
                                                     const pct = ((count / total) * 100).toFixed(1);
                                                     const isWeekend = name === 'Dom' || name === 'Sáb';
                                                     const label = count === 0 ? 'Sin actividad' : isWeekend ? 'Día no hábil — verificar horas extra' : count >= 5 ? 'Concentración alta — revisar patrón' : 'Actividad normal';
@@ -2942,7 +2825,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     const data = (() => {
                                                         const daysInfo = { 0: 'Dom', 1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb' };
                                                         const heatMap = { Dom: 0, Lun: 0, Mar: 0, Mié: 0, Jue: 0, Vie: 0, Sáb: 0 };
-                                                        items.forEach(it => {
+                                                        dashItems.forEach(it => {
                                                             if (!it?.creadoEn) return;
                                                             const d = new Date(it.creadoEn);
                                                             if (!isNaN(d.getTime())) heatMap[daysInfo[d.getDay()]] += 1;
@@ -2974,7 +2857,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 <div className="space-y-3 overflow-y-auto max-h-[240px] pr-1">
                                     {(() => {
                                         const riesgoMap = {};
-                                        items.forEach(it => {
+                                        dashItems.forEach(it => {
                                             if (!riesgoMap[it.nombre]) riesgoMap[it.nombre] = { puntos: 0, sumHoras: 0, sumDias: 0, novedades: 0 };
                                             const kind = getCantidadMedidaKind(it.tipoNovedad, it);
                                             const v = Number(it.cantidadHoras) || 0;
@@ -3062,11 +2945,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <ResponsiveContainer>
                                         <BarChart
                                             data={(() => {
-                                                const pend = items.filter(i => i.estado === 'Pendiente').length;
+                                                const pend = dashItems.filter(i => i.estado === 'Pendiente').length;
                                                 return [
-                                                    { name: 'Total Radicados', count: items.length, fill: '#3b82f6' },
+                                                    { name: 'Total Radicados', count: dashItems.length, fill: '#3b82f6' },
                                                     { name: 'Esperando Acción', count: pend, fill: '#f59e0b' },
-                                                    { name: 'Decisión Cerrada', count: items.length - pend, fill: '#10b981' },
+                                                    { name: 'Decisión Cerrada', count: dashItems.length - pend, fill: '#10b981' },
                                                 ];
                                             })()}
                                             layout="vertical"
@@ -3079,7 +2962,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 content={({ active, payload }) => {
                                                     if (!active || !payload?.length) return null;
                                                     const { name, count } = payload[0].payload;
-                                                    const total = items.length || 1;
+                                                    const total = dashItems.length || 1;
                                                     const pct = ((count / total) * 100).toFixed(1);
                                                     const tip = name === 'Total Radicados'
                                                         ? 'Todos los registros ingresados al sistema'
@@ -3111,6 +2994,27 @@ export default function Dashboard({ token, auth, onLogout }) {
                     </div>
                 )}
 
+                {NOVEDADES_FILTER_TABS.has(activeTab) && (
+                    <NovedadesFiltersDrawer
+                        open={filtersPanelOpen}
+                        onClose={() => setFiltersPanelOpen(false)}
+                        onClear={clearNovedadesFilters}
+                        filters={moduleFilters}
+                        onChange={handleNovedadesFilterChange}
+                        dash={dash}
+                        fieldInputClassName={fieldInput}
+                        showPageSize={activeTab === 'Gestión'}
+                        showMesShortcut={activeTab === 'DashboardGeneral' || activeTab === 'Análisis Avanzado'}
+                        pageSize={pageSize}
+                        onPageSizeChange={setPageSize}
+                        tipoOptions={tipoFilterOptions}
+                        clienteOptions={gestionClienteOptions}
+                        gpFilterOptions={gpFilterOptions}
+                        isSuperAdminNovedades={isSuperAdminNovedades}
+                        labelGpOption={labelGpDirectorioOption}
+                        showNominaFilters={activeTab === 'Gestión'}
+                    />
+                )}
 
             </main>
 
@@ -3273,6 +3177,28 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     Alerta HE gestionada: {gestionDetailItem.alertaHeResueltaEstado}
                                 </div>
                             ) : null}
+                            {gestionDetailItem.nominaProcesado ? (
+                                <div
+                                    className={
+                                        isLight
+                                            ? 'md:col-span-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-950'
+                                            : 'md:col-span-2 rounded-lg border border-violet-500/35 bg-violet-500/10 px-3 py-2 text-violet-100'
+                                    }
+                                >
+                                    <span className="font-semibold">Procesado nómina</span>
+                                    {gestionDetailItem.nominaProcesadoEn ? (
+                                        <span className="block text-sm opacity-90">
+                                            {new Date(gestionDetailItem.nominaProcesadoEn).toLocaleString('es-CO')}
+                                        </span>
+                                    ) : null}
+                                    {gestionDetailItem.nominaProcesadoPorCorreo ? (
+                                        <span className="block text-sm">{gestionDetailItem.nominaProcesadoPorCorreo}</span>
+                                    ) : null}
+                                    {gestionDetailItem.nominaProcesadoLote ? (
+                                        <span className="block text-sm">Lote: {gestionDetailItem.nominaProcesadoLote}</span>
+                                    ) : null}
+                                </div>
+                            ) : null}
                             {(() => {
                                 const heDomingoCompResumen = formatHeDomingoCompGestionResumen(
                                     gestionDetailItem.heDomingoObservacion
@@ -3331,7 +3257,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                                 >
                                     <div className="flex flex-col gap-3">
                                         {(Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0) > 0 ||
-                                            Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0) > 0) && (
+                                            Number(gestionDetailItem.horasRecargoDomingoNocturnas ?? 0) > 0 ||
+                                            Number(gestionDetailItem.horasRecargoNocturno ?? 0) > 0) && (
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                                 {Number(gestionDetailItem.horasRecargoDomingoDiurnas ?? 0) > 0 ? (
                                                     <div
@@ -3348,7 +3275,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                     : 'text-[10px] font-black uppercase leading-tight tracking-widest text-amber-200'
                                                             }
                                                         >
-                                                            Recargo dominical/festivos — diurno
+                                                            {formatHeTipoNovedadDisplay(
+                                                                HE_TIPO_CANONICO.REC_DOM_DIURNO,
+                                                                gestionDetailItem.heDomingoObservacion,
+                                                                'recargo_diurno'
+                                                            )}
                                                         </span>
                                                         <span
                                                             className={
@@ -3383,7 +3314,11 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                                     : 'text-[10px] font-black uppercase leading-tight tracking-widest text-orange-200'
                                                             }
                                                         >
-                                                            Recargo dominical/festivos — nocturno
+                                                            {formatHeTipoNovedadDisplay(
+                                                                HE_TIPO_CANONICO.REC_DOM_NOCTURNO,
+                                                                gestionDetailItem.heDomingoObservacion,
+                                                                'recargo_nocturno'
+                                                            )}
                                                         </span>
                                                         <span
                                                             className={
@@ -3403,9 +3338,36 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                         </span>
                                                     </div>
                                                 ) : null}
+                                                {Number(gestionDetailItem.horasRecargoNocturno ?? 0) > 0 ? (
+                                                    <div
+                                                        className={
+                                                            isLight
+                                                                ? 'flex flex-col items-center gap-1 rounded-xl border border-violet-200 bg-violet-50 p-3 text-center text-violet-950'
+                                                                : 'flex flex-col items-center gap-1 rounded-xl border border-violet-500/40 bg-violet-950/30 p-3 text-center'
+                                                        }
+                                                    >
+                                                        <span
+                                                            className={
+                                                                isLight
+                                                                    ? 'text-[10px] font-black uppercase leading-tight tracking-widest text-violet-900'
+                                                                    : 'text-[10px] font-black uppercase leading-tight tracking-widest text-violet-200'
+                                                            }
+                                                        >
+                                                            {HE_TIPO_CANONICO.REC_NOCTURNO}
+                                                        </span>
+                                                        <span
+                                                            className={
+                                                                isLight ? 'text-xl font-black text-violet-950' : 'text-xl font-black text-violet-300'
+                                                            }
+                                                        >
+                                                            {Number(gestionDetailItem.horasRecargoNocturno ?? 0)}h
+                                                        </span>
+                                                    </div>
+                                                ) : null}
                                             </div>
                                         )}
-                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        {!gestionDetailItem.mallaOrigenRef ? (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div
                                                 className={
                                                     isLight
@@ -3420,7 +3382,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                             : 'text-center text-[10px] font-bold uppercase leading-tight tracking-widest text-cyan-200'
                                                     }
                                                 >
-                                                    Hora extra diurna
+                                                    {HE_TIPO_CANONICO.HE_DIURNA}
                                                 </span>
                                                 <span
                                                     className={
@@ -3462,7 +3424,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                             : 'text-center text-[10px] font-bold uppercase leading-tight tracking-widest text-indigo-200'
                                                     }
                                                 >
-                                                    Hora extra nocturna
+                                                    {HE_TIPO_CANONICO.HE_NOCTURNA}
                                                 </span>
                                                 <span
                                                     className={
@@ -3490,6 +3452,9 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                     {Number(gestionDetailItem.horasNocturnas ?? 0)}h
                                                 </span>
                                             </div>
+                                        </div>
+                                        ) : null}
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                             <div
                                                 className={
                                                     isLight
@@ -3633,7 +3598,18 @@ export default function Dashboard({ token, auth, onLogout }) {
                                     <input className={`mt-1 w-full ${fieldInput}`} type="number" step="0.01" min="0" value={gestionEditDraft.horasRecargoDomingoNocturnas} onChange={(e) => setGestionEditDraft((d) => ({ ...d, horasRecargoDomingoNocturnas: e.target.value }))} />
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Tipo hora extra
-                                    <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.tipoHoraExtra} onChange={(e) => setGestionEditDraft((d) => ({ ...d, tipoHoraExtra: e.target.value }))} />
+                                    <select
+                                        className={`mt-1 w-full ${fieldInput}`}
+                                        value={gestionEditDraft.tipoHoraExtra}
+                                        onChange={(e) => setGestionEditDraft((d) => ({ ...d, tipoHoraExtra: e.target.value }))}
+                                    >
+                                        <option value="">— Sin especificar —</option>
+                                        {HE_TIPO_CATALOGO_ORDEN.map((label) => (
+                                            <option key={label} value={label}>
+                                                {label}
+                                            </option>
+                                        ))}
+                                    </select>
                                 </label>
                                 <label className={`${dash.labelUpper} col-span-full`}>Monto COP
                                     <input className={`mt-1 w-full ${fieldInput}`} value={gestionEditDraft.montoCop} onChange={(e) => setGestionEditDraft((d) => ({ ...d, montoCop: e.target.value }))} />
@@ -3961,6 +3937,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                         </div>
                         <div className={dash.modalFooter}>
                             <button type="button" onClick={() => setAlertaHeDetailItem(null)} className={`${outlineBtn} text-sm`}>Cerrar</button>
+                            {canApproveItem(alertaHeDetailItem) ? (
+                                <>
                             <button
                                 type="button"
                                 onClick={() => {
@@ -3992,6 +3970,8 @@ export default function Dashboard({ token, auth, onLogout }) {
                             >
                                 Aprobar
                             </button>
+                                </>
+                            ) : null}
                         </div>
                     </div>
                 </div>
@@ -4049,7 +4029,15 @@ export default function Dashboard({ token, auth, onLogout }) {
                                                 return (
                                                     <span className={isLight ? 'text-xs font-bold text-blue-800' : 'text-xs font-bold text-blue-400'}>
                                                         {qtyTxt}
-                                                        {getCantidadMedidaKind(it.tipoNovedad, it) === 'hours' && it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : ''}
+                                                        {getCantidadMedidaKind(it.tipoNovedad, it) === 'hours'
+                                                            ? (() => {
+                                                                  if (resolveCanonicalNovedadTipo(it.tipoNovedad) === 'Hora Extra') {
+                                                                      const tipos = formatHeTiposResumenParaItem(it);
+                                                                      return tipos ? ` (${tipos})` : '';
+                                                                  }
+                                                                  return it.tipoHoraExtra ? ` (${it.tipoHoraExtra})` : '';
+                                                              })()
+                                                            : ''}
                                                     </span>
                                                 );
                                             })()}
@@ -4214,9 +4202,57 @@ export default function Dashboard({ token, auth, onLogout }) {
                 </div>
             )}
 
+            {gestionNominaModalOpen ? (
+                <div
+                    className={`${dash.modalBackdrop} z-[250]`}
+                    onClick={() => {
+                        if (gestionNominaBusy) return;
+                        setGestionNominaModalOpen(false);
+                    }}
+                    role="presentation"
+                >
+                    <div
+                        className={isLight ? 'w-full max-w-md rounded-xl border border-slate-200 bg-white p-5 shadow-xl' : 'w-full max-w-md rounded-xl border border-slate-600 bg-slate-900 p-5 shadow-xl'}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <h3 className={dash.titleLg}>Marcar procesado nómina</h3>
+                        <p className={`${dash.modalMuted} mt-2 text-sm`}>
+                            {gestionNominaSelectAllFiltered
+                                ? `Se marcarán todas las novedades aprobadas pendientes de nómina que coinciden con el filtro actual${
+                                    gestionNominaEligibleTotal != null ? ` (${gestionNominaEligibleTotal})` : ''
+                                }.`
+                                : `Se marcarán ${gestionSelectedIds.size} novedad(es) aprobada(s).`}
+                            {' '}Quedarán registrados la fecha y hora, y tu correo como responsable. Esta acción es irreversible.
+                        </p>
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                            <button
+                                type="button"
+                                disabled={gestionNominaBusy}
+                                onClick={() => setGestionNominaModalOpen(false)}
+                                className={`${outlineBtn} text-sm`}
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                type="button"
+                                disabled={
+                                    gestionNominaBusy
+                                    || (!gestionNominaSelectAllFiltered && !gestionSelectedIds.size)
+                                    || (gestionNominaSelectAllFiltered && gestionNominaEligibleTotal === 0)
+                                }
+                                onClick={() => void submitNominaProcesado()}
+                                className="rounded-lg border border-[#004D87] bg-[#004D87] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003a66] disabled:opacity-40"
+                            >
+                                {gestionNominaBusy ? 'Marcando…' : 'Confirmar'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
             {gestionRejectOpen && (
                 <div
-                    className={`${dash.modalBackdrop} z-[80]`}
+                    className={`${dash.modalBackdrop} z-[250]`}
                     onClick={() => {
                         setGestionRejectOpen(false);
                         setGestionRejectPending(null);
