@@ -7,6 +7,9 @@ const {
     buildPatchFromNormalized,
     createFichaNovedadesService,
     matchColaborador,
+    extractPersonHintsFromSubject,
+    foldPersonName,
+    isLikelyPersonCodigo,
     enrichNormalizedFromMapped,
     normalizeExtractorPayload,
     rebuildNormalizedFromStagingRow,
@@ -42,19 +45,7 @@ describe('fichaNovedadesService helpers', () => {
         assert.deepEqual(getAllowedFieldsForTipo('integracion'), null);
     });
 
-    it('matchColaborador filtra activo=true por defecto', async () => {
-        const queries = [];
-        const pool = {
-            query: async (sql, params) => {
-                queries.push(sql);
-                return { rows: [] };
-            }
-        };
-        await matchColaborador(pool, { codigo: '20250322', tipo_novedad: 'salida' });
-        assert.ok(queries[0].includes('activo = true'));
-    });
-
-    it('matchColaborador cancelacion_ingreso permite inactivos', async () => {
+    it('matchColaborador filtra activo=true en extension/modificacion', async () => {
         const queries = [];
         const pool = {
             query: async (sql) => {
@@ -62,8 +53,56 @@ describe('fichaNovedadesService helpers', () => {
                 return { rows: [] };
             }
         };
+        await matchColaborador(pool, { codigo: '20250322', tipo_novedad: 'extension' });
+        assert.ok(queries[0].includes('activo = true'));
+    });
+
+    it('matchColaborador salida y cancelacion_ingreso permiten inactivos', async () => {
+        const queries = [];
+        const pool = {
+            query: async (sql) => {
+                queries.push(sql);
+                return { rows: [] };
+            }
+        };
+        await matchColaborador(pool, { codigo: '20260605', tipo_novedad: 'salida' });
+        assert.ok(!queries[0].includes('activo = true'));
+        queries.length = 0;
         await matchColaborador(pool, { codigo: '20260605', tipo_novedad: 'cancelacion_ingreso' });
         assert.ok(!queries[0].includes('activo = true'));
+    });
+
+    it('matchColaborador usa nombre del subject y fold de tildes', async () => {
+        const hints = extractPersonHintsFromSubject(
+            'Ticket Cerrado- RE: Modificación sobre ID 20260656 - Diego Ignacio Hoyos Montaño-DALE (Jul 22, 2026)'
+        );
+        assert.ok(String(hints.nombre).toLowerCase().includes('diego'));
+        assert.equal(foldPersonName('MUÑOZ RODRÍGUEZ'), foldPersonName('Munoz Rodriguez'));
+        assert.equal(isLikelyPersonCodigo('16366'), false);
+        assert.equal(isLikelyPersonCodigo('20260656'), true);
+
+        let sawFoldSql = false;
+        const pool = {
+            query: async (sql, params) => {
+                if (sql.includes('translate') && params?.[0] === foldPersonName(hints.nombre)) {
+                    sawFoldSql = true;
+                    return {
+                        rows: [{ cedula: '8161090', nombre: 'DIEGO IGNACIO HOYOS MONTAÑO', cliente: 'DALE', codigo: '20260656' }]
+                    };
+                }
+                return { rows: [] };
+            }
+        };
+        const r = await matchColaborador(pool, {
+            codigo: '16366',
+            nombre: 'nada',
+            subject:
+                'Ticket Cerrado- RE: Modificación sobre ID 20260656 - Diego Ignacio Hoyos Montaño-DALE (Jul 22, 2026)',
+            tipo_novedad: 'modificacion_id'
+        });
+        assert.ok(['nombre', 'nombre_cliente'].includes(r.strategy));
+        assert.equal(r.row.cedula, '8161090');
+        assert.ok(sawFoldSql);
     });
 
     it('enrichNormalizedFromMapped completa campos planos cuando extractor MVP viene vacío', () => {
@@ -307,7 +346,8 @@ function createDiegoMockPool({ active = true } = {}) {
             }
             if (sql.includes('TRIM(codigo) = $1')) {
                 assert.equal(params[0], '20250322');
-                if (!active) return { rows: [] };
+                // extension/modificacion filtran activo=true; salida/cancelacion no.
+                if (!active && sql.includes('activo = true')) return { rows: [] };
                 return {
                     rows: [
                         {
@@ -319,10 +359,10 @@ function createDiegoMockPool({ active = true } = {}) {
                     ]
                 };
             }
-            if (sql.includes('FROM colaboradores') && sql.includes('cedula = $1') && !active) {
+            if (sql.includes('FROM colaboradores') && sql.includes('cedula = $1') && !active && sql.includes('activo = true')) {
                 return { rows: [] };
             }
-            if (sql.includes('LOWER(TRIM(nombre))') && !active) {
+            if ((sql.includes('LOWER(TRIM(nombre))') || sql.includes('translate')) && !active && sql.includes('activo = true')) {
                 return { rows: [] };
             }
             if (sql.includes('SELECT * FROM colaboradores WHERE cedula')) {
@@ -442,8 +482,8 @@ describe('createFichaNovedadesService.ingestFromHttp', () => {
         assert.ok(Array.isArray(r.diff_preview));
     });
 
-    it('sin match si colaborador inactivo (mismo codigo)', async () => {
-        const payload = buildDiegoDynamoItem();
+    it('sin match si colaborador inactivo en extension (mismo codigo)', async () => {
+        const payload = { ...buildDiegoDynamoItem(), tipo_novedad: 'extension' };
         const { pool } = createDiegoMockPool({ active: false });
         const svc = createFichaNovedadesService({ pool });
         const r = await svc.ingestFromHttp(payload);
@@ -452,6 +492,18 @@ describe('createFichaNovedadesService.ingestFromHttp', () => {
         assert.equal(r.status, 'sin_match');
         assert.equal(r.match_strategy, null);
         assert.equal(r.match, null);
+    });
+
+    it('salida hace match aunque colaborador esté inactivo', async () => {
+        const payload = buildDiegoDynamoItem();
+        const { pool } = createDiegoMockPool({ active: false });
+        const svc = createFichaNovedadesService({ pool });
+        const r = await svc.ingestFromHttp(payload);
+
+        assert.equal(r.ok, true);
+        assert.equal(r.status, 'pendiente');
+        assert.equal(r.match_strategy, 'codigo');
+        assert.equal(r.match.cedula, '1024598286');
     });
 });
 

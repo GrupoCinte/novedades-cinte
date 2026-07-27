@@ -115,7 +115,7 @@ const EXTRACTOR_PATH_MAP = [
     ['IV_Informacion_Contratacion.Puesto_Cargo', 'puesto'],
     ['IV_Informacion_Contratacion.Perfil_Cargo', 'perfil_cargo'],
     ['IV_Informacion_Contratacion.Descriptivo_CINTE', 'descriptivo_puesto_sig'],
-    ['IV_Informacion_Contratacion.Esquema_Contratacion', 'esquema_contrato'],
+    // Zoho "Esquema_Contratacion" (p. ej. Contrato Indefinido) = tipo_contrato CH.
     ['IV_Informacion_Contratacion.Esquema_Contratacion', 'tipo_contrato'],
     ['IV_Informacion_Contratacion.Tipo_Remuneracion', 'periodicidad_pago'],
     ['IV_Informacion_Contratacion.Ingreso_Basico', 'sueldo_nomina', { money: true }],
@@ -144,8 +144,7 @@ const EXTRACTOR_PATH_MAP = [
     ['VI_Stakeholders.Contacto_Administrativo_Cargo', 'contacto_admin_cargo'],
     ['VI_Stakeholders.Contacto_Administrativo_Movil', 'contacto_admin_movil'],
     ['VI_Stakeholders.Contacto_Administrativo_Email', 'contacto_admin_email'],
-    ['VI_Stakeholders.Contacto_Focal_1_Nombre', 'gerente_servicio'],
-    ['VI_Stakeholders.Contacto_Focal_1_Email', 'email_gerente_servicio'],
+    // Contacto Focal = stakeholder del cliente; NO es gerente_servicio CINTE.
     ['VI_Stakeholders.Contacto_Administrativo_Nombre', 'controller_staff'],
     ['VII_Dotacion_Servicio.Requiere_PC', 'requiere_pc'],
     ['VII_Dotacion_Servicio.Requiere_Correo', 'requiere_correo_corp'],

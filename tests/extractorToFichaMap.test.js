@@ -62,8 +62,8 @@ describe('extractorToFichaMap', () => {
         assert.equal(flat.cliente, 'ACME CORP');
         assert.equal(flat.empleador, undefined);
         assert.equal(flat.modalidad_contrato, 'Presencial');
-        assert.equal(flat.esquema_contrato, 'Contrato Indefinido');
         assert.equal(flat.tipo_contrato, 'Contrato Indefinido');
+        assert.equal(flat.esquema_contrato, undefined);
         assert.equal(flat.frente_proyecto, 'Frente X');
         assert.notEqual(flat.tipo_contrato, 'OC-123');
     });
@@ -74,5 +74,18 @@ describe('extractorToFichaMap', () => {
             III_Informacion_Candidato: { Nacionalidad: 'Colombiana' }
         });
         assert.equal(flat.pais, 'Colombia');
+    });
+
+    it('Contacto Focal 1 no se mapea a gerente_servicio (es contacto del cliente)', () => {
+        const flat = flattenExtractorOutput({
+            VI_Stakeholders: {
+                Contacto_Focal_1_Nombre: 'Norman Romero',
+                Contacto_Focal_1_Email: 'noromero@bancofalabella.com.co'
+            }
+        });
+        assert.equal(flat.contacto_focal_1_nombre, 'Norman Romero');
+        assert.equal(flat.contacto_focal_1_email, 'noromero@bancofalabella.com.co');
+        assert.equal(flat.gerente_servicio, undefined);
+        assert.equal(flat.email_gerente_servicio, undefined);
     });
 });

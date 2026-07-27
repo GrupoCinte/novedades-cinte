@@ -446,14 +446,83 @@ function buildIngestEnrichment(matchRow, matchStrategy, diffJson) {
  * @param {{ allowInactive?: boolean }} [options]
  * @returns {Promise<{ row: object|null, strategy: string|null }>}
  */
+/** Fold para comparar nombres de persona (tildes + puntuación). */
+function foldPersonName(value) {
+    return foldForMatch(value)
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Extrae nombre/cliente del subject Zoho cuando el payload trae "nada".
+ * @param {string|null|undefined} subject
+ * @returns {{ nombre: string|null, cliente: string|null }}
+ */
+function extractPersonHintsFromSubject(subject) {
+    const s = String(subject || '').replace(/\s+/g, ' ').trim();
+    if (!s) return { nombre: null, cliente: null };
+
+    let m = s.match(/Modificaci[oó]n sobre ID\s+\d+\s*-\s*(.+?)(?:-([^-()]+))?(?:\s*\(|$)/i);
+    if (m) {
+        return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
+    }
+    m = s.match(/Extensi[oó]n\s*-\s*(.+?)\s*\/\s*(.+?)\s*$/i);
+    if (m) {
+        return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
+    }
+    m = s.match(/Salida de\s+(.+?)\s+-\s+(.+?)(?:\s*\(|$)/i);
+    if (m) {
+        return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
+    }
+    m = s.match(/Cancelaci[oó]n de Ingreso\s+\d+\s*-\s*(.+?)\s+-\s*(.+?)(?:\s*\(|$)/i);
+    if (m) {
+        return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
+    }
+    return { nombre: null, cliente: null };
+}
+
+/** Códigos de persona Zoho / CH; evita IDs de ticket (p.ej. 16366). */
+function isLikelyPersonCodigo(codigo) {
+    const c = trimOrNull(codigo);
+    if (!c) return false;
+    if (/^20\d{5,}$/.test(c)) return true;
+    if (/[A-Za-z]/.test(c)) return true;
+    return c.length >= 8;
+}
+
+const NOMBRE_FOLD_SQL = `trim(regexp_replace(
+    regexp_replace(
+      lower(translate(trim(coalesce(nombre, '')),
+        'áàäâÁÀÄÂéèëêÉÈËÊíìïîÍÌÏÎóòöôÓÒÖÔúùüûÚÙÜÛñÑ',
+        'aaaaAAAAeeeeEEEEiiiiIIIIooooOOOOuuuuUUUUnN')),
+      '[^a-z0-9\\s]+', ' ', 'g'),
+    '\\s+', ' ', 'g'))`;
+
+const CLIENTE_FOLD_SQL = `trim(regexp_replace(
+    regexp_replace(
+      lower(translate(trim(coalesce(cliente, '')),
+        'áàäâÁÀÄÂéèëêÉÈËÊíìïîÍÌÏÎóòöôÓÒÖÔúùüûÚÙÜÛñÑ',
+        'aaaaAAAAeeeeEEEEiiiiIIIIooooOOOOuuuuUUUUnN')),
+      '[^a-z0-9\\s]+', ' ', 'g'),
+    '\\s+', ' ', 'g'))`;
+
 async function matchColaborador(pool, hints = {}, options = {}) {
-    const codigo = trimOrNull(hints.codigo);
+    const fromSubject = extractPersonHintsFromSubject(hints.subject);
+    const codigoRaw = trimOrNull(hints.codigo);
+    const codigo = isLikelyPersonCodigo(codigoRaw) ? codigoRaw : null;
     const cedula = normalizeCedula(hints.cedula);
-    const nombre = hints.nombre ? normalizeChListText(hints.nombre) : null;
-    const cliente = hints.cliente ? normalizeChListText(hints.cliente) : null;
+    const nombreRaw = trimOrNull(hints.nombre) || fromSubject.nombre;
+    const clienteRaw = trimOrNull(hints.cliente) || fromSubject.cliente;
+    const nombre = nombreRaw ? normalizeChListText(nombreRaw) : null;
+    const cliente = clienteRaw ? normalizeChListText(clienteRaw) : null;
+    const nombreFold = foldPersonName(nombreRaw || '');
+    const clienteFold = foldPersonName(clienteRaw || '');
     const tipo = String(hints.tipo_novedad || '').trim().toLowerCase();
     const allowInactive =
-        options.allowInactive === true || tipo === 'cancelacion_ingreso';
+        options.allowInactive === true ||
+        tipo === 'cancelacion_ingreso' ||
+        tipo === 'salida';
     const activoClause = allowInactive ? '' : ' AND activo = true';
 
     if (codigo) {
@@ -479,28 +548,33 @@ async function matchColaborador(pool, hints = {}, options = {}) {
         if (q.rows[0]) return { row: q.rows[0], strategy: 'cedula' };
     }
 
-    if (nombre && cliente) {
+    if (nombreFold && clienteFold) {
         const q = await pool.query(
             `SELECT cedula, nombre, cliente, codigo
              FROM colaboradores
-             WHERE LOWER(TRIM(nombre)) = LOWER($1)
-               AND LOWER(TRIM(cliente)) = LOWER($2)${activoClause}
+             WHERE ${NOMBRE_FOLD_SQL} = $1
+               AND ${CLIENTE_FOLD_SQL} = $2${activoClause}
              ORDER BY activo DESC, updated_at DESC NULLS LAST
              LIMIT 1`,
-            [nombre, cliente]
+            [nombreFold, clienteFold]
         );
         if (q.rows[0]) return { row: q.rows[0], strategy: 'nombre_cliente' };
     }
 
-    if (nombre) {
+    if (nombreFold) {
         const q = await pool.query(
             `SELECT cedula, nombre, cliente, codigo
              FROM colaboradores
-             WHERE LOWER(TRIM(nombre)) = LOWER($1)${activoClause}
+             WHERE ${NOMBRE_FOLD_SQL} = $1${activoClause}
              ORDER BY activo DESC, updated_at DESC NULLS LAST
-             LIMIT 1`,
-            [nombre]
+             LIMIT 2`,
+            [nombreFold]
         );
+        if (q.rows.length === 1) return { row: q.rows[0], strategy: 'nombre' };
+        if (q.rows.length > 1 && clienteFold) {
+            const byCli = q.rows.find((r) => foldPersonName(r.cliente) === clienteFold);
+            if (byCli) return { row: byCli, strategy: 'nombre_cliente' };
+        }
         if (q.rows[0]) return { row: q.rows[0], strategy: 'nombre' };
     }
 
@@ -695,6 +769,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             cedula: cedulaDetectada,
             nombre: normalized.nombre || mapped.nombre_asunto || mapped.nombre_plano,
             cliente: normalized.cliente || mapped.cliente_asunto || mapped.cliente_plano,
+            subject: mapped.subject || rawItem.subject,
             tipo_novedad: mapped.tipo_novedad
         });
 
@@ -1407,6 +1482,9 @@ module.exports = {
     rebuildNormalizedFromStagingRow,
     groupInboxByCedula,
     matchColaborador,
+    extractPersonHintsFromSubject,
+    foldPersonName,
+    isLikelyPersonCodigo,
     mapDynamoZohoPayload,
     MONEY_FIELDS,
     SIBLING_CLOSE_REASON,

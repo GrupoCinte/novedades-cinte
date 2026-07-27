@@ -4,6 +4,11 @@ import SortableGestionDataTable from './SortableGestionDataTable.jsx';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import { fmtFecha, fmtFechaHora } from './views.jsx';
 import { buildMonitorGlassModalTheme, monitorGlassModalSizeCls } from '../shared/modals/monitorGlassModalTheme.js';
+import OnboardingFiltersBar, { buildChipLabel } from './OnboardingFiltersBar.jsx';
+import OnboardingFiltersDrawer, {
+    drawerFieldCls,
+    drawerLabelCls
+} from './OnboardingFiltersDrawer.jsx';
 
 const TIPO_LABELS = {
     integracion: 'Integración',
@@ -26,8 +31,31 @@ const MATCH_LABELS = {
     cedula: 'Cédula',
     nombre_cliente: 'Nombre + cliente',
     nombre: 'Nombre',
-    manual: 'Manual CH'
+    manual: 'Manual CH',
+    nombre_fold_activo: 'Nombre (fold)',
+    nombre_fold_inactivo: 'Nombre (inactivo)',
+    nombre_cedula_manual_audit: 'Nombre (auditoría)',
+    audit_nombre: 'Nombre (auditoría)'
 };
+
+const TIPO_FILTER_OPTIONS = [
+    { value: '', label: 'Todos los tipos' },
+    { value: 'modificacion_id', label: 'Modificación ID' },
+    { value: 'salida', label: 'Salida' },
+    { value: 'extension', label: 'Extensión' },
+    { value: 'cancelacion_ingreso', label: 'Cancelación ingreso' },
+    { value: 'cancelacion_salida', label: 'Cancelación salida' }
+];
+
+const MATCH_FILTER_OPTIONS = [
+    { value: '', label: 'Todo match' },
+    { value: 'codigo', label: 'Código Zoho' },
+    { value: 'cedula', label: 'Cédula' },
+    { value: 'nombre_cliente', label: 'Nombre + cliente' },
+    { value: 'nombre', label: 'Nombre' },
+    { value: 'manual', label: 'Manual CH' },
+    { value: '__sin__', label: 'Sin match / vacío' }
+];
 
 function MatchStrategyBadge({ value, isLight }) {
     const label = MATCH_LABELS[value] || value || '—';
@@ -647,16 +675,25 @@ function DiffModal({ item, groupFichas = null, auth, isLight, readOnly = false, 
 
 export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
     const G = buildGestionTableDash(Boolean(isLight));
+    const labelCls = drawerLabelCls(isLight);
+    const fieldCls = drawerFieldCls(isLight);
     const token = auth?.token || '';
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
     const [viewMode, setViewMode] = useState('inbox');
-    const [statusFilter, setStatusFilter] = useState('');
+    const [filters, setFilters] = useState({});
+    const [draft, setDraft] = useState({});
+    const [panelOpen, setPanelOpen] = useState(false);
+    const [search, setSearch] = useState('');
     const [historicoCount, setHistoricoCount] = useState(0);
     const [selected, setSelected] = useState(null);
     const [selectedGroupFichas, setSelectedGroupFichas] = useState(null);
     const [refreshNotice, setRefreshNotice] = useState('');
+
+    const statusFilter = filters.status || '';
+    const tipoFilter = filters.tipo_novedad || '';
+    const matchFilter = filters.match || '';
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -664,7 +701,8 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
         setRefreshNotice('');
         try {
             const params = { limit: 200, scope: viewMode };
-            if (viewMode === 'inbox' && statusFilter) params.status = statusFilter;
+            if (statusFilter) params.status = statusFilter;
+            if (tipoFilter) params.tipo_novedad = tipoFilter;
             const data = await onboardingApi.listFichaNovedades(token, params);
             setRows(data?.items || []);
             setHistoricoCount(data?.historicoCount ?? 0);
@@ -677,15 +715,100 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
         } finally {
             setLoading(false);
         }
-    }, [token, viewMode, statusFilter, onPendingCount]);
+    }, [token, viewMode, statusFilter, tipoFilter, onPendingCount]);
 
     useEffect(() => {
         load();
     }, [load]);
 
     useEffect(() => {
-        if (viewMode === 'historico') setStatusFilter('');
+        setFilters({});
+        setDraft({});
+        setSearch('');
+        setPanelOpen(false);
     }, [viewMode]);
+
+    const statusOptions =
+        viewMode === 'historico'
+            ? [
+                  { value: '', label: 'Todos histórico' },
+                  { value: 'aplicado', label: 'Aplicado' },
+                  { value: 'rechazado', label: 'Rechazado' }
+              ]
+            : [
+                  { value: '', label: 'Todos pendientes' },
+                  { value: 'pendiente', label: 'Pendiente' },
+                  { value: 'sin_match', label: 'Sin match' }
+              ];
+
+    const chipPairs = useMemo(
+        () => [
+            [Boolean(statusFilter), statusFilter ? `Estado: ${STATUS_LABELS[statusFilter] || statusFilter}` : ''],
+            [Boolean(tipoFilter), tipoFilter ? `Tipo: ${TIPO_LABELS[tipoFilter] || tipoFilter}` : ''],
+            [
+                Boolean(matchFilter),
+                matchFilter
+                    ? `Match: ${
+                          MATCH_FILTER_OPTIONS.find((o) => o.value === matchFilter)?.label || matchFilter
+                      }`
+                    : ''
+            ],
+            [Boolean(String(search || '').trim()), search ? `Búsqueda: ${String(search).trim()}` : '']
+        ],
+        [statusFilter, tipoFilter, matchFilter, search]
+    );
+    const chipLabel = useMemo(() => buildChipLabel(chipPairs), [chipPairs]);
+
+    const openPanel = () => {
+        setDraft({ ...filters });
+        setPanelOpen(true);
+    };
+    const applyDraft = () => {
+        setFilters({ ...draft });
+        setPanelOpen(false);
+    };
+    const clearAll = () => {
+        setDraft({});
+        setFilters({});
+        setSearch('');
+        setPanelOpen(false);
+    };
+
+    const filteredRows = useMemo(() => {
+        const q = String(search || '')
+            .trim()
+            .toLowerCase();
+        return rows.filter((r) => {
+            if (matchFilter) {
+                const strat = String(r.match_strategy || '').trim();
+                let matchOk = false;
+                if (matchFilter === '__sin__') {
+                    matchOk = !strat || String(r.status).toLowerCase() === 'sin_match';
+                } else if (strat === matchFilter) {
+                    matchOk = true;
+                } else if (matchFilter === 'nombre' && /^nombre/i.test(strat)) {
+                    matchOk = true;
+                } else if (matchFilter === 'manual' && /manual|audit/i.test(strat)) {
+                    matchOk = true;
+                }
+                if (!matchOk) return false;
+            }
+            if (!q) return true;
+            const hay = [
+                r.subject,
+                r.colaborador_nombre_snap,
+                r.id_registro,
+                r.tipo_novedad,
+                r.status,
+                r.match_strategy,
+                ...(Array.isArray(r.tipos) ? r.tipos : [])
+            ]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase();
+            return hay.includes(q);
+        });
+    }, [rows, matchFilter, search]);
 
     const columns = useMemo(() => {
         const base = [
@@ -757,46 +880,109 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className={`${G.filterBar} flex flex-wrap items-center justify-end gap-2`}>
-                <div className="flex rounded-lg overflow-hidden border border-white/10">
-                    <button
-                        type="button"
-                        onClick={() => setViewMode('inbox')}
-                        className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'inbox')}`}
-                    >
-                        Por revisar
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setViewMode('historico')}
-                        className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'historico')}`}
-                    >
-                        Histórico{historicoCount > 0 ? ` (${historicoCount})` : ''}
-                    </button>
-                </div>
-                {viewMode === 'inbox' ? (
-                    <>
-                        <label className={`text-xs ${G.mutedSm}`}>Estado</label>
-                        <select
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
-                            className={`rounded border px-2 py-1 text-xs ${isLight ? 'border-slate-300 bg-white' : 'border-slate-700 bg-slate-800'}`}
-                        >
-                            <option value="">Todos pendientes</option>
-                            <option value="pendiente">Pendiente</option>
-                            <option value="sin_match">Sin match</option>
-                        </select>
-                    </>
-                ) : null}
-                <button
-                    type="button"
-                    onClick={load}
-                    disabled={loading}
-                    className="rounded-lg bg-[#2F7BB8] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
-                >
-                    {loading ? 'Actualizando…' : 'Actualizar'}
-                </button>
+            <div className={G.filterBar}>
+                <OnboardingFiltersBar
+                    chipLabel={chipLabel}
+                    panelOpen={panelOpen}
+                    onToggle={() => (panelOpen ? setPanelOpen(false) : openPanel())}
+                    search={search}
+                    onSearchChange={setSearch}
+                    searchPlaceholder="Buscar asunto / colaborador / ID Zoho…"
+                    isLight={isLight}
+                    rightSlot={
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div
+                                className={`flex overflow-hidden rounded-lg border ${
+                                    isLight ? 'border-slate-200' : 'border-white/10'
+                                }`}
+                            >
+                                <button
+                                    type="button"
+                                    onClick={() => setViewMode('inbox')}
+                                    className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'inbox')}`}
+                                >
+                                    Por revisar
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setViewMode('historico')}
+                                    className={`px-3 py-1.5 text-xs font-semibold ${tabCls(viewMode === 'historico')}`}
+                                >
+                                    Histórico{historicoCount > 0 ? ` (${historicoCount})` : ''}
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={load}
+                                disabled={loading}
+                                className={`${G.btnPrimaryCinte} text-xs`}
+                            >
+                                {loading ? 'Actualizando…' : 'Actualizar'}
+                            </button>
+                        </div>
+                    }
+                />
             </div>
+
+            <OnboardingFiltersDrawer
+                open={panelOpen}
+                onClose={() => setPanelOpen(false)}
+                onClear={clearAll}
+                onApply={applyDraft}
+                isLight={isLight}
+            >
+                <div className="flex flex-col gap-1.5">
+                    <label className={labelCls} htmlFor="zoho-filtro-estado">
+                        Estado
+                    </label>
+                    <select
+                        id="zoho-filtro-estado"
+                        value={draft.status || ''}
+                        onChange={(e) => setDraft((s) => ({ ...s, status: e.target.value }))}
+                        className={fieldCls}
+                    >
+                        {statusOptions.map((o) => (
+                            <option key={o.value || 'all-status'} value={o.value}>
+                                {o.label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label className={labelCls} htmlFor="zoho-filtro-tipo">
+                        Tipo
+                    </label>
+                    <select
+                        id="zoho-filtro-tipo"
+                        value={draft.tipo_novedad || ''}
+                        onChange={(e) => setDraft((s) => ({ ...s, tipo_novedad: e.target.value }))}
+                        className={fieldCls}
+                    >
+                        {TIPO_FILTER_OPTIONS.map((o) => (
+                            <option key={o.value || 'all-tipo'} value={o.value}>
+                                {o.label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label className={labelCls} htmlFor="zoho-filtro-match">
+                        Match
+                    </label>
+                    <select
+                        id="zoho-filtro-match"
+                        value={draft.match || ''}
+                        onChange={(e) => setDraft((s) => ({ ...s, match: e.target.value }))}
+                        className={fieldCls}
+                    >
+                        {MATCH_FILTER_OPTIONS.map((o) => (
+                            <option key={o.value || 'all-match'} value={o.value}>
+                                {o.label}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            </OnboardingFiltersDrawer>
 
             {error ? (
                 <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">{error}</div>
@@ -813,7 +999,7 @@ export default function FichaNovedadesView({ auth, isLight, onPendingCount }) {
 
             <SortableGestionDataTable
                 columns={columns}
-                rows={rows}
+                rows={filteredRows}
                 isLight={isLight}
                 emptyText={
                     loading
