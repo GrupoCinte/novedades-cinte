@@ -354,7 +354,9 @@ async function adminPatchNovedad({ pool, req, idParam, normalizeEstado, parseDat
         .replace(/\s+/g, ' ');
     const heTimeKeys = new Set(['fechaInicio', 'fechaFin', 'horaInicio', 'horaFin']);
     const heTimeChanged = appliedKeys.some((k) => heTimeKeys.has(k));
-    if (tipoFold === 'hora extra' && heTimeChanged) {
+    const heEstadoChanged = appliedKeys.includes('estado');
+    // AUT-586: también recomputar si cambia estado (Rechazado deja de consumir tope).
+    if (tipoFold === 'hora extra' && (heTimeChanged || heEstadoChanged)) {
         const festivosSet = await festivosService.getFestivosSet();
         const dayKeys = new Set();
         const oldStartMs = toUtcMsFromDateAndTime(row.fecha_inicio, row.hora_inicio);
