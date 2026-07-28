@@ -2525,7 +2525,7 @@ function registerRoutes(deps) {
             }
 
             let q;
-            const selectNovedadEstadoRow = `SELECT id, area, tipo_novedad, estado, nombre, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, cantidad_horas, monto_cop`;
+            const selectNovedadEstadoRow = `SELECT id, area, tipo_novedad, estado, nombre, cedula, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, hora_inicio, hora_fin, cantidad_horas, monto_cop`;
             if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''))) {
                 q = await pool.query(`${selectNovedadEstadoRow}
                      FROM novedades
@@ -2637,6 +2637,30 @@ function registerRoutes(deps) {
                  VALUES ($1::uuid, $2::novedad_estado, $3::novedad_estado, $4::uuid, $5::user_role)`,
                 [item.id, normalizeEstado(item.estado), estado, actorUserId, req.user.role]
             );
+
+            // AUT-586: al aprobar/rechazar HE, recalcular tope dominical del grupo (excluye Rechazado).
+            if (rowIsHoraExtraTipo(item) && (estado === 'Aprobado' || estado === 'Rechazado')) {
+                try {
+                    const heStartMs = toUtcMsFromDateAndTime(item.fecha_inicio, item.hora_inicio);
+                    const heEndMs = toUtcMsFromDateAndTime(item.fecha_fin, item.hora_fin);
+                    const cedulaNorm = String(item.cedula || '').trim();
+                    if (cedulaNorm && heStartMs != null && heEndMs != null) {
+                        const festivosSetHeStatus = await festivosService.getFestivosSet();
+                        await triggerDomingoRecargoRecomputeForInterval(
+                            pool,
+                            cedulaNorm,
+                            heStartMs,
+                            heEndMs,
+                            festivosSetHeStatus
+                        );
+                    }
+                } catch (recomputeErr) {
+                    console.error('[actualizar-estado] Error recomputando tope dominical HE', {
+                        novedadId: item.id,
+                        message: recomputeErr?.message || String(recomputeErr)
+                    });
+                }
+            }
 
             const submitterEmail = String(item.correo_solicitante || '').trim().toLowerCase();
             if (submitterEmail.includes('@') && (estado === 'Aprobado' || estado === 'Rechazado')) {
