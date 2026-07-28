@@ -65,6 +65,22 @@ function validateConciliacionStakeholdersAvisoPayload(payload) {
     return Boolean(String(payload?.servicio?.cliente || '').trim());
 }
 
+function validateTimeEntryConfirmationPayload(payload) {
+    if (!payload || typeof payload !== 'object') return false;
+    if (payload.eventType !== 'time_entry_confirmation') return false;
+    if (!payload.eventId || !payload.entryId) return false;
+    const email = String(payload?.consultant?.email || '').trim();
+    if (!email.includes('@')) return false;
+    if (!['created', 'updated', 'deleted'].includes(payload.action)) return false;
+    const entryData = payload.entryData;
+    if (!entryData || typeof entryData !== 'object') return false;
+    if (!String(entryData.date || '').trim()) return false;
+    if (!String(entryData.description || '').trim()) return false;
+    if (!String(entryData.client || '').trim()) return false;
+    if (!String(entryData.schedule || '').trim()) return false;
+    return true;
+}
+
 function createEmailNotificationsPublisher({
     lambdaClient,
     functionName,
@@ -172,12 +188,74 @@ function createEmailNotificationsPublisher({
         };
     }
 
+    async function publishTimeEntryConfirmation(payload) {
+        if (!isEnabled) {
+            return { accepted: false, skipped: true, reason: 'disabled' };
+        }
+        if (!validateTimeEntryConfirmationPayload(payload)) {
+            return { accepted: false, skipped: true, reason: 'invalid_payload' };
+        }
+        try {
+            const command = new InvokeCommand({
+                FunctionName: functionName,
+                InvocationType: 'Event',
+                Payload: Buffer.from(JSON.stringify(payload), 'utf8')
+            });
+            const response = await lambdaClient.send(command);
+            return {
+                accepted: Number(response?.StatusCode || 0) >= 200 && Number(response?.StatusCode || 0) < 300,
+                statusCode: response?.StatusCode || 0,
+                requestId: response?.$metadata?.requestId || response?.ResponseMetadata?.RequestId || null
+            };
+        } catch (error) {
+            console.error('[Publisher] Error publicando evento:', error);
+            return {
+                accepted: false,
+                statusCode: 500,
+                requestId: null,
+                error: error.message
+            };
+        }
+    }
+
+    async function publishTimeEntryAdminNotification(payload) {
+        if (!isEnabled) {
+            return { accepted: false, skipped: true, reason: 'disabled' };
+        }
+        if (!validateTimeEntryConfirmationPayload(payload)) {
+            return { accepted: false, skipped: true, reason: 'invalid_payload' };
+        }
+        try {
+            const command = new InvokeCommand({
+                FunctionName: functionName,
+                InvocationType: 'Event',
+                Payload: Buffer.from(JSON.stringify({ ...payload, eventType: 'time_entry_admin_notification' }), 'utf8')
+            });
+            const response = await lambdaClient.send(command);
+            return {
+                accepted: Number(response?.StatusCode || 0) >= 200 && Number(response?.StatusCode || 0) < 300,
+                statusCode: response?.StatusCode || 0,
+                requestId: response?.$metadata?.requestId || response?.ResponseMetadata?.RequestId || null
+            };
+        } catch (error) {
+            console.error('[Publisher] Error publicando evento admin:', error);
+            return {
+                accepted: false,
+                statusCode: 500,
+                requestId: null,
+                error: error.message
+            };
+        }
+    }
+
     return {
         publishFormSubmitted,
         publishFormStatusChanged,
         publishConciliacionServicioFinalizada,
         publishConciliacionCorreoLider,
-        publishConciliacionStakeholdersAviso
+        publishConciliacionStakeholdersAviso,
+        publishTimeEntryConfirmation,
+        publishTimeEntryAdminNotification
     };
 }
 
@@ -187,5 +265,6 @@ module.exports = {
     validateFormStatusChangedPayload,
     validateConciliacionServicioFinalizadaPayload,
     validateConciliacionCorreoLiderPayload,
-    validateConciliacionStakeholdersAvisoPayload
+    validateConciliacionStakeholdersAvisoPayload,
+    validateTimeEntryConfirmationPayload
 };

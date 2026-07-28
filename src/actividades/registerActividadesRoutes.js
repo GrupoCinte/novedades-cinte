@@ -1,5 +1,15 @@
+const { createEmailNotificationsPublisher } = require('../notifications/emailNotificationsPublisher');
+const { lambdaClient } = require('../aws');
+
+
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+const emailPublisher = createEmailNotificationsPublisher({
+    lambdaClient,
+    functionName: process.env.EMAIL_TRANSACTIONS_FUNCTION_NAME || 'email-transactions',
+    enabled: process.env.EMAIL_NOTIFICATIONS_ENABLED === 'true'
+});
 
 function parseBogotaDateTime(dateValue, timeValue) {
     const date = String(dateValue || '').trim();
@@ -26,6 +36,51 @@ function getTimeInMinutes(value) {
     return hours * 60 + minutes;
 }
 
+function validateActividadPayload(req) {
+    const body = req.body || {};
+    const descripcion = String(body.descripcion || '').trim();
+    const fecha = String(body.fecha || '').trim();
+    const horaInicio = String(body.horaInicio || '').trim();
+    const horaFin = String(body.horaFin || '').trim();
+
+    if (!descripcion) {
+        return { error: 'La descripción es obligatoria.', status: 400 };
+    }
+    if (descripcion.length > 2000) {
+        return { error: 'La descripción no puede superar 2000 caracteres.', status: 400 };
+    }
+    if (!DATE_PATTERN.test(fecha) || !parseBogotaDateTime(fecha, '00:00')) {
+        return { error: 'La fecha debe ser válida.', status: 400 };
+    }
+    if (!TIME_PATTERN.test(horaInicio)) {
+        return { error: 'La hora de inicio debe ser válida.', status: 400 };
+    }
+    if (!TIME_PATTERN.test(horaFin)) {
+        return { error: 'La hora de fin debe ser válida.', status: 400 };
+    }
+    if (getTimeInMinutes(horaFin) <= getTimeInMinutes(horaInicio)) {
+        return { error: 'La hora de fin debe ser mayor que la hora de inicio.', status: 400 };
+    }
+
+    const inicio = parseBogotaDateTime(fecha, horaInicio);
+    const fin = parseBogotaDateTime(fecha, horaFin);
+    if (!inicio || !fin || fin <= inicio) {
+        return { error: 'El rango de horas no es válido.', status: 400 };
+    }
+
+    return { ok: true, data: { descripcion, inicio, fin } };
+}
+
+function getCedulaOrError(req, res) {
+    const cedula = String(req.user?.cedula || '').trim();
+    if (!cedula) {
+        res.status(403).json({ ok: false, error: 'Sesión de consultor sin cédula asociada.' });
+        return null;
+    }
+    return cedula;
+}
+
+
 function registerActividadesRoutes({
     app,
     verificarToken,
@@ -49,10 +104,8 @@ function registerActividadesRoutes({
 
     app.get('/api/consultor/actividades/context', ...consultorAuth, async (req, res) => {
         try {
-            const cedula = String(req.user?.cedula || '').trim();
-            if (!cedula) {
-                return res.status(403).json({ ok: false, error: 'Sesión de consultor sin cédula asociada.' });
-            }
+            const cedula = getCedulaOrError(req, res);
+            if (!cedula) return;
 
             const context = await actividadesStore.getConsultorContextByCedula(cedula);
             if (!context) {
@@ -71,10 +124,8 @@ function registerActividadesRoutes({
 
     app.get('/api/consultor/actividades', ...consultorAuth, async (req, res) => {
         try {
-            const cedula = String(req.user?.cedula || '').trim();
-            if (!cedula) {
-                return res.status(403).json({ ok: false, error: 'Sesión de consultor sin cédula asociada.' });
-            }
+            const cedula = getCedulaOrError(req, res);
+            if (!cedula) return;
 
             const actividades = typeof actividadesStore.listActividadesByCedula === 'function'
                 ? await actividadesStore.listActividadesByCedula(cedula)
@@ -88,41 +139,14 @@ function registerActividadesRoutes({
 
     app.post('/api/consultor/actividades', ...consultorAuth, async (req, res) => {
         try {
-            const body = req.body || {};
-            const descripcion = String(body.descripcion || '').trim();
-            const fecha = String(body.fecha || '').trim();
-            const horaInicio = String(body.horaInicio || '').trim();
-            const horaFin = String(body.horaFin || '').trim();
+            const payloadResult = validateActividadPayload(req);
+            if (!payloadResult.ok) {
+                return res.status(payloadResult.status).json({ ok: false, error: payloadResult.error });
+            }
+            const { descripcion, inicio, fin } = payloadResult.data;
 
-            if (!descripcion) {
-                return res.status(400).json({ ok: false, error: 'La descripción es obligatoria.' });
-            }
-            if (descripcion.length > 2000) {
-                return res.status(400).json({ ok: false, error: 'La descripción no puede superar 2000 caracteres.' });
-            }
-            if (!DATE_PATTERN.test(fecha) || !parseBogotaDateTime(fecha, '00:00')) {
-                return res.status(400).json({ ok: false, error: 'La fecha debe ser válida.' });
-            }
-            if (!TIME_PATTERN.test(horaInicio)) {
-                return res.status(400).json({ ok: false, error: 'La hora de inicio debe ser válida.' });
-            }
-            if (!TIME_PATTERN.test(horaFin)) {
-                return res.status(400).json({ ok: false, error: 'La hora de fin debe ser válida.' });
-            }
-            if (getTimeInMinutes(horaFin) <= getTimeInMinutes(horaInicio)) {
-                return res.status(400).json({ ok: false, error: 'La hora de fin debe ser mayor que la hora de inicio.' });
-            }
-
-            const inicio = parseBogotaDateTime(fecha, horaInicio);
-            const fin = parseBogotaDateTime(fecha, horaFin);
-            if (!inicio || !fin || fin <= inicio) {
-                return res.status(400).json({ ok: false, error: 'El rango de horas no es válido.' });
-            }
-
-            const cedula = String(req.user?.cedula || '').trim();
-            if (!cedula) {
-                return res.status(403).json({ ok: false, error: 'Sesión de consultor sin cédula asociada.' });
-            }
+            const cedula = getCedulaOrError(req, res);
+            if (!cedula) return;
 
             const result = await actividadesStore.createManualActivity({
                 cedula,
@@ -137,10 +161,362 @@ function registerActividadesRoutes({
                 return res.status(400).json({ ok: false, error: 'Debes tener un cliente asignado en tu ficha para registrar una actividad.' });
             }
 
+            try {
+                await emailPublisher.publishTimeEntryConfirmation({
+                    eventType: 'time_entry_confirmation',
+                    eventId: crypto.randomUUID(),
+                    entryId: result.activity.id,
+                    consultant: {
+                        name: req.user.nombre || 'Consultor',
+                        email: req.user.email
+                    },
+                    action: 'created',
+                    entryData: {
+                        date: result.activity.fecha,
+                        description: result.activity.descripcion,
+                        client: result.activity.cliente,
+                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
+                    },
+                    meta: {
+                        source: 'backend',
+                        env: process.env.NODE_ENV || 'development'
+                    }
+                });
+            } catch (publishError) {
+                console.error('[Publisher] Error publicando evento created:', publishError);
+            }
+
+            try {
+                await emailPublisher.publishTimeEntryAdminNotification({
+                    eventType: 'time_entry_admin_notification',
+                    eventId: crypto.randomUUID(),
+                    entryId: result.activity.id,
+                    consultant: {
+                        name: req.user.nombre || 'Consultor',
+                        email: req.user.email
+                    },
+                    action: 'created',
+                    entryData: {
+                        date: result.activity.fecha,
+                        description: result.activity.descripcion,
+                        client: result.activity.cliente,
+                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
+                    },
+                    meta: {
+                        source: 'backend',
+                        env: process.env.NODE_ENV || 'development'
+                    }
+                });
+            } catch (publishError) {
+                console.error('[Publisher] Error publicando evento admin created:', publishError);
+            }
+
             return res.status(201).json({ ok: true, actividad: result.activity });
         } catch (error) {
             console.error('consultor actividades create:', error);
+
             return res.status(500).json({ ok: false, error: 'No se pudo crear la entrada de tiempo.' });
+        }
+    });
+
+    app.put('/api/consultor/actividades/:id', ...consultorAuth, async (req, res) => {
+        try {
+            const id = String(req.params.id || '').trim();
+            if (!id) {
+                return res.status(400).json({ ok: false, error: 'El ID de la actividad es obligatorio.' });
+            }
+
+            const payloadResult = validateActividadPayload(req);
+            if (!payloadResult.ok) {
+                return res.status(payloadResult.status).json({ ok: false, error: payloadResult.error });
+            }
+            const { descripcion, inicio, fin } = payloadResult.data;
+
+            const cedula = getCedulaOrError(req, res);
+            if (!cedula) return;
+
+            const actividadAnterior = await actividadesStore.getActividadById(id);
+
+            const result = await actividadesStore.updateActividadPropia({
+                id,
+                cedula,
+                descripcion,
+                inicio: inicio.toISOString(),
+                fin: fin.toISOString()
+            });
+
+            if (result.kind === 'not_found') {
+                return res.status(404).json({ ok: false, error: 'No se encontró la actividad o no tienes permisos para editarla.' });
+            }
+
+            try {
+                await emailPublisher.publishTimeEntryConfirmation({
+                    eventType: 'time_entry_confirmation',
+                    eventId: crypto.randomUUID(),
+                    entryId: result.activity.id,
+                    consultant: {
+                        name: req.user.nombre || 'Consultor',
+                        email: req.user.email
+                    },
+                    action: 'updated',
+                    entryData: {
+                        date: result.activity.fecha,
+                        description: result.activity.descripcion,
+                        client: result.activity.cliente,
+                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
+                    },
+                    previousData: {
+                        date: actividadAnterior.fecha,
+                        description: actividadAnterior.descripcion,
+                        client: actividadAnterior.cliente,
+                        schedule: `${actividadAnterior.inicio} - ${actividadAnterior.fin}`
+                    },
+                    meta: {
+                        source: 'backend',
+                        env: process.env.NODE_ENV || 'development'
+                    }
+                });
+            } catch (publishError) {
+                console.error('[Publisher] Error publicando evento updated:', publishError);
+            }
+
+            try {
+                await emailPublisher.publishTimeEntryAdminNotification({
+                    eventType: 'time_entry_admin_notification',
+                    eventId: crypto.randomUUID(),
+                    entryId: result.activity.id,
+                    consultant: {
+                        name: req.user.nombre || 'Consultor',
+                        email: req.user.email
+                    },
+                    action: 'updated',
+                    entryData: {
+                        date: result.activity.fecha,
+                        description: result.activity.descripcion,
+                        client: result.activity.cliente,
+                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
+                    },
+                    meta: {
+                        source: 'backend',
+                        env: process.env.NODE_ENV || 'development'
+                    }
+                });
+            } catch (publishError) {
+                console.error('[Publisher] Error publicando evento admin updated:', publishError);
+            }
+    
+
+            return res.json({ ok: true, actividad: result.activity });
+        } catch (error) {
+            console.error('consultor actividades update:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo actualizar la actividad.' });
+        }
+    });
+
+    app.delete('/api/consultor/actividades/:id', ...consultorAuth, async (req, res) => {
+        try {
+            const id = String(req.params.id || '').trim();
+            if (!id) {
+                return res.status(400).json({ ok: false, error: 'El ID de la actividad es obligatorio.' });
+            }
+
+            const cedula = getCedulaOrError(req, res);
+            if (!cedula) return;
+
+            const actividad = await actividadesStore.getActividadById(id);
+
+
+            const result = await actividadesStore.deleteActividadPropia({ id, cedula });
+            if (result.kind === 'not_found') {
+                return res.status(404).json({ ok: false, error: 'No se encontró la actividad o no tienes permisos para eliminarla.' });
+            }
+
+            try {
+                await emailPublisher.publishTimeEntryConfirmation({
+                    eventType: 'time_entry_confirmation',
+                    eventId: crypto.randomUUID(),
+                    entryId: id,
+                    consultant: {
+                        name: req.user.nombre || 'Consultor',
+                        email: req.user.email
+                    },
+                    action: 'deleted',
+                    entryData: {
+                        date: actividad.fecha,
+                        description: actividad.descripcion,
+                        client: actividad.cliente,
+                        schedule: `${actividad.inicio} - ${actividad.fin}`
+                    },
+                    meta: {
+                        source: 'backend',
+                        env: process.env.NODE_ENV || 'development'
+                    }
+                });
+            } catch (publishError) {
+                console.error('[Publisher] Error publicando evento deleted:', publishError);
+            }
+
+            try {
+                await emailPublisher.publishTimeEntryAdminNotification({
+                    eventType: 'time_entry_admin_notification',
+                    eventId: crypto.randomUUID(),
+                    entryId: id,
+                    consultant: {
+                        name: req.user.nombre || 'Consultor',
+                        email: req.user.email
+                    },
+                    action: 'deleted',
+                    entryData: {
+                        date: actividad.fecha,
+                        description: actividad.descripcion,
+                        client: actividad.cliente,
+                        schedule: `${actividad.inicio} - ${actividad.fin}`
+                    },
+                    meta: {
+                        source: 'backend',
+                        env: process.env.NODE_ENV || 'development'
+                    }
+                });
+            } catch (publishError) {
+                console.error('[Publisher] Error publicando evento admin deleted:', publishError);
+            }
+
+            return res.json({ ok: true, mensaje: 'Actividad eliminada exitosamente.' });
+        } catch (error) {
+            console.error('consultor actividades delete:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo eliminar la actividad.' });
+        }
+    });
+
+    app.get('/api/consultor/actividades/cronometro/activo', ...consultorAuth, async (req, res) => {
+        try {
+            const cedula = getCedulaOrError(req, res);
+            if (!cedula) return;
+
+            const activo = typeof actividadesStore.getCronometroActivoByCedula === 'function'
+                ? await actividadesStore.getCronometroActivoByCedula(cedula)
+                : null;
+
+            return res.json({ ok: true, activo });
+        } catch (error) {
+            console.error('consultor actividades cronometro activo:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo consultar el estado del cronómetro.' });
+        }
+    });
+
+    app.post('/api/consultor/actividades/cronometro/iniciar', ...consultorAuth, async (req, res) => {
+        try {
+            const cedula = getCedulaOrError(req, res);
+            if (!cedula) return;
+
+            const body = req.body || {};
+            const descripcion = String(body.descripcion || '').trim();
+            if (!descripcion) {
+                return res.status(400).json({ ok: false, error: 'La descripción es obligatoria para iniciar el cronómetro.' });
+            }
+            if (descripcion.length > 2000) {
+                return res.status(400).json({ ok: false, error: 'La descripción no puede superar los 2000 caracteres.' });
+            }
+
+            const result = await actividadesStore.iniciarCronometro({ cedula, descripcion });
+            if (result.kind === 'consultor_not_found') {
+                return res.status(404).json({ ok: false, error: 'No se encontró tu ficha activa de colaborador.' });
+            }
+            if (result.kind === 'client_not_assigned') {
+                return res.status(400).json({ ok: false, error: 'Debes tener un cliente asignado en tu ficha para iniciar el cronómetro.' });
+            }
+            if (result.kind === 'already_active') {
+                return res.status(409).json({ ok: false, error: 'Ya tienes un cronómetro en curso. Debes detenerlo o cancelarlo antes de iniciar otro.' });
+            }
+
+            return res.status(201).json({ ok: true, actividad: result.activity });
+        } catch (error) {
+            console.error('consultor actividades cronometro iniciar:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo iniciar el cronómetro.' });
+        }
+    });
+
+    app.post('/api/consultor/actividades/cronometro/detener', ...consultorAuth, async (req, res) => {
+        try {
+            const cedula = getCedulaOrError(req, res);
+            if (!cedula) return;
+
+            const result = await actividadesStore.detenerCronometro({ cedula });
+            if (result.kind === 'no_active_timer') {
+                return res.status(400).json({ ok: false, error: 'No tienes ningún cronómetro en curso para detener.' });
+            }
+        
+            try {
+                await emailPublisher.publishTimeEntryConfirmation({
+                    eventType: 'time_entry_confirmation',
+                    eventId: crypto.randomUUID(),
+                    entryId: result.activity.id,
+                    consultant: {
+                        name: req.user.nombre || 'Consultor',
+                        email: req.user.email
+                    },
+                    action: 'created',
+                    entryData: {
+                        date: result.activity.fecha,
+                        description: result.activity.descripcion,
+                        client: result.activity.cliente,
+                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
+                    },
+                    meta: {
+                        source: 'backend',
+                        env: process.env.NODE_ENV || 'development'
+                    }
+                });
+            } catch (publishError) {
+                console.error('[Publisher] Error publicando evento created desde cronómetro:', publishError);
+            }
+
+            try {
+                await emailPublisher.publishTimeEntryAdminNotification({
+                    eventType: 'time_entry_admin_notification',
+                    eventId: crypto.randomUUID(),
+                    entryId: result.activity.id,
+                    consultant: {
+                        name: req.user.nombre || 'Consultor',
+                        email: req.user.email
+                    },
+                    action: 'created',
+                    entryData: {
+                        date: result.activity.fecha,
+                        description: result.activity.descripcion,
+                        client: result.activity.cliente,
+                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
+                    },
+                    meta: {
+                        source: 'backend',
+                        env: process.env.NODE_ENV || 'development'
+                    }
+                });
+            } catch (publishError) {
+                console.error('[Publisher] Error publicando evento admin created desde cronómetro:', publishError);
+            }
+
+            return res.json({ ok: true, actividad: result.activity });
+        } catch (error) {
+            console.error('consultor actividades cronometro detener:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo detener el cronómetro.' });
+        }
+    });
+
+    app.post('/api/consultor/actividades/cronometro/cancelar', ...consultorAuth, async (req, res) => {
+        try {
+            const cedula = getCedulaOrError(req, res);
+            if (!cedula) return;
+
+            const result = await actividadesStore.cancelarCronometro({ cedula });
+            if (result.kind === 'no_active_timer') {
+                return res.status(400).json({ ok: false, error: 'No tienes ningún cronómetro en curso para cancelar.' });
+            }
+
+            return res.json({ ok: true, mensaje: 'Cronómetro cancelado exitosamente.' });
+        } catch (error) {
+            console.error('consultor actividades cronometro cancelar:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo cancelar el cronómetro.' });
         }
     });
 }
