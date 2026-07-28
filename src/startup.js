@@ -48,6 +48,7 @@ async function startServer(deps) {
         ensureColaboradorTarifaHistorialTable,
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
+        ensureActividadesConsultorTable,
         PORT,
         COGNITO_ENABLED,
         COGNITO_REGION,
@@ -97,6 +98,14 @@ async function startServer(deps) {
     await ensureConciliacionesNovedadConsumoTable();
     await ensureColaboradorAsignacionesTable();
     await ensureColaboradorTarifaHistorialTable();
+    if (typeof ensureActividadesConsultorTable === 'function') {
+        try {
+            await ensureActividadesConsultorTable();
+        } catch (e) {
+            logger.warn({ error: e?.message }, 'Inicialización DDL actividades_consultor omitida o sin permisos');
+        }
+    }
+
     try {
         const { migrateColaboradoresToAsignaciones } = require('./conciliaciones/colaboradorAsignaciones');
         await migrateColaboradoresToAsignaciones(pool);
