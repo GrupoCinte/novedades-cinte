@@ -17,9 +17,7 @@ function createActividadesStore({ pool }) {
                 estado TEXT NOT NULL DEFAULT 'pendiente'
                     CHECK (estado IN ('pendiente', 'aprobado', 'rechazado')),
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                CONSTRAINT chk_actividad_fin_posterior
-                    CHECK (fin IS NULL OR fin > inicio)
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         `);
 
@@ -80,6 +78,17 @@ function createActividadesStore({ pool }) {
               AND fin IS NULL
               AND estado = 'pendiente';
         `);
+
+        // F. Garantizar validación de hora fin posterior a inicio (idempotente)
+        await pool.query(`
+            ALTER TABLE actividades_consultor
+            DROP CONSTRAINT IF EXISTS chk_actividad_fin_posterior;
+        `);
+        await pool.query(`
+            ALTER TABLE actividades_consultor
+            ADD CONSTRAINT chk_actividad_fin_posterior
+            CHECK (fin IS NULL OR fin > inicio);
+        `);
     }
 
     async function getConsultorContextByCedula(cedula) {
@@ -120,7 +129,7 @@ function createActividadesStore({ pool }) {
         const result = await pool.query(
             `SELECT id, cedula, cliente, descripcion, inicio, fin, origen, estado, created_at, updated_at
              FROM actividades_consultor
-             WHERE cedula = $1 AND estado IN ('pendiente', 'aprobado', 'rechazado')
+             WHERE cedula = $1 AND estado IN ('pendiente', 'aprobado', 'rechazado') AND fin IS NOT NULL
              ORDER BY inicio DESC`,
             [normalizedCedula]
         );

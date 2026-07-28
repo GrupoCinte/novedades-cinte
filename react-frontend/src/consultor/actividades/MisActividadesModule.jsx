@@ -21,9 +21,14 @@ import {
   FilterX,
   Filter,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Play,
+  Square,
+  Trash2
 } from 'lucide-react';
 import { useModuleTheme } from '../../moduleTheme.js';
+import ModuleFiltersToolbar from '../../shared/filters/ModuleFiltersToolbar.jsx';
+import ModuleFiltersDrawer from '../../shared/filters/ModuleFiltersDrawer.jsx';
 import {
   buildGestionTableDash,
   GESTION_MODULE_PAGE_PADDING,
@@ -591,149 +596,7 @@ function ActivityModal({
   );
 }
 
-function ActivityFilterBar({
-  dash,
-  filterFecha,
-  setFilterFecha,
-  filterCliente,
-  setFilterCliente,
-  filterSearch,
-  setFilterSearch,
-  filtersPanelOpen,
-  setFiltersPanelOpen,
-  handleClearFilters,
-  hasActiveFilters,
-  chipText,
-  clientOptions,
-  isLight,
-  field
-}) {
-  return (
-    <div className={dash.filterBar}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-3 flex-1 min-w-0">
-          {/* Indicador Dinámico de Estado */}
-          <span className={dash.filtrosChip} title={chipText}>
-            {chipText}
-          </span>
 
-          {/* Búsqueda por Descripción */}
-          <div className="relative flex-1 min-w-[200px] max-w-xs">
-            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
-            <input
-              type="text"
-              value={filterSearch}
-              onChange={(e) => setFilterSearch(e.target.value)}
-              placeholder="Buscar por descripción..."
-              className={`${field} h-9 w-full pl-8 text-xs placeholder:text-slate-400`}
-            />
-          </div>
-
-          {/* Selector de Fecha */}
-          <input
-            type="date"
-            value={filterFecha}
-            title="Filtrar por fecha"
-            onChange={(e) => setFilterFecha(e.target.value)}
-            className={`${field} h-9 text-xs font-medium`}
-          />
-
-          {/* Selector de Cliente */}
-          <select
-            value={filterCliente}
-            onChange={(e) => setFilterCliente(e.target.value)}
-            className={`${field} h-9 text-xs font-medium min-w-[140px]`}
-            title="Filtrar por cliente"
-          >
-            <option value="">Todos los clientes</option>
-            {clientOptions.map((cli) => (
-              <option key={cli} value={cli}>
-                {cli}
-              </option>
-            ))}
-          </select>
-
-          {/* Botón "Filtros avanzados" Popover */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setFiltersPanelOpen(!filtersPanelOpen)}
-              className={dash.filtrosAvanzadosBtn}
-            >
-              <Filter size={14} className="shrink-0 opacity-90" aria-hidden />
-              <span>Filtros avanzados</span>
-              {filtersPanelOpen ? (
-                <ChevronUp size={16} className="shrink-0 opacity-90" aria-hidden />
-              ) : (
-                <ChevronDown size={16} className="shrink-0 opacity-90" aria-hidden />
-              )}
-            </button>
-
-            {filtersPanelOpen ? (
-              <div
-                className={`absolute right-0 top-full mt-2 z-30 w-64 rounded-xl border p-3 shadow-xl backdrop-blur-md transition-all ${
-                  isLight
-                    ? 'border-slate-200 bg-white text-slate-800'
-                    : 'border-[#1a3a56] bg-[#0b1e30] text-slate-200'
-                }`}
-              >
-                <div className="flex items-center justify-between border-b pb-2 border-slate-200 dark:border-white/10 mb-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-[#2F7BB8] dark:text-[#65BCF7]">
-                    Opciones de filtrado
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setFiltersPanelOpen(false)}
-                    className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-                <div className="space-y-1.5 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFilterFecha(getTodayString());
-                      setFiltersPanelOpen(false);
-                    }}
-                    className="w-full text-left rounded-lg px-3 py-2 transition-colors hover:bg-slate-100 dark:hover:bg-[#0f2942]"
-                  >
-                    Ver actividades de hoy
-                  </button>
-                  {hasActiveFilters ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleClearFilters();
-                        setFiltersPanelOpen(false);
-                      }}
-                      className="w-full text-left rounded-lg px-3 py-2 text-red-600 dark:text-red-400 transition-colors hover:bg-red-50 dark:hover:bg-red-950/20"
-                    >
-                      Limpiar todos los filtros
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          {/* Botón Limpiar Filtros */}
-          {hasActiveFilters ? (
-            <button
-              type="button"
-              onClick={handleClearFilters}
-              className={dash.borrarFiltros}
-              title="Limpiar todos los filtros"
-            >
-              <FilterX className="h-3.5 w-3.5" />
-              <span>Limpiar</span>
-            </button>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Módulo consultor de Mis Actividades.
@@ -768,7 +631,6 @@ export default function MisActividadesModule() {
 
   // Estados de Filtros Principales
   const [filterFecha, setFilterFecha] = useState('');
-  const [filterCliente, setFilterCliente] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
@@ -839,29 +701,18 @@ export default function MisActividadesModule() {
   const filteredActividades = useMemo(() => {
     return actividades.filter((act) => {
       if (filterFecha && formatIsoToBogotaDate(act.inicio) !== filterFecha) return false;
-      if (filterCliente && String(act.cliente || '').toLowerCase() !== String(filterCliente).toLowerCase()) return false;
       if (filterSearch.trim() && !String(act.descripcion || '').toLowerCase().includes(filterSearch.trim().toLowerCase())) return false;
       return true;
     });
-  }, [actividades, filterFecha, filterCliente, filterSearch]);
-
-  const clientOptions = useMemo(() => {
-    const set = new Set();
-    if (cliente) set.add(cliente);
-    actividades.forEach((a) => {
-      if (a.cliente) set.add(a.cliente);
-    });
-    return Array.from(set);
-  }, [cliente, actividades]);
+  }, [actividades, filterFecha, filterSearch]);
 
   // Contador dinámico de filtros activos
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (filterFecha) count++;
-    if (filterCliente) count++;
     if (filterSearch.trim()) count++;
     return count;
-  }, [filterFecha, filterCliente, filterSearch]);
+  }, [filterFecha, filterSearch]);
 
   const chipText = useMemo(() => {
     if (activeFilterCount === 0) return 'Sin filtros activos';
@@ -873,7 +724,6 @@ export default function MisActividadesModule() {
 
   const handleClearFilters = () => {
     setFilterFecha('');
-    setFilterCliente('');
     setFilterSearch('');
   };
 
@@ -935,6 +785,7 @@ export default function MisActividadesModule() {
 
     setIsModalOpen(false);
     setSuccessMessage('Entrada de tiempo registrada con éxito.');
+    setTimeout(() => setSuccessMessage(''), 4000);
     await refreshHistory();
   };
 
@@ -957,32 +808,9 @@ export default function MisActividadesModule() {
       <main className={mainCanvas}>
         <div className={GESTION_MODULE_PAGE_PADDING}>
           <div className="space-y-4 w-full">
-            {/* Header Superior con Titulo Xl y Botón Primario de Toolbar CINTE */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-2 border-b border-slate-200 dark:border-white/10">
-              <div>
-                <h1 className={dash.titleXl}>
-                  Historial de actividades
-                </h1>
-                <p className={`mt-1 ${dash.mutedSm}`}>
-                  Consulta y gestiona las entradas de tiempo de trabajo del consultor.
-                </p>
-              </div>
-
-              {/* Botón Agregar (Usando la constante exacta GESTION_TOOLBAR_PRIMARY_BTN del Administrador) */}
-              <button
-                type="button"
-                onClick={handleOpenModal}
-                disabled={loadingContext || Boolean(contextError)}
-                className={GESTION_TOOLBAR_PRIMARY_BTN}
-              >
-                <Plus className="h-4 w-4" aria-hidden />
-                <span>Agregar</span>
-              </button>
-            </div>
-
             {/* Mensaje de Éxito al guardar */}
             {successMessage ? (
-              <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-700 dark:text-emerald-300">
+              <div className="fixed bottom-4 right-4 z-[300] flex items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-white dark:bg-[#0b1e30] p-4 text-emerald-700 dark:text-emerald-300 shadow-2xl animate-in fade-in slide-in-from-bottom-4">
                 <div className="flex items-center gap-3">
                   <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" />
                   <p className="text-sm font-semibold">{successMessage}</p>
@@ -1021,24 +849,53 @@ export default function MisActividadesModule() {
             
             {!contextError && !loadingActividades && (
               <div className="space-y-4">
-                {/* BARRA DE FILTROS (Usando dash.filterBar, dash.filtrosChip y dash.filtrosAvanzadosBtn del Administrador) */}
-                <ActivityFilterBar
-                  dash={dash}
-                  filterFecha={filterFecha}
-                  setFilterFecha={setFilterFecha}
-                  filterCliente={filterCliente}
-                  setFilterCliente={setFilterCliente}
-                  filterSearch={filterSearch}
-                  setFilterSearch={setFilterSearch}
+                {/* BARRA DE FILTROS (Estándar ModuleFiltersToolbar) */}
+                <ModuleFiltersToolbar
+                  chipLabel={chipText}
                   filtersPanelOpen={filtersPanelOpen}
-                  setFiltersPanelOpen={setFiltersPanelOpen}
-                  handleClearFilters={handleClearFilters}
-                  hasActiveFilters={hasActiveFilters}
-                  chipText={chipText}
-                  clientOptions={clientOptions}
-                  isLight={isLight}
-                  field={field}
-                />
+                  onToggleFilters={() => setFiltersPanelOpen(!filtersPanelOpen)}
+                  dash={dash}
+                >
+                  <div className="relative flex-1 min-w-[200px] max-w-xs ml-auto">
+                    <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={filterSearch}
+                      onChange={(e) => setFilterSearch(e.target.value)}
+                      placeholder="Buscar por descripción..."
+                      className={`${field} h-9 w-full pl-8 text-xs placeholder:text-slate-400`}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleOpenModal}
+                    disabled={loadingContext || Boolean(contextError)}
+                    className={GESTION_TOOLBAR_PRIMARY_BTN}
+                  >
+                    <Plus className="h-4 w-4" aria-hidden />
+                    <span className="hidden sm:inline">Agregar manual</span>
+                    <span className="sm:hidden">Agregar</span>
+                  </button>
+                </ModuleFiltersToolbar>
+
+                <ModuleFiltersDrawer
+                  open={filtersPanelOpen}
+                  onClose={() => setFiltersPanelOpen(false)}
+                  onClear={handleClearFilters}
+                  onApply={() => setFiltersPanelOpen(false)}
+                  dash={dash}
+                  title="Filtros avanzados"
+                >
+                  <div className="flex flex-col gap-1.5">
+                    <span className={dash.filtrosDrawerLabel}>Fecha</span>
+                    <input
+                      type="date"
+                      className={`${dash.field} min-w-0 w-full px-2 py-1.5 text-sm`}
+                      value={filterFecha}
+                      onChange={(e) => setFilterFecha(e.target.value)}
+                    />
+                  </div>
+                </ModuleFiltersDrawer>
 
                 {/* TABLA DEL HISTORIAL (Usando dash.card, dash.thead, dash.tbody, dash.trHover y celdas del Administrador) */}
                 {filteredActividades.length === 0 ? (
