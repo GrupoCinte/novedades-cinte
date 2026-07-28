@@ -97,13 +97,13 @@ export default function MonitoreoActividadModal({ actividad, onClose, onUpdated,
                         {actividad.aprobado_por_email && (
                             <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
                                 Aprobado por {actividad.aprobado_por_email} el {formatDateTime(actividad.aprobado_en)}
-                                {actividad.observaciones_rechazo && <p className="mt-1 font-medium">Observación: {actividad.observaciones_rechazo}</p>}
+                                {actividad.observaciones_rechazo && <p className="mt-1 font-medium whitespace-pre-wrap break-words">Observación: {actividad.observaciones_rechazo}</p>}
                             </div>
                         )}
                         {actividad.rechazado_por_email && (
                             <div className="rounded border border-rose-200 bg-rose-50 p-2 text-xs text-rose-800">
                                 Rechazado por {actividad.rechazado_por_email} el {formatDateTime(actividad.rechazado_en)}
-                                {actividad.observaciones_rechazo && <p className="mt-1 font-medium">Motivo: {actividad.observaciones_rechazo}</p>}
+                                {actividad.observaciones_rechazo && <p className="mt-1 font-medium whitespace-pre-wrap break-words">Motivo: {actividad.observaciones_rechazo}</p>}
                             </div>
                         )}
 
