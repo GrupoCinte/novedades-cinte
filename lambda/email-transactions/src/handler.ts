@@ -18,7 +18,6 @@ import type {
   ConciliacionStakeholdersAvisoEvent,
   FormSubmittedNotificationEvent,
   FormStatusChangedNotificationEvent,
-  TimeEntryAdminNotificationEvent,
   TimeEntryConfirmationEvent,
   TransactionalEmailEvent
 } from './types.js';
@@ -109,41 +108,16 @@ function parseTimeEntryEvent(data: Partial<TimeEntryConfirmationEvent>): TimeEnt
   return data as TimeEntryConfirmationEvent;
 }
 
-function parseEventPayload(rawEvent: unknown): TransactionalEmailEvent {
-  const payload = parseRawPayload(rawEvent);  
-  const data = payload as any;
-
-  console.log('📦 Evento recibido:', JSON.stringify(data, null, 2));
-
-  if (data?.eventType === 'time_entry_admin_notification') {
-    return parseTimeEntryEvent(data as any) as TransactionalEmailEvent;
-  }
-
-  if (data?.eventType === 'conciliacion_correo_lider') {
-    return parseConciliacionCorreoLider(data as Partial<ConciliacionCorreoLiderEvent>);
-  }
-  
-  if (data?.eventType === 'conciliacion_servicio_finalizada') {
-    return parseConciliacionServicioFinalizada(data as Partial<ConciliacionServicioFinalizadaEvent>);
-  }
-  if (data?.eventType === 'conciliacion_stakeholders_aviso') {
-    return parseConciliacionStakeholdersAviso(data as Partial<ConciliacionStakeholdersAvisoEvent>);
-  }
-
-  if (data?.eventType === 'time_entry_confirmation') {
-    return parseTimeEntryEvent(data as Partial<TimeEntryConfirmationEvent>);
-  }
-
-  if (data?.eventType !== 'form_submitted' && data?.eventType !== 'form_status_changed') {
-    throw new Error('eventType invalido');
-  }
+function parseFormEvent(data: any): FormSubmittedNotificationEvent | FormStatusChangedNotificationEvent {
   if (!data?.eventId) throw new Error('eventId requerido');
   if (!data?.novedadId) throw new Error('novedadId requerido');
   if (!String(data?.user?.email || '').includes('@')) throw new Error('user.email invalido');
+
   if (data.eventType === 'form_submitted') {
     if (!String(data?.admin?.actionUrl || '').trim()) throw new Error('admin.actionUrl requerido');
     return data as FormSubmittedNotificationEvent;
   }
+
   const statusEvent = data as Partial<FormStatusChangedNotificationEvent>;
   if (!statusEvent?.statusChange?.newEstado) throw new Error('statusChange.newEstado requerido');
   if (!statusEvent?.statusChange?.previousEstado) throw new Error('statusChange.previousEstado requerido');
@@ -153,6 +127,34 @@ function parseEventPayload(rawEvent: unknown): TransactionalEmailEvent {
   return statusEvent as FormStatusChangedNotificationEvent;
 }
 
+
+function parseEventPayload(rawEvent: unknown): TransactionalEmailEvent {
+  const payload = parseRawPayload(rawEvent);
+  const data = payload as any;
+
+  // Eventos de actividades (consultor y admin)
+  if (data?.eventType === 'time_entry_admin_notification' || data?.eventType === 'time_entry_confirmation') {
+    return parseTimeEntryEvent(data as any) as TransactionalEmailEvent;
+  }
+
+  // Eventos de conciliaciones
+  if (data?.eventType === 'conciliacion_correo_lider') {
+    return parseConciliacionCorreoLider(data as Partial<ConciliacionCorreoLiderEvent>);
+  }
+  if (data?.eventType === 'conciliacion_servicio_finalizada') {
+    return parseConciliacionServicioFinalizada(data as Partial<ConciliacionServicioFinalizadaEvent>);
+  }
+  if (data?.eventType === 'conciliacion_stakeholders_aviso') {
+    return parseConciliacionStakeholdersAviso(data as Partial<ConciliacionStakeholdersAvisoEvent>);
+  }
+
+  // Eventos de novedades (formularios)
+  if (data?.eventType === 'form_submitted' || data?.eventType === 'form_status_changed') {
+    return parseFormEvent(data);
+  }
+
+  throw new Error('eventType invalido');
+}
 
 
 function resolveAdminRecipientsFromEnv(): string[] {
@@ -361,10 +363,16 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
     if (payload.eventType === 'time_entry_admin_notification') {
       const typedPayload = payload as unknown as TimeEntryConfirmationEvent;
       const html = await render(React.createElement(AdminTimeEntryNotificationEmail, { payload: typedPayload }));
-      const subject = `Nueva actividad ${typedPayload.action === 'created' ? 'registrada' : typedPayload.action === 'updated' ? 'actualizada' : 'eliminada'} por ${typedPayload.consultant.name}`;
+      const ADMIN_ACTION_TEXT_MAP: Record<string, string> = {
+        created: 'registrada',
+        updated: 'actualizada',
+        deleted: 'eliminada'
+      };
+
+      const adminActionText = ADMIN_ACTION_TEXT_MAP[typedPayload.action] || 'actualizada';
+      const subject = `Nueva actividad ${adminActionText} por ${typedPayload.consultant.name}`;
       
       const adminEmails = await resolveAdminRecipientsForActivity(typedPayload);
-      
       // Si no hay destinatarios, registrar y terminar
       if (adminEmails.length === 0) {
         console.warn('[email-transactions] Sin destinatarios admin para actividad', {

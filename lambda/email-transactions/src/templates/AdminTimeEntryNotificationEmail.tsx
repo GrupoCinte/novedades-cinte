@@ -43,11 +43,7 @@ export function AdminTimeEntryNotificationEmail({ payload }: Props) {
     deleted: 'eliminado'
   }[payload.action];
 
-  const actionTitle = {
-    created: 'registrada',
-    updated: 'actualizada',
-    deleted: 'eliminada'
-  }[payload.action];
+  // ❌ ELIMINAR actionTitle (no se usa)
 
   return (
     <Html>
@@ -110,7 +106,7 @@ export function AdminTimeEntryNotificationEmail({ payload }: Props) {
               </>
             )}
 
-            {/* ===== ELIMINAR: Mostrar los datos eliminados ===== */}
+            {/* ===== ELIMINAR ===== */}
             {payload.action === 'deleted' && (
               <EntryDataDisplay 
                 entryData={{

@@ -19,7 +19,13 @@ interface Props {
 }
 
 // ===== COMPONENTE REUTILIZABLE =====
-function EntryDataDisplay({ entryData, entryId }: { entryData: any; entryId: string }) {
+
+interface EntryDataDisplayProps {
+  readonly entryData: any;
+  readonly entryId: string;
+}
+
+function EntryDataDisplay({ entryData, entryId }: EntryDataDisplayProps) { 
   return (
     <Section className="mt-6 rounded-lg bg-slate-50 p-4">
       <Text className="m-0 text-sm text-slate-700">
