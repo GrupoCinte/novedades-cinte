@@ -352,6 +352,18 @@ CREATE TABLE IF NOT EXISTS actividades_consultor (
     fin TIMESTAMPTZ NULL,
     origen TEXT NOT NULL CHECK (origen IN ('manual', 'cronometro')),
     estado TEXT NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'aprobado', 'rechazado')),
+
+    -- Auditoría de decisión (aprobación / rechazo)
+    aprobado_por_user_id    UUID NULL REFERENCES users(id),
+    aprobado_por_rol        user_role NULL,
+    aprobado_por_email      TEXT NULL,
+    aprobado_en             TIMESTAMPTZ NULL,
+    rechazado_por_user_id   UUID NULL REFERENCES users(id),
+    rechazado_por_rol       user_role NULL,
+    rechazado_por_email     TEXT NULL,
+    rechazado_en            TIMESTAMPTZ NULL,
+    observaciones_rechazo   TEXT NULL,
+
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT chk_actividad_fin_posterior CHECK (fin IS NULL OR fin > inicio)
@@ -359,5 +371,10 @@ CREATE TABLE IF NOT EXISTS actividades_consultor (
 
 CREATE INDEX IF NOT EXISTS idx_actividades_consultor_listado ON actividades_consultor (cedula, inicio DESC) WHERE estado IN ('pendiente', 'aprobado', 'rechazado');
 CREATE UNIQUE INDEX IF NOT EXISTS uq_actividad_cronometro_activo ON actividades_consultor (cedula) WHERE origen = 'cronometro' AND fin IS NULL AND estado = 'pendiente';
+
+DROP TRIGGER IF EXISTS trg_actividades_consultor_updated_at ON actividades_consultor;
+CREATE TRIGGER trg_actividades_consultor_updated_at
+BEFORE UPDATE ON actividades_consultor
+FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 COMMIT;

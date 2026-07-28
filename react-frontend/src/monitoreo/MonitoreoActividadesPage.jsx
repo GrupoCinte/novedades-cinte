@@ -1,84 +1,268 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Activity, CalendarDays, ChevronDown, Filter, UserRound } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Activity } from 'lucide-react';
 import { useModuleTheme } from '../moduleTheme.js';
+import { buildGestionTableDash } from '../gestionTableDashTheme.js';
+import { monthCalendarRangeFromYm } from '../administracionDashboardAggregate.js';
+import ModuleFiltersToolbar from '../shared/filters/ModuleFiltersToolbar.jsx';
+import ModuleFiltersDrawer from '../shared/filters/ModuleFiltersDrawer.jsx';
+import SortableGestionDataTable from '../onboarding/SortableGestionDataTable.jsx';
 import { fetchMonitoreoActividades } from './monitoreoActividadesApi.js';
-import { groupActividadesByCliente } from './monitoreoActividadesGrouping.js';
+import MonitoreoActividadModal from './MonitoreoActividadModal.jsx';
+
+function currentMonthValue() {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+}
 
 function formatDateTime(value) {
-    if (!value) return 'En curso';
+    if (!value) return '—';
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return 'Sin fecha';
+    if (Number.isNaN(date.getTime())) return '—';
     return new Intl.DateTimeFormat('es-CO', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Bogota' }).format(date);
 }
 
 function formatDuration(inicio, fin) {
-    if (!inicio || !fin) return 'En curso';
-    const milliseconds = new Date(fin).getTime() - new Date(inicio).getTime();
-    if (!Number.isFinite(milliseconds) || milliseconds < 0) return 'Sin duración';
-    const minutes = Math.round(milliseconds / 60000);
-    const hours = Math.floor(minutes / 60);
-    return hours ? `${hours} h ${minutes % 60} min` : `${minutes} min`;
+    if (!inicio || !fin) return '—';
+    const ms = new Date(fin).getTime() - new Date(inicio).getTime();
+    if (!Number.isFinite(ms) || ms < 0) return '—';
+    const mins = Math.round(ms / 60000);
+    const h = Math.floor(mins / 60);
+    return h ? `${h} h ${mins % 60} min` : `${mins} min`;
 }
 
-function renderEstado(estado) {
+function estadoBadge(estado) {
     const s = String(estado || '').toLowerCase();
-    if (s === 'aprobado') return <span className="font-medium text-emerald-600">🟢 Aprobado</span>;
-    if (s === 'rechazado') return <span className="font-medium text-rose-600">🔴 Rechazado</span>;
-    return <span className="font-medium text-amber-500">🟡 Pendiente</span>;
+    if (s === 'aprobado') return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">🟢 Aprobado</span>;
+    if (s === 'rechazado') return <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">🔴 Rechazado</span>;
+    return <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">🟡 Pendiente</span>;
+}
+
+const COLUMNS = [
+    { key: 'consultor_nombre', label: 'Consultor', sortable: true },
+    { key: 'cliente', label: 'Cliente', sortable: true },
+    { key: 'descripcion', label: 'Descripción', sortable: false },
+    { key: 'inicio', label: 'Inicio', sortable: true, render: (r) => formatDateTime(r.inicio) },
+    { key: 'fin', label: 'Fin', sortable: true, render: (r) => formatDateTime(r.fin) },
+    { key: 'duracion', label: 'Duración', sortable: false, render: (r) => formatDuration(r.inicio, r.fin) },
+    { key: 'origen', label: 'Origen', sortable: true, render: (r) => <span className="capitalize">{r.origen || '—'}</span> },
+    { key: 'estado', label: 'Estado', sortable: true, render: (r) => estadoBadge(r.estado) }
+];
+
+function sortRows(rows, sort) {
+    if (!sort?.key) return rows;
+    const sorted = [...rows].sort((a, b) => {
+        let va = a[sort.key] ?? '';
+        let vb = b[sort.key] ?? '';
+        if (typeof va === 'string') va = va.toLowerCase();
+        if (typeof vb === 'string') vb = vb.toLowerCase();
+        if (va < vb) return -1;
+        if (va > vb) return 1;
+        return 0;
+    });
+    return sort.dir === 'desc' ? sorted.reverse() : sorted;
 }
 
 export default function MonitoreoActividadesPage() {
-    const { cardPanel, field, isLight, primaryBtn, sectionSubtitle, sectionTitle } = useModuleTheme();
-    const [filters, setFilters] = useState({ fechaDesde: '', fechaHasta: '', cedula: '' });
-    const [items, setItems] = useState([]);
+    const { isLight, field } = useModuleTheme();
+    const dash = buildGestionTableDash(isLight);
+
+    // Estado de filtros
+    const [clienteValue, setClienteValue] = useState('');
+    const [monthValue, setMonthValue] = useState(currentMonthValue);
+    const [drawerOpen, setDrawerOpen] = useState(false);
+    const [drawerFilters, setDrawerFilters] = useState({ cliente: '', cedula: '', monthValue: currentMonthValue() });
+
+    // Estado de datos
+    const [allActivities, setAllActivities] = useState([]); // Actividades completas del mes
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [sort, setSort] = useState({ key: 'inicio', dir: 'desc' });
+    const [selectedRow, setSelectedRow] = useState(null);
 
-    const loadActivities = async (nextFilters = filters) => {
+    const loadActivities = useCallback(async (mes) => {
         setLoading(true);
         setError('');
         try {
-            setItems(await fetchMonitoreoActividades(nextFilters));
+            const range = monthCalendarRangeFromYm(mes);
+            // Solo pedimos las actividades del mes, sin pre-filtrar cliente o cédula
+            // Esto permite poblar correctamente los desplegables de filtros.
+            const data = await fetchMonitoreoActividades({
+                fechaDesde: range.desde,
+                fechaHasta: range.hasta
+            });
+            setAllActivities(data);
         } catch (loadError) {
-            setItems([]);
+            setAllActivities([]);
             setError(loadError.message || 'No fue posible cargar las actividades.');
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
 
-    useEffect(() => { void loadActivities({ fechaDesde: '', fechaHasta: '', cedula: '' }); }, []);
+    // Cargar solo cuando cambia el mes (a nivel global)
+    useEffect(() => { void loadActivities(monthValue); }, [loadActivities, monthValue]);
 
-    const groups = useMemo(() => groupActividadesByCliente(items), [items]);
-    const consultantOptions = useMemo(() => {
+    // Opciones derivadas de TODAS las actividades del mes (no desaparecen al filtrar)
+    const clienteOptions = useMemo(() => {
+        const seen = new Set();
+        for (const item of allActivities) {
+            const c = String(item?.cliente || '').trim();
+            if (c) seen.add(c);
+        }
+        return [...seen].sort();
+    }, [allActivities]);
+
+    const consultorOptions = useMemo(() => {
         const seen = new Map();
-        for (const item of items) {
+        for (const item of allActivities) {
             const cedula = String(item?.cedula || '').trim();
             if (cedula) seen.set(cedula, String(item?.consultor_nombre || cedula).trim() || cedula);
         }
         return [...seen.entries()].map(([cedula, nombre]) => ({ cedula, nombre }));
-    }, [items]);
-    const submitFilters = (event) => { event.preventDefault(); void loadActivities(); };
-    const clearFilters = () => {
-        const empty = { fechaDesde: '', fechaHasta: '', cedula: '' };
-        setFilters(empty);
-        void loadActivities(empty);
+    }, [allActivities]);
+
+    // Aplicar los filtros locales sobre la lista completa
+    const filteredActivities = useMemo(() => {
+        return allActivities.filter(a => {
+            if (clienteValue && String(a.cliente || '').trim() !== clienteValue) return false;
+            if (drawerFilters.cedula && String(a.cedula || '').trim() !== drawerFilters.cedula) return false;
+            return true;
+        });
+    }, [allActivities, clienteValue, drawerFilters.cedula]);
+
+    const sortedRows = useMemo(() => sortRows(filteredActivities, sort), [filteredActivities, sort]);
+
+    // Chip label
+    const activeFilterCount = (clienteValue ? 1 : 0) + (drawerFilters.cedula ? 1 : 0);
+    const chipLabel = activeFilterCount ? `${activeFilterCount} filtro(s) activo(s)` : 'Sin filtros';
+
+    // Sort handler
+    const handleSort = (key) => {
+        setSort((prev) => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+    };
+
+    // Drawer handlers
+    const handleDrawerApply = () => {
+        setClienteValue(drawerFilters.cliente);
+        if (drawerFilters.monthValue !== monthValue) {
+            setMonthValue(drawerFilters.monthValue);
+        }
+        setDrawerOpen(false);
+    };
+
+    const handleDrawerClear = () => {
+        const empty = { cliente: '', cedula: '', monthValue: currentMonthValue() };
+        setDrawerFilters(empty);
+        setClienteValue('');
+        if (monthValue !== currentMonthValue()) {
+            setMonthValue(currentMonthValue());
+        }
+        setDrawerOpen(false);
+    };
+
+    const handleClienteInlineChange = (e) => {
+        const val = e.target.value;
+        setClienteValue(val);
+        setDrawerFilters((f) => ({ ...f, cliente: val }));
+    };
+
+    const handleMonthInlineChange = (e) => {
+        const val = e.target.value;
+        setMonthValue(val);
+        setDrawerFilters((f) => ({ ...f, monthValue: val }));
     };
 
     return (
-        <section className="w-full space-y-4">
-            <header><h1 className={sectionTitle}>Monitoreo de actividades</h1><p className={`mt-1 ${sectionSubtitle}`}>Consulta de solo lectura agrupada por cliente y consultor.</p></header>
-            <form className={`grid w-full gap-3 md:grid-cols-[1fr_1fr_1.3fr_auto_auto] ${cardPanel}`} onSubmit={submitFilters}>
-                <label className="flex flex-col gap-1 text-xs font-semibold">Desde<input type="date" className={field} value={filters.fechaDesde} onChange={(event) => setFilters((current) => ({ ...current, fechaDesde: event.target.value }))} /></label>
-                <label className="flex flex-col gap-1 text-xs font-semibold">Hasta<input type="date" className={field} value={filters.fechaHasta} onChange={(event) => setFilters((current) => ({ ...current, fechaHasta: event.target.value }))} /></label>
-                <label className="flex flex-col gap-1 text-xs font-semibold">Consultor<select className={field} value={filters.cedula} onChange={(event) => setFilters((current) => ({ ...current, cedula: event.target.value }))}><option value="">Todos los consultores</option>{consultantOptions.map(({ cedula, nombre }) => <option key={cedula} value={cedula}>{nombre} · {cedula}</option>)}</select></label>
-                <button type="submit" className={`${primaryBtn} self-end`}><Filter size={16} /> Filtrar</button>
-                <button type="button" className={`self-end rounded-lg border px-4 py-2 text-sm font-semibold ${isLight ? 'border-slate-300 text-slate-700 hover:bg-slate-100' : 'border-[#1a3a56] text-slate-200 hover:bg-[#0f2942]'}`} onClick={clearFilters}>Limpiar</button>
-            </form>
-            {loading ? <div className={`w-full ${cardPanel} text-sm`}>Cargando actividades…</div> : null}
-            {!loading && error ? <div className={`w-full ${cardPanel} border-rose-400/50 text-sm text-rose-600`}>{error}</div> : null}
-            {!loading && !error && groups.length === 0 ? <div className={`flex w-full flex-col items-center gap-3 py-12 text-center ${cardPanel}`}><Activity size={30} className="text-[#65BCF7]" /><div><h2 className="font-heading text-lg font-bold">No hay actividades para los filtros seleccionados</h2><p className={`mt-1 text-sm ${sectionSubtitle}`}>Prueba con otro rango de fechas o consultor.</p></div></div> : null}
-            {!loading && !error ? groups.map(({ cliente, consultores }) => <section key={cliente} className={`w-full ${cardPanel}`}><div className="mb-5 flex items-center gap-3"><CalendarDays size={24} className="text-[#65BCF7]" /><h2 className="font-heading text-xl font-extrabold tracking-wide uppercase text-[#65BCF7]">{cliente}</h2><span className="rounded-full bg-[#65BCF7]/10 px-3 py-1 text-xs font-bold text-[#65BCF7]">{consultores.length} consultor(es)</span></div><div className="space-y-3">{consultores.map((consultor) => <div key={`${cliente}-${consultor.cedula}`} className={`rounded-lg border ${isLight ? 'border-slate-200 bg-slate-50' : 'border-[#1a3a56] bg-[#04141E]/45'}`}><div className="flex items-center gap-2 px-4 py-3"><UserRound size={16} className="text-[#65BCF7]" /><div><p className="text-sm font-bold">{consultor.nombre}</p><p className="text-xs opacity-70">{consultor.cedula}</p></div></div><div className={`border-t ${isLight ? 'border-slate-200' : 'border-[#1a3a56]'}`}>{consultor.actividades.map((actividad) => <details key={actividad.id} className={`group border-b px-4 py-3 last:border-b-0 ${isLight ? 'border-slate-200' : 'border-[#1a3a56]'}`}><summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm"><span className="min-w-0 truncate font-semibold">{actividad.descripcion}</span><span className="flex shrink-0 items-center gap-1 text-xs font-medium text-[#65BCF7] opacity-90 transition-opacity hover:opacity-100">Ver detalle <ChevronDown size={16} className="transition-transform group-open:rotate-180" /></span></summary><dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 rounded bg-black/5 p-3 dark:bg-white/5"><div><dt className="text-xs font-semibold opacity-60 uppercase tracking-wider mb-1">Inicio</dt><dd>{formatDateTime(actividad.inicio)}</dd></div><div><dt className="text-xs font-semibold opacity-60 uppercase tracking-wider mb-1">Fin</dt><dd>{formatDateTime(actividad.fin)}</dd></div><div><dt className="text-xs font-semibold opacity-60 uppercase tracking-wider mb-1">Duración</dt><dd>{formatDuration(actividad.inicio, actividad.fin)}</dd></div><div><dt className="text-xs font-semibold opacity-60 uppercase tracking-wider mb-1">Origen</dt><dd className="capitalize">{actividad.origen || 'Sin origen'}</dd></div><div><dt className="text-xs font-semibold opacity-60 uppercase tracking-wider mb-1">Estado</dt><dd>{renderEstado(actividad.estado)}</dd></div></dl></details>)}</div></div>)}</div></section>) : null}
+        <section className="w-full space-y-3">
+            {/* Barra de filtros inline: Cliente + Mes */}
+            <div className="flex flex-wrap items-end gap-3">
+                <label className="flex flex-col gap-1 text-xs font-semibold">
+                    Cliente
+                    <select className={`${field} min-w-[10rem]`} value={clienteValue} onChange={handleClienteInlineChange}>
+                        <option value="">Todos los clientes</option>
+                        {clienteOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                </label>
+                <label className="flex flex-col gap-1 text-xs font-semibold">
+                    Mes
+                    <input type="month" className={field} value={monthValue} onChange={handleMonthInlineChange} />
+                </label>
+            </div>
+
+            {/* Toolbar con chip + botón de filtros avanzados */}
+            <ModuleFiltersToolbar
+                chipLabel={chipLabel}
+                filtersPanelOpen={drawerOpen}
+                onToggleFilters={() => setDrawerOpen((o) => !o)}
+                dash={dash}
+            />
+
+            {/* Drawer de filtros avanzados */}
+            <ModuleFiltersDrawer
+                open={drawerOpen}
+                onClose={() => setDrawerOpen(false)}
+                onClear={handleDrawerClear}
+                onApply={handleDrawerApply}
+                dash={dash}
+            >
+                <label className={`flex flex-col gap-1.5 ${dash.filtrosDrawerLabel}`}>
+                    Cliente
+                    <select className={field} value={drawerFilters.cliente} onChange={(e) => setDrawerFilters((f) => ({ ...f, cliente: e.target.value }))}>
+                        <option value="">Todos los clientes</option>
+                        {clienteOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                </label>
+                <label className={`flex flex-col gap-1.5 ${dash.filtrosDrawerLabel}`}>
+                    Consultor
+                    <select className={field} value={drawerFilters.cedula} onChange={(e) => setDrawerFilters((f) => ({ ...f, cedula: e.target.value }))}>
+                        <option value="">Todos los consultores</option>
+                        {consultorOptions.map(({ cedula, nombre }) => <option key={cedula} value={cedula}>{nombre} · {cedula}</option>)}
+                    </select>
+                </label>
+                <label className={`flex flex-col gap-1.5 ${dash.filtrosDrawerLabel}`}>
+                    Mes
+                    <input type="month" className={field} value={drawerFilters.monthValue} onChange={(e) => setDrawerFilters((f) => ({ ...f, monthValue: e.target.value }))} />
+                </label>
+            </ModuleFiltersDrawer>
+
+            {/* Estados de carga / error / vacío / tabla */}
+            {loading && <div className={`${dash.card} px-4 py-10 text-center text-sm`}>Cargando actividades…</div>}
+
+            {!loading && error && <div className={`${dash.card} border-rose-400/50 px-4 py-6 text-center text-sm text-rose-600`}>{error}</div>}
+
+            {!loading && !error && filteredActivities.length === 0 && (
+                <div className={`flex flex-col items-center gap-3 py-12 text-center ${dash.card} px-4`}>
+                    <Activity size={30} className="text-[#65BCF7]" />
+                    <div>
+                        <h2 className={dash.titleXl}>No hay actividades para los filtros seleccionados</h2>
+                        <p className={`mt-1 text-sm ${dash.muted}`}>Prueba con otro mes o cliente.</p>
+                    </div>
+                </div>
+            )}
+
+            {!loading && !error && filteredActivities.length > 0 && (
+                <SortableGestionDataTable
+                    columns={COLUMNS}
+                    rows={sortedRows}
+                    isLight={isLight}
+                    sort={sort}
+                    onSort={handleSort}
+                    onRowClick={(row) => setSelectedRow(row)}
+                    emptyText="No hay actividades para los filtros seleccionados"
+                />
+            )}
+
+            {/* Modal de detalle */}
+            {selectedRow && (
+                <MonitoreoActividadModal
+                    actividad={selectedRow}
+                    onClose={() => setSelectedRow(null)}
+                    onUpdated={() => void loadActivities(monthValue)}
+                    isLight={isLight}
+                />
+            )}
         </section>
     );
 }

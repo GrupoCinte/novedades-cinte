@@ -52,8 +52,31 @@ test('assertConciliacionesRouteDeps rechaza upsertConciliacionFacturacionMasivaF
                 applyConciliacionFacturacionAjustesForScope: dl.applyConciliacionFacturacionAjustesForScope,
                 listConciliacionFacturacionHistorialForScope: dl.listConciliacionFacturacionHistorialForScope,
                 upsertConciliacionFacturacionMasivaForScope: undefined,
-                listConciliacionesFacturacionForScope: dl.listConciliacionesFacturacionForScope
+                listConciliacionesFacturacionForScope: dl.listConciliacionesFacturacionForScope,
+                createConciliacionNovedadManualForScope: dl.createConciliacionNovedadManualForScope,
+                deleteConciliacionFacturacionForScope: dl.deleteConciliacionFacturacionForScope,
+                getColaCierresPorMesForScope: dl.getColaCierresPorMesForScope,
+                listServiciosForScope: dl.listServiciosForScope,
+                createServicioForScope: dl.createServicioForScope,
+                updateServicioForScope: dl.updateServicioForScope,
+                deleteServicioForScope: dl.deleteServicioForScope,
+                listServicioConsultoresForScope: dl.listServicioConsultoresForScope,
+                listConsultoresDisponiblesClienteForScope: dl.listConsultoresDisponiblesClienteForScope,
+                upsertServicioConsultoresForScope: dl.upsertServicioConsultoresForScope,
+                listDashboardLiderClienteRowsForScope: dl.listDashboardLiderClienteRowsForScope,
+                exportConciliacionServicioExcelForScope: dl.exportConciliacionServicioExcelForScope,
+                markConciliacionServicioEnviadaForScope: dl.markConciliacionServicioEnviadaForScope,
+                markConciliacionServicioConciliadaForScope: dl.markConciliacionServicioConciliadaForScope,
+                enviarConciliacionServicioCorreoForScope: dl.enviarConciliacionServicioCorreoForScope,
+                getConciliacionEmailPlantillaCorreoLiderForScope: dl.getConciliacionEmailPlantillaCorreoLiderForScope,
+                upsertConciliacionEmailPlantillaCorreoLiderForScope: dl.upsertConciliacionEmailPlantillaCorreoLiderForScope,
+                getConciliacionEmailAccionContext: dl.getConciliacionEmailAccionContext,
+                createConciliacionEmailAccionTransaction: dl.createConciliacionEmailAccionTransaction,
+                finalizeConciliacionEmailAccion: dl.finalizeConciliacionEmailAccion,
+                decideConciliacionEmailAccion: dl.decideConciliacionEmailAccion,
+                upsertConciliacionFacturacionMasivaForScope: undefined
             }),
         /upsertConciliacionFacturacionMasivaForScope/
+
     );
 });

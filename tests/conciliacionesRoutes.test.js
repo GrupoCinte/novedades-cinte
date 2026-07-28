@@ -52,7 +52,11 @@ function buildApp(deps = {}) {
         getConciliacionEmailPlantillaCorreoLiderForScope:
             deps.getConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync,
         upsertConciliacionEmailPlantillaCorreoLiderForScope:
-            deps.upsertConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync
+            deps.upsertConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync,
+        getConciliacionEmailAccionContext: deps.getConciliacionEmailAccionContext ?? stubAsync,
+        createConciliacionEmailAccionTransaction: deps.createConciliacionEmailAccionTransaction ?? stubAsync,
+        finalizeConciliacionEmailAccion: deps.finalizeConciliacionEmailAccion ?? stubAsync,
+        decideConciliacionEmailAccion: deps.decideConciliacionEmailAccion ?? stubAsync
     });
     return app;
 }
