@@ -20,6 +20,15 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-27 21:04:14 · `integration/AUT-259-actividades` · `8252471c`
+- **Commit:** `8252471cd2e3c238516d541650ef279acce281b2`
+- **Ticket:** AUT-259 (paquete HU 260–267 / AUT-581)
+- **Requerimiento funcional:** Rama de integración para validar en conjunto el registro y monitoreo de actividades del consultor (creación, listado, cronómetro, edición/borrado, acceso admin, monitoreo GP y correo de confirmación) antes de mergear a `testing`.
+- **Componente técnico:** tip de merge en `integration/AUT-259-actividades` (orden 260→261→262→581→264→267→581 Sonar→265); incluye rutas/actividades consultor, monitoreo admin, Lambda email TimeEntry y PRs asociados.
+- **Cambios (uno a uno):**
+  - Publicada en `origin` la rama `integration/AUT-259-actividades` (32 commits sobre `testing`).
+  - Tip = merge de AUT-265 (monitoreo agrupado / alcance GP) sobre el stack previo del paquete AUT-259.
+
 ### 2026-07-27 16:48:47 · `testing` · `7f98345d`
 - **Commit:** `7f98345d6cb01e44487a15b3625e8304377d49d2`
 - **Ticket:** AUT-214 (origen AUT-573)
