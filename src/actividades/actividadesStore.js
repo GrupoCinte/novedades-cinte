@@ -133,7 +133,7 @@ function createActividadesStore({ pool }) {
                  inicio = $4,
                  fin = $5,
                  updated_at = NOW()
-             WHERE id = $1 AND cedula = $2
+             WHERE id = $1 AND cedula = $2 AND fin IS NOT NULL
              RETURNING id, cedula, cliente, descripcion, inicio, fin, origen, estado, created_at, updated_at`,
             [id, cedula, descripcion, inicio, fin]
         );
@@ -147,7 +147,7 @@ function createActividadesStore({ pool }) {
     async function deleteActividadPropia({ id, cedula }) {
         const result = await pool.query(
             `DELETE FROM actividades_consultor
-             WHERE id = $1 AND cedula = $2
+             WHERE id = $1 AND cedula = $2 AND fin IS NOT NULL
              RETURNING id`,
             [id, cedula]
         );

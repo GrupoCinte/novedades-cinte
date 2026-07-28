@@ -350,7 +350,7 @@ async function executeDeleteActividad({
 
   setSuccessMessage('Actividad eliminada con éxito.');
   await refreshHistory();
-  setTimeout(() => setSuccessMessage(''), 3000);
+  setTimeout(() => setSuccessMessage(''), 4000);
 }
 
 function handleTimerTextareaKeyDown(e) {
@@ -678,29 +678,25 @@ function ActivityModal({
 
   const baseInputClass = isLight
     ? 'border-slate-300 bg-white text-slate-900'
-    : 'border-white/15 bg-[#082232] text-white';
-
-  const baseTextareaClass = isLight
-    ? 'border-slate-300 bg-white text-slate-900 placeholder:text-slate-400'
-    : 'border-white/15 bg-[#082232] text-white placeholder:text-slate-500';
+    : 'border-white/10 bg-[#082232] text-slate-200';
+    
+  const descClass = isLight
+    ? 'border-slate-300 bg-white text-slate-900'
+    : 'border-white/10 bg-[#082232] text-slate-200';
 
   const horaFinClass = fieldErrors.horaFin
-    ? 'border-red-500 focus:ring-red-500'
+    ? isLight ? 'border-red-500 bg-red-50 text-red-900 focus:ring-red-500' : 'border-red-500/50 bg-red-500/10 text-red-200 focus:ring-red-500'
     : baseInputClass;
-
-  const descClass = fieldErrors.descripcion
-    ? 'border-red-500 focus:ring-red-500'
-    : baseTextareaClass;
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
       className="fixed inset-0 z-[999] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
       onClick={handleCloseModal}
       onKeyDown={(e) => {
         if (e.key === 'Escape') handleCloseModal();
       }}
+      role="dialog"
+      aria-modal="true"
     >
       <div
         className={`relative w-full max-w-2xl rounded-2xl border p-6 shadow-2xl backdrop-blur-md sm:p-8 transition-all ${
@@ -1205,7 +1201,7 @@ export default function MisActividadesModule() {
                         <Clock3 className="h-5 w-5" />
                       </div>
                       <div>
-                        <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <h2 className="text-base font-bold text-[color:var(--text)] flex items-center gap-2">
                           <span>Cronómetro de actividades</span>
                           {activeTimer ? (
                             <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300 border border-amber-500/30">
@@ -1213,10 +1209,10 @@ export default function MisActividadesModule() {
                               En curso
                             </span>
                           ) : (
-                            <span className="text-xs font-normal text-slate-500 dark:text-slate-300">(Registro en tiempo real)</span>
+                            <span className="text-xs font-medium text-[color:var(--muted)]">(Registro en tiempo real)</span>
                           )}
                         </h2>
-                        <p className="text-xs text-slate-500 dark:text-slate-300">
+                        <p className="text-xs font-medium text-[color:var(--muted)]">
                           {activeTimer ? 'Cronómetro corriendo. Al detenerlo se registrará la entrada de tiempo.' : 'Ingresa la descripción e inicia el temporizador.'}
                         </p>
                       </div>

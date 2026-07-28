@@ -303,3 +303,163 @@ test('POST /api/consultor/actividades/cronometro/cancelar elimina el temporizado
         server.close();
     }
 });
+
+test('PUT /api/consultor/actividades/:id actualiza actividad existente (happy path)', async () => {
+    const app = createMockApp();
+    let updateParams = null;
+
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({ cliente: 'CLIENTE TEST' }),
+        createManualActivity: async () => ({}),
+        updateActividadPropia: async (params) => {
+            updateParams = params;
+            return {
+                kind: 'updated',
+                activity: {
+                    id: params.id,
+                    cedula: params.cedula,
+                    cliente: 'CLIENTE TEST',
+                    descripcion: params.descripcion,
+                    inicio: params.inicio,
+                    fin: params.fin,
+                    origen: 'manual',
+                    estado: 'pendiente'
+                }
+            };
+        }
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades/act-123`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                descripcion: 'Descripción actualizada',
+                fecha: '2026-07-24',
+                horaInicio: '08:00',
+                horaFin: '12:00'
+            })
+        });
+        const json = await res.json();
+        assert.equal(res.status, 200);
+        assert.equal(json.ok, true);
+        assert.equal(json.actividad.descripcion, 'Descripción actualizada');
+        assert.equal(updateParams.cedula, '123456789');
+    } finally {
+        server.close();
+    }
+});
+
+test('PUT /api/consultor/actividades/:id retorna 404 para actividad inexistente o ajena', async () => {
+    const app = createMockApp();
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({ cliente: 'CLIENTE TEST' }),
+        createManualActivity: async () => ({}),
+        updateActividadPropia: async () => ({ kind: 'not_found' })
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades/act-999`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                descripcion: 'Descripción',
+                fecha: '2026-07-24',
+                horaInicio: '08:00',
+                horaFin: '12:00'
+            })
+        });
+        const json = await res.json();
+        assert.equal(res.status, 404);
+        assert.equal(json.ok, false);
+    } finally {
+        server.close();
+    }
+});
+
+test('DELETE /api/consultor/actividades/:id elimina actividad existente (happy path)', async () => {
+    const app = createMockApp();
+    let deleteParams = null;
+
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({ cliente: 'CLIENTE TEST' }),
+        createManualActivity: async () => ({}),
+        deleteActividadPropia: async (params) => {
+            deleteParams = params;
+            return { kind: 'deleted' };
+        }
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades/act-123`, {
+            method: 'DELETE'
+        });
+        const json = await res.json();
+        assert.equal(res.status, 200);
+        assert.equal(json.ok, true);
+        assert.equal(deleteParams.id, 'act-123');
+        assert.equal(deleteParams.cedula, '123456789');
+    } finally {
+        server.close();
+    }
+});
+
+test('DELETE /api/consultor/actividades/:id retorna 404 para actividad inexistente o ajena', async () => {
+    const app = createMockApp();
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({ cliente: 'CLIENTE TEST' }),
+        createManualActivity: async () => ({}),
+        deleteActividadPropia: async () => ({ kind: 'not_found' })
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades/act-999`, {
+            method: 'DELETE'
+        });
+        const json = await res.json();
+        assert.equal(res.status, 404);
+        assert.equal(json.ok, false);
+    } finally {
+        server.close();
+    }
+});
