@@ -22,9 +22,9 @@ function formatDuration(inicio, fin) {
 
 function estadoBadge(estado) {
     const s = String(estado || '').toLowerCase();
-    if (s === 'aprobado') return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">🟢 Aprobado</span>;
-    if (s === 'rechazado') return <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">🔴 Rechazado</span>;
-    return <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">🟡 Pendiente</span>;
+    if (s === 'aprobado') return <span className="inline-flex items-center rounded-md bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Aprobado</span>;
+    if (s === 'rechazado') return <span className="inline-flex items-center rounded-md bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">Rechazado</span>;
+    return <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">Pendiente</span>;
 }
 
 export default function MonitoreoActividadModal({ actividad, onClose, onUpdated, isLight }) {
@@ -57,7 +57,7 @@ export default function MonitoreoActividadModal({ actividad, onClose, onUpdated,
         }
     };
 
-    const bgOverlay = isLight ? 'bg-black/40' : 'bg-black/60';
+    const bgOverlay = isLight ? 'bg-black/40 backdrop-blur-sm' : 'bg-black/60 backdrop-blur-sm';
     const bgPanel = isLight ? 'bg-white' : 'bg-[#0a1929]';
     const border = isLight ? 'border-slate-200' : 'border-[#1a3a56]';
     const labelCls = 'text-xs font-semibold uppercase tracking-wider opacity-60';
@@ -65,9 +65,9 @@ export default function MonitoreoActividadModal({ actividad, onClose, onUpdated,
 
     return (
         <>
-            <div className={`fixed inset-0 z-50 ${bgOverlay}`} onClick={onClose} aria-hidden="true" />
-            <div className={`fixed inset-0 z-50 flex items-center justify-center p-4`}>
-                <div className={`w-full max-w-lg rounded-xl border ${border} ${bgPanel} shadow-2xl`} onClick={(e) => e.stopPropagation()}>
+            <div className={`fixed inset-0 z-50 ${bgOverlay}`} aria-hidden="true" />
+            <div className={`fixed inset-0 z-50 flex items-center justify-center p-4`} onMouseDown={onClose}>
+                <div className={`w-full max-w-3xl rounded-xl border ${border} ${bgPanel} shadow-2xl`} onMouseDown={(e) => e.stopPropagation()}>
                     {/* Header */}
                     <header className={`flex items-center justify-between border-b px-6 py-4 ${border}`}>
                         <h2 className="text-lg font-bold">Detalle de actividad</h2>
@@ -90,13 +90,14 @@ export default function MonitoreoActividadModal({ actividad, onClose, onUpdated,
                         </div>
                         <div>
                             <p className={labelCls}>Descripción</p>
-                            <p className={`${valueCls} whitespace-pre-wrap`}>{actividad.descripcion || '—'}</p>
+                            <p className={`${valueCls} whitespace-pre-wrap break-words`}>{actividad.descripcion || '—'}</p>
                         </div>
 
                         {/* Auditoría previa */}
                         {actividad.aprobado_por_email && (
                             <div className="rounded border border-emerald-200 bg-emerald-50 p-2 text-xs text-emerald-800">
                                 Aprobado por {actividad.aprobado_por_email} el {formatDateTime(actividad.aprobado_en)}
+                                {actividad.observaciones_rechazo && <p className="mt-1 font-medium">Observación: {actividad.observaciones_rechazo}</p>}
                             </div>
                         )}
                         {actividad.rechazado_por_email && (
@@ -108,12 +109,12 @@ export default function MonitoreoActividadModal({ actividad, onClose, onUpdated,
 
                         {/* Acciones */}
                         {actividad.estado === 'pendiente' && !action && (
-                            <div className="flex gap-2 pt-2">
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button type="button" onClick={() => setAction('rechazado')} className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50">
+                                    <XCircle size={16} /> Rechazar
+                                </button>
                                 <button type="button" onClick={() => setAction('aprobado')} className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
                                     <CheckCircle2 size={16} /> Aprobar
-                                </button>
-                                <button type="button" onClick={() => setAction('rechazado')} className="flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700">
-                                    <XCircle size={16} /> Rechazar
                                 </button>
                             </div>
                         )}
@@ -134,12 +135,12 @@ export default function MonitoreoActividadModal({ actividad, onClose, onUpdated,
                                 />
                                 <p className="text-right text-xs opacity-50">{observaciones.length}/{MAX_OBS}</p>
                                 {error && <p className="text-sm text-rose-600">{error}</p>}
-                                <div className="flex gap-2">
-                                    <button type="button" disabled={loading} onClick={handleSubmit} className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${action === 'aprobado' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'} disabled:opacity-50`}>
-                                        {loading ? 'Procesando…' : 'Confirmar'}
-                                    </button>
+                                <div className="flex justify-end gap-2 pt-2">
                                     <button type="button" disabled={loading} onClick={() => { setAction(null); setObservaciones(''); setError(''); }} className={`rounded-lg border px-4 py-2 text-sm font-semibold ${border} ${isLight ? 'text-slate-700 hover:bg-slate-100' : 'text-slate-200 hover:bg-[#0f2942]'}`}>
                                         Cancelar
+                                    </button>
+                                    <button type="button" disabled={loading} onClick={handleSubmit} className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${action === 'aprobado' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700'} disabled:opacity-50`}>
+                                        {loading ? 'Procesando…' : 'Confirmar'}
                                     </button>
                                 </div>
                             </div>

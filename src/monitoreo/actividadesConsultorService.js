@@ -141,11 +141,11 @@ async function updateActividadEstado(pool, { id, nuevoEstado, observaciones, act
              SET estado = 'aprobado',
                  aprobado_por_user_id = $2, aprobado_por_rol = $3::user_role,
                  aprobado_por_email = $4, aprobado_en = $5,
-                 observaciones_rechazo = NULL,
+                 observaciones_rechazo = $6,
                  rechazado_por_user_id = NULL, rechazado_por_rol = NULL,
                  rechazado_por_email = NULL, rechazado_en = NULL
              WHERE id = $1`,
-            [id, actor.userId, actor.role, actor.email, now]
+            [id, actor.userId, actor.role, actor.email, now, obs]
         );
     } else {
         await pool.query(
@@ -162,10 +162,11 @@ async function updateActividadEstado(pool, { id, nuevoEstado, observaciones, act
     }
 
     // Auditoría genérica
+    const safeUserId = actor.userId && UUID_RE.test(actor.userId) ? actor.userId : null;
     await pool.query(
         `INSERT INTO audit_log (actor_user_id, actor_role, action, entity_type, entity_id, metadata)
          VALUES ($1, $2::user_role, $3, 'actividad_consultor', $4, $5::jsonb)`,
-        [actor.userId, actor.role, `actividad_${estado}`, id,
+        [safeUserId, actor.role, `actividad_${estado}`, id,
          JSON.stringify({ estado_anterior: row.estado, estado_nuevo: estado, observaciones: obs })]
     );
 
