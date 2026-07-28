@@ -41,6 +41,7 @@ const { markNominaProcesado } = require('./nominaProcesadoService');
 const festivosService = require('./festivosService');
 const { decodePossiblyMisencodedText } = require('./novedadesMapper');
 const { validateObservacionesRechazo } = require('./novedadPersistValidation');
+const { parseActividadesConsultorQuery, listActividadesConsultor } = require('./monitoreo/actividadesConsultorService');
 
 // Inicializar festivos en background al arrancar el servidor
 festivosService.initFestivosCache();
@@ -978,6 +979,36 @@ function registerRoutes(deps) {
             return res.status(500).json({ ok: false, error: 'Error consultando métricas' });
         }
     });
+
+    /** Listado de solo lectura para el submódulo Monitoreo de actividades. */
+    app.get(
+        '/api/admin/actividades',
+        verificarToken,
+        allowPanel('monitoreo'),
+        applyScope,
+        async (req, res) => {
+            try {
+                const filters = parseActividadesConsultorQuery(req.query);
+                const role = String(req.user?.role || '').trim().toLowerCase();
+                if (!['super_admin', 'cac', 'gp'].includes(role)) {
+                    return res.status(403).json({ ok: false, error: 'Sin permisos para esta operación' });
+                }
+                const items = await listActividadesConsultor(pool, {
+                    filters,
+                    role,
+                    gpUserId: req.scope?.gpUserId
+                });
+                return res.json({ ok: true, items });
+            } catch (error) {
+                const status = Number(error?.status);
+                if (status >= 400 && status < 500) {
+                    return res.status(status).json({ ok: false, error: error.message || 'Filtros inválidos' });
+                }
+                logger.error({ err: { message: error?.message } }, 'Error consultando actividades de consultores');
+                return res.status(500).json({ ok: false, error: 'Error consultando actividades' });
+            }
+        }
+    );
 
     app.get('/api/novedades/clientes-filtro', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
         try {
