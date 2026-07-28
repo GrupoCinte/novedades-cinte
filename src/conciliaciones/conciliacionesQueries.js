@@ -1107,9 +1107,83 @@ function buildRevisionActor(actor, scope) {
     return { role, email: email || 'sin-correo@local', nombre: nombre || 'Usuario', userId };
 }
 
+/**
+ * Tras aprobar consultores, promueve el servicio a LISTO_EXPORT si ya está completo
+ * (AUT-552: el path de aprobación no pasaba por tryNotify / cola).
+ */
+async function ensureListoExportTrasAprobacion(deps, scope, { clienteCanon, anio, mes, servicioId } = {}) {
+    if (!clienteCanon || !deps?.pool || typeof deps.listServicios !== 'function') return;
+    const y = Number(anio);
+    const m = Number(mes);
+    if (!Number.isFinite(y) || !Number.isFinite(m)) return;
+
+    try {
+        const servicios = await deps.listServicios(scope);
+        let matching = (Array.isArray(servicios) ? servicios : []).filter((s) => {
+            const a = String(s?.client || '')
+                .trim()
+                .toLowerCase();
+            const b = String(clienteCanon || '')
+                .trim()
+                .toLowerCase();
+            return a && b && a === b;
+        });
+        const sid = String(servicioId || '').trim();
+        if (sid) {
+            matching = matching.filter((s) => String(s.id) === sid);
+        }
+        for (const serv of matching) {
+            const cedulas = (Array.isArray(serv.consultoresCedulas) ? serv.consultoresCedulas : [])
+                .map((c) => deps.normalizeCedula(c))
+                .filter(Boolean);
+            if (!cedulas.length) continue;
+            const novBucket = resolveNovedadesBucket(y, m, serv.billingType);
+            const resumen = await getConciliacionResumenPorClienteMes(deps, scope, clienteCanon, y, m, {
+                novedadesYear: novBucket.year,
+                novedadesMonth: novBucket.month,
+                billingType: serv.billingType,
+                billingMode: serv.billingMode,
+                baseHours: serv.baseHours
+            });
+            const rows = await enrichConciliacionRowsWithServicioCedulas(
+                deps,
+                scope,
+                resumen.rows || [],
+                cedulas,
+                clienteCanon,
+                y,
+                m,
+                {
+                    novedadesYear: novBucket.year,
+                    novedadesMonth: novBucket.month,
+                    billingType: serv.billingType,
+                    billingMode: serv.billingMode,
+                    baseHours: serv.baseHours
+                }
+            );
+            const merged = mergeConciliacionServicioRows(rows, cedulas);
+            const filtered = filterRowsByServicioLideres(
+                merged,
+                serv.lideresAsociados || serv.lideres_asociados,
+                cedulas
+            );
+            const agg = aggregateConciliacionRows(filtered);
+            await ensureListoExportIfCompleto(deps.pool, serv.id, y, m, agg);
+        }
+    } catch (e) {
+        console.error('[conciliaciones] ensureListoExportTrasAprobacion', {
+            clienteCanon,
+            anio,
+            mes,
+            servicioId,
+            error: e.message
+        });
+    }
+}
+
 async function applyConciliacionFacturacionRevision(deps, scope, payload, actor) {
     const { pool, normalizeCedula } = deps;
-    const { cedula, anio, mes, accion, observacion, etapaObjetivo } = payload || {};
+    const { cedula, anio, mes, accion, observacion, etapaObjetivo, skipListoExport } = payload || {};
     const ced = normalizeCedula(cedula);
     if (!ced) {
         const error = new Error('Cédula inválida');
@@ -1263,6 +1337,20 @@ async function applyConciliacionFacturacionRevision(deps, scope, payload, actor)
         await client.query('COMMIT');
         const updatedRow = updateQ.rows[0];
 
+        if (
+            !skipListoExport &&
+            (validation.estado === 'APROBADO_ANALISTA' ||
+                validation.estado === 'APROBADO_FINANZAS' ||
+                validation.estado === 'CONCILIADA')
+        ) {
+            await ensureListoExportTrasAprobacion(deps, scope, {
+                clienteCanon: chk.canon,
+                anio: y,
+                mes: m,
+                servicioId: payload?.servicioId
+            });
+        }
+
         return updatedRow;
     } catch (error) {
         await client.query('ROLLBACK');
@@ -1345,7 +1433,16 @@ async function applyConciliacionFacturacionRevisionMasiva(deps, scope, payload, 
             await applyConciliacionFacturacionRevision(
                 deps,
                 scope,
-                { cedula: ced, anio, mes, accion, observacion, servicioId, etapaObjetivo: etapaFija },
+                {
+                    cedula: ced,
+                    anio,
+                    mes,
+                    accion,
+                    observacion,
+                    servicioId,
+                    etapaObjetivo: etapaFija,
+                    skipListoExport: true
+                },
                 actor
             );
             updated += 1;
@@ -1353,6 +1450,16 @@ async function applyConciliacionFacturacionRevisionMasiva(deps, scope, payload, 
             errors.push({ cedula: ced, error: e.message || 'Error' });
         }
     }
+
+    if (updated > 0 && String(accion || '').toUpperCase() === 'APROBAR') {
+        await ensureListoExportTrasAprobacion(deps, scope, {
+            clienteCanon: chk.canon,
+            anio: y,
+            mes: m,
+            servicioId
+        });
+    }
+
     return { updated, errors, skipped };
 }
 

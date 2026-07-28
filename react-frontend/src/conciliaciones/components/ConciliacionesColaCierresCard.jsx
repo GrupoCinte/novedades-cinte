@@ -1,7 +1,6 @@
 import { Clock, ArrowRight, AlertCircle } from 'lucide-react';
 import { colaCierreProgress } from '../facturacionAggregate.js';
 import { resolveTarjetaCierreBadge } from '../facturacionLogic.js';
-import ConciliacionesFacturacionEstadosResumen from './ConciliacionesFacturacionEstadosResumen.jsx';
 import ConciliacionesServicioCierreEstados, {
     ConciliacionesServicioCierreAcciones
 } from './ConciliacionesServicioCierreEstados.jsx';
@@ -42,7 +41,6 @@ export default function ConciliacionesColaCierresCard({
     const progress = colaCierreProgress(item);
     const disabled = item.estadoCola === 'SIN_CONSULTORES';
     const servicioConciliada = String(item.estadoServicio || '').toUpperCase() === 'CONCILIADA';
-    const estados = item.estados || {};
     const totales = item.totales || {};
     const tarjetaBadge = resolveTarjetaCierreBadge(item);
 
@@ -92,15 +90,6 @@ export default function ConciliacionesColaCierresCard({
                         style={{ width: `${progress}%` }}
                     />
                 </div>
-            </div>
-
-            <div className="mb-3">
-                <ConciliacionesFacturacionEstadosResumen
-                    variant="chulos"
-                    hideZeroCounts
-                    estados={estados}
-                    isLight={isLight}
-                />
             </div>
 
             <div className="mb-3 space-y-1">

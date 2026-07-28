@@ -13,7 +13,7 @@ import { LICENCIAS_DEFAULT_SORT, toggleSort } from './onboardingSortDefaults.js'
  * Componente declarativo de lista para los submódulos de Onboarding.
  *
  * Props:
- *  - title, subtitle, isLight
+ *  - isLight
  *  - fetcher(params): async que devuelve { ok, items, total, limit, offset }.
  *  - columns: definición de columnas para la tabla (igual que DataTable del módulo).
  *  - filtersConfig: array de descriptores de filtro.
@@ -28,8 +28,6 @@ import { LICENCIAS_DEFAULT_SORT, toggleSort } from './onboardingSortDefaults.js'
  *  - pageSizes: array opcional, default [10, 20, 50, 100].
  */
 export default function OnboardingListView({
-    title,
-    subtitle,
     isLight = false,
     fetcher,
     columns,
@@ -258,14 +256,6 @@ export default function OnboardingListView({
 
     return (
         <div className="flex flex-col gap-4">
-            <header className="flex flex-wrap items-end gap-3">
-                <div className="flex-1 min-w-[12rem]">
-                    <h2 className={G.titleXl}>{title}</h2>
-                    {subtitle ? <p className={G.mutedSm}>{subtitle}</p> : null}
-                </div>
-                {headerRight}
-            </header>
-
             <div className={G.filterBar}>
                 <OnboardingFiltersBar
                     chipLabel={chipLabel}
@@ -275,6 +265,7 @@ export default function OnboardingListView({
                     onSearchChange={handleSearchChange}
                     searchPlaceholder={searchPlaceholder}
                     isLight={isLight}
+                    rightSlot={headerRight}
                 />
             </div>
 

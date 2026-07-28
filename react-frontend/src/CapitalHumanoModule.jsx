@@ -207,8 +207,6 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                         auth={auth}
                         tipoPersonal="consultor"
                         activo="true"
-                        title="Personal Activo (consultores)"
-                        subtitle="Consultores con fecha de ingreso hoy o anterior."
                         isLight={isLight}
                     />
                 );
@@ -218,22 +216,18 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                         auth={auth}
                         endpointKey="listProximos"
                         activo="true"
-                        title="Próximos a ingresar"
-                        subtitle="Activos con fecha de ingreso futura (todos los tipos)."
                         isLight={isLight}
                     />
                 );
             case 'bajas':
-                return <PersonalView auth={auth} activo="false" title="Bajas" isLight={isLight} />;
+                return <PersonalView auth={auth} activo="false" isLight={isLight} />;
             case 'sena':
-                return <PersonalView auth={auth} tipoPersonal="sena" title="Aprendices SENA" isLight={isLight} />;
+                return <PersonalView auth={auth} tipoPersonal="sena" isLight={isLight} />;
             case 'staff':
-                return <PersonalView auth={auth} tipoPersonal="staff" title="Staff CINTE" isLight={isLight} />;
+                return <PersonalView auth={auth} tipoPersonal="staff" isLight={isLight} />;
             case 'licencias':
                 return (
                     <OnboardingListView
-                        title="Licencias maternidad / paternidad / lactancia"
-                        subtitle="Reemplazo de hoja PREGNANCY del Excel."
                         isLight={isLight}
                         defaultSort={LICENCIAS_DEFAULT_SORT}
                         fetcher={(params) => onboardingApi.listLicencias(token, params)}
@@ -299,8 +293,6 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
             case 'extranjeros':
                 return (
                     <OnboardingListView
-                        title="Documentos extranjeros"
-                        subtitle="SIRE / RUTEC / PPT con alertas de vencimiento."
                         isLight={isLight}
                         defaultSort={EXTRANJEROS_DEFAULT_SORT}
                         fetcher={(params) => onboardingApi.listExtranjeros(token, params)}

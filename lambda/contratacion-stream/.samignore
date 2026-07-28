@@ -1,0 +1,7 @@
+node_modules/
+test/
+scripts/
+deploy.zip
+.aws-sam/
+*.md
+.gitignore

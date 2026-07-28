@@ -618,8 +618,10 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
     const modalInSelected = dayModalYmd ? selected.has(dayModalYmd) : false;
     const calendarRowCount = useMemo(() => Math.ceil(calendarCells.length / 7), [calendarCells]);
     const calendarRowMin = isNocturnos ? '6.5rem' : '4.5rem';
-    const cellLayoutClass = 'h-full min-h-0 min-w-0';
-    const calendarGridClass = 'grid min-h-0 flex-1 grid-cols-7 gap-1 overflow-hidden px-3 pb-3';
+    const cellLayoutClass = 'min-h-0 min-w-0';
+    // flex-1 + overflow-hidden + filas 1fr recortaba el mes en pantallas pequeñas (sin scroll).
+    // Altura intrínseca + scroll en el contenedor padre (overflow-y-auto).
+    const calendarGridClass = 'grid grid-cols-7 gap-1 px-3 pb-3';
     const panelDisabled = !hasCliente;
     const mallaYaAprobada = Boolean(aprobacionStatus?.aprobada);
 
@@ -729,7 +731,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                 </div>
             ) : null}
 
-            <div className={`${dash.cardFlex} flex min-h-0 flex-1 flex-row overflow-hidden`}>
+            <div className={`${dash.cardFlex} flex min-h-0 flex-1 flex-col overflow-hidden md:flex-row`}>
                 <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
                         {!hasCliente ? (
                             <div
@@ -762,7 +764,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                         </div>
                         <div
                             className={calendarGridClass}
-                            style={{ gridTemplateRows: `repeat(${calendarRowCount}, minmax(${calendarRowMin}, 1fr))` }}
+                            style={{ gridTemplateRows: `repeat(${calendarRowCount}, minmax(${calendarRowMin}, auto))` }}
                         >
                             {calendarCells.map((cell, idx) => {
                                 if (!cell) {
@@ -886,7 +888,7 @@ export default function MallasTurnosPage({ token, variant = 'mallas', userRole =
                 {asignacionOpen ? (
                     <aside
                         id="mallas-asignacion-sidebar"
-                        className={`flex h-full min-h-0 w-[min(100%,20rem)] shrink-0 flex-col overflow-hidden border-l md:w-80 xl:w-[22rem] ${borderSubtle} ${tableSurface}`}
+                        className={`flex max-h-[42vh] min-h-0 w-full shrink-0 flex-col overflow-hidden border-t md:h-full md:max-h-none md:w-80 md:border-l md:border-t-0 xl:w-[22rem] ${borderSubtle} ${tableSurface}`}
                     >
                         <div className={`flex shrink-0 items-center justify-between gap-2 border-b px-4 py-3 ${borderSubtle}`}>
                             <h3 className={`text-sm font-semibold ${headingAccent}`}>Asignación masiva</h3>
