@@ -54,6 +54,10 @@ function createActividadesStore({ pool }) {
         // D. Agregar la nueva restricción CHECK explícita para los tres estados del flujo
         await pool.query(`
             ALTER TABLE actividades_consultor
+            DROP CONSTRAINT IF EXISTS chk_actividades_consultor_estado;
+        `);
+        await pool.query(`
+            ALTER TABLE actividades_consultor
             ADD CONSTRAINT chk_actividades_consultor_estado
             CHECK (estado IN ('pendiente', 'aprobado', 'rechazado'));
         `);

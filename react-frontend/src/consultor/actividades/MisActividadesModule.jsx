@@ -630,7 +630,8 @@ export default function MisActividadesModule() {
   const [loadingActividades, setLoadingActividades] = useState(true);
 
   // Estados de Filtros Principales
-  const [filterFecha, setFilterFecha] = useState('');
+  const [filterFechaInicio, setFilterFechaInicio] = useState('');
+  const [filterFechaFin, setFilterFechaFin] = useState('');
   const [filterSearch, setFilterSearch] = useState('');
   const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
@@ -700,19 +701,23 @@ export default function MisActividadesModule() {
   // Filtrado reactivo en el frontend
   const filteredActividades = useMemo(() => {
     return actividades.filter((act) => {
-      if (filterFecha && formatIsoToBogotaDate(act.inicio) !== filterFecha) return false;
+      const startDayStr = formatIsoToBogotaDate(act.inicio);
+      
+      if (filterFechaInicio && startDayStr < filterFechaInicio) return false;
+      if (filterFechaFin && startDayStr > filterFechaFin) return false;
+      
       if (filterSearch.trim() && !String(act.descripcion || '').toLowerCase().includes(filterSearch.trim().toLowerCase())) return false;
       return true;
     });
-  }, [actividades, filterFecha, filterSearch]);
+  }, [actividades, filterFechaInicio, filterFechaFin, filterSearch]);
 
   // Contador dinámico de filtros activos
   const activeFilterCount = useMemo(() => {
     let count = 0;
-    if (filterFecha) count++;
+    if (filterFechaInicio || filterFechaFin) count++;
     if (filterSearch.trim()) count++;
     return count;
-  }, [filterFecha, filterSearch]);
+  }, [filterFechaInicio, filterFechaFin, filterSearch]);
 
   const chipText = useMemo(() => {
     if (activeFilterCount === 0) return 'Sin filtros activos';
@@ -723,7 +728,8 @@ export default function MisActividadesModule() {
   const hasActiveFilters = activeFilterCount > 0;
 
   const handleClearFilters = () => {
-    setFilterFecha('');
+    setFilterFechaInicio('');
+    setFilterFechaFin('');
     setFilterSearch('');
   };
 
@@ -886,13 +892,23 @@ export default function MisActividadesModule() {
                   dash={dash}
                   title="Filtros avanzados"
                 >
-                  <div className="flex flex-col gap-1.5">
-                    <span className={dash.filtrosDrawerLabel}>Fecha</span>
+                  <div className="flex flex-col gap-1.5 mb-4">
+                    <span className={dash.filtrosDrawerLabel}>Fecha inicio</span>
                     <input
                       type="date"
                       className={`${dash.field} min-w-0 w-full px-2 py-1.5 text-sm`}
-                      value={filterFecha}
-                      onChange={(e) => setFilterFecha(e.target.value)}
+                      value={filterFechaInicio}
+                      onChange={(e) => setFilterFechaInicio(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className={dash.filtrosDrawerLabel}>Fecha fin</span>
+                    <input
+                      type="date"
+                      className={`${dash.field} min-w-0 w-full px-2 py-1.5 text-sm`}
+                      value={filterFechaFin}
+                      min={filterFechaInicio}
+                      onChange={(e) => setFilterFechaFin(e.target.value)}
                     />
                   </div>
                 </ModuleFiltersDrawer>
