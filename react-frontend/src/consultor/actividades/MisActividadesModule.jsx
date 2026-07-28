@@ -23,6 +23,7 @@ import {
   ChevronDown,
   ChevronUp,
   Play,
+  Square,
 } from 'lucide-react';
 import { useModuleTheme } from '../../moduleTheme.js';
 import ModuleFiltersToolbar from '../../shared/filters/ModuleFiltersToolbar.jsx';
@@ -692,9 +693,10 @@ export default function MisActividadesModule() {
       setLoadingActividades(true);
       setContextError('');
   
-      const [ctxRes, actRes] = await Promise.all([
+      const [ctxRes, actRes, timerRes] = await Promise.all([
         fetchConsultorActividadesContext(),
-        fetchActividadesList()
+        fetchActividadesList(),
+        fetchCronometroActivo()
       ]);
   
       if (!mounted) return;
@@ -716,6 +718,12 @@ export default function MisActividadesModule() {
   
       if (actRes.ok) {
         setActividades(actRes.actividades || []);
+      }
+
+      if (timerRes && timerRes.ok && timerRes.activo) {
+        setActiveTimer(timerRes.activo);
+      } else {
+        setActiveTimer(null);
       }
     };
     fetchInit();
@@ -802,6 +810,7 @@ export default function MisActividadesModule() {
     setTimerDescripcion('');
     setActiveTimer(res.actividad);
     setSuccessMessage('Cronómetro iniciado en tiempo real.');
+    setTimeout(() => setSuccessMessage(''), 4000);
   };
 
   const handleDetenerCronometro = async () => {
@@ -817,6 +826,7 @@ export default function MisActividadesModule() {
 
     setActiveTimer(null);
     setSuccessMessage('Actividad registrada con éxito mediante cronómetro.');
+    setTimeout(() => setSuccessMessage(''), 4000);
     await refreshHistory();
   };
 
@@ -833,6 +843,7 @@ export default function MisActividadesModule() {
 
     setActiveTimer(null);
     setSuccessMessage('Cronómetro cancelado.');
+    setTimeout(() => setSuccessMessage(''), 4000);
   };
 
   // Carga Manual: Handlers
@@ -1193,6 +1204,25 @@ export default function MisActividadesModule() {
         </div>
       </main>
 
+      {/* MODAL DE CREACIÓN DE ACTIVIDAD (REUTILIZADO HU-2) */}
+      <ActivityModal
+        isModalOpen={isModalOpen}
+        handleCloseModal={handleCloseModal}
+        isLight={isLight}
+        saving={saving}
+        handleSubmitForm={handleSubmitForm}
+        errorMessage={errorMessage}
+        cliente={cliente}
+        fecha={fecha}
+        setFecha={setFecha}
+        horaInicio={horaInicio}
+        setHoraInicio={setHoraInicio}
+        horaFin={horaFin}
+        setHoraFin={setHoraFin}
+        fieldErrors={fieldErrors}
+        descripcion={descripcion}
+        setDescripcion={setDescripcion}
+      />
     </div>
   );
 }
