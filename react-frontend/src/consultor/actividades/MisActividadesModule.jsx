@@ -292,6 +292,94 @@ async function executeSubmitForm({
   await refreshHistory();
 }
 
+async function executeIniciarCronometro({
+  e,
+  timerDescripcion,
+  cliente,
+  setTimerError,
+  setStartingTimer,
+  setActiveTimer,
+  setTimerDescripcion,
+  setSuccessMessage
+}) {
+  e.preventDefault();
+  setTimerError('');
+  const trimmedDesc = timerDescripcion.trim();
+  if (!trimmedDesc) {
+    setTimerError('Ingresa una descripción para iniciar el cronómetro.');
+    return;
+  }
+  if (!cliente) {
+    setTimerError('Debes tener un cliente asignado en tu ficha para iniciar el cronómetro.');
+    return;
+  }
+
+  setStartingTimer(true);
+  const res = await iniciarCronometroApi({ descripcion: trimmedDesc });
+  setStartingTimer(false);
+
+  if (!res.ok) {
+    setTimerError(res.error || 'No se pudo iniciar el cronómetro.');
+    return;
+  }
+
+  setTimerDescripcion('');
+  setActiveTimer(res.actividad);
+  setSuccessMessage('Cronómetro iniciado en tiempo real.');
+}
+
+async function executeDeleteActividad({
+  id,
+  setErrorMessage,
+  setSuccessMessage,
+  refreshHistory
+}) {
+  const confirmDelete = window.confirm('¿Estás seguro de que deseas eliminar esta actividad?');
+  if (!confirmDelete) return;
+
+  const res = await deleteActividadApi(id);
+  if (!res.ok) {
+    setErrorMessage(res.error || 'No se pudo eliminar la actividad.');
+    setTimeout(() => setErrorMessage(''), 5000);
+    return;
+  }
+
+  setSuccessMessage('Actividad eliminada con éxito.');
+  await refreshHistory();
+  setTimeout(() => setSuccessMessage(''), 3000);
+}
+
+function handleTimerTextareaKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (e.target.form) {
+      e.target.form.requestSubmit();
+    }
+  }
+}
+
+async function executeDetenerCronometro({
+  setTimerError,
+  setStoppingTimer,
+  setActiveTimer,
+  setSuccessMessage,
+  refreshHistory
+}) {
+  setTimerError('');
+  setStoppingTimer(true);
+  const res = await detenerCronometroApi();
+  setStoppingTimer(false);
+
+  if (!res.ok) {
+    setTimerError(res.error || 'No se pudo detener el cronómetro.');
+    return;
+  }
+
+  setActiveTimer(null);
+  setSuccessMessage('Actividad registrada con éxito mediante cronómetro.');
+  await refreshHistory();
+}
+
 const navItemClass = (active, navInactive) =>
   `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
     active
@@ -1057,46 +1145,26 @@ export default function MisActividadesModule() {
 
   // Cronómetro: Handlers de inicio, detención y cancelación
   const handleIniciarCronometro = async (e) => {
-    e.preventDefault();
-    setTimerError('');
-    const trimmedDesc = timerDescripcion.trim();
-    if (!trimmedDesc) {
-      setTimerError('Ingresa una descripción para iniciar el cronómetro.');
-      return;
-    }
-    if (!cliente) {
-      setTimerError('Debes tener un cliente asignado en tu ficha para iniciar el cronómetro.');
-      return;
-    }
-
-    setStartingTimer(true);
-    const res = await iniciarCronometroApi({ descripcion: trimmedDesc });
-    setStartingTimer(false);
-
-    if (!res.ok) {
-      setTimerError(res.error || 'No se pudo iniciar el cronómetro.');
-      return;
-    }
-
-    setTimerDescripcion('');
-    setActiveTimer(res.actividad);
-    setSuccessMessage('Cronómetro iniciado en tiempo real.');
+    await executeIniciarCronometro({
+      e,
+      timerDescripcion,
+      cliente,
+      setTimerError,
+      setStartingTimer,
+      setActiveTimer,
+      setTimerDescripcion,
+      setSuccessMessage
+    });
   };
 
   const handleDetenerCronometro = async () => {
-    setTimerError('');
-    setStoppingTimer(true);
-    const res = await detenerCronometroApi();
-    setStoppingTimer(false);
-
-    if (!res.ok) {
-      setTimerError(res.error || 'No se pudo detener el cronómetro.');
-      return;
-    }
-
-    setActiveTimer(null);
-    setSuccessMessage('Actividad registrada con éxito mediante cronómetro.');
-    await refreshHistory();
+    await executeDetenerCronometro({
+      setTimerError,
+      setStoppingTimer,
+      setActiveTimer,
+      setSuccessMessage,
+      refreshHistory
+    });
   };
 
   const handleCancelarCronometro = async () => {
@@ -1163,20 +1231,12 @@ export default function MisActividadesModule() {
   };
 
   const handleDeleteActividad = async (id) => {
-    const confirmDelete = window.confirm('¿Estás seguro de que deseas eliminar esta actividad?');
-    if (!confirmDelete) return;
-
-    const res = await deleteActividadApi(id);
-    if (!res.ok) {
-      setErrorMessage(res.error || 'No se pudo eliminar la actividad.');
-      // Auto-hide the error message after a few seconds
-      setTimeout(() => setErrorMessage(''), 5000);
-      return;
-    }
-
-    setSuccessMessage('Actividad eliminada con éxito.');
-    await refreshHistory();
-    setTimeout(() => setSuccessMessage(''), 3000);
+    await executeDeleteActividad({
+      id,
+      setErrorMessage,
+      setSuccessMessage,
+      refreshHistory
+    });
   };
 
   const handleCloseModal = () => {
@@ -1389,7 +1449,7 @@ export default function MisActividadesModule() {
                             value={timerDescripcion}
                             onChange={(e) => setTimerDescripcion(e.target.value)}
                             onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
-                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.form.requestSubmit(); } }}
+                            onKeyDown={handleTimerTextareaKeyDown}
                             disabled={startingTimer || loadingContext || Boolean(contextError)}
                             placeholder="¿En qué estás trabajando? Describe la actividad y presiona Iniciar..."
                             className={`${field} min-h-[2.75rem] w-full text-sm placeholder:text-slate-400 resize-none overflow-hidden py-2.5`}
