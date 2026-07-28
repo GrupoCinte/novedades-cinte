@@ -20,6 +20,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-28 17:40:15 · `fix/AUT-586-rechazadas-fuera-tope-dominical` · `c9af8ff1`
+- **Commit:** `c9af8ff1828d159c4a395f08514d25b06dcc1af4`
+- **Ticket:** AUT-586
+- **Requerimiento funcional:** Documentar en el historial oficial el hotfix del tope dominical con HE rechazadas.
+- **Componente técnico:** `docs/HISTORIAL-CAMBIOS.md`.
+- **Cambios (uno a uno):**
+  - Entrada append-only del commit `d2f1ad33`.
+
 ### 2026-07-28 17:39:21 · `fix/AUT-586-rechazadas-fuera-tope-dominical` · `d2f1ad33`
 - **Commit:** `d2f1ad33e2e0dba2724202454fb1ad2dc16c80fe`
 - **Ticket:** AUT-586
