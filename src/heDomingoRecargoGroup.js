@@ -39,6 +39,7 @@ async function listHoraExtraRowsForCedula(pool, cedulaNorm) {
          FROM novedades
          WHERE cedula = $1
            AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g')) = 'hora extra'
+           AND estado IN ('Pendiente'::novedad_estado, 'Aprobado'::novedad_estado)
          ORDER BY creado_en ASC
          LIMIT 800`,
         [ced]
