@@ -430,7 +430,7 @@ function ActivityModal({
   return (
     <div
       role="presentation"
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[999] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
       onClick={handleCloseModal}
       onKeyDown={(e) => {
         if (e.key === 'Escape') handleCloseModal();
@@ -501,9 +501,6 @@ function ActivityModal({
             >
               <Building2 className="h-4 w-4 text-[#2F7BB8] shrink-0" aria-hidden />
               <span>{cliente || 'Sin cliente asignado'}</span>
-              <span className="ml-auto rounded-md bg-[#2F7BB8]/20 px-2 py-0.5 text-xs text-[#2F7BB8] dark:text-[#a8dcff]">
-                Solo lectura
-              </span>
             </div>
           </div>
 
@@ -985,10 +982,10 @@ export default function MisActividadesModule() {
                               En curso
                             </span>
                           ) : (
-                            <span className="text-xs font-normal text-slate-500 dark:text-slate-400">(Registro en tiempo real)</span>
+                            <span className="text-xs font-normal text-slate-500 dark:text-slate-300">(Registro en tiempo real)</span>
                           )}
                         </h2>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                        <p className="text-xs text-slate-500 dark:text-slate-300">
                           {activeTimer ? 'Cronómetro corriendo. Al detenerlo se registrará la entrada de tiempo.' : 'Ingresa la descripción e inicia el temporizador.'}
                         </p>
                       </div>
