@@ -16,6 +16,15 @@ function createActividadesStore({ pool }) {
                 origen TEXT NOT NULL CHECK (origen IN ('manual', 'cronometro')),
                 estado TEXT NOT NULL DEFAULT 'pendiente'
                     CHECK (estado IN ('pendiente', 'aprobado', 'rechazado')),
+                aprobado_por_user_id UUID NULL REFERENCES users(id),
+                aprobado_por_rol user_role NULL,
+                aprobado_por_email TEXT NULL,
+                aprobado_en TIMESTAMPTZ NULL,
+                rechazado_por_user_id UUID NULL REFERENCES users(id),
+                rechazado_por_rol user_role NULL,
+                rechazado_por_email TEXT NULL,
+                rechazado_en TIMESTAMPTZ NULL,
+                observaciones_rechazo TEXT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
@@ -92,6 +101,28 @@ function createActividadesStore({ pool }) {
             ALTER TABLE actividades_consultor
             ADD CONSTRAINT chk_actividad_fin_posterior
             CHECK (fin IS NULL OR fin > inicio);
+        `);
+
+        // G. Columnas de auditoría de decisión (AUT-265). CREATE IF NOT EXISTS no las añade
+        // si la tabla ya existía con el schema de carga manual / cronómetro.
+        await pool.query(`
+            ALTER TABLE actividades_consultor
+            ADD COLUMN IF NOT EXISTS aprobado_por_user_id UUID NULL REFERENCES users(id),
+            ADD COLUMN IF NOT EXISTS aprobado_por_rol user_role NULL,
+            ADD COLUMN IF NOT EXISTS aprobado_por_email TEXT NULL,
+            ADD COLUMN IF NOT EXISTS aprobado_en TIMESTAMPTZ NULL,
+            ADD COLUMN IF NOT EXISTS rechazado_por_user_id UUID NULL REFERENCES users(id),
+            ADD COLUMN IF NOT EXISTS rechazado_por_rol user_role NULL,
+            ADD COLUMN IF NOT EXISTS rechazado_por_email TEXT NULL,
+            ADD COLUMN IF NOT EXISTS rechazado_en TIMESTAMPTZ NULL,
+            ADD COLUMN IF NOT EXISTS observaciones_rechazo TEXT NULL
+        `);
+
+        await pool.query(`
+            DROP TRIGGER IF EXISTS trg_actividades_consultor_updated_at ON actividades_consultor;
+            CREATE TRIGGER trg_actividades_consultor_updated_at
+            BEFORE UPDATE ON actividades_consultor
+            FOR EACH ROW EXECUTE FUNCTION set_updated_at();
         `);
     }
 
