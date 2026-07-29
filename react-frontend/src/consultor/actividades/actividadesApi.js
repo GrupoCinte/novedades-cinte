@@ -1,5 +1,27 @@
 import { buildCsrfHeaders } from '../../cognitoAuth.js';
 
+async function parseResponse(response, defaultErrorMsg, successKey = 'actividad') {
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const errorMsg = payload?.error || defaultErrorMsg;
+    return { ok: false, error: errorMsg, status: response.status, [successKey === 'actividad' ? 'actividad' : successKey]: successKey === 'mensaje' ? undefined : (successKey === 'activo' ? null : []) };
+  }
+  if (successKey === 'mensaje') {
+    return { ok: true, mensaje: payload?.mensaje };
+  }
+  if (successKey === 'cliente') {
+    return { ok: true, cliente: payload?.cliente || null };
+  }
+  if (successKey === 'activo') {
+    return { ok: true, activo: payload?.activo || null };
+  }
+  if (successKey === 'actividades') {
+    return { ok: true, actividades: payload?.actividades || [] };
+  }
+  return { ok: true, actividad: payload?.actividad };
+}
+
+
 /**
  * Consulta el contexto del consultor (cliente asignado en su ficha).
  */
@@ -13,13 +35,7 @@ export async function fetchConsultorActividadesContext() {
       credentials: 'include'
     });
 
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      const errorMsg = payload?.error || 'No se pudo obtener el contexto del consultor.';
-      return { ok: false, error: errorMsg, status: response.status };
-    }
-
-    return { ok: true, cliente: payload?.cliente || null };
+    return parseResponse(response, 'No se pudo obtener el contexto del consultor.', 'cliente');
   } catch {
     return {
       ok: false,
@@ -41,13 +57,7 @@ export async function fetchActividadesList() {
       credentials: 'include'
     });
 
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      const errorMsg = payload?.error || 'No se pudo consultar el historial de actividades.';
-      return { ok: false, error: errorMsg, status: response.status, actividades: [] };
-    }
-
-    return { ok: true, actividades: payload?.actividades || [] };
+    return parseResponse(response, 'No se pudo consultar el historial de actividades.', 'actividades');
   } catch {
     return {
       ok: false,
@@ -79,13 +89,7 @@ export async function createActividadManual({ descripcion, fecha, horaInicio, ho
       })
     });
 
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      const errorMsg = payload?.error || 'No se pudo registrar la entrada de tiempo.';
-      return { ok: false, error: errorMsg, status: response.status };
-    }
-
-    return { ok: true, actividad: payload?.actividad };
+    return parseResponse(response, 'No se pudo registrar la entrada de tiempo.');
   } catch {
     return {
       ok: false,
@@ -107,13 +111,7 @@ export async function fetchCronometroActivo() {
       credentials: 'include'
     });
 
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      const errorMsg = payload?.error || 'No se pudo verificar el estado del cronómetro.';
-      return { ok: false, error: errorMsg, status: response.status, activo: null };
-    }
-
-    return { ok: true, activo: payload?.activo || null };
+    return parseResponse(response, 'No se pudo verificar el estado del cronómetro.', 'activo');
   } catch (err) {
     return {
       ok: false,
@@ -140,14 +138,9 @@ export async function iniciarCronometroApi({ descripcion }) {
       body: JSON.stringify({ descripcion })
     });
 
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      const errorMsg = payload?.error || 'No se pudo iniciar el cronómetro.';
-      return { ok: false, error: errorMsg, status: response.status };
-    }
-
-    return { ok: true, actividad: payload?.actividad };
+    return parseResponse(response, 'No se pudo iniciar el cronómetro.');
   } catch (err) {
+    console.error(err);
     return {
       ok: false,
       error: 'Error de red al iniciar el cronómetro.'
@@ -171,13 +164,7 @@ export async function detenerCronometroApi() {
       credentials: 'include'
     });
 
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      const errorMsg = payload?.error || 'No se pudo detener el cronómetro.';
-      return { ok: false, error: errorMsg, status: response.status };
-    }
-
-    return { ok: true, actividad: payload?.actividad };
+    return parseResponse(response, 'No se pudo detener el cronómetro.');
   } catch (err) {
     return {
       ok: false,
@@ -202,17 +189,66 @@ export async function cancelarCronometroApi() {
       credentials: 'include'
     });
 
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      const errorMsg = payload?.error || 'No se pudo cancelar el cronómetro.';
-      return { ok: false, error: errorMsg, status: response.status };
-    }
-
-    return { ok: true, mensaje: payload?.mensaje };
+    return parseResponse(response, 'No se pudo cancelar el cronómetro.', 'mensaje');
   } catch (err) {
     return {
       ok: false,
       error: 'Error de red al cancelar el cronómetro.'
+    };
+  }
+}
+
+/**
+ * Actualiza una entrada de tiempo manual.
+ */
+export async function updateActividadApi(id, { descripcion, fecha, horaInicio, horaFin }) {
+  try {
+    const headers = buildCsrfHeaders({
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    });
+
+    const response = await fetch(`/api/consultor/actividades/${id}`, {
+      method: 'PUT',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        descripcion,
+        fecha,
+        horaInicio,
+        horaFin
+      })
+    });
+
+    return parseResponse(response, 'No se pudo actualizar la entrada de tiempo.');
+  } catch {
+    return {
+      ok: false,
+      error: 'Error de red al actualizar la actividad.'
+    };
+  }
+}
+
+/**
+ * Elimina una entrada de tiempo.
+ */
+export async function deleteActividadApi(id) {
+  try {
+    const headers = buildCsrfHeaders({
+      Accept: 'application/json'
+    });
+
+    const response = await fetch(`/api/consultor/actividades/${id}`, {
+      method: 'DELETE',
+      headers,
+      credentials: 'include'
+    });
+
+    return parseResponse(response, 'No se pudo eliminar la entrada de tiempo.', 'mensaje');
+  } catch {
+    return {
+      ok: false,
+      error: 'Error de red al eliminar la actividad.'
     };
   }
 }

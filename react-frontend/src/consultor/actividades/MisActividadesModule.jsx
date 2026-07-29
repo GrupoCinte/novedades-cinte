@@ -24,6 +24,8 @@ import {
   ChevronUp,
   Play,
   Square,
+  Pencil,
+  Trash2
 } from 'lucide-react';
 import { useModuleTheme } from '../../moduleTheme.js';
 import ModuleFiltersToolbar from '../../shared/filters/ModuleFiltersToolbar.jsx';
@@ -40,6 +42,8 @@ import {
   fetchConsultorActividadesContext,
   fetchActividadesList,
   createActividadManual,
+  updateActividadApi,
+  deleteActividadApi,
   fetchCronometroActivo,
   iniciarCronometroApi,
   detenerCronometroApi,
@@ -140,6 +144,247 @@ function renderEstadoBadge(estado) {
   );
 }
 
+// Helpers extraídos para reducir la complejidad cognitiva (SonarCloud)
+function matchesFilters(act, filterFecha, filterCliente, filterSearch) {
+  if (filterFecha && formatIsoToBogotaDate(act.inicio) !== filterFecha) return false;
+  if (filterCliente && String(act.cliente || '').toLowerCase() !== String(filterCliente).toLowerCase()) return false;
+  if (filterSearch.trim() && !String(act.descripcion || '').toLowerCase().includes(filterSearch.trim().toLowerCase())) return false;
+  return true;
+}
+
+function extractClientOptions(actividades, cliente) {
+  const set = new Set();
+  if (cliente) set.add(cliente);
+  actividades.forEach((a) => {
+    if (a.cliente) set.add(a.cliente);
+  });
+  return Array.from(set);
+}
+
+function getActiveFilterCount(filterFecha, filterCliente, filterSearch) {
+  let count = 0;
+  if (filterFecha) count++;
+  if (filterCliente) count++;
+  if (filterSearch.trim()) count++;
+  return count;
+}
+
+function getChipText(activeFilterCount) {
+  if (activeFilterCount === 0) return 'Sin filtros activos';
+  if (activeFilterCount === 1) return '1 filtro activo';
+  return `${activeFilterCount} filtros activos`;
+}
+
+async function executeFetchInit({
+  mounted,
+  setLoadingContext,
+  setLoadingActividades,
+  setContextError,
+  setCliente,
+  setActividades,
+  setActiveTimer
+}) {
+  setLoadingContext(true);
+  setLoadingActividades(true);
+  setContextError('');
+
+  const [ctxRes, actRes, timerRes] = await Promise.all([
+    fetchConsultorActividadesContext(),
+    fetchActividadesList(),
+    fetchCronometroActivo()
+  ]);
+
+  if (!mounted.current) return;
+
+  setLoadingContext(false);
+  setLoadingActividades(false);
+
+  if (!ctxRes.ok) {
+    setContextError(ctxRes.error || 'No se pudo cargar la información de tu ficha.');
+    return;
+  }
+
+  if (!ctxRes.cliente) {
+    setContextError('Debes tener un cliente asignado en tu ficha para poder registrar actividades.');
+    return;
+  }
+
+  setCliente(ctxRes.cliente);
+
+  if (actRes.ok) {
+    setActividades(actRes.actividades || []);
+  }
+  
+  if (timerRes && timerRes.ok && timerRes.activo) {
+    setActiveTimer(timerRes.activo);
+  } else {
+    setActiveTimer(null);
+  }
+}
+
+async function executeSubmitForm({
+  e,
+  cliente,
+  descripcion,
+  fecha,
+  horaInicio,
+  horaFin,
+  activityToEdit,
+  setErrorMessage,
+  setFieldErrors,
+  setSaving,
+  setIsModalOpen,
+  setActivityToEdit,
+  setSuccessMessage,
+  refreshHistory
+}) {
+  e.preventDefault();
+  setErrorMessage('');
+  const errors = {};
+
+  if (!cliente) {
+    setErrorMessage('Debes tener un cliente asignado en tu ficha para poder registrar una actividad.');
+    return;
+  }
+
+  const trimmedDesc = descripcion.trim();
+  if (!trimmedDesc) {
+    errors.descripcion = 'La descripción es obligatoria.';
+  }
+
+  if (getTimeInMinutes(horaFin) <= getTimeInMinutes(horaInicio)) {
+    errors.horaFin = 'La hora de fin debe ser mayor que la hora de inicio.';
+  }
+
+  if (Object.keys(errors).length > 0) {
+    setFieldErrors(errors);
+    return;
+  }
+
+  setFieldErrors({});
+  setSaving(true);
+
+  let res;
+  if (activityToEdit) {
+    res = await updateActividadApi(activityToEdit.id, {
+      descripcion: trimmedDesc,
+      fecha,
+      horaInicio,
+      horaFin
+    });
+  } else {
+    res = await createActividadManual({
+      descripcion: trimmedDesc,
+      fecha,
+      horaInicio,
+      horaFin
+    });
+  }
+
+  setSaving(false);
+
+  if (!res.ok) {
+    setErrorMessage(res.error || 'No se pudo guardar la actividad.');
+    return;
+  }
+
+  setIsModalOpen(false);
+  setActivityToEdit(null);
+  setSuccessMessage(activityToEdit ? 'Actividad actualizada con éxito.' : 'Entrada manual de tiempo registrada con éxito.');
+  setTimeout(() => setSuccessMessage(''), 4000);
+  await refreshHistory();
+}
+
+async function executeIniciarCronometro({
+  e,
+  timerDescripcion,
+  cliente,
+  setTimerError,
+  setStartingTimer,
+  setActiveTimer,
+  setTimerDescripcion,
+  setSuccessMessage
+}) {
+  e.preventDefault();
+  setTimerError('');
+  const trimmedDesc = timerDescripcion.trim();
+  if (!trimmedDesc) {
+    setTimerError('Ingresa una descripción para iniciar el cronómetro.');
+    return;
+  }
+  if (!cliente) {
+    setTimerError('Debes tener un cliente asignado en tu ficha para iniciar el cronómetro.');
+    return;
+  }
+
+  setStartingTimer(true);
+  const res = await iniciarCronometroApi({ descripcion: trimmedDesc });
+  setStartingTimer(false);
+
+  if (!res.ok) {
+    setTimerError(res.error || 'No se pudo iniciar el cronómetro.');
+    return;
+  }
+
+  setTimerDescripcion('');
+  setActiveTimer(res.actividad);
+  setSuccessMessage('Cronómetro iniciado en tiempo real.');
+  setTimeout(() => setSuccessMessage(''), 4000);
+}
+
+async function executeDeleteActividad({
+  id,
+  setErrorMessage,
+  setSuccessMessage,
+  refreshHistory
+}) {
+  const confirmDelete = window.confirm('¿Estás seguro de que deseas eliminar esta actividad?');
+  if (!confirmDelete) return;
+
+  const res = await deleteActividadApi(id);
+  if (!res.ok) {
+    setErrorMessage(res.error || 'No se pudo eliminar la actividad.');
+    setTimeout(() => setErrorMessage(''), 5000);
+    return;
+  }
+
+  setSuccessMessage('Actividad eliminada con éxito.');
+  await refreshHistory();
+  setTimeout(() => setSuccessMessage(''), 4000);
+}
+
+function handleTimerTextareaKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (e.target.form) {
+      e.target.form.requestSubmit();
+    }
+  }
+}
+
+async function executeDetenerCronometro({
+  setTimerError,
+  setStoppingTimer,
+  setActiveTimer,
+  setSuccessMessage,
+  refreshHistory
+}) {
+  setTimerError('');
+  setStoppingTimer(true);
+  const res = await detenerCronometroApi();
+  setStoppingTimer(false);
+
+  if (!res.ok) {
+    setTimerError(res.error || 'No se pudo detener el cronómetro.');
+    return;
+  }
+
+  setActiveTimer(null);
+  setSuccessMessage('Actividad registrada con éxito mediante cronómetro.');
+  setTimeout(() => setSuccessMessage(''), 4000);
+  await refreshHistory();
+}
+
 const navItemClass = (active, navInactive) =>
   `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-body font-semibold transition-all ${
     active
@@ -152,7 +397,7 @@ const navIconClass = (active, isLight) => {
   return isLight ? 'flex-shrink-0 text-slate-600' : 'flex-shrink-0 text-slate-500';
 };
 
-function ActivityRow({ act, dash }) {
+function ActivityRow({ act, dash, onEdit, onDelete }) {
   const fechaStr = formatIsoToBogotaDate(act.inicio);
   const horaInicioStr = formatIsoToBogotaTime(act.inicio);
   const horaFinStr = formatIsoToBogotaTime(act.fin);
@@ -198,6 +443,26 @@ function ActivityRow({ act, dash }) {
       </td>
       <td className="p-4">
         {renderEstadoBadge(act.estado)}
+      </td>
+      <td className="p-4 text-right">
+        {act.estado === 'pendiente' && act.fin !== null && (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => onEdit(act)}
+              className="p-1.5 text-slate-400 hover:text-[#2F7BB8] hover:bg-[#2F7BB8]/10 rounded-lg transition-colors"
+              title="Editar actividad"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => onDelete(act.id)}
+              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+              title="Eliminar actividad"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </td>
     </tr>
   );
@@ -413,31 +678,27 @@ function ActivityModal({
 
   const baseInputClass = isLight
     ? 'border-slate-300 bg-white text-slate-900'
-    : 'border-white/15 bg-[#082232] text-white';
-
-  const baseTextareaClass = isLight
-    ? 'border-slate-300 bg-white text-slate-900 placeholder:text-slate-400'
-    : 'border-white/15 bg-[#082232] text-white placeholder:text-slate-500';
+    : 'border-white/10 bg-[#082232] text-slate-200';
+    
+  const descClass = isLight
+    ? 'border-slate-300 bg-white text-slate-900'
+    : 'border-white/10 bg-[#082232] text-slate-200';
 
   const horaFinClass = fieldErrors.horaFin
-    ? 'border-red-500 focus:ring-red-500'
+    ? isLight ? 'border-red-500 bg-red-50 text-red-900 focus:ring-red-500' : 'border-red-500/50 bg-red-500/10 text-red-200 focus:ring-red-500'
     : baseInputClass;
-
-  const descClass = fieldErrors.descripcion
-    ? 'border-red-500 focus:ring-red-500'
-    : baseTextareaClass;
 
   return (
     <div
-      role="presentation"
       className="fixed inset-0 z-[999] flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
       onClick={handleCloseModal}
       onKeyDown={(e) => {
         if (e.key === 'Escape') handleCloseModal();
       }}
+      role="dialog"
+      aria-modal="true"
     >
       <div
-        role="presentation"
         className={`relative w-full max-w-2xl rounded-2xl border p-6 shadow-2xl backdrop-blur-md sm:p-8 transition-all ${
           isLight
             ? 'border-slate-200 bg-white text-slate-800'
@@ -668,6 +929,7 @@ export default function MisActividadesModule() {
 
   // Estado del Modal y Formulario Carga Manual (HU-2)
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [activityToEdit, setActivityToEdit] = useState(null);
   const [fecha, setFecha] = useState(getTodayString);
   const [horaInicio, setHoraInicio] = useState('08:00');
   const [horaFin, setHoraFin] = useState('17:00');
@@ -684,47 +946,17 @@ export default function MisActividadesModule() {
   const closeMobile = () => setMobileMenuOpen(false);
 
   useEffect(() => {
-    let mounted = true;
-    const fetchInit = async () => {
-      setLoadingContext(true);
-      setLoadingActividades(true);
-      setContextError('');
-  
-      const [ctxRes, actRes, timerRes] = await Promise.all([
-        fetchConsultorActividadesContext(),
-        fetchActividadesList(),
-        fetchCronometroActivo()
-      ]);
-  
-      if (!mounted) return;
-  
-      setLoadingContext(false);
-      setLoadingActividades(false);
-  
-      if (!ctxRes.ok) {
-        setContextError(ctxRes.error || 'No se pudo cargar la información de tu ficha.');
-        return;
-      }
-  
-      if (!ctxRes.cliente) {
-        setContextError('Debes tener un cliente asignado en tu ficha para poder registrar actividades.');
-        return;
-      }
-  
-      setCliente(ctxRes.cliente);
-  
-      if (actRes.ok) {
-        setActividades(actRes.actividades || []);
-      }
-
-      if (timerRes && timerRes.ok && timerRes.activo) {
-        setActiveTimer(timerRes.activo);
-      } else {
-        setActiveTimer(null);
-      }
-    };
-    fetchInit();
-    return () => { mounted = false; };
+    const mounted = { current: true };
+    executeFetchInit({
+      mounted,
+      setLoadingContext,
+      setLoadingActividades,
+      setContextError,
+      setCliente,
+      setActividades,
+      setActiveTimer
+    });
+    return () => { mounted.current = false; };
   }, []);
 
   // Ticker en vivo cada segundo cuando hay un cronómetro activo
@@ -768,9 +1000,7 @@ export default function MisActividadesModule() {
   }, [filterFechaInicio, filterFechaFin, filterSearch]);
 
   const chipText = useMemo(() => {
-    if (activeFilterCount === 0) return 'Sin filtros activos';
-    if (activeFilterCount === 1) return '1 filtro activo';
-    return `${activeFilterCount} filtros activos`;
+    return getChipText(activeFilterCount);
   }, [activeFilterCount]);
 
   const hasActiveFilters = activeFilterCount > 0;
@@ -783,48 +1013,26 @@ export default function MisActividadesModule() {
 
   // Cronómetro: Handlers de inicio, detención y cancelación
   const handleIniciarCronometro = async (e) => {
-    e.preventDefault();
-    setTimerError('');
-    const trimmedDesc = timerDescripcion.trim();
-    if (!trimmedDesc) {
-      setTimerError('Ingresa una descripción para iniciar el cronómetro.');
-      return;
-    }
-    if (!cliente) {
-      setTimerError('Debes tener un cliente asignado en tu ficha para iniciar el cronómetro.');
-      return;
-    }
-
-    setStartingTimer(true);
-    const res = await iniciarCronometroApi({ descripcion: trimmedDesc });
-    setStartingTimer(false);
-
-    if (!res.ok) {
-      setTimerError(res.error || 'No se pudo iniciar el cronómetro.');
-      return;
-    }
-
-    setTimerDescripcion('');
-    setActiveTimer(res.actividad);
-    setSuccessMessage('Cronómetro iniciado en tiempo real.');
-    setTimeout(() => setSuccessMessage(''), 4000);
+    await executeIniciarCronometro({
+      e,
+      timerDescripcion,
+      cliente,
+      setTimerError,
+      setStartingTimer,
+      setActiveTimer,
+      setTimerDescripcion,
+      setSuccessMessage
+    });
   };
 
   const handleDetenerCronometro = async () => {
-    setTimerError('');
-    setStoppingTimer(true);
-    const res = await detenerCronometroApi();
-    setStoppingTimer(false);
-
-    if (!res.ok) {
-      setTimerError(res.error || 'No se pudo detener el cronómetro.');
-      return;
-    }
-
-    setActiveTimer(null);
-    setSuccessMessage('Actividad registrada con éxito mediante cronómetro.');
-    setTimeout(() => setSuccessMessage(''), 4000);
-    await refreshHistory();
+    await executeDetenerCronometro({
+      setTimerError,
+      setStoppingTimer,
+      setActiveTimer,
+      setSuccessMessage,
+      refreshHistory
+    });
   };
 
   const handleCancelarCronometro = async () => {
@@ -847,6 +1055,7 @@ export default function MisActividadesModule() {
   const handleOpenModal = () => {
     setErrorMessage('');
     setFieldErrors({});
+    setActivityToEdit(null);
     setFecha(getTodayString());
     setHoraInicio('08:00');
     setHoraFin('17:00');
@@ -854,56 +1063,74 @@ export default function MisActividadesModule() {
     setIsModalOpen(true);
   };
 
+  const handleEditActividad = (act) => {
+    setErrorMessage('');
+    setFieldErrors({});
+    setActivityToEdit(act);
+    
+    // Convert UTC to Bogota components to load into the form
+    // Since act.inicio and act.fin are UTC ISO strings, we format them properly
+    const formatter = new Intl.DateTimeFormat('es-CO', {
+      timeZone: 'America/Bogota',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    
+    try {
+      const [{ value: d }, , { value: m }, , { value: y }, , { value: hr }, , { value: min }] = formatter.formatToParts(new Date(act.inicio));
+      setFecha(`${y}-${m}-${d}`);
+      setHoraInicio(`${hr}:${min}`);
+      
+      const [{ value: fHr }, , { value: fMin }] = formatter.formatToParts(new Date(act.fin));
+      setHoraFin(`${fHr}:${fMin}`);
+    } catch (err) {
+      console.warn('Error formateando fechas de la actividad:', err);
+      // Fallback
+      setFecha(getTodayString());
+      setHoraInicio('08:00');
+      setHoraFin('17:00');
+    }
+
+    setDescripcion(act.descripcion);
+    setIsModalOpen(true);
+  };
+
+  const handleDeleteActividad = async (id) => {
+    await executeDeleteActividad({
+      id,
+      setErrorMessage,
+      setSuccessMessage,
+      refreshHistory
+    });
+  };
+
   const handleCloseModal = () => {
     if (saving) return;
     setIsModalOpen(false);
+    setActivityToEdit(null);
   };
 
   const handleSubmitForm = async (e) => {
-    e.preventDefault();
-    setErrorMessage('');
-    const errors = {};
-
-    if (!cliente) {
-      setErrorMessage('Debes tener un cliente asignado en tu ficha para poder registrar una actividad.');
-      return;
-    }
-
-    const trimmedDesc = descripcion.trim();
-    if (!trimmedDesc) {
-      errors.descripcion = 'La descripción es obligatoria.';
-    }
-
-    if (getTimeInMinutes(horaFin) <= getTimeInMinutes(horaInicio)) {
-      errors.horaFin = 'La hora de fin debe ser mayor que la hora de inicio.';
-    }
-
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors);
-      return;
-    }
-
-    setFieldErrors({});
-    setSaving(true);
-
-    const res = await createActividadManual({
-      descripcion: trimmedDesc,
+    await executeSubmitForm({
+      e,
+      cliente,
+      descripcion,
       fecha,
       horaInicio,
-      horaFin
+      horaFin,
+      activityToEdit,
+      setErrorMessage,
+      setFieldErrors,
+      setSaving,
+      setIsModalOpen,
+      setActivityToEdit,
+      setSuccessMessage,
+      refreshHistory
     });
-
-    setSaving(false);
-
-    if (!res.ok) {
-      setErrorMessage(res.error || 'No se pudo guardar la actividad.');
-      return;
-    }
-
-    setIsModalOpen(false);
-    setSuccessMessage('Entrada manual de tiempo registrada con éxito.');
-    setTimeout(() => setSuccessMessage(''), 4000);
-    await refreshHistory();
   };
 
 
@@ -974,7 +1201,7 @@ export default function MisActividadesModule() {
                         <Clock3 className="h-5 w-5" />
                       </div>
                       <div>
-                        <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                        <h2 className="text-base font-bold text-[color:var(--text)] flex items-center gap-2">
                           <span>Cronómetro de actividades</span>
                           {activeTimer ? (
                             <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300 border border-amber-500/30">
@@ -982,10 +1209,10 @@ export default function MisActividadesModule() {
                               En curso
                             </span>
                           ) : (
-                            <span className="text-xs font-normal text-slate-500 dark:text-slate-300">(Registro en tiempo real)</span>
+                            <span className="text-xs font-medium text-[color:var(--muted)]">(Registro en tiempo real)</span>
                           )}
                         </h2>
-                        <p className="text-xs text-slate-500 dark:text-slate-300">
+                        <p className="text-xs font-medium text-[color:var(--muted)]">
                           {activeTimer ? 'Cronómetro corriendo. Al detenerlo se registrará la entrada de tiempo.' : 'Ingresa la descripción e inicia el temporizador.'}
                         </p>
                       </div>
@@ -1068,7 +1295,7 @@ export default function MisActividadesModule() {
                             value={timerDescripcion}
                             onChange={(e) => setTimerDescripcion(e.target.value)}
                             onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
-                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.form.requestSubmit(); } }}
+                            onKeyDown={handleTimerTextareaKeyDown}
                             disabled={startingTimer || loadingContext || Boolean(contextError)}
                             placeholder="¿En qué estás trabajando? Describe la actividad y presiona Iniciar..."
                             className={`${field} min-h-[2.75rem] w-full text-sm placeholder:text-slate-400 resize-none overflow-hidden py-2.5`}
@@ -1184,11 +1411,18 @@ export default function MisActividadesModule() {
                             <th className="px-4 py-3">Descripción</th>
                             <th className="px-4 py-3">Origen</th>
                             <th className="px-4 py-3">Estado</th>
+                            <th className="px-4 py-3 text-right">Acciones</th>
                           </tr>
                         </thead>
                         <tbody className={dash.tbody}>
                           {filteredActividades.map((act) => (
-                            <ActivityRow key={act.id} act={act} dash={dash} />
+                            <ActivityRow 
+                              key={act.id} 
+                              act={act} 
+                              dash={dash} 
+                              onEdit={handleEditActividad} 
+                              onDelete={handleDeleteActividad} 
+                            />
                           ))}
                         </tbody>
                       </table>
