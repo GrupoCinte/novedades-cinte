@@ -20,6 +20,19 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-29 10:44:26 · `testing` · `31c676f6`
+- **Commit:** `31c676f69d51d74c0a12b9d2648b862aa3cec493`
+- **Ticket:** AUT-259 (deltas post-merge AUT-261/262/265/267/581)
+- **Requerimiento funcional:** Tras integrar actividades consultor/monitoreo/correos en testing, quedan operativos el aviso a admins (Cognito/GP), fechas en correo en formato local, tests de aprobación y el trigger de actualización de asignaciones de servicio.
+- **Componente técnico:** `server.js`, `actividadesStore.js`, `formatDateTimeBogota.js`, `lambda/email-transactions/src/{handler,types}.ts`, `actividadesConsultorService.test.js`, `schema.postgres.sql`.
+- **Cambios (uno a uno):**
+  - Publisher real + `notifyTo` (super_admin/cac + GP cliente) para correos admin de actividades.
+  - Lambda: destinatarios admin desde `admin.notifyTo` con fallback `EMAIL_ADMIN_TO*`.
+  - Formato fecha/hora Bogotá (dd/mm/yyyy, HH:mm:ss) en payload de correo.
+  - `getActividadPropia` + DELETE RETURNING completo para correo al eliminar.
+  - Mocks de tests monitoreo (`pool.connect` + users) para CI.
+  - Restaurado `trg_servicio_consultores_updated_at` y eliminado DDL duplicado de `actividades_consultor`.
+
 ### 2026-07-28 17:40:15 · `fix/AUT-586-rechazadas-fuera-tope-dominical` · `c9af8ff1`
 - **Commit:** `c9af8ff1828d159c4a395f08514d25b06dcc1af4`
 - **Ticket:** AUT-586
