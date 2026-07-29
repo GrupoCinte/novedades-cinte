@@ -1,12 +1,9 @@
 const { createEmailNotificationsPublisher } = require('../notifications/emailNotificationsPublisher');
-const { lambdaClient } = require('../aws');
-
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 const emailPublisher = createEmailNotificationsPublisher({
-    lambdaClient,
     functionName: process.env.EMAIL_TRANSACTIONS_FUNCTION_NAME || 'email-transactions',
     enabled: process.env.EMAIL_NOTIFICATIONS_ENABLED === 'true'
 });
@@ -80,6 +77,65 @@ function getCedulaOrError(req, res) {
     return cedula;
 }
 
+/**
+ * Publica eventos de confirmación para consultor y administradores
+ */
+async function publishActivityEvents({
+    emailPublisher,
+    activity,
+    consultant,
+    action,
+    previousData = null
+}) {
+    const basePayload = {
+        eventId: crypto.randomUUID(),
+        entryId: activity.id,
+        consultant: {
+            name: consultant.nombre || 'Consultor',
+            email: consultant.email
+        },
+        action,
+        entryData: {
+            date: activity.fecha,
+            description: activity.descripcion,
+            client: activity.cliente,
+            schedule: `${activity.inicio} - ${activity.fin}`
+        },
+        meta: {
+            source: 'backend',
+            env: process.env.NODE_ENV || 'development'
+        }
+    };
+
+    // Publicar evento para consultor
+    try {
+        await emailPublisher.publishTimeEntryConfirmation({
+            ...basePayload,
+            eventType: 'time_entry_confirmation'
+        });
+    } catch (publishError) {
+        console.error(`[Publisher] Error publicando evento ${action} para consultor:`, publishError);
+    }
+
+    // Publicar evento para administradores
+    try {
+        const adminPayload = {
+            ...basePayload,
+            eventType: 'time_entry_admin_notification'
+        };
+        if (previousData) {
+            adminPayload.previousData = {
+                date: previousData.fecha,
+                description: previousData.descripcion,
+                client: previousData.cliente,
+                schedule: `${previousData.inicio} - ${previousData.fin}`
+            };
+        }
+        await emailPublisher.publishTimeEntryAdminNotification(adminPayload);
+    } catch (publishError) {
+        console.error(`[Publisher] Error publicando evento ${action} para admin:`, publishError);
+    }
+}
 
 function registerActividadesRoutes({
     app,
@@ -161,60 +217,16 @@ function registerActividadesRoutes({
                 return res.status(400).json({ ok: false, error: 'Debes tener un cliente asignado en tu ficha para registrar una actividad.' });
             }
 
-            try {
-                await emailPublisher.publishTimeEntryConfirmation({
-                    eventType: 'time_entry_confirmation',
-                    eventId: crypto.randomUUID(),
-                    entryId: result.activity.id,
-                    consultant: {
-                        name: req.user.nombre || 'Consultor',
-                        email: req.user.email
-                    },
-                    action: 'created',
-                    entryData: {
-                        date: result.activity.fecha,
-                        description: result.activity.descripcion,
-                        client: result.activity.cliente,
-                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
-                    },
-                    meta: {
-                        source: 'backend',
-                        env: process.env.NODE_ENV || 'development'
-                    }
-                });
-            } catch (publishError) {
-                console.error('[Publisher] Error publicando evento created:', publishError);
-            }
-
-            try {
-                await emailPublisher.publishTimeEntryAdminNotification({
-                    eventType: 'time_entry_admin_notification',
-                    eventId: crypto.randomUUID(),
-                    entryId: result.activity.id,
-                    consultant: {
-                        name: req.user.nombre || 'Consultor',
-                        email: req.user.email
-                    },
-                    action: 'created',
-                    entryData: {
-                        date: result.activity.fecha,
-                        description: result.activity.descripcion,
-                        client: result.activity.cliente,
-                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
-                    },
-                    meta: {
-                        source: 'backend',
-                        env: process.env.NODE_ENV || 'development'
-                    }
-                });
-            } catch (publishError) {
-                console.error('[Publisher] Error publicando evento admin created:', publishError);
-            }
+            await publishActivityEvents({
+                emailPublisher,
+                activity: result.activity,
+                consultant: req.user,
+                action: 'created'
+            });
 
             return res.status(201).json({ ok: true, actividad: result.activity });
         } catch (error) {
             console.error('consultor actividades create:', error);
-
             return res.status(500).json({ ok: false, error: 'No se pudo crear la entrada de tiempo.' });
         }
     });
@@ -249,62 +261,13 @@ function registerActividadesRoutes({
                 return res.status(404).json({ ok: false, error: 'No se encontró la actividad o no tienes permisos para editarla.' });
             }
 
-            try {
-                await emailPublisher.publishTimeEntryConfirmation({
-                    eventType: 'time_entry_confirmation',
-                    eventId: crypto.randomUUID(),
-                    entryId: result.activity.id,
-                    consultant: {
-                        name: req.user.nombre || 'Consultor',
-                        email: req.user.email
-                    },
-                    action: 'updated',
-                    entryData: {
-                        date: result.activity.fecha,
-                        description: result.activity.descripcion,
-                        client: result.activity.cliente,
-                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
-                    },
-                    previousData: {
-                        date: actividadAnterior.fecha,
-                        description: actividadAnterior.descripcion,
-                        client: actividadAnterior.cliente,
-                        schedule: `${actividadAnterior.inicio} - ${actividadAnterior.fin}`
-                    },
-                    meta: {
-                        source: 'backend',
-                        env: process.env.NODE_ENV || 'development'
-                    }
-                });
-            } catch (publishError) {
-                console.error('[Publisher] Error publicando evento updated:', publishError);
-            }
-
-            try {
-                await emailPublisher.publishTimeEntryAdminNotification({
-                    eventType: 'time_entry_admin_notification',
-                    eventId: crypto.randomUUID(),
-                    entryId: result.activity.id,
-                    consultant: {
-                        name: req.user.nombre || 'Consultor',
-                        email: req.user.email
-                    },
-                    action: 'updated',
-                    entryData: {
-                        date: result.activity.fecha,
-                        description: result.activity.descripcion,
-                        client: result.activity.cliente,
-                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
-                    },
-                    meta: {
-                        source: 'backend',
-                        env: process.env.NODE_ENV || 'development'
-                    }
-                });
-            } catch (publishError) {
-                console.error('[Publisher] Error publicando evento admin updated:', publishError);
-            }
-    
+            await publishActivityEvents({
+                emailPublisher,
+                activity: result.activity,
+                consultant: req.user,
+                action: 'updated',
+                previousData: actividadAnterior
+            });
 
             return res.json({ ok: true, actividad: result.activity });
         } catch (error) {
@@ -325,61 +288,17 @@ function registerActividadesRoutes({
 
             const actividad = await actividadesStore.getActividadById(id);
 
-
             const result = await actividadesStore.deleteActividadPropia({ id, cedula });
             if (result.kind === 'not_found') {
                 return res.status(404).json({ ok: false, error: 'No se encontró la actividad o no tienes permisos para eliminarla.' });
             }
 
-            try {
-                await emailPublisher.publishTimeEntryConfirmation({
-                    eventType: 'time_entry_confirmation',
-                    eventId: crypto.randomUUID(),
-                    entryId: id,
-                    consultant: {
-                        name: req.user.nombre || 'Consultor',
-                        email: req.user.email
-                    },
-                    action: 'deleted',
-                    entryData: {
-                        date: actividad.fecha,
-                        description: actividad.descripcion,
-                        client: actividad.cliente,
-                        schedule: `${actividad.inicio} - ${actividad.fin}`
-                    },
-                    meta: {
-                        source: 'backend',
-                        env: process.env.NODE_ENV || 'development'
-                    }
-                });
-            } catch (publishError) {
-                console.error('[Publisher] Error publicando evento deleted:', publishError);
-            }
-
-            try {
-                await emailPublisher.publishTimeEntryAdminNotification({
-                    eventType: 'time_entry_admin_notification',
-                    eventId: crypto.randomUUID(),
-                    entryId: id,
-                    consultant: {
-                        name: req.user.nombre || 'Consultor',
-                        email: req.user.email
-                    },
-                    action: 'deleted',
-                    entryData: {
-                        date: actividad.fecha,
-                        description: actividad.descripcion,
-                        client: actividad.cliente,
-                        schedule: `${actividad.inicio} - ${actividad.fin}`
-                    },
-                    meta: {
-                        source: 'backend',
-                        env: process.env.NODE_ENV || 'development'
-                    }
-                });
-            } catch (publishError) {
-                console.error('[Publisher] Error publicando evento admin deleted:', publishError);
-            }
+            await publishActivityEvents({
+                emailPublisher,
+                activity: actividad,
+                consultant: req.user,
+                action: 'deleted'
+            });
 
             return res.json({ ok: true, mensaje: 'Actividad eliminada exitosamente.' });
         } catch (error) {
@@ -445,56 +364,13 @@ function registerActividadesRoutes({
             if (result.kind === 'no_active_timer') {
                 return res.status(400).json({ ok: false, error: 'No tienes ningún cronómetro en curso para detener.' });
             }
-        
-            try {
-                await emailPublisher.publishTimeEntryConfirmation({
-                    eventType: 'time_entry_confirmation',
-                    eventId: crypto.randomUUID(),
-                    entryId: result.activity.id,
-                    consultant: {
-                        name: req.user.nombre || 'Consultor',
-                        email: req.user.email
-                    },
-                    action: 'created',
-                    entryData: {
-                        date: result.activity.fecha,
-                        description: result.activity.descripcion,
-                        client: result.activity.cliente,
-                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
-                    },
-                    meta: {
-                        source: 'backend',
-                        env: process.env.NODE_ENV || 'development'
-                    }
-                });
-            } catch (publishError) {
-                console.error('[Publisher] Error publicando evento created desde cronómetro:', publishError);
-            }
 
-            try {
-                await emailPublisher.publishTimeEntryAdminNotification({
-                    eventType: 'time_entry_admin_notification',
-                    eventId: crypto.randomUUID(),
-                    entryId: result.activity.id,
-                    consultant: {
-                        name: req.user.nombre || 'Consultor',
-                        email: req.user.email
-                    },
-                    action: 'created',
-                    entryData: {
-                        date: result.activity.fecha,
-                        description: result.activity.descripcion,
-                        client: result.activity.cliente,
-                        schedule: `${result.activity.inicio} - ${result.activity.fin}`
-                    },
-                    meta: {
-                        source: 'backend',
-                        env: process.env.NODE_ENV || 'development'
-                    }
-                });
-            } catch (publishError) {
-                console.error('[Publisher] Error publicando evento admin created desde cronómetro:', publishError);
-            }
+            await publishActivityEvents({
+                emailPublisher,
+                activity: result.activity,
+                consultant: req.user,
+                action: 'created'
+            });
 
             return res.json({ ok: true, actividad: result.activity });
         } catch (error) {
@@ -521,4 +397,4 @@ function registerActividadesRoutes({
     });
 }
 
-module.exports = { registerActividadesRoutes, parseBogotaDateTime };
+module.exports = { registerActividadesRoutes, parseBogotaDateTime };    
