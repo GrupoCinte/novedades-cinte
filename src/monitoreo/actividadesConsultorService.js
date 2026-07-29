@@ -1,4 +1,5 @@
 const { z } = require('zod');
+const { resolveActorUserIdForSession } = require('../resolveActorUserId');
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -132,43 +133,60 @@ async function updateActividadEstado(pool, { id, nuevoEstado, observaciones, act
         }
     }
 
+    // Resolver actor_user_id real (UUID de la tabla users)
+    const actorUserId = await resolveActorUserIdForSession(pool, { sub: actor.userId, email: actor.email });
+    if (!actorUserId) {
+        throw createHttpError(403, 'No se pudo verificar la identidad del usuario en la base de datos');
+    }
+
     const now = new Date();
     const obs = String(observaciones || '').trim() || null;
 
-    if (estado === 'aprobado') {
-        await pool.query(
-            `UPDATE actividades_consultor
-             SET estado = 'aprobado',
-                 aprobado_por_user_id = $2, aprobado_por_rol = $3::user_role,
-                 aprobado_por_email = $4, aprobado_en = $5,
-                 observaciones_rechazo = $6,
-                 rechazado_por_user_id = NULL, rechazado_por_rol = NULL,
-                 rechazado_por_email = NULL, rechazado_en = NULL
-             WHERE id = $1`,
-            [id, actor.userId, actor.role, actor.email, now, obs]
-        );
-    } else {
-        await pool.query(
-            `UPDATE actividades_consultor
-             SET estado = 'rechazado',
-                 rechazado_por_user_id = $2, rechazado_por_rol = $3::user_role,
-                 rechazado_por_email = $4, rechazado_en = $5,
-                 observaciones_rechazo = $6,
-                 aprobado_por_user_id = NULL, aprobado_por_rol = NULL,
-                 aprobado_por_email = NULL, aprobado_en = NULL
-             WHERE id = $1`,
-            [id, actor.userId, actor.role, actor.email, now, obs]
-        );
-    }
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
 
-    // Auditoría genérica
-    const safeUserId = actor.userId && UUID_RE.test(actor.userId) ? actor.userId : null;
-    await pool.query(
-        `INSERT INTO audit_log (actor_user_id, actor_role, action, entity_type, entity_id, metadata)
-         VALUES ($1, $2::user_role, $3, 'actividad_consultor', $4, $5::jsonb)`,
-        [safeUserId, actor.role, `actividad_${estado}`, id,
-         JSON.stringify({ estado_anterior: row.estado, estado_nuevo: estado, observaciones: obs })]
-    );
+        if (estado === 'aprobado') {
+            await client.query(
+                `UPDATE actividades_consultor
+                 SET estado = 'aprobado',
+                     aprobado_por_user_id = $2, aprobado_por_rol = $3::user_role,
+                     aprobado_por_email = $4, aprobado_en = $5,
+                     observaciones_rechazo = $6,
+                     rechazado_por_user_id = NULL, rechazado_por_rol = NULL,
+                     rechazado_por_email = NULL, rechazado_en = NULL
+                 WHERE id = $1`,
+                [id, actorUserId, actor.role, actor.email, now, obs]
+            );
+        } else {
+            await client.query(
+                `UPDATE actividades_consultor
+                 SET estado = 'rechazado',
+                     rechazado_por_user_id = $2, rechazado_por_rol = $3::user_role,
+                     rechazado_por_email = $4, rechazado_en = $5,
+                     observaciones_rechazo = $6,
+                     aprobado_por_user_id = NULL, aprobado_por_rol = NULL,
+                     aprobado_por_email = NULL, aprobado_en = NULL
+                 WHERE id = $1`,
+                [id, actorUserId, actor.role, actor.email, now, obs]
+            );
+        }
+
+        // Auditoría genérica usando el actorUserId real (users.id UUID válido)
+        await client.query(
+            `INSERT INTO audit_log (actor_user_id, actor_role, action, entity_type, entity_id, metadata)
+             VALUES ($1, $2::user_role, $3, 'actividad_consultor', $4, $5::jsonb)`,
+            [actorUserId, actor.role, `actividad_${estado}`, id,
+             JSON.stringify({ estado_anterior: row.estado, estado_nuevo: estado, observaciones: obs })]
+        );
+
+        await client.query('COMMIT');
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
 
     return { ok: true, estado };
 }
