@@ -20,6 +20,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-29 10:44:37 · `testing` · `ad335b77`
+- **Commit:** `ad335b771cc416ea185b0f5d4b745fd5461546e8`
+- **Ticket:** AUT-259
+- **Requerimiento funcional:** Registrar en el historial oficial el commit de deltas AUT-259 en `testing`.
+- **Componente técnico:** `docs/HISTORIAL-CAMBIOS.md`.
+- **Cambios (uno a uno):**
+  - Entrada append-only del commit `31c676f6`.
+
 ### 2026-07-29 10:44:26 · `testing` · `31c676f6`
 - **Commit:** `31c676f69d51d74c0a12b9d2648b862aa3cec493`
 - **Ticket:** AUT-259 (deltas post-merge AUT-261/262/265/267/581)
