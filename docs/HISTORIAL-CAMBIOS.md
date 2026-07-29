@@ -193,6 +193,20 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
   - Parser de `fecha_inicio` acepta formato n8n `"27 de julio de 2026"`.
   - Script de backfill dry-run/`--apply` para recuperar Finalizados ya cerrados.
 
+### 2026-07-24 16:57:10 · `feat/AUT-261-carga-manual-actividades-consultor` · `70f776f`
+- **Commit:** `70f776f1e29e92ffca33dbbfa1bc655cbb4125b7`
+- **Ticket:** AUT-261
+- **Requerimiento funcional:** Carga manual de horas trabajadas para consultores con validación de cliente asignado en ficha, hora fin > hora inicio y visualización del historial de actividades con flujo de estados (pendiente, aprobado, rechazado).
+- **Componente técnico:** `src/actividades/actividadesStore.js`, `src/actividades/registerActividadesRoutes.js`, `schema.postgres.sql`, `src/startup.js`, `server.js`, `react-frontend/src/consultor/actividades/MisActividadesModule.jsx`, `react-frontend/src/consultor/actividades/actividadesApi.js`, `tests/actividadesRoutes.test.js`.
+- **Cambios (uno a uno):**
+  - Creación de tabla y migraciones PostgreSQL para `actividades_consultor` con restricción CHECK de estado (`'pendiente'`, `'aprobado'`, `'rechazado'`).
+  - Endpoints backend `GET /api/consultor/actividades/context`, `GET /api/consultor/actividades` y `POST /api/consultor/actividades` protegidos con RBAC consultor y CSRF.
+  - UI de Mis Actividades refactorizada reutilizando exactamente los tokens y componentes del Administrador (`buildGestionTableDash`, `GESTION_MODULE_PAGE_PADDING`, `GESTION_TOOLBAR_PRIMARY_BTN`).
+  - Modal de registro manual de horas con cliente asignado en solo lectura, fecha, hora inicio, hora fin y descripción libre.
+  - Barra de filtros con chip reactivo, selector de fecha, selector de cliente, buscador por descripción y menú desplegable para filtros avanzados.
+  - Pruebas unitarias backend para validaciones de horario, cliente y persistencia de actividades (`4/4 PASS`).
+
+
 ### 2026-07-21 19:12:34 · `fix/AUT-576-gp-acceso-mallas` · `74ee8be1`
 - **Commit:** `74ee8be1162fde532b29e28b3604b704e8980320`
 - **Ticket:** AUT-576
