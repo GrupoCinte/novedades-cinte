@@ -400,15 +400,15 @@ function ActivityModal({
 
   return (
     <div
-      role="presentation"
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+    aria-hidden="true"
+    className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
       onClick={handleCloseModal}
       onKeyDown={(e) => {
         if (e.key === 'Escape') handleCloseModal();
       }}
     >
       <div
-        role="presentation"
+        aria-hidden="true"
         className={`relative w-full max-w-2xl rounded-2xl border p-6 shadow-2xl backdrop-blur-md sm:p-8 transition-all ${
           isLight
             ? 'border-slate-200 bg-white text-slate-800'

@@ -201,21 +201,19 @@ function resolveAdminRecipientsForSubmitted(payload: FormSubmittedNotificationEv
  */
 async function resolveAdminRecipientsForActivity(payload: TimeEntryConfirmationEvent): Promise<string[]> {
   const adminEmails: string[] = [];
-  const clientName = payload.entryData.client;
   
   // 1. Obtener super_admins y CAC (desde Cognito o BD)
   // Por ahora, usando variable de entorno como fallback
   const superAdminEmails = process.env.SUPER_ADMIN_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
   const cacEmails = process.env.CAC_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
-  
-  adminEmails.push(...superAdminEmails);
-  adminEmails.push(...cacEmails);
-  
+  const gpEmails = process.env.GP_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
+    
+  adminEmails.push(...superAdminEmails, ...cacEmails, ...gpEmails);
+
   // 2. Obtener GP asignados al cliente
   // Esto requiere consultar la BD para obtener los GP del cliente
   // Por ahora, simulamos con una variable de entorno
-  const gpEmails = process.env.GP_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
-  adminEmails.push(...gpEmails);
+  
   
   // 3. Deduplicar emails
   return Array.from(new Set(adminEmails));

@@ -47,7 +47,7 @@ function EntryDataDisplay({ entryData, entryId }: EntryDataDisplayProps) {
   );
 }
 
-export function TimeEntryConfirmationEmail({ payload }: Props) {
+export function TimeEntryConfirmationEmail({ payload }: Readonly<Props>) {
   const logoUrl = resolveLogoUrl();
   const actionMap = {
     created: 'creada',
