@@ -20,6 +20,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-29 16:44:30 · `fix/AUT-587-he-excel-export-festivo-rangos` · `77283398`
+- **Commit:** `772833980ae5d3008a1dfd800c9af878a9e8eb32`
+- **Ticket:** AUT-587
+- **Requerimiento funcional:** Registra en bitácora el hotfix de export Excel HE/recargos (AUT-587).
+- **Componente técnico:** `docs/HISTORIAL-CAMBIOS.md`.
+- **Cambios (uno a uno):**
+  - Entrada de historial para commit `caf96014`.
+
 ### 2026-07-29 16:44:05 · `fix/AUT-587-he-excel-export-festivo-rangos` · `caf96014`
 - **Commit:** `caf9601437a76a6521ee0a436348b93e32856b96`
 - **Ticket:** AUT-587
