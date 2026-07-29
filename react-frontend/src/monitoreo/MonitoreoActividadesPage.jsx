@@ -34,9 +34,9 @@ function formatDuration(inicio, fin) {
 
 function estadoBadge(estado) {
     const s = String(estado || '').toLowerCase();
-    if (s === 'aprobado') return <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">🟢 Aprobado</span>;
-    if (s === 'rechazado') return <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">🔴 Rechazado</span>;
-    return <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">🟡 Pendiente</span>;
+    if (s === 'aprobado') return <span className="inline-flex items-center rounded-md bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Aprobado</span>;
+    if (s === 'rechazado') return <span className="inline-flex items-center rounded-md bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">Rechazado</span>;
+    return <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">Pendiente</span>;
 }
 
 const COLUMNS = [
