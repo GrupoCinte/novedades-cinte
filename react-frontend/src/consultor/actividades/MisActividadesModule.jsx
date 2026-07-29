@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
   Clock3,
@@ -65,7 +65,7 @@ function getTimeInMinutes(value) {
 }
 
 function formatIsoToBogotaDate(isoString) {
-  if (!isoString) return 'ÔÇö';
+  if (!isoString) return '—';
   try {
     const date = new Date(isoString);
     const options = { timeZone: 'America/Bogota', year: 'numeric', month: '2-digit', day: '2-digit' };
@@ -80,29 +80,29 @@ function formatIsoToBogotaDate(isoString) {
 }
 
 function formatIsoToBogotaTime(isoString) {
-  if (!isoString) return 'ÔÇö';
+  if (!isoString) return '—';
   try {
     const date = new Date(isoString);
     const options = { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hour12: false };
     return new Intl.DateTimeFormat('es-CO', options).format(date);
   } catch {
-    return 'ÔÇö';
+    return '—';
   }
 }
 
 function calculateDurationString(inicioIso, finIso) {
-  if (!inicioIso || !finIso) return 'ÔÇö';
+  if (!inicioIso || !finIso) return '—';
   try {
     const startMs = new Date(inicioIso).getTime();
     const endMs = new Date(finIso).getTime();
-    if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) return 'ÔÇö';
+    if (Number.isNaN(startMs) || Number.isNaN(endMs) || endMs <= startMs) return '—';
     const totalMinutes = Math.round((endMs - startMs) / (1000 * 60));
     const hours = Math.floor(totalMinutes / 60);
     const mins = totalMinutes % 60;
     const minsStr = mins > 0 ? `${mins}m` : '00m';
     return `${hours}h ${minsStr}`;
   } catch {
-    return 'ÔÇö';
+    return '—';
   }
 }
 
@@ -144,7 +144,7 @@ function renderEstadoBadge(estado) {
   );
 }
 
-// Helpers extra├¡dos para reducir la complejidad cognitiva (SonarCloud)
+// Helpers extraídos para reducir la complejidad cognitiva (SonarCloud)
 function matchesFilters(act, filterFecha, filterCliente, filterSearch) {
   if (filterFecha && formatIsoToBogotaDate(act.inicio) !== filterFecha) return false;
   if (filterCliente && String(act.cliente || '').toLowerCase() !== String(filterCliente).toLowerCase()) return false;
@@ -200,7 +200,7 @@ async function executeFetchInit({
   setLoadingActividades(false);
 
   if (!ctxRes.ok) {
-    setContextError(ctxRes.error || 'No se pudo cargar la informaci├│n de tu ficha.');
+    setContextError(ctxRes.error || 'No se pudo cargar la información de tu ficha.');
     return;
   }
 
@@ -249,7 +249,7 @@ async function executeSubmitForm({
 
   const trimmedDesc = descripcion.trim();
   if (!trimmedDesc) {
-    errors.descripcion = 'La descripci├│n es obligatoria.';
+    errors.descripcion = 'La descripción es obligatoria.';
   }
 
   if (getTimeInMinutes(horaFin) <= getTimeInMinutes(horaInicio)) {
@@ -290,7 +290,7 @@ async function executeSubmitForm({
 
   setIsModalOpen(false);
   setActivityToEdit(null);
-  setSuccessMessage(activityToEdit ? 'Actividad actualizada con ├®xito.' : 'Entrada manual de tiempo registrada con ├®xito.');
+  setSuccessMessage(activityToEdit ? 'Actividad actualizada con éxito.' : 'Entrada manual de tiempo registrada con éxito.');
   setTimeout(() => setSuccessMessage(''), 4000);
   await refreshHistory();
 }
@@ -309,11 +309,11 @@ async function executeIniciarCronometro({
   setTimerError('');
   const trimmedDesc = timerDescripcion.trim();
   if (!trimmedDesc) {
-    setTimerError('Ingresa una descripci├│n para iniciar el cron├│metro.');
+    setTimerError('Ingresa una descripción para iniciar el cronómetro.');
     return;
   }
   if (!cliente) {
-    setTimerError('Debes tener un cliente asignado en tu ficha para iniciar el cron├│metro.');
+    setTimerError('Debes tener un cliente asignado en tu ficha para iniciar el cronómetro.');
     return;
   }
 
@@ -322,13 +322,13 @@ async function executeIniciarCronometro({
   setStartingTimer(false);
 
   if (!res.ok) {
-    setTimerError(res.error || 'No se pudo iniciar el cron├│metro.');
+    setTimerError(res.error || 'No se pudo iniciar el cronómetro.');
     return;
   }
 
   setTimerDescripcion('');
   setActiveTimer(res.actividad);
-  setSuccessMessage('Cron├│metro iniciado en tiempo real.');
+  setSuccessMessage('Cronómetro iniciado en tiempo real.');
   setTimeout(() => setSuccessMessage(''), 4000);
 }
 
@@ -338,7 +338,7 @@ async function executeDeleteActividad({
   setSuccessMessage,
   refreshHistory
 }) {
-  const confirmDelete = window.confirm('┬┐Est├ís seguro de que deseas eliminar esta actividad?');
+  const confirmDelete = window.confirm('¿Estás seguro de que deseas eliminar esta actividad?');
   if (!confirmDelete) return;
 
   const res = await deleteActividadApi(id);
@@ -348,7 +348,7 @@ async function executeDeleteActividad({
     return;
   }
 
-  setSuccessMessage('Actividad eliminada con ├®xito.');
+  setSuccessMessage('Actividad eliminada con éxito.');
   await refreshHistory();
   setTimeout(() => setSuccessMessage(''), 4000);
 }
@@ -375,12 +375,12 @@ async function executeDetenerCronometro({
   setStoppingTimer(false);
 
   if (!res.ok) {
-    setTimerError(res.error || 'No se pudo detener el cron├│metro.');
+    setTimerError(res.error || 'No se pudo detener el cronómetro.');
     return;
   }
 
   setActiveTimer(null);
-  setSuccessMessage('Actividad registrada con ├®xito mediante cron├│metro.');
+  setSuccessMessage('Actividad registrada con éxito mediante cronómetro.');
   setTimeout(() => setSuccessMessage(''), 4000);
   await refreshHistory();
 }
@@ -435,7 +435,7 @@ function ActivityRow({ act, dash, onEdit, onDelete }) {
       <td className="p-4 text-xs font-medium text-slate-500 capitalize">
         {act.origen === 'cronometro' ? (
           <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-semibold">
-            <Clock3 className="h-3 w-3" /> Cron├│metro
+            <Clock3 className="h-3 w-3" /> Cronómetro
           </span>
         ) : (
           <span>Manual</span>
@@ -496,12 +496,12 @@ function MisActividadesSidebar({
 
   return (
     <>
-      {/* Bot├│n flotante m├│vil */}
+      {/* Botón flotante móvil */}
       <button
         type="button"
         onClick={() => setMobileMenuOpen(true)}
         className={`md:hidden fixed top-4 left-4 z-40 flex h-10 w-10 items-center justify-center shadow-lg ${menuFab}`}
-        aria-label="Abrir men├║ actividades"
+        aria-label="Abrir menú actividades"
       >
         <Menu size={18} />
       </button>
@@ -510,12 +510,12 @@ function MisActividadesSidebar({
         <button
           type="button"
           className={`md:hidden fixed inset-0 z-40 ${scrim}`}
-          aria-label="Cerrar men├║"
+          aria-label="Cerrar menú"
           onClick={closeMobile}
         />
       ) : null}
 
-      {/* Sidebar Drawer M├│vil */}
+      {/* Sidebar Drawer Móvil */}
       <aside
         className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
@@ -540,7 +540,7 @@ function MisActividadesSidebar({
               type="button"
               onClick={closeMobile}
               className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
-              aria-label="Cerrar men├║"
+              aria-label="Cerrar menú"
             >
               <X size={16} />
             </button>
@@ -607,7 +607,7 @@ function MisActividadesSidebar({
               type="button"
               onClick={() => setSidebarOpen((prev) => !prev)}
               className={`flex h-8 w-8 flex-shrink-0 items-center justify-center ${sidebarIconBtn}`}
-              title={sidebarOpen ? 'Colapsar men├║' : 'Expandir men├║'}
+              title={sidebarOpen ? 'Colapsar menú' : 'Expandir menú'}
             >
               {sidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
             </button>
@@ -623,7 +623,7 @@ function MisActividadesSidebar({
           isLight={isLight}
         />
 
-        {/* Navegaci├│n Escritorio (1. Volver al portal, 2. Historial) */}
+        {/* Navegación Escritorio (1. Volver al portal, 2. Historial) */}
         <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
           <button
             type="button"
@@ -818,11 +818,11 @@ function ActivityModal({
             </div>
           </div>
 
-          {/* Descripci├│n libre */}
+          {/* Descripción libre */}
           <div>
             <div className="mb-1.5 flex items-center justify-between">
               <label htmlFor="input-descripcion" className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                Descripci├│n <span className="text-red-500">*</span>
+                Descripción <span className="text-red-500">*</span>
               </label>
               <span className="text-xs text-slate-400">
                 {descripcion.length} / 2000
@@ -881,8 +881,8 @@ function ActivityModal({
 
 
 /**
- * M├│dulo consultor de Mis Actividades.
- * Soporta Carga Manual (HU-2) y Registro por Cron├│metro (HU-3 / AUT-262).
+ * Módulo consultor de Mis Actividades.
+ * Soporta Carga Manual (HU-2) y Registro por Cronómetro (HU-3 / AUT-262).
  * Reutiliza estrictamente el sistema de tokens y contenedores del Administrador (`buildGestionTableDash`, `GESTION_MODULE_PAGE_PADDING`, `GESTION_TOOLBAR_PRIMARY_BTN`).
  */
 export default function MisActividadesModule() {
@@ -912,7 +912,7 @@ export default function MisActividadesModule() {
   const [actividades, setActividades] = useState([]);
   const [loadingActividades, setLoadingActividades] = useState(true);
 
-  // Estado del Cron├│metro (HU-3)
+  // Estado del Cronómetro (HU-3)
   const [activeTimer, setActiveTimer] = useState(null);
   const [timerNow, setTimerNow] = useState(Date.now());
   const [timerDescripcion, setTimerDescripcion] = useState('');
@@ -959,7 +959,7 @@ export default function MisActividadesModule() {
     return () => { mounted.current = false; };
   }, []);
 
-  // Ticker en vivo cada segundo cuando hay un cron├│metro activo
+  // Ticker en vivo cada segundo cuando hay un cronómetro activo
   useEffect(() => {
     if (!activeTimer) return;
     setTimerNow(Date.now());
@@ -991,7 +991,7 @@ export default function MisActividadesModule() {
     });
   }, [actividades, filterFechaInicio, filterFechaFin, filterSearch]);
 
-  // Contador din├ímico de filtros activos
+  // Contador dinámico de filtros activos
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (filterFechaInicio || filterFechaFin) count++;
@@ -1011,7 +1011,7 @@ export default function MisActividadesModule() {
     setFilterSearch('');
   };
 
-  // Cron├│metro: Handlers de inicio, detenci├│n y cancelaci├│n
+  // Cronómetro: Handlers de inicio, detención y cancelación
   const handleIniciarCronometro = async (e) => {
     await executeIniciarCronometro({
       e,
@@ -1042,12 +1042,12 @@ export default function MisActividadesModule() {
     setCancelingTimer(false);
 
     if (!res.ok) {
-      setTimerError(res.error || 'No se pudo cancelar el cron├│metro.');
+      setTimerError(res.error || 'No se pudo cancelar el cronómetro.');
       return;
     }
 
     setActiveTimer(null);
-    setSuccessMessage('Cron├│metro cancelado.');
+    setSuccessMessage('Cronómetro cancelado.');
     setTimeout(() => setSuccessMessage(''), 4000);
   };
 
@@ -1148,11 +1148,11 @@ export default function MisActividadesModule() {
         mt={mt}
       />
 
-      {/* ├üREA DE CONTENIDO PRINCIPAL (Usa GESTION_MODULE_PAGE_PADDING exacto del Administrador) */}
+      {/* ÁREA DE CONTENIDO PRINCIPAL (Usa GESTION_MODULE_PAGE_PADDING exacto del Administrador) */}
       <main className={mainCanvas}>
         <div className={GESTION_MODULE_PAGE_PADDING}>
           <div className="space-y-4 w-full">
-            {/* Mensaje de ├ëxito al guardar/cancelar */}
+            {/* Mensaje de Éxito al guardar/cancelar */}
             {successMessage ? (
               <div className="fixed bottom-4 right-4 z-[300] flex items-center justify-between gap-3 rounded-xl border border-emerald-500/30 bg-white dark:bg-[#0b1e30] p-4 text-emerald-700 dark:text-emerald-300 shadow-2xl animate-in fade-in slide-in-from-bottom-4">
                 <div className="flex items-center gap-3">
@@ -1193,7 +1193,7 @@ export default function MisActividadesModule() {
             
             {!contextError && !loadingActividades && (
               <div className="space-y-4">
-                {/* WIDGET DEL CRON├ôMETRO (HU-3 / AUT-262) */}
+                {/* WIDGET DEL CRONÓMETRO (HU-3 / AUT-262) */}
                 <div className={`${dash.card} p-5 shadow-md font-body transition-all border-l-4 ${activeTimer ? 'border-l-amber-500 bg-amber-500/5' : 'border-l-[#2F7BB8]'}`}>
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div className="flex items-center gap-3">
@@ -1202,7 +1202,7 @@ export default function MisActividadesModule() {
                       </div>
                       <div>
                         <h2 className="text-base font-bold text-[color:var(--text)] flex items-center gap-2">
-                          <span>Cron├│metro de actividades</span>
+                          <span>Cronómetro de actividades</span>
                           {activeTimer ? (
                             <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300 border border-amber-500/30">
                               <span className="h-2 w-2 rounded-full bg-amber-500 animate-ping" />
@@ -1213,7 +1213,7 @@ export default function MisActividadesModule() {
                           )}
                         </h2>
                         <p className="text-xs font-medium text-[color:var(--muted)]">
-                          {activeTimer ? 'Cron├│metro corriendo. Al detenerlo se registrar├í la entrada de tiempo.' : 'Ingresa la descripci├│n e inicia el temporizador.'}
+                          {activeTimer ? 'Cronómetro corriendo. Al detenerlo se registrará la entrada de tiempo.' : 'Ingresa la descripción e inicia el temporizador.'}
                         </p>
                       </div>
                     </div>
@@ -1227,7 +1227,7 @@ export default function MisActividadesModule() {
                     ) : null}
                   </div>
 
-                  {/* Alerta de Error en Cron├│metro */}
+                  {/* Alerta de Error en Cronómetro */}
                   {timerError ? (
                     <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs font-semibold text-red-600 dark:text-red-300">
                       <div className="flex items-center gap-2">
@@ -1240,13 +1240,13 @@ export default function MisActividadesModule() {
                     </div>
                   ) : null}
 
-                  {/* Formulario / Acciones del Cron├│metro */}
+                  {/* Formulario / Acciones del Cronómetro */}
                   <div className="mt-4 pt-3 border-t border-slate-200/60 dark:border-white/10">
                     {activeTimer ? (
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                         <div className="space-y-1">
                           <p className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                            Descripci├│n de la tarea en progreso:
+                            Descripción de la tarea en progreso:
                           </p>
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
                             {activeTimer.descripcion}
@@ -1256,7 +1256,7 @@ export default function MisActividadesModule() {
                               <Building2 className="h-3.5 w-3.5" />
                               {activeTimer.cliente}
                             </span>
-                            <span>ÔÇó</span>
+                            <span>•</span>
                             <span>Inicio: {formatIsoToBogotaTime(activeTimer.inicio)}</span>
                           </div>
                         </div>
@@ -1297,7 +1297,7 @@ export default function MisActividadesModule() {
                             onInput={(e) => { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; }}
                             onKeyDown={handleTimerTextareaKeyDown}
                             disabled={startingTimer || loadingContext || Boolean(contextError)}
-                            placeholder="┬┐En qu├® est├ís trabajando? Describe la actividad y presiona Iniciar..."
+                            placeholder="¿En qué estás trabajando? Describe la actividad y presiona Iniciar..."
                             className={`${field} min-h-[2.75rem] w-full text-sm placeholder:text-slate-400 resize-none overflow-hidden py-2.5`}
                             maxLength={2000}
                             rows={1}
@@ -1313,13 +1313,13 @@ export default function MisActividadesModule() {
                           ) : (
                             <Play className="h-4 w-4 fill-current" />
                           )}
-                          <span>Iniciar cron├│metro</span>
+                          <span>Iniciar cronómetro</span>
                         </button>
                       </form>
                     )}
                   </div>
                 </div>
-{/* BARRA DE FILTROS (Est├índar ModuleFiltersToolbar) */}
+{/* BARRA DE FILTROS (Estándar ModuleFiltersToolbar) */}
                 <ModuleFiltersToolbar
                   chipLabel={chipText}
                   filtersPanelOpen={filtersPanelOpen}
@@ -1332,7 +1332,7 @@ export default function MisActividadesModule() {
                       type="text"
                       value={filterSearch}
                       onChange={(e) => setFilterSearch(e.target.value)}
-                      placeholder="Buscar por descripci├│n..."
+                      placeholder="Buscar por descripción..."
                       className={`${field} h-9 w-full pl-8 text-xs placeholder:text-slate-400`}
                     />
                   </div>
@@ -1393,8 +1393,8 @@ export default function MisActividadesModule() {
                     </h3>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
                       {hasActiveFilters
-                        ? 'Prueba modificando la fecha, el cliente o el texto de b├║squeda.'
-                        : 'Utiliza el cron├│metro en tiempo real o el bot├│n "Agregar manual" para registrar tu primera actividad.'}
+                        ? 'Prueba modificando la fecha, el cliente o el texto de búsqueda.'
+                        : 'Utiliza el cronómetro en tiempo real o el botón "Agregar manual" para registrar tu primera actividad.'}
                     </p>
                   </div>
                 ) : (
@@ -1407,8 +1407,8 @@ export default function MisActividadesModule() {
                             <th className="px-4 py-3">Cliente</th>
                             <th className="px-4 py-3">Hora Inicio</th>
                             <th className="px-4 py-3">Hora Fin</th>
-                            <th className="px-4 py-3">Duraci├│n</th>
-                            <th className="px-4 py-3">Descripci├│n</th>
+                            <th className="px-4 py-3">Duración</th>
+                            <th className="px-4 py-3">Descripción</th>
                             <th className="px-4 py-3">Origen</th>
                             <th className="px-4 py-3">Estado</th>
                             <th className="px-4 py-3 text-right">Acciones</th>
@@ -1435,7 +1435,7 @@ export default function MisActividadesModule() {
         </div>
       </main>
 
-      {/* MODAL DE CREACI├ôN DE ACTIVIDAD (REUTILIZADO HU-2) */}
+      {/* MODAL DE CREACIÓN DE ACTIVIDAD (REUTILIZADO HU-2) */}
       <ActivityModal
         isModalOpen={isModalOpen}
         handleCloseModal={handleCloseModal}
