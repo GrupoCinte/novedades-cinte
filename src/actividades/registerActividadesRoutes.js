@@ -1,5 +1,17 @@
+const { formatDateBogota, formatScheduleBogota } = require('../utils/formatDateTimeBogota');
+
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+function buildEntryDataForEmail(activity) {
+    if (!activity) return null;
+    return {
+        date: formatDateBogota(activity.fecha || activity.inicio),
+        description: activity.descripcion,
+        client: activity.cliente,
+        schedule: formatScheduleBogota(activity.inicio, activity.fin)
+    };
+}
 
 function parseBogotaDateTime(dateValue, timeValue) {
     const date = String(dateValue || '').trim();
@@ -70,11 +82,100 @@ function getCedulaOrError(req, res) {
     return cedula;
 }
 
+/**
+ * Publica eventos de confirmación para consultor y administradores.
+ * Fallos de publish no deben tumbar la respuesta HTTP de la mutación.
+ */
+async function publishActivityEvents({
+    emailPublisher: publisher,
+    activity,
+    consultant,
+    action,
+    previousData = null,
+    resolveAdminNotifyTo = null
+}) {
+    if (!activity?.id || !publisher) return;
+    const { randomUUID } = require('crypto');
+    const entryData = buildEntryDataForEmail(activity);
+    if (!entryData?.date || !entryData?.schedule) {
+        console.warn('[Publisher] Actividad sin fecha/horario formateable; se omite correo.', {
+            entryId: activity.id
+        });
+        return;
+    }
+
+    const basePayload = {
+        eventId: randomUUID(),
+        entryId: activity.id,
+        consultant: {
+            name: consultant.nombre || consultant.name || 'Consultor',
+            email: consultant.email
+        },
+        action,
+        entryData,
+        meta: {
+            source: 'backend',
+            env: process.env.NODE_ENV || 'development'
+        }
+    };
+
+    try {
+        await publisher.publishTimeEntryConfirmation({
+            ...basePayload,
+            eventType: 'time_entry_confirmation'
+        });
+    } catch (publishError) {
+        console.error(`[Publisher] Error publicando evento ${action} para consultor:`, publishError);
+    }
+
+    try {
+        if (typeof publisher.publishTimeEntryAdminNotification === 'function') {
+            // validateTimeEntryConfirmationPayload exige eventType confirmation;
+            // publishTimeEntryAdminNotification lo reescribe a time_entry_admin_notification.
+            const adminPayload = {
+                ...basePayload,
+                eventType: 'time_entry_confirmation'
+            };
+            if (previousData) {
+                adminPayload.previousData = buildEntryDataForEmail(previousData);
+            }
+
+            let notifyTo = [];
+            if (typeof resolveAdminNotifyTo === 'function') {
+                try {
+                    notifyTo = await resolveAdminNotifyTo({
+                        cliente: activity.cliente,
+                        action
+                    });
+                } catch (resolveError) {
+                    console.error('[Publisher] Error resolviendo destinatarios admin de actividad:', resolveError);
+                }
+            }
+            if (!Array.isArray(notifyTo)) notifyTo = [];
+            adminPayload.admin = { notifyTo };
+
+            if (notifyTo.length === 0) {
+                console.warn('[Publisher] time_entry_admin_notification sin destinatarios; se omite invoke admin.', {
+                    entryId: activity.id,
+                    cliente: activity.cliente
+                });
+            } else {
+                await publisher.publishTimeEntryAdminNotification(adminPayload);
+            }
+        }
+    } catch (publishError) {
+        console.error(`[Publisher] Error publicando evento ${action} para admin:`, publishError);
+    }
+}
+
 function registerActividadesRoutes({
     app,
     verificarToken,
     requireEntraConsultor,
-    actividadesStore
+    actividadesStore,
+    emailNotificationsPublisher = null,
+    listEmailsInGroups = null,
+    listGpEmailsForCliente = null
 }) {
     if (!app || typeof app.get !== 'function' || typeof app.post !== 'function') {
         throw new TypeError('registerActividadesRoutes: app es obligatorio.');
@@ -89,7 +190,28 @@ function registerActividadesRoutes({
         throw new TypeError('registerActividadesRoutes: actividadesStore es obligatorio.');
     }
 
+    const emailPublisher = emailNotificationsPublisher;
     const consultorAuth = [verificarToken, requireEntraConsultor];
+
+    async function resolveAdminNotifyTo({ cliente } = {}) {
+        const emails = new Set();
+        if (typeof listEmailsInGroups === 'function') {
+            const fromGroups = await listEmailsInGroups(['super_admin', 'cac']);
+            for (const email of fromGroups?.emails || []) {
+                const e = String(email || '').trim().toLowerCase();
+                if (e.includes('@')) emails.add(e);
+            }
+        }
+        const clienteNorm = String(cliente || '').trim();
+        if (clienteNorm && typeof listGpEmailsForCliente === 'function') {
+            const gpEmails = await listGpEmailsForCliente(clienteNorm);
+            for (const email of gpEmails || []) {
+                const e = String(email || '').trim().toLowerCase();
+                if (e.includes('@')) emails.add(e);
+            }
+        }
+        return Array.from(emails);
+    }
 
     app.get('/api/consultor/actividades/context', ...consultorAuth, async (req, res) => {
         try {
@@ -150,6 +272,14 @@ function registerActividadesRoutes({
                 return res.status(400).json({ ok: false, error: 'Debes tener un cliente asignado en tu ficha para registrar una actividad.' });
             }
 
+            await publishActivityEvents({
+                emailPublisher,
+                activity: result.activity,
+                consultant: req.user,
+                action: 'created',
+                resolveAdminNotifyTo
+            });
+
             return res.status(201).json({ ok: true, actividad: result.activity });
         } catch (error) {
             console.error('consultor actividades create:', error);
@@ -173,6 +303,10 @@ function registerActividadesRoutes({
             const cedula = getCedulaOrError(req, res);
             if (!cedula) return;
 
+            const actividadAnterior = typeof actividadesStore.getActividadPropia === 'function'
+                ? await actividadesStore.getActividadPropia({ id, cedula })
+                : null;
+
             const result = await actividadesStore.updateActividadPropia({
                 id,
                 cedula,
@@ -184,6 +318,15 @@ function registerActividadesRoutes({
             if (result.kind === 'not_found') {
                 return res.status(404).json({ ok: false, error: 'No se encontró la actividad o no tienes permisos para editarla.' });
             }
+
+            await publishActivityEvents({
+                emailPublisher,
+                activity: result.activity,
+                consultant: req.user,
+                action: 'updated',
+                previousData: actividadAnterior,
+                resolveAdminNotifyTo
+            });
 
             return res.json({ ok: true, actividad: result.activity });
         } catch (error) {
@@ -206,6 +349,14 @@ function registerActividadesRoutes({
             if (result.kind === 'not_found') {
                 return res.status(404).json({ ok: false, error: 'No se encontró la actividad o no tienes permisos para eliminarla.' });
             }
+
+            await publishActivityEvents({
+                emailPublisher,
+                activity: result.activity,
+                consultant: req.user,
+                action: 'deleted',
+                resolveAdminNotifyTo
+            });
 
             return res.json({ ok: true, mensaje: 'Actividad eliminada exitosamente.' });
         } catch (error) {
@@ -272,6 +423,14 @@ function registerActividadesRoutes({
                 return res.status(400).json({ ok: false, error: 'No tienes ningún cronómetro en curso para detener.' });
             }
 
+            await publishActivityEvents({
+                emailPublisher,
+                activity: result.activity,
+                consultant: req.user,
+                action: 'created',
+                resolveAdminNotifyTo
+            });
+
             return res.json({ ok: true, actividad: result.activity });
         } catch (error) {
             console.error('consultor actividades cronometro detener:', error);
@@ -297,4 +456,4 @@ function registerActividadesRoutes({
     });
 }
 
-module.exports = { registerActividadesRoutes, parseBogotaDateTime };
+module.exports = { registerActividadesRoutes, parseBogotaDateTime };    

@@ -8,13 +8,17 @@ import { UserStatusUpdateEmail } from './templates/UserStatusUpdateEmail.js';
 import { ConciliacionCorreoLiderEmail } from './templates/ConciliacionCorreoLiderEmail.js';
 import { ConciliacionServicioFinalizadaEmail } from './templates/ConciliacionServicioFinalizadaEmail.js';
 import { ConciliacionStakeholdersAvisoEmail } from './templates/ConciliacionStakeholdersAvisoEmail.js';
+import { TimeEntryConfirmationEmail } from './templates/TimeEntryConfirmationEmail.js';
+import { AdminTimeEntryNotificationEmail } from './templates/AdminTimeEntryNotificationEmail.js';
 import { sendHtmlEmailWithInlineLogo } from './sesSend.js';
-import type {
+
+import type { 
   ConciliacionCorreoLiderEvent,
   ConciliacionServicioFinalizadaEvent,
   ConciliacionStakeholdersAvisoEvent,
   FormSubmittedNotificationEvent,
   FormStatusChangedNotificationEvent,
+  TimeEntryConfirmationEvent,
   TransactionalEmailEvent
 } from './types.js';
 
@@ -86,9 +90,54 @@ function parseConciliacionStakeholdersAviso(
   return data as ConciliacionStakeholdersAvisoEvent;
 }
 
+function parseTimeEntryEvent(data: Partial<TimeEntryConfirmationEvent>): TimeEntryConfirmationEvent {
+  if (data?.eventType !== 'time_entry_confirmation' && data?.eventType !== 'time_entry_admin_notification') {
+    throw new Error('eventType invalido');
+  }
+  if (!data?.eventId) throw new Error('eventId requerido');
+  if (!data?.entryId) throw new Error('entryId requerido');
+  const email = String(data?.consultant?.email || '').trim();
+  if (!email.includes('@')) throw new Error('consultant.email invalido');
+  if (!['created', 'updated', 'deleted'].includes(String(data?.action || ''))) {
+    throw new Error('action invalida');
+  }
+  if (!String(data?.entryData?.date || '').trim()) throw new Error('entryData.date requerido');
+  if (!String(data?.entryData?.description || '').trim()) throw new Error('entryData.description requerido');
+  if (!String(data?.entryData?.client || '').trim()) throw new Error('entryData.client requerido');
+  if (!String(data?.entryData?.schedule || '').trim()) throw new Error('entryData.schedule requerido');
+  return data as TimeEntryConfirmationEvent;
+}
+
+function parseFormEvent(data: any): FormSubmittedNotificationEvent | FormStatusChangedNotificationEvent {
+  if (!data?.eventId) throw new Error('eventId requerido');
+  if (!data?.novedadId) throw new Error('novedadId requerido');
+  if (!String(data?.user?.email || '').includes('@')) throw new Error('user.email invalido');
+
+  if (data.eventType === 'form_submitted') {
+    if (!String(data?.admin?.actionUrl || '').trim()) throw new Error('admin.actionUrl requerido');
+    return data as FormSubmittedNotificationEvent;
+  }
+
+  const statusEvent = data as Partial<FormStatusChangedNotificationEvent>;
+  if (!statusEvent?.statusChange?.newEstado) throw new Error('statusChange.newEstado requerido');
+  if (!statusEvent?.statusChange?.previousEstado) throw new Error('statusChange.previousEstado requerido');
+  if (!['Aprobado', 'Rechazado'].includes(String(statusEvent.statusChange.newEstado))) {
+    throw new Error('statusChange.newEstado invalido');
+  }
+  return statusEvent as FormStatusChangedNotificationEvent;
+}
+
+
 function parseEventPayload(rawEvent: unknown): TransactionalEmailEvent {
   const payload = parseRawPayload(rawEvent);
-  const data = payload as Partial<TransactionalEmailEvent>;
+  const data = payload as any;
+
+  // Eventos de actividades (consultor y admin)
+  if (data?.eventType === 'time_entry_admin_notification' || data?.eventType === 'time_entry_confirmation') {
+    return parseTimeEntryEvent(data as any) as TransactionalEmailEvent;
+  }
+
+  // Eventos de conciliaciones
   if (data?.eventType === 'conciliacion_correo_lider') {
     return parseConciliacionCorreoLider(data as Partial<ConciliacionCorreoLiderEvent>);
   }
@@ -98,24 +147,15 @@ function parseEventPayload(rawEvent: unknown): TransactionalEmailEvent {
   if (data?.eventType === 'conciliacion_stakeholders_aviso') {
     return parseConciliacionStakeholdersAviso(data as Partial<ConciliacionStakeholdersAvisoEvent>);
   }
-  if (data?.eventType !== 'form_submitted' && data?.eventType !== 'form_status_changed') {
-    throw new Error('eventType invalido');
+
+  // Eventos de novedades (formularios)
+  if (data?.eventType === 'form_submitted' || data?.eventType === 'form_status_changed') {
+    return parseFormEvent(data);
   }
-  if (!data?.eventId) throw new Error('eventId requerido');
-  if (!data?.novedadId) throw new Error('novedadId requerido');
-  if (!String(data?.user?.email || '').includes('@')) throw new Error('user.email invalido');
-  if (data.eventType === 'form_submitted') {
-    if (!String(data?.admin?.actionUrl || '').trim()) throw new Error('admin.actionUrl requerido');
-    return data as FormSubmittedNotificationEvent;
-  }
-  const statusEvent = data as Partial<FormStatusChangedNotificationEvent>;
-  if (!statusEvent?.statusChange?.newEstado) throw new Error('statusChange.newEstado requerido');
-  if (!statusEvent?.statusChange?.previousEstado) throw new Error('statusChange.previousEstado requerido');
-  if (!['Aprobado', 'Rechazado'].includes(String(statusEvent.statusChange.newEstado))) {
-    throw new Error('statusChange.newEstado invalido');
-  }
-  return statusEvent as FormStatusChangedNotificationEvent;
+
+  throw new Error('eventType invalido');
 }
+
 
 function resolveAdminRecipientsFromEnv(): string[] {
   const csv = adminToCsv
@@ -154,6 +194,31 @@ function resolveAdminRecipientsForSubmitted(payload: FormSubmittedNotificationEv
   return resolveAdminRecipientsFromEnv();
 }
 
+/**
+ * Resuelve los destinatarios administradores para notificaciones de actividades
+ * - Super_admin y CAC: todos los usuarios con esos roles
+ * - GP: solo los asignados al cliente de la actividad
+ */
+async function resolveAdminRecipientsForActivity(payload: TimeEntryConfirmationEvent): Promise<string[]> {
+  const adminEmails: string[] = [];
+  
+  // 1. Obtener super_admins y CAC (desde Cognito o BD)
+  // Por ahora, usando variable de entorno como fallback
+  const superAdminEmails = process.env.SUPER_ADMIN_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
+  const cacEmails = process.env.CAC_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
+  const gpEmails = process.env.GP_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
+    
+  adminEmails.push(...superAdminEmails, ...cacEmails, ...gpEmails);
+
+  // 2. Obtener GP asignados al cliente
+  // Esto requiere consultar la BD para obtener los GP del cliente
+  // Por ahora, simulamos con una variable de entorno
+  
+  
+  // 3. Deduplicar emails
+  return Array.from(new Set(adminEmails));
+}
+
 function monthLabel(anio: number, mes: number) {
   const names = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   const m = Math.max(1, Math.min(12, Number(mes) || 1));
@@ -184,14 +249,15 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
     if (payload.eventType === 'conciliacion_stakeholders_aviso') {
       const html = await render(React.createElement(ConciliacionStakeholdersAvisoEmail, { payload }));
       const ml = monthLabel(payload.servicio.anio, payload.servicio.mes);
-      const kindLabel =
-        payload.kind === 'enviada'
-          ? 'enviada al líder'
-          : payload.kind === 'aprobada'
-            ? 'aprobada'
-            : payload.kind === 'rechazada'
-              ? 'rechazada'
-              : 'cerrada parcial';
+      const KIND_LABEL_MAP: Record<string, string> = {
+        enviada: 'enviada al líder',
+        aprobada: 'aprobada',
+        rechazada: 'rechazada',
+        parcial: 'cerrada parcial'
+      };
+      
+      const kindLabel = KIND_LABEL_MAP[payload.kind] || 'cerrada parcial';
+      
       const subject = `Conciliación ${kindLabel} — ${payload.servicio.cliente} / ${payload.servicio.serviceName} (${ml})`;
       const settled = await Promise.allSettled(
         payload.recipients.map((r) =>
@@ -267,28 +333,112 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
       return json(200, { ok: true, eventId: payload.eventId, messageIds });
     }
 
-    if (payload.eventType === 'form_status_changed') {
-      const userHtml = await render(React.createElement(UserStatusUpdateEmail, { payload }));
-      const subject = `Actualizacion de solicitud ${payload.novedadId}: ${payload.formData.estado}`;
-      const userResult = await sendHtmlEmailWithInlineLogo(sesClient, {
+    if (payload.eventType === 'time_entry_confirmation') {
+      const html = await render(React.createElement(TimeEntryConfirmationEmail, { payload }));
+      const ACTION_LABEL_MAP: Record<string, string> = {
+        created: 'creada',
+        updated: 'actualizada',
+        deleted: 'eliminada'
+      };
+      const actionLabel = ACTION_LABEL_MAP[payload.action] || 'eliminada';
+      const subject = `Confirmación: entrada ${actionLabel}`;
+      
+      const result = await sendHtmlEmailWithInlineLogo(sesClient, {
         from: fromEmail,
-        to: payload.user.email,
+        to: payload.consultant.email,
         subject,
-        html: userHtml
+        html
       });
+      
       return json(200, {
         ok: true,
         eventId: payload.eventId,
-        messageIds: {
-          user: userResult.MessageId || null
+        messageIds: { to: result.MessageId || null }
+      });
+    }
+    
+    // ===== ADMINISTRADORES =====
+    if (payload.eventType === 'time_entry_admin_notification') {
+      const typedPayload = payload as unknown as TimeEntryConfirmationEvent;
+      const html = await render(React.createElement(AdminTimeEntryNotificationEmail, { payload: typedPayload }));
+      const ADMIN_ACTION_TEXT_MAP: Record<string, string> = {
+        created: 'registrada',
+        updated: 'actualizada',
+        deleted: 'eliminada'
+      };
+
+      const adminActionText = ADMIN_ACTION_TEXT_MAP[typedPayload.action] || 'actualizada';
+      const subject = `Nueva actividad ${adminActionText} por ${typedPayload.consultant.name}`;
+      
+      const adminEmails = await resolveAdminRecipientsForActivity(typedPayload);
+      // Si no hay destinatarios, registrar y terminar
+      if (adminEmails.length === 0) {
+        console.warn('[email-transactions] Sin destinatarios admin para actividad', {
+          entryId: payload.entryId,
+          client: payload.entryData.client
+        });
+        return json(200, {
+          ok: true,
+          eventId: payload.eventId,
+          messageIds: { admin: null },
+          warn: 'no_admin_recipients'
+        });
+      }
+      
+      const settled = await Promise.allSettled(
+        adminEmails.map((email) =>
+          sendHtmlEmailWithInlineLogo(sesClient, {
+            from: fromEmail,
+            to: email,
+            subject,
+            html
+          })
+        )
+      );
+      
+      // Manejo de resultados
+      const failures: { to: string; message: string }[] = [];
+      const messageIds: Record<string, string | null> = {};
+      
+      for (let i = 0; i < settled.length; i += 1) {
+        const to = adminEmails[i];
+        const entry = settled[i];
+        if (entry.status === 'rejected') {
+          const err = entry.reason as Error;
+          failures.push({ to, message: err?.message || String(entry.reason) });
+          continue;
         }
+        messageIds[to] = (entry.value as SendRawEmailCommandOutput).MessageId || null;
+      }
+      
+      if (failures.length > 0) {
+        console.error('[email-transactions] Algunos correos admin fallaron', {
+          eventId: payload.eventId,
+          failures
+        });
+        return json(500, {
+          ok: false,
+          eventId: payload.eventId,
+          errorType: 'PartialOrFullEmailFailure',
+          message: 'Uno o más correos admin no se pudieron enviar.',
+          messageIds,
+          failures
+        });
+      }
+      
+      return json(200, {
+        ok: true,
+        eventId: payload.eventId,
+        messageIds
       });
     }
 
-    const userHtml = await render(React.createElement(UserConfirmationEmail, { payload }));
+    const userHtml = await render(React.createElement(UserConfirmationEmail, { payload: payload as any }));
+
     const userSubject = `Solicitud Radicada - ${payload.formData.tipoNovedad}`;
 
-    const adminRecipients = resolveAdminRecipientsForSubmitted(payload);
+    const adminRecipients = resolveAdminRecipientsForSubmitted(payload as any);
+
     if (adminRecipients.length === 0) {
       const userOnly = await sendHtmlEmailWithInlineLogo(sesClient, {
         from: fromEmail,
@@ -310,7 +460,7 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
       });
     }
 
-    const adminHtml = await render(React.createElement(AdminNotificationEmail, { payload }));
+    const adminHtml = await render(React.createElement(AdminNotificationEmail, { payload: payload as any }));
     const adminSubject = `Nueva solicitud ${payload.formData.tipoNovedad} - ${payload.novedadId}`;
 
     type TaskSpec =
