@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-29 16:46:04 · `fix/AUT-587-prod-main` · `1b0cce68`
+- **Commit:** `1b0cce682fadbbd2801e10a19c17e7b080c4db42`
+- **Ticket:** AUT-587
+- **Requerimiento funcional:** Corrige el Excel de horas extras/recargos en producción: sobrante en festivo como HE dominical, horarios de medianoche coherentes y vuelto post-tope tipificado con horario real.
+- **Componente técnico:** `src/novedadHeExcelExport.js`, `tests/novedadHeExcelExport.test.js` (cherry-pick a main).
+- **Cambios (uno a uno):**
+  - Etiqueta sobrante HE con domingo o festivo en export.
+  - Une segmentos contiguos al asignar franja del slice.
+  - Vuelto `horas_recargo_nocturno` tras tope dom/fest como HE Nocturna Dominical.
+
 ### 2026-07-27 16:48:47 · `testing` · `7f98345d`
 - **Commit:** `7f98345d6cb01e44487a15b3625e8304377d49d2`
 - **Ticket:** AUT-214 (origen AUT-573)
