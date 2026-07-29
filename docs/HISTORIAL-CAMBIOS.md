@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-29 16:44:05 · `fix/AUT-587-he-excel-export-festivo-rangos` · `caf96014`
+- **Commit:** `caf9601437a76a6521ee0a436348b93e32856b96`
+- **Ticket:** AUT-587
+- **Requerimiento funcional:** Corrige el Excel de horas extras/recargos: sobrante en festivo como HE dominical/festiva, horarios que cruzan medianoche coherentes con la cantidad, y el “vuelto” tras el tope de recargo tipificado y con horario real (no el turno completo).
+- **Componente técnico:** `src/novedadHeExcelExport.js`, `tests/novedadHeExcelExport.test.js`.
+- **Cambios (uno a uno):**
+  - Etiqueta sobrante HE con domingo o festivo (`isDiaRecargoDominical` + `festivosSet`).
+  - Une segmentos contiguos al asignar franja horaria del slice.
+  - Vuelto `horas_recargo_nocturno` tras tope dom/fest exportado como HE Nocturna Dominical con rango ~1 h.
+
 ### 2026-07-29 11:08:34 · \	esting\ · \d6bee13d- **Commit:** \d6bee13df5e62ddc35fd579def58b672fe522fa5- **Ticket:** AUT-259
 - **Requerimiento funcional:** Evita el error al abrir Monitoreo de actividades cuando la tabla ya existía sin columnas de aprobación/rechazo.
 - **Componente técnico:** \src/actividades/actividadesStore.js\ (\ensureActividadesConsultorTable\).
