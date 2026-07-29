@@ -87,6 +87,10 @@ export interface TimeEntryConfirmationEvent {
     client?: string;
     schedule?: string;
   };
+  /** Destinatarios admin (si viene, sustituye ENV de la Lambda). */
+  admin?: {
+    notifyTo?: string[];
+  };
   meta: {
     source: string;
     env: string;
@@ -114,6 +118,10 @@ export interface TimeEntryAdminNotificationEvent {
     description?: string;
     client?: string;
     schedule?: string;
+  };
+  /** Destinatarios admin (si viene, sustituye ENV de la Lambda). */
+  admin?: {
+    notifyTo?: string[];
   };
   meta: {
     source: string;

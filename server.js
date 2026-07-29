@@ -757,7 +757,7 @@ const {
     cognitoUserPoolId: COGNITO_USER_POOL_ID
 });
 
-const { resolveApproverEmailsForNovedad } = createResolveApproverEmailsFromCognito({
+const { resolveApproverEmailsForNovedad, listEmailsInGroups } = createResolveApproverEmailsFromCognito({
     cognitoClient: cognitoIdpClient,
     userPoolId: COGNITO_USER_POOL_ID,
     getNovedadRuleByType,
@@ -993,7 +993,10 @@ registerActividadesRoutes({
     app,
     verificarToken,
     requireEntraConsultor,
-    actividadesStore
+    actividadesStore,
+    emailNotificationsPublisher,
+    listEmailsInGroups,
+    listGpEmailsForCliente
 });
 
 startServer({

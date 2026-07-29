@@ -195,28 +195,35 @@ function resolveAdminRecipientsForSubmitted(payload: FormSubmittedNotificationEv
 }
 
 /**
- * Resuelve los destinatarios administradores para notificaciones de actividades
- * - Super_admin y CAC: todos los usuarios con esos roles
- * - GP: solo los asignados al cliente de la actividad
+ * Destinatarios admin para actividades:
+ * 1) `admin.notifyTo` si el backend lo envió (Cognito/BD)
+ * 2) SUPER_ADMIN_EMAILS / CAC_EMAILS / GP_EMAILS
+ * 3) EMAIL_ADMIN_TO / EMAIL_ADMIN_TO_CSV (mismo fallback que novedades)
  */
-async function resolveAdminRecipientsForActivity(payload: TimeEntryConfirmationEvent): Promise<string[]> {
-  const adminEmails: string[] = [];
-  
-  // 1. Obtener super_admins y CAC (desde Cognito o BD)
-  // Por ahora, usando variable de entorno como fallback
-  const superAdminEmails = process.env.SUPER_ADMIN_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
-  const cacEmails = process.env.CAC_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
-  const gpEmails = process.env.GP_EMAILS?.split(',').map(e => e.trim()).filter(Boolean) || [];
-    
-  adminEmails.push(...superAdminEmails, ...cacEmails, ...gpEmails);
+async function resolveAdminRecipientsForActivity(
+  payload: TimeEntryConfirmationEvent & { admin?: { notifyTo?: string[] } }
+): Promise<string[]> {
+  const admin = payload.admin;
+  if (admin != null && Object.prototype.hasOwnProperty.call(admin, 'notifyTo')) {
+    const fromPayload = resolveNotifyToFromPayload({ admin } as FormSubmittedNotificationEvent);
+    if (fromPayload.length > 0) return fromPayload;
+    // notifyTo explícito vacío: no caer a ENV (misma regla que form_submitted)
+    return [];
+  }
 
-  // 2. Obtener GP asignados al cliente
-  // Esto requiere consultar la BD para obtener los GP del cliente
-  // Por ahora, simulamos con una variable de entorno
-  
-  
-  // 3. Deduplicar emails
-  return Array.from(new Set(adminEmails));
+  const fromRoleEnv = [
+    ...(process.env.SUPER_ADMIN_EMAILS || '').split(','),
+    ...(process.env.CAC_EMAILS || '').split(','),
+    ...(process.env.GP_EMAILS || '').split(',')
+  ]
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => e.includes('@'));
+
+  if (fromRoleEnv.length > 0) {
+    return Array.from(new Set(fromRoleEnv));
+  }
+
+  return resolveAdminRecipientsFromEnv();
 }
 
 function monthLabel(anio: number, mes: number) {

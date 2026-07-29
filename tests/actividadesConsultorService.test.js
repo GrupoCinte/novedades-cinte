@@ -59,17 +59,33 @@ test('validación de observaciones de rechazo', () => {
     assert.equal(validateObservacionesRechazo(longStr).ok, false);
 });
 
-test('updateActividadEstado aprueba actividad correctamente', async () => {
-    const fakePool = {
-        queries: [],
-        async query(sql, params) {
-            this.queries.push({ sql, params });
-            if (sql.includes('SELECT a.id')) {
-                return { rows: [{ id: '22222222-2222-4222-8222-222222222222', estado: 'pendiente', gp_user_id: GP_ID }] };
-            }
-            return { rowCount: 1 };
+function createFakePoolForEstado() {
+    const queries = [];
+    async function query(sql, params) {
+        queries.push({ sql, params });
+        if (sql.includes('SELECT a.id')) {
+            return { rows: [{ id: '22222222-2222-4222-8222-222222222222', estado: 'pendiente', gp_user_id: GP_ID }] };
+        }
+        // resolveActorUserIdForSession → SELECT id FROM users
+        if (sql.includes('FROM users') || sql.includes('from users')) {
+            return { rows: [{ id: GP_ID }] };
+        }
+        return { rowCount: 1, rows: [] };
+    }
+    return {
+        queries,
+        query,
+        async connect() {
+            return {
+                query,
+                release() {}
+            };
         }
     };
+}
+
+test('updateActividadEstado aprueba actividad correctamente', async () => {
+    const fakePool = createFakePoolForEstado();
 
     const result = await updateActividadEstado(fakePool, {
         id: '22222222-2222-4222-8222-222222222222',
@@ -81,7 +97,8 @@ test('updateActividadEstado aprueba actividad correctamente', async () => {
 
     assert.equal(result.ok, true);
     assert.equal(result.estado, 'aprobado');
-    assert.equal(fakePool.queries.length, 3); // SELECT, UPDATE, INSERT audit_log
+    // SELECT + BEGIN + UPDATE + INSERT audit + COMMIT
+    assert.ok(fakePool.queries.length >= 4);
     
     const updateQuery = fakePool.queries.find(q => q.sql.includes('UPDATE actividades_consultor'));
     assert.ok(updateQuery);
@@ -90,16 +107,7 @@ test('updateActividadEstado aprueba actividad correctamente', async () => {
 });
 
 test('updateActividadEstado rechaza actividad con observaciones', async () => {
-    const fakePool = {
-        queries: [],
-        async query(sql, params) {
-            this.queries.push({ sql, params });
-            if (sql.includes('SELECT a.id')) {
-                return { rows: [{ id: '22222222-2222-4222-8222-222222222222', estado: 'pendiente', gp_user_id: GP_ID }] };
-            }
-            return { rowCount: 1 };
-        }
-    };
+    const fakePool = createFakePoolForEstado();
 
     const result = await updateActividadEstado(fakePool, {
         id: '22222222-2222-4222-8222-222222222222',
@@ -120,11 +128,14 @@ test('updateActividadEstado rechaza actividad con observaciones', async () => {
 
 test('updateActividadEstado falla si el GP no tiene alcance', async () => {
     const fakePool = {
-        async query(sql, params) {
+        async query(sql) {
             if (sql.includes('SELECT a.id')) {
                 return { rows: [{ id: '22222222-2222-4222-8222-222222222222', estado: 'pendiente', gp_user_id: 'otro-uuid' }] };
             }
             return { rowCount: 1 };
+        },
+        async connect() {
+            return { query: this.query.bind(this), release() {} };
         }
     };
 
