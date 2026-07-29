@@ -257,4 +257,88 @@ describe('novedadHeExcelExport', () => {
         assert.equal(rDom.fechaInicio, '2026-03-08');
         assert.notEqual(`${rLab.horaInicial}-${rLab.horaFinal}`, `${rDom.horaInicial}-${rDom.horaFinal}`);
     });
+
+    it('AUT-587 A: sobrante en lunes festivo se exporta como HE Diurna Dominical', () => {
+        const festivosSet = new Set(['2026-07-20']);
+        const dep = { toUtcMsFromDateAndTime, festivosSet };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            fechaInicio: '2026-07-20',
+            fechaFin: '2026-07-20',
+            horaInicio: '07:00',
+            horaFin: '16:30',
+            horasDiurnas: 2.5,
+            horasNocturnas: 0,
+            horasRecargoDomingoDiurnas: 7,
+            horasRecargoDomingoNocturnas: 0,
+            horasRecargoDomingo: 7,
+            horasRecargoNocturno: 0,
+            heDomingoObservacion: ''
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        const diDom = slices.find((s) => s.sliceKey === 'diurna_dominical');
+        const diLab = slices.find((s) => s.sliceKey === 'diurna_laboral');
+        assert.ok(diDom, 'debe existir slice diurna_dominical');
+        assert.equal(diLab, undefined);
+        assert.equal(diDom.hours, 2.5);
+        assert.equal(diDom.tipoLabel, `${HE_TIPO_CANONICO.HE_DIURNA_DOM} — sin compensatorio`);
+    });
+
+    it('AUT-587 B: HE nocturna que cruza medianoche une franja a la cantidad', () => {
+        const dep = { toUtcMsFromDateAndTime, festivosSet: new Set() };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            fechaInicio: '2026-07-24',
+            fechaFin: '2026-07-25',
+            horaInicio: '22:00',
+            horaFin: '01:00',
+            horasDiurnas: 0,
+            horasNocturnas: 3,
+            horasRecargoDomingoDiurnas: 0,
+            horasRecargoDomingoNocturnas: 0,
+            horasRecargoDomingo: 0,
+            horasRecargoNocturno: 0,
+            heDomingoObservacion: ''
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        const noc = slices.find((s) => s.sliceKey === 'nocturna_laboral' || s.sliceKey === 'nocturna_dominical');
+        assert.ok(noc?.startMs != null && noc?.endMs != null);
+        const durH = (noc.endMs - noc.startMs) / (60 * 60 * 1000);
+        assert.ok(Math.abs(durH - 3) < 0.05, `duración ${durH} != 3`);
+        const fields = msRangeToExcelHoraFields(noc.startMs, noc.endMs);
+        assert.equal(fields.horaInicial, '22:00');
+        assert.equal(fields.fechaFin, '2026-07-25');
+        assert.notEqual(fields.horaFinal, '23:59');
+    });
+
+    it('AUT-587 C: vuelto rn tras tope recargo → HE Nocturna Dominical con horario ~1h', () => {
+        const festivosSet = new Set(['2026-07-20']);
+        const dep = { toUtcMsFromDateAndTime, festivosSet };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            mallaOrigenRef: 'EXPERIAN|nocturnos|2026-07-20|x|1',
+            fechaInicio: '2026-07-20',
+            fechaFin: '2026-07-20',
+            horaInicio: '14:00',
+            horaFin: '22:00',
+            horasDiurnas: 0,
+            horasNocturnas: 0,
+            horasRecargoDomingoDiurnas: 5,
+            horasRecargoDomingoNocturnas: 2,
+            horasRecargoDomingo: 7,
+            horasRecargoNocturno: 1,
+            heDomingoObservacion: ''
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        const vuelto = slices.find((s) => s.columnKey === 'horasRecargoNocturno');
+        assert.ok(vuelto);
+        assert.equal(vuelto.sliceKey, 'nocturna_dominical');
+        assert.equal(vuelto.tipoLabel, `${HE_TIPO_CANONICO.HE_NOCTURNA_DOM} — sin compensatorio`);
+        assert.equal(vuelto.hours, 1);
+        assert.ok(vuelto.startMs != null && vuelto.endMs != null);
+        const durH = (vuelto.endMs - vuelto.startMs) / (60 * 60 * 1000);
+        assert.ok(Math.abs(durH - 1) < 0.1, `duración vuelto ${durH} != 1`);
+        const fields = msRangeToExcelHoraFields(vuelto.startMs, vuelto.endMs);
+        assert.notEqual(fields.horaInicial, '14:00');
+    });
 });
