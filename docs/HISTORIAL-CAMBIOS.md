@@ -20,6 +20,15 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-29 11:08:34 · \	esting\ · \d6bee13d- **Commit:** \d6bee13df5e62ddc35fd579def58b672fe522fa5- **Ticket:** AUT-259
+- **Requerimiento funcional:** Evita el error al abrir Monitoreo de actividades cuando la tabla ya existía sin columnas de aprobación/rechazo.
+- **Componente técnico:** \src/actividades/actividadesStore.js\ (\ensureActividadesConsultorTable\).
+- **Cambios (uno a uno):**
+  - \ADD COLUMN IF NOT EXISTS\ para auditoría de decisión (aprobado/rechazado).
+  - Trigger \	rg_actividades_consultor_updated_at\ idempotente.
+  - CREATE TABLE alineado al schema con columnas de decisión.
+
+
 ### 2026-07-29 10:57:10 · `testing` · `f1142fe6`
 - **Commit:** `f1142fe6d34d3579ecf9ac203a11394ad6fa93c3`
 - **Ticket:** AUT-259
