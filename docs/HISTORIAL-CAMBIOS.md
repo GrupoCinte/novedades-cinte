@@ -20,6 +20,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-29 10:57:10 · `testing` · `f1142fe6`
+- **Commit:** `f1142fe6d34d3579ecf9ac203a11394ad6fa93c3`
+- **Ticket:** AUT-259
+- **Requerimiento funcional:** Corrige textos rotos en Mis Actividades (cronómetro, descripción, botón) causados por corrupción de caracteres acentuados en el merge a testing.
+- **Componente técnico:** `react-frontend/src/consultor/actividades/MisActividadesModule.jsx`.
+- **Cambios (uno a uno):**
+  - Restaurado el archivo UTF-8 válido desde el tip de AUT-581 (sin caracteres de caja `┌│` en lugar de `ó`).
+
 ### 2026-07-29 10:44:37 · `testing` · `ad335b77`
 - **Commit:** `ad335b771cc416ea185b0f5d4b745fd5461546e8`
 - **Ticket:** AUT-259
