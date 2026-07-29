@@ -67,6 +67,7 @@ function adminPortalModuleCount(auth) {
   if (userHasCotizadorAccess(auth)) n += 1;
   if (userHasContratacionPanel(auth) || userHasOnboardingPanel(auth)) n += 1;
   if (userHasDirectorioPanel(auth)) n += 1;
+  if (userHasMonitoreoAccess(auth)) n += 1;
   return n;
 }
 

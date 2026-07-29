@@ -6,6 +6,7 @@ import { userHasContratacionPanel } from './contratacion/contratacionAccess';
 import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
 import { userHasMallasAccess, userIsGpMallasOnly } from './mallasAccess';
+import { userHasMonitoreoAccess } from './monitoreoAccess';
 import UserAccountMenu from './UserAccountMenu.jsx';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';

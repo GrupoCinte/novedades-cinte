@@ -58,13 +58,7 @@ function buildApp(deps = {}) {
         getConciliacionEmailPlantillaCorreoLiderForScope:
             deps.getConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync,
         upsertConciliacionEmailPlantillaCorreoLiderForScope:
-            deps.upsertConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync,
-        getConciliacionEmailAccionContext:
-            deps.getConciliacionEmailAccionContext ?? stubAsync,
-        decideConciliacionEmailAccion:
-            deps.decideConciliacionEmailAccion ?? stubAsync,
-        finalizeConciliacionEmailAccion:
-            deps.finalizeConciliacionEmailAccion ?? stubAsync
+            deps.upsertConciliacionEmailPlantillaCorreoLiderForScope ?? stubAsync
     });
     return app;
 }
