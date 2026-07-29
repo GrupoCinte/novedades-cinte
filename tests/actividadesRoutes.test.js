@@ -149,3 +149,157 @@ test('POST /api/consultor/actividades crea entrada correctamente', async () => {
         server.close();
     }
 });
+
+test('POST /api/consultor/actividades/cronometro/iniciar crea temporizador activo', async () => {
+    const app = createMockApp();
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({ cliente: 'CLIENTE TEST' }),
+        createManualActivity: async () => ({}),
+        iniciarCronometro: async ({ cedula, descripcion }) => ({
+            kind: 'started',
+            activity: {
+                id: 'crono-uuid-1',
+                cedula,
+                cliente: 'CLIENTE TEST',
+                descripcion,
+                inicio: new Date().toISOString(),
+                fin: null,
+                origen: 'cronometro',
+                estado: 'pendiente'
+            }
+        })
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades/cronometro/iniciar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ descripcion: 'Trabajando en desarrollo HU-3' })
+        });
+        const json = await res.json();
+        assert.equal(res.status, 201);
+        assert.equal(json.ok, true);
+        assert.equal(json.actividad.descripcion, 'Trabajando en desarrollo HU-3');
+        assert.equal(json.actividad.fin, null);
+        assert.equal(json.actividad.origen, 'cronometro');
+    } finally {
+        server.close();
+    }
+});
+
+test('POST /api/consultor/actividades/cronometro/iniciar rechaza con 409 si ya existe uno activo', async () => {
+    const app = createMockApp();
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({ cliente: 'CLIENTE TEST' }),
+        createManualActivity: async () => ({}),
+        iniciarCronometro: async () => ({ kind: 'already_active' })
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades/cronometro/iniciar`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ descripcion: 'Segundo cronómetro' })
+        });
+        const json = await res.json();
+        assert.equal(res.status, 409);
+        assert.equal(json.ok, false);
+        assert.match(json.error, /Ya tienes un cronómetro en curso/i);
+    } finally {
+        server.close();
+    }
+});
+
+test('POST /api/consultor/actividades/cronometro/detener finaliza el temporizador', async () => {
+    const app = createMockApp();
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({ cliente: 'CLIENTE TEST' }),
+        createManualActivity: async () => ({}),
+        detenerCronometro: async ({ cedula }) => ({
+            kind: 'stopped',
+            activity: {
+                id: 'crono-uuid-1',
+                cedula,
+                cliente: 'CLIENTE TEST',
+                descripcion: 'Tarea finalizada',
+                inicio: new Date(Date.now() - 3600000).toISOString(),
+                fin: new Date().toISOString(),
+                origen: 'cronometro',
+                estado: 'pendiente'
+            }
+        })
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades/cronometro/detener`, {
+            method: 'POST'
+        });
+        const json = await res.json();
+        assert.equal(res.status, 200);
+        assert.equal(json.ok, true);
+        assert.ok(json.actividad.fin != null);
+    } finally {
+        server.close();
+    }
+});
+
+test('POST /api/consultor/actividades/cronometro/cancelar elimina el temporizador sin guardar', async () => {
+    const app = createMockApp();
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({ cliente: 'CLIENTE TEST' }),
+        createManualActivity: async () => ({}),
+        cancelarCronometro: async () => ({ kind: 'cancelled' })
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades/cronometro/cancelar`, {
+            method: 'POST'
+        });
+        const json = await res.json();
+        assert.equal(res.status, 200);
+        assert.equal(json.ok, true);
+        assert.match(json.mensaje, /cancelado exitosamente/i);
+    } finally {
+        server.close();
+    }
+});
