@@ -42,6 +42,12 @@ function validateActividadPayload(req) {
     if (!DATE_PATTERN.test(fecha) || !parseBogotaDateTime(fecha, '00:00')) {
         return { error: 'La fecha debe ser válida.', status: 400 };
     }
+    
+    const year = Number(fecha.split('-')[0]);
+    const currentYear = new Date().getFullYear();
+    if (year < currentYear) {
+        return { error: `Solo se permite registrar actividades del año en curso (${currentYear}) en adelante.`, status: 400 };
+    }
     if (!TIME_PATTERN.test(horaInicio)) {
         return { error: 'La hora de inicio debe ser válida.', status: 400 };
     }
@@ -149,6 +155,9 @@ function registerActividadesRoutes({
             if (result.kind === 'client_not_assigned') {
                 return res.status(400).json({ ok: false, error: 'Debes tener un cliente asignado en tu ficha para registrar una actividad.' });
             }
+            if (result.kind === 'duplicate') {
+                return res.status(409).json({ ok: false, error: 'Ya existe una actividad con la misma información (fecha, hora y descripción).' });
+            }
 
             return res.status(201).json({ ok: true, actividad: result.activity });
         } catch (error) {
@@ -183,6 +192,9 @@ function registerActividadesRoutes({
 
             if (result.kind === 'not_found') {
                 return res.status(404).json({ ok: false, error: 'No se encontró la actividad o no tienes permisos para editarla.' });
+            }
+            if (result.kind === 'duplicate') {
+                return res.status(409).json({ ok: false, error: 'Ya existe una actividad con la misma información (fecha, hora y descripción).' });
             }
 
             return res.json({ ok: true, actividad: result.activity });

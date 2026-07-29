@@ -236,7 +236,8 @@ async function executeSubmitForm({
   setIsModalOpen,
   setActivityToEdit,
   setSuccessMessage,
-  refreshHistory
+  refreshHistory,
+  actividades
 }) {
   e.preventDefault();
   setErrorMessage('');
@@ -259,6 +260,26 @@ async function executeSubmitForm({
   if (Object.keys(errors).length > 0) {
     setFieldErrors(errors);
     return;
+  }
+
+  // Frontend duplicate validation
+  try {
+    const inicioISO = new Date(`${fecha}T${horaInicio}:00-05:00`).toISOString();
+    const finISO = new Date(`${fecha}T${horaFin}:00-05:00`).toISOString();
+    
+    const isDuplicate = actividades?.some(a => 
+      a.descripcion.trim() === trimmedDesc && 
+      new Date(a.inicio).toISOString() === inicioISO && 
+      new Date(a.fin).toISOString() === finISO && 
+      a.id !== activityToEdit?.id
+    );
+
+    if (isDuplicate) {
+      setErrorMessage('Ya existe una actividad con esta misma información (fecha, hora y descripción).');
+      return;
+    }
+  } catch (err) {
+    console.warn('Error validando duplicidad frontend:', err);
   }
 
   setFieldErrors({});
@@ -338,9 +359,6 @@ async function executeDeleteActividad({
   setSuccessMessage,
   refreshHistory
 }) {
-  const confirmDelete = window.confirm('¿Estás seguro de que deseas eliminar esta actividad?');
-  if (!confirmDelete) return;
-
   const res = await deleteActividadApi(id);
   if (!res.ok) {
     setErrorMessage(res.error || 'No se pudo eliminar la actividad.');
@@ -656,6 +674,56 @@ function MisActividadesSidebar({
   );
 }
 
+function DeleteConfirmationModal({ isOpen, onClose, onConfirm, isLight }) {
+  if (!isOpen) return null;
+
+  return (
+    <>
+      <div 
+        className="fixed inset-0 z-[999] bg-slate-900/40 backdrop-blur-sm" 
+        onClick={onClose} 
+        aria-hidden="true" 
+      />
+      <div 
+        role="dialog" 
+        aria-modal="true" 
+        className={`fixed left-1/2 top-1/2 z-[999] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl p-6 shadow-xl ${
+          isLight ? 'bg-white' : 'bg-slate-800'
+        }`}
+      >
+        <h3 className={`mb-2 text-lg font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>
+          ¿Eliminar actividad?
+        </h3>
+        <p className={`mb-6 text-sm ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+          ¿Estás seguro de eliminar esta actividad? 
+          <br /><br />
+          <span className={`font-medium ${isLight ? 'text-rose-600' : 'text-rose-400'}`}>
+            Esta acción no se puede deshacer.
+          </span>
+        </p>
+        <div className="flex justify-end gap-3">
+          <button 
+            type="button" 
+            onClick={onClose} 
+            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+              isLight ? 'bg-slate-100 text-slate-700 hover:bg-slate-200' : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
+            }`}
+          >
+            Cancelar
+          </button>
+          <button 
+            type="button" 
+            onClick={onConfirm} 
+            className="inline-flex items-center rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-500 transition-colors"
+          >
+            Sí, eliminar
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function ActivityModal({
   isModalOpen,
   handleCloseModal,
@@ -687,6 +755,7 @@ function ActivityModal({
   const horaFinClass = fieldErrors.horaFin
     ? isLight ? 'border-red-500 bg-red-50 text-red-900 focus:ring-red-500' : 'border-red-500/50 bg-red-500/10 text-red-200 focus:ring-red-500'
     : baseInputClass;
+
 
   return (
     <div
@@ -776,6 +845,7 @@ function ActivityModal({
                 id="input-fecha"
                 type="date"
                 value={fecha}
+                min={`${new Date().getFullYear()}-01-01`}
                 onChange={(e) => setFecha(e.target.value)}
                 required
                 className={`w-full rounded-xl border px-3.5 py-2 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${baseInputClass}`}
@@ -934,6 +1004,7 @@ export default function MisActividadesModule() {
   const [horaInicio, setHoraInicio] = useState('08:00');
   const [horaFin, setHoraFin] = useState('17:00');
   const [descripcion, setDescripcion] = useState('');
+  const [activityIdToDelete, setActivityIdToDelete] = useState(null);
 
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -1081,11 +1152,18 @@ export default function MisActividadesModule() {
     });
     
     try {
-      const [{ value: d }, , { value: m }, , { value: y }, , { value: hr }, , { value: min }] = formatter.formatToParts(new Date(act.inicio));
+      const partsInicio = formatter.formatToParts(new Date(act.inicio));
+      const y = partsInicio.find(p => p.type === 'year')?.value || '2024';
+      const m = partsInicio.find(p => p.type === 'month')?.value || '01';
+      const d = partsInicio.find(p => p.type === 'day')?.value || '01';
+      const hr = partsInicio.find(p => p.type === 'hour')?.value || '08';
+      const min = partsInicio.find(p => p.type === 'minute')?.value || '00';
       setFecha(`${y}-${m}-${d}`);
       setHoraInicio(`${hr}:${min}`);
       
-      const [{ value: fHr }, , { value: fMin }] = formatter.formatToParts(new Date(act.fin));
+      const partsFin = formatter.formatToParts(new Date(act.fin));
+      const fHr = partsFin.find(p => p.type === 'hour')?.value || '17';
+      const fMin = partsFin.find(p => p.type === 'minute')?.value || '00';
       setHoraFin(`${fHr}:${fMin}`);
     } catch (err) {
       console.warn('Error formateando fechas de la actividad:', err);
@@ -1099,13 +1177,19 @@ export default function MisActividadesModule() {
     setIsModalOpen(true);
   };
 
-  const handleDeleteActividad = async (id) => {
+  const handleDeleteActividad = (id) => {
+    setActivityIdToDelete(id);
+  };
+
+  const confirmDeleteActividad = async () => {
+    if (!activityIdToDelete) return;
     await executeDeleteActividad({
-      id,
+      id: activityIdToDelete,
       setErrorMessage,
       setSuccessMessage,
       refreshHistory
     });
+    setActivityIdToDelete(null);
   };
 
   const handleCloseModal = () => {
@@ -1129,7 +1213,8 @@ export default function MisActividadesModule() {
       setIsModalOpen,
       setActivityToEdit,
       setSuccessMessage,
-      refreshHistory
+      refreshHistory,
+      actividades
     });
   };
 
@@ -1453,6 +1538,13 @@ export default function MisActividadesModule() {
         fieldErrors={fieldErrors}
         descripcion={descripcion}
         setDescripcion={setDescripcion}
+      />
+
+      <DeleteConfirmationModal
+        isOpen={!!activityIdToDelete}
+        onClose={() => setActivityIdToDelete(null)}
+        onConfirm={confirmDeleteActividad}
+        isLight={isLight}
       />
     </div>
   );
