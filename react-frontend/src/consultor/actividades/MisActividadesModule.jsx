@@ -1470,18 +1470,6 @@ export default function MisActividadesModule() {
                       Cargando historial de actividades...
                     </p>
                   </div>
-                ) : filteredActividades.length === 0 ? (
-                  <div className={`${dash.card} px-4 py-12 text-center shadow-sm`}>
-                    <History className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" />
-                    <h3 className="mt-4 font-semibold text-lg">
-                      {hasActiveFilters ? 'No se encontraron actividades con los filtros seleccionados' : 'No hay actividades registradas'}
-                    </h3>
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                      {hasActiveFilters
-                        ? 'Prueba modificando la fecha, el cliente o el texto de búsqueda.'
-                        : 'Utiliza el cronómetro en tiempo real o el botón "Agregar manual" para registrar tu primera actividad.'}
-                    </p>
-                  </div>
                 ) : (
                   <div className={`${dash.card} overflow-hidden`}>
                     <div className="overflow-x-auto">
@@ -1500,15 +1488,33 @@ export default function MisActividadesModule() {
                           </tr>
                         </thead>
                         <tbody className={dash.tbody}>
-                          {filteredActividades.map((act) => (
-                            <ActivityRow 
-                              key={act.id} 
-                              act={act} 
-                              dash={dash} 
-                              onEdit={handleEditActividad} 
-                              onDelete={handleDeleteActividad} 
-                            />
-                          ))}
+                          {filteredActividades.length === 0 ? (
+                            <tr>
+                              <td colSpan="9">
+                                <div className="px-4 py-12 text-center">
+                                  <History className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600" />
+                                  <h3 className="mt-4 font-semibold text-lg">
+                                    {hasActiveFilters ? 'No se encontraron actividades con los filtros seleccionados' : 'No hay actividades registradas'}
+                                  </h3>
+                                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                                    {hasActiveFilters
+                                      ? 'Prueba modificando la fecha, el cliente o el texto de búsqueda.'
+                                      : 'Utiliza el cronómetro en tiempo real o el botón "Agregar manual" para registrar tu primera actividad.'}
+                                  </p>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredActividades.map((act) => (
+                              <ActivityRow 
+                                key={act.id} 
+                                act={act} 
+                                dash={dash} 
+                                onEdit={handleEditActividad} 
+                                onDelete={handleDeleteActividad} 
+                              />
+                            ))
+                          )}
                         </tbody>
                       </table>
                     </div>
