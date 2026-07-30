@@ -37,6 +37,7 @@ Thumbs.db
 *.log
 npm-debug.log*
 logs/*.jsonl
+logs/sync-artifacts/
 
 # Archivos temporales
 *.tmp
@@ -74,3 +75,23 @@ migrations/
 
 # Matriz RBAC versionada (excepción a *.md)
 !docs/RBAC_MATRIX.md
+
+# Sourcing worker (Atracción de Talento) — secretos y artefactos locales (NO subir)
+# Perfil persistente del navegador (contiene Cookies, Login Data, History reales)
+sourcing-worker/.elempleo-profile/
+sourcing-worker/*-profile/
+sourcing-worker/.*-profile/
+# Cookies de sesión capturadas (elempleo/linkedin)
+sourcing-worker/cookies/
+# Logs y artefactos locales del worker
+sourcing-worker/logs/
+# Entornos virtuales de Python
+.venv/
+venv/
+sourcing-worker/.venv/
+sourcing-worker/venv/
+# Cachés/compilados de Python
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
