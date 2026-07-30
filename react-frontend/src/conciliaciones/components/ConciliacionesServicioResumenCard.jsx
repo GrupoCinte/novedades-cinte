@@ -26,6 +26,8 @@ function billingTypeLabel(val) {
     switch (String(val || '').trim()) {
         case 'EXPIRED_MONTH':
             return 'Mes vencido';
+        case 'CURRENT_MONTH':
+            return 'Mes corriente';
         case 'ADVANCE_MONTH':
             return 'Mes anticipado';
         default:

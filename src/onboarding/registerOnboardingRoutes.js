@@ -244,6 +244,9 @@ function registerOnboardingRoutes(deps) {
         tipo_personal: z.enum(['consultor', 'staff', 'sena', 'alianza']).optional(),
         /** Si `from_dynamo_raw=true`, el `payload` se trata como item Dynamo crudo y se mapea automáticamente. */
         from_dynamo_raw: z.boolean().optional(),
+        event_type: z.enum(['INSERT', 'MODIFY', 'REMOVE', 'BATCH_IMPORT']).optional(),
+        sequence_number: z.string().max(200).optional().nullable(),
+        shard_id: z.string().max(500).optional().nullable(),
         payload: z.record(z.any())
     });
 
@@ -259,7 +262,9 @@ function registerOnboardingRoutes(deps) {
             const source = body.source || 'n8n_webhook';
             const payload = body.from_dynamo_raw ? mapDynamoItemForPromotion(body.payload) : body.payload;
             const result = await promotion.promoteToColaborador(payload, source, {
-                eventType: 'INSERT',
+                eventType: body.event_type || 'INSERT',
+                sequenceNumber: body.sequence_number || undefined,
+                shardId: body.shard_id || undefined,
                 forcePromote: Boolean(body.force_promote),
                 tipoPersonal: body.tipo_personal
             });
@@ -281,6 +286,12 @@ function registerOnboardingRoutes(deps) {
         empleador: z.string().max(200).optional(),
         puesto: z.string().max(200).optional(),
         modalidad_trabajo: z.string().max(120).optional(),
+        sexo: z.string().max(80).optional(),
+        tipo_contrato: z.string().max(200).optional(),
+        profesion: z.string().max(400).optional(),
+        tipo_identificacion: z.string().max(200).optional(),
+        departamento: z.string().max(200).optional(),
+        ciudad: z.string().max(200).optional(),
         motivo_baja: z.string().max(200).optional(),
         fecha_ingreso_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         fecha_ingreso_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -342,6 +353,30 @@ function registerOnboardingRoutes(deps) {
         if (filters.modalidad_trabajo) {
             params.push(String(filters.modalidad_trabajo).trim());
             where.push(`LOWER(TRIM(COALESCE(c.modalidad_trabajo, ''))) = LOWER($${p++})`);
+        }
+        if (filters.sexo) {
+            params.push(String(filters.sexo).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.sexo, ''))) = LOWER($${p++})`);
+        }
+        if (filters.tipo_contrato) {
+            params.push(String(filters.tipo_contrato).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.tipo_contrato, ''))) = LOWER($${p++})`);
+        }
+        if (filters.profesion) {
+            params.push(String(filters.profesion).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.profesion, ''))) = LOWER($${p++})`);
+        }
+        if (filters.tipo_identificacion) {
+            params.push(String(filters.tipo_identificacion).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.tipo_identificacion, ''))) = LOWER($${p++})`);
+        }
+        if (filters.departamento) {
+            params.push(String(filters.departamento).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.departamento, ''))) = LOWER($${p++})`);
+        }
+        if (filters.ciudad) {
+            params.push(String(filters.ciudad).trim());
+            where.push(`LOWER(TRIM(COALESCE(c.ciudad, ''))) = LOWER($${p++})`);
         }
         if (filters.motivo_baja) {
             params.push(String(filters.motivo_baja).trim());
@@ -638,7 +673,10 @@ function registerOnboardingRoutes(deps) {
                     fecha_baja_efectiva = COALESCE($3::date, CURRENT_DATE),
                     tiempo_permanencia_meses = CASE
                         WHEN fecha_ingreso IS NOT NULL
-                        THEN ROUND(EXTRACT(EPOCH FROM (COALESCE($3::date, CURRENT_DATE) - fecha_ingreso)) / (60*60*24*30.4375), 2)
+                        THEN ROUND(
+                            EXTRACT(EPOCH FROM (
+                                COALESCE($3::date, CURRENT_DATE)::timestamp - fecha_ingreso::timestamp
+                            )) / (60*60*24*30.4375), 2)
                         ELSE tiempo_permanencia_meses
                     END,
                     updated_at = NOW()
@@ -1112,6 +1150,33 @@ function registerOnboardingRoutes(deps) {
         }
     });
 
+    /** Valores DISTINCT desde `colaboradores` para filtros avanzados (desplegables). */
+    const COLAB_DISTINCT_FILTER_COLS = new Set([
+        'sexo',
+        'tipo_contrato',
+        'profesion',
+        'tipo_identificacion',
+        'departamento',
+        'ciudad'
+    ]);
+    app.get('/api/onboarding/catalogos/colaborador-valores/:campo', ...catGuard, async (req, res) => {
+        const campo = String(req.params.campo || '').trim();
+        if (!COLAB_DISTINCT_FILTER_COLS.has(campo)) {
+            return res.status(400).json({ ok: false, error: 'campo de catálogo no permitido' });
+        }
+        try {
+            const q = await pool.query(
+                `SELECT DISTINCT TRIM(c.${campo}) AS valor
+                 FROM colaboradores c
+                 WHERE c.${campo} IS NOT NULL AND TRIM(c.${campo}) <> ''
+                 ORDER BY 1`
+            );
+            return res.json({ ok: true, campo, items: q.rows.map((r) => r.valor).filter(Boolean) });
+        } catch (e) {
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
     /* =========================================================================
      * Reporte de rotación (reemplazo de hoja Excel "Rotación").
      * Agrupa bajas por motivo y rango opcional, devuelve total + breakdown.
@@ -1415,6 +1480,10 @@ function registerOnboardingRoutes(deps) {
         reason: z.string().max(2000).optional().nullable()
     });
 
+    const fichaNovedadesApproveSchema = z.object({
+        close_siblings: z.boolean().optional()
+    });
+
     const fichaNovedadesLinkSchema = z.object({
         cedula: z.string().min(5).max(20)
     });
@@ -1542,15 +1611,25 @@ function registerOnboardingRoutes(deps) {
         if (!parsed.success) {
             return res.status(400).json({ ok: false, error: 'Id inválido' });
         }
+        const bodyParsed = fichaNovedadesApproveSchema.safeParse(req.body || {});
+        if (!bodyParsed.success) {
+            return res.status(400).json({ ok: false, error: 'Body inválido', detail: bodyParsed.error.errors });
+        }
         try {
-            const result = await fichaNovedades.approveNovedad(parsed.data.id, req.user || {});
+            const result = await fichaNovedades.approveNovedad(parsed.data.id, req.user || {}, {
+                closeSiblings: bodyParsed.data.close_siblings === true
+            });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
                 actorRole: req.user && req.user.role,
                 action: 'ficha_novedad_aprobar',
                 entityType: 'ficha_novedades_staging',
                 entityId: parsed.data.id,
-                metadata: { cedula: result.cedula }
+                metadata: {
+                    cedula: result.cedula,
+                    close_siblings: bodyParsed.data.close_siblings === true,
+                    siblings_closed: result.siblings_closed
+                }
             });
             return res.json(result);
         } catch (e) {
@@ -1629,15 +1708,18 @@ function registerOnboardingRoutes(deps) {
         const dynamoSyncOnStart =
             String(process.env.FICHA_NOVEDADES_DYNAMO_SYNC_ON_START || '').toLowerCase() === 'true';
         const dynamoSyncIntervalMs = Number(process.env.FICHA_NOVEDADES_DYNAMO_SYNC_INTERVAL_MS || 0) || 0;
+        const promoteIntervalMs = Number(process.env.ONBOARDING_DYNAMO_PROMOTE_INTERVAL_MS || 300000) || 0;
         return res.json({
             ok: true,
             intake_endpoint: intakeReady ? 'configured' : 'missing-key',
             autopromote_flag: autopromote,
             stream_poller: streamPoller,
+            dynamo_promote_interval_ms: promoteIntervalMs,
             dynamo_sync_on_start: dynamoSyncOnStart,
             dynamo_sync_interval_ms: dynamoSyncIntervalMs,
             last_sync_summary: getLastZohoDynamoSyncSummary(),
-            ready: intakeReady && (autopromote ? streamPoller : true)
+            // Autopromote ya no exige poller: Lambda /intake + reconcile periódico del portal.
+            ready: intakeReady
         });
     });
 

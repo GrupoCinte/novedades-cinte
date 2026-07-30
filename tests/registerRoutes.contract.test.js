@@ -103,6 +103,45 @@ test('GET /api/catalogos/clientes responde contrato mínimo', async () => {
   assert.deepEqual(res.body.items, ['Cliente A']);
 });
 
+test('GET /api/admin/actividades devuelve actividades filtradas con contrato de solo lectura', async () => {
+  const calls = [];
+  const app = buildApp({
+    pool: {
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        return {
+          rows: [{
+            id: '11111111-1111-4111-8111-111111111111',
+            cedula: '10101010',
+            consultor_nombre: 'Ana',
+            cliente: 'Cliente A',
+            descripcion: 'Soporte',
+            inicio: '2026-07-10T13:00:00.000Z',
+            fin: '2026-07-10T14:00:00.000Z',
+            origen: 'manual',
+            estado: 'pendiente'
+          }]
+        };
+      }
+    }
+  });
+  const res = await request(app).get('/api/admin/actividades').query({ fechaDesde: '2026-07-01', cedula: '10101010' });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  assert.equal(res.body.items[0].consultor_nombre, 'Ana');
+  assert.match(calls[0].sql, /INNER JOIN colaboradores c/);
+  assert.deepEqual(calls[0].params, ['2026-07-01', '10101010']);
+});
+
+test('GET /api/admin/actividades rechaza fechas inválidas', async () => {
+  const app = buildApp();
+  const res = await request(app).get('/api/admin/actividades').query({ fechaDesde: '2026-07-31', fechaHasta: '2026-07-01' });
+
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+});
+
 test('GET /api/catalogos/lideres exige cliente', async () => {
   const app = buildApp();
   const res = await request(app).get('/api/catalogos/lideres');

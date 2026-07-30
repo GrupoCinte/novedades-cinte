@@ -64,3 +64,5 @@ export function mapCancellationRow(ex) {
         _eventMs: resolveCancellationEventMs(ex)
     };
 }
+
+export { compareCancellationRows, isCancelacionSortSentinel } from './cancelacionesSort.js';

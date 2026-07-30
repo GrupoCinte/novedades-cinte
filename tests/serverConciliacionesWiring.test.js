@@ -34,13 +34,14 @@ test('createDataLayer expone handlers ForScope de facturación conciliaciones', 
 
 test('assertConciliacionesRouteDeps rechaza upsertConciliacionFacturacionMasivaForScope ausente', () => {
     const dl = createDataLayerForTest();
+    const stub = () => {};
     assert.throws(
         () =>
             assertConciliacionesRouteDeps({
                 app: {},
-                verificarToken: () => {},
-                allowAnyPanel: () => () => {},
-                applyScope: () => {},
+                verificarToken: stub,
+                allowAnyPanel: () => stub,
+                applyScope: stub,
                 listConciliacionesClientesForScope: dl.listConciliacionesClientesForScope,
                 getConciliacionResumenPorClienteMesForScope: dl.getConciliacionResumenPorClienteMesForScope,
                 getConciliacionResumenTodosClientesMesForScope: dl.getConciliacionResumenTodosClientesMesForScope,
@@ -53,7 +54,27 @@ test('assertConciliacionesRouteDeps rechaza upsertConciliacionFacturacionMasivaF
                 createConciliacionNovedadManualForScope: dl.createConciliacionNovedadManualForScope,
                 listConciliacionFacturacionHistorialForScope: dl.listConciliacionFacturacionHistorialForScope,
                 upsertConciliacionFacturacionMasivaForScope: undefined,
-                listConciliacionesFacturacionForScope: dl.listConciliacionesFacturacionForScope
+                deleteConciliacionFacturacionForScope: dl.deleteConciliacionFacturacionForScope,
+                listConciliacionesFacturacionForScope: dl.listConciliacionesFacturacionForScope,
+                getColaCierresPorMesForScope: dl.getColaCierresPorMesForScope,
+                listServiciosForScope: dl.listServiciosForScope,
+                createServicioForScope: dl.createServicioForScope,
+                updateServicioForScope: dl.updateServicioForScope,
+                deleteServicioForScope: dl.deleteServicioForScope,
+                listServicioConsultoresForScope: dl.listServicioConsultoresForScope,
+                listConsultoresDisponiblesClienteForScope: dl.listConsultoresDisponiblesClienteForScope,
+                upsertServicioConsultoresForScope: dl.upsertServicioConsultoresForScope,
+                listDashboardLiderClienteRowsForScope: dl.listDashboardLiderClienteRowsForScope,
+                exportConciliacionServicioExcelForScope: dl.exportConciliacionServicioExcelForScope,
+                markConciliacionServicioEnviadaForScope: dl.markConciliacionServicioEnviadaForScope,
+                markConciliacionServicioConciliadaForScope: dl.markConciliacionServicioConciliadaForScope,
+                enviarConciliacionServicioCorreoForScope: dl.enviarConciliacionServicioCorreoForScope,
+                getConciliacionEmailAccionContext: dl.getConciliacionEmailAccionContext,
+                decideConciliacionEmailAccion: dl.decideConciliacionEmailAccion,
+                decideMasivoConciliacionEmailAccion: dl.decideMasivoConciliacionEmailAccion,
+                finalizeConciliacionEmailAccion: dl.finalizeConciliacionEmailAccion,
+                getConciliacionEmailPlantillaCorreoLiderForScope: dl.getConciliacionEmailPlantillaCorreoLiderForScope,
+                upsertConciliacionEmailPlantillaCorreoLiderForScope: dl.upsertConciliacionEmailPlantillaCorreoLiderForScope
             }),
         /upsertConciliacionFacturacionMasivaForScope/
     );

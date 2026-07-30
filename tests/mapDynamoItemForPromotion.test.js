@@ -45,4 +45,79 @@ describe('mapDynamoItemForPromotion', () => {
         assert.equal(payload.correo_cinte, null);
         assert.equal(payload.email_personal, 'personal@mail.com');
     });
+
+    it('parsea fecha_inicio larga n8n "27 de julio de 2026"', () => {
+        const payload = mapDynamoItemForPromotion({
+            cedula: '1128052332',
+            'nombre y apellido': 'Pablo Gabriel Velilla Goenaga',
+            status: 'Finalizado',
+            fecha_inicio: '27 de julio de 2026',
+            email: 'pablivg@gmail.com'
+        });
+        assert.equal(payload.fecha_ingreso, '2026-07-27');
+    });
+
+    it('parsea fecha_ingreso "28 de julio del 2026"', () => {
+        const payload = mapDynamoItemForPromotion({
+            cedula: '53930907',
+            nombre: 'Aura Lorena Castellanos Chica',
+            status: 'Finalizado',
+            fecha_ingreso: '28 de julio del 2026'
+        });
+        assert.equal(payload.fecha_ingreso, '2026-07-28');
+    });
+});
+
+describe('promoteToColaborador con extended sucio n8n', () => {
+    it('aplica upsert aunque edad/fecha extended vengan en texto largo', async () => {
+        const { createOnboardingPromotionService } = require('../src/onboarding/onboardingPromotionService');
+        const stagingUpdates = [];
+        const client = {
+            query: async (sql, params) => {
+                if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
+                if (sql.includes('INSERT INTO onboarding_staging')) {
+                    return { rows: [{ id: '00000000-0000-4000-8000-000000000099' }] };
+                }
+                if (sql.includes('INSERT INTO colaboradores')) {
+                    return { rows: [{ cedula: params[0] }] };
+                }
+                if (sql.includes('UPDATE onboarding_staging')) {
+                    stagingUpdates.push({ sql, params });
+                    return { rows: [] };
+                }
+                if (sql.includes('UPDATE colaboradores SET')) {
+                    // No debe recibir "25 anos" ni fechas largas crudas
+                    for (const p of params.slice(1)) {
+                        if (typeof p === 'string' && /\banos\b|de julio|septiembre/i.test(p)) {
+                            throw new Error(`valor sucio en UPDATE: ${p}`);
+                        }
+                    }
+                    return { rows: [] };
+                }
+                return { rows: [] };
+            },
+            release() {}
+        };
+        const pool = { connect: async () => client, query: client.query };
+        const svc = createOnboardingPromotionService({ pool });
+        const result = await svc.promoteToColaborador(
+            {
+                cedula: '1001050555',
+                nombre: 'Cristian Daniel Guzmán Ramirez',
+                status: 'Finalizado',
+                fecha_ingreso: '2026-07-27',
+                extended: {
+                    edad: '25 anos',
+                    fecha_termino: '29 de septiembre de 2026',
+                    eps: 'SURA'
+                }
+            },
+            'dynamo_stream',
+            { eventType: 'MODIFY', sequenceNumber: 'test-sanitize' }
+        );
+        assert.equal(result.ok, true);
+        assert.equal(result.status, 'aplicado');
+        const last = stagingUpdates[stagingUpdates.length - 1];
+        assert.equal(last.params[0], 'aplicado');
+    });
 });

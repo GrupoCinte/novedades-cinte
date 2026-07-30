@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { CheckCircle2, XCircle, Clock, Pencil } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, Pencil, CalendarPlus } from 'lucide-react';
 import { buildGestionTableDash } from '../../gestionTableDashTheme.js';
 
 function formatHistorialFecha(value) {
@@ -41,6 +41,16 @@ function ajusteDiffLabel(detalle) {
     return null;
 }
 
+function novedadManualDiffLabel(detalle) {
+    if (!detalle || detalle.campo !== 'novedad_manual') return null;
+    const fi = detalle.fechaInicio || '—';
+    const ff = detalle.fechaFin || '—';
+    const dias = Number(detalle.diasHabiles) || 0;
+    const monto = Number(detalle.montoCop) || 0;
+    const diasTxt = dias === 1 ? '1 día hábil' : `${dias} días hábiles`;
+    return `${fi} → ${ff} · ${diasTxt} · ${formatCop(monto)}`;
+}
+
 export default function ConciliacionesFacturacionHistorialPanel({ items = [], loading = false, isLight }) {
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const list = Array.isArray(items) ? items : [];
@@ -63,7 +73,12 @@ export default function ConciliacionesFacturacionHistorialPanel({ items = [], lo
                             const esAprobar = entry.accion === 'APROBAR';
                             const esRechazar = entry.accion === 'RECHAZAR';
                             const esAjuste = entry.accion === 'AJUSTE';
-                            const diff = esAjuste ? ajusteDiffLabel(entry.detalle) : null;
+                            const esNovedadManual = entry.accion === 'NOVEDAD_MANUAL';
+                            const diff = esNovedadManual
+                                ? novedadManualDiffLabel(entry.detalle)
+                                : esAjuste
+                                  ? ajusteDiffLabel(entry.detalle)
+                                  : null;
                             return (
                                 <li
                                     key={entry.id}
@@ -77,6 +92,8 @@ export default function ConciliacionesFacturacionHistorialPanel({ items = [], lo
                                                 <CheckCircle2 size={16} className="shrink-0 text-emerald-500" aria-hidden />
                                             ) : esRechazar ? (
                                                 <XCircle size={16} className="shrink-0 text-rose-500" aria-hidden />
+                                            ) : esNovedadManual ? (
+                                                <CalendarPlus size={16} className="shrink-0 text-sky-500" aria-hidden />
                                             ) : (
                                                 <Pencil size={16} className="shrink-0 text-amber-500" aria-hidden />
                                             )}
@@ -85,7 +102,9 @@ export default function ConciliacionesFacturacionHistorialPanel({ items = [], lo
                                                     ? 'Aprobación'
                                                     : esRechazar
                                                       ? 'Rechazo'
-                                                      : 'Ajuste de montos'}{' '}
+                                                      : esNovedadManual
+                                                        ? 'Vacaciones en tiempo (manual)'
+                                                        : 'Ajuste de montos'}{' '}
                                                 — {etapaLabel(entry.etapa)}
                                             </span>
                                         </div>

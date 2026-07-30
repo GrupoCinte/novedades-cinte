@@ -9,7 +9,8 @@ const {
 } = require('../src/heBogotaSplit');
 const {
     mapSplitToPersistedFields,
-    recomputeAndPersistDomingoRecargoGroup
+    recomputeAndPersistDomingoRecargoGroup,
+    listHoraExtraRowsForCedula
 } = require('../src/heDomingoRecargoGroup');
 
 describe('heDomingoRecargoGroup', () => {
@@ -144,5 +145,97 @@ describe('heDomingoRecargoGroup', () => {
         assert.equal(updates.length, 2);
         const totalRec = updates.reduce((s, u) => s + Number(u.recargo), 0);
         assert.ok(Math.abs(totalRec - RECARGO_DOMINGO_MAX_HORAS_PRE_42) < 0.02);
+    });
+
+    it('listHoraExtraRowsForCedula filtra Pendiente y Aprobado (excluye Rechazado)', async () => {
+        let seenSql = '';
+        const pool = {
+            query: async (sql) => {
+                seenSql = String(sql || '');
+                return { rows: [] };
+            }
+        };
+        await listHoraExtraRowsForCedula(pool, '1032677346');
+        assert.match(seenSql, /estado\s+IN\s*\(\s*'Pendiente'::novedad_estado\s*,\s*'Aprobado'::novedad_estado\s*\)/i);
+        assert.doesNotMatch(seenSql, /'Rechazado'/i);
+    });
+
+    it('recompute ignora HE rechazada: solo activas consumen tope (AUT-586)', async () => {
+        const idImport = '20d09d82-00f2-479d-a20f-d802903eae11';
+        const idMixta = 'ac8edbc0-b97f-402c-bdb1-0614cfe89115';
+        // Simula SQL post-fix: la rechazada 53d56efd… no viene en el SELECT.
+        const rows = [
+            {
+                id: idImport,
+                cedula: '1032677346',
+                fecha_inicio: '2026-05-31',
+                fecha_fin: '2026-06-01',
+                hora_inicio: '21:00:00',
+                hora_fin: '00:00:00',
+                malla_origen_ref: null
+            },
+            {
+                id: idMixta,
+                cedula: '1032677346',
+                fecha_inicio: '2026-05-31',
+                fecha_fin: '2026-06-01',
+                hora_inicio: '21:00:00',
+                hora_fin: '08:00:00',
+                malla_origen_ref: null
+            }
+        ];
+        const byId = {};
+        const pool = {
+            query: async (sql, params) => {
+                if (/SELECT id, cedula/i.test(sql)) return { rows };
+                if (/UPDATE novedades SET/i.test(sql)) {
+                    byId[params[0]] = {
+                        cantidad: params[1],
+                        diurnas: params[2],
+                        nocturnas: params[3],
+                        recargo: params[4],
+                        recDomNoct: params[6]
+                    };
+                    return { rows: [] };
+                }
+                return { rows: [] };
+            }
+        };
+        const result = await recomputeAndPersistDomingoRecargoGroup(
+            pool,
+            '1032677346',
+            ['2026-05-31'],
+            new Set()
+        );
+        assert.equal(result.updated, 2);
+        assert.equal(byId[idImport].recargo, 3);
+        assert.equal(byId[idMixta].recDomNoct, 3);
+        assert.equal(byId[idMixta].nocturnas, 6);
+        assert.equal(byId[idMixta].diurnas, 2);
+        assert.equal(byId[idMixta].cantidad, 11);
+    });
+
+    it('sin rechazada: split Ángel 21:00→08:00 = recargo 3 + nocturnas 6 + diurnas 2', () => {
+        const splits = computeHoraExtraGroupSplitBogota(
+            [
+                {
+                    rowKey: 'import',
+                    startMs: toUtcMsFromDateAndTime('2026-05-31', '21:00:00'),
+                    endMs: toUtcMsFromDateAndTime('2026-06-01', '00:00:00')
+                },
+                {
+                    rowKey: 'mixta',
+                    startMs: toUtcMsFromDateAndTime('2026-05-31', '21:00:00'),
+                    endMs: toUtcMsFromDateAndTime('2026-06-01', '08:00:00')
+                }
+            ],
+            new Set()
+        );
+        const importSplit = splits.get('import');
+        const mixta = splits.get('mixta');
+        assert.equal(importSplit.horasRecargoDomingoNocturnas, 3);
+        assert.equal(mixta.horasRecargoDomingoNocturnas, 3);
+        assert.equal(mixta.nocturnas, 6);
+        assert.equal(mixta.diurnas, 2);
     });
 });

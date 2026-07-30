@@ -31,12 +31,29 @@ services:
       - ./assets:/app/assets
     networks: [nc_net]
 
+  # Worker de scraping Atracción (Playwright). Solo red interna; no publicar 8090 al host.
+  sourcing-worker:
+    build:
+      context: ./sourcing-worker
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SOURCING_WORKER_PORT: "8090"
+      PLAYWRIGHT_HEADLESS: "true"
+      SOURCING_CALLBACK_BASE_URL: ${SOURCING_CALLBACK_BASE_URL:-http://backend:3005}
+      SOURCING_WORKER_CALLBACK_SECRET: ${SOURCING_WORKER_CALLBACK_SECRET:-local-sourcing-dev}
+    volumes:
+      - sourcing_ee_profile:/app/.elempleo-profile
+    networks: [nc_net]
+
   frontend:
     build:
       context: .
       dockerfile: react-frontend/Dockerfile.frontend
       args:
         VITE_CONCILIACIONES_ENABLED: ${VITE_CONCILIACIONES_ENABLED:-false}
+        VITE_ATRACCION_TALENTO_ENABLED: ${VITE_ATRACCION_TALENTO_ENABLED:-false}
     restart: unless-stopped
     networks: [nc_net]
 
@@ -57,3 +74,4 @@ networks:
 
 volumes:
   pgdata:
+  sourcing_ee_profile:

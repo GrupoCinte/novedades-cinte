@@ -9,10 +9,18 @@ const {
     createFichaNovedadesService,
     isZohoNovedadItem
 } = require('../onboarding/fichaNovedadesService');
+const { createOnboardingDynamoPromotionSync } = require('../onboarding/onboardingDynamoPromotionSync');
 
-let active = { wsServer: null, streamPoller: null, promotionService: null, fichaNovedadesService: null };
+let active = {
+    wsServer: null,
+    streamPoller: null,
+    promotionService: null,
+    fichaNovedadesService: null,
+    promotionSync: null
+};
 let zohoSyncIntervalHandle = null;
 let zohoSyncInFlight = false;
+let promotionSyncIntervalHandle = null;
 
 function readEnvBool(name, defaultValue = false) {
     const raw = process.env[name];
@@ -150,9 +158,48 @@ function initContratacionRealtime(server, deps = {}) {
     const pollerEnabled = String(process.env.CONTRATACION_STREAM_POLLER_ENABLED || '').toLowerCase() === 'true';
     const autopromoteEnabled = String(process.env.ONBOARDING_AUTOPROMOTE || '').toLowerCase() === 'true';
 
+    /**
+     * Con poller off (Lambda WS), la promoción en vivo debe ir por Lambda → /intake.
+     * Además arrancamos reconcile periódico si AUTOPROMOTE=true (red de seguridad + backfill natural).
+     */
+    if (autopromoteEnabled && deps && deps.pool && !active.promotionSync) {
+        try {
+            active.promotionSync = createOnboardingDynamoPromotionSync({
+                pool: deps.pool,
+                logger,
+                tableName
+            });
+            const promoteOnStart = readEnvBool('ONBOARDING_DYNAMO_PROMOTE_ON_START', true);
+            const promoteIntervalMs = readEnvInt('ONBOARDING_DYNAMO_PROMOTE_INTERVAL_MS', 300000);
+            if (promoteOnStart) {
+                Promise.resolve(active.promotionSync.syncTerminalFromDynamo('startup')).catch((e) => {
+                    logger.error({ error: e.message }, 'Onboarding promote reconcile (startup) error');
+                });
+            }
+            if (promoteIntervalMs > 0 && !promotionSyncIntervalHandle) {
+                promotionSyncIntervalHandle = setInterval(() => {
+                    Promise.resolve(active.promotionSync.syncTerminalFromDynamo('interval')).catch((e) => {
+                        logger.error({ error: e.message }, 'Onboarding promote reconcile (interval) error');
+                    });
+                }, promoteIntervalMs);
+                if (typeof promotionSyncIntervalHandle.unref === 'function') {
+                    promotionSyncIntervalHandle.unref();
+                }
+                logger.info(
+                    { promoteIntervalMs, pollerEnabled },
+                    'Onboarding reconcile Dynamo→Postgres activo (AUTOPROMOTE)'
+                );
+            }
+        } catch (e) {
+            logger.error({ error: e.message }, 'Onboarding: no se pudo iniciar reconcile Dynamo→Postgres');
+        }
+    }
+
     if (!pollerEnabled || !tableName || !active.wsServer || active.streamPoller) {
         if (autopromoteEnabled && !pollerEnabled) {
-            logger.warn('ONBOARDING_AUTOPROMOTE=true pero CONTRATACION_STREAM_POLLER_ENABLED=false; no habrá promoción automática Dynamo→Postgres.');
+            logger.info(
+                'ONBOARDING_AUTOPROMOTE=true con poller off: promoción vía Lambda /intake + reconcile periódico del portal.'
+            );
         }
         return active;
     }
@@ -216,6 +263,10 @@ function initContratacionRealtime(server, deps = {}) {
 
 function shutdownContratacionRealtime() {
     stopZohoDynamoSyncScheduler();
+    if (promotionSyncIntervalHandle) {
+        clearInterval(promotionSyncIntervalHandle);
+        promotionSyncIntervalHandle = null;
+    }
     if (active.streamPoller) {
         try {
             active.streamPoller.stop();
@@ -234,6 +285,7 @@ function shutdownContratacionRealtime() {
     }
     active.promotionService = null;
     active.fichaNovedadesService = null;
+    active.promotionSync = null;
 }
 
 function getOnboardingPromotionService() {

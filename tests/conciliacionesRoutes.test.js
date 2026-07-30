@@ -25,6 +25,8 @@ function buildApp(deps = {}) {
         getConciliacionesDashboardResumenForScope:
             deps.getConciliacionesDashboardResumenForScope
             ?? (async () => ({ ok: true, clientesCount: 0, globalTotales: {}, rows: [] })),
+        decideMasivoConciliacionEmailAccion:
+            deps.decideMasivoConciliacionEmailAccion ?? (async () => ({ ok: true, updated: 0 })),
         upsertConciliacionFacturacionForScope: deps.upsertConciliacionFacturacionForScope ?? stubAsync,
         applyConciliacionFacturacionRevisionForScope: deps.applyConciliacionFacturacionRevisionForScope ?? stubAsync,
         applyConciliacionFacturacionRevisionMasivaForScope: deps.applyConciliacionFacturacionRevisionMasivaForScope ?? stubAsync,

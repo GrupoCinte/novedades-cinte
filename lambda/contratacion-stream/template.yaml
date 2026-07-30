@@ -1,0 +1,217 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Contratacion realtime — DynamoDB Streams → Lambda → API Gateway WebSocket + Zoho intake HTTP
+
+Parameters:
+  DynamoTableName:
+    Type: String
+    Default: n8n_table_state_users
+    Description: Tabla Dynamo con stream (NEW_AND_OLD_IMAGES)
+  DynamoStreamArn:
+    Type: String
+    Description: ARN del stream LatestStreamArn de la tabla (obligatorio en deploy)
+  PortalBaseUrl:
+    Type: String
+    Description: URL base del portal (sin slash final), p.ej. https://novedades.grupocinte.com
+  OnboardingIngestKey:
+    Type: String
+    NoEcho: true
+    Description: Valor del header x-onboarding-key
+  ContratacionWsSecret:
+    Type: String
+    NoEcho: true
+    Description: Mismo secreto que CONTRATACION_WS_SECRET / JWT_SECRET del portal
+  StageName:
+    Type: String
+    Default: prod
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 30
+    MemorySize: 256
+    Architectures:
+      - x86_64
+
+Resources:
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub contratacion-ws-connections-${StageName}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: connectionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectionId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  ContratacionWebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub contratacion-ws-${StageName}
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: $request.body.action
+
+  WsConnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub contratacion-ws-connect-${StageName}
+      CodeUri: ./
+      Handler: src/wsConnect.handler
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          CONTRATACION_WS_SECRET: !Ref ContratacionWsSecret
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionsTable
+
+  WsDisconnectFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub contratacion-ws-disconnect-${StageName}
+      CodeUri: ./
+      Handler: src/wsDisconnect.handler
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionsTable
+
+  WsDefaultFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub contratacion-ws-default-${StageName}
+      CodeUri: ./
+      Handler: src/wsDefault.handler
+
+  StreamFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub contratacion-stream-${StageName}
+      CodeUri: ./
+      Handler: src/streamHandler.handler
+      Timeout: 60
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          WS_API_ENDPOINT: !Sub https://${ContratacionWebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}
+          PORTAL_BASE_URL: !Ref PortalBaseUrl
+          ONBOARDING_INGEST_KEY: !Ref OnboardingIngestKey
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConnectionsTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - execute-api:ManageConnections
+              Resource: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ContratacionWebSocketApi}/${StageName}/POST/@connections/*
+            - Effect: Allow
+              Action:
+                - dynamodb:DescribeStream
+                - dynamodb:GetRecords
+                - dynamodb:GetShardIterator
+                - dynamodb:ListStreams
+              Resource: !Ref DynamoStreamArn
+      Events:
+        DynamoStream:
+          Type: DynamoDB
+          Properties:
+            Stream: !Ref DynamoStreamArn
+            StartingPosition: LATEST
+            BatchSize: 25
+            MaximumRetryAttempts: 3
+            BisectBatchOnFunctionError: true
+
+  ConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ContratacionWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsConnectFunction.Arn}/invocations
+
+  DisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ContratacionWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsDisconnectFunction.Arn}/invocations
+
+  DefaultIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ContratacionWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsDefaultFunction.Arn}/invocations
+
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ContratacionWebSocketApi
+      RouteKey: $connect
+      AuthorizationType: NONE
+      Target: !Sub integrations/${ConnectIntegration}
+
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ContratacionWebSocketApi
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      Target: !Sub integrations/${DisconnectIntegration}
+
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ContratacionWebSocketApi
+      RouteKey: $default
+      AuthorizationType: NONE
+      Target: !Sub integrations/${DefaultIntegration}
+
+  ConnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WsConnectFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ContratacionWebSocketApi}/*
+
+  DisconnectPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WsDisconnectFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ContratacionWebSocketApi}/*
+
+  DefaultPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WsDefaultFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ContratacionWebSocketApi}/*
+
+  WsStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ContratacionWebSocketApi
+      StageName: !Ref StageName
+      AutoDeploy: true
+
+Outputs:
+  WebSocketUrl:
+    Description: URL wss para VITE_CONTRATACION_WS_URL (sin query)
+    Value: !Sub wss://${ContratacionWebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}
+  ConnectionsTableName:
+    Value: !Ref ConnectionsTable
+  StreamFunctionArn:
+    Value: !GetAtt StreamFunction.Arn
+  DynamoTableNameEcho:
+    Value: !Ref DynamoTableName
