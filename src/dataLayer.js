@@ -2750,6 +2750,8 @@ function createDataLayer(deps) {
         normalizeCedula,
         canRoleViewType,
         getFestivosSet: () => festivosService.getFestivosSet(),
+        getColaboradorByCedula,
+        getLideresByCliente,
         emailNotificationsPublisher,
         frontendUrl: String(frontendUrl || '').trim(),
         cognitoClient,

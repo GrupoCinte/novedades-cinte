@@ -377,5 +377,52 @@ CREATE TRIGGER trg_actividades_consultor_updated_at
 BEFORE UPDATE ON actividades_consultor
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- ========= Atracción de Talento (sourcing) =========
+CREATE TABLE IF NOT EXISTS sourcing_vacantes (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    titulo          TEXT NULL,
+    descripcion     TEXT NOT NULL,
+    criterios       JSONB NOT NULL DEFAULT '{}'::jsonb,
+    estado          TEXT NOT NULL DEFAULT 'borrador'
+                    CHECK (estado IN ('borrador', 'activa', 'cerrada', 'archivada')),
+    created_by      UUID NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sourcing_jobs (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    vacante_id      UUID NOT NULL REFERENCES sourcing_vacantes(id) ON DELETE CASCADE,
+    estado          TEXT NOT NULL DEFAULT 'pendiente'
+                    CHECK (estado IN ('pendiente', 'en_progreso', 'parcial', 'completado', 'fallido', 'cancelado')),
+    fuentes         JSONB NOT NULL DEFAULT '{"elempleo":true,"linkedin":false,"xray":false}'::jsonb,
+    progreso        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    error_mensaje   TEXT NULL,
+    created_by      UUID NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS sourcing_candidatos (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    job_id          UUID NOT NULL REFERENCES sourcing_jobs(id) ON DELETE CASCADE,
+    vacante_id      UUID NOT NULL REFERENCES sourcing_vacantes(id) ON DELETE CASCADE,
+    fuente          TEXT NOT NULL,
+    url_perfil      TEXT NULL,
+    nombre          TEXT NULL,
+    perfil          JSONB NOT NULL DEFAULT '{}'::jsonb,
+    score           INTEGER NULL CHECK (score IS NULL OR (score >= 0 AND score <= 100)),
+    resumen_score   TEXT NULL,
+    decision        TEXT NOT NULL DEFAULT 'pendiente'
+                    CHECK (decision IN ('pendiente', 'aprobado', 'rechazado')),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sourcing_jobs_vacante ON sourcing_jobs (vacante_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sourcing_candidatos_job ON sourcing_candidatos (job_id, score DESC NULLS LAST);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sourcing_candidatos_dedup
+    ON sourcing_candidatos (job_id, fuente, COALESCE(url_perfil, ''), COALESCE(nombre, ''));
+
 COMMIT;
 
