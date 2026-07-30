@@ -3,7 +3,6 @@
 const { parseHeDomingoCompFromObservacion } = require('./heDomingoCompensacion');
 const {
     splitHoursByBogotaDay,
-    isSundayBogotaYmd,
     bogotaDateKeyFromMs,
     bogotaMidnightUtcMsFromYmd,
     isDiaRecargoDominicalBogotaYmd
@@ -94,17 +93,21 @@ function collectTimedRangesBySliceKey(startMs, endMs, festivosSet) {
 
     for (const seg of he.diurna) {
         iterateDayPortions(seg.startMs, seg.endMs, (dayKey, s, e) => {
-            const key = isSundayBogotaYmd(dayKey) ? 'diurna_dominical' : 'diurna_laboral';
+            const key = isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)
+                ? 'diurna_dominical'
+                : 'diurna_laboral';
             addPortion(key, s, e);
         });
     }
     for (const seg of he.nocturna) {
         iterateDayPortions(seg.startMs, seg.endMs, (dayKey, s, e) => {
-            const key = isSundayBogotaYmd(dayKey) ? 'nocturna_dominical' : 'nocturna_laboral';
+            const onRecargoDay = isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet);
+            const key = onRecargoDay ? 'nocturna_dominical' : 'nocturna_laboral';
             addPortion(key, s, e);
-            if (!isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) {
-                addPortion('recargo_nocturno_ordinario', s, e);
-            }
+            // En día hábil: recargo nocturno ordinario = tramo nocturno.
+            // En domingo/festivo: el exceso tras tope de recargo (HE nocturna) también
+            // alimenta el slice persistido como horas_recargo_nocturno (malla).
+            addPortion('recargo_nocturno_ordinario', s, e);
         });
     }
     for (const seg of rec.diurna) addPortion('recargo_diurno', seg.startMs, seg.endMs);
@@ -114,25 +117,55 @@ function collectTimedRangesBySliceKey(startMs, endMs, festivosSet) {
 }
 
 /**
+ * Une corridas contiguas y elige el rango cuya duración más se acerca a sliceHours.
  * @param {string} sliceKey
  * @param {Map<string, Array<{ startMs: number, endMs: number, hours: number }>>} timedByKey
  * @param {number} sliceHours
  * @returns {{ startMs: number, endMs: number }|null}
  */
 function pickTimeRangeForSlice(sliceKey, timedByKey, sliceHours) {
-    const list = timedByKey.get(sliceKey) || [];
+    const list = [...(timedByKey.get(sliceKey) || [])].sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
     if (!list.length) return null;
     if (list.length === 1) return { startMs: list[0].startMs, endMs: list[0].endMs };
-    let best = list[0];
-    let bestDiff = Math.abs(best.hours - sliceHours);
-    for (const seg of list) {
-        const diff = Math.abs(seg.hours - sliceHours);
-        if (diff < bestDiff) {
-            best = seg;
-            bestDiff = diff;
+
+    /** @type {Array<Array<{ startMs: number, endMs: number, hours: number }>>} */
+    const runs = [];
+    let run = [list[0]];
+    for (let i = 1; i < list.length; i++) {
+        const prev = run[run.length - 1];
+        if (list[i].startMs <= prev.endMs + 1) {
+            run.push(list[i]);
+        } else {
+            runs.push(run);
+            run = [list[i]];
         }
     }
-    return { startMs: best.startMs, endMs: best.endMs };
+    runs.push(run);
+
+    /** @type {{ startMs: number, endMs: number }|null} */
+    let best = null;
+    let bestDiff = Infinity;
+
+    const consider = (startMs, endMs, hours) => {
+        const diff = Math.abs(hours - sliceHours);
+        if (diff < bestDiff - 1e-9 || (Math.abs(diff - bestDiff) < 1e-9 && best && startMs < best.startMs)) {
+            bestDiff = diff;
+            best = { startMs, endMs };
+        }
+    };
+
+    for (const r of runs) {
+        const startMs = r[0].startMs;
+        const endMs = r[r.length - 1].endMs;
+        const sumH = r.reduce((acc, seg) => acc + seg.hours, 0);
+        consider(startMs, endMs, sumH);
+        consider(startMs, endMs, (endMs - startMs) / HOUR_MS);
+    }
+    for (const seg of list) {
+        consider(seg.startMs, seg.endMs, seg.hours);
+    }
+
+    return best;
 }
 
 /**
@@ -163,9 +196,9 @@ function enrichSlicesWithTimeRanges(it, slices, dep) {
 }
 
 /**
- * Horas de HE «laboral» (exceso tras recargo dominical) en tramos diurno/nocturno que caen en domingo calendario Bogotá.
+ * Horas de HE (exceso tras recargo) en tramos diurno/nocturno que caen en domingo o festivo Bogotá.
  * @param {{ fechaInicio?: string, fechaFin?: string, horaInicio?: string, horaFin?: string }} it
- * @param {{ toUtcMsFromDateAndTime: (d: unknown, t: unknown) => number|null }} dep
+ * @param {{ toUtcMsFromDateAndTime: (d: unknown, t: unknown) => number|null, festivosSet?: Set<string> }} dep
  * @returns {{ diurnaSun: number, nocturnaSun: number }}
  */
 function heDiurnaNocturnaSundayHoursBogota(it, dep) {
@@ -183,24 +216,29 @@ function heDiurnaNocturnaSundayHoursBogota(it, dep) {
     if (startMs == null || endMs == null || !Number.isFinite(endMs - startMs) || endMs <= startMs) {
         return { diurnaSun: 0, nocturnaSun: 0 };
     }
-    const { diurna, nocturna } = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs);
+    const festivosSet = dep?.festivosSet;
+    const { diurna, nocturna } = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs, festivosSet);
     let diurnaSun = 0;
     let nocturnaSun = 0;
     for (const seg of diurna) {
         for (const [dayKey, h] of splitHoursByBogotaDay(seg.startMs, seg.endMs)) {
-            if (isSundayBogotaYmd(dayKey) && Number.isFinite(h) && h > 0) diurnaSun += h;
+            if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet) && Number.isFinite(h) && h > 0) {
+                diurnaSun += h;
+            }
         }
     }
     for (const seg of nocturna) {
         for (const [dayKey, h] of splitHoursByBogotaDay(seg.startMs, seg.endMs)) {
-            if (isSundayBogotaYmd(dayKey) && Number.isFinite(h) && h > 0) nocturnaSun += h;
+            if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet) && Number.isFinite(h) && h > 0) {
+                nocturnaSun += h;
+            }
         }
     }
     return { diurnaSun, nocturnaSun };
 }
 
 /**
- * Divide slice diurna/nocturna en filas laboral y/o dominical según horas en domingo Bogotá.
+ * Divide slice diurna/nocturna en filas laboral y/o dominical según horas en domingo/festivo Bogotá.
  * @param {'diurna'|'nocturna'} kind
  * @param {number} sliceH
  * @param {number} sunH
@@ -276,6 +314,18 @@ function hasLegacyRecargoSolo(it) {
 }
 
 /**
+ * Vuelto de malla tras tope de recargo dom/fest (persistido en horas_recargo_nocturno).
+ * @param {object} it
+ * @returns {boolean}
+ */
+function isRecargoNocturnoVueltoTrasTopeDomFest(it) {
+    const rn = Number(it?.horasRecargoNocturno || 0);
+    const rdd = Number(it?.horasRecargoDomingoDiurnas || 0);
+    const rdn = Number(it?.horasRecargoDomingoNocturnas || 0);
+    return rn > EPS_H && (rdd > EPS_H || rdn > EPS_H);
+}
+
+/**
  * Etiqueta legible para columna «Compensación dominical» en export Excel (por fila / slice).
  * @param {string} observacion he_domingo_observacion o equivalente cliente
  * @param {string} sliceKey
@@ -315,7 +365,7 @@ function formatTipoNovedadHeSlice(it, sliceOrLabel) {
 
 /**
  * @param {object} it objeto cliente toClientNovedad
- * @param {{ toUtcMsFromDateAndTime?: (d: unknown, t: unknown) => number|null }} [dep]
+ * @param {{ toUtcMsFromDateAndTime?: (d: unknown, t: unknown) => number|null, festivosSet?: Set<string> }} [dep]
  * @returns {HeExcelSlice[]|null} null = usar fila única legacy (sin componentes > 0)
  */
 function buildHoraExtraExportSlices(it, dep) {
@@ -332,6 +382,16 @@ function buildHoraExtraExportSlices(it, dep) {
         }
         if (spec.sliceKey === 'nocturna') {
             out.push(...buildHeLaboralDomingoSlices('nocturna', h, nocturnaSun, spec.columnKey, obs));
+            continue;
+        }
+        if (spec.sliceKey === 'recargo_nocturno_ordinario' && isRecargoNocturnoVueltoTrasTopeDomFest(it)) {
+            // Export: vuelto post-tope → HE Nocturna Dominical (QA); horario vía segmentos HE nocturnos.
+            out.push({
+                sliceKey: 'nocturna_dominical',
+                tipoLabel: formatHeTipoFromSliceKey('nocturna_dominical', obs),
+                hours: h,
+                columnKey: spec.columnKey
+            });
             continue;
         }
         out.push({
@@ -376,5 +436,6 @@ module.exports = {
     buildHeLaboralDomingoSlices,
     msRangeToExcelHoraFields,
     enrichSlicesWithTimeRanges,
-    collectTimedRangesBySliceKey
+    collectTimedRangesBySliceKey,
+    pickTimeRangeForSlice
 };
