@@ -8,8 +8,8 @@ const {
 const { runJobScoring } = require('../src/sourcing/services/runJobScoring');
 const { scoreColor, lerpColor } = require('../src/sourcing/utils/scoreRingColor');
 
-test('buildScorePrompt incluye vacante y candidato', () => {
-    const prompt = buildScorePrompt(
+test('buildScorePrompt incluye vacante y candidato', async () => {
+    const prompt = await buildScorePrompt(
         {
             titulo: 'Arquitecto',
             descripcion: 'Buscamos arquitecto con AWS y Java.',
