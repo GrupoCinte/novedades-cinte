@@ -20,6 +20,27 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-07-29 22:54:42 · `integrate/testing-atraccion-talento` · `6e0d28fc`
+- **Commit:** `6e0d28fc941e201c404fbe9589ea7b47a1fbd767`
+- **Ticket:** —
+- **Requerimiento funcional:** Deja listo el módulo Atracción de Talento para QA: el worker de búsqueda corre en Docker junto al portal, y conectar El Empleo se hace con la extensión del navegador (como LinkedIn), sin terminal.
+- **Componente técnico:** `sourcing-worker/Dockerfile`, `docker-compose.prod.yml`, `react-frontend/Dockerfile.frontend`, `AtraccionIntegracionesPage.jsx`, `.env.example`, `integrations/cinte-session-bridge/README.md`.
+- **Cambios (uno a uno):**
+  - Servicio `sourcing-worker` en compose (red interna, sin publicar 8090).
+  - Build frontend con `VITE_ATRACCION_TALENTO_ENABLED`.
+  - Integraciones El Empleo: flujo extensión + fallback Playwright.
+  - Instructivo de instalación del conector CINTE.
+
+### 2026-07-29 22:20:25 · `integrate/testing-atraccion-talento` · `fc6b04a0`
+- **Commit:** `fc6b04a0bfa605ea7b4010d2dbbebb8a890aa96a`
+- **Ticket:** —
+- **Requerimiento funcional:** Integra el módulo Atracción de Talento (vacantes, shortlist, campañas, Zoho, worker) sobre la línea `testing` para poder desplegarlo en QA junto al resto del portal.
+- **Componente técnico:** merge de `feat/atraccion-wip-recuperado-stashes` en rama desde `testing`; cableado App/AdminPortal/RBAC/schema/server CSRF; conciliaciones se conservó de `testing`.
+- **Cambios (uno a uno):**
+  - Merge local testing + atracción con resolución de conflictos.
+  - Paneles RBAC `atraccion` + `monitoreo` en super_admin.
+  - Schema con actividades consultor y tablas sourcing.
+
 ### 2026-07-29 16:44:30 · `fix/AUT-587-he-excel-export-festivo-rangos` · `77283398`
 - **Commit:** `772833980ae5d3008a1dfd800c9af878a9e8eb32`
 - **Ticket:** AUT-587
