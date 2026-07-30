@@ -279,7 +279,7 @@ async function executeSubmitForm({
       return;
     }
   } catch (err) {
-    console.warn('Error validando duplicidad frontend:', err);
+    // Ignorar errores de parseo de fecha en frontend para duplicados, el backend validará el formato
   }
 
   setFieldErrors({});
