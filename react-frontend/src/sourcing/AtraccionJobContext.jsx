@@ -13,7 +13,13 @@ import {
 const POLL_MS = 8000;
 const POLL_MS_SLOW = 20000;
 
-const AtraccionJobContext = createContext(null);
+// Una sola instancia aunque Vite/HMR cargue el módulo por rutas distintas (@fs vs /src).
+const AtraccionJobContext =
+    (typeof globalThis !== 'undefined' && globalThis.__CINTE_ATRACCION_JOB_CTX__)
+    || createContext(null);
+if (typeof globalThis !== 'undefined') {
+    globalThis.__CINTE_ATRACCION_JOB_CTX__ = AtraccionJobContext;
+}
 
 export function AtraccionJobProvider({ token, children }) {
     const [job, setJob] = useState(null);
@@ -179,10 +185,23 @@ export function AtraccionJobProvider({ token, children }) {
     );
 }
 
+const ATRACCION_JOB_FALLBACK = {
+    job: null,
+    candidatos: [],
+    candidatosCount: 0,
+    vacanteTitulo: '',
+    lastPolledAt: null,
+    pollError: '',
+    isPolling: false,
+    isLive: false,
+    trackJob: () => {},
+    dismissJob: () => {},
+    refreshJob: async () => null
+};
+
 export function useAtraccionJob() {
     const ctx = useContext(AtraccionJobContext);
-    if (!ctx) {
-        throw new Error('useAtraccionJob debe usarse dentro de AtraccionJobProvider');
-    }
+    // Fallback: evita pantalla blanca si HMR/Vite duplica el módulo del contexto.
+    if (!ctx) return ATRACCION_JOB_FALLBACK;
     return ctx;
 }

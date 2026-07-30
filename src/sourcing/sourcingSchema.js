@@ -163,6 +163,11 @@ async function ensureSourcingSchema({ pool, logger } = {}) {
         logger,
         `ALTER TABLE sourcing_vacantes ADD COLUMN IF NOT EXISTS url_postulaciones_ee TEXT NULL;`
     );
+    await runQuery(
+        pool,
+        logger,
+        `ALTER TABLE sourcing_vacantes ADD COLUMN IF NOT EXISTS texto_oferta TEXT NULL;`
+    );
 
     // Código de ejecución (job) consecutivo por vacante.
     await runQuery(

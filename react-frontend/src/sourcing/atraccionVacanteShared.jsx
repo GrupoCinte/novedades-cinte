@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { createSourcingJob, createPostulacionesJob, createRediscoveryJob, generarOferta, publicarVacante, fetchPublicaciones } from './atraccionApi.js';
+import {
+    createSourcingJob,
+    createPostulacionesJob,
+    createRediscoveryJob,
+    generarOferta,
+    saveVacanteTextoOferta,
+    publicarVacante,
+    fetchPublicaciones
+} from './atraccionApi.js';
 import { useAtraccionJob } from './AtraccionJobContext.jsx';
 import { JobProgressPanel } from './AtraccionJobLiveBanner.jsx';
 import { computeFiltrosFaltantes } from './filtrosObligatorios.js';
@@ -274,12 +282,19 @@ function validatePostulacionesUrl(raw) {
     return { ok: true, url };
 }
 
-export function VacantePublicarPanel({ vacante, token, isLight, onPublishedUrl }) {
-    const [textoOferta, setTextoOferta] = useState('');
+export function VacantePublicarPanel({ vacante, token, isLight, onPublishedUrl, onVacanteUpdated }) {
+    const [textoOferta, setTextoOferta] = useState(() => String(vacante?.texto_oferta || ''));
+    const [savedTexto, setSavedTexto] = useState(() => String(vacante?.texto_oferta || ''));
     const [busy, setBusy] = useState('');
     const [msg, setMsg] = useState('');
     const [msgOk, setMsgOk] = useState(true);
     const [pollingPub, setPollingPub] = useState(false);
+
+    useEffect(() => {
+        const next = String(vacante?.texto_oferta || '');
+        setTextoOferta(next);
+        setSavedTexto(next);
+    }, [vacante?.id, vacante?.texto_oferta]);
     const btnSecondary = isLight
         ? 'rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50'
         : 'rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50';
@@ -295,9 +310,23 @@ export function VacantePublicarPanel({ vacante, token, isLight, onPublishedUrl }
                 const latest = pubs.find((p) => p.canal === 'elempleo') || pubs[0];
                 if (!latest) return;
                 if (latest.estado === 'publicada' && latest.url_publicada) {
-                    onPublishedUrl?.(latest.url_publicada, latest);
+                    const raw = String(latest.url_publicada || '').trim();
+                    const idMatch = raw.match(/ofertas-trabajo-(\d+)/i)
+                        || raw.match(/\/empresas\/buscar\/oferta\/(\d+)/i)
+                        || raw.match(/\/empresas\/ofertas\/editar\/(\d+)/i);
+                    const empresasUrl = /\/empresas\/buscar\/oferta\/\d+/i.test(raw)
+                        ? raw
+                        : (idMatch
+                            ? `https://www.elempleo.com/co/empresas/buscar/oferta/${idMatch[1]}`
+                            : '');
+                    // Publicar y scrape de postulados son independientes: solo sugerimos URL concreta.
+                    if (empresasUrl) onPublishedUrl?.(empresasUrl, latest);
                     setMsgOk(true);
-                    setMsg('Oferta publicada en El Empleo. URL lista para importar postulados.');
+                    setMsg(
+                        empresasUrl
+                            ? `Oferta publicada en El Empleo. URL de oferta: ${empresasUrl}`
+                            : `Oferta publicada en El Empleo: ${raw}`
+                    );
                     setPollingPub(false);
                 } else if (latest.estado === 'fallida') {
                     setMsgOk(false);
@@ -344,6 +373,21 @@ export function VacantePublicarPanel({ vacante, token, isLight, onPublishedUrl }
                 placeholder="Texto de la oferta (genere con IA o edite)"
                 value={textoOferta}
                 onChange={(e) => setTextoOferta(e.target.value)}
+                onBlur={async () => {
+                    const next = String(textoOferta || '');
+                    if (next === savedTexto) return;
+                    try {
+                        const d = await saveVacanteTextoOferta(token, vacante.id, next);
+                        const persisted = String(d.texto_oferta || next);
+                        setSavedTexto(persisted);
+                        setTextoOferta(persisted);
+                        if (d.vacante) onVacanteUpdated?.(d.vacante);
+                        else onVacanteUpdated?.({ ...vacante, texto_oferta: persisted });
+                    } catch (e) {
+                        setMsgOk(false);
+                        setMsg(e.message || 'No se pudo guardar el texto de la oferta');
+                    }
+                }}
             />
             <div className="mt-2 flex flex-wrap gap-2">
                 <button
@@ -351,10 +395,18 @@ export function VacantePublicarPanel({ vacante, token, isLight, onPublishedUrl }
                     className={btnSecondary}
                     disabled={Boolean(busy) || pollingPub}
                     onClick={async () => {
+                        const wasGenerated = Boolean(savedTexto.trim());
                         setBusy('gen');
+                        setMsg('');
                         try {
                             const d = await generarOferta(token, vacante.id);
-                            setTextoOferta(d.texto_oferta || '');
+                            const next = String(d.texto_oferta || '');
+                            setTextoOferta(next);
+                            setSavedTexto(next);
+                            if (d.vacante) onVacanteUpdated?.(d.vacante);
+                            else onVacanteUpdated?.({ ...vacante, texto_oferta: next });
+                            setMsgOk(true);
+                            setMsg(wasGenerated ? 'Texto regenerado y guardado.' : 'Texto generado y guardado.');
                         } catch (e) {
                             setMsgOk(false);
                             setMsg(e.message);
@@ -363,7 +415,9 @@ export function VacantePublicarPanel({ vacante, token, isLight, onPublishedUrl }
                         }
                     }}
                 >
-                    Generar con IA
+                    {busy === 'gen'
+                        ? 'Generando…'
+                        : (textoOferta.trim() ? 'Regenerar con IA' : 'Generar con IA')}
                 </button>
                 <button
                     type="button"
@@ -544,7 +598,7 @@ export function VacanteRediscoveryPanel({ vacante, token, isLight }) {
 }
 
 /** Wrapper legacy (p. ej. AtraccionVacantePage tras crear). */
-export function VacanteExtrasPanel({ vacante, token, isLight, health, integraciones }) {
+export function VacanteExtrasPanel({ vacante, token, isLight, health, integraciones, onVacanteUpdated }) {
     const [urlPostulaciones, setUrlPostulaciones] = useState(vacante.url_postulaciones_ee || '');
     const [urlLocked, setUrlLocked] = useState(Boolean(vacante.url_postulaciones_ee));
 
@@ -555,6 +609,7 @@ export function VacanteExtrasPanel({ vacante, token, isLight, health, integracio
                 token={token}
                 isLight={isLight}
                 onPublishedUrl={(url) => { setUrlPostulaciones(url); setUrlLocked(true); }}
+                onVacanteUpdated={onVacanteUpdated}
             />
             <VacantePostulacionesPanel
                 vacante={vacante}

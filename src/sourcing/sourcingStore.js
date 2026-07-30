@@ -62,7 +62,7 @@ function createSourcingStore({ pool }) {
         params.push(Math.min(Math.max(Number(limit) || 50, 1), 200));
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
         const result = await pool.query(
-            `SELECT id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, created_at, updated_at
+            `SELECT id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, texto_oferta, created_at, updated_at
              FROM sourcing_vacantes
              ${where}
              ORDER BY created_at DESC
@@ -77,7 +77,7 @@ function createSourcingStore({ pool }) {
             `UPDATE sourcing_vacantes
              SET estado = 'archivada', updated_at = NOW()
              WHERE id = $1::uuid
-             RETURNING id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, created_at, updated_at`,
+             RETURNING id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, texto_oferta, created_at, updated_at`,
             [id]
         );
         return q.rows[0] || null;
@@ -89,7 +89,19 @@ function createSourcingStore({ pool }) {
             `UPDATE sourcing_vacantes
              SET url_postulaciones_ee = $2, updated_at = NOW()
              WHERE id = $1::uuid
-             RETURNING id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, created_at, updated_at`,
+             RETURNING id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, texto_oferta, created_at, updated_at`,
+            [id, normalized]
+        );
+        return q.rows[0] || null;
+    }
+
+    async function updateVacanteTextoOferta({ id, textoOferta }) {
+        const normalized = String(textoOferta || '').trim() || null;
+        const q = await pool.query(
+            `UPDATE sourcing_vacantes
+             SET texto_oferta = $2, updated_at = NOW()
+             WHERE id = $1::uuid
+             RETURNING id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, texto_oferta, created_at, updated_at`,
             [id, normalized]
         );
         return q.rows[0] || null;
@@ -100,7 +112,7 @@ function createSourcingStore({ pool }) {
         const q = await pool.query(
             `INSERT INTO sourcing_vacantes (titulo, descripcion, criterios, estado, created_by)
              VALUES ($1, $2, $3::jsonb, $4, $5::uuid)
-             RETURNING id, codigo, titulo, descripcion, criterios, estado, created_at, updated_at`,
+             RETURNING id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, texto_oferta, created_at, updated_at`,
             [
                 titulo || null,
                 descripcion,
@@ -120,7 +132,7 @@ function createSourcingStore({ pool }) {
                  estado = $4,
                  updated_at = NOW()
              WHERE id = $1::uuid
-             RETURNING id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, created_at, updated_at`,
+             RETURNING id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, texto_oferta, created_at, updated_at`,
             [id, titulo || null, JSON.stringify(criterios || {}), estado]
         );
         return q.rows[0] || null;
@@ -145,7 +157,7 @@ function createSourcingStore({ pool }) {
 
     async function getVacanteById(id) {
         const q = await pool.query(
-            `SELECT id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, created_at, updated_at
+            `SELECT id, codigo, titulo, descripcion, criterios, estado, url_postulaciones_ee, texto_oferta, created_at, updated_at
              FROM sourcing_vacantes WHERE id = $1::uuid`,
             [id]
         );
@@ -1240,6 +1252,7 @@ function createSourcingStore({ pool }) {
         updateVacanteParsed,
         updateVacanteCriterios,
         updateVacantePostulacionesUrl,
+        updateVacanteTextoOferta,
         archiveVacante,
         getVacanteById,
         listJobsByVacante,

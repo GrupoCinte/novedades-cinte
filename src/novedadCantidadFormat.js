@@ -223,14 +223,20 @@ function foldTipo(value) {
         .replace(/\s+/g, ' ');
 }
 
-function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
+function countBusinessDaysInclusive(startDateRaw, endDateRaw, festivosSet = null) {
     if (!startDateRaw || !endDateRaw || endDateRaw < startDateRaw) return 0;
     const start = new Date(`${startDateRaw}T00:00:00`);
     const end = new Date(`${endDateRaw}T00:00:00`);
+    const hasFestivos = festivosSet && typeof festivosSet.has === 'function';
     let count = 0;
     for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
         const day = cursor.getDay();
-        if (day !== 0 && day !== 6) count += 1;
+        if (day === 0 || day === 6) continue;
+        if (hasFestivos) {
+            const ymd = cursor.toISOString().slice(0, 10);
+            if (festivosSet.has(ymd)) continue;
+        }
+        count += 1;
     }
     return count;
 }

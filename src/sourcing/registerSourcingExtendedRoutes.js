@@ -209,7 +209,36 @@ function registerSourcingExtendedRoutes(deps) {
             const vacante = await store.getVacanteById(req.params.id);
             if (!vacante) return res.status(404).json({ ok: false, error: 'Vacante no encontrada' });
             const texto = await generateOfertaText(vacante);
-            return res.json({ ok: true, texto_oferta: texto });
+            const updated = await store.updateVacanteTextoOferta({
+                id: vacante.id,
+                textoOferta: texto
+            });
+            return res.json({
+                ok: true,
+                texto_oferta: texto,
+                vacante: updated || { ...vacante, texto_oferta: texto }
+            });
+        } catch (error) {
+            return res.status(500).json({ ok: false, error: error.message });
+        }
+    });
+
+    app.patch('/api/atraccion/vacantes/:id/texto-oferta', ...writeGuard, async (req, res) => {
+        try {
+            const vacante = await store.getVacanteById(req.params.id);
+            if (!vacante) return res.status(404).json({ ok: false, error: 'Vacante no encontrada' });
+            const texto = req.body?.texto_oferta;
+            if (texto !== undefined && texto !== null && typeof texto !== 'string') {
+                return res.status(400).json({ ok: false, error: 'texto_oferta inválido' });
+            }
+            if (typeof texto === 'string' && texto.length > 20000) {
+                return res.status(400).json({ ok: false, error: 'texto_oferta demasiado largo' });
+            }
+            const updated = await store.updateVacanteTextoOferta({
+                id: vacante.id,
+                textoOferta: texto
+            });
+            return res.json({ ok: true, vacante: updated, texto_oferta: updated?.texto_oferta || null });
         } catch (error) {
             return res.status(500).json({ ok: false, error: error.message });
         }
@@ -255,11 +284,26 @@ function registerSourcingExtendedRoutes(deps) {
         return pub;
     }
 
+    async function resolveTextoOfertaForPublish(vacante, bodyTexto) {
+        const fromBody = String(bodyTexto || '').trim();
+        if (fromBody) {
+            if (fromBody !== String(vacante.texto_oferta || '').trim()) {
+                await store.updateVacanteTextoOferta({ id: vacante.id, textoOferta: fromBody });
+            }
+            return fromBody;
+        }
+        const fromVacante = String(vacante.texto_oferta || '').trim();
+        if (fromVacante) return fromVacante;
+        const generated = await generateOfertaText(vacante);
+        await store.updateVacanteTextoOferta({ id: vacante.id, textoOferta: generated });
+        return generated;
+    }
+
     app.post('/api/atraccion/vacantes/:id/publicar/elempleo', ...writeGuard, async (req, res) => {
         try {
             const vacante = await store.getVacanteById(req.params.id);
             if (!vacante) return res.status(404).json({ ok: false, error: 'Vacante no encontrada' });
-            const texto = req.body?.texto_oferta || await generateOfertaText(vacante);
+            const texto = await resolveTextoOfertaForPublish(vacante, req.body?.texto_oferta);
             const actorUserId = await resolveActorUserId(req);
             const pub = await dispatchPublish(vacante.id, 'elempleo', texto, actorUserId);
             return res.status(202).json({ ok: true, publicacion: pub });
@@ -272,7 +316,7 @@ function registerSourcingExtendedRoutes(deps) {
         try {
             const vacante = await store.getVacanteById(req.params.id);
             if (!vacante) return res.status(404).json({ ok: false, error: 'Vacante no encontrada' });
-            const texto = req.body?.texto_oferta || await generateOfertaText(vacante);
+            const texto = await resolveTextoOfertaForPublish(vacante, req.body?.texto_oferta);
             const actorUserId = await resolveActorUserId(req);
             const pub = await dispatchPublish(vacante.id, 'linkedin', texto, actorUserId);
             return res.status(202).json({ ok: true, publicacion: pub });
@@ -452,17 +496,28 @@ function registerSourcingExtendedRoutes(deps) {
     });
 
     // Internal: callback publicación
+    // Publicar oferta ≠ scrape de postulaciones: solo se sugiere URL de postulaciones
+    // si viene una URL concreta de oferta (/empresas/buscar/oferta/{id}).
     app.post('/api/atraccion/internal/publicaciones/:id/complete', deps.workerGuard || [], async (req, res) => {
         try {
+            const urlPublicada = String(req.body?.url_publicada || '').trim();
+            const urlEmpresas = String(req.body?.url_empresas || '').trim();
             const pub = await store.updatePublicacion({
                 id: req.params.id,
                 estado: req.body?.estado || 'publicada',
-                urlPublicada: req.body?.url_publicada,
+                urlPublicada: urlPublicada || null,
                 errorMensaje: req.body?.error_mensaje
             });
-            const url = String(req.body?.url_publicada || '').trim();
-            if (pub?.vacante_id && pub?.canal === 'elempleo' && pub?.estado === 'publicada' && url.includes('/empresas/')) {
-                await store.updateVacantePostulacionesUrl({ id: pub.vacante_id, url });
+            const concreteEmpresas = /\/empresas\/buscar\/oferta\/\d+/i.test(urlEmpresas)
+                ? urlEmpresas
+                : (/\/empresas\/buscar\/oferta\/\d+/i.test(urlPublicada) ? urlPublicada : '');
+            if (
+                pub?.vacante_id
+                && pub?.canal === 'elempleo'
+                && pub?.estado === 'publicada'
+                && concreteEmpresas
+            ) {
+                await store.updateVacantePostulacionesUrl({ id: pub.vacante_id, url: concreteEmpresas });
             }
             return res.json({ ok: true, publicacion: pub });
         } catch (error) {

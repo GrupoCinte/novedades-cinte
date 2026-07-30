@@ -146,6 +146,8 @@ async def publish_vacante(canal: str, payload: PublishRequest, background: Backg
         body = {
             "estado": estado,
             "url_publicada": result.get("url_publicada"),
+            "url_empresas": result.get("url_empresas"),
+            "offer_id": result.get("offer_id"),
             "error_mensaje": result.get("mensaje") if estado == "fallida" else None,
         }
         base = payload.callback_base_url.rstrip("/")

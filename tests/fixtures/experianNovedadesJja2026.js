@@ -312,16 +312,12 @@ const EXPERIAN_JJA_ELEGIBLE_FACT_MESES = Object.fromEntries(
         const row = toElegibilityRow(seed);
         const meses = [6, 7, 8].filter((factMes) => {
             const mr = monthRangeDates(2026, factMes);
-            return isNovedadElegibleParaCierreRow(
-                row,
-                {
+            return isNovedadElegibleParaCierreRow(row, {
                     novStart: mr.start,
                     novEnd: mr.end,
                     factStart: mr.start,
                     factEnd: mr.end
-                },
-                { includeRuleC: false }
-            );
+                });
         });
         return [seed.caso, meses];
     })

@@ -441,6 +441,18 @@ export async function generarOferta(token, vacanteId) {
     return data;
 }
 
+export async function saveVacanteTextoOferta(token, vacanteId, textoOferta) {
+    const res = await fetch(`/api/atraccion/vacantes/${encodeURIComponent(vacanteId)}/texto-oferta`, {
+        method: 'PATCH',
+        headers: atraccionAuthHeaders(token),
+        credentials: 'include',
+        body: JSON.stringify({ texto_oferta: textoOferta })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseAtraccionApiError(data, res.statusText));
+    return data;
+}
+
 export async function publicarVacante(token, vacanteId, canal, textoOferta) {
     const res = await fetch(`/api/atraccion/vacantes/${encodeURIComponent(vacanteId)}/publicar/${canal}`, {
         method: 'POST',

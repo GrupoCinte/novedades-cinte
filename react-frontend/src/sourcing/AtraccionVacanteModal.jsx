@@ -672,6 +672,8 @@ export default function AtraccionVacanteModal({
 
                         onPublishedUrl={handlePublishedUrl}
 
+                        onVacanteUpdated={onVacanteUpdated}
+
                     />
 
                     <VacantePostulacionesPanel
