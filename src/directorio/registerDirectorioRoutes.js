@@ -7,6 +7,8 @@ const { normalizeRoleOrNull } = require('../rbac');
 const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSemaforo');
 const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
 const { resolveActorUserIdForSession } = require('../resolveActorUserId');
+const { calcularEstado } = require('../reubicaciones/reubicacionesEstados');
+const { diasHabilesTranscurridos } = require('../reubicaciones/reubicacionesCalendario');
 
 function directorioGuard() {
     return (req, res, next) => {
@@ -402,6 +404,18 @@ function registerDirectorioRoutes(deps) {
         let fechaFin = row.fecha_fin;
         if (fechaFin instanceof Date) fechaFin = fechaFin.toISOString().slice(0, 10);
         else if (typeof fechaFin === 'string') fechaFin = fechaFin.slice(0, 10);
+
+        
+        const fechaActual = new Date();
+        const estadoResult = calcularEstado(fechaFin, null, fechaActual);
+        
+        let diasHabiles = 0;
+        if (estadoResult.estado === 'En proceso') {
+            const fechaFinDate = new Date(fechaFin);
+            diasHabiles = diasHabilesTranscurridos(fechaFinDate, fechaActual) || 0;
+        }
+        
+        
         return {
             id: row.id,
             cedula: row.cedula,
@@ -415,6 +429,9 @@ function registerDirectorioRoutes(deps) {
             montos_divisa: row.montos_divisa ?? null,
             dias_restantes: dias,
             semaforo: semaforoFromDiasRestantes(dias),
+            estado: estadoResult.estado,                         
+            dias_transcurridos: estadoResult.diasTranscurridos,   
+            motivo: estadoResult.motivo || null,                 
             created_at: row.created_at,
             updated_at: row.updated_at
         };
