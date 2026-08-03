@@ -50,6 +50,7 @@ async function startServer(deps) {
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         ensureActividadesConsultorTable,
+        ensureSeguimientoTables,
         PORT,
         COGNITO_ENABLED,
         COGNITO_REGION,
@@ -104,6 +105,14 @@ async function startServer(deps) {
             await ensureActividadesConsultorTable();
         } catch (e) {
             logger.warn({ error: e?.message }, 'Inicialización DDL actividades_consultor omitida o sin permisos');
+        }
+    }
+
+    if (typeof ensureSeguimientoTables === 'function') {
+        try {
+            await ensureSeguimientoTables(pool);
+        } catch (e) {
+            logger.warn({ error: e?.message }, 'Inicialización DDL seguimiento omitida o sin permisos');
         }
     }
 

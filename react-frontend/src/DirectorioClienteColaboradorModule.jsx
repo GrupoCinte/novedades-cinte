@@ -9,6 +9,7 @@ import {
     CalendarDays,
     ChevronLeft,
     ChevronRight,
+    ClipboardList,
     Home,
     LayoutDashboard,
     Layers,
@@ -33,13 +34,14 @@ import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js'
 import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
-import { userIsGpMallasOnly } from './mallasAccess.js';
+import { userIsGpMallasOnly, userHasSeguimientoAccess } from './mallasAccess.js';
 import { userHasMonitoreoAccess } from './monitoreoAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
 import MallasTurnosModule from './MallasTurnosModule';
 import MonitoreoActividadesView from './MonitoreoActividadesView.jsx';
+import SeguimientoAdminView from './seguimiento/SeguimientoAdminView.jsx';
 import ColaboradorFichaFields from './components/ColaboradorFichaFields.jsx';
 import {
     initialStaffForm,
@@ -196,6 +198,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     const gpMallasOnly = userIsGpMallasOnly(auth);
     const canAccessMonitoreo = userHasMonitoreoAccess(auth);
+    const canAccessSeguimiento = userHasSeguimientoAccess(auth);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -207,65 +210,54 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         setFiltersPanelOpen(false);
     }, [mainView]);
 
+    const gpAllowedViews = useMemo(() => {
+        const views = ['mallasTurnos'];
+        if (canAccessMonitoreo) views.push('monitoreo');
+        if (canAccessSeguimiento) views.push('seguimiento');
+        return views;
+    }, [canAccessMonitoreo, canAccessSeguimiento]);
+
     useEffect(() => {
-        const gpAllowedViews = canAccessMonitoreo ? ['mallasTurnos', 'monitoreo'] : ['mallasTurnos'];
         if (gpMallasOnly && !gpAllowedViews.includes(mainView)) {
             setMainView('mallasTurnos');
         }
-    }, [gpMallasOnly, canAccessMonitoreo, mainView]);
+    }, [gpMallasOnly, gpAllowedViews, mainView]);
 
     const showTiCatalogSubmod = !gpMallasOnly && userHasRolesTiCatalogRead(auth);
+    
     useEffect(() => {
         const v = searchParams.get('v');
-        if (v === 'monitoreo') {
-            if (canAccessMonitoreo) setMainView('monitoreo');
-            const next = new URLSearchParams(searchParams);
-            next.delete('v');
-            setSearchParams(next, { replace: true });
-            return;
+        if (!v) return;
+
+        let nextView = null;
+        
+        if (v === 'monitoreo' && canAccessMonitoreo) {
+            nextView = 'monitoreo';
+        } else if (v === 'seguimiento' && canAccessSeguimiento) {
+            nextView = 'seguimiento';
+        } else if (v === 'dashboard') {
+            nextView = 'dashboardAdmin';
+        } else if (v === 'reubicaciones') {
+            nextView = 'reubicaciones';
+        } else if (v === 'mallas-turnos') {
+            nextView = 'mallasTurnos';
+        } else if (v === 'catalogo-ti' && showTiCatalogSubmod) {
+            nextView = 'catalogoTi';
         }
-        if (gpMallasOnly) {
-            if (mainView !== 'monitoreo' || !canAccessMonitoreo) setMainView('mallasTurnos');
-            if (v) {
-                const next = new URLSearchParams(searchParams);
-                next.delete('v');
-                setSearchParams(next, { replace: true });
+
+        if (nextView) {
+            if (gpMallasOnly && !gpAllowedViews.includes(nextView)) {
+                setMainView('mallasTurnos');
+            } else {
+                setMainView(nextView);
             }
-            return;
         }
-        if (v === 'dashboard') {
-            setMainView('dashboardAdmin');
-            const next = new URLSearchParams(searchParams);
-            next.delete('v');
-            setSearchParams(next, { replace: true });
-            return;
-        }
-        if (v === 'reubicaciones') {
-            setMainView('reubicaciones');
-            const next = new URLSearchParams(searchParams);
-            next.delete('v');
-            setSearchParams(next, { replace: true });
-            return;
-        }
-        if (v === 'mallas-turnos') {
-            setMainView('mallasTurnos');
-            const next = new URLSearchParams(searchParams);
-            next.delete('v');
-            setSearchParams(next, { replace: true });
-            return;
-        }
-        if (v !== 'catalogo-ti') return;
-        if (!showTiCatalogSubmod) {
-            const next = new URLSearchParams(searchParams);
-            next.delete('v');
-            setSearchParams(next, { replace: true });
-            return;
-        }
-        setMainView('catalogoTi');
-        const next = new URLSearchParams(searchParams);
-        next.delete('v');
-        setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly, canAccessMonitoreo, mainView]);
+        
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('v');
+        setSearchParams(nextParams, { replace: true });
+        
+    }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly, gpAllowedViews, canAccessMonitoreo, canAccessSeguimiento]);
 
     const [msg, setMsg] = useState(null);
 
@@ -1101,6 +1093,17 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             }}
                         />
                     ) : null}
+                    {canAccessSeguimiento ? (
+                        <NavBtn
+                            active={mainView === 'seguimiento'}
+                            icon={ClipboardList}
+                            label="Seguimiento a Consultores"
+                            onClick={() => {
+                                setMainView('seguimiento');
+                                setMobileMenuOpen(false);
+                            }}
+                        />
+                    ) : null}
                 </>
             ) : (
                 <>
@@ -1159,6 +1162,17 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             label="Monitoreo de actividades"
                             onClick={() => {
                                 setMainView('monitoreo');
+                                setMobileMenuOpen(false);
+                            }}
+                        />
+                    ) : null}
+                    {canAccessSeguimiento ? (
+                        <NavBtn
+                            active={mainView === 'seguimiento'}
+                            icon={ClipboardList}
+                            label="Seguimiento a Consultores"
+                            onClick={() => {
+                                setMainView('seguimiento');
                                 setMobileMenuOpen(false);
                             }}
                         />
@@ -1716,6 +1730,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     ) : null}
 
                     {mainView === 'monitoreo' && canAccessMonitoreo ? <MonitoreoActividadesView /> : null}
+
+                    {mainView === 'seguimiento' && canAccessSeguimiento ? (
+                        <SeguimientoAdminView token={token} auth={auth} />
+                    ) : null}
 
                     {mainView === 'cliente' ? (
                         <ModuleFiltersDrawer
