@@ -181,27 +181,22 @@ export default function SeguimientoAdminView({ token, auth }) {
                         Selecciona el tipo de acta de seguimiento que deseas registrar:
                     </p>
                     <div className="grid grid-cols-2 gap-4">
-                        <button
-                            onClick={() => handleSelectTipo('Consultor')}
-                            className={`flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 transition-colors ${isLight
-                                ? 'border-slate-200 bg-white hover:border-[#2F7BB8] hover:bg-slate-50'
-                                : 'border-slate-700 bg-slate-800 hover:border-[#2F7BB8] hover:bg-slate-750'
-                                }`}
-                        >
-                            <span className="font-semibold text-[#2F7BB8]">Consultor</span>
-                            <span className={`text-xs text-center ${dash.mutedSm}`}>Seguimiento individual a un consultor</span>
-                        </button>
-
-                        <button
-                            onClick={() => handleSelectTipo('Cliente')}
-                            className={`flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 transition-colors ${isLight
-                                ? 'border-slate-200 bg-white hover:border-[#2F7BB8] hover:bg-slate-50'
-                                : 'border-slate-700 bg-slate-800 hover:border-[#2F7BB8] hover:bg-slate-750'
-                                }`}
-                        >
-                            <span className="font-semibold text-[#2F7BB8]">Cliente</span>
-                            <span className={`text-xs text-center ${dash.mutedSm}`}>Reunión de servicio con líderes del cliente</span>
-                        </button>
+                        {[
+                            { tipo: 'Consultor', desc: 'Seguimiento individual a un consultor' },
+                            { tipo: 'Cliente', desc: 'Reunión de servicio con líderes del cliente' }
+                        ].map((opcion) => (
+                            <button
+                                key={opcion.tipo}
+                                onClick={() => handleSelectTipo(opcion.tipo)}
+                                className={`flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 transition-colors ${isLight
+                                    ? 'border-slate-200 bg-white hover:border-[#2F7BB8] hover:bg-slate-50'
+                                    : 'border-slate-700 bg-slate-800 hover:border-[#2F7BB8] hover:bg-slate-750'
+                                    }`}
+                            >
+                                <span className="font-semibold text-[#2F7BB8]">{opcion.tipo}</span>
+                                <span className={`text-xs text-center ${dash.mutedSm}`}>{opcion.desc}</span>
+                            </button>
+                        ))}
                     </div>
                 </div>
             </GestionModalShell>
