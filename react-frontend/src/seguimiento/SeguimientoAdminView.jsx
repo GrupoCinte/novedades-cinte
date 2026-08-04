@@ -101,8 +101,8 @@ export default function SeguimientoAdminView({ token, auth }) {
             label: 'Estado',
             render: (row) => (
                 <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${row.estado === 'FINALIZADO'
-                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
-                        : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400'
+                    : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
                     }`}>
                     {row.estado}
                 </span>
@@ -131,7 +131,7 @@ export default function SeguimientoAdminView({ token, auth }) {
                     onClick={() => setModalTipoOpen(true)}
                     className={`${dash.btnPrimaryCinte} shrink-0`}
                 >
-                    Registrar Acta
+                    Crear Nuevo
                 </button>
             </ModuleFiltersToolbar>
 
@@ -184,8 +184,8 @@ export default function SeguimientoAdminView({ token, auth }) {
                         <button
                             onClick={() => handleSelectTipo('Consultor')}
                             className={`flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 transition-colors ${isLight
-                                    ? 'border-slate-200 bg-white hover:border-[#2F7BB8] hover:bg-slate-50'
-                                    : 'border-slate-700 bg-slate-800 hover:border-[#2F7BB8] hover:bg-slate-750'
+                                ? 'border-slate-200 bg-white hover:border-[#2F7BB8] hover:bg-slate-50'
+                                : 'border-slate-700 bg-slate-800 hover:border-[#2F7BB8] hover:bg-slate-750'
                                 }`}
                         >
                             <span className="font-semibold text-[#2F7BB8]">Consultor</span>
@@ -195,8 +195,8 @@ export default function SeguimientoAdminView({ token, auth }) {
                         <button
                             onClick={() => handleSelectTipo('Cliente')}
                             className={`flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 transition-colors ${isLight
-                                    ? 'border-slate-200 bg-white hover:border-[#2F7BB8] hover:bg-slate-50'
-                                    : 'border-slate-700 bg-slate-800 hover:border-[#2F7BB8] hover:bg-slate-750'
+                                ? 'border-slate-200 bg-white hover:border-[#2F7BB8] hover:bg-slate-50'
+                                : 'border-slate-700 bg-slate-800 hover:border-[#2F7BB8] hover:bg-slate-750'
                                 }`}
                         >
                             <span className="font-semibold text-[#2F7BB8]">Cliente</span>

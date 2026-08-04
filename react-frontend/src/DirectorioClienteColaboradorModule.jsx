@@ -224,13 +224,13 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     }, [gpMallasOnly, gpAllowedViews, mainView]);
 
     const showTiCatalogSubmod = !gpMallasOnly && userHasRolesTiCatalogRead(auth);
-    
+
     useEffect(() => {
         const v = searchParams.get('v');
         if (!v) return;
 
         let nextView = null;
-        
+
         if (v === 'monitoreo' && canAccessMonitoreo) {
             nextView = 'monitoreo';
         } else if (v === 'seguimiento' && canAccessSeguimiento) {
@@ -252,11 +252,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 setMainView(nextView);
             }
         }
-        
+
         const nextParams = new URLSearchParams(searchParams);
         nextParams.delete('v');
         setSearchParams(nextParams, { replace: true });
-        
+
     }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly, gpAllowedViews, canAccessMonitoreo, canAccessSeguimiento]);
 
     const [msg, setMsg] = useState(null);
@@ -645,7 +645,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         const all = [];
         let offset = 0;
         const limit = 200;
-        for (;;) {
+        for (; ;) {
             const u = new URLSearchParams();
             u.set('cliente', CLIENTE_INTERNO_CINTE);
             u.set('activo', 'all');
@@ -1051,9 +1051,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             type="button"
             title={!sidebarOpen ? label : undefined}
             onClick={onClick}
-            className={`flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left w-full ${
-                sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'
-            } ${active ? navAccentActive : navAccentInactive}`}
+            className={`flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left w-full ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'
+                } ${active ? navAccentActive : navAccentInactive}`}
         >
             <Icon size={18} className="flex-shrink-0" />
             {sidebarOpen && <span className="truncate">{label}</span>}
@@ -1097,7 +1096,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         <NavBtn
                             active={mainView === 'seguimiento'}
                             icon={ClipboardList}
-                            label="Seguimiento a Consultores"
+                            label="Seguimiento"
                             onClick={() => {
                                 setMainView('seguimiento');
                                 setMobileMenuOpen(false);
@@ -1348,9 +1347,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 <div className={`md:hidden fixed inset-0 z-40 ${scrim}`} onClick={() => setMobileMenuOpen(false)} />
             ) : null}
             <aside
-                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${
-                    mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-                }`}
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                    }`}
             >
                 <AdminModuleSidebarBrand
                     variant="drawer"
@@ -1389,9 +1387,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             </aside>
 
             <aside
-                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden font-body shadow-2xl transition-all duration-300 ease-in-out md:flex ${aside} ${
-                    sidebarOpen ? 'w-64' : 'w-16'
-                }`}
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden font-body shadow-2xl transition-all duration-300 ease-in-out md:flex ${aside} ${sidebarOpen ? 'w-64' : 'w-16'
+                    }`}
             >
                 <AdminModuleSidebarBrand
                     variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
@@ -1440,9 +1437,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             <div className="flex flex-col flex-1 min-h-0 min-w-0">
                 {msg ? (
                     <div
-                        className={`mx-4 md:mx-8 mt-3 px-3 py-2 rounded text-sm shrink-0 ${
-                            msg.ok ? 'bg-emerald-900/40 text-emerald-200' : 'bg-red-900/40 text-red-200'
-                        }`}
+                        className={`mx-4 md:mx-8 mt-3 px-3 py-2 rounded text-sm shrink-0 ${msg.ok ? 'bg-emerald-900/40 text-emerald-200' : 'bg-red-900/40 text-red-200'
+                            }`}
                     >
                         {msg.text}
                     </div>
@@ -1611,13 +1607,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                     coItems.map((row) => (
                                                         <tr
                                                             key={row.cedula}
-                                                            className={`${dash.trHover} cursor-pointer ${
-                                                                selectedCoCedula === row.cedula
+                                                            className={`${dash.trHover} cursor-pointer ${selectedCoCedula === row.cedula
                                                                     ? isLight
                                                                         ? 'bg-sky-100'
                                                                         : 'bg-[#0f2942]/80'
                                                                     : ''
-                                                            }`}
+                                                                }`}
                                                             onClick={() =>
                                                                 setSelectedCoCedula((cur) =>
                                                                     cur === row.cedula ? null : row.cedula
@@ -2024,13 +2019,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     );
                                     return (
                                         <p
-                                            className={`mt-1 ${
-                                                gsInfo.conflict
+                                            className={`mt-1 ${gsInfo.conflict
                                                     ? isLight
                                                         ? 'text-amber-700'
                                                         : 'text-amber-300/90'
                                                     : ''
-                                            }`}
+                                                }`}
                                         >
                                             {gsInfo.label}
                                         </p>
@@ -2208,11 +2202,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                         key={tab.id}
                                         type="button"
                                         onClick={() => setStaffFichaTab(tab.id)}
-                                        className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${
-                                            staffFichaTab === tab.id
+                                        className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${staffFichaTab === tab.id
                                                 ? 'border-[#2F7BB8] text-[var(--text)]'
                                                 : `border-transparent ${labelMuted}`
-                                        }`}
+                                            }`}
                                     >
                                         {tab.shortTitle || tab.title}
                                     </button>
