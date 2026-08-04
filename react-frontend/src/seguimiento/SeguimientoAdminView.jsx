@@ -41,18 +41,14 @@ export default function SeguimientoAdminView({ token, auth }) {
                 if (resActas.ok) {
                     const dataActas = await resActas.json();
                     setActas(dataActas.items || []);
-                } else {
-                    console.error('Error fetching actas', resActas.status);
                 }
 
                 if (resCartera.ok) {
                     const dataCartera = await resCartera.json();
                     setClientesCartera(dataCartera.clientes || []);
-                } else {
-                    console.error('Error fetching cartera', resCartera.status);
                 }
             } catch (err) {
-                console.error('Error fetching seguimiento data', err);
+                // Ignore errors for now
             } finally {
                 setLoading(false);
             }
@@ -62,10 +58,7 @@ export default function SeguimientoAdminView({ token, auth }) {
 
     const handleSelectTipo = (tipo) => {
         setModalTipoOpen(false);
-        // Retrasamos el alert ligeramente para permitir que el modal se cierre visualmente
-        setTimeout(() => {
-            alert(`Flujo para crear acta tipo: ${tipo}. El formulario pertenece a AUT-284.`);
-        }, 150);
+        // TODO: Flujo para crear acta tipo: tipo. El formulario pertenece a AUT-284.
     };
 
     const columns = [
@@ -135,7 +128,7 @@ export default function SeguimientoAdminView({ token, auth }) {
                     rows={loading ? [] : actas}
                     isLight={isLight}
                     emptyText={loading ? 'Cargando actas...' : (isGp ? 'No hay actas registradas en tu cartera.' : 'No hay actas registradas.')}
-                    onRowClick={() => alert('Ver detalle (AUT-284)')}
+                    onRowClick={() => { /* TODO: Ver detalle (AUT-284) */ }}
                 />
             </div>
 
@@ -167,6 +160,7 @@ export default function SeguimientoAdminView({ token, auth }) {
                         ].map((opcion) => (
                             <button
                                 key={opcion.tipo}
+                                type="button"
                                 onClick={() => handleSelectTipo(opcion.tipo)}
                                 className={`flex flex-col items-center justify-center gap-2 p-6 rounded-xl border-2 transition-colors ${isLight
                                     ? 'border-slate-200 bg-white hover:border-[#2F7BB8] hover:bg-slate-50'

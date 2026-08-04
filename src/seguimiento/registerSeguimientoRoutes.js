@@ -2,7 +2,6 @@ function registerSeguimientoRoutes(deps) {
     const {
         app,
         verificarToken,
-        allowPanel,
         allowRoles,
         resolveGpInternalUserIdForScope,
         listAssignedClientesForGpUserId,
@@ -63,8 +62,8 @@ function registerSeguimientoRoutes(deps) {
             const scope = { gpEmail, gpUserId };
             
             // Paginación por query string
-            const limit = parseInt(req.query.limit || '50', 10);
-            const offset = parseInt(req.query.offset || '0', 10);
+            const limit = Number.parseInt(req.query.limit || '50', 10);
+            const offset = Number.parseInt(req.query.offset || '0', 10);
 
             // 1. Determinar el alcance del usuario. Si es GP, trae su UUID; sino, null (acceso global para CAC/SA).
             let gpId = null;
