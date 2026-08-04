@@ -1,15 +1,11 @@
-/** 
- * Lee una cookie por nombre.
- */
-import { authHeaders as mallasAuthHeaders } from '../mallasTurnosApi.js';
-import { readCookieFromDocument } from '../sourcing/atraccionApi.js';
+import { buildCsrfHeaders } from '../cognitoAuth.js';
 
 /** 
- * Lee una cookie por nombre (reutilizando atraccionApi).
+ * Construye headers de autenticación siguiendo el patrón del proyecto (Bearer + XSRF).
  */
-export const readCookie = readCookieFromDocument;
-
-/** 
- * Construye headers de autenticación siguiendo el patrón del proyecto (Bearer + XSRF) (reutilizando mallasTurnosApi).
- */
-export const authHeaders = mallasAuthHeaders;
+export function authHeaders(token) {
+    const headers = buildCsrfHeaders({ 'Content-Type': 'application/json' });
+    const t = String(token || '').trim();
+    if (t) headers.Authorization = `Bearer ${t}`;
+    return headers;
+}
