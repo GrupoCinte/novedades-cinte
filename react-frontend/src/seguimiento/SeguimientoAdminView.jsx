@@ -1,9 +1,31 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import ModuleFiltersToolbar from '../shared/filters/ModuleFiltersToolbar.jsx';
 import GestionDataTable from '../onboarding/GestionDataTable.jsx';
 import GestionModalShell from '../shared/modals/GestionModalShell.jsx';
+
+/** Lee una cookie por nombre (mismo helper que DirectorioClienteColaboradorModule). */
+function readCookie(name) {
+    const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
+    if (!raw) return '';
+    const parts = raw.split(';');
+    for (const part of parts) {
+        const [k, ...rest] = part.trim().split('=');
+        if (k === name) return decodeURIComponent(rest.join('=') || '');
+    }
+    return '';
+}
+
+/** Construye headers de autenticación siguiendo el patrón del proyecto (Bearer + XSRF). */
+function authHeaders(token) {
+    const headers = { 'Content-Type': 'application/json' };
+    const t = String(token || '').trim();
+    if (t) headers.Authorization = `Bearer ${t}`;
+    const xsrf = readCookie('cinteXsrf');
+    if (xsrf) headers['x-cinte-xsrf'] = xsrf;
+    return headers;
+}
 
 export default function SeguimientoAdminView({ token, auth }) {
     const { isLight } = useModuleTheme();
@@ -22,13 +44,18 @@ export default function SeguimientoAdminView({ token, auth }) {
     // Estado para el panel de filtros
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
+    const fetchOpts = useCallback(() => ({
+        headers: authHeaders(token),
+        credentials: 'include'
+    }), [token]);
+
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
             try {
                 const [resActas, resCartera] = await Promise.all([
-                    fetch('/api/seguimiento/actas', { headers: { 'Authorization': `Bearer ${token}` } }),
-                    fetch('/api/seguimiento/cartera', { headers: { 'Authorization': `Bearer ${token}` } })
+                    fetch('/api/seguimiento/actas', fetchOpts()),
+                    fetch('/api/seguimiento/cartera', fetchOpts())
                 ]);
 
                 if (resActas.ok) {
@@ -50,10 +77,8 @@ export default function SeguimientoAdminView({ token, auth }) {
                 setLoading(false);
             }
         };
-        if (token) {
-            fetchData();
-        }
-    }, [token]);
+        fetchData();
+    }, [fetchOpts]);
 
     const handleSelectTipo = (tipo) => {
         setModalTipoOpen(false);
