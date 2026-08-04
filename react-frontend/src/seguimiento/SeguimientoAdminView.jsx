@@ -5,27 +5,7 @@ import ModuleFiltersToolbar from '../shared/filters/ModuleFiltersToolbar.jsx';
 import GestionDataTable from '../onboarding/GestionDataTable.jsx';
 import GestionModalShell from '../shared/modals/GestionModalShell.jsx';
 
-/** Lee una cookie por nombre (mismo helper que DirectorioClienteColaboradorModule). */
-function readCookie(name) {
-    const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
-    if (!raw) return '';
-    const parts = raw.split(';');
-    for (const part of parts) {
-        const [k, ...rest] = part.trim().split('=');
-        if (k === name) return decodeURIComponent(rest.join('=') || '');
-    }
-    return '';
-}
-
-/** Construye headers de autenticación siguiendo el patrón del proyecto (Bearer + XSRF). */
-function authHeaders(token) {
-    const headers = { 'Content-Type': 'application/json' };
-    const t = String(token || '').trim();
-    if (t) headers.Authorization = `Bearer ${t}`;
-    const xsrf = readCookie('cinteXsrf');
-    if (xsrf) headers['x-cinte-xsrf'] = xsrf;
-    return headers;
-}
+import { authHeaders } from '../shared/authUtils.js';
 
 export default function SeguimientoAdminView({ token, auth }) {
     const { isLight } = useModuleTheme();

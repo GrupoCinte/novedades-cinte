@@ -49,26 +49,7 @@ import {
     buildStaffColaboradorPayload,
     CO_TABS
 } from './constants/colaboradoresConsultorFields.js';
-
-function readCookie(name) {
-    const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
-    if (!raw) return '';
-    const parts = raw.split(';');
-    for (const part of parts) {
-        const [k, ...rest] = part.trim().split('=');
-        if (k === name) return decodeURIComponent(rest.join('=') || '');
-    }
-    return '';
-}
-
-function authHeaders(token) {
-    const headers = { 'Content-Type': 'application/json' };
-    const t = String(token || '').trim();
-    if (t) headers.Authorization = `Bearer ${t}`;
-    const xsrf = readCookie('cinteXsrf');
-    if (xsrf) headers['x-cinte-xsrf'] = xsrf;
-    return headers;
-}
+import { authHeaders } from './shared/authUtils.js';
 
 /** Alineado con `foldForMatch` del backend (`clienteNombreMatch`) para emparejar catálogo. */
 function foldCatalogMatch(value) {
@@ -1059,6 +1040,21 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         </button>
     );
 
+    const renderSeguimientoNavBtn = (label) => {
+        if (!canAccessSeguimiento) return null;
+        return (
+            <NavBtn
+                active={mainView === 'seguimiento'}
+                icon={ClipboardList}
+                label={label}
+                onClick={() => {
+                    setMainView('seguimiento');
+                    setMobileMenuOpen(false);
+                }}
+            />
+        );
+    };
+
     const sidebarNav = () => (
         <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
             <NavBtn
@@ -1092,17 +1088,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             }}
                         />
                     ) : null}
-                    {canAccessSeguimiento ? (
-                        <NavBtn
-                            active={mainView === 'seguimiento'}
-                            icon={ClipboardList}
-                            label="Seguimiento"
-                            onClick={() => {
-                                setMainView('seguimiento');
-                                setMobileMenuOpen(false);
-                            }}
-                        />
-                    ) : null}
+                    {renderSeguimientoNavBtn("Seguimiento")}
                 </>
             ) : (
                 <>
@@ -1165,17 +1151,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             }}
                         />
                     ) : null}
-                    {canAccessSeguimiento ? (
-                        <NavBtn
-                            active={mainView === 'seguimiento'}
-                            icon={ClipboardList}
-                            label="Seguimiento a Consultores"
-                            onClick={() => {
-                                setMainView('seguimiento');
-                                setMobileMenuOpen(false);
-                            }}
-                        />
-                    ) : null}
+                    {renderSeguimientoNavBtn("Seguimiento a Consultores")}
                     {showTiCatalogSubmod ? (
                         <NavBtn
                             active={mainView === 'catalogoTi'}
