@@ -154,7 +154,7 @@ export default function SeguimientoAdminView({ token, auth }) {
                     columns={columns}
                     rows={loading ? [] : actas}
                     isLight={isLight}
-                    emptyText={loading ? 'Cargando actas...' : 'No hay actas registradas en tu cartera.'}
+                    emptyText={loading ? 'Cargando actas...' : (isGp ? 'No hay actas registradas en tu cartera.' : 'No hay actas registradas.')}
                     onRowClick={() => alert('Ver detalle (AUT-284)')}
                 />
             </div>
