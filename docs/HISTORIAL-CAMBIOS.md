@@ -20,6 +20,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-05 11:44:21 · `fix/csrf-onboarding-intake-dynamo-scans` · `d8ee8853`
+- **Commit:** `d8ee8853eca65b4214ab7d3d9a81177332a25878`
+- **Ticket:** —
+- **Requerimiento funcional:** Registra en la bitácora oficial el fix de CSRF del intake Lambda.
+- **Componente técnico:** `docs/HISTORIAL-CAMBIOS.md`.
+- **Cambios (uno a uno):**
+  - Entrada append-only para el commit `fa4edd44`.
+
 ### 2026-08-05 11:43:48 · `fix/csrf-onboarding-intake-dynamo-scans` · `fa4edd44`
 - **Commit:** `fa4edd44264c75ce9ad667ac687e5c4cc16829c6`
 - **Ticket:** —
