@@ -63,11 +63,21 @@ sam deploy --guided `
     "StageName=prod"
 ```
 
-Salida importante: **`WebSocketUrl`** → configurar en el build del front:
+Salida importante: **`WebSocketUrl`**.
+
+**Prod recomendado (runtime):** backend expone la URL al front vía `GET /api/contratacion/monitor-config` (`wsUrl`):
+
+```text
+CONTRATACION_WS_PUBLIC_URL=wss://xxxx.execute-api.region.amazonaws.com/prod
+```
+
+**Opcional (build Vite):** override bakeado en el bundle:
 
 ```text
 VITE_CONTRATACION_WS_URL=wss://xxxx.execute-api.region.amazonaws.com/prod
 ```
+
+Prioridad en el front: `VITE_CONTRATACION_WS_URL` → `monitor-config.wsUrl` → WS embebido `wss://{host}/api/contratacion/ws`.
 
 Portal / backend:
 
@@ -75,6 +85,7 @@ Portal / backend:
 CONTRATACION_STREAM_POLLER_ENABLED=false
 CONTRATACION_EMBEDDED_WS_ENABLED=false
 CONTRATACION_WS_SECRET=<mismo que SAM>
+CONTRATACION_WS_PUBLIC_URL=wss://xxxx.execute-api.region.amazonaws.com/prod
 ONBOARDING_INGEST_KEY=<mismo que SAM>
 PORTAL_BASE_URL=https://...
 FICHA_NOVEDADES_DYNAMO_SYNC_ON_START=true
@@ -97,7 +108,7 @@ Un Scan al arrancar (`*_ON_START=true`) basta como red de seguridad puntual.
 
 1. `CONTRATACION_STREAM_POLLER_ENABLED=true`
 2. `CONTRATACION_EMBEDDED_WS_ENABLED=true`
-3. Quitar o vaciar `VITE_CONTRATACION_WS_URL` (front usa `/api/contratacion/ws` del host)
+3. Quitar o vaciar `CONTRATACION_WS_PUBLIC_URL` y `VITE_CONTRATACION_WS_URL` (front usa `/api/contratacion/ws` del host)
 4. (Opcional) deshabilitar event source mapping de la Lambda stream en AWS
 
 El código del poller y del WS embebido se conserva deprecated una release.
