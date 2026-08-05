@@ -20,6 +20,22 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-05 19:17:39 · `main` · `09baa9a8`
+- **Commit:** `09baa9a8896be89fe8846988de4c45f554d2c2d1`
+- **Ticket:** —
+- **Requerimiento funcional:** Integra en producción el ajuste de CSP para que En ingreso pueda abrir el WebSocket de API Gateway y actualizar estados en vivo.
+- **Componente técnico:** merge PR #139 (`hotfix/contratacion-ws-csp-connect-src` → `main`).
+- **Cambios (uno a uno):**
+  - Merge a `main` del fix CSP `connect-src` con `wss://*.execute-api.us-east-1.amazonaws.com`.
+
+### 2026-08-05 19:16:47 · `hotfix/contratacion-ws-csp-connect-src` · `a64e9929`
+- **Commit:** `a64e992985a0effd4b8c3b7c71d2a11fee9ead9c`
+- **Ticket:** —
+- **Requerimiento funcional:** El navegador bloqueaba el WebSocket hacia AWS (CSP), por eso En ingreso no se actualizaba sin refrescar aunque Dynamo y la Lambda sí procesaban el cambio.
+- **Componente técnico:** `Caddyfile` (Content-Security-Policy `connect-src`).
+- **Cambios (uno a uno):**
+  - Permite `wss://*.execute-api.us-east-1.amazonaws.com` además de `wss://novedades.grupocinte.com`.
+
 ### 2026-08-05 19:00:54 · `main` · `d65e9665`
 - **Commit:** `d65e9665409a086b3e0902d845fe592a48977db2`
 - **Ticket:** —
