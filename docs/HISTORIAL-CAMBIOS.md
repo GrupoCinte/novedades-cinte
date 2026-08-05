@@ -20,6 +20,24 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-05 19:00:54 · `main` · `d65e9665`
+- **Commit:** `d65e9665409a086b3e0902d845fe592a48977db2`
+- **Ticket:** —
+- **Requerimiento funcional:** Integra en producción el cableado del monitor En ingreso al WebSocket de API Gateway para ver cambios de estado sin recargar.
+- **Componente técnico:** merge PR #137 (`hotfix/contratacion-monitor-ws-apigw` → `main`).
+- **Cambios (uno a uno):**
+  - Merge a `main` del fix WS En ingreso + `CONTRATACION_WS_PUBLIC_URL` en monitor-config.
+
+### 2026-08-05 18:59:42 · `hotfix/contratacion-monitor-ws-apigw` · `4cdddd40`
+- **Commit:** `4cdddd40ee318e37139c4db0259244960101ff21`
+- **Ticket:** —
+- **Requerimiento funcional:** El listado En ingreso debe actualizarse solo (sin F5) cuando n8n/Dynamo cambia el estado de un candidato, usando el mismo canal donde ya publica la Lambda.
+- **Componente técnico:** `react-frontend/src/contratacion/hooks/useMonitorData.js`, `react-frontend/src/contratacion/resolveContratacionWsUrl.js`, `src/contratacion/resolveContratacionWsUrl.js`, `src/contratacion/registerContratacionRoutes.js`, `tests/resolveContratacionWsUrl.test.js`, `.env.example`, `lambda/contratacion-stream/README.md`.
+- **Cambios (uno a uno):**
+  - Backend expone `wsUrl` en `GET /api/contratacion/monitor-config` desde `CONTRATACION_WS_PUBLIC_URL`.
+  - Front conecta a API Gateway WSS con ticket; fallback al WS embebido del portal.
+  - Prioridad VITE → monitor-config → mismo host; tests del helper de URL.
+
 ### 2026-08-05 12:26:32 · `main` · `446813f0`
 - **Commit:** `446813f04d83da1170b7410cb752828821254940`
 - **Ticket:** —
