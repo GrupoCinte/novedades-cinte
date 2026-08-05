@@ -20,6 +20,24 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-05 12:26:32 · `main` · `446813f0`
+- **Commit:** `446813f04d83da1170b7410cb752828821254940`
+- **Ticket:** —
+- **Requerimiento funcional:** Integra en producción el hotfix que desbloquea el intake de la Lambda (CSRF) para poder cortar los Scan masivos a Dynamo.
+- **Componente técnico:** merge PR #134 (`hotfix/csrf-onboarding-intake-dynamo` → `main`).
+- **Cambios (uno a uno):**
+  - Merge a `main` del fix CSRF intake + docs de intervalos Dynamo en 0.
+
+### 2026-08-05 12:25:37 · `hotfix/csrf-onboarding-intake-dynamo` · `c38ee98f`
+- **Commit:** `c38ee98f1153ac05b0258aa8b6d677a0dd7cb028`
+- **Ticket:** —
+- **Requerimiento funcional:** Permite que la Lambda de contratación entregue novedades Zoho y promociones al portal sin ser bloqueada por CSRF, base para apagar los Scan periódicos que consumían ~370k RCU/día.
+- **Componente técnico:** `server.js`, `src/csrfDoubleSubmit.js`, `tests/csrfOnboardingIntake.test.js`, `.env.example`, `lambda/contratacion-stream/README.md`, `package.json`.
+- **Cambios (uno a uno):**
+  - Skip CSRF condicional en intakes onboarding solo con `x-onboarding-key`.
+  - Tests de no-regresión CSRF.
+  - Documenta `*_INTERVAL_MS=0` con flujo por eventos.
+
 ### 2026-07-29 16:46:04 · `fix/AUT-587-prod-main` · `1b0cce68`
 - **Commit:** `1b0cce682fadbbd2801e10a19c17e7b080c4db42`
 - **Ticket:** AUT-587
