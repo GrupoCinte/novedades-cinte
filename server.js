@@ -266,6 +266,8 @@ app.use((req, res, next) => {
 });
 
 /** CSRF doble envío (LOW-002): cookie legible + header en mutaciones /api. */
+const { shouldSkipCsrfDoubleSubmit } = require('./src/csrfDoubleSubmit');
+
 function readCookieValue(cookieHeader, cookieName) {
     const raw = String(cookieHeader || '');
     if (!raw) return '';
@@ -277,12 +279,6 @@ function readCookieValue(cookieHeader, cookieName) {
     return '';
 }
 
-const CSRF_SKIP_PATHS = new Set([
-    '/api/login',
-    '/api/auth/complete-new-password',
-    '/api/auth/forgot-password',
-    '/api/auth/reset-password'
-]);
 const csrfCookieSameSite = isProduction ? 'strict' : 'lax';
 const csrfCookieSecure =
     String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
@@ -302,11 +298,7 @@ app.use((req, res, next) => {
             maxAge: 8 * 60 * 60 * 1000
         });
     }
-    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
-    if (String(req.get('authorization') || '').startsWith('Bearer ')) return next();
-    if (CSRF_SKIP_PATHS.has(p)) return next();
-    // Aprobar/rechazar conciliación desde enlace de correo (auth por token de un solo uso).
-    if (p.startsWith('/api/conciliaciones/email-accion/')) return next();
+    if (shouldSkipCsrfDoubleSubmit(req)) return next();
     const hdr = String(req.get('x-cinte-xsrf') || req.get('x-xsrf-token') || '').trim();
     if (!hdr || !cookie || hdr !== cookie) {
         return res.status(403).json({ ok: false, error: 'CSRF token inválido o ausente' });
