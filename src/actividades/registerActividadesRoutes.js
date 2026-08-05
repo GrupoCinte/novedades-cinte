@@ -278,7 +278,7 @@ function registerActividadesRoutes({
                 return res.status(400).json({ ok: false, error: 'Debes tener un cliente asignado en tu ficha para registrar una actividad.' });
             }
             if (result.kind === 'duplicate') {
-                return res.status(409).json({ ok: false, error: 'Ya existe una actividad con la misma información (fecha, hora y descripción).' });
+                return res.status(409).json({ ok: false, error: 'Ya existe una actividad con la misma fecha y hora.' });
             }
 
             await publishActivityEvents({
@@ -328,7 +328,7 @@ function registerActividadesRoutes({
                 return res.status(404).json({ ok: false, error: 'No se encontró la actividad o no tienes permisos para editarla.' });
             }
             if (result.kind === 'duplicate') {
-                return res.status(409).json({ ok: false, error: 'Ya existe una actividad con la misma información (fecha, hora y descripción).' });
+                return res.status(409).json({ ok: false, error: 'Ya existe una actividad con la misma fecha y hora.' });
             }
 
             await publishActivityEvents({
