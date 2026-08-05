@@ -20,6 +20,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-05 17:05:52 · `release/actividades-prod-main` · `a1b3ac71`
+- **Commit:** `a1b3ac71d277c3e609944f80f89872a044923640`
+- **Ticket:** AUT-259
+- **Requerimiento funcional:** Documenta en la bitácora oficial la promoción selectiva de Actividades hacia main.
+- **Componente técnico:** `docs/HISTORIAL-CAMBIOS.md`.
+- **Cambios (uno a uno):**
+  - Agrega entrada del commit `4f4d6e6d` (release Actividades prod-main).
+
 ### 2026-08-05 17:05:46 · `release/actividades-prod-main` · `4f4d6e6d`
 - **Commit:** `4f4d6e6df93a52bdc5b6040251b9e0f46bff01eb`
 - **Ticket:** AUT-259 (suite AUT-260..267, AUT-581, AUT-268..271)
