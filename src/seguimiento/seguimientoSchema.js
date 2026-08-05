@@ -5,7 +5,6 @@ async function ensureSeguimientoTables(pool) {
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 gp_id UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
                 cliente TEXT NOT NULL,
-                consultor_cedula TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE RESTRICT,
                 fecha_acta DATE NOT NULL DEFAULT CURRENT_DATE,
                 estado VARCHAR(50) NOT NULL DEFAULT 'Borrador',
                 compromisos TEXT NULL,
@@ -16,9 +15,16 @@ async function ensureSeguimientoTables(pool) {
             );
         `);
 
+        // AUT-284: Migración para adaptar la tabla al ADR
+        await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS tipo TEXT NOT NULL DEFAULT \'consultor\';');
+        await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS payload_json JSONB NOT NULL DEFAULT \'{}\'::jsonb;');
+        await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS correo_cierre_estado TEXT NOT NULL DEFAULT \'no_aplica\';');
+        await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS finalizado_at TIMESTAMPTZ NULL;');
+        await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS ciclo_vence_at DATE NULL;');
+        await pool.query('ALTER TABLE seguimiento_acta DROP COLUMN IF EXISTS consultor_cedula;');
+
         await pool.query('CREATE INDEX IF NOT EXISTS idx_seguimiento_acta_gp ON seguimiento_acta(gp_id)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_seguimiento_acta_cliente ON seguimiento_acta(cliente)');
-        await pool.query('CREATE INDEX IF NOT EXISTS idx_seguimiento_acta_consultor ON seguimiento_acta(consultor_cedula)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_seguimiento_acta_deleted ON seguimiento_acta(deleted_at) WHERE deleted_at IS NULL');
 
         await pool.query(`
@@ -30,6 +36,9 @@ async function ensureSeguimientoTables(pool) {
                 created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         `);
+
+        await pool.query('ALTER TABLE seguimiento_participante ADD COLUMN IF NOT EXISTS cedula TEXT NULL;');
+        await pool.query('ALTER TABLE seguimiento_participante ADD COLUMN IF NOT EXISTS email TEXT NULL;');
 
         await pool.query('CREATE INDEX IF NOT EXISTS idx_seguimiento_participante_acta ON seguimiento_participante(acta_id)');
 

@@ -4,6 +4,7 @@ import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import ModuleFiltersToolbar from '../shared/filters/ModuleFiltersToolbar.jsx';
 import GestionDataTable from '../onboarding/GestionDataTable.jsx';
 import GestionModalShell from '../shared/modals/GestionModalShell.jsx';
+import SeguimientoFormModal from './SeguimientoFormModal.jsx';
 
 import { authHeaders } from '../shared/authUtils.js';
 
@@ -20,6 +21,11 @@ export default function SeguimientoAdminView({ token, auth }) {
 
     // Estado para modal de selección de tipo (CA-03)
     const [modalTipoOpen, setModalTipoOpen] = useState(false);
+    
+    // Estado para SeguimientoFormModal
+    const [formModalOpen, setFormModalOpen] = useState(false);
+    const [selectedTipo, setSelectedTipo] = useState('Consultor');
+    const [editingActa, setEditingActa] = useState(null);
 
     // Estado para el panel de filtros
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -28,6 +34,16 @@ export default function SeguimientoAdminView({ token, auth }) {
         headers: authHeaders(token),
         credentials: 'include'
     }), [token]);
+
+    const refreshActas = useCallback(async () => {
+        try {
+            const resActas = await fetch('/api/seguimiento/actas', fetchOpts());
+            if (resActas.ok) {
+                const dataActas = await resActas.json();
+                setActas(dataActas.items || []);
+            }
+        } catch (err) { }
+    }, [fetchOpts]);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -54,11 +70,18 @@ export default function SeguimientoAdminView({ token, auth }) {
             }
         };
         fetchData();
-    }, [fetchOpts]);
+    }, [refreshActas, fetchOpts]);
 
     const handleSelectTipo = (tipo) => {
         setModalTipoOpen(false);
-        // TODO: Flujo para crear acta tipo: tipo. El formulario pertenece a AUT-284.
+        setSelectedTipo(tipo);
+        setEditingActa(null);
+        setFormModalOpen(true);
+    };
+
+    const handleEditRow = (row) => {
+        setEditingActa(row);
+        setFormModalOpen(true);
     };
 
     const columns = [
@@ -128,7 +151,7 @@ export default function SeguimientoAdminView({ token, auth }) {
                     rows={loading ? [] : actas}
                     isLight={isLight}
                     emptyText={loading ? 'Cargando actas...' : (isGp ? 'No hay actas registradas en tu cartera.' : 'No hay actas registradas.')}
-                    onRowClick={() => { /* TODO: Ver detalle (AUT-284) */ }}
+                    onRowClick={handleEditRow}
                 />
             </div>
 
@@ -174,6 +197,18 @@ export default function SeguimientoAdminView({ token, auth }) {
                     </div>
                 </div>
             </GestionModalShell>
+
+            <SeguimientoFormModal
+                open={formModalOpen}
+                onClose={() => setFormModalOpen(false)}
+                actaId={editingActa?.id}
+                actaData={editingActa}
+                token={token}
+                auth={auth}
+                onSaved={refreshActas}
+                tipoSeleccionado={selectedTipo}
+                clientesCartera={clientesCartera}
+            />
         </div>
     );
 }
