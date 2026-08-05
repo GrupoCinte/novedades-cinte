@@ -125,12 +125,15 @@ function registerContratacionRoutes(deps) {
     });
 
     app.get('/api/contratacion/monitor-config', ...guard, contratacionMonitorLimiter, (req, res) => {
+        const wsPublic = String(process.env.CONTRATACION_WS_PUBLIC_URL || '').trim().replace(/\/$/, '');
         return res.json({
             success: true,
             kpi,
             dynamoConfigured: configured,
             streamPollerEnabled: String(process.env.CONTRATACION_STREAM_POLLER_ENABLED || '').toLowerCase() === 'true',
-            awsRegion: process.env.AWS_REGION || 'us-east-1'
+            awsRegion: process.env.AWS_REGION || 'us-east-1',
+            /** WSS API Gateway (Lambda broadcast). Vacío → front usa WS embebido del portal. */
+            wsUrl: wsPublic || null
         });
     });
 

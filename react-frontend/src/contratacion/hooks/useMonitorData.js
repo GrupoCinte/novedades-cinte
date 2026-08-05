@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import axios from 'axios';
+import {
+    resolveContratacionWsUrl,
+    buildContratacionWsConnectUrl
+} from '../resolveContratacionWsUrl';
 const API_PREFIX = '/api/contratacion';
-const WS_PATH = '/api/contratacion/ws';
 
 function axiosErrorMessage(err) {
     const d = err?.response?.data;
@@ -153,19 +156,23 @@ export default function useMonitorData(auth) {
                 setDynamoConfigured(d.dynamoConfigured);
             }
             const maybe = d?.kpi;
-            if (!maybe || typeof maybe !== 'object') return;
-            setKpiConfig((prev) => ({
-                humanProcessTimeMinutes: Number.isFinite(Number(maybe.humanProcessTimeMinutes))
-                    ? Number(maybe.humanProcessTimeMinutes)
-                    : prev.humanProcessTimeMinutes,
-                humanHourCostCop: Number.isFinite(Number(maybe.humanHourCostCop))
-                    ? Number(maybe.humanHourCostCop)
-                    : prev.humanHourCostCop,
-                autoCostUsd: Number.isFinite(Number(maybe.autoCostUsd)) ? Number(maybe.autoCostUsd) : prev.autoCostUsd,
-                trmCop: Number.isFinite(Number(maybe.trmCop)) ? Number(maybe.trmCop) : prev.trmCop
-            }));
+            if (maybe && typeof maybe === 'object') {
+                setKpiConfig((prev) => ({
+                    humanProcessTimeMinutes: Number.isFinite(Number(maybe.humanProcessTimeMinutes))
+                        ? Number(maybe.humanProcessTimeMinutes)
+                        : prev.humanProcessTimeMinutes,
+                    humanHourCostCop: Number.isFinite(Number(maybe.humanHourCostCop))
+                        ? Number(maybe.humanHourCostCop)
+                        : prev.humanHourCostCop,
+                    autoCostUsd: Number.isFinite(Number(maybe.autoCostUsd))
+                        ? Number(maybe.autoCostUsd)
+                        : prev.autoCostUsd,
+                    trmCop: Number.isFinite(Number(maybe.trmCop)) ? Number(maybe.trmCop) : prev.trmCop
+                }));
+            }
+            return d || null;
         } catch {
-            // defaults
+            return null;
         }
     }, []);
 
@@ -178,17 +185,21 @@ export default function useMonitorData(auth) {
         }
 
         fetchExecutions();
-        fetchMonitorConfig();
 
         const connectWebSocket = async () => {
             let ticket = '';
+            let configWsUrl = null;
             try {
-                const r = await axios.get(`${API_PREFIX}/ws-token`, {
-                    ...AXIOS_CRED,
-                    timeout: AXIOS_TIMEOUT_MS,
-                    headers: authHeaders(tokenRef.current)
-                });
-                ticket = r.data?.ticket ? String(r.data.ticket) : '';
+                const [tokenRes, config] = await Promise.all([
+                    axios.get(`${API_PREFIX}/ws-token`, {
+                        ...AXIOS_CRED,
+                        timeout: AXIOS_TIMEOUT_MS,
+                        headers: authHeaders(tokenRef.current)
+                    }),
+                    fetchMonitorConfig()
+                ]);
+                ticket = tokenRes.data?.ticket ? String(tokenRes.data.ticket) : '';
+                if (config?.wsUrl) configWsUrl = String(config.wsUrl);
             } catch {
                 setIsConnected(false);
                 return;
@@ -199,9 +210,21 @@ export default function useMonitorData(auth) {
                 return;
             }
 
-            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const host = window.location.host;
-            const wsUrl = `${proto}//${host}${WS_PATH}?ticket=${encodeURIComponent(ticket)}`;
+            const viteUrl =
+                typeof import.meta !== 'undefined' && import.meta.env
+                    ? import.meta.env.VITE_CONTRATACION_WS_URL
+                    : '';
+            const baseUrl = resolveContratacionWsUrl({
+                viteUrl,
+                configUrl: configWsUrl,
+                host: window.location.host,
+                proto: window.location.protocol
+            });
+            const wsUrl = buildContratacionWsConnectUrl(baseUrl, ticket);
+            if (!wsUrl) {
+                setIsConnected(false);
+                return;
+            }
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
 
