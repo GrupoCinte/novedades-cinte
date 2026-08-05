@@ -140,17 +140,16 @@ function createActividadesStore({ pool }) {
         return result.rows[0] || null;
     }
 
-    async function checkDuplicateActivity({ cedula, descripcion, inicio, fin, excludeId }) {
+    async function checkDuplicateActivity({ cedula, inicio, fin, excludeId }) {
         const query = `
             SELECT id FROM actividades_consultor
             WHERE cedula = $1 
-              AND descripcion = $2 
-              AND inicio = $3 
-              AND fin = $4
-              AND ($5::uuid IS NULL OR id != $5)
+              AND inicio = $2 
+              AND fin = $3
+              AND ($4::uuid IS NULL OR id != $4)
             LIMIT 1
         `;
-        const result = await pool.query(query, [cedula, descripcion, inicio, fin, excludeId || null]);
+        const result = await pool.query(query, [cedula, inicio, fin, excludeId || null]);
         return result.rowCount > 0;
     }
 
@@ -161,7 +160,7 @@ function createActividadesStore({ pool }) {
         const cliente = String(context.cliente || '').trim();
         if (!cliente) return { kind: 'client_not_assigned' };
 
-        const isDuplicate = await checkDuplicateActivity({ cedula, descripcion, inicio, fin });
+        const isDuplicate = await checkDuplicateActivity({ cedula, inicio, fin });
         if (isDuplicate) return { kind: 'duplicate' };
 
         const result = await pool.query(
@@ -186,7 +185,7 @@ function createActividadesStore({ pool }) {
     }
 
     async function updateActividadPropia({ id, cedula, descripcion, inicio, fin }) {
-        const isDuplicate = await checkDuplicateActivity({ cedula, descripcion, inicio, fin, excludeId: id });
+        const isDuplicate = await checkDuplicateActivity({ cedula, inicio, fin, excludeId: id });
         if (isDuplicate) return { kind: 'duplicate' };
 
         const result = await pool.query(

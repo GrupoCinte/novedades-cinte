@@ -495,7 +495,7 @@ test('POST /api/consultor/actividades devuelve 409 si es duplicado', async () =>
         const json = await res.json();
         assert.equal(res.status, 409);
         assert.equal(json.ok, false);
-        assert.match(json.error, /ya existe una actividad con la misma informaci/i);
+        assert.match(json.error, /ya existe una actividad con la misma fecha y hora/i);
     } finally {
         server.close();
     }
@@ -533,7 +533,7 @@ test('PUT /api/consultor/actividades/:id devuelve 409 si es duplicado', async ()
         const json = await res.json();
         assert.equal(res.status, 409);
         assert.equal(json.ok, false);
-        assert.match(json.error, /ya existe una actividad con la misma informaci/i);
+        assert.match(json.error, /ya existe una actividad con la misma fecha y hora/i);
     } finally {
         server.close();
     }
