@@ -1,0 +1,21 @@
+{
+  "eventType": "time_entry_admin_notification",
+  "eventId": "test-admin-001",
+  "occurredAt": "2026-07-28T15:00:00Z",
+  "entryId": "entry-123",
+  "consultant": {
+    "name": "Juan Pérez",
+    "email": "juan@test.com"
+  },
+  "action": "created",
+  "entryData": {
+    "date": "2026-07-28",
+    "description": "Desarrollo de nueva funcionalidad",
+    "client": "Cliente Ejemplo S.A.",
+    "schedule": "9:00 - 18:00"
+  },
+  "meta": {
+    "source": "local-test",
+    "env": "development"
+  }
+}

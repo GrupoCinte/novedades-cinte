@@ -24,7 +24,7 @@
     "export:reubicaciones-qa-sql": "node scripts/export-reubicaciones-pipeline-for-qa.js --null-gp-user-id"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.1091.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1102.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.1030.0",
     "@aws-sdk/client-dynamodb": "^3.1006.0",
     "@aws-sdk/client-dynamodb-streams": "^3.1006.0",
