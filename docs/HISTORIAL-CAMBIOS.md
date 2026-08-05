@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-05 11:43:48 · `fix/csrf-onboarding-intake-dynamo-scans` · `fa4edd44`
+- **Commit:** `fa4edd44264c75ce9ad667ac687e5c4cc16829c6`
+- **Ticket:** —
+- **Requerimiento funcional:** Permite que la Lambda de contratación entregue novedades Zoho y promociones al portal sin ser bloqueada por CSRF, para que el flujo por eventos vuelva a funcionar y se puedan apagar los Scan periódicos a Dynamo que disparaban el consumo.
+- **Componente técnico:** `server.js`, `src/csrfDoubleSubmit.js`, `tests/csrfOnboardingIntake.test.js`, `.env.example`, `lambda/contratacion-stream/README.md`, `package.json`.
+- **Cambios (uno a uno):**
+  - Skip CSRF condicional en `/api/onboarding/intake` y `/api/onboarding/ficha-novedades/intake` solo con header `x-onboarding-key`.
+  - Tests unitarios de no-regresión para login, Bearer, atracción internal y mutaciones genéricas.
+  - Documenta intervalos Dynamo en `0` cuando el intake por eventos está operativo.
+
 ### 2026-07-29 22:54:42 · `integrate/testing-atraccion-talento` · `6e0d28fc`
 - **Commit:** `6e0d28fc941e201c404fbe9589ea7b47a1fbd767`
 - **Ticket:** —
