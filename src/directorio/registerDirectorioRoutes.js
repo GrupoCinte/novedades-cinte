@@ -361,6 +361,23 @@ function registerDirectorioRoutes(deps) {
             const cleaned = arr.map((s) => String(s).trim()).filter(Boolean);
             return cleaned.length ? cleaned : undefined;
         }, z.array(z.enum(['Verde', 'Amarillo', 'Rojo', 'Vencido'])).optional()),
+        estado: z.string().max(50).optional(),
+        /** @deprecated alias de tipo_contrato */
+        tipo_ficha: z.string().max(200).optional(),
+        tipo_contrato: z.string().max(200).optional(),
+        cliente: z.string().max(200).optional(),
+        gp: z.string().max(200).optional(),
+        aptitud: z.string().max(100).optional(),
+        dias_desde: z.preprocess((v) => {
+            if (v === '' || v == null) return undefined;
+            const num = Number(v);
+            return isNaN(num) ? undefined : num;
+        }, z.number().int().min(0).optional()),
+        dias_hasta: z.preprocess((v) => {
+            if (v === '' || v == null) return undefined;
+            const num = Number(v);
+            return isNaN(num) ? undefined : num;
+        }, z.number().int().min(0).optional()),
         sort: z
             .enum([
                 'cedula',
@@ -372,6 +389,7 @@ function registerDirectorioRoutes(deps) {
                 'fecha_fin',
                 'dias_restantes',
                 'semaforo',
+                'estado',
                 'tarifa'
             ])
             .optional(),
@@ -405,17 +423,17 @@ function registerDirectorioRoutes(deps) {
         if (fechaFin instanceof Date) fechaFin = fechaFin.toISOString().slice(0, 10);
         else if (typeof fechaFin === 'string') fechaFin = fechaFin.slice(0, 10);
 
-        
+
         const fechaActual = new Date();
         const estadoResult = calcularEstado(fechaFin, null, fechaActual);
-        
+
         let diasHabiles = 0;
         if (estadoResult.estado === 'En proceso') {
             const fechaFinDate = new Date(fechaFin);
             diasHabiles = diasHabilesTranscurridos(fechaFinDate, fechaActual) || 0;
         }
-        
-        
+
+
         return {
             id: row.id,
             cedula: row.cedula,
@@ -429,9 +447,16 @@ function registerDirectorioRoutes(deps) {
             montos_divisa: row.montos_divisa ?? null,
             dias_restantes: dias,
             semaforo: semaforoFromDiasRestantes(dias),
-            estado: estadoResult.estado,                         
-            dias_transcurridos: estadoResult.diasTranscurridos,   
-            motivo: estadoResult.motivo || null,                 
+            estado: estadoResult.estado,
+            dias_transcurridos: estadoResult.diasTranscurridos,
+            motivo: estadoResult.motivo || null,
+            puesto: row.puesto || null,
+            lider_catalogo: row.lider_catalogo || null,
+            gp_nombre: row.gp_nombre || null,
+            perfil_cargo: row.perfil_cargo || null,
+            salario: row.salario != null ? Number(row.salario) : null,
+            auxilios: row.auxilios || null,
+            tipo_ficha: row.tipo_ficha || null,
             created_at: row.created_at,
             updated_at: row.updated_at
         };
@@ -995,6 +1020,29 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
+    app.get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones', ...readGuard, async (_req, res) => {
+        try {
+            const q = await pool.query(
+                `SELECT DISTINCT tipo_ficha
+                 FROM (
+                     SELECT DISTINCT ON (f.colaborador_cedula_match)
+                            NULLIF(TRIM(f.tipo_novedad), '') AS tipo_ficha
+                     FROM ficha_novedades_staging f
+                     WHERE f.tipo_novedad IS NOT NULL
+                       AND f.colaborador_cedula_match IN (SELECT cedula FROM reubicaciones_pipeline)
+                     ORDER BY f.colaborador_cedula_match, f.created_at DESC
+                 ) t
+                 WHERE tipo_ficha IS NOT NULL
+                 ORDER BY tipo_ficha`
+            );
+            const items = q.rows.map((row) => row.tipo_ficha).filter(Boolean);
+            return res.json({ ok: true, items });
+        } catch (e) {
+            console.error('GET directorio reubicaciones-pipeline tipo-ficha-opciones:', e);
+            return res.status(500).json({ ok: false, error: 'No se pudo obtener opciones de tipo ficha.' });
+        }
+    });
+
     app.get('/api/directorio/reubicaciones-pipeline', ...readGuard, async (req, res) => {
         try {
             const parsed = reubicacionesPipelineListSchema.safeParse(req.query);
@@ -1005,6 +1053,12 @@ function registerDirectorioRoutes(deps) {
 
             const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
             const semaforoSql = `(CASE WHEN ${diasSql} < 0 THEN 'Vencido' WHEN ${diasSql} > 30 THEN 'Verde' WHEN ${diasSql} >= 15 THEN 'Amarillo' ELSE 'Rojo' END)`;
+            const estadoSql = `(CASE WHEN rp.fecha_fin < CURRENT_DATE THEN 'Con novedad' ELSE 'En proceso' END)`;
+            const clienteActualSql = `COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), ''))`;
+            const fromJoin = `
+                FROM reubicaciones_pipeline rp
+                INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id`;
 
             const selectFields = `
                 SELECT
@@ -1017,12 +1071,34 @@ function registerDirectorioRoutes(deps) {
                     rp.updated_at,
                     c.nombre AS consultor,
                     c.tipo_contrato,
-                    c.cliente AS cliente_actual,
+                    COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) AS cliente_actual,
                     c.tarifa_cliente,
                     c.montos_divisa,
-                    ${diasSql} AS dias_restantes
+                    c.puesto,
+                    c.lider_catalogo,
+                    u_gp.full_name AS gp_nombre,
+                    c.perfil_cargo,
+                    c.sueldo_nomina AS salario,
+                    c.auxilio_transporte_obligatorio AS auxilios,
+                    (SELECT NULLIF(TRIM(f.tipo_novedad), '') 
+                     FROM ficha_novedades_staging f 
+                     WHERE f.colaborador_cedula_match = rp.cedula
+                     ORDER BY f.created_at DESC 
+                     LIMIT 1) AS tipo_ficha,
+                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes,
+                    (CASE 
+                        WHEN rp.fecha_fin < CURRENT_DATE THEN 'Con novedad' 
+                        ELSE 'En proceso' 
+                    END) AS estado,
+                    (CASE 
+                        WHEN rp.fecha_fin < CURRENT_DATE THEN 'Vencido'
+                        WHEN rp.fecha_fin > (CURRENT_DATE + 30) THEN 'Verde'
+                        WHEN rp.fecha_fin >= (CURRENT_DATE + 15) THEN 'Amarillo'
+                        ELSE 'Rojo'
+                    END) AS semaforo
                 FROM reubicaciones_pipeline rp
-                INNER JOIN colaboradores c ON c.cedula = rp.cedula`;
+                INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id`;
 
             const whereParts = [];
             const whereParams = [];
@@ -1054,6 +1130,73 @@ function registerDirectorioRoutes(deps) {
                 whereParams.push(d.semaforo);
             }
 
+            // 1. Filtro por estado
+            const estadoFiltro = textOrNull(d.estado);
+            if (estadoFiltro) {
+                whereParts.push(`${estadoSql} = $${whereParams.length + 1}`);
+                whereParams.push(estadoFiltro);
+            }
+
+            // 2. Filtro por tipo de contrato
+            const tipoContrato = textOrNull(d.tipo_contrato);
+            if (tipoContrato) {
+                whereParts.push(`LOWER(TRIM(COALESCE(c.tipo_contrato, ''))) = LOWER($${whereParams.length + 1})`);
+                whereParams.push(tipoContrato);
+            }
+
+            // 3. Filtro por tipo de ficha (tipo_novedad más reciente de ficha_novedades_staging)
+            const tipoFichaFiltro = textOrNull(d.tipo_ficha);
+            if (tipoFichaFiltro) {
+                whereParts.push(`LOWER((SELECT NULLIF(TRIM(f.tipo_novedad), '')
+                                       FROM ficha_novedades_staging f
+                                       WHERE f.colaborador_cedula_match = rp.cedula
+                                       ORDER BY f.created_at DESC
+                                       LIMIT 1)) = LOWER($${whereParams.length + 1})`);
+                whereParams.push(tipoFichaFiltro);
+            }
+
+            // 4. Filtro por cliente actual (cliente o cliente_proyecto)
+            const cliente = textOrNull(d.cliente);
+            if (cliente) {
+                whereParts.push(`${clienteActualSql} ILIKE '%' || $${whereParams.length + 1} || '%'`);
+                whereParams.push(cliente);
+            }
+
+            // 4. Filtro por GP (líder catálogo o usuario GP vinculado)
+            const gp = textOrNull(d.gp);
+            if (gp) {
+                whereParts.push(`(
+                    COALESCE(c.lider_catalogo, '') ILIKE '%' || $${whereParams.length + 1} || '%'
+                    OR COALESCE(u_gp.full_name, '') ILIKE '%' || $${whereParams.length + 1} || '%'
+                )`);
+                whereParams.push(gp);
+            }
+
+            // 5. Filtro por aptitud (puesto, perfil o descriptivo SIG)
+            const aptitud = textOrNull(d.aptitud);
+            if (aptitud) {
+                whereParts.push(`(
+                    COALESCE(c.puesto, '') ILIKE '%' || $${whereParams.length + 1} || '%'
+                    OR COALESCE(c.perfil_cargo, '') ILIKE '%' || $${whereParams.length + 1} || '%'
+                    OR COALESCE(c.descriptivo_puesto_sig, '') ILIKE '%' || $${whereParams.length + 1} || '%'
+                )`);
+                whereParams.push(aptitud);
+            }
+
+            // 6. Filtro por días restantes (desde)
+            const diasDesde = d.dias_desde !== undefined && d.dias_desde !== '' ? Number(d.dias_desde) : null;
+            if (diasDesde !== null && !isNaN(diasDesde)) {
+                whereParts.push(`${diasSql} >= $${whereParams.length + 1}`);
+                whereParams.push(diasDesde);
+            }
+
+            // 7. Filtro por días restantes (hasta)
+            const diasHasta = d.dias_hasta !== undefined && d.dias_hasta !== '' ? Number(d.dias_hasta) : null;
+            if (diasHasta !== null && !isNaN(diasHasta)) {
+                whereParts.push(`${diasSql} <= $${whereParams.length + 1}`);
+                whereParams.push(diasHasta);
+            }
+
             const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
             const dir = d.dir === 'desc' ? 'DESC' : 'ASC';
@@ -1062,22 +1205,19 @@ function registerDirectorioRoutes(deps) {
                 cedula: `c.cedula ${dir}`,
                 consultor: `c.nombre ${dir} NULLS LAST`,
                 tipo_contrato: `c.tipo_contrato ${dir} NULLS LAST`,
-                cliente_actual: `c.cliente ${dir} NULLS LAST`,
+                cliente_actual: `${clienteActualSql} ${dir} NULLS LAST`,
                 cliente_destino: `rp.cliente_destino ${dir} NULLS LAST`,
                 causal: `rp.causal ${dir} NULLS LAST`,
                 fecha_fin: `rp.fecha_fin ${dir} NULLS LAST`,
                 dias_restantes: `${diasSql} ${dir} NULLS LAST`,
                 semaforo: `${diasSql} ${dir} NULLS LAST`,
+                estado: `${estadoSql} ${dir} NULLS LAST`,
                 tarifa: `c.tarifa_cliente ${dir} NULLS LAST`
             };
             const orderSql =
                 sortKey && orderMap[sortKey]
                     ? `ORDER BY ${orderMap[sortKey]}`
                     : 'ORDER BY rp.fecha_fin ASC NULLS LAST, c.nombre ASC';
-
-            const fromJoin = `
-                FROM reubicaciones_pipeline rp
-                INNER JOIN colaboradores c ON c.cedula = rp.cedula`;
 
             const countSql = `SELECT COUNT(*)::int AS total ${fromJoin} ${whereSql}`;
             const cRes = await pool.query(countSql, whereParams);
@@ -1146,12 +1286,19 @@ function registerDirectorioRoutes(deps) {
                     rp.updated_at,
                     c.nombre AS consultor,
                     c.tipo_contrato,
-                    c.cliente AS cliente_actual,
+                    COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) AS cliente_actual,
                     c.tarifa_cliente,
                     c.montos_divisa,
+                    c.puesto,
+                    c.lider_catalogo,
+                    u_gp.full_name AS gp_nombre,
+                    c.perfil_cargo,
+                    c.sueldo_nomina AS salario,
+                    c.auxilio_transporte_obligatorio AS auxilios,
                     (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
                  FROM reubicaciones_pipeline rp
                  INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id
                  WHERE rp.id = $1::uuid`,
                 [row.id]
             );
@@ -1218,12 +1365,19 @@ function registerDirectorioRoutes(deps) {
                     rp.updated_at,
                     c.nombre AS consultor,
                     c.tipo_contrato,
-                    c.cliente AS cliente_actual,
+                    COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) AS cliente_actual,
                     c.tarifa_cliente,
                     c.montos_divisa,
+                    c.puesto,
+                    c.lider_catalogo,
+                    u_gp.full_name AS gp_nombre,
+                    c.perfil_cargo,
+                    c.sueldo_nomina AS salario,
+                    c.auxilio_transporte_obligatorio AS auxilios,
                     (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
                  FROM reubicaciones_pipeline rp
                  INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id
                  WHERE rp.id = $1::uuid`,
                 [id]
             );
