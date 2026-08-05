@@ -1,6 +1,6 @@
 import { useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Briefcase, ClipboardCheck, FileText, Palmtree } from 'lucide-react';
+import { Briefcase, ClipboardCheck, Clock3, FileText, Palmtree } from 'lucide-react';
 import UserAccountMenu from './UserAccountMenu.jsx';
 import { buildCsrfHeaders } from './cognitoAuth.js';
 import { useConsultorOutlet } from './useConsultorOutlet.js';
@@ -101,6 +101,26 @@ function cardVisuals(key, isLight) {
         desc: 'text-slate-700/92',
         cta: 'text-amber-800'
       }
+    },
+    actividades: {
+      dark: {
+        shell:
+          'border border-red-500/20 bg-gradient-to-br from-red-900/15 via-[#2a1010]/20 to-[#04141E]/28 shadow-[0_8px_36px_-10px_rgba(0,0,0,0.35)] hover:border-red-400/35 hover:shadow-[0_14px_48px_-8px_rgba(239,68,68,0.2)]',
+        bar: 'bg-red-600/90',
+        iconWrap: 'border border-red-400/25 bg-red-900/25 text-red-200 backdrop-blur-md',
+        title: 'text-white drop-shadow-[0_1px_10px_rgba(0,0,0,0.55)] group-hover:text-red-200',
+        desc: 'text-slate-100/88',
+        cta: 'text-red-200'
+      },
+      light: {
+        shell:
+          'border border-red-200/45 bg-gradient-to-br from-white/26 via-red-50/22 to-rose-50/22 shadow-[0_8px_36px_-12px_rgba(239,68,68,0.1)] hover:border-red-300/55 hover:shadow-[0_14px_44px_-10px_rgba(239,68,68,0.14)]',
+        bar: 'bg-red-600',
+        iconWrap: 'border border-red-300/50 bg-red-100/45 text-red-900 backdrop-blur-md',
+        title: 'text-slate-900 group-hover:text-red-700',
+        desc: 'text-slate-700/92',
+        cta: 'text-red-700'
+      }
     }
   };
   const mode = isLight ? 'light' : 'dark';
@@ -135,6 +155,13 @@ const MODULE_CARDS = [
     description: 'Biblioteca de documentos y lineamientos.',
     path: '/consultor/documentacion',
     CardIcon: FileText
+  },
+  {
+    key: 'actividades',
+    title: 'Mis actividades',
+    description: 'Registra y consulta tu tiempo de trabajo.',
+    path: '/consultor/mis-actividades',
+    CardIcon: Clock3
   }
 ];
 

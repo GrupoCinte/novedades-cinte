@@ -65,12 +65,78 @@ export interface FormStatusChangedNotificationEvent {
   };
 }
 
+export interface TimeEntryConfirmationEvent {
+  eventType: 'time_entry_confirmation';
+  eventId: string;
+  occurredAt: string;
+  entryId: string;
+  consultant: {
+    name: string;
+    email: string;
+  };
+  action: 'created' | 'updated' | 'deleted';
+  entryData: {
+    date: string;
+    description: string;
+    client: string;
+    schedule: string;
+  };
+  previousData?: {
+    date?: string;
+    description?: string;
+    client?: string;
+    schedule?: string;
+  };
+  /** Destinatarios admin (si viene, sustituye ENV de la Lambda). */
+  admin?: {
+    notifyTo?: string[];
+  };
+  meta: {
+    source: string;
+    env: string;
+  };
+}
+
+export interface TimeEntryAdminNotificationEvent {
+  eventType: 'time_entry_admin_notification';
+  eventId: string;
+  occurredAt: string;
+  entryId: string;
+  consultant: {
+    name: string;
+    email: string;
+  };
+  action: 'created' | 'updated' | 'deleted';
+  entryData: {
+    date: string;
+    description: string;
+    client: string;
+    schedule: string;
+  };
+  previousData?: {
+    date?: string;
+    description?: string;
+    client?: string;
+    schedule?: string;
+  };
+  /** Destinatarios admin (si viene, sustituye ENV de la Lambda). */
+  admin?: {
+    notifyTo?: string[];
+  };
+  meta: {
+    source: string;
+    env: string;
+  };
+}
+
 export type TransactionalEmailEvent =
   | FormSubmittedNotificationEvent
   | FormStatusChangedNotificationEvent
   | ConciliacionServicioFinalizadaEvent
   | ConciliacionCorreoLiderEvent
-  | ConciliacionStakeholdersAvisoEvent;
+  | ConciliacionStakeholdersAvisoEvent
+  | TimeEntryConfirmationEvent
+  | TimeEntryAdminNotificationEvent; 
 
 export interface ConciliacionCorreoLiderEvent {
   eventType: 'conciliacion_correo_lider';

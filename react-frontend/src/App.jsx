@@ -8,6 +8,7 @@ import ConsultorProtectedLayout from './ConsultorProtectedLayout.jsx';
 import ConsultorPortalHome from './ConsultorPortalHome.jsx';
 import ConsultorNovedadesPage from './ConsultorNovedadesPage.jsx';
 import ConsultorModulePlaceholder from './ConsultorModulePlaceholder.jsx';
+import MisActividadesModule from './consultor/actividades/MisActividadesModule.jsx';
 import Login from './Login';
 import ForgotPassword from './ForgotPassword';
 import ResetPassword from './ResetPassword';
@@ -27,6 +28,7 @@ import { userHasOnboardingPanel } from './onboarding/onboardingAccess';
 import { userHasNovedadesAdminAccess, userHasCotizadorAccess, userHasConciliacionesAccess } from './comercialAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
 import { userHasMallasAccess } from './mallasAccess';
+import { userHasMonitoreoAccess } from './monitoreoAccess';
 import { cognitoSignOut } from './cognitoAuth';
 import { useUiTheme } from './UiThemeContext.jsx';
 import { pathIsAdminModuleShell, ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
@@ -65,6 +67,7 @@ function adminPortalModuleCount(auth) {
   if (userHasCotizadorAccess(auth)) n += 1;
   if (userHasContratacionPanel(auth) || userHasOnboardingPanel(auth)) n += 1;
   if (userHasDirectorioPanel(auth)) n += 1;
+  if (userHasMonitoreoAccess(auth)) n += 1;
   return n;
 }
 
@@ -292,6 +295,7 @@ function App() {
           <Route path="/consultor" element={<ConsultorProtectedLayout />}>
             <Route index element={<ConsultorPortalHome />} />
             <Route path="novedades" element={<ConsultorNovedadesPage />} />
+            <Route path="mis-actividades" element={<MisActividadesModule />} />
             <Route
               path="vacaciones"
               element={<ConsultorModulePlaceholder title="Gestión de Vacaciones" />}
@@ -418,7 +422,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {(() => {
-                  return userHasMallasAccess(auth) || userHasDirectorioPanel(auth) ? (
+                  return userHasMallasAccess(auth) || userHasDirectorioPanel(auth) || userHasMonitoreoAccess(auth) ? (
                     <DirectorioClienteColaboradorModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                   ) : (
                     <Navigate to="/admin" replace />
