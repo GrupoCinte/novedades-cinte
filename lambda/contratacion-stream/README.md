@@ -77,8 +77,14 @@ CONTRATACION_EMBEDDED_WS_ENABLED=false
 CONTRATACION_WS_SECRET=<mismo que SAM>
 ONBOARDING_INGEST_KEY=<mismo que SAM>
 PORTAL_BASE_URL=https://...
-FICHA_NOVEDADES_DYNAMO_SYNC_INTERVAL_MS=300000
+FICHA_NOVEDADES_DYNAMO_SYNC_ON_START=true
+FICHA_NOVEDADES_DYNAMO_SYNC_INTERVAL_MS=0
+ONBOARDING_DYNAMO_PROMOTE_ON_START=true
+ONBOARDING_DYNAMO_PROMOTE_INTERVAL_MS=0
 ```
+
+Con el intake por eventos (Stream → Lambda → portal) los intervalos periódicos deben quedar en `0`.
+Un Scan al arrancar (`*_ON_START=true`) basta como red de seguridad puntual.
 
 ## Checklist smoke
 
