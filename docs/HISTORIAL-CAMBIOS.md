@@ -20,6 +20,24 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-05 17:05:52 · `release/actividades-prod-main` · `a1b3ac71`
+- **Commit:** `a1b3ac71d277c3e609944f80f89872a044923640`
+- **Ticket:** AUT-259
+- **Requerimiento funcional:** Documenta en la bitácora oficial la promoción selectiva de Actividades hacia main.
+- **Componente técnico:** `docs/HISTORIAL-CAMBIOS.md`.
+- **Cambios (uno a uno):**
+  - Agrega entrada del commit `4f4d6e6d` (release Actividades prod-main).
+
+### 2026-08-05 17:05:46 · `release/actividades-prod-main` · `4f4d6e6d`
+- **Commit:** `4f4d6e6df93a52bdc5b6040251b9e0f46bff01eb`
+- **Ticket:** AUT-259 (suite AUT-260..267, AUT-581, AUT-268..271)
+- **Requerimiento funcional:** Permite a consultores registrar tiempo (manual y cronómetro) y a admin/CAC/GP monitorear, aprobar o rechazar actividades, con correos de confirmación, sin llevar a producción el módulo de Atracción de talento que sigue solo en testing.
+- **Componente técnico:** `src/actividades/*`, `src/monitoreo/*`, rutas consultor/admin, RBAC panel `monitoreo`, `schema.postgres.sql` (`actividades_consultor`), FE Mis actividades + Monitoreo, `emailNotificationsPublisher`, Lambda `email-transactions` (plantillas time-entry + dist sincronizado con admin).
+- **Cambios (uno a uno):**
+  - Promueve a rama release sobre `main` el cargue de actividades del consultor y el monitoreo en administración.
+  - Incluye DDL/startup de `actividades_consultor`, validaciones/UI (duplicados, año en curso, etc.) y publisher/Lambda con `AdminTimeEntryNotificationEmail` en `dist`.
+  - Excluye Atracción/sourcing y demás cambios ajenos de `testing`.
+
 ### 2026-08-05 19:17:39 · `main` · `09baa9a8`
 - **Commit:** `09baa9a8896be89fe8846988de4c45f554d2c2d1`
 - **Ticket:** —

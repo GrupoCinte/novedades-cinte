@@ -10,8 +10,16 @@ export const LOGO_CID = 'cinte-logo';
  * - Override: `EMAIL_LOGO_URL` (https público). Preferir `logo-cinte-header-light.png` (fondo claro).
  */
 export function resolveLogoUrl(): string {
-  const fromEnv = String(process.env.EMAIL_LOGO_URL || '').trim();
-  if (fromEnv) return fromEnv;
+  if (typeof process === "undefined") {
+    return resolveLogoPublicUrl();
+  }
+
+  const fromEnv = String(process.env.EMAIL_LOGO_URL || "").trim();
+
+  if (fromEnv) {
+    return fromEnv;
+  }
+
   return `cid:${LOGO_CID}`;
 }
 
