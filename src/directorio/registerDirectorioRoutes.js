@@ -7,6 +7,8 @@ const { normalizeRoleOrNull } = require('../rbac');
 const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSemaforo');
 const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
 const { resolveActorUserIdForSession } = require('../resolveActorUserId');
+const { recoverySync } = require('../reubicaciones/reubicacionesSyncService');
+
 
 function directorioGuard() {
     return (req, res, next) => {
@@ -69,6 +71,10 @@ async function assertColaboradorCatalogPair(getLideresByCliente, cliente, lider)
         throw Object.assign(new Error('Cliente y líder no forman un par válido en el catálogo activo.'), { status: 400 });
     }
 }
+
+// Nota: la ejecución directa de `recoverySync` al importar este módulo fue removida
+// para evitar efectos secundarios en el arranque. Ejecuta el backfill vía el endpoint HTTP
+// o llama a `recoverySync` desde una tarea controlada cuando sea necesario.
 
 function registerDirectorioRoutes(deps) {
     const {
@@ -1345,7 +1351,55 @@ function registerDirectorioRoutes(deps) {
             if (st >= 500) console.error('POST vincular gp self:', e);
             return res.status(st).json({ ok: false, error: e.message || 'No se pudo vincular.' });
         }
+
     });
+
+    app.post('/api/directorio/reubicaciones-sync/backfill', ...writeGuard, async (req, res) => {
+        console.log('===== BACKFILL EJECUTADO =====');
+        
+        try {
+            const { dryRun = false, limit = 100 } = req.body;
+
+            // Si pool no es válido, usar global.__pool
+            const db = pool && typeof pool.query === 'function' ? pool : global.__pool;
+
+            if (!db || typeof db.query !== 'function') {
+                console.error('No hay pool disponible');
+                return res.status(500).json({ 
+                    ok: false, 
+                    error: 'No hay conexión a la base de datos',
+                    debug: { 
+                        poolInClosure: !!pool, 
+                        globalPool: !!global.__pool 
+                    }
+                });
+            }
+
+            const result = await recoverySync({
+                pool: db,
+                notifyService: require('../notifications/emailNotificationsPublisher'),
+                dryRun: Boolean(dryRun),
+                limit: Math.min(Number(limit) || 100, 500)
+            });
+
+            return res.json({
+                ok: true,
+                ...result,
+                message: dryRun 
+                    ? `Simulación: ${result.found} fichas pendientes encontradas` 
+                    : `${result.processed} fichas procesadas, ${result.errors} errores`
+            });
+        } catch (error) {
+            console.error('[Backfill] Error completo:', error);
+            return res.status(500).json({
+                ok: false,
+                error: error.message || 'No se pudo ejecutar el backfill',
+                stack: error.stack
+            });
+        }
+    });
+
+
 }
 
 module.exports = { registerDirectorioRoutes };
