@@ -97,6 +97,7 @@ const { registerOnboardingRoutes } = require('./src/onboarding/registerOnboardin
 const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
 const { registerConciliacionesRoutes } = require('./src/conciliaciones/registerConciliacionesRoutes');
 const { registerSourcingRoutes } = require('./src/sourcing/registerSourcingRoutes');
+const { registerSeguimientoRoutes } = require('./src/seguimiento/registerSeguimientoRoutes');
 const { createEmailNotificationsPublisher } = require('./src/notifications/emailNotificationsPublisher');
 const { createResolveApproverEmailsFromCognito } = require('./src/notifications/resolveApproverEmailsFromCognito');
 
@@ -1013,6 +1014,19 @@ registerActividadesRoutes({
     emailNotificationsPublisher,
     listEmailsInGroups,
     listGpEmailsForCliente
+});
+
+registerSeguimientoRoutes({
+    app,
+    pool,
+    verificarToken,
+    allowRoles,
+    adminActionLimiter,
+    catalogLimiter,
+    emailNotificationsPublisher,
+    listEmailsInGroups,
+    listAssignedClientesForGpUserId,
+    resolveGpInternalUserIdForScope
 });
 
 startServer({

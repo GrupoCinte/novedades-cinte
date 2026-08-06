@@ -9,6 +9,7 @@ import {
     CalendarDays,
     ChevronLeft,
     ChevronRight,
+    ClipboardList,
     Home,
     LayoutDashboard,
     Layers,
@@ -40,6 +41,7 @@ import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
 import MallasTurnosModule from './MallasTurnosModule';
 import MonitoreoActividadesView from './MonitoreoActividadesView.jsx';
+import SeguimientoView from './seguimiento/SeguimientoView.jsx';
 import ColaboradorFichaFields from './components/ColaboradorFichaFields.jsx';
 import {
     initialStaffForm,
@@ -208,7 +210,9 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     }, [mainView]);
 
     useEffect(() => {
-        const gpAllowedViews = canAccessMonitoreo ? ['mallasTurnos', 'monitoreo'] : ['mallasTurnos'];
+        const gpAllowedViews = canAccessMonitoreo
+            ? ['mallasTurnos', 'seguimiento', 'monitoreo']
+            : ['mallasTurnos', 'seguimiento'];
         if (gpMallasOnly && !gpAllowedViews.includes(mainView)) {
             setMainView('mallasTurnos');
         }
@@ -224,8 +228,18 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             setSearchParams(next, { replace: true });
             return;
         }
+        if (v === 'seguimiento') {
+            setMainView('seguimiento');
+            const next = new URLSearchParams(searchParams);
+            next.delete('v');
+            setSearchParams(next, { replace: true });
+            return;
+        }
         if (gpMallasOnly) {
-            if (mainView !== 'monitoreo' || !canAccessMonitoreo) setMainView('mallasTurnos');
+            const gpAllowed = canAccessMonitoreo
+                ? ['mallasTurnos', 'seguimiento', 'monitoreo']
+                : ['mallasTurnos', 'seguimiento'];
+            if (!gpAllowed.includes(mainView)) setMainView('mallasTurnos');
             if (v) {
                 const next = new URLSearchParams(searchParams);
                 next.delete('v');
@@ -1090,6 +1104,15 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             setMobileMenuOpen(false);
                         }}
                     />
+                    <NavBtn
+                        active={mainView === 'seguimiento'}
+                        icon={ClipboardList}
+                        label="Seguimiento"
+                        onClick={() => {
+                            setMainView('seguimiento');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
                     {canAccessMonitoreo ? (
                         <NavBtn
                             active={mainView === 'monitoreo'}
@@ -1149,6 +1172,15 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         label="Mallas de turnos"
                         onClick={() => {
                             setMainView('mallasTurnos');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
+                    <NavBtn
+                        active={mainView === 'seguimiento'}
+                        icon={ClipboardList}
+                        label="Seguimiento"
+                        onClick={() => {
+                            setMainView('seguimiento');
                             setMobileMenuOpen(false);
                         }}
                     />
@@ -1714,6 +1746,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     {mainView === 'mallasTurnos' ? (
                         <MallasTurnosModule token={token} auth={auth} />
                     ) : null}
+
+                    {mainView === 'seguimiento' ? <SeguimientoView token={token} /> : null}
 
                     {mainView === 'monitoreo' && canAccessMonitoreo ? <MonitoreoActividadesView /> : null}
 
