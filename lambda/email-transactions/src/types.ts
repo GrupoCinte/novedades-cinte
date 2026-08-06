@@ -129,6 +129,43 @@ export interface TimeEntryAdminNotificationEvent {
   };
 }
 
+export interface SeguimientoCierreEvent {
+  eventType: 'seguimiento_cierre';
+  eventId: string;
+  occurredAt: string;
+  seguimientoId: string;
+  tipo: 'consultor' | 'cliente';
+  recipients: Array<{ email: string; name?: string }>;
+  acta: {
+    fecha: string;
+    cliente: string;
+    modalidad?: string;
+    temasTratados?: string;
+    feedback?: string;
+    compromisosResumen?: string;
+  };
+  meta: {
+    source: string;
+    env: string;
+  };
+}
+
+export interface SeguimientoVencimientoEvent {
+  eventType: 'seguimiento_vencimiento';
+  eventId: string;
+  occurredAt: string;
+  seguimientoId: string;
+  kind: 'T5' | 'T1';
+  recipients: Array<{ email: string; role?: string; name?: string }>;
+  venceEl: string;
+  tipo: 'consultor' | 'cliente';
+  sujetoLabel: string;
+  meta: {
+    source: string;
+    env: string;
+  };
+}
+
 export type TransactionalEmailEvent =
   | FormSubmittedNotificationEvent
   | FormStatusChangedNotificationEvent
@@ -136,7 +173,9 @@ export type TransactionalEmailEvent =
   | ConciliacionCorreoLiderEvent
   | ConciliacionStakeholdersAvisoEvent
   | TimeEntryConfirmationEvent
-  | TimeEntryAdminNotificationEvent; 
+  | TimeEntryAdminNotificationEvent
+  | SeguimientoCierreEvent
+  | SeguimientoVencimientoEvent; 
 
 export interface ConciliacionCorreoLiderEvent {
   eventType: 'conciliacion_correo_lider';
