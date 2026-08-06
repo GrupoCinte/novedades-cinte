@@ -13,6 +13,7 @@ const { insertTarifaHistorial } = require('../conciliaciones/conciliacionTarifaH
 const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAsignaciones');
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
+const { sincronizarConPipeline } = require('../reubicaciones/reubicacionesSyncService');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
@@ -734,10 +735,20 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             };
         }
 
+        const eventType = String(meta.eventType || 'INSERT').trim();
+        const sequenceNumber = meta.sequenceNumber != null ? String(meta.sequenceNumber).trim() : null;
+        const shardId = meta.shardId != null ? String(meta.shardId).trim() : null;
+
         const existing = await pool.query(
             `SELECT id, status, match_strategy, colaborador_cedula_match
-             FROM ficha_novedades_staging WHERE external_id = $1 LIMIT 1`,
-            [mapped.external_id]
+             FROM ficha_novedades_staging
+             WHERE source = $1
+               AND external_id = $2
+               AND event_type = $3
+               AND COALESCE(sequence_number, '') = COALESCE($4::text, '')
+               AND COALESCE(shard_id, '') = COALESCE($5::text, '')
+             LIMIT 1`,
+            [source, mapped.external_id, eventType, sequenceNumber, shardId]
         );
         if (existing.rows[0]) {
             return {
@@ -1148,6 +1159,31 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         if (Object.keys(patch).length > 0) {
             await applyPatchToColaborador(cedula, patch);
         }
+
+        // Si es extension o salida, sincronizar con pipeline
+        if (tipo === 'extension' || tipo === 'salida') {
+            try {
+                await sincronizarConPipeline({
+                    cedula: cedula,
+                    tipo_novedad: tipo,
+                    normalized: row.payload_normalizado || {},
+                    patch: patch,
+                    staging_id: id,
+                    external_id: row.external_id,
+                    source: row.source,
+                    event_type: row.event_type,
+                    sequence_number: row.sequence_number,
+                    shard_id: row.shard_id,
+                    reviewer: { sub: reviewer.sub || reviewer.email || reviewer.displayName },
+                    pool: pool,
+                    notifyService: require('../notifications/emailNotificationsPublisher')
+                });
+            } catch (error) {
+                log.error({ error: error.message, id, cedula }, 'Error al sincronizar con pipeline');
+                // No fallar la aprobación, el recovery lo procesará después
+            }
+        }
+        
 
         const reviewedBy = trimOrNull(reviewer.sub || reviewer.email || reviewer.displayName, 320);
         await pool.query(

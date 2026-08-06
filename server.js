@@ -529,6 +529,11 @@ const pool = new Pool({
     options: '-c client_encoding=UTF8'
 });
 
+global.__pool = pool;
+
+// Exponer pool en app.locals para que los handlers puedan recuperarlo como fallback
+app.locals.pool = pool;
+
 /**
  * `pg` documenta explícitamente que sin este listener, cualquier error en un
  * cliente *idle* del pool (desconexión de red, kill de PG, etc.) se convierte
@@ -1071,3 +1076,5 @@ startServer({
     console.error('Fallo inicializando servidor:', error);
     process.exit(1);
 });
+
+module.exports = { app, pool };
