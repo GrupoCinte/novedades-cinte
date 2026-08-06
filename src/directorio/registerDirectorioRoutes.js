@@ -8,6 +8,8 @@ const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSem
 const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
 const { resolveActorUserIdForSession } = require('../resolveActorUserId');
 const { recoverySync } = require('../reubicaciones/reubicacionesSyncService');
+const authService = require('../reubicaciones/reubicacionesAuthService');
+
 
 
 function directorioGuard() {
@@ -29,6 +31,62 @@ function mallasRoleGuard() {
         }
         return res.status(403).json({ ok: false, error: 'Sin permiso para mallas de turnos.' });
     };
+}
+
+/**
+ * Middleware para verificar acceso al módulo de Reubicaciones
+ * HU-01: Acceso colaborativo y permisos de Reubicaciones
+ */
+function reubicacionesAccessGuard() {
+    return (req, res, next) => {
+        const role = normalizeRoleOrNull(req.user?.role);
+        
+        // Roles que pueden acceder
+        const rolesPermitidos = [
+            'super_admin',
+            'gp',
+            'admin_ch',
+            'team_ch',
+            'atraccion_talento',
+            'cac'
+        ];
+        
+        if (!rolesPermitidos.includes(role)) {
+            return res.status(403).json({ 
+                ok: false, 
+                error: 'Sin permiso para acceder al módulo de Reubicaciones.' 
+            });
+        }
+        return next();
+    };
+}
+
+/**
+ * Middleware para verificar alcance de GP
+ * Solo aplica para usuarios con rol 'gp'
+ */
+async function reubicacionesAlcanceGP(req, res, next) {
+    const role = normalizeRoleOrNull(req.user?.role);
+    
+    // Si no es GP, no aplica filtro
+    if (role !== 'gp') {
+        return next();
+    }
+    
+    // Si es GP, verificar alcance
+    const { cedula } = req.params;
+    if (cedula) {
+        // Para GET /:cedula, verificar que el GP tenga alcance
+        const tieneAlcance = await authService.gpTieneAlcance(req.user, cedula, pool);
+        if (!tieneAlcance) {
+            return res.status(403).json({ 
+                ok: false, 
+                error: 'No tiene alcance sobre este consultor.' 
+            });
+        }
+    }
+    
+    next();
 }
 
 function canAprobarMallaRole(role) {
@@ -984,13 +1042,41 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/reubicaciones-pipeline', ...readGuard, async (req, res) => {
+    app.get('/api/directorio/reubicaciones-pipeline', ...readGuard, reubicacionesAccessGuard(), async (req, res) => {
         try {
             const parsed = reubicacionesPipelineListSchema.safeParse(req.query);
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
             const d = parsed.data;
             const limit = d.limit ?? 50;
             const offset = d.offset ?? 0;
+
+            const role = normalizeRoleOrNull(req.user?.role);
+
+            if (role === 'gp') {
+                try {
+                    const casosGP = await authService.getCasosPorAlcanceGP(req.user, pool);
+                    const accionesPermitidas = authService.getAccionesPermitidas(role);
+                    
+                    return res.json({
+                        ok: true,
+                        items: casosGP.map(normalizePipelineRow),
+                        total: casosGP.length,
+                        limit,
+                        offset,
+                        meta: {
+                            rol: role,
+                            acciones_permitidas: accionesPermitidas,
+                            alcance: 'solo sus clientes'
+                        }
+                    });
+                } catch (e) {
+                    console.error('Error obteniendo casos por alcance GP:', e);
+                    return res.status(403).json({ 
+                        ok: false, 
+                        error: 'No se pudieron obtener los casos de su alcance.' 
+                    });
+                }
+            }
 
             const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
             const semaforoSql = `(CASE WHEN ${diasSql} < 0 THEN 'Vencido' WHEN ${diasSql} > 30 THEN 'Verde' WHEN ${diasSql} >= 15 THEN 'Amarillo' ELSE 'Rojo' END)`;
@@ -1079,12 +1165,19 @@ function registerDirectorioRoutes(deps) {
             const listRes = await pool.query(listSql, listParams);
             const rows = listRes.rows;
 
+            const accionesPermitidas = authService.getAccionesPermitidas(role);
+
             return res.json({
                 ok: true,
                 items: rows.map(normalizePipelineRow),
                 total,
                 limit,
-                offset
+                offset,
+                meta: { 
+                    rol: role,
+                    acciones_permitidas: accionesPermitidas,
+                    alcance: role === 'super_admin' ? 'todos los casos' : 'general'
+                }
             });
         } catch (e) {
             console.error('GET directorio reubicaciones-pipeline:', e);
