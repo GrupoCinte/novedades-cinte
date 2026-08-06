@@ -28,6 +28,8 @@ function registerSeguimientoRoutes(deps) {
             const gpEmail = req.user?.email || req.user?.cognito_username || null;
             const gpUserId = req.user?.id || req.user?.sub || null;
             const scope = { gpEmail, gpUserId };
+            console.log('[DEBUG /cartera] req.user:', req.user);
+            console.log('[DEBUG /cartera] scope:', scope);
             
             // 1. Resolver si el usuario aplica como GP y obtener su UUID interno
             let gpId = null;
@@ -67,18 +69,32 @@ function registerSeguimientoRoutes(deps) {
 
             // 1. Determinar el alcance del usuario.
             let clientesAsignados = null;
+            let gpId = null;
             if (role === 'gp') {
-                const gpId = await resolveGpInternalUserIdForScope(scope);
+                gpId = await resolveGpInternalUserIdForScope(scope);
                 clientesAsignados = await listAssignedClientesForGpUserId(gpId);
             }
 
             // 2. Delegar la consulta al servicio de negocio inyectado
             const actas = await seguimientoService.listActas({ clientesAsignados, limit, offset });
 
-            // 3. Transformar respuesta HTTP
+            // 3. Transformar respuesta HTTP y agregar permisos dinámicos (can_edit)
+            const actasWithPermissions = actas.map(acta => {
+                let can_edit = false;
+                if (role === 'cac' || role === 'super_admin') {
+                    can_edit = true;
+                } else if (role === 'gp') {
+                    if (acta.estado !== 'FINALIZADO' && String(acta.gp_id) === String(gpId)) {
+                        can_edit = true;
+                    }
+                }
+                console.log(`[DEBUG /actas map] actaId: ${acta.id}, gp_id: ${acta.gp_id}, gpId: ${gpId}, estado: ${acta.estado}, can_edit: ${can_edit}`);
+                return { ...acta, can_edit };
+            });
+
             res.json({
                 ok: true,
-                items: actas
+                items: actasWithPermissions
             });
         } catch (error) {
             console.error('[Seguimiento] Error en GET /api/seguimiento/actas:', error);
@@ -96,19 +112,15 @@ function registerSeguimientoRoutes(deps) {
             const gpUserId = req.user?.id || req.user?.sub || null;
             const scope = { gpEmail, gpUserId };
             
-            let gpId = null;
+            let gpId = await resolveGpInternalUserIdForScope(scope);
+            if (!gpId) return res.status(403).json({ ok: false, error: 'No se pudo resolver el ID del usuario para asignar el acta' });
+
             if (role === 'gp') {
-                gpId = await resolveGpInternalUserIdForScope(scope);
-                if (!gpId) return res.status(403).json({ ok: false, error: 'No se pudo resolver el ID del GP' });
-                
                 // RBAC: Solo puede crear actas para clientes asignados
                 const clientesAsignados = await listAssignedClientesForGpUserId(gpId);
                 if (!clientesAsignados.includes(req.body.cliente)) {
                     return res.status(403).json({ ok: false, error: 'No tienes acceso a este cliente' });
                 }
-            } else {
-                gpId = req.body.gp_id || null;
-                if (!gpId) return res.status(400).json({ ok: false, error: 'Falta gp_id para asignar el acta' });
             }
 
             const data = {
@@ -139,21 +151,18 @@ function registerSeguimientoRoutes(deps) {
             const actor = { id: gpUserId, email: gpEmail, role };
             const { id } = req.params;
 
-            if (role === 'gp') {
-                const scope = { gpEmail, gpUserId };
-                const gpId = await resolveGpInternalUserIdForScope(scope);
-                const clientesAsignados = await listAssignedClientesForGpUserId(gpId);
-                
-                const acta = await seguimientoService.getActa(id, clientesAsignados);
-                if (!acta) return res.status(404).json({ ok: false, error: 'Acta no encontrada o no pertenece a tu cartera' });
+            const acta = await seguimientoService.getActa(id);
+            if (!acta) return res.status(404).json({ ok: false, error: 'Acta no encontrada' });
 
-                // RBAC: No puede cambiar el acta a un cliente que no le pertenece
-                if (req.body.cliente && !clientesAsignados.includes(req.body.cliente)) {
-                    return res.status(403).json({ ok: false, error: 'No tienes acceso a este cliente' });
+            if (role === 'gp') {
+                if (acta.estado === 'FINALIZADO') {
+                    return res.status(403).json({ ok: false, error: 'Los Gerentes de Proyecto no pueden editar actas finalizadas.' });
                 }
-            } else {
-                const acta = await seguimientoService.getActa(id);
-                if (!acta) return res.status(404).json({ ok: false, error: 'Acta no encontrada' });
+                const scope = { gpEmail, gpUserId };
+                const currentGpId = await resolveGpInternalUserIdForScope(scope);
+                if (String(acta.gp_id) !== String(currentGpId)) {
+                    return res.status(403).json({ ok: false, error: 'No tienes permisos para editar el borrador de otro Gerente de Proyecto.' });
+                }
             }
 
             const data = {
@@ -176,12 +185,25 @@ function registerSeguimientoRoutes(deps) {
     app.delete('/api/seguimiento/actas/:id', baseMiddleware, async (req, res) => {
         try {
             const role = String(req.user?.role || '').trim().toLowerCase();
-            if (role === 'gp') return res.status(403).json({ ok: false, error: 'Un GP no puede eliminar actas' });
+            const { id } = req.params;
+
+            const existingActa = await seguimientoService.getActa(id);
+            if (!existingActa) return res.status(404).json({ ok: false, error: 'Acta no encontrada' });
 
             const gpEmail = req.user?.email || req.user?.cognito_username || null;
             const gpUserId = req.user?.id || req.user?.sub || null;
+            
+            if (role === 'gp') {
+                const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
+                if (String(existingActa.gp_id) !== String(gpId)) {
+                    return res.status(403).json({ ok: false, error: 'No tienes permisos para descartar este borrador' });
+                }
+                if (existingActa.estado === 'FINALIZADO') {
+                    return res.status(403).json({ ok: false, error: 'Un GP no puede eliminar actas finalizadas' });
+                }
+            }
+
             const actor = { id: gpUserId, email: gpEmail, role };
-            const { id } = req.params;
 
             await seguimientoService.softDeleteActa(id, actor);
             res.json({ ok: true });

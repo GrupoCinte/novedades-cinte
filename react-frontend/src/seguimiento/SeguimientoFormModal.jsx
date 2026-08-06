@@ -3,6 +3,7 @@ import GestionModalShell from '../shared/modals/GestionModalShell.jsx';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import { authHeaders } from '../shared/authUtils.js';
+import { MoreVertical } from 'lucide-react';
 
 import ParticipantesSubModal from './ParticipantesSubModal.jsx';
 import PlanesAccionSubModal from './PlanesAccionSubModal.jsx';
@@ -16,13 +17,13 @@ export default function SeguimientoFormModal({
     auth, 
     onSaved,
     tipoSeleccionado,
-    clientesCartera = []
+    clientesCartera = [],
+    refreshCartera
 }) {
-    const { isLight } = useModuleTheme();
+    const { isLight, field } = useModuleTheme();
+    const [menuOpen, setMenuOpen] = useState(false);
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
-    const inputCls = isLight 
-        ? 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-[#2F7BB8] focus:ring-1 focus:ring-[#2F7BB8] disabled:opacity-60'
-        : 'w-full rounded-lg border border-slate-600 bg-[#1e293b] px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-[#2F7BB8] focus:ring-1 focus:ring-[#2F7BB8] disabled:opacity-60';
+    const inputCls = `${field} w-full`;
     
     const role = String(auth?.user?.role || auth?.claims?.role || '').trim().toLowerCase();
     const isGp = role === 'gp';
@@ -98,7 +99,7 @@ export default function SeguimientoFormModal({
             const gpEmail = String(auth?.user?.email || auth?.claims?.email || '').trim().toLowerCase();
             const gpName = String(auth?.user?.name || auth?.claims?.name || '').trim();
             
-            fetch('/api/directorio/colaboradores', fetchOpts())
+            fetch('/api/directorio/colaboradores?limit=1000', fetchOpts())
                 .then(r => r.json())
                 .then(d => {
                     const colabs = d.items || [];
@@ -106,7 +107,7 @@ export default function SeguimientoFormModal({
                     
                     // Buscar puesto del GP en el directorio (la DB usa 'puesto' para colaboradores)
                     const gpColab = colabs.find(c => {
-                        const ce = String(c.correo || c.email || '').trim().toLowerCase();
+                        const ce = String(c.correo_cinte || c.correo || c.email || '').trim().toLowerCase();
                         return ce && ce === gpEmail;
                     });
                     const gpPuesto = gpColab ? (gpColab.puesto || gpColab.cargo || '') : '';
@@ -168,7 +169,7 @@ export default function SeguimientoFormModal({
     }, [open, actaId, actaData, tipoSeleccionado, fetchOpts, clientesCartera, auth]);
 
     // Helpers
-    const isReadOnly = isFinalizado && isGp;
+    const isReadOnly = actaData ? (actaData.can_edit === false) : false;
 
     // Participantes Logic
     const handleAcceptParticipantes = (selectedItems) => {
@@ -180,6 +181,16 @@ export default function SeguimientoFormModal({
             return { ...s, desarrollo: '' };
         });
         setParticipantes(merged);
+
+        // Auto-assign internal 'cliente' based on participants if not already set
+        if (!cliente && merged.length > 0 && clientesCartera.length > 0) {
+            const pConCliente = merged.find(p => clientesCartera.includes(p.empresa));
+            if (pConCliente) {
+                setCliente(pConCliente.empresa);
+            } else {
+                setCliente(clientesCartera[0]);
+            }
+        }
     };
 
     const updateDesarrollo = (cedula, text) => {
@@ -199,17 +210,100 @@ export default function SeguimientoFormModal({
         setPlanesAccion(prev => prev.filter((_, i) => i !== idx));
     };
 
+    const isBorradorVacio = () => {
+        const noObjetivo = !objetivo || objetivo.trim() === '';
+        const noAgenda = !agenda || agenda.trim() === '';
+        const noParticipantes = participantes.length === 0;
+        const noPlanes = planesAccion.length === 0;
+        return noObjetivo && noAgenda && noParticipantes && noPlanes;
+    };
+
+    const handleLimpiar = () => {
+        setMenuOpen(false);
+        setObjetivo('');
+        setAgenda('');
+        setParticipantes([]);
+        setPlanesAccion([]);
+        setHoraInicio('');
+        setHoraFin('');
+        setError(null);
+    };
+
+    const handleDescartar = async () => {
+        setMenuOpen(false);
+        if (!isBorradorVacio()) {
+            setError('Para descartar el borrador, primero debes dejar el formulario completamente limpio.');
+            return;
+        }
+
+        if (actaId) {
+            setSaving(true);
+            try {
+                const resDel = await fetch(`/api/seguimiento/actas/${actaId}`, {
+                    ...fetchOpts(),
+                    method: 'DELETE'
+                });
+                if (resDel.ok) {
+                    onSaved('DESCARTADO');
+                    onClose();
+                } else {
+                    const err = await resDel.json();
+                    setError(err.error || 'No se pudo descartar el borrador vacío.');
+                }
+            } catch (e) {
+                setError('Error de conexión al descartar borrador.');
+            } finally {
+                setSaving(false);
+            }
+        } else {
+            onSaved('DESCARTADO');
+            onClose();
+        }
+    };
+
     const saveActa = async (estadoFinal) => {
-        if (!cliente) {
-            setError('Debes seleccionar un cliente.');
-            return;
-        }
-        if (!fechaActa || !horaInicio || !horaFin) {
-            setError('Debes proveer la fecha y las horas de inicio y fin.');
-            return;
-        }
         if (participantes.length === 0) {
             setError('Debes agregar al menos un participante para diligenciar el desarrollo.');
+            return;
+        }
+
+        if (estadoFinal === 'FINALIZADO') {
+            if (!fechaActa) {
+                setError('La Fecha es obligatoria para finalizar el acta.');
+                return;
+            }
+            if (!agenda || agenda.trim() === '') {
+                setError('El campo Temas (Agenda) es obligatorio para finalizar el acta.');
+                return;
+            }
+            if (participantes.some(p => !p.desarrollo || p.desarrollo.trim() === '')) {
+                setError('El Desarrollo (Feedback) de todos los participantes es obligatorio para finalizar el acta.');
+                return;
+            }
+            if (planesAccion.length === 0) {
+                setError('Debes agregar al menos un compromiso (Planes de Acción) para finalizar el acta.');
+                return;
+            }
+            if (tipoSeleccionado === 'Consultor' && participantes.length === 0) {
+                setError('Debes seleccionar consultores para finalizar este tipo de acta.');
+                return;
+            }
+        }
+
+        let clienteFinal = cliente;
+        if (!clienteFinal && participantes.length > 0) {
+            const pConCliente = participantes.find(p => p.empresa && p.empresa !== 'CINTe');
+            clienteFinal = pConCliente ? pConCliente.empresa : (clientesCartera.length > 0 ? clientesCartera[0] : 'General');
+            setCliente(clienteFinal);
+        }
+
+        if (!clienteFinal) {
+            setError('Error interno: No se pudo determinar el cliente asociado al acta.');
+            return;
+        }
+        
+        if (!fechaActa || !horaInicio || !horaFin) {
+            setError('Debes proveer la fecha y las horas de inicio y fin.');
             return;
         }
 
@@ -239,7 +333,7 @@ export default function SeguimientoFormModal({
 
         const payload = {
             tipo: tipo.toLowerCase(),
-            cliente,
+            cliente: clienteFinal,
             fecha_acta: fechaActa,
             estado: estadoFinal,
             compromisos: '', // Deprecated nativamente, movido a planes_accion
@@ -264,7 +358,7 @@ export default function SeguimientoFormModal({
             }
 
             setConfirmFinalizeOpen(false);
-            onSaved();
+            onSaved(estadoFinal);
             onClose();
         } catch (err) {
             setError(err.message);
@@ -279,11 +373,6 @@ export default function SeguimientoFormModal({
             {children}
         </h3>
     );
-    const Label = ({ children }) => (
-        <label className={`block text-xs font-semibold uppercase tracking-wider mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-            {children}
-        </label>
-    );
 
     return (
         <>
@@ -297,15 +386,49 @@ export default function SeguimientoFormModal({
                         <div>
                             {error && <span className="text-red-500 text-sm font-semibold">{error}</span>}
                         </div>
-                        <div className="flex gap-2">
-                            <button className={dash.borrarFiltros} onClick={onClose} disabled={saving}>Cancelar</button>
+                        <div className="flex gap-2 items-center">
                             {!isReadOnly && (
-                                <button className={dash.btnPrimaryCinte} onClick={() => saveActa('Borrador')} disabled={saving}>
-                                    {saving ? 'Guardando...' : 'Guardar Borrador'}
-                                </button>
+                                <div className="relative">
+                                    <button 
+                                        onClick={() => setMenuOpen(!menuOpen)} 
+                                        className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors"
+                                        title="Opciones del borrador"
+                                    >
+                                        <MoreVertical className="w-5 h-5" />
+                                    </button>
+                                    {menuOpen && (
+                                        <div className="absolute right-0 bottom-full mb-2 w-48 bg-white border border-slate-200 shadow-xl rounded-lg overflow-hidden z-50">
+                                            <button 
+                                                onClick={handleLimpiar} 
+                                                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                                            >
+                                                Limpiar formulario
+                                            </button>
+                                            <button 
+                                                onClick={handleDescartar} 
+                                                className="w-full text-left px-4 py-2 text-sm text-red-600 font-medium hover:bg-red-50 transition-colors"
+                                            >
+                                                Descartar borrador
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                             )}
+                            <button 
+                                className={dash.borrarFiltros} 
+                                onClick={() => {
+                                    if (isReadOnly) {
+                                        onClose();
+                                    } else {
+                                        saveActa('Borrador');
+                                    }
+                                }} 
+                                disabled={saving}
+                            >
+                                {saving ? 'Guardando...' : 'Cancelar'}
+                            </button>
                             {!isReadOnly && (
-                                <button className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-all disabled:opacity-50" onClick={() => setConfirmFinalizeOpen(true)} disabled={saving}>
+                                <button className={dash.btnPrimaryCinte} onClick={() => setConfirmFinalizeOpen(true)} disabled={saving}>
                                     Finalizar Acta
                                 </button>
                             )}
@@ -322,23 +445,8 @@ export default function SeguimientoFormModal({
                             {/* SECCIÓN 1: Información General */}
                             <SectionTitle>1. Información General</SectionTitle>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div>
-                                    <Label>Tipo de Acta</Label>
-                                    <input type="text" readOnly value={tipo} className={inputCls} disabled />
-                                </div>
-                                <div className="md:col-span-3">
-                                    <Label>Cliente Asignado</Label>
-                                    {clientesCartera.length > 0 ? (
-                                        <select value={cliente} onChange={e => setCliente(e.target.value)} className={inputCls} disabled={isReadOnly}>
-                                            <option value="">-- Seleccionar Cliente --</option>
-                                            {clientesCartera.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
-                                    ) : (
-                                        <input type="text" value={cliente} onChange={e => setCliente(e.target.value)} className={inputCls} disabled={isReadOnly} placeholder="Nombre del cliente" />
-                                    )}
-                                </div>
                                 <div className="md:col-span-2">
-                                    <Label>Fecha de reunión</Label>
+                                    <label className={`block mb-1 ${dash.labelFilter}`}>Fecha de reunión</label>
                                     <input 
                                         type="date" 
                                         value={fechaActa} 
@@ -346,16 +454,16 @@ export default function SeguimientoFormModal({
                                         min={minDateStr}
                                         max={maxDateStr}
                                         className={inputCls} 
-                                        disabled={isReadOnly} 
+                                        readOnly={isReadOnly} 
                                     />
                                 </div>
                                 <div>
-                                    <Label>Hora Inicio</Label>
-                                    <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)} className={inputCls} disabled={isReadOnly} />
+                                    <label className={`block mb-1 ${dash.labelFilter}`}>Hora Inicio</label>
+                                    <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)} className={inputCls} readOnly={isReadOnly} />
                                 </div>
                                 <div>
-                                    <Label>Hora de finalización</Label>
-                                    <input type="time" value={horaFin} onChange={e => setHoraFin(e.target.value)} className={inputCls} disabled={isReadOnly} />
+                                    <label className={`block mb-1 ${dash.labelFilter}`}>Hora de finalización</label>
+                                    <input type="time" value={horaFin} onChange={e => setHoraFin(e.target.value)} className={inputCls} readOnly={isReadOnly} />
                                 </div>
                             </div>
 
@@ -363,26 +471,26 @@ export default function SeguimientoFormModal({
                             <SectionTitle>2. Responsable de la reunión</SectionTitle>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <Label>Nombres y apellidos</Label>
-                                    <input type="text" value={responsableNombre} onChange={e => setResponsableNombre(e.target.value)} className={inputCls} disabled={isReadOnly} readOnly />
+                                    <label className={`block mb-1 ${dash.labelFilter}`}>Nombres y apellidos</label>
+                                    <input type="text" value={responsableNombre} onChange={e => setResponsableNombre(e.target.value)} className={inputCls} readOnly />
                                 </div>
                                 <div>
-                                    <Label>Cargo / Puesto</Label>
-                                    <input type="text" value={responsableCargo} onChange={e => setResponsableCargo(e.target.value)} className={inputCls} disabled={isReadOnly} readOnly />
+                                    <label className={`block mb-1 ${dash.labelFilter}`}>Cargo / Puesto</label>
+                                    <input type="text" value={responsableCargo} onChange={e => setResponsableCargo(e.target.value)} className={inputCls} readOnly />
                                 </div>
                             </div>
 
                             {/* SECCIÓN 3: Objetivo */}
                             <SectionTitle>3. Objetivo</SectionTitle>
                             <div>
-                                <textarea rows={2} value={objetivo} onChange={e => setObjetivo(e.target.value)} className={inputCls} disabled={isReadOnly} placeholder="¿Cuál fue el propósito de este seguimiento?" />
+                                <textarea rows={2} value={objetivo} onChange={e => setObjetivo(e.target.value)} className={inputCls} readOnly={isReadOnly} placeholder="¿Cuál fue el propósito de este seguimiento?" />
                             </div>
 
                             {/* SECCIÓN 4: Participantes */}
                             <SectionTitle>4. Participantes</SectionTitle>
                             <div>
                                 {!isReadOnly && (
-                                    <button type="button" onClick={() => setParticipantesOpen(true)} className="mb-4 inline-flex items-center gap-2 rounded-lg border border-[#2F7BB8] text-[#2F7BB8] px-3 py-1.5 text-sm font-semibold hover:bg-blue-50 transition-colors">
+                                    <button type="button" onClick={() => setParticipantesOpen(true)} className={`mb-4 ${dash.borrarFiltros}`}>
                                         + Agregar participantes
                                     </button>
                                 )}
@@ -391,23 +499,23 @@ export default function SeguimientoFormModal({
                                     <p className={`text-sm italic ${dash.mutedSm}`}>No hay participantes seleccionados.</p>
                                 ) : (
                                     <div className="overflow-x-auto rounded-lg border border-slate-200">
-                                        <table className="w-full text-left text-sm">
-                                            <thead className={`bg-slate-100 ${isLight ? 'text-slate-700' : 'text-slate-700'}`}>
+                                        <table className="w-full text-left text-sm border-collapse">
+                                            <thead className={dash.thead}>
                                                 <tr>
-                                                    <th className="px-4 py-2">Nombre</th>
-                                                    <th className="px-4 py-2">Cargo</th>
-                                                    <th className="px-4 py-2">Empresa</th>
-                                                    {!isReadOnly && <th className="px-4 py-2 w-10"></th>}
+                                                    <th className="p-4 font-semibold">Nombre</th>
+                                                    <th className="p-4 font-semibold">Cargo</th>
+                                                    <th className="p-4 font-semibold">Empresa</th>
+                                                    {!isReadOnly && <th className="p-4 font-semibold w-10"></th>}
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {participantes.map(p => (
-                                                    <tr key={p.cedula} className="border-t border-slate-200">
-                                                        <td className="px-4 py-2 font-medium">{p.nombre}</td>
-                                                        <td className="px-4 py-2 text-slate-500">{p.cargo}</td>
-                                                        <td className="px-4 py-2 text-slate-500">{p.empresa}</td>
+                                                    <tr key={p.cedula} className={dash.trHover}>
+                                                        <td className={dash.tdName}>{p.nombre}</td>
+                                                        <td className={dash.tdCell}>{p.cargo}</td>
+                                                        <td className={dash.tdCell}>{p.empresa}</td>
                                                         {!isReadOnly && (
-                                                            <td className="px-4 py-2">
+                                                            <td className="px-4 py-2 text-right">
                                                                 <button onClick={() => removeParticipante(p.cedula)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
                                                             </td>
                                                         )}
@@ -422,7 +530,7 @@ export default function SeguimientoFormModal({
                             {/* SECCIÓN 5: Agenda */}
                             <SectionTitle>5. Agenda</SectionTitle>
                             <div>
-                                <textarea rows={4} value={agenda} onChange={e => setAgenda(e.target.value)} className={inputCls} disabled={isReadOnly} placeholder="Lista los puntos de la agenda (Temas a ser tratados)..." />
+                                <textarea rows={4} value={agenda} onChange={e => setAgenda(e.target.value)} className={inputCls} readOnly={isReadOnly} placeholder="Lista los puntos de la agenda (Temas a ser tratados)..." />
                             </div>
 
                             {/* SECCIÓN 6: Desarrollo de la reunión */}
@@ -432,19 +540,22 @@ export default function SeguimientoFormModal({
                             ) : (
                                 <div className="space-y-4">
                                     {participantes.map(p => (
-                                        <div key={p.cedula} className={`p-4 rounded-lg border ${isLight ? 'border-slate-200 bg-white shadow-sm' : 'border-slate-700 bg-slate-800'}`}>
-                                            <h4 className={`text-sm font-bold mb-2 flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
+                                        <div key={p.cedula} className={`p-4 ${dash.card}`}>
+                                            <h4 className={`mb-2 flex items-center gap-2 ${dash.titleLg} !text-sm`}>
                                                 <span className="w-2 h-2 rounded-full bg-[#2F7BB8]"></span>
-                                                Intervención: {p.nombre} <span className="font-normal opacity-70 text-xs">({p.cargo})</span>
+                                                Evaluación de servicio: {p.nombre} <span className="font-normal text-slate-500 dark:text-slate-400">({p.cargo})</span>
                                             </h4>
-                                            <textarea 
-                                                rows={3} 
-                                                value={p.desarrollo || ''} 
-                                                onChange={e => updateDesarrollo(p.cedula, e.target.value)} 
-                                                className={inputCls} 
-                                                disabled={isReadOnly} 
-                                                placeholder={`Registra aquí lo conversado por ${p.nombre}...`} 
-                                            />
+                                            <div>
+                                                <label className={`block mb-1 ${dash.labelFilter}`}>Observaciones / Comentarios</label>
+                                                <textarea 
+                                                    rows={3} 
+                                                    value={p.desarrollo || ''} 
+                                                    onChange={e => updateDesarrollo(p.cedula, e.target.value)} 
+                                                    className={inputCls} 
+                                                    readOnly={isReadOnly} 
+                                                    placeholder={`Registra aquí lo conversado por ${p.nombre}...`} 
+                                                />
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -464,24 +575,24 @@ export default function SeguimientoFormModal({
                                 ) : (
                                     <div className="overflow-x-auto rounded-lg border border-slate-200">
                                         <table className="w-full text-left text-sm">
-                                            <thead className={`bg-slate-100 ${isLight ? 'text-slate-700' : 'text-slate-700'}`}>
+                                            <thead className={dash.thead}>
                                                 <tr>
-                                                    <th className="px-4 py-2">Tarea</th>
-                                                    <th className="px-4 py-2">Crit.</th>
-                                                    <th className="px-4 py-2">Responsable</th>
-                                                    <th className="px-4 py-2">Entrega</th>
-                                                    <th className="px-4 py-2">Recursos</th>
-                                                    {!isReadOnly && <th className="px-4 py-2 w-10"></th>}
+                                                    <th className="p-4 font-semibold">Tarea / Acción</th>
+                                                    <th className="p-4 font-semibold">Criticidad</th>
+                                                    <th className="p-4 font-semibold">Responsable</th>
+                                                    <th className="p-4 font-semibold">F. Entrega</th>
+                                                    <th className="p-4 font-semibold">Recursos</th>
+                                                    {!isReadOnly && <th className="p-4 font-semibold w-10"></th>}
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {planesAccion.map((plan, idx) => (
-                                                    <tr key={idx} className="border-t border-slate-200">
-                                                        <td className="px-4 py-2">{plan.tarea}</td>
-                                                        <td className="px-4 py-2 font-medium">{plan.criticidad.charAt(0)}</td>
-                                                        <td className="px-4 py-2">{plan.responsable}</td>
-                                                        <td className="px-4 py-2 whitespace-nowrap">{plan.fechaEntrega}</td>
-                                                        <td className="px-4 py-2 text-xs">{plan.recursos}</td>
+                                                    <tr key={idx} className={dash.trHover}>
+                                                        <td className={dash.tdCell}>{plan.tarea}</td>
+                                                        <td className={dash.tdCell}>{plan.criticidad}</td>
+                                                        <td className={dash.tdName}>{plan.responsable}</td>
+                                                        <td className={dash.tdCell}>{plan.fechaEntrega}</td>
+                                                        <td className={dash.tdMuted}>{plan.recursos || '-'}</td>
                                                         {!isReadOnly && (
                                                             <td className="px-4 py-2">
                                                                 <button onClick={() => removePlan(idx)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
@@ -499,22 +610,22 @@ export default function SeguimientoFormModal({
                             <SectionTitle>8. Cierre y Próxima Reunión</SectionTitle>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <Label>Quien realiza el acta</Label>
-                                    <input type="text" value={quienRealizaNombre} className={inputCls} disabled readOnly />
+                                    <label className={`block mb-1 ${dash.labelFilter}`}>Quien realiza el acta</label>
+                                    <input type="text" value={quienRealizaNombre} className={inputCls} readOnly />
                                 </div>
                                 <div>
-                                    <Label>Cargo / Puesto</Label>
-                                    <input type="text" value={quienRealizaCargo} className={inputCls} disabled readOnly />
+                                    <label className={`block mb-1 ${dash.labelFilter}`}>Cargo / Puesto</label>
+                                    <input type="text" value={quienRealizaCargo} className={inputCls} readOnly />
                                 </div>
                                 <div className="md:col-span-2 mt-2">
-                                    <Label>Próxima reunión</Label>
-                                    <input type="text" value="Próxima reunión mensual" className={inputCls} disabled readOnly />
+                                    <label className={`block mb-1 ${dash.labelFilter}`}>Próxima reunión</label>
+                                    <input type="text" value="Próxima reunión mensual" className={inputCls} readOnly />
                                 </div>
                             </div>
                             
                             {/* SECCIÓN OPCIONAL: Observaciones de Consultor (Visible si hay algo) */}
                             {observacionConsultor && (
-                                <div className={`mt-6 p-4 rounded-xl border ${isLight ? 'border-amber-200 bg-amber-50' : 'border-amber-900 bg-amber-900/20'}`}>
+                                <div className={`mt-6 p-4 rounded-xl border ${isLight ? 'border-amber-200 bg-amber-50' : 'border-amber-900/50 bg-amber-900/20'}`}>
                                     <h3 className={`text-sm font-bold flex items-center gap-2 mb-2 ${isLight ? 'text-amber-800' : 'text-amber-500'}`}>
                                         Observaciones del Consultor (Solo Lectura)
                                     </h3>
@@ -546,6 +657,7 @@ export default function SeguimientoFormModal({
                 onAdd={handleAddPlan} 
                 minDateStr={minDateStr}
                 maxDateStr={maxDateStr}
+                participantes={participantes}
             />
 
             {/* Modal de confirmación */}
@@ -556,17 +668,33 @@ export default function SeguimientoFormModal({
                 size="sm"
                 footer={
                     <div className="flex justify-end gap-2 w-full">
-                        <button className={dash.borrarFiltros} onClick={() => setConfirmFinalizeOpen(false)} disabled={saving}>Cancelar</button>
-                        <button className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700" onClick={() => saveActa('FINALIZADO')} disabled={saving}>
+                        <button className={dash.borrarFiltros} onClick={() => saveActa('Borrador')} disabled={saving}>Cancelar</button>
+                        <button className={dash.btnPrimaryCinte} onClick={() => saveActa('FINALIZADO')} disabled={saving}>
                             {saving ? 'Finalizando...' : 'Sí, Finalizar'}
                         </button>
                     </div>
                 }
             >
-                <div className="p-4">
-                    <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                <div className="p-4 space-y-4">
+                    {error && (
+                        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-lg flex items-center gap-2">
+                            <span>{error}</span>
+                        </div>
+                    )}
+                    <p className={`text-sm ${dash.muted}`}>
                         Al finalizar esta acta, se enviará su versión final y no podrá ser editada. Los consultores tendrán 3 días hábiles para agregar observaciones posteriores si aplica.
                     </p>
+                    <div className={`p-4 rounded-xl border-l-4 border-amber-500 ${isLight ? 'bg-amber-50 border-amber-200' : 'bg-amber-900/20 border-amber-700/50'}`}>
+                        <h3 className={`text-sm font-bold flex items-center gap-2 mb-2 ${isLight ? 'text-amber-800' : 'text-amber-500'}`}>
+                            ⚠️ Advertencia de cierre
+                        </h3>
+                        <p className={`text-sm whitespace-pre-wrap ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                            Al <strong>Finalizar</strong> esta acta, el documento quedará cerrado. No podrás volver a editar ni los participantes, ni las evaluaciones, ni los planes de acción.
+                        </p>
+                        <p className="text-sm text-amber-600 mt-3 font-semibold">
+                            ¿Estás seguro de que deseas registrarla como Finalizada?
+                        </p>
+                    </div>
                 </div>
             </GestionModalShell>
         </>

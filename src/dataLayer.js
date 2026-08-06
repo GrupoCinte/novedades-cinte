@@ -1733,7 +1733,7 @@ function createDataLayer(deps) {
      * @param {{ q?: string, activo?: boolean|null, cliente?: string|null, tipoContrato?: string, limit?: number, offset?: number, sort?: string, dir?: string }} opts
      */
     async function listColaboradoresPaged(opts = {}) {
-        const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 200);
+        const limit = Math.min(Math.max(Number(opts.limit) || 50, 1), 1000);
         const offset = Math.max(Number(opts.offset) || 0, 0);
         const params = [];
         const where = [];

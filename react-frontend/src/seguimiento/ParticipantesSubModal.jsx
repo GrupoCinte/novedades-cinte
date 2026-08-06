@@ -51,7 +51,7 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
                 cargo: colab.cargo || colab.puesto || colab.rol || 'N/A',
                 // Empresa -> El cliente asignado o "CINTe" por defecto si es staff
                 empresa: colab.cliente || colab.empleador || 'CINTe',
-                email: colab.correo || colab.email || ''
+                email: colab.correo_cinte || colab.correo || colab.email || ''
             };
         });
         onAccept(accepted);
@@ -108,7 +108,7 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
                                         />
                                         <div className="flex-1">
                                             <p className={`text-sm font-bold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                                                {c.nombre} <span className="font-normal text-xs opacity-70">({c.cedula})</span>
+                                                {c.nombre} <span className="font-normal text-xs text-slate-500 dark:text-slate-400">({c.cedula})</span>
                                             </p>
                                             <p className={`text-xs mt-0.5 ${dash.mutedSm}`}>
                                                 {cargoDisplay} • {empresaDisplay}

@@ -42,6 +42,7 @@ function createSeguimientoService({ pool }) {
                 a.fecha_acta,
                 a.estado,
                 a.correo_cierre_estado,
+                a.payload_json,
                 a.created_at,
                 a.updated_at,
                 (
@@ -99,7 +100,6 @@ function createSeguimientoService({ pool }) {
     }
 
     async function updateActa(id, data, actor) {
-        validateAllDates(data.fecha_acta, data.payload_json);
         const { cliente, tipo, fecha_acta, estado, compromisos, observaciones, payload_json, participantes } = data;
         const client = await pool.connect();
         try {
@@ -109,8 +109,11 @@ function createSeguimientoService({ pool }) {
             if (currentRes.rows.length === 0) throw new Error('Acta no encontrada o eliminada');
             const estadoAnterior = currentRes.rows[0].estado;
 
-            if (estadoAnterior === 'FINALIZADO' && String(actor.role).toLowerCase() === 'gp') {
-                throw new Error('Un GP no puede editar un acta ya finalizada');
+            if (estadoAnterior === 'FINALIZADO') {
+                const r = String(actor.role).toLowerCase();
+                if (r !== 'cac' && r !== 'super_admin') {
+                    throw new Error('El acta ya se encuentra finalizada y no puede ser modificada por tu rol');
+                }
             }
 
             const isNowFinalizado = estadoAnterior !== 'FINALIZADO' && estado === 'FINALIZADO';
