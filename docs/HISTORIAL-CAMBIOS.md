@@ -20,6 +20,26 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-06 12:31:45 · `feat/AUT-286-avisos-vencimiento-t5-t1` · `e54d6047`
+- **Commit:** `e54d6047b19aae887306d2b54e528f343e7e5857`
+- **Ticket:** AUT-286
+- **Requerimiento funcional:** Avisa a GP/CAC/SA cuando un seguimiento está a 5 o 1 días de vencer, sin cargar el portal con un cron diario.
+- **Componente técnico:** `lambda/seguimiento-reminders/*`, `infra/seguimiento-reminders/README.md`, `tests/seguimientoNoCronServer.test.js`; UI próximos a vencer ya en vista Seguimiento (AUT-285).
+- **Cambios (uno a uno):**
+  - Lambda selector que encola elegibles T-5/T-1 en SQS.
+  - Lambda worker que procesa recordatorios vía API interna del portal.
+  - Documentación de EventBridge/SQS/DLQ y test anti-cron en `server.js`.
+
+### 2026-08-06 12:31:40 · `feat/AUT-285-correo-cierre-reintento` · `e9c5db42`
+- **Commit:** `e9c5db4224ae02736b92bb9200492951ffcec78d`
+- **Ticket:** AUT-285
+- **Requerimiento funcional:** Al finalizar un seguimiento se notifica por correo a consultores o líderes según el tipo, y solo entonces arranca el ciclo de 30 días; si falla el envío se puede reintentar.
+- **Componente técnico:** `src/seguimiento/*`, `emailNotificationsPublisher.js`, plantillas Lambda `SeguimientoCierreEmail`/`SeguimientoVencimientoEmail`, `SeguimientoView.jsx`, rutas Directorio, tests de correo/ciclo.
+- **Cambios (uno a uno):**
+  - Schema PG `seguimiento_acta` / participantes / historial y API de actas + `reintentar-correo`.
+  - Publisher `seguimiento_cierre` y estados `correo_cierre_*` / `ciclo_vence_at`.
+  - UI Seguimiento con finalizar, badge de correo y Reintentar.
+
 ### 2026-07-29 22:54:42 · `integrate/testing-atraccion-talento` · `6e0d28fc`
 - **Commit:** `6e0d28fc941e201c404fbe9589ea7b47a1fbd767`
 - **Ticket:** —
