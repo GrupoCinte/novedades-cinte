@@ -12,6 +12,12 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
 
     const [search, setSearch] = useState('');
     const [selectedIds, setSelectedIds] = useState(new Set());
+    const [selectedCliente, setSelectedCliente] = useState('');
+
+    const uniqueClientes = useMemo(() => {
+        const clientes = colaboradores.map(c => c.cliente || c.empleador || 'CINTe');
+        return [...new Set(clientes)].sort();
+    }, [colaboradores]);
 
     // Initialize selected from current participants
     React.useEffect(() => {
@@ -19,19 +25,23 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
             const currentIds = new Set(participantesActuales.map(p => p.cedula).filter(Boolean));
             setSelectedIds(currentIds);
             setSearch('');
+            setSelectedCliente('');
         }
     }, [open, participantesActuales]);
 
     const filtered = useMemo(() => {
-        if (!search.trim()) return colaboradores.slice(0, 50); // Show max 50 default to prevent lag
+        if (!selectedCliente) return []; // No mostrar nada si no hay cliente seleccionado
+        const porCliente = colaboradores.filter(c => (c.cliente || c.empleador || 'CINTe') === selectedCliente);
+        
+        if (!search.trim()) return porCliente.slice(0, 100); 
         const s = search.toLowerCase();
-        return colaboradores.filter(c => 
+        return porCliente.filter(c => 
             (c.nombre && c.nombre.toLowerCase().includes(s)) ||
             (c.cedula && String(c.cedula).includes(s)) ||
             (c.cargo && c.cargo.toLowerCase().includes(s)) ||
             (c.puesto && c.puesto.toLowerCase().includes(s))
         ).slice(0, 100);
-    }, [search, colaboradores]);
+    }, [search, selectedCliente, colaboradores]);
 
     const toggleSelection = (cedula) => {
         const newSet = new Set(selectedIds);
@@ -77,17 +87,38 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
             }
         >
             <div className="p-4 flex flex-col h-[60vh] gap-4">
-                <input 
-                    type="text" 
-                    placeholder="Buscar por nombre, cédula o cargo..." 
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    className={inputCls}
-                />
+                <div className="flex gap-4 flex-col sm:flex-row">
+                    <div className="flex-1">
+                        <label className={`block mb-1 text-sm font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Cliente</label>
+                        <select 
+                            value={selectedCliente} 
+                            onChange={e => setSelectedCliente(e.target.value)}
+                            className={inputCls}
+                        >
+                            <option value="">-- Seleccionar Cliente --</option>
+                            {uniqueClientes.map(c => (
+                                <option key={c} value={c}>{c}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex-1">
+                        <label className={`block mb-1 text-sm font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Buscar Colaborador</label>
+                        <input 
+                            type="text" 
+                            placeholder="Buscar por nombre, cédula o cargo..." 
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            className={inputCls}
+                            disabled={!selectedCliente}
+                        />
+                    </div>
+                </div>
                 
                 <div className={`flex-1 overflow-y-auto rounded-lg border ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800'} p-2`}>
-                    {filtered.length === 0 ? (
-                        <p className={`text-sm p-4 text-center ${dash.mutedSm}`}>No se encontraron colaboradores.</p>
+                    {!selectedCliente ? (
+                        <p className={`text-sm p-4 text-center ${dash.mutedSm}`}>Selecciona un cliente para ver sus colaboradores.</p>
+                    ) : filtered.length === 0 ? (
+                        <p className={`text-sm p-4 text-center ${dash.mutedSm}`}>No se encontraron colaboradores para este cliente.</p>
                     ) : (
                         <div className="space-y-1">
                             {filtered.map(c => {

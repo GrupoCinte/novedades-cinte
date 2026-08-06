@@ -55,6 +55,7 @@ export default function SeguimientoFormModal({
 
     const [objetivo, setObjetivo] = useState('');
     const [agenda, setAgenda] = useState('');
+    const [proximaReunion, setProximaReunion] = useState('');
     
     // Array de participantes estructurado: { cedula, nombre, cargo, empresa, email, desarrollo }
     const [participantes, setParticipantes] = useState([]);
@@ -131,6 +132,7 @@ export default function SeguimientoFormModal({
                         
                         setObjetivo(pJson.objetivo || '');
                         setAgenda(pJson.agenda || '');
+                        setProximaReunion(pJson.proxima_reunion || '');
                         
                         setParticipantes(pJson.participantes_detalle || []);
                         setPlanesAccion(pJson.planes_accion || []);
@@ -157,6 +159,7 @@ export default function SeguimientoFormModal({
                         setQuienRealizaCargo(gpPuesto);
                         setObjetivo('');
                         setAgenda('');
+                        setProximaReunion('');
                         setParticipantes([]);
                         setPlanesAccion([]);
                         setObservacionConsultor('');
@@ -218,10 +221,30 @@ export default function SeguimientoFormModal({
         return noObjetivo && noAgenda && noParticipantes && noPlanes;
     };
 
+    const handleTimeInput = (value, setter) => {
+        // Solo permitir números
+        let raw = value.replace(/\D/g, '');
+        if (raw.length > 4) raw = raw.slice(0, 4);
+        
+        // Validaciones básicas en vivo
+        if (raw.length >= 1 && parseInt(raw[0], 10) > 2) raw = '2'; // La hora no puede empezar con 3+
+        if (raw.length >= 2 && parseInt(raw.slice(0, 2), 10) > 23) raw = '23' + raw.slice(2);
+        if (raw.length >= 3 && parseInt(raw[2], 10) > 5) raw = raw.slice(0, 2) + '5' + raw.slice(3);
+        
+        // Insertar los dos puntos
+        let formatted = raw;
+        if (raw.length > 2) {
+            formatted = raw.slice(0, 2) + ':' + raw.slice(2);
+        }
+        
+        setter(formatted);
+    };
+
     const handleLimpiar = () => {
         setMenuOpen(false);
         setObjetivo('');
         setAgenda('');
+        setProximaReunion('');
         setParticipantes([]);
         setPlanesAccion([]);
         setHoraInicio('');
@@ -307,6 +330,16 @@ export default function SeguimientoFormModal({
             return;
         }
 
+        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+        if (!timeRegex.test(horaInicio)) {
+            setError('El formato de Hora de inicio no es válido (usa formato 24h, ej. 08:30, 14:00).');
+            return;
+        }
+        if (!timeRegex.test(horaFin)) {
+            setError('El formato de Hora de finalización no es válido (usa formato 24h, ej. 08:30, 14:00).');
+            return;
+        }
+
         setSaving(true);
         setError(null);
 
@@ -327,6 +360,7 @@ export default function SeguimientoFormModal({
             quien_realiza_cargo: quienRealizaCargo,
             objetivo,
             agenda,
+            proxima_reunion: proximaReunion,
             participantes_detalle: participantes, // Completo con su campo 'desarrollo'
             planes_accion: planesAccion
         };
@@ -458,12 +492,12 @@ export default function SeguimientoFormModal({
                                     />
                                 </div>
                                 <div>
-                                    <label className={`block mb-1 ${dash.labelFilter}`}>Hora Inicio</label>
-                                    <input type="time" value={horaInicio} onChange={e => setHoraInicio(e.target.value)} className={inputCls} readOnly={isReadOnly} />
+                                    <label className={`block mb-1 ${dash.labelFilter}`}>Hora Inicio (24h)</label>
+                                    <input type="text" placeholder="--:--" maxLength="5" value={horaInicio} onChange={e => handleTimeInput(e.target.value, setHoraInicio)} className={inputCls} readOnly={isReadOnly} />
                                 </div>
                                 <div>
-                                    <label className={`block mb-1 ${dash.labelFilter}`}>Hora de finalización</label>
-                                    <input type="time" value={horaFin} onChange={e => setHoraFin(e.target.value)} className={inputCls} readOnly={isReadOnly} />
+                                    <label className={`block mb-1 ${dash.labelFilter}`}>Hora Fin (24h)</label>
+                                    <input type="text" placeholder="--:--" maxLength="5" value={horaFin} onChange={e => handleTimeInput(e.target.value, setHoraFin)} className={inputCls} readOnly={isReadOnly} />
                                 </div>
                             </div>
 
@@ -619,7 +653,18 @@ export default function SeguimientoFormModal({
                                 </div>
                                 <div className="md:col-span-2 mt-2">
                                     <label className={`block mb-1 ${dash.labelFilter}`}>Próxima reunión</label>
-                                    <input type="text" value="Próxima reunión mensual" className={inputCls} readOnly />
+                                    <select 
+                                        value={proximaReunion} 
+                                        onChange={e => setProximaReunion(e.target.value)} 
+                                        className={inputCls} 
+                                        disabled={isReadOnly}
+                                    >
+                                        <option value="">-- Selecciona --</option>
+                                        <option value="Seguimiento quincenal">Seguimiento quincenal</option>
+                                        <option value="Seguimiento mensual">Seguimiento mensual</option>
+                                        <option value="Seguimiento bimensual">Seguimiento bimensual</option>
+                                        <option value="Seguimiento semestral">Seguimiento semestral</option>
+                                    </select>
                                 </div>
                             </div>
                             
@@ -670,7 +715,7 @@ export default function SeguimientoFormModal({
                     <div className="flex justify-end gap-2 w-full">
                         <button className={dash.borrarFiltros} onClick={() => saveActa('Borrador')} disabled={saving}>Cancelar</button>
                         <button className={dash.btnPrimaryCinte} onClick={() => saveActa('FINALIZADO')} disabled={saving}>
-                            {saving ? 'Finalizando...' : 'Sí, Finalizar'}
+                            {saving ? 'Finalizando...' : 'Finalizar'}
                         </button>
                     </div>
                 }
