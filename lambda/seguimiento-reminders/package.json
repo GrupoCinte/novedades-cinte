@@ -1,0 +1,10 @@
+{
+  "name": "seguimiento-reminders",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AUT-286 selector + worker T-5/T-1",
+  "dependencies": {
+    "@aws-sdk/client-sqs": "^3.758.0",
+    "pg": "^8.13.1"
+  }
+}

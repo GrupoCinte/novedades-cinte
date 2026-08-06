@@ -1,5 +1,5 @@
 /**
- * Acceso a Mallas de turnos: panel directorio (super_admin/cac) o rol GP (AUT-576).
+ * Acceso a Mallas de turnos / Seguimiento: panel directorio (super_admin/cac) o rol GP (AUT-576 / AUT-283).
  */
 
 import { getPanelsFromToken } from './comercialAccess';
@@ -21,6 +21,11 @@ export function userHasMallasAccess(authOrToken) {
     return false;
 }
 
+/** GP parcial: Mallas + Seguimiento (sin resto del Directorio). */
 export function userIsGpMallasOnly(authOrToken) {
     return resolveRole(authOrToken) === 'gp' && !userHasDirectorioPanel(authOrToken);
+}
+
+export function userHasSeguimientoAccess(authOrToken) {
+    return userHasMallasAccess(authOrToken);
 }

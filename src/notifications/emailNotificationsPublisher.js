@@ -81,6 +81,32 @@
         return true;
     }
 
+    function validateSeguimientoCierrePayload(payload) {
+        if (!payload || typeof payload !== 'object') return false;
+        if (payload.eventType !== 'seguimiento_cierre') return false;
+        if (!payload.eventId || !payload.seguimientoId) return false;
+        if (!['consultor', 'cliente'].includes(String(payload.tipo || ''))) return false;
+        const recipients = payload.recipients;
+        if (!Array.isArray(recipients) || recipients.length === 0) return false;
+        for (const r of recipients) {
+            if (!String(r?.email || '').includes('@')) return false;
+        }
+        return Boolean(String(payload?.acta?.cliente || '').trim());
+    }
+
+    function validateSeguimientoVencimientoPayload(payload) {
+        if (!payload || typeof payload !== 'object') return false;
+        if (payload.eventType !== 'seguimiento_vencimiento') return false;
+        if (!payload.eventId || !payload.seguimientoId) return false;
+        if (!['T5', 'T1'].includes(String(payload.kind || ''))) return false;
+        const recipients = payload.recipients;
+        if (!Array.isArray(recipients) || recipients.length === 0) return false;
+        for (const r of recipients) {
+            if (!String(r?.email || '').includes('@')) return false;
+        }
+        return Boolean(String(payload.venceEl || '').trim());
+    }
+
     function createEmailNotificationsPublisher({
         lambdaClient,
         functionName,
@@ -147,6 +173,14 @@
             return publishEvent(payload, 'time_entry_admin_notification', validateTimeEntryConfirmationPayload);
         }
 
+        async function publishSeguimientoCierre(payload) {
+            return publishEvent(payload, null, validateSeguimientoCierrePayload);
+        }
+
+        async function publishSeguimientoVencimiento(payload) {
+            return publishEvent(payload, null, validateSeguimientoVencimientoPayload);
+        }
+
         return {
             publishFormSubmitted,
             publishFormStatusChanged,
@@ -154,7 +188,9 @@
             publishConciliacionCorreoLider,
             publishConciliacionStakeholdersAviso,
             publishTimeEntryConfirmation,
-            publishTimeEntryAdminNotification
+            publishTimeEntryAdminNotification,
+            publishSeguimientoCierre,
+            publishSeguimientoVencimiento
         };
     }
 
@@ -165,5 +201,7 @@
         validateConciliacionServicioFinalizadaPayload,
         validateConciliacionCorreoLiderPayload,
         validateConciliacionStakeholdersAvisoPayload,
-        validateTimeEntryConfirmationPayload
+        validateTimeEntryConfirmationPayload,
+        validateSeguimientoCierrePayload,
+        validateSeguimientoVencimientoPayload
     };
