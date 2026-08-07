@@ -62,6 +62,32 @@ function reubicacionesAccessGuard() {
 }
 
 /**
+ * Middleware para verificar acceso a Reubicaciones
+ * Permite: super_admin, cac, gp, admin_ch, team_ch, atraccion_talento
+ */
+function reubicacionesGuard() {
+    return (req, res, next) => {
+        const role = normalizeRoleOrNull(req.user?.role);
+        const rolesPermitidos = [
+            'super_admin',
+            'cac',
+            'gp',
+            'admin_ch',
+            'team_ch',
+            'atraccion_talento'
+        ];
+        if (!rolesPermitidos.includes(role)) {
+            return res.status(403).json({
+                ok: false,
+                error: 'Sin permiso para acceder a Reubicaciones.'
+            });
+        }
+        return next();
+    };
+}
+
+
+/**
  * Middleware para verificar alcance de GP
  * Solo aplica para usuarios con rol 'gp'
  */
@@ -502,7 +528,7 @@ function registerDirectorioRoutes(deps) {
             fecha_fin: fechaFin,
             cliente_destino: row.cliente_destino,
             causal: row.causal,
-            consultor: row.consultor,
+            consultor: row.nombre || row.consultor || null,
             tipo_contrato: row.tipo_contrato,
             cliente_actual: row.cliente_actual,
             tarifa_cliente: row.tarifa_cliente != null ? Number(row.tarifa_cliente) : null,
@@ -1082,7 +1108,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones', ...readGuard, async (_req, res) => {
+    app.get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones', verificarToken, reubicacionesGuard(), async (_req, res) => {
         try {
             const q = await pool.query(
                 `SELECT DISTINCT tipo_ficha
@@ -1105,7 +1131,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/reubicaciones-pipeline', ...readGuard, async (req, res) => {
+    app.get('/api/directorio/reubicaciones-pipeline', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const parsed = reubicacionesPipelineListSchema.safeParse(req.query);
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
@@ -1340,7 +1366,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.post('/api/directorio/reubicaciones-pipeline', ...writeGuard, async (req, res) => {
+    app.post('/api/directorio/reubicaciones-pipeline', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const parsed = reubicacionesPipelineCreateSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
@@ -1416,7 +1442,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.patch('/api/directorio/reubicaciones-pipeline/:id', ...writeGuard, async (req, res) => {
+    app.patch('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
@@ -1494,7 +1520,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.delete('/api/directorio/reubicaciones-pipeline/:id', ...writeGuard, async (req, res) => {
+    app.delete('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {

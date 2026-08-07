@@ -121,35 +121,37 @@ class ReubicacionesAuthService {
    * @returns {Promise<Array>}
    */
   async getCasosPorAlcanceGP(usuario, pool) {
-    if (usuario.rol !== 'gp') {
-      throw new Error('Solo GPs pueden usar este método');
-    }
+      const userRole = usuario?.role || usuario?.rol;
+      if (userRole !== 'gp') {
+          throw new Error('Solo GPs pueden usar este método');
+      }
 
-    try {
-      const query = `
-        SELECT rp.*, 
-               c.nombre_completo,
-               c.puesto,
-               c.sueldo_nomina,
-               c.auxilio_transporte_obligatorio,
-               u.email as gp_email,
-               u.nombre as gp_nombre
-        FROM reubicaciones_pipeline rp
-        JOIN colaboradores c ON rp.cedula = c.cedula
-        JOIN clientes_lideres cl ON c.cliente_id = cl.cliente_id
-        LEFT JOIN users u ON c.gp_user_id = u.id
-        WHERE cl.gp_user_id = $1
-          AND c.estado = 'ACTIVO'
-        ORDER BY rp.fecha_fin ASC
-      `;
-      
-      const result = await pool.query(query, [usuario.id]);
-      return result.rows;
-      
-    } catch (error) {
-      console.error('Error obteniendo casos por alcance GP:', error);
-      throw error;
-    }
+      try {
+          const query = `
+              SELECT rp.*, 
+                     c.nombre,
+                     c.puesto,
+                     c.sueldo_nomina,
+                     c.auxilio_transporte_obligatorio,
+                     u.email as gp_email,
+                     u.full_name as gp_nombre
+              FROM reubicaciones_pipeline rp
+              JOIN colaboradores c ON rp.cedula = c.cedula
+              LEFT JOIN users u ON rp.gp_asignado_id = u.id  
+              WHERE rp.gp_asignado_id = $1  
+                AND c.activo = true
+              ORDER BY rp.fecha_fin ASC
+          `;
+
+          const userId = usuario.sub || usuario.id;
+          
+          const result = await pool.query(query, [userId]);
+
+          return result.rows;
+      } catch (error) {
+          console.error('Error obteniendo casos por alcance GP:', error);
+          throw error;
+      }
   }
 
   /**

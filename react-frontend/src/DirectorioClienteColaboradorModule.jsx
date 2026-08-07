@@ -41,6 +41,7 @@ import AdministracionDashboardPage from './AdministracionDashboardPage';
 import MallasTurnosModule from './MallasTurnosModule';
 import MonitoreoActividadesView from './MonitoreoActividadesView.jsx';
 import ColaboradorFichaFields from './components/ColaboradorFichaFields.jsx';
+import { userIsChOnly } from './chAccess.js';
 import {
     initialStaffForm,
     mapRowToStaffForm,
@@ -195,26 +196,35 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
     const gpMallasOnly = userIsGpMallasOnly(auth);
+    const chOnly = userIsChOnly(auth); 
+    const atOnly = auth?.user?.role === 'atraccion_talento';
     const canAccessMonitoreo = userHasMonitoreoAccess(auth);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     /** Vista principal del sidebar */
-    const [mainView, setMainView] = useState(() => (gpMallasOnly ? 'mallasTurnos' : 'cliente'));
-
+    const [mainView, setMainView] = useState(() => {
+        if (chOnly || atOnly || gpMallasOnly) return 'reubicaciones'; 
+        return 'cliente';
+    });
     useEffect(() => {
         setFiltersPanelOpen(false);
     }, [mainView]);
 
-    useEffect(() => {
-        const gpAllowedViews = canAccessMonitoreo ? ['mallasTurnos', 'monitoreo'] : ['mallasTurnos'];
+    useEffect(() => {        
+    if ((chOnly || atOnly || gpMallasOnly) && mainView === 'cliente') {
+        setMainView('reubicaciones');
+        return;
+    }
+        const gpAllowedViews = canAccessMonitoreo ? ['mallasTurnos', 'monitoreo', 'reubicaciones'] : ['mallasTurnos', 'reubicaciones'];
         if (gpMallasOnly && !gpAllowedViews.includes(mainView)) {
             setMainView('mallasTurnos');
         }
     }, [gpMallasOnly, canAccessMonitoreo, mainView]);
 
     const showTiCatalogSubmod = !gpMallasOnly && userHasRolesTiCatalogRead(auth);
+
     useEffect(() => {
         const v = searchParams.get('v');
         if (v === 'monitoreo') {
@@ -225,7 +235,6 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             return;
         }
         if (gpMallasOnly) {
-            if (mainView !== 'monitoreo' || !canAccessMonitoreo) setMainView('mallasTurnos');
             if (v) {
                 const next = new URLSearchParams(searchParams);
                 next.delete('v');
@@ -1081,6 +1090,17 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             />
             {gpMallasOnly ? (
                 <>
+
+                    {/* AGREGAR Reubicaciones para GP */}
+                    <NavBtn
+                        active={mainView === 'reubicaciones'}
+                        icon={ArrowRightLeft}
+                        label="Reubicaciones"
+                        onClick={() => {
+                            setMainView('reubicaciones');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
                     <NavBtn
                         active={mainView === 'mallasTurnos'}
                         icon={CalendarDays}
@@ -1101,6 +1121,19 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             }}
                         />
                     ) : null}
+                </>
+            ) : chOnly || atOnly ? (
+                <>
+                    <NavBtn
+                        active={mainView === 'reubicaciones'}
+                        icon={ArrowRightLeft}
+                        label="Reubicaciones"
+                        onClick={() => {
+                            setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
+                            setMainView('reubicaciones');
+                            setMobileMenuOpen(false);
+                        }}
+                    />
                 </>
             ) : (
                 <>

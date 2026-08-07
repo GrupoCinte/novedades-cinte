@@ -360,7 +360,6 @@ async function recoverySync({ pool, notifyService, dryRun = false, limit = 100 }
                 options: '-c client_encoding=UTF8'
             };
             db = new Pool(poolConfig);
-            console.log('✅ recoverySync: conexión directa creada');
         } catch (e) {
             console.error('❌ recoverySync: error creando conexión directa:', e.message);
             throw new Error('No se pudo conectar a la base de datos');
