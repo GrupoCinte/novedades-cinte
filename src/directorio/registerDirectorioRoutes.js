@@ -7,6 +7,8 @@ const { normalizeRoleOrNull } = require('../rbac');
 const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSemaforo');
 const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
 const { resolveActorUserIdForSession } = require('../resolveActorUserId');
+const { recoverySync } = require('../reubicaciones/reubicacionesSyncService');
+const authService = require('../reubicaciones/reubicacionesAuthService');
 const { calcularEstado } = require('../reubicaciones/reubicacionesEstados');
 const { diasHabilesTranscurridos } = require('../reubicaciones/reubicacionesCalendario');
 
@@ -29,6 +31,88 @@ function mallasRoleGuard() {
         }
         return res.status(403).json({ ok: false, error: 'Sin permiso para mallas de turnos.' });
     };
+}
+
+/**
+ * Middleware para verificar acceso al módulo de Reubicaciones
+ * HU-01: Acceso colaborativo y permisos de Reubicaciones
+ */
+function reubicacionesAccessGuard() {
+    return (req, res, next) => {
+        const role = normalizeRoleOrNull(req.user?.role);
+        
+        // Roles que pueden acceder
+        const rolesPermitidos = [
+            'super_admin',
+            'gp',
+            'admin_ch',
+            'team_ch',
+            'atraccion_talento',
+            'cac'
+        ];
+        
+        if (!rolesPermitidos.includes(role)) {
+            return res.status(403).json({ 
+                ok: false, 
+                error: 'Sin permiso para acceder al módulo de Reubicaciones.' 
+            });
+        }
+        return next();
+    };
+}
+
+/**
+ * Middleware para verificar acceso a Reubicaciones
+ * Permite: super_admin, cac, gp, admin_ch, team_ch, atraccion_talento
+ */
+function reubicacionesGuard() {
+    return (req, res, next) => {
+        const role = normalizeRoleOrNull(req.user?.role);
+        const rolesPermitidos = [
+            'super_admin',
+            'cac',
+            'gp',
+            'admin_ch',
+            'team_ch',
+            'atraccion_talento'
+        ];
+        if (!rolesPermitidos.includes(role)) {
+            return res.status(403).json({
+                ok: false,
+                error: 'Sin permiso para acceder a Reubicaciones.'
+            });
+        }
+        return next();
+    };
+}
+
+
+/**
+ * Middleware para verificar alcance de GP
+ * Solo aplica para usuarios con rol 'gp'
+ */
+async function reubicacionesAlcanceGP(req, res, next) {
+    const role = normalizeRoleOrNull(req.user?.role);
+    
+    // Si no es GP, no aplica filtro
+    if (role !== 'gp') {
+        return next();
+    }
+    
+    // Si es GP, verificar alcance
+    const { cedula } = req.params;
+    if (cedula) {
+        // Para GET /:cedula, verificar que el GP tenga alcance
+        const tieneAlcance = await authService.gpTieneAlcance(req.user, cedula, pool);
+        if (!tieneAlcance) {
+            return res.status(403).json({ 
+                ok: false, 
+                error: 'No tiene alcance sobre este consultor.' 
+            });
+        }
+    }
+    
+    next();
 }
 
 function canAprobarMallaRole(role) {
@@ -71,6 +155,10 @@ async function assertColaboradorCatalogPair(getLideresByCliente, cliente, lider)
         throw Object.assign(new Error('Cliente y líder no forman un par válido en el catálogo activo.'), { status: 400 });
     }
 }
+
+// Nota: la ejecución directa de `recoverySync` al importar este módulo fue removida
+// para evitar efectos secundarios en el arranque. Ejecuta el backfill vía el endpoint HTTP
+// o llama a `recoverySync` desde una tarea controlada cuando sea necesario.
 
 function registerDirectorioRoutes(deps) {
     const {
@@ -440,7 +528,7 @@ function registerDirectorioRoutes(deps) {
             fecha_fin: fechaFin,
             cliente_destino: row.cliente_destino,
             causal: row.causal,
-            consultor: row.consultor,
+            consultor: row.nombre || row.consultor || null,
             tipo_contrato: row.tipo_contrato,
             cliente_actual: row.cliente_actual,
             tarifa_cliente: row.tarifa_cliente != null ? Number(row.tarifa_cliente) : null,
@@ -1020,7 +1108,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones', ...readGuard, async (_req, res) => {
+    app.get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones', verificarToken, reubicacionesGuard(), async (_req, res) => {
         try {
             const q = await pool.query(
                 `SELECT DISTINCT tipo_ficha
@@ -1043,13 +1131,41 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/reubicaciones-pipeline', ...readGuard, async (req, res) => {
+    app.get('/api/directorio/reubicaciones-pipeline', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const parsed = reubicacionesPipelineListSchema.safeParse(req.query);
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
             const d = parsed.data;
             const limit = d.limit ?? 50;
             const offset = d.offset ?? 0;
+
+            const role = normalizeRoleOrNull(req.user?.role);
+
+            if (role === 'gp') {
+                try {
+                    const casosGP = await authService.getCasosPorAlcanceGP(req.user, pool);
+                    const accionesPermitidas = authService.getAccionesPermitidas(role);
+                    
+                    return res.json({
+                        ok: true,
+                        items: casosGP.map(normalizePipelineRow),
+                        total: casosGP.length,
+                        limit,
+                        offset,
+                        meta: {
+                            rol: role,
+                            acciones_permitidas: accionesPermitidas,
+                            alcance: 'solo sus clientes'
+                        }
+                    });
+                } catch (e) {
+                    console.error('Error obteniendo casos por alcance GP:', e);
+                    return res.status(403).json({ 
+                        ok: false, 
+                        error: 'No se pudieron obtener los casos de su alcance.' 
+                    });
+                }
+            }
 
             const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
             const semaforoSql = `(CASE WHEN ${diasSql} < 0 THEN 'Vencido' WHEN ${diasSql} > 30 THEN 'Verde' WHEN ${diasSql} >= 15 THEN 'Amarillo' ELSE 'Rojo' END)`;
@@ -1230,12 +1346,19 @@ function registerDirectorioRoutes(deps) {
             const listRes = await pool.query(listSql, listParams);
             const rows = listRes.rows;
 
+            const accionesPermitidas = authService.getAccionesPermitidas(role);
+
             return res.json({
                 ok: true,
                 items: rows.map(normalizePipelineRow),
                 total,
                 limit,
-                offset
+                offset,
+                meta: { 
+                    rol: role,
+                    acciones_permitidas: accionesPermitidas,
+                    alcance: role === 'super_admin' ? 'todos los casos' : 'general'
+                }
             });
         } catch (e) {
             console.error('GET directorio reubicaciones-pipeline:', e);
@@ -1243,7 +1366,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.post('/api/directorio/reubicaciones-pipeline', ...writeGuard, async (req, res) => {
+    app.post('/api/directorio/reubicaciones-pipeline', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const parsed = reubicacionesPipelineCreateSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
@@ -1319,7 +1442,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.patch('/api/directorio/reubicaciones-pipeline/:id', ...writeGuard, async (req, res) => {
+    app.patch('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
@@ -1397,7 +1520,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.delete('/api/directorio/reubicaciones-pipeline/:id', ...writeGuard, async (req, res) => {
+    app.delete('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
@@ -1516,7 +1639,259 @@ function registerDirectorioRoutes(deps) {
             if (st >= 500) console.error('POST vincular gp self:', e);
             return res.status(st).json({ ok: false, error: e.message || 'No se pudo vincular.' });
         }
+
     });
+
+    app.post('/api/directorio/reubicaciones-sync/backfill', ...writeGuard, async (req, res) => {
+        console.log('===== BACKFILL EJECUTADO =====');
+        
+        try {
+            const { dryRun = false, limit = 100 } = req.body;
+
+            // Si pool no es válido, usar global.__pool
+            const db = pool && typeof pool.query === 'function' ? pool : global.__pool;
+
+            if (!db || typeof db.query !== 'function') {
+                console.error('No hay pool disponible');
+                return res.status(500).json({ 
+                    ok: false, 
+                    error: 'No hay conexión a la base de datos',
+                    debug: { 
+                        poolInClosure: !!pool, 
+                        globalPool: !!global.__pool 
+                    }
+                });
+            }
+
+            const result = await recoverySync({
+                pool: db,
+                notifyService: require('../notifications/emailNotificationsPublisher'),
+                dryRun: Boolean(dryRun),
+                limit: Math.min(Number(limit) || 100, 500)
+            });
+
+            return res.json({
+                ok: true,
+                ...result,
+                message: dryRun 
+                    ? `Simulación: ${result.found} fichas pendientes encontradas` 
+                    : `${result.processed} fichas procesadas, ${result.errors} errores`
+            });
+        } catch (error) {
+            console.error('[Backfill] Error completo:', error);
+            return res.status(500).json({
+                ok: false,
+                error: error.message || 'No se pudo ejecutar el backfill',
+                stack: error.stack
+            });
+        }
+    });
+
+
+
+
+    // ============================================
+    // ENDPOINTS DE HU-04: OBSERVACIONES Y DECISIONES
+    // ============================================
+
+    const observacionesService = require('../reubicaciones/reubicacionesObservacionesService');
+    const decisionesService = require('../reubicaciones/reubicacionesDecisionesService');
+
+    /**
+     * Middleware para verificar rol de CH (admin_ch o team_ch)
+     */
+    function isCH(usuario) {
+        const role = normalizeRoleOrNull(usuario?.role);
+        return role === 'admin_ch' || role === 'team_ch' || role === 'super_admin';
+    }
+
+    /**
+     * Middleware para verificar rol de GP
+     */
+    function isGP(usuario) {
+        const role = normalizeRoleOrNull(usuario?.role);
+        return role === 'gp' || role === 'super_admin';
+    }
+
+    /**
+     * POST /api/directorio/reubicaciones/:id/observacion
+     * CH registra observación
+     */
+    app.post('/api/directorio/reubicaciones/:id/observacion', verificarToken, adminActionLimiter, async (req, res) => {
+        try {
+            console.log('🔍 req.user.role:', req.user?.role);
+            console.log('🔍 normalized:', normalizeRoleOrNull(req.user?.role));
+            console.log('🔍 isCH:', isCH(req.user));
+            const pipelineId = String(req.params.id || '').trim();
+            const { observacion } = req.body;
+
+            // Validar que el usuario tenga rol CH
+            if (!isCH(req.user)) {
+                return res.status(403).json({ ok: false, error: 'Solo CH puede registrar observaciones' });
+            }
+
+            const result = await observacionesService.registrarObservacion({
+                pipelineId,
+                observacion,
+                actor: {
+                    user_id: parseUuidActor(req.user?.sub),
+                    role: normalizeRoleOrNull(req.user?.role)
+                },
+                pool
+            });
+
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('POST /directorio/reubicaciones/:id/observacion:', error);
+            return res.status(500).json({ ok: false, error: 'Error al registrar observación' });
+        }
+    });
+
+    /**
+     * GET /api/directorio/reubicaciones/:id/observacion
+     * Obtener última observación + historial
+     */
+    app.get('/api/directorio/reubicaciones/:id/observacion', verificarToken, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+
+            // Verificar que el caso existe (OPCIONAL: verificar alcance GP)
+            const caseExists = await pool.query(
+                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
+                [pipelineId]
+            );
+            if (caseExists.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
+            }
+
+            const actual = await observacionesService.obtenerUltimaObservacion({ pipelineId, pool });
+            const historial = await observacionesService.obtenerHistorialObservaciones({ pipelineId, pool });
+
+            return res.json({
+                ok: true,
+                data: {
+                    actual,
+                    historial
+                }
+            });
+        } catch (error) {
+            console.error('GET /directorio/reubicaciones/:id/observacion:', error);
+            return res.status(500).json({ ok: false, error: 'Error al obtener observación' });
+        }
+    });
+
+    /**
+     * POST /api/directorio/reubicaciones/:id/decision
+     * GP registra decisión
+     */
+    app.post('/api/directorio/reubicaciones/:id/decision', verificarToken, adminActionLimiter, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+            const { decision, justificacion } = req.body;
+
+            // Validar que el usuario tenga rol GP
+            if (!isGP(req.user)) {
+                return res.status(403).json({ ok: false, error: 'Solo GP puede registrar decisiones' });
+            }
+
+            const result = await decisionesService.registrarDecision({
+                pipelineId,
+                decision,
+                justificacion,
+                decididoPor: {
+                    user_id: parseUuidActor(req.user?.sub),
+                    role: normalizeRoleOrNull(req.user?.role)
+                },
+                pool
+            });
+
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('POST /directorio/reubicaciones/:id/decision:', error);
+            return res.status(500).json({ ok: false, error: 'Error al registrar decisión' });
+        }
+    });
+
+    /**
+     * GET /api/directorio/reubicaciones/:id/decision
+     * Obtener última decisión + historial
+     */
+    app.get('/api/directorio/reubicaciones/:id/decision', verificarToken, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+
+            // Verificar que el caso existe
+            const caseExists = await pool.query(
+                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
+                [pipelineId]
+            );
+            if (caseExists.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
+            }
+
+            const actual = await decisionesService.obtenerUltimaDecision({ pipelineId, pool });
+            const historial = await decisionesService.obtenerHistorialDecisiones({ pipelineId, pool });
+
+            return res.json({
+                ok: true,
+                data: {
+                    actual,
+                    historial
+                }
+            });
+        } catch (error) {
+            console.error('GET /directorio/reubicaciones/:id/decision:', error);
+            return res.status(500).json({ ok: false, error: 'Error al obtener decisión' });
+        }
+    });
+
+    app.post('/api/directorio/reubicaciones-sync/backfill', ...writeGuard, async (req, res) => {
+        console.log('===== BACKFILL EJECUTADO =====');
+        
+        try {
+            const { dryRun = false, limit = 100 } = req.body;
+
+            // Si pool no es válido, usar global.__pool
+            const db = pool && typeof pool.query === 'function' ? pool : global.__pool;
+
+            if (!db || typeof db.query !== 'function') {
+                console.error('No hay pool disponible');
+                return res.status(500).json({ 
+                    ok: false, 
+                    error: 'No hay conexión a la base de datos',
+                    debug: { 
+                        poolInClosure: !!pool, 
+                        globalPool: !!global.__pool 
+                    }
+                });
+            }
+
+            const result = await recoverySync({
+                pool: db,
+                notifyService: require('../notifications/emailNotificationsPublisher'),
+                dryRun: Boolean(dryRun),
+                limit: Math.min(Number(limit) || 100, 500)
+            });
+
+            return res.json({
+                ok: true,
+                ...result,
+                message: dryRun 
+                    ? `Simulación: ${result.found} fichas pendientes encontradas` 
+                    : `${result.processed} fichas procesadas, ${result.errors} errores`
+            });
+        } catch (error) {
+            console.error('[Backfill] Error completo:', error);
+            return res.status(500).json({
+                ok: false,
+                error: error.message || 'No se pudo ejecutar el backfill',
+                stack: error.stack
+            });
+        }
+    });
+
+
 }
+
 
 module.exports = { registerDirectorioRoutes };
