@@ -1708,7 +1708,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     ) : null}
 
                     {mainView === 'reubicaciones' ? (
-                        <ReubicacionesPipelinePage token={token} navIntent={reubicacionesNavIntent} />
+                        <ReubicacionesPipelinePage token={token} navIntent={reubicacionesNavIntent} auth={auth} />
                     ) : null}
 
                     {mainView === 'mallasTurnos' ? (
