@@ -728,6 +728,8 @@ async function ensureDynamoStreamCheckpointTable({ pool, logger }) {
 }
 
 
+
+// Agregar esta función al final del archivo
 async function ensureReubicacionesSchema({ pool, logger }) {
     try {
         // 1. Extender reubicaciones_pipeline
@@ -754,7 +756,7 @@ async function ensureReubicacionesSchema({ pool, logger }) {
             )
         `);
         
-        // 3. Índices existentes
+        // 3. Índices
         await pool.query(`
             CREATE INDEX IF NOT EXISTS idx_reubicaciones_historial_pipeline 
                 ON reubicaciones_estado_historial(pipeline_id, cambiado_en DESC);

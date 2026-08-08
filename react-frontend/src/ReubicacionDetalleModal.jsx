@@ -222,16 +222,15 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
         <GestionModalShell
             open={isOpen}
             onClose={onClose}
-            title="Detalle de Reubicacion"
-            subtitle={`Cedula ${row.cedula} · ${row.consultor || 'Consultor'}`}
-            size="lg"
+            title="Detalle de Reubicación"
+            subtitle={`Cédula ${row.cedula} · ${row.consultor || 'Consultor'}`}
+            size="md"
             footer={footer}
         >
             <div className="mt-2 space-y-4 font-body">
-                {/* INFO DEL CASO */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <div className="rounded-xl border border-slate-200/60 dark:border-slate-800/80 p-3 bg-slate-50/50 dark:bg-slate-900/40">
-                        <p className={`text-xs ${dash.modalMuted}`}>Cedula</p>
+                        <p className={`text-xs ${dash.modalMuted}`}>Cédula</p>
                         <p className="font-semibold">{row.cedula}</p>
                     </div>
                     <div className="rounded-xl border border-slate-200/60 dark:border-slate-800/80 p-3 bg-slate-50/50 dark:bg-slate-900/40">
