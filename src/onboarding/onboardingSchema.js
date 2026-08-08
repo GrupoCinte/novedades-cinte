@@ -828,6 +828,7 @@ async function ensureReubicacionesSchema({ pool, logger }) {
                 ON reubicaciones_decisiones(fecha DESC)
         `);
 
+        
         logInfo(logger, 'Esquema reubicaciones listo (idempotente).');
     } catch (error) {
         if (isIgnorableDdlError(error)) {
