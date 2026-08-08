@@ -12,6 +12,8 @@ import { useUiTheme } from './UiThemeContext.jsx';
 import { ADMIN_PORTAL_UNIFIED_TITLE } from './AdminModuleSidebarBrand.jsx';
 import { CONCILIACIONES_MODULE_ENABLED, ATRACCION_TALENTO_MODULE_ENABLED } from './featureFlags.js';
 import { userHasAtraccionTalentoAccess } from './sourcing/atraccionAccess';
+import { userHasChReubicacionesAccess } from './chAccess.js';
+
 
 function resolveWelcomeName(auth) {
     const u = auth?.user && typeof auth.user === 'object' ? auth.user : {};
@@ -189,20 +191,20 @@ export default function AdminPortalHome({ auth, onLogout }) {
                 Icon: Users
             });
         }
-        if (userHasDirectorioPanel(auth)) {
+        if (userHasDirectorioPanel(auth) || userHasChReubicacionesAccess(auth) || userHasAtraccionTalentoAccess(auth) || auth?.user?.role === 'gp') {
+
+            // CH, AT y GP → Reubicaciones
+            // super_admin y CAC → Dashboard
+            const isChAtOrGp = userHasChReubicacionesAccess(auth) || userHasAtraccionTalentoAccess(auth) || auth?.user?.role === 'gp';
+            const isAdmin = userHasDirectorioPanel(auth); // super_admin y CAC
+
+            const defaultView = (isChAtOrGp && !isAdmin) ? 'reubicaciones' : 'dashboard';
+        
             out.push({
                 key: 'directorio',
                 title: 'Módulo de administración',
                 description: 'Configuración de catálogo, permisos y datos maestros del directorio.',
-                path: '/admin/directorio?v=dashboard',
-                Icon: Building2
-            });
-        } else if (userIsGpMallasOnly(auth) || (userHasMallasAccess(auth) && !userHasDirectorioPanel(auth))) {
-            out.push({
-                key: 'directorio',
-                title: 'Módulo de administración',
-                description: 'Mallas de turnos y monitoreo de actividades de tus clientes asignados.',
-                path: '/admin/directorio',
+                path: `/admin/directorio?v=${defaultView}`,
                 Icon: Building2
             });
         }
