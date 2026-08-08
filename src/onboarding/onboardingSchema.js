@@ -778,6 +778,56 @@ async function ensureReubicacionesSchema({ pool, logger }) {
                 ON ficha_novedades_staging(sincronizado_pipeline) 
                 WHERE sincronizado_pipeline = FALSE AND status = 'aplicado'
         `);
+
+        // ============================================
+        // NUEVO: TABLAS DE HU-04
+        // ============================================
+
+        // 6. Tabla de observaciones de CH
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS public.reubicaciones_observaciones (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) ON DELETE CASCADE,
+                version INTEGER NOT NULL DEFAULT 1,
+                observacion TEXT NOT NULL,
+                actor_user_id UUID NOT NULL REFERENCES users(id),
+                actor_role TEXT NOT NULL,
+                fecha TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(pipeline_id, version)
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_obs_pipeline 
+                ON reubicaciones_observaciones(pipeline_id)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_obs_fecha 
+                ON reubicaciones_observaciones(fecha DESC)
+        `);
+
+        // 7. Tabla de decisiones de GP
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS public.reubicaciones_decisiones (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) ON DELETE CASCADE,
+                decision TEXT NOT NULL CHECK (decision IN ('APTO', 'NO_APTO')),
+                justificacion TEXT NOT NULL,
+                decidido_por_user_id UUID NOT NULL REFERENCES users(id),
+                decidido_por_role TEXT NOT NULL,
+                fecha TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_dec_pipeline 
+                ON reubicaciones_decisiones(pipeline_id)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_dec_fecha 
+                ON reubicaciones_decisiones(fecha DESC)
+        `);
+
         
         logInfo(logger, 'Esquema reubicaciones listo (idempotente).');
     } catch (error) {
