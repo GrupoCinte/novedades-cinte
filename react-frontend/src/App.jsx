@@ -26,6 +26,7 @@ import AtraccionVacantePage from './sourcing/AtraccionVacantePage.jsx';
 import AtraccionShortlistPage from './sourcing/AtraccionShortlistPage.jsx';
 import AtraccionCapturaPage from './sourcing/AtraccionCapturaPage.jsx';
 import AtraccionCampanasPage from './sourcing/AtraccionCampanasPage.jsx';
+import { userHasChReubicacionesAccess } from './chAccess.js';
 import AtraccionIntegracionesPage from './sourcing/AtraccionIntegracionesPage.jsx';
 import AtraccionCandidatosRedirect from './sourcing/AtraccionCandidatosRedirect.jsx';
 import AdminPortalHome from './AdminPortalHome';
@@ -74,7 +75,7 @@ function adminPortalModuleCount(auth) {
   if (CONCILIACIONES_MODULE_ENABLED && userHasConciliacionesAccess(auth)) n += 1;
   if (userHasCotizadorAccess(auth)) n += 1;
   if (userHasContratacionPanel(auth) || userHasOnboardingPanel(auth)) n += 1;
-  if (userHasDirectorioPanel(auth)) n += 1;
+  if (userHasDirectorioPanel(auth) || userHasAtraccionTalentoAccess(auth)) n += 1; 
   if (userHasMonitoreoAccess(auth)) n += 1;
   if (ATRACCION_TALENTO_MODULE_ENABLED && userHasAtraccionTalentoAccess(auth)) n += 1;
   return n;
@@ -456,7 +457,7 @@ function App() {
             element={(
               <ProtectedRoute auth={auth}>
                 {(() => {
-                  return userHasMallasAccess(auth) || userHasDirectorioPanel(auth) || userHasMonitoreoAccess(auth) ? (
+                  return userHasMallasAccess(auth) || userHasDirectorioPanel(auth) || userHasMonitoreoAccess(auth)  || userHasChReubicacionesAccess(auth) || userHasAtraccionTalentoAccess(auth) ? (
                     <DirectorioClienteColaboradorModule token={auth?.token || ''} auth={auth} onLogout={handleLogout} />
                   ) : (
                     <Navigate to="/admin" replace />
