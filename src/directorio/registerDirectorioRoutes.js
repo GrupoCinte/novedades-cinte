@@ -1688,6 +1688,163 @@ function registerDirectorioRoutes(deps) {
     });
 
 
+
+
+    // ============================================
+    // ENDPOINTS DE HU-04: OBSERVACIONES Y DECISIONES
+    // ============================================
+
+    const observacionesService = require('../reubicaciones/reubicacionesObservacionesService');
+    const decisionesService = require('../reubicaciones/reubicacionesDecisionesService');
+
+    /**
+     * Middleware para verificar rol de CH (admin_ch o team_ch)
+     */
+    function isCH(usuario) {
+        const role = normalizeRoleOrNull(usuario?.role);
+        return role === 'admin_ch' || role === 'team_ch' || role === 'super_admin';
+    }
+
+    /**
+     * Middleware para verificar rol de GP
+     */
+    function isGP(usuario) {
+        const role = normalizeRoleOrNull(usuario?.role);
+        return role === 'gp' || role === 'super_admin';
+    }
+
+    /**
+     * POST /api/directorio/reubicaciones/:id/observacion
+     * CH registra observación
+     */
+    app.post('/api/directorio/reubicaciones/:id/observacion', verificarToken, adminActionLimiter, async (req, res) => {
+        try {
+            console.log('🔍 req.user.role:', req.user?.role);
+            console.log('🔍 normalized:', normalizeRoleOrNull(req.user?.role));
+            console.log('🔍 isCH:', isCH(req.user));
+            const pipelineId = String(req.params.id || '').trim();
+            const { observacion } = req.body;
+
+            // Validar que el usuario tenga rol CH
+            if (!isCH(req.user)) {
+                return res.status(403).json({ ok: false, error: 'Solo CH puede registrar observaciones' });
+            }
+
+            const result = await observacionesService.registrarObservacion({
+                pipelineId,
+                observacion,
+                actor: {
+                    user_id: parseUuidActor(req.user?.sub),
+                    role: normalizeRoleOrNull(req.user?.role)
+                },
+                pool
+            });
+
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('POST /directorio/reubicaciones/:id/observacion:', error);
+            return res.status(500).json({ ok: false, error: 'Error al registrar observación' });
+        }
+    });
+
+    /**
+     * GET /api/directorio/reubicaciones/:id/observacion
+     * Obtener última observación + historial
+     */
+    app.get('/api/directorio/reubicaciones/:id/observacion', verificarToken, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+
+            // Verificar que el caso existe (OPCIONAL: verificar alcance GP)
+            const caseExists = await pool.query(
+                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
+                [pipelineId]
+            );
+            if (caseExists.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
+            }
+
+            const actual = await observacionesService.obtenerUltimaObservacion({ pipelineId, pool });
+            const historial = await observacionesService.obtenerHistorialObservaciones({ pipelineId, pool });
+
+            return res.json({
+                ok: true,
+                data: {
+                    actual,
+                    historial
+                }
+            });
+        } catch (error) {
+            console.error('GET /directorio/reubicaciones/:id/observacion:', error);
+            return res.status(500).json({ ok: false, error: 'Error al obtener observación' });
+        }
+    });
+
+    /**
+     * POST /api/directorio/reubicaciones/:id/decision
+     * GP registra decisión
+     */
+    app.post('/api/directorio/reubicaciones/:id/decision', verificarToken, adminActionLimiter, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+            const { decision, justificacion } = req.body;
+
+            // Validar que el usuario tenga rol GP
+            if (!isGP(req.user)) {
+                return res.status(403).json({ ok: false, error: 'Solo GP puede registrar decisiones' });
+            }
+
+            const result = await decisionesService.registrarDecision({
+                pipelineId,
+                decision,
+                justificacion,
+                decididoPor: {
+                    user_id: parseUuidActor(req.user?.sub),
+                    role: normalizeRoleOrNull(req.user?.role)
+                },
+                pool
+            });
+
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('POST /directorio/reubicaciones/:id/decision:', error);
+            return res.status(500).json({ ok: false, error: 'Error al registrar decisión' });
+        }
+    });
+
+    /**
+     * GET /api/directorio/reubicaciones/:id/decision
+     * Obtener última decisión + historial
+     */
+    app.get('/api/directorio/reubicaciones/:id/decision', verificarToken, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+
+            // Verificar que el caso existe
+            const caseExists = await pool.query(
+                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
+                [pipelineId]
+            );
+            if (caseExists.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
+            }
+
+            const actual = await decisionesService.obtenerUltimaDecision({ pipelineId, pool });
+            const historial = await decisionesService.obtenerHistorialDecisiones({ pipelineId, pool });
+
+            return res.json({
+                ok: true,
+                data: {
+                    actual,
+                    historial
+                }
+            });
+        } catch (error) {
+            console.error('GET /directorio/reubicaciones/:id/decision:', error);
+            return res.status(500).json({ ok: false, error: 'Error al obtener decisión' });
+        }
+    });
 }
+
 
 module.exports = { registerDirectorioRoutes };
