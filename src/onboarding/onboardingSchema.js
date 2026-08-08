@@ -361,7 +361,20 @@ async function ensureFichaNovedadesStagingTable({ pool, logger }) {
             )
         `);
         await pool.query(`
-            CREATE UNIQUE INDEX IF NOT EXISTS uq_ficha_novedades_external
+            DROP INDEX IF EXISTS uq_ficha_novedades_external
+        `);
+        await pool.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_ficha_novedades_source_external_event
+            ON ficha_novedades_staging (
+                source,
+                external_id,
+                event_type,
+                COALESCE(sequence_number, ''),
+                COALESCE(shard_id, '')
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_ficha_novedades_external_id
             ON ficha_novedades_staging (external_id)
         `);
         await pool.query('CREATE INDEX IF NOT EXISTS idx_ficha_novedades_status ON ficha_novedades_staging(status)');
@@ -712,6 +725,125 @@ async function ensureDynamoStreamCheckpointTable({ pool, logger }) {
         }
         throw error;
     }
+}
+
+
+
+// Agregar esta función al final del archivo
+async function ensureReubicacionesSchema({ pool, logger }) {
+    try {
+        // 1. Extender reubicaciones_pipeline
+        await pool.query(`
+            ALTER TABLE public.reubicaciones_pipeline 
+            ADD COLUMN IF NOT EXISTS estado VARCHAR(20) DEFAULT 'Pendiente',
+            ADD COLUMN IF NOT EXISTS motivo_novedad TEXT,
+            ADD COLUMN IF NOT EXISTS tipo_ficha VARCHAR(20),
+            ADD COLUMN IF NOT EXISTS ultimo_evento_id TEXT,
+            ADD COLUMN IF NOT EXISTS gp_asignado_id UUID,
+            ADD COLUMN IF NOT EXISTS alerta_extension_enviada BOOLEAN DEFAULT FALSE
+        `);
+        
+        // 2. Crear historial
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS public.reubicaciones_estado_historial (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) ON DELETE CASCADE,
+                estado_anterior VARCHAR(20),
+                estado_nuevo VARCHAR(20) NOT NULL,
+                evento_id TEXT,
+                motivo TEXT,
+                cambiado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        `);
+        
+        // 3. Índices
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_historial_pipeline 
+                ON reubicaciones_estado_historial(pipeline_id, cambiado_en DESC);
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_estado 
+                ON reubicaciones_pipeline(estado);
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_tipo_ficha 
+                ON reubicaciones_pipeline(tipo_ficha)
+        `);
+        
+        // 4. Extender ficha_novedades_staging
+        await pool.query(`
+            ALTER TABLE public.ficha_novedades_staging 
+            ADD COLUMN IF NOT EXISTS sincronizado_pipeline BOOLEAN DEFAULT FALSE
+        `);
+        
+        // 5. Índice para recovery
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_ficha_novedades_sincronizado 
+                ON ficha_novedades_staging(sincronizado_pipeline) 
+                WHERE sincronizado_pipeline = FALSE AND status = 'aplicado'
+        `);
+
+        // ============================================
+        // NUEVO: TABLAS DE HU-04
+        // ============================================
+
+        // 6. Tabla de observaciones de CH
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS public.reubicaciones_observaciones (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) ON DELETE CASCADE,
+                version INTEGER NOT NULL DEFAULT 1,
+                observacion TEXT NOT NULL,
+                actor_user_id UUID NOT NULL REFERENCES users(id),
+                actor_role TEXT NOT NULL,
+                fecha TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(pipeline_id, version)
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_obs_pipeline 
+                ON reubicaciones_observaciones(pipeline_id)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_obs_fecha 
+                ON reubicaciones_observaciones(fecha DESC)
+        `);
+
+        // 7. Tabla de decisiones de GP
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS public.reubicaciones_decisiones (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) ON DELETE CASCADE,
+                decision TEXT NOT NULL CHECK (decision IN ('APTO', 'NO_APTO')),
+                justificacion TEXT NOT NULL,
+                decidido_por_user_id UUID NOT NULL REFERENCES users(id),
+                decidido_por_role TEXT NOT NULL,
+                fecha TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_dec_pipeline 
+                ON reubicaciones_decisiones(pipeline_id)
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_dec_fecha 
+                ON reubicaciones_decisiones(fecha DESC)
+        `);
+
+        
+        logInfo(logger, 'Esquema reubicaciones listo (idempotente).');
+    } catch (error) {
+        if (isIgnorableDdlError(error)) {
+            logWarn(logger, 'Permisos insuficientes para esquema reubicaciones.');
+            return;
+        }
+        throw error;
+    }
+}
+
+// Agregar la llamada en ensureOnboardingSchema()
+async function ensureOnboardingSchema({ pool, logger } = {}) {
+    // ... funciones existentes ...
+    await ensureReubicacionesSchema({ pool, logger });
+    // ...
 }
 
 module.exports = {
