@@ -121,29 +121,59 @@ class ReubicacionesAuthService {
    * @returns {Promise<Array>}
    */
   async getCasosPorAlcanceGP(usuario, pool) {
-    if (usuario.rol !== 'gp') {
+    if (usuario.role !== 'gp') {
       throw new Error('Solo GPs pueden usar este método');
     }
 
     try {
       const query = `
-        SELECT rp.*, 
-               c.nombre_completo,
-               c.puesto,
-               c.sueldo_nomina,
-               c.auxilio_transporte_obligatorio,
-               u.email as gp_email,
-               u.nombre as gp_nombre
-        FROM reubicaciones_pipeline rp
-        JOIN colaboradores c ON rp.cedula = c.cedula
-        JOIN clientes_lideres cl ON c.cliente_id = cl.cliente_id
-        LEFT JOIN users u ON c.gp_user_id = u.id
-        WHERE cl.gp_user_id = $1
-          AND c.estado = 'ACTIVO'
-        ORDER BY rp.fecha_fin ASC
+          SELECT
+              rp.id,
+              rp.cedula,
+              rp.fecha_fin,
+              rp.cliente_destino,
+              rp.causal,
+              rp.created_at,
+              rp.updated_at,
+              c.nombre AS consultor,
+              c.tipo_contrato,
+              COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) AS cliente_actual,
+              c.tarifa_cliente AS tarifa_actual,
+              c.montos_divisa,
+              c.puesto,
+              c.lider_catalogo,
+              u.full_name AS gp_nombre,
+              c.perfil_cargo,
+              c.sueldo_nomina AS salario,
+              c.auxilio_transporte_obligatorio AS auxilios,
+              (SELECT NULLIF(TRIM(f.tipo_novedad), '') 
+               FROM ficha_novedades_staging f 
+               WHERE f.colaborador_cedula_match = rp.cedula
+               ORDER BY f.created_at DESC 
+               LIMIT 1) AS tipo_ficha,
+              (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes,
+              (CASE 
+                  WHEN rp.fecha_fin < CURRENT_DATE THEN 'Con novedad' 
+                  ELSE 'En proceso' 
+              END) AS estado,
+              (CASE 
+                  WHEN rp.fecha_fin < CURRENT_DATE THEN 'Vencido'
+                  WHEN rp.fecha_fin > (CURRENT_DATE + 30) THEN 'Verde'
+                  WHEN rp.fecha_fin >= (CURRENT_DATE + 15) THEN 'Amarillo'
+                  ELSE 'Rojo'
+              END) AS semaforo
+          FROM reubicaciones_pipeline rp
+          INNER JOIN colaboradores c ON c.cedula = rp.cedula
+          INNER JOIN clientes_lideres cl ON (
+              COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) = cl.cliente
+          )
+          LEFT JOIN users u ON cl.gp_user_id = u.id
+          WHERE cl.gp_user_id = $1
+            AND c.activo = true
+          ORDER BY rp.fecha_fin ASC
       `;
-      
-      const result = await pool.query(query, [usuario.id]);
+
+      const result = await pool.query(query, [usuario.sub]);      
       return result.rows;
       
     } catch (error) {
