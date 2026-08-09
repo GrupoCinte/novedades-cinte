@@ -6,7 +6,6 @@ import { formatMoneyAmountOnly } from './multiCurrencyMoney.js';
 import { useState, useEffect } from 'react';
 import { userCanDecideAptitud, userCanRegisterObservacion, userCanModifyReubicacion } from './reubicaciones/reubicacionesAccess';
 
-
 function getCsrfToken() {
     const match = document.cookie.match(/cinteXsrf=([^;]+)/);
     return match ? match[1] : '';
@@ -42,7 +41,6 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
     const puedeEscribirObs = userCanRegisterObservacion(auth);
     const puedeDecidir = userCanDecideAptitud(auth);
     const canModify = userCanModifyReubicacion(auth);
-
 
     // Cargar datos al abrir el modal
     useEffect(() => {
@@ -165,6 +163,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
             });
             const data = await res.json();
             if (data.ok) {
+                setSuccess('Decision guardada exitosamente');
                 await cargarDecision();
                 setDecision('');
                 setJustificacion('');
@@ -179,8 +178,6 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
     };
 
     if (!isOpen || !row) return null;
-
-
 
     // ============================================
     // FOOTER
@@ -211,7 +208,13 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                     </button>
                 </>
             )}
-            
+            <button
+                type="button"
+                onClick={onClose}
+                className={dash.compactBtn}
+            >
+                Cerrar
+            </button>
         </div>
     );
 
@@ -222,15 +225,16 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
         <GestionModalShell
             open={isOpen}
             onClose={onClose}
-            title="Detalle de Reubicación"
-            subtitle={`Cédula ${row.cedula} · ${row.consultor || 'Consultor'}`}
-            size="md"
+            title="Detalle de Reubicacion"
+            subtitle={`Cedula ${row.cedula} · ${row.consultor || 'Consultor'}`}
+            size="lg"
             footer={footer}
         >
             <div className="mt-2 space-y-4 font-body">
+                {/* INFO DEL CASO */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                     <div className="rounded-xl border border-slate-200/60 dark:border-slate-800/80 p-3 bg-slate-50/50 dark:bg-slate-900/40">
-                        <p className={`text-xs ${dash.modalMuted}`}>Cédula</p>
+                        <p className={`text-xs ${dash.modalMuted}`}>Cedula</p>
                         <p className="font-semibold">{row.cedula}</p>
                     </div>
                     <div className="rounded-xl border border-slate-200/60 dark:border-slate-800/80 p-3 bg-slate-50/50 dark:bg-slate-900/40">
@@ -352,7 +356,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                             </div>
                         </div>
                     )}
-                    {!puedeEscribirObs &&  (
+                    {!puedeEscribirObs && (
                         <p className="text-xs text-gray-400 mt-1">Solo CH puede registrar observaciones</p>
                     )}
                 </div>
@@ -483,7 +487,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                             </div>
                         </div>
                     )}
-                    {!puedeDecidir &&  (
+                    {!puedeDecidir && (
                         <p className="text-xs text-gray-400 mt-1">Solo GP puede tomar decisiones de aptitud</p>
                     )}
                 </div>
