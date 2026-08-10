@@ -62,6 +62,21 @@ function createSeguimientoService({ pool }) {
 
     async function createActa(data, actor) {
         const { gp_id, cliente, tipo, fecha_acta, estado, compromisos, observaciones, payload_json, participantes } = data;
+        
+        if (estado === 'FINALIZADO') {
+            if (!fecha_acta) throw new Error('Fecha de acta es obligatoria para finalizar.');
+            const hInicio = payload_json?.hora_inicio || '';
+            const hFin = payload_json?.hora_fin || '';
+            const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+            if (!timeRegex.test(hInicio)) throw new Error('El formato de Hora de inicio no es válido (usa formato 24h, ej. 08:30).');
+            if (!timeRegex.test(hFin)) throw new Error('El formato de Hora de fin no es válido (usa formato 24h, ej. 14:00).');
+            
+            if (!payload_json?.objetivo?.trim()) throw new Error('El objetivo de la sesión es obligatorio.');
+            if (!payload_json?.agenda?.trim()) throw new Error('La agenda desarrollada es obligatoria.');
+            if (!payload_json?.planes_accion || payload_json.planes_accion.length === 0) throw new Error('Debe agregar al menos un plan de acción para finalizar.');
+            if (!participantes || participantes.length === 0) throw new Error('Debe agregar al menos un participante.');
+        }
+
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -101,6 +116,21 @@ function createSeguimientoService({ pool }) {
 
     async function updateActa(id, data, actor) {
         const { cliente, tipo, fecha_acta, estado, compromisos, observaciones, payload_json, participantes } = data;
+        
+        if (estado === 'FINALIZADO') {
+            if (!fecha_acta) throw new Error('Fecha de acta es obligatoria para finalizar.');
+            const hInicio = payload_json?.hora_inicio || '';
+            const hFin = payload_json?.hora_fin || '';
+            const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+            if (!timeRegex.test(hInicio)) throw new Error('El formato de Hora de inicio no es válido (usa formato 24h, ej. 08:30).');
+            if (!timeRegex.test(hFin)) throw new Error('El formato de Hora de fin no es válido (usa formato 24h, ej. 14:00).');
+            
+            if (!payload_json?.objetivo?.trim()) throw new Error('El objetivo de la sesión es obligatorio.');
+            if (!payload_json?.agenda?.trim()) throw new Error('La agenda desarrollada es obligatoria.');
+            if (!payload_json?.planes_accion || payload_json.planes_accion.length === 0) throw new Error('Debe agregar al menos un plan de acción para finalizar.');
+            if (!participantes || participantes.length === 0) throw new Error('Debe agregar al menos un participante.');
+        }
+
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
