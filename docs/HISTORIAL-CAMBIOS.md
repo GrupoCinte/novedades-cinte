@@ -20,6 +20,14 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-10 14:21:50 · `fix/AUT-285-plantilla-cierre-firma-link` · `66bba34c`
+- **Commit:** `66bba34c31482d58415d5aabaf3dc7b0b5c8e353`
+- **Ticket:** AUT-285
+- **Requerimiento funcional:** Registrar en la bitácora el ajuste de plantilla de correo de cierre de seguimiento.
+- **Componente técnico:** `docs/HISTORIAL-CAMBIOS.md`.
+- **Cambios (uno a uno):**
+  - Entrada append-only del commit `d9c10797` (AUT-285 plantilla cierre).
+
 ### 2026-08-10 14:21:16 · `fix/AUT-285-plantilla-cierre-firma-link` · `d9c10797`
 - **Commit:** `d9c10797f285bc9b1fedf5acde1d6b34ec1d0f3e`
 - **Ticket:** AUT-285
