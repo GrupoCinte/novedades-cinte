@@ -20,6 +20,16 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-10 14:21:16 · `fix/AUT-285-plantilla-cierre-firma-link` · `d9c10797`
+- **Commit:** `d9c10797f285bc9b1fedf5acde1d6b34ec1d0f3e`
+- **Ticket:** AUT-285
+- **Requerimiento funcional:** El correo de cierre del acta de seguimiento firma con el nombre de quien lo elaboró, recuerda el plazo de 3 días para observaciones y enlaza al portal consultor para verificar el acta.
+- **Componente técnico:** `SeguimientoCierreEmail.tsx`, `branding.ts`, `seguimientoEmailEvents.js`, `seguimientoService.js`, tipos Lambda, tests de cierre; redeploy `EmailExecNovedades`.
+- **Cambios (uno a uno):**
+  - Campo `realizadoPorNombre` en el evento de cierre (responsable / quien realiza / fallback).
+  - Plantilla: firma personalizada, bloque de recordatorio 3 días y link `/consultor/seguimiento`.
+  - Tests del builder actualizados; Lambda empaquetada y desplegada.
+
 ### 2026-07-29 22:54:42 · `integrate/testing-atraccion-talento` · `6e0d28fc`
 - **Commit:** `6e0d28fc941e201c404fbe9589ea7b47a1fbd767`
 - **Ticket:** —
