@@ -60,6 +60,18 @@ describe('seguimiento email builders', () => {
         assert.equal(evt.eventType, 'seguimiento_cierre');
         assert.equal(evt.recipients[0].email, 'lider@cinte.com');
         assert.equal(evt.acta.cliente, 'Acme');
+        assert.equal(evt.realizadoPorNombre, 'Equipo de Servicio — Grupo Cinte');
+    });
+
+    it('buildSeguimientoCierreEvent usa realizadoPorNombre', () => {
+        const evt = buildSeguimientoCierreEvent({
+            seguimientoId: 's1',
+            tipo: 'consultor',
+            realizadoPorNombre: '  LUIS MIGUEL CORREA MARTINEZ  ',
+            recipients: [{ email: 'a@b.com' }],
+            acta: { fecha: '2026-08-01', cliente: 'CINTE' }
+        });
+        assert.equal(evt.realizadoPorNombre, 'LUIS MIGUEL CORREA MARTINEZ');
     });
 
     it('buildSeguimientoVencimientoEvent setea kind', () => {

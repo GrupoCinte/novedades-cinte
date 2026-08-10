@@ -7,11 +7,14 @@ function metaEnv() {
     };
 }
 
+const FIRMANTE_FALLBACK = 'Equipo de Servicio — Grupo Cinte';
+
 /**
  * @param {{
  *   seguimientoId: string,
  *   tipo: 'consultor'|'cliente',
  *   recipients: Array<{ email: string, name?: string }>,
+ *   realizadoPorNombre?: string,
  *   acta: {
  *     fecha: string,
  *     cliente: string,
@@ -23,12 +26,14 @@ function metaEnv() {
  * }} input
  */
 function buildSeguimientoCierreEvent(input) {
+    const firmante = String(input.realizadoPorNombre || '').trim() || FIRMANTE_FALLBACK;
     return {
         eventType: 'seguimiento_cierre',
         eventId: randomUUID(),
         occurredAt: new Date().toISOString(),
         seguimientoId: String(input.seguimientoId),
         tipo: input.tipo,
+        realizadoPorNombre: firmante,
         recipients: (input.recipients || []).map((r) => ({
             email: String(r.email || '').trim().toLowerCase(),
             name: r.name ? String(r.name) : undefined

@@ -135,6 +135,8 @@ export interface SeguimientoCierreEvent {
   occurredAt: string;
   seguimientoId: string;
   tipo: 'consultor' | 'cliente';
+  /** Nombre completo de quien elaboró/finalizó el acta (firma del correo). */
+  realizadoPorNombre?: string;
   recipients: Array<{ email: string; name?: string }>;
   acta: {
     fecha: string;

@@ -308,17 +308,23 @@ function createSeguimientoService({
                 reason: 'publisher_missing'
             });
         }
+        const p = acta.payload_json || {};
+        const realizadoPorNombre =
+            String(p.responsable_nombre || p.responsableNombre || '').trim() ||
+            String(p.quien_realiza_nombre || p.quienRealizaNombre || '').trim() ||
+            '';
         const event = buildSeguimientoCierreEvent({
             seguimientoId: acta.id,
             tipo: acta.tipo,
             recipients,
+            realizadoPorNombre,
             acta: {
                 fecha: String(acta.fecha_seguimiento || '').slice(0, 10),
                 cliente: acta.cliente_nombre,
-                modalidad: acta.payload_json?.modalidad || '',
-                temasTratados: acta.payload_json?.temasTratados || '',
-                feedback: acta.payload_json?.feedback || '',
-                compromisosResumen: compromisosResumen(acta.payload_json)
+                modalidad: p.modalidad || '',
+                temasTratados: p.temasTratados || p.agenda || '',
+                feedback: p.feedback || p.objetivo || '',
+                compromisosResumen: compromisosResumen(p)
             }
         });
         const pub = await emailNotificationsPublisher.publishSeguimientoCierre(event);
