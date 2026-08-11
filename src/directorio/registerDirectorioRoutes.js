@@ -112,6 +112,18 @@ function registerDirectorioRoutes(deps) {
     /** AUT-576: rutas mallas (GP sin panel directorio). */
     const mallasReadGuard = [verificarToken, mallasRoleGuard()];
     const mallasWriteGuard = [verificarToken, mallasRoleGuard(), adminActionLimiter];
+    
+    const colaboradoresRoleGuard = () => {
+        return (req, res, next) => {
+            const role = normalizeRoleOrNull(req.user?.role);
+            if (role === 'super_admin' || role === 'cac' || role === 'gp') {
+                return next();
+            }
+            return res.status(403).json({ ok: false, error: 'Sin permiso para consultar colaboradores.' });
+        };
+    };
+    const colaboradoresReadGuard = [verificarToken, colaboradoresRoleGuard()];
+
 
     async function assertGpClienteAsignado(req, clienteRaw) {
         const role = normalizeRoleOrNull(req.user?.role);
@@ -217,7 +229,7 @@ function registerDirectorioRoutes(deps) {
         cliente: z.string().min(1).max(500).optional(),
         /** Filtro exacto por tipo de contrato; «Sin clasificar» = vacío en BD. */
         tipo_contrato: z.string().max(200).optional(),
-        limit: z.coerce.number().int().min(1).max(200).optional(),
+        limit: z.coerce.number().int().min(1).max(1000).optional(),
         offset: z.coerce.number().int().min(0).optional(),
         sort: z.enum(['nombre', 'cedula', 'codigo', 'correo', 'cliente', 'lider', 'activo']).optional(),
         dir: z.enum(['asc', 'desc']).optional()
@@ -680,7 +692,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/colaboradores', ...readGuard, async (req, res) => {
+    app.get('/api/directorio/colaboradores', ...colaboradoresReadGuard, async (req, res) => {
         try {
             const q = colabListSchema.safeParse(req.query);
             if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });

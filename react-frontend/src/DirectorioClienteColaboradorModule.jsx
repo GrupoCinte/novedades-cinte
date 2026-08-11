@@ -9,6 +9,7 @@ import {
     CalendarDays,
     ChevronLeft,
     ChevronRight,
+    ClipboardList,
     Home,
     LayoutDashboard,
     Layers,
@@ -33,13 +34,14 @@ import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js'
 import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
-import { userIsGpMallasOnly } from './mallasAccess.js';
+import { userIsGpMallasOnly, userHasSeguimientoAccess } from './mallasAccess.js';
 import { userHasMonitoreoAccess } from './monitoreoAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
 import MallasTurnosModule from './MallasTurnosModule';
 import MonitoreoActividadesView from './MonitoreoActividadesView.jsx';
+import SeguimientoAdminView from './seguimiento/SeguimientoAdminView.jsx';
 import ColaboradorFichaFields from './components/ColaboradorFichaFields.jsx';
 import {
     initialStaffForm,
@@ -47,26 +49,7 @@ import {
     buildStaffColaboradorPayload,
     CO_TABS
 } from './constants/colaboradoresConsultorFields.js';
-
-function readCookie(name) {
-    const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
-    if (!raw) return '';
-    const parts = raw.split(';');
-    for (const part of parts) {
-        const [k, ...rest] = part.trim().split('=');
-        if (k === name) return decodeURIComponent(rest.join('=') || '');
-    }
-    return '';
-}
-
-function authHeaders(token) {
-    const headers = { 'Content-Type': 'application/json' };
-    const t = String(token || '').trim();
-    if (t) headers.Authorization = `Bearer ${t}`;
-    const xsrf = readCookie('cinteXsrf');
-    if (xsrf) headers['x-cinte-xsrf'] = xsrf;
-    return headers;
-}
+import { authHeaders } from './shared/authUtils.js';
 
 /** Alineado con `foldForMatch` del backend (`clienteNombreMatch`) para emparejar catálogo. */
 function foldCatalogMatch(value) {
@@ -196,6 +179,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
 
     const gpMallasOnly = userIsGpMallasOnly(auth);
     const canAccessMonitoreo = userHasMonitoreoAccess(auth);
+    const canAccessSeguimiento = userHasSeguimientoAccess(auth);
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -207,65 +191,54 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         setFiltersPanelOpen(false);
     }, [mainView]);
 
+    const gpAllowedViews = useMemo(() => {
+        const views = ['mallasTurnos'];
+        if (canAccessMonitoreo) views.push('monitoreo');
+        if (canAccessSeguimiento) views.push('seguimiento');
+        return views;
+    }, [canAccessMonitoreo, canAccessSeguimiento]);
+
     useEffect(() => {
-        const gpAllowedViews = canAccessMonitoreo ? ['mallasTurnos', 'monitoreo'] : ['mallasTurnos'];
         if (gpMallasOnly && !gpAllowedViews.includes(mainView)) {
             setMainView('mallasTurnos');
         }
-    }, [gpMallasOnly, canAccessMonitoreo, mainView]);
+    }, [gpMallasOnly, gpAllowedViews, mainView]);
 
     const showTiCatalogSubmod = !gpMallasOnly && userHasRolesTiCatalogRead(auth);
+
     useEffect(() => {
         const v = searchParams.get('v');
-        if (v === 'monitoreo') {
-            if (canAccessMonitoreo) setMainView('monitoreo');
-            const next = new URLSearchParams(searchParams);
-            next.delete('v');
-            setSearchParams(next, { replace: true });
-            return;
+        if (!v) return;
+
+        let nextView = null;
+
+        if (v === 'monitoreo' && canAccessMonitoreo) {
+            nextView = 'monitoreo';
+        } else if (v === 'seguimiento' && canAccessSeguimiento) {
+            nextView = 'seguimiento';
+        } else if (v === 'dashboard') {
+            nextView = 'dashboardAdmin';
+        } else if (v === 'reubicaciones') {
+            nextView = 'reubicaciones';
+        } else if (v === 'mallas-turnos') {
+            nextView = 'mallasTurnos';
+        } else if (v === 'catalogo-ti' && showTiCatalogSubmod) {
+            nextView = 'catalogoTi';
         }
-        if (gpMallasOnly) {
-            if (mainView !== 'monitoreo' || !canAccessMonitoreo) setMainView('mallasTurnos');
-            if (v) {
-                const next = new URLSearchParams(searchParams);
-                next.delete('v');
-                setSearchParams(next, { replace: true });
+
+        if (nextView) {
+            if (gpMallasOnly && !gpAllowedViews.includes(nextView)) {
+                setMainView('mallasTurnos');
+            } else {
+                setMainView(nextView);
             }
-            return;
         }
-        if (v === 'dashboard') {
-            setMainView('dashboardAdmin');
-            const next = new URLSearchParams(searchParams);
-            next.delete('v');
-            setSearchParams(next, { replace: true });
-            return;
-        }
-        if (v === 'reubicaciones') {
-            setMainView('reubicaciones');
-            const next = new URLSearchParams(searchParams);
-            next.delete('v');
-            setSearchParams(next, { replace: true });
-            return;
-        }
-        if (v === 'mallas-turnos') {
-            setMainView('mallasTurnos');
-            const next = new URLSearchParams(searchParams);
-            next.delete('v');
-            setSearchParams(next, { replace: true });
-            return;
-        }
-        if (v !== 'catalogo-ti') return;
-        if (!showTiCatalogSubmod) {
-            const next = new URLSearchParams(searchParams);
-            next.delete('v');
-            setSearchParams(next, { replace: true });
-            return;
-        }
-        setMainView('catalogoTi');
-        const next = new URLSearchParams(searchParams);
-        next.delete('v');
-        setSearchParams(next, { replace: true });
-    }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly, canAccessMonitoreo, mainView]);
+
+        const nextParams = new URLSearchParams(searchParams);
+        nextParams.delete('v');
+        setSearchParams(nextParams, { replace: true });
+
+    }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly, gpAllowedViews, canAccessMonitoreo, canAccessSeguimiento]);
 
     const [msg, setMsg] = useState(null);
 
@@ -653,7 +626,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         const all = [];
         let offset = 0;
         const limit = 200;
-        for (;;) {
+        for (; ;) {
             const u = new URLSearchParams();
             u.set('cliente', CLIENTE_INTERNO_CINTE);
             u.set('activo', 'all');
@@ -1059,14 +1032,28 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             type="button"
             title={!sidebarOpen ? label : undefined}
             onClick={onClick}
-            className={`flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left w-full ${
-                sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'
-            } ${active ? navAccentActive : navAccentInactive}`}
+            className={`flex items-center gap-3 rounded-xl transition-all font-body font-medium text-sm text-left w-full ${sidebarOpen ? 'px-4 py-3' : 'px-0 py-3 justify-center'
+                } ${active ? navAccentActive : navAccentInactive}`}
         >
             <Icon size={18} className="flex-shrink-0" />
             {sidebarOpen && <span className="truncate">{label}</span>}
         </button>
     );
+
+    const renderSeguimientoNavBtn = (label) => {
+        if (!canAccessSeguimiento) return null;
+        return (
+            <NavBtn
+                active={mainView === 'seguimiento'}
+                icon={ClipboardList}
+                label={label}
+                onClick={() => {
+                    setMainView('seguimiento');
+                    setMobileMenuOpen(false);
+                }}
+            />
+        );
+    };
 
     const sidebarNav = () => (
         <nav className="mt-1 flex flex-1 flex-col gap-1 overflow-y-auto p-2">
@@ -1101,6 +1088,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             }}
                         />
                     ) : null}
+                    {renderSeguimientoNavBtn("Seguimiento")}
                 </>
             ) : (
                 <>
@@ -1163,6 +1151,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                             }}
                         />
                     ) : null}
+                    {renderSeguimientoNavBtn("Seguimiento a Consultores")}
                     {showTiCatalogSubmod ? (
                         <NavBtn
                             active={mainView === 'catalogoTi'}
@@ -1334,9 +1323,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 <div className={`md:hidden fixed inset-0 z-40 ${scrim}`} onClick={() => setMobileMenuOpen(false)} />
             ) : null}
             <aside
-                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${
-                    mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
-                }`}
+                className={`md:hidden fixed top-0 left-0 z-50 flex h-full w-72 flex-col transform font-body shadow-2xl transition-transform duration-300 ${aside} ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
+                    }`}
             >
                 <AdminModuleSidebarBrand
                     variant="drawer"
@@ -1375,9 +1363,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             </aside>
 
             <aside
-                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden font-body shadow-2xl transition-all duration-300 ease-in-out md:flex ${aside} ${
-                    sidebarOpen ? 'w-64' : 'w-16'
-                }`}
+                className={`relative z-10 hidden h-full flex-shrink-0 flex-col overflow-x-hidden font-body shadow-2xl transition-all duration-300 ease-in-out md:flex ${aside} ${sidebarOpen ? 'w-64' : 'w-16'
+                    }`}
             >
                 <AdminModuleSidebarBrand
                     variant={sidebarOpen ? 'rail-expanded' : 'rail-collapsed'}
@@ -1426,9 +1413,8 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
             <div className="flex flex-col flex-1 min-h-0 min-w-0">
                 {msg ? (
                     <div
-                        className={`mx-4 md:mx-8 mt-3 px-3 py-2 rounded text-sm shrink-0 ${
-                            msg.ok ? 'bg-emerald-900/40 text-emerald-200' : 'bg-red-900/40 text-red-200'
-                        }`}
+                        className={`mx-4 md:mx-8 mt-3 px-3 py-2 rounded text-sm shrink-0 ${msg.ok ? 'bg-emerald-900/40 text-emerald-200' : 'bg-red-900/40 text-red-200'
+                            }`}
                     >
                         {msg.text}
                     </div>
@@ -1597,13 +1583,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                                     coItems.map((row) => (
                                                         <tr
                                                             key={row.cedula}
-                                                            className={`${dash.trHover} cursor-pointer ${
-                                                                selectedCoCedula === row.cedula
+                                                            className={`${dash.trHover} cursor-pointer ${selectedCoCedula === row.cedula
                                                                     ? isLight
                                                                         ? 'bg-sky-100'
                                                                         : 'bg-[#0f2942]/80'
                                                                     : ''
-                                                            }`}
+                                                                }`}
                                                             onClick={() =>
                                                                 setSelectedCoCedula((cur) =>
                                                                     cur === row.cedula ? null : row.cedula
@@ -1716,6 +1701,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     ) : null}
 
                     {mainView === 'monitoreo' && canAccessMonitoreo ? <MonitoreoActividadesView /> : null}
+
+                    {mainView === 'seguimiento' && canAccessSeguimiento ? (
+                        <SeguimientoAdminView token={token} auth={auth} />
+                    ) : null}
 
                     {mainView === 'cliente' ? (
                         <ModuleFiltersDrawer
@@ -2006,13 +1995,12 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                     );
                                     return (
                                         <p
-                                            className={`mt-1 ${
-                                                gsInfo.conflict
+                                            className={`mt-1 ${gsInfo.conflict
                                                     ? isLight
                                                         ? 'text-amber-700'
                                                         : 'text-amber-300/90'
                                                     : ''
-                                            }`}
+                                                }`}
                                         >
                                             {gsInfo.label}
                                         </p>
@@ -2190,11 +2178,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                                         key={tab.id}
                                         type="button"
                                         onClick={() => setStaffFichaTab(tab.id)}
-                                        className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${
-                                            staffFichaTab === tab.id
+                                        className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${staffFichaTab === tab.id
                                                 ? 'border-[#2F7BB8] text-[var(--text)]'
                                                 : `border-transparent ${labelMuted}`
-                                        }`}
+                                            }`}
                                     >
                                         {tab.shortTitle || tab.title}
                                     </button>

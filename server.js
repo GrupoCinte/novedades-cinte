@@ -97,6 +97,9 @@ const { registerOnboardingRoutes } = require('./src/onboarding/registerOnboardin
 const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
 const { registerConciliacionesRoutes } = require('./src/conciliaciones/registerConciliacionesRoutes');
 const { registerSourcingRoutes } = require('./src/sourcing/registerSourcingRoutes');
+const { ensureSeguimientoTables } = require('./src/seguimiento/seguimientoSchema');
+const { createSeguimientoService } = require('./src/seguimiento/seguimientoService');
+const { registerSeguimientoRoutes } = require('./src/seguimiento/registerSeguimientoRoutes');
 const { createEmailNotificationsPublisher } = require('./src/notifications/emailNotificationsPublisher');
 const { createResolveApproverEmailsFromCognito } = require('./src/notifications/resolveApproverEmailsFromCognito');
 
@@ -773,6 +776,7 @@ const { startServer } = require('./src/startup');
 const cotizadorStore = createCotizadorStore({ pool });
 const tiRolesStore = createTiRolesStore({ pool });
 const actividadesStore = createActividadesStore({ pool });
+const seguimientoService = createSeguimientoService({ pool });
 
 const secureEntraCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
 const sameSiteEntra = isProduction ? 'strict' : 'lax';
@@ -1015,6 +1019,16 @@ registerActividadesRoutes({
     listGpEmailsForCliente
 });
 
+registerSeguimientoRoutes({
+    app,
+    verificarToken,
+    allowPanel,
+    allowRoles,
+    resolveGpInternalUserIdForScope,
+    listAssignedClientesForGpUserId,
+    seguimientoService
+});
+
 startServer({
     app,
     pool,
@@ -1057,6 +1071,7 @@ startServer({
     ensureUsersCognitoSubColumn,
     ensureCinteLeonardoPair,
     ensureActividadesConsultorTable: actividadesStore.ensureActividadesConsultorTable,
+    ensureSeguimientoTables,
     PORT,
     COGNITO_ENABLED,
     COGNITO_REGION,

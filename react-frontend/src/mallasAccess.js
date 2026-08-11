@@ -24,3 +24,12 @@ export function userHasMallasAccess(authOrToken) {
 export function userIsGpMallasOnly(authOrToken) {
     return resolveRole(authOrToken) === 'gp' && !userHasDirectorioPanel(authOrToken);
 }
+
+/**
+ * Valida si el usuario tiene permiso para acceder a Seguimiento a Consultores (AUT-283).
+ * Autorizados: gp, cac, super_admin.
+ */
+export function userHasSeguimientoAccess(authOrToken) {
+    const role = resolveRole(authOrToken);
+    return ['gp', 'cac', 'super_admin'].includes(role);
+}
