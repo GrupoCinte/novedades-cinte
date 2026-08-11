@@ -140,12 +140,28 @@ function createActividadesStore({ pool }) {
         return result.rows[0] || null;
     }
 
+    async function checkDuplicateActivity({ cedula, inicio, fin, excludeId }) {
+        const query = `
+            SELECT id FROM actividades_consultor
+            WHERE cedula = $1 
+              AND inicio = $2 
+              AND fin = $3
+              AND ($4::uuid IS NULL OR id != $4)
+            LIMIT 1
+        `;
+        const result = await pool.query(query, [cedula, inicio, fin, excludeId || null]);
+        return result.rowCount > 0;
+    }
+
     async function createManualActivity({ cedula, descripcion, inicio, fin }) {
         const context = await getConsultorContextByCedula(cedula);
         if (!context) return { kind: 'consultor_not_found' };
 
         const cliente = String(context.cliente || '').trim();
         if (!cliente) return { kind: 'client_not_assigned' };
+
+        const isDuplicate = await checkDuplicateActivity({ cedula, inicio, fin });
+        if (isDuplicate) return { kind: 'duplicate' };
 
         const result = await pool.query(
             `INSERT INTO actividades_consultor
@@ -169,6 +185,9 @@ function createActividadesStore({ pool }) {
     }
 
     async function updateActividadPropia({ id, cedula, descripcion, inicio, fin }) {
+        const isDuplicate = await checkDuplicateActivity({ cedula, inicio, fin, excludeId: id });
+        if (isDuplicate) return { kind: 'duplicate' };
+
         const result = await pool.query(
             `UPDATE actividades_consultor
              SET descripcion = $3,
@@ -322,6 +341,7 @@ function createActividadesStore({ pool }) {
     return {
         ensureActividadesConsultorTable,
         getConsultorContextByCedula,
+        checkDuplicateActivity,
         createManualActivity,
         getActividadPropia,
         updateActividadPropia,

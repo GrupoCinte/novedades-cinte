@@ -463,3 +463,78 @@ test('DELETE /api/consultor/actividades/:id retorna 404 para actividad inexisten
         server.close();
     }
 });
+
+test('POST /api/consultor/actividades devuelve 409 si es duplicado', async () => {
+    const app = createMockApp();
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({ cliente: 'CLIENTE TEST' }),
+        createManualActivity: async () => ({ kind: 'duplicate' })
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                descripcion: 'Reunión duplicada',
+                fecha: '2026-07-24',
+                horaInicio: '09:00',
+                horaFin: '10:00'
+            })
+        });
+        const json = await res.json();
+        assert.equal(res.status, 409);
+        assert.equal(json.ok, false);
+        assert.match(json.error, /ya existe una actividad con la misma fecha y hora/i);
+    } finally {
+        server.close();
+    }
+});
+
+test('PUT /api/consultor/actividades/:id devuelve 409 si es duplicado', async () => {
+    const app = createMockApp();
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({}),
+        createManualActivity: async () => ({}),
+        updateActividadPropia: async () => ({ kind: 'duplicate' })
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades/act-123`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                descripcion: 'Edición duplicada',
+                fecha: '2026-07-25',
+                horaInicio: '14:00',
+                horaFin: '15:00'
+            })
+        });
+        const json = await res.json();
+        assert.equal(res.status, 409);
+        assert.equal(json.ok, false);
+        assert.match(json.error, /ya existe una actividad con la misma fecha y hora/i);
+    } finally {
+        server.close();
+    }
+});
