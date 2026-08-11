@@ -3,7 +3,6 @@ import GestionModalShell from '../shared/modals/GestionModalShell.jsx';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import { authHeaders } from '../shared/authUtils.js';
-import { MoreVertical } from 'lucide-react';
 
 import ParticipantesSubModal from './ParticipantesSubModal.jsx';
 import PlanesAccionSubModal from './PlanesAccionSubModal.jsx';
@@ -21,7 +20,6 @@ export default function SeguimientoFormModal({
     refreshCartera
 }) {
     const { isLight, field } = useModuleTheme();
-    const [menuOpen, setMenuOpen] = useState(false);
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const inputCls = `${field} w-full`;
     
@@ -30,6 +28,8 @@ export default function SeguimientoFormModal({
 
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [retrying, setRetrying] = useState(false);
+    const [localCorreoEstado, setLocalCorreoEstado] = useState('no_aplica');
     const [error, setError] = useState(null);
 
     // Lists for autocomplete
@@ -100,74 +100,99 @@ export default function SeguimientoFormModal({
             const gpEmail = String(auth?.user?.email || auth?.claims?.email || '').trim().toLowerCase();
             const gpName = String(auth?.user?.name || auth?.claims?.name || '').trim();
             
-            fetch('/api/directorio/colaboradores?limit=1000', fetchOpts())
-                .then(r => r.json())
-                .then(d => {
-                    const colabs = d.items || [];
-                    setColaboradores(colabs);
+            const isReadOnlyInternal = actaData ? (actaData.can_edit === false) : false;
+
+            const mapActaData = (gpPuestoLocal = '') => {
+                if (actaId && actaData) {
+                    setTipo(actaData.tipo === 'cliente' ? 'Cliente' : 'Consultor');
+                    setCliente(actaData.cliente || '');
+                    setFechaActa(actaData.fecha_acta ? new Date(actaData.fecha_acta).toISOString().split('T')[0] : '');
+                    setIsFinalizado(String(actaData.estado).trim().toUpperCase() === 'FINALIZADO');
+                    setFechaFinalizado(actaData.finalizado_at || null);
+                    setLocalCorreoEstado(actaData.correo_cierre_estado || 'no_aplica');
+    
+                    const pJson = actaData.payload_json || {};
+                    setHoraInicio(pJson.hora_inicio || '');
+                    setHoraFin(pJson.hora_fin || '');
                     
-                    // Buscar puesto del GP en el directorio (la DB usa 'puesto' para colaboradores)
-                    const gpColab = colabs.find(c => {
-                        const ce = String(c.correo_cinte || c.correo || c.email || '').trim().toLowerCase();
-                        return ce && ce === gpEmail;
-                    });
-                    const gpPuesto = gpColab ? (gpColab.puesto || gpColab.cargo || '') : '';
+                    // Si existen en DB se cargan, si no, se toma del GP logueado
+                    setResponsableNombre(pJson.responsable_nombre || gpName);
+                    setResponsableCargo(pJson.responsable_cargo || gpPuestoLocal);
+                    setQuienRealizaNombre(pJson.quien_realiza_nombre || gpName);
+                    setQuienRealizaCargo(pJson.quien_realiza_cargo || gpPuestoLocal);
                     
-                    if (actaId && actaData) {
-                        setTipo(actaData.tipo === 'cliente' ? 'Cliente' : 'Consultor');
-                        setCliente(actaData.cliente || '');
-                        setFechaActa(actaData.fecha_acta ? new Date(actaData.fecha_acta).toISOString().split('T')[0] : '');
-                        setIsFinalizado(actaData.estado === 'FINALIZADO');
-                        setFechaFinalizado(actaData.finalizado_at || null);
-        
-                        const pJson = actaData.payload_json || {};
-                        setHoraInicio(pJson.hora_inicio || '');
-                        setHoraFin(pJson.hora_fin || '');
-                        
-                        // Si existen en DB se cargan, si no, se toma del GP logueado
-                        setResponsableNombre(pJson.responsable_nombre || gpName);
-                        setResponsableCargo(pJson.responsable_cargo || gpPuesto);
-                        setQuienRealizaNombre(pJson.quien_realiza_nombre || gpName);
-                        setQuienRealizaCargo(pJson.quien_realiza_cargo || gpPuesto);
-                        
-                        setObjetivo(pJson.objetivo || '');
-                        setAgenda(pJson.agenda || '');
-                        setProximaReunion(pJson.proxima_reunion || '');
-                        
-                        setParticipantes(pJson.participantes_detalle || []);
-                        setPlanesAccion(pJson.planes_accion || []);
-                        
-                        setObservacionConsultor(pJson.observacion_consultor || '');
-                        setObservacionConsultorFecha(pJson.observacion_consultor_fecha || '');
+                    setObjetivo(pJson.objetivo || '');
+                    setAgenda(pJson.agenda || '');
+                    setProximaReunion(pJson.proxima_reunion || '');
+                    
+                    setParticipantes(pJson.participantes_detalle || []);
+                    setPlanesAccion(pJson.planes_accion || []);
+                    
+                    setObservacionConsultor(pJson.observacion_consultor || '');
+                    setObservacionConsultorFecha(pJson.observacion_consultor_fecha || '');
+                } else {
+                    // Nueva acta
+                    setTipo(tipoSeleccionado || 'Consultor');
+                    if (clientesCartera.length === 1) {
+                        setCliente(clientesCartera[0]);
                     } else {
-                        // Nueva acta
-                        setTipo(tipoSeleccionado || 'Consultor');
-                        if (clientesCartera.length === 1) {
-                            setCliente(clientesCartera[0]);
-                        } else {
-                            setCliente('');
-                        }
-                        setFechaActa(new Date().toISOString().split('T')[0]);
-                        setIsFinalizado(false);
-                        setFechaFinalizado(null);
-        
-                        setHoraInicio('');
-                        setHoraFin('');
-                        setResponsableNombre(gpName);
-                        setResponsableCargo(gpPuesto);
-                        setQuienRealizaNombre(gpName);
-                        setQuienRealizaCargo(gpPuesto);
-                        setObjetivo('');
-                        setAgenda('');
-                        setProximaReunion('');
-                        setParticipantes([]);
-                        setPlanesAccion([]);
-                        setObservacionConsultor('');
-                        setObservacionConsultorFecha('');
+                        setCliente('');
                     }
-                })
-                .catch(console.error)
-                .finally(() => setLoading(false));
+                    setFechaActa(new Date().toISOString().split('T')[0]);
+                    setIsFinalizado(false);
+                    setFechaFinalizado(null);
+                    setLocalCorreoEstado('no_aplica');
+    
+                    setHoraInicio('');
+                    setHoraFin('');
+                    setResponsableNombre(gpName);
+                    setResponsableCargo(gpPuestoLocal);
+                    setQuienRealizaNombre(gpName);
+                    setQuienRealizaCargo(gpPuestoLocal);
+                    setObjetivo('');
+                    setAgenda('');
+                    setProximaReunion('');
+                    setParticipantes([]);
+                    setPlanesAccion([]);
+                    setObservacionConsultor('');
+                    setObservacionConsultorFecha('');
+                }
+            };
+
+            if (isReadOnlyInternal) {
+                // En modo solo lectura (ej. consultor), no consultamos colaboradores
+                mapActaData('');
+                setLoading(false);
+            } else {
+                // 1. Petición específica para el usuario actual (para garantizar que traiga su cargo aunque no esté en los primeros 1000)
+                const emailQuery = encodeURIComponent(gpEmail);
+                const fetchGp = fetch(`/api/directorio/colaboradores?q=${emailQuery}&limit=20`, fetchOpts()).then(r => r.json());
+                
+                // 2. Petición general para el selector de participantes (limite 1000)
+                const fetchAll = fetch('/api/directorio/colaboradores?limit=1000', fetchOpts()).then(r => r.json());
+
+                Promise.all([fetchGp, fetchAll])
+                    .then(([gpData, allData]) => {
+                        const colabs = allData.items || [];
+                        setColaboradores(colabs);
+                        
+                        // Buscar puesto del GP en la petición específica
+                        let gpPuesto = '';
+                        const gpItems = gpData.items || [];
+                        const gpColab = gpItems.find(c => {
+                            const ce = String(c.correo_cinte || c.correo || c.email || '').trim().toLowerCase();
+                            return ce === gpEmail;
+                        });
+                        
+                        if (gpColab) {
+                            gpPuesto = gpColab.puesto || gpColab.cargo || '';
+                        }
+                        
+                        mapActaData(gpPuesto);
+                    })
+                    .catch(console.error)
+                    .finally(() => setLoading(false));
+            }
         }
     }, [open, actaId, actaData, tipoSeleccionado, fetchOpts, clientesCartera, auth]);
 
@@ -240,104 +265,77 @@ export default function SeguimientoFormModal({
         setter(formatted);
     };
 
-    const handleLimpiar = () => {
-        setMenuOpen(false);
-        setObjetivo('');
-        setAgenda('');
-        setProximaReunion('');
-        setParticipantes([]);
-        setPlanesAccion([]);
-        setHoraInicio('');
-        setHoraFin('');
-        setError(null);
-    };
-
-    const handleDescartar = async () => {
-        setMenuOpen(false);
-        if (!isBorradorVacio()) {
-            setError('Para descartar el borrador, primero debes dejar el formulario completamente limpio.');
-            return;
-        }
-
-        if (actaId) {
-            setSaving(true);
-            try {
-                const resDel = await fetch(`/api/seguimiento/actas/${actaId}`, {
-                    ...fetchOpts(),
-                    method: 'DELETE'
-                });
-                if (resDel.ok) {
-                    onSaved('DESCARTADO');
-                    onClose();
-                } else {
-                    const err = await resDel.json();
-                    setError(err.error || 'No se pudo descartar el borrador vacío.');
-                }
-            } catch (e) {
-                setError('Error de conexión al descartar borrador.');
-            } finally {
-                setSaving(false);
-            }
-        } else {
-            onSaved('DESCARTADO');
-            onClose();
-        }
-    };
-
-    const saveActa = async (estadoFinal) => {
-        if (participantes.length === 0) {
-            setError('Debes agregar al menos un participante para diligenciar el desarrollo.');
-            return;
-        }
-
-        if (estadoFinal === 'FINALIZADO') {
-            if (!fechaActa) {
-                setError('La Fecha es obligatoria para finalizar el acta.');
-                return;
-            }
-            if (!agenda || agenda.trim() === '') {
-                setError('El campo Temas (Agenda) es obligatorio para finalizar el acta.');
-                return;
-            }
-            if (participantes.some(p => !p.desarrollo || p.desarrollo.trim() === '')) {
-                setError('El Desarrollo (Feedback) de todos los participantes es obligatorio para finalizar el acta.');
-                return;
-            }
-            if (planesAccion.length === 0) {
-                setError('Debes agregar al menos un compromiso (Planes de Acción) para finalizar el acta.');
-                return;
-            }
-            if (tipoSeleccionado === 'Consultor' && participantes.length === 0) {
-                setError('Debes seleccionar consultores para finalizar este tipo de acta.');
-                return;
-            }
-        }
-
+    const validateForFinalize = () => {
         let clienteFinal = cliente;
         if (!clienteFinal && participantes.length > 0) {
             const pConCliente = participantes.find(p => p.empresa && p.empresa !== 'CINTe');
             clienteFinal = pConCliente ? pConCliente.empresa : (clientesCartera.length > 0 ? clientesCartera[0] : 'General');
-            setCliente(clienteFinal);
+            // Nota: El setCliente se hace en saveActa, aquí solo validamos.
         }
 
+        if (participantes.length === 0) {
+            setError('Debes agregar al menos un participante para diligenciar el desarrollo.');
+            return false;
+        }
+        if (!fechaActa) {
+            setError('La Fecha es obligatoria para finalizar el acta.');
+            return false;
+        }
+        if (!agenda || agenda.trim() === '') {
+            setError('El campo Temas (Agenda) es obligatorio para finalizar el acta.');
+            return false;
+        }
+        if (participantes.some(p => !p.desarrollo || p.desarrollo.trim() === '')) {
+            setError('El Desarrollo (Feedback) de todos los participantes es obligatorio para finalizar el acta.');
+            return false;
+        }
+        if (planesAccion.length === 0) {
+            setError('Debes agregar al menos un compromiso (Planes de Acción) para finalizar el acta.');
+            return false;
+        }
+        if (tipoSeleccionado === 'Consultor' && participantes.length === 0) {
+            setError('Debes seleccionar consultores para finalizar este tipo de acta.');
+            return false;
+        }
         if (!clienteFinal) {
             setError('Error interno: No se pudo determinar el cliente asociado al acta.');
-            return;
+            return false;
         }
-        
         if (!fechaActa || !horaInicio || !horaFin) {
             setError('Debes proveer la fecha y las horas de inicio y fin.');
-            return;
+            return false;
         }
 
         const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
         if (!timeRegex.test(horaInicio)) {
             setError('El formato de Hora de inicio no es válido (usa formato 24h, ej. 08:30, 14:00).');
-            return;
+            return false;
         }
         if (!timeRegex.test(horaFin)) {
             setError('El formato de Hora de finalización no es válido (usa formato 24h, ej. 08:30, 14:00).');
-            return;
+            return false;
+        }
+        if (horaInicio >= horaFin) {
+            setError('La Hora de inicio debe ser estrictamente anterior a la Hora de fin.');
+            return false;
+        }
+        
+        setError(null);
+        return true;
+    };
+
+    const handleIntentFinalize = () => {
+        if (validateForFinalize()) {
+            setConfirmFinalizeOpen(true);
+        }
+    };
+
+    const saveActa = async (estadoFinal, bypassClose = false) => {
+        let clienteFinal = cliente;
+        if (!clienteFinal && participantes.length > 0) {
+            const pConCliente = participantes.find(p => p.empresa && p.empresa !== 'CINTe');
+            clienteFinal = pConCliente ? pConCliente.empresa : (clientesCartera.length > 0 ? clientesCartera[0] : 'General');
+            setCliente(clienteFinal);
         }
 
         setSaving(true);
@@ -392,13 +390,64 @@ export default function SeguimientoFormModal({
             }
 
             setConfirmFinalizeOpen(false);
-            onSaved(estadoFinal);
-            onClose();
+            if (!bypassClose) {
+                onSaved(estadoFinal);
+                onClose();
+            }
         } catch (err) {
             setError(err.message);
         } finally {
             setSaving(false);
         }
+    };
+
+    const handleRetryCorreo = async () => {
+        if (!actaId || retrying) return;
+        setRetrying(true);
+        setError(null);
+        try {
+            const res = await fetch(`/api/seguimiento/actas/${actaId}/reintentar-correo`, {
+                method: 'POST',
+                ...fetchOpts()
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Error al reintentar el correo');
+            
+            if (data.correo_cierre_estado) {
+                setLocalCorreoEstado(data.correo_cierre_estado);
+            } else {
+                setLocalCorreoEstado('pendiente'); // Asignar pendiente si el backend no lo devuelve explícito
+            }
+            // Disparar refresh de la tabla de fondo
+            if (onSaved) onSaved('FINALIZADO');
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setRetrying(false);
+        }
+    };
+
+
+    const handleCloseIntent = async () => {
+        const isInitiallyFinalizado = actaData && String(actaData.estado).trim().toUpperCase() === 'FINALIZADO';
+        if (isReadOnly || isFinalizado || isInitiallyFinalizado) {
+            onClose();
+            return;
+        }
+        
+        if (isBorradorVacio() && !actaId) {
+            onClose();
+            return;
+        }
+        
+        // Guardar como borrador y cerrar
+        await saveActa('Borrador', true);
+        if (onSaved) onSaved('Borrador');
+        onClose();
+    };
+
+    const handleUpdateChanges = async () => {
+        await saveActa('FINALIZADO', false); // False allows it to close and trigger refresh
     };
 
     // UI Components
@@ -412,7 +461,7 @@ export default function SeguimientoFormModal({
         <>
             <GestionModalShell
                 open={open}
-                onClose={onClose}
+                onClose={handleCloseIntent}
                 title={actaId ? "Acta de Seguimiento" : "Nueva Acta de Seguimiento"}
                 size="xl"
                 footer={
@@ -421,49 +470,21 @@ export default function SeguimientoFormModal({
                             {error && <span className="text-red-500 text-sm font-semibold">{error}</span>}
                         </div>
                         <div className="flex gap-2 items-center">
-                            {!isReadOnly && (
-                                <div className="relative">
-                                    <button 
-                                        onClick={() => setMenuOpen(!menuOpen)} 
-                                        className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors"
-                                        title="Opciones del borrador"
-                                    >
-                                        <MoreVertical className="w-5 h-5" />
-                                    </button>
-                                    {menuOpen && (
-                                        <div className="absolute right-0 bottom-full mb-2 w-48 bg-white border border-slate-200 shadow-xl rounded-lg overflow-hidden z-50">
-                                            <button 
-                                                onClick={handleLimpiar} 
-                                                className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-                                            >
-                                                Limpiar formulario
-                                            </button>
-                                            <button 
-                                                onClick={handleDescartar} 
-                                                className="w-full text-left px-4 py-2 text-sm text-red-600 font-medium hover:bg-red-50 transition-colors"
-                                            >
-                                                Descartar borrador
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
                             <button 
                                 className={dash.borrarFiltros} 
-                                onClick={() => {
-                                    if (isReadOnly) {
-                                        onClose();
-                                    } else {
-                                        saveActa('Borrador');
-                                    }
-                                }} 
+                                onClick={handleCloseIntent} 
                                 disabled={saving}
                             >
-                                {saving ? 'Guardando...' : 'Cancelar'}
+                                {saving ? 'Guardando...' : (isReadOnly || isFinalizado ? 'Cerrar' : 'Borrador')}
                             </button>
-                            {!isReadOnly && (
-                                <button className={dash.btnPrimaryCinte} onClick={() => setConfirmFinalizeOpen(true)} disabled={saving}>
+                            {!isReadOnly && !isFinalizado && (
+                                <button className={dash.btnPrimaryCinte} onClick={handleIntentFinalize} disabled={saving}>
                                     Finalizar Acta
+                                </button>
+                            )}
+                            {!isReadOnly && isFinalizado && (
+                                <button className={dash.btnPrimaryCinte} onClick={handleUpdateChanges} disabled={saving}>
+                                    Actualizar Cambios
                                 </button>
                             )}
                         </div>
@@ -476,6 +497,52 @@ export default function SeguimientoFormModal({
                     ) : (
                         <div className="space-y-2 pb-6">
                             
+                            {/* ESTADO DEL CORREO DE CIERRE */}
+                            {isFinalizado && localCorreoEstado && localCorreoEstado !== 'no_aplica' && (
+                                <div className={`p-4 rounded-lg flex items-center justify-between mb-4 ${
+                                    localCorreoEstado === 'fallido' 
+                                        ? 'bg-red-50 text-red-700 border border-red-200' 
+                                        : localCorreoEstado === 'enviado'
+                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                            : 'bg-amber-50 text-amber-700 border border-amber-200'
+                                }`}>
+                                    <div>
+                                        <p className="font-semibold text-sm flex items-center gap-2">
+                                            {localCorreoEstado === 'fallido' && (
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                            )}
+                                            {localCorreoEstado === 'enviado' && (
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                </svg>
+                                            )}
+                                            {localCorreoEstado === 'pendiente' && (
+                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                            )}
+                                            Estado del correo de cierre: <span className="uppercase tracking-wider">{localCorreoEstado}</span>
+                                        </p>
+                                        <p className="text-xs mt-1 opacity-90">
+                                            {localCorreoEstado === 'fallido' ? 'No se pudo enviar el correo a los participantes. Inténtalo de nuevo.' : 
+                                             localCorreoEstado === 'enviado' ? 'El correo fue enviado exitosamente y el ciclo de 30 días ha iniciado.' : 
+                                             'El envío del correo se está procesando en segundo plano.'}
+                                        </p>
+                                    </div>
+                                    {localCorreoEstado === 'fallido' && (
+                                        <button 
+                                            onClick={handleRetryCorreo}
+                                            disabled={retrying}
+                                            className="ml-4 px-3 py-1.5 bg-red-600 text-white rounded text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
+                                        >
+                                            {retrying ? 'Reintentando...' : 'Reintentar'}
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
                             {/* SECCIÓN 1: Información General */}
                             <SectionTitle>1. Información General</SectionTitle>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -668,18 +735,36 @@ export default function SeguimientoFormModal({
                                 </div>
                             </div>
                             
-                            {/* SECCIÓN OPCIONAL: Observaciones de Consultor (Visible si hay algo) */}
-                            {observacionConsultor && (
+                            {/* SECCIÓN OPCIONAL: Observaciones de Consultor(es) */}
+                            {participantes.some(p => p.observacion) && (
                                 <div className={`mt-6 p-4 rounded-xl border ${isLight ? 'border-amber-200 bg-amber-50' : 'border-amber-900/50 bg-amber-900/20'}`}>
-                                    <h3 className={`text-sm font-bold flex items-center gap-2 mb-2 ${isLight ? 'text-amber-800' : 'text-amber-500'}`}>
+                                    <h3 className={`text-sm font-bold flex items-center gap-2 mb-4 ${isLight ? 'text-amber-800' : 'text-amber-500'}`}>
                                         Observaciones del Consultor (Solo Lectura)
                                     </h3>
-                                    <p className={`text-sm whitespace-pre-wrap ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                                        {observacionConsultor}
-                                    </p>
-                                    <p className="text-xs text-amber-600 mt-3 font-semibold">
-                                        Registrado el: {new Date(observacionConsultorFecha).toLocaleString()}
-                                    </p>
+                                    <div className="space-y-4">
+                                        {participantes.filter(p => p.observacion).map((p, idx) => (
+                                            <div key={idx} className="border-b border-amber-200/50 dark:border-amber-700/50 pb-4 last:border-0 last:pb-0">
+                                                <h4 className={`font-semibold text-sm mb-1 ${isLight ? 'text-amber-900' : 'text-amber-400'}`}>
+                                                    {p.nombre} ({p.rol})
+                                                </h4>
+                                                <p className={`text-sm whitespace-pre-wrap ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                                                    {p.observacion}
+                                                </p>
+                                                {p.observacion_at && (
+                                                    <p className="text-xs text-amber-600 dark:text-amber-500 mt-2 font-semibold">
+                                                        Registrado el: {new Date(p.observacion_at).toLocaleString()}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Mostrar errores al final del formulario */}
+                            {error && (
+                                <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-lg flex items-center gap-2">
+                                    <span>{error}</span>
                                 </div>
                             )}
 
@@ -713,7 +798,7 @@ export default function SeguimientoFormModal({
                 size="sm"
                 footer={
                     <div className="flex justify-end gap-2 w-full">
-                        <button className={dash.borrarFiltros} onClick={() => saveActa('Borrador')} disabled={saving}>Cancelar</button>
+                        <button className={dash.borrarFiltros} onClick={() => setConfirmFinalizeOpen(false)} disabled={saving}>Cancelar</button>
                         <button className={dash.btnPrimaryCinte} onClick={() => saveActa('FINALIZADO')} disabled={saving}>
                             {saving ? 'Finalizando...' : 'Finalizar'}
                         </button>

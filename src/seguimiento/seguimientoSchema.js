@@ -39,6 +39,8 @@ async function ensureSeguimientoTables(pool) {
 
         await pool.query('ALTER TABLE seguimiento_participante ADD COLUMN IF NOT EXISTS cedula TEXT NULL;');
         await pool.query('ALTER TABLE seguimiento_participante ADD COLUMN IF NOT EXISTS email TEXT NULL;');
+        await pool.query('ALTER TABLE seguimiento_participante ADD COLUMN IF NOT EXISTS observacion TEXT NULL;');
+        await pool.query('ALTER TABLE seguimiento_participante ADD COLUMN IF NOT EXISTS observacion_at TIMESTAMPTZ NULL;');
 
         await pool.query('CREATE INDEX IF NOT EXISTS idx_seguimiento_participante_acta ON seguimiento_participante(acta_id)');
 

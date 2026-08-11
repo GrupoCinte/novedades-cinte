@@ -286,13 +286,52 @@ function createSeguimientoService({ pool }) {
         }
     }
 
+    async function getInternalUserIdByEmail(email) {
+        if (!email) return null;
+        const res = await pool.query('SELECT id FROM users WHERE email = $1 AND is_active = TRUE LIMIT 1', [email]);
+        return res.rows[0]?.id || null;
+    }
+
+    async function reintentarCorreoCierre(id, actor) {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            
+            // Simula éxito del correo pendiente de envío
+            const sql = `
+                UPDATE seguimiento_acta 
+                SET correo_cierre_estado = 'enviado',
+                    updated_at = NOW()
+                WHERE id = $1
+                RETURNING correo_cierre_estado
+            `;
+            const { rows } = await client.query(sql, [id]);
+            const newStatus = rows[0]?.correo_cierre_estado || 'pendiente';
+
+            await client.query(
+                `INSERT INTO seguimiento_historial (acta_id, accion, estado_anterior, estado_nuevo, actor_user_id, actor_email, actor_role) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [id, 'reintentar_correo', 'FINALIZADO', 'FINALIZADO', actor.id, actor.email, actor.role]
+            );
+
+            await client.query('COMMIT');
+            return newStatus;
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
+    }
+
     return {
         listActas,
         getActa,
         createActa,
         updateActa,
         softDeleteActa,
-        addObservacionConsultor
+        addObservacionConsultor,
+        getInternalUserIdByEmail,
+        reintentarCorreoCierre
     };
 }
 

@@ -113,7 +113,7 @@ function registerSeguimientoRoutes(deps) {
             const scope = { gpEmail, gpUserId };
             
             let gpId = await resolveGpInternalUserIdForScope(scope);
-            if (!gpId) return res.status(403).json({ ok: false, error: 'No se pudo resolver el ID del usuario para asignar el acta' });
+            if (!gpId && role === 'gp') return res.status(403).json({ ok: false, error: 'No se pudo resolver el ID del usuario para asignar el acta' });
 
             if (role === 'gp') {
                 // RBAC: Solo puede crear actas para clientes asignados
@@ -129,7 +129,8 @@ function registerSeguimientoRoutes(deps) {
                 estado: req.body.estado === 'FINALIZADO' ? 'FINALIZADO' : 'Borrador'
             };
 
-            const actor = { id: gpUserId, email: gpEmail, role };
+            const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
+            const actor = { id: internalActorId || null, email: gpEmail, role };
             const result = await seguimientoService.createActa(data, actor);
 
             res.status(201).json({ ok: true, id: result.id });
@@ -148,7 +149,8 @@ function registerSeguimientoRoutes(deps) {
             const role = String(req.user?.role || '').trim().toLowerCase();
             const gpEmail = req.user?.email || req.user?.cognito_username || null;
             const gpUserId = req.user?.id || req.user?.sub || null;
-            const actor = { id: gpUserId, email: gpEmail, role };
+            const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
+            const actor = { id: internalActorId || null, email: gpEmail, role };
             const { id } = req.params;
 
             const acta = await seguimientoService.getActa(id);
@@ -203,7 +205,8 @@ function registerSeguimientoRoutes(deps) {
                 }
             }
 
-            const actor = { id: gpUserId, email: gpEmail, role };
+            const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
+            const actor = { id: internalActorId || null, email: gpEmail, role };
 
             await seguimientoService.softDeleteActa(id, actor);
             res.json({ ok: true });
@@ -221,7 +224,8 @@ function registerSeguimientoRoutes(deps) {
             const role = String(req.user?.role || '').trim().toLowerCase();
             const gpEmail = req.user?.email || req.user?.cognito_username || null;
             const gpUserId = req.user?.id || req.user?.sub || null;
-            const actor = { id: gpUserId, email: gpEmail, role };
+            const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
+            const actor = { id: internalActorId || null, email: gpEmail, role };
             const { id } = req.params;
             const { observacion } = req.body;
 
@@ -236,6 +240,41 @@ function registerSeguimientoRoutes(deps) {
             // Si el error contiene 'plazo', retornar 403, sino 400
             const isForbidden = error.message.includes('plazo') || error.message.includes('Solo se pueden agregar');
             res.status(isForbidden ? 403 : 400).json({ ok: false, error: error.message });
+        }
+    });
+
+    /**
+     * POST /api/seguimiento/actas/:id/reintentar-correo
+     * Reintenta enviar el correo de cierre a los participantes.
+     */
+    app.post('/api/seguimiento/actas/:id/reintentar-correo', baseMiddleware, async (req, res) => {
+        try {
+            const role = String(req.user?.role || '').trim().toLowerCase();
+            const gpEmail = req.user?.email || req.user?.cognito_username || null;
+            const gpUserId = req.user?.id || req.user?.sub || null;
+            const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
+            const actor = { id: internalActorId || null, email: gpEmail, role };
+            const { id } = req.params;
+
+            const acta = await seguimientoService.getActa(id);
+            if (!acta) return res.status(404).json({ ok: false, error: 'Acta no encontrada' });
+            if (acta.estado !== 'FINALIZADO') {
+                return res.status(400).json({ ok: false, error: 'Solo se pueden reintentar correos de actas finalizadas' });
+            }
+
+            if (role === 'gp') {
+                const scope = { gpEmail, gpUserId };
+                const currentGpId = await resolveGpInternalUserIdForScope(scope);
+                if (String(acta.gp_id) !== String(currentGpId)) {
+                    return res.status(403).json({ ok: false, error: 'No tienes permisos para reintentar el correo de esta acta.' });
+                }
+            }
+
+            const updatedStatus = await seguimientoService.reintentarCorreoCierre(id, actor);
+            res.json({ ok: true, correo_cierre_estado: updatedStatus });
+        } catch (error) {
+            console.error('[Seguimiento] Error en POST /api/seguimiento/actas/:id/reintentar-correo:', error);
+            res.status(400).json({ ok: false, error: error.message });
         }
     });
 }

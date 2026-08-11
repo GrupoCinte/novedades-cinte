@@ -4,6 +4,7 @@ import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import ModuleFiltersToolbar from '../shared/filters/ModuleFiltersToolbar.jsx';
 import GestionModalShell from '../shared/modals/GestionModalShell.jsx';
 import SeguimientoFormModal from './SeguimientoFormModal.jsx';
+import SeguimientoFiltersDrawer from './SeguimientoFiltersDrawer.jsx';
 import { CheckCircle2, X } from 'lucide-react';
 
 import { authHeaders } from '../shared/authUtils.js';
@@ -19,6 +20,76 @@ export default function SeguimientoAdminView({ token, auth }) {
     const [clientesCartera, setClientesCartera] = useState([]);
     const [loading, setLoading] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
+
+    // Estado para el panel de filtros
+    const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
+
+    // Filtros locales (activos)
+    const [filterCliente, setFilterCliente] = useState('');
+    const [filterTipo, setFilterTipo] = useState('');
+    const [filterFechaInicio, setFilterFechaInicio] = useState('');
+    const [filterFechaFin, setFilterFechaFin] = useState('');
+
+    // Valores en borrador (para el drawer)
+    const [draftCliente, setDraftCliente] = useState('');
+    const [draftTipo, setDraftTipo] = useState('');
+    const [draftFechaInicio, setDraftFechaInicio] = useState('');
+    const [draftFechaFin, setDraftFechaFin] = useState('');
+
+    // Sincronizar borrador al abrir el drawer
+    useEffect(() => {
+        if (filtersPanelOpen) {
+            setDraftCliente(filterCliente);
+            setDraftTipo(filterTipo);
+            setDraftFechaInicio(filterFechaInicio);
+            setDraftFechaFin(filterFechaFin);
+        }
+    }, [filtersPanelOpen, filterCliente, filterTipo, filterFechaInicio, filterFechaFin]);
+
+    const handleApplyFilters = () => {
+        setFilterCliente(draftCliente);
+        setFilterTipo(draftTipo);
+        setFilterFechaInicio(draftFechaInicio);
+        setFilterFechaFin(draftFechaFin);
+        setFiltersPanelOpen(false);
+    };
+
+    const handleClearFilters = () => {
+        setDraftCliente('');
+        setDraftTipo('');
+        setDraftFechaInicio('');
+        setDraftFechaFin('');
+        setFilterCliente('');
+        setFilterTipo('');
+        setFilterFechaInicio('');
+        setFilterFechaFin('');
+        setFiltersPanelOpen(false);
+    };
+
+    const activeCount = [filterCliente, filterTipo, filterFechaInicio, filterFechaFin].filter(Boolean).length;
+    const chipLabel = activeCount === 0 ? 'Sin filtros' : `${activeCount} filtro${activeCount > 1 ? 's' : ''} activo${activeCount > 1 ? 's' : ''}`;
+
+    const filteredActas = useMemo(() => {
+        return actas.filter(a => {
+            const matchCliente = !filterCliente || (a.cliente || '').toLowerCase().includes(filterCliente.toLowerCase());
+            const matchTipo = !filterTipo || (a.tipo || '').toLowerCase() === filterTipo.toLowerCase();
+            
+            let matchFecha = true;
+            if (a.fecha_acta && (filterFechaInicio || filterFechaFin)) {
+                const d = new Date(a.fecha_acta);
+                d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+                // Remove time part to compare just the date string YYYY-MM-DD safely
+                const yyyyMmDd = d.toISOString().split('T')[0];
+                
+                if (filterFechaInicio && yyyyMmDd < filterFechaInicio) matchFecha = false;
+                if (filterFechaFin && yyyyMmDd > filterFechaFin) matchFecha = false;
+            } else if (!a.fecha_acta && (filterFechaInicio || filterFechaFin)) {
+                matchFecha = false; // If searching by date but acta has no date
+            }
+            
+            return matchCliente && matchTipo && matchFecha;
+        });
+    }, [actas, filterCliente, filterTipo, filterFechaInicio, filterFechaFin]);
 
     const handleSaved = (estadoFinal) => {
         refreshActas();
@@ -43,9 +114,6 @@ export default function SeguimientoAdminView({ token, auth }) {
     const [actaToDelete, setActaToDelete] = useState(null);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
-
-    // Estado para el panel de filtros
-    const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
     const fetchOpts = useCallback(() => ({
         headers: authHeaders(token),
@@ -137,7 +205,7 @@ export default function SeguimientoAdminView({ token, auth }) {
     return (
         <div className={dash.moduleTabShellFull}>
             <ModuleFiltersToolbar
-                chipLabel="Sin filtros"
+                chipLabel={chipLabel}
                 filtersPanelOpen={filtersPanelOpen}
                 onToggleFilters={() => setFiltersPanelOpen((o) => !o)}
                 toggleId="directorio-seguimiento-filtros-toggle"
@@ -154,19 +222,23 @@ export default function SeguimientoAdminView({ token, auth }) {
                 </button>
             </ModuleFiltersToolbar>
 
-            {/* Visualización de la cartera (CA-02, PT-01) */}
-            {isGp && (
-                <div className="px-1 mb-2">
-                    <h3 className={`${isLight ? 'text-slate-700' : 'text-slate-300'} text-sm font-semibold mb-1`}>
-                        Cartera asignada
-                    </h3>
-                    <p className={dash.mutedSm}>
-                        {clientesCartera.length > 0
-                            ? clientesCartera.join(' • ')
-                            : (loading ? 'Cargando cartera...' : 'No tienes clientes asignados.')}
-                    </p>
-                </div>
-            )}
+            <SeguimientoFiltersDrawer
+                open={filtersPanelOpen}
+                onClose={() => setFiltersPanelOpen(false)}
+                dash={dash}
+                draftCliente={draftCliente}
+                setDraftCliente={setDraftCliente}
+                draftTipo={draftTipo}
+                setDraftTipo={setDraftTipo}
+                draftFechaInicio={draftFechaInicio}
+                setDraftFechaInicio={setDraftFechaInicio}
+                draftFechaFin={draftFechaFin}
+                setDraftFechaFin={setDraftFechaFin}
+                onApply={handleApplyFilters}
+                onClear={handleClearFilters}
+            />
+
+
 
             <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                 <div className={dash.tableWrap}>
@@ -185,10 +257,10 @@ export default function SeguimientoAdminView({ token, auth }) {
                             <tbody className={dash.tbody}>
                                 {loading ? (
                                     <tr><td colSpan={6} className={`p-12 text-center font-medium ${dash.muted}`}>Cargando actas...</td></tr>
-                                ) : actas.length === 0 ? (
-                                    <tr><td colSpan={6} className={`p-12 text-center font-medium ${dash.muted}`}>{isGp ? 'No hay actas registradas en tu cartera.' : 'No hay actas registradas.'}</td></tr>
+                                ) : filteredActas.length === 0 ? (
+                                    <tr><td colSpan={6} className={`p-12 text-center font-medium ${dash.muted}`}>{actas.length > 0 ? 'Ningún acta coincide con los filtros.' : isGp ? 'No hay actas registradas en tu cartera.' : 'No hay actas registradas.'}</td></tr>
                                 ) : (
-                                    actas.map((row) => {
+                                    filteredActas.map((row) => {
                                         const names = row.participantes?.map(p => p.nombre).filter(Boolean) || [];
                                         return (
                                             <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => handleEditRow(row)}>
@@ -223,11 +295,11 @@ export default function SeguimientoAdminView({ token, auth }) {
                                                     })() : '-'}
                                                 </td>
                                                 <td className="p-4 text-center">
-                                                    {(role === 'cac' || role === 'super_admin') && row.estado === 'FINALIZADO' && (
+                                                    {(row.estado === 'Borrador' || role === 'cac' || role === 'super admin' || role === 'super_admin') && (
                                                         <button 
                                                             className="text-slate-400 hover:text-red-500 transition-colors p-1.5 rounded-md hover:bg-red-50"
                                                             onClick={(e) => handleDeleteClick(e, row)}
-                                                            title="Eliminar acta"
+                                                            title={row.estado === 'Borrador' ? "Eliminar borrador" : "Eliminar acta"}
                                                         >
                                                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

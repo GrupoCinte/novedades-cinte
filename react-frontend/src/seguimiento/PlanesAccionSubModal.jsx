@@ -13,6 +13,7 @@ export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr,
     const [responsable, setResponsable] = useState('');
     const [fechaEntrega, setFechaEntrega] = useState('');
     const [recursos, setRecursos] = useState('');
+    const [error, setError] = useState(null);
 
     // Reset when opened
     React.useEffect(() => {
@@ -22,12 +23,14 @@ export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr,
             setResponsable('');
             setFechaEntrega('');
             setRecursos('');
+            setError(null);
         }
     }, [open]);
 
     const handleAceptar = () => {
-        if (!tarea || !criticidad || !responsable || !fechaEntrega) {
-            alert('Tarea, Criticidad, Responsable y Fecha de entrega son obligatorios.');
+        setError(null);
+        if (!tarea?.trim() || !criticidad || !responsable || !fechaEntrega) {
+            setError('Tarea, Criticidad, Responsable y Fecha de entrega son obligatorios.');
             return;
         }
         onAdd({
@@ -91,6 +94,11 @@ export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr,
                     <label className={`block mb-1 ${dash.labelFilter}`}>Recursos (Opcional)</label>
                     <input type="text" value={recursos} onChange={e => setRecursos(e.target.value)} className={inputCls} placeholder="Ej. Presupuesto, acceso a servidor..." />
                 </div>
+                {error && (
+                    <div className="text-red-500 text-sm font-semibold mt-2">
+                        {error}
+                    </div>
+                )}
             </div>
         </GestionModalShell>
     );
