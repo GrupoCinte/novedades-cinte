@@ -15,14 +15,32 @@ function limiter(_req, _res, next) {
     next();
 }
 
-function buildPoolListNoSearch() {
+function buildPoolListNoSearch(options = {}) {
+    const { tipoFichaMatch, tipoFichaOptions } = options;
     return {
-        query: async (sql) => {
+        query: async (sql, params = []) => {
             const s = String(sql).replace(/\s+/g, ' ');
-            if (/SELECT COUNT\(\*\)::int AS total/i.test(sql) && /FROM reubicaciones_pipeline rp/i.test(sql) && !/LIMIT/i.test(sql)) {
+            if (/SELECT COUNT\(\*\)::int AS total/i.test(sql) && /FROM reubicaciones_pipeline rp/i.test(sql)) {
+                if (tipoFichaMatch != null) {
+                    const matchParam = params.some((p) => String(p || '').trim().toLowerCase() === String(tipoFichaMatch).trim().toLowerCase());
+                    return { rows: [{ total: matchParam ? 1 : 0 }] };
+                }
                 return { rows: [{ total: 1 }] };
             }
+
+            if (/SELECT DISTINCT tipo_ficha/i.test(sql)) {
+                return {
+                    rows: (Array.isArray(tipoFichaOptions) ? tipoFichaOptions : []).map((tipo_ficha) => ({ tipo_ficha }))
+                };
+            }
+
             if (/FROM reubicaciones_pipeline rp INNER JOIN colaboradores c/i.test(s) && /LIMIT/i.test(s)) {
+                if (tipoFichaMatch != null) {
+                    const matchParam = params.some((p) => String(p || '').trim().toLowerCase() === String(tipoFichaMatch).trim().toLowerCase());
+                    if (!matchParam) {
+                        return { rows: [] };
+                    }
+                }
                 return {
                     rows: [
                         {
@@ -152,6 +170,36 @@ test('GET /api/directorio/reubicaciones-pipeline 200 super_admin con contrato', 
     assert.equal(it.consultor, 'Ana López');
     assert.equal(it.semaforo, 'Amarillo');
     assert.equal(it.dias_restantes, 20);
+});
+
+test('GET /api/directorio/reubicaciones-pipeline/tipo-ficha-opciones solo deja SALIDA y EXTENSIÓN', async () => {
+    const app = buildApp('super_admin', buildPoolListNoSearch({ tipoFichaOptions: ['id_modificacion', 'salida', 'extension', 'otra'] }));
+    const res = await request(app).get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones');
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.deepEqual(res.body.items, ['SALIDA', 'EXTENSIÓN']);
+});
+
+test('GET /api/directorio/reubicaciones-pipeline 200 filtra por tipo_ficha', async () => {
+    const app = buildApp('super_admin', buildPoolListNoSearch({ tipoFichaMatch: 'Alta' }));
+    const res = await request(app)
+        .get('/api/directorio/reubicaciones-pipeline')
+        .query({ tipo_ficha: 'Alta' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.total, 1);
+    assert.equal(res.body.items.length, 1);
+});
+
+test('GET /api/directorio/reubicaciones-pipeline 200 devuelve vacio para tipo_ficha no coincidente', async () => {
+    const app = buildApp('super_admin', buildPoolListNoSearch({ tipoFichaMatch: 'Alta' }));
+    const res = await request(app)
+        .get('/api/directorio/reubicaciones-pipeline')
+        .query({ tipo_ficha: 'Baja' });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.total, 0);
+    assert.equal(res.body.items.length, 0);
 });
 
 test('POST /api/directorio/reubicaciones-pipeline 201 super_admin', async () => {
