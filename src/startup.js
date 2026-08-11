@@ -127,6 +127,50 @@ async function startServer(deps) {
         logger.error({ error: e && e.message ? e.message : e }, 'Onboarding schema: error de DDL (continúa arranque)');
     }
 
+    // ============================================
+    // NUEVO: Worker de correos de reubicación (HU-03)
+    // ============================================
+    try {
+        const { procesarCorreosReubicacion } = require('./reubicaciones/reubicacionesCorreosService');
+        
+        // Ejecutar inmediatamente al inicio
+        await procesarCorreosReubicacion({ 
+            pool, 
+            emailPublisher: deps.emailNotificationsPublisher 
+        });
+
+        // Ejecutar cada 15 minutos
+        const intervalo = setInterval(async () => {
+            try {
+                await procesarCorreosReubicacion({ 
+                    pool, 
+                    emailPublisher: deps.emailNotificationsPublisher 
+                });
+            } catch (error) {
+                logger.error({ 
+                    error: error.message,
+                    stack: error.stack 
+                }, '[Worker] Error procesando correos de reubicación');
+            }
+        }, 10 * 60 * 1000); // 15 minutos
+
+        // Guardar el intervalo para limpiarlo al apagar
+        if (!global.__reubicacionCorreosInterval) {
+            global.__reubicacionCorreosInterval = intervalo;
+        }
+
+        logger.info('[Worker] Worker de correos de reubicación iniciado (cada 15 min)');
+    } catch (error) {
+        logger.warn({ 
+            error: error.message 
+        }, '[Worker] No se pudo iniciar worker de correos de reubicación');
+    }
+
+
+    // ============================================
+    // NUEVO: Worker de correos de reubicación (HU-03)
+    // ============================================
+
     try {
         await ensureSourcingSchema({ pool, logger });
     } catch (e) {
@@ -192,6 +236,16 @@ async function startServer(deps) {
         } catch {
             // ignore
         }
+
+        // Limpiar intervalo de correos de reubicación (HU-03)
+        if (global.__reubicacionCorreosInterval) {
+            clearInterval(global.__reubicacionCorreosInterval);
+            global.__reubicacionCorreosInterval = null;
+            logger.info('[Worker] Intervalo de correos de reubicación limpiado');
+        }
+        // Limpiar intervalo de correos de reubicación (HU-03)
+
+
         shutdownContratacionRealtime();
         await new Promise((resolve) => {
             server.close(() => resolve());

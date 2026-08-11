@@ -13,6 +13,7 @@ const { insertTarifaHistorial } = require('../conciliaciones/conciliacionTarifaH
 const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAsignaciones');
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
+const { sincronizarConPipeline } = require('../reubicaciones/reubicacionesSyncService');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
@@ -703,12 +704,13 @@ function getLastZohoDynamoSyncSummary() {
     return lastZohoDynamoSyncSummary;
 }
 
-function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula } = {}) {
+function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula, emailNotificationsPublisher } = {}) { //nuevo email
     if (!pool || typeof pool.query !== 'function') {
         throw new Error('createFichaNovedadesService requiere pool válido.');
     }
 
     const log = logger && typeof logger.error === 'function' ? logger : console;
+    const publisher = emailNotificationsPublisher;//nuevo
 
     /**
      * Núcleo compartido HTTP + Dynamo stream.
@@ -734,10 +736,20 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             };
         }
 
+        const eventType = String(meta.eventType || 'INSERT').trim();
+        const sequenceNumber = meta.sequenceNumber != null ? String(meta.sequenceNumber).trim() : null;
+        const shardId = meta.shardId != null ? String(meta.shardId).trim() : null;
+
         const existing = await pool.query(
             `SELECT id, status, match_strategy, colaborador_cedula_match
-             FROM ficha_novedades_staging WHERE external_id = $1 LIMIT 1`,
-            [mapped.external_id]
+             FROM ficha_novedades_staging
+             WHERE source = $1
+               AND external_id = $2
+               AND event_type = $3
+               AND COALESCE(sequence_number, '') = COALESCE($4::text, '')
+               AND COALESCE(shard_id, '') = COALESCE($5::text, '')
+             LIMIT 1`,
+            [source, mapped.external_id, eventType, sequenceNumber, shardId]
         );
         if (existing.rows[0]) {
             return {
@@ -1148,6 +1160,60 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         if (Object.keys(patch).length > 0) {
             await applyPatchToColaborador(cedula, patch);
         }
+
+        // Si es extension o salida, sincronizar con pipeline
+        if (tipo === 'extension' || tipo === 'salida') {
+            try {
+                //nuevo
+                // 🔥 CREAR PUBLISHER CON MOCK
+                let publisher;
+                const { createEmailNotificationsPublisher } = require('../notifications/emailNotificationsPublisher');
+                    
+                // Si no hay Lambda configurada, usar mock
+                if (!process.env.EMAIL_LAMBDA_FUNCTION_NAME || process.env.EMAIL_LAMBDA_FUNCTION_NAME === 'mock') {
+                    publisher = {
+                        publishReubicacionAlerta: async (payload) => {
+                            console.log('📧 [MOCK] Correo simulado:', {
+                                para: payload.destinatarios,
+                                asunto: `Alerta - ${payload.consultor.nombre}`,
+                                hito: payload.hito,
+                                fechaFin: payload.fechaFin,
+                                estado: payload.estado
+                            });
+                            return { accepted: true };
+                        }
+                    };
+                } else {
+                    publisher = createEmailNotificationsPublisher({
+                        lambdaClient: new (require('@aws-sdk/client-lambda').LambdaClient)({ 
+                            region: process.env.AWS_REGION || 'us-east-1' 
+                        }),
+                        functionName: process.env.EMAIL_LAMBDA_FUNCTION_NAME || '',
+                        enabled: String(process.env.EMAIL_NOTIFICATIONS_ENABLED || 'false').toLowerCase() === 'true'
+                    });
+                }//nuevo
+
+                await sincronizarConPipeline({
+                    cedula: cedula,
+                    tipo_novedad: tipo,
+                    normalized: row.payload_normalizado || {},
+                    patch: patch,
+                    staging_id: id,
+                    external_id: row.external_id,
+                    source: row.source,
+                    event_type: row.event_type,
+                    sequence_number: row.sequence_number,
+                    shard_id: row.shard_id,
+                    reviewer: { sub: reviewer.sub || reviewer.email || reviewer.displayName },
+                    pool: pool,
+                    notifyService: publisher //nuevo
+                });
+            } catch (error) {
+                log.error({ error: error.message, id, cedula }, 'Error al sincronizar con pipeline');
+                // No fallar la aprobación, el recovery lo procesará después
+            }
+        }
+        
 
         const reviewedBy = trimOrNull(reviewer.sub || reviewer.email || reviewer.displayName, 320);
         await pool.query(

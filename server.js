@@ -529,6 +529,11 @@ const pool = new Pool({
     options: '-c client_encoding=UTF8'
 });
 
+global.__pool = pool;
+
+// Exponer pool en app.locals para que los handlers puedan recuperarlo como fallback
+app.locals.pool = pool;
+
 /**
  * `pg` documenta explícitamente que sin este listener, cualquier error en un
  * cliente *idle* del pool (desconexión de red, kill de PG, etc.) se convierte
@@ -585,6 +590,7 @@ const cognitoIdpClient = new CognitoIdentityProviderClient({
         }
     } : {})
 });
+
 const emailNotificationsPublisher = createEmailNotificationsPublisher({
     lambdaClient,
     functionName: EMAIL_LAMBDA_FUNCTION_NAME,
@@ -1002,7 +1008,8 @@ registerOnboardingRoutes({
     adminActionLimiter,
     catalogLimiter,
     normalizeCedula,
-    updateColaboradorByCedula
+    updateColaboradorByCedula,
+    emailNotificationsPublisher//nuevo
 });
 
 registerActividadesRoutes({
@@ -1066,8 +1073,11 @@ startServer({
     S3_ENABLED,
     S3_BUCKET_NAME,
     S3_REGION,
-    S3_AUTH_MODE
+    S3_AUTH_MODE,
+    emailNotificationsPublisher
 }).catch((error) => {
     console.error('Fallo inicializando servidor:', error);
     process.exit(1);
 });
+
+module.exports = { app, pool };

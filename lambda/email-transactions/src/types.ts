@@ -129,6 +129,35 @@ export interface TimeEntryAdminNotificationEvent {
   };
 }
 
+// nuevo
+export interface ReubicacionAlertaEvent {
+  eventType: 'reubicacion_alerta';
+  eventId: string;
+  occurredAt: string;
+  casoId: string;
+  consultor: {
+    nombre: string;
+    cedula: string;
+  };
+  hito: 'dia_0' | 'dia_3' | 'dia_5' | 'extension' | 'novedad';
+  fechaFin: string;
+  diasRestantes?: number;
+  estado?: string;
+  clienteActual?: string;
+  clienteDestino?: string;
+  gp?: {
+    nombre?: string;
+    email?: string;
+  };
+  observacion?: string;
+  destinatarios: string[];
+  meta: {
+    source: string;
+    env: string;
+  };
+}
+//nuevo
+
 export type TransactionalEmailEvent =
   | FormSubmittedNotificationEvent
   | FormStatusChangedNotificationEvent
@@ -136,7 +165,9 @@ export type TransactionalEmailEvent =
   | ConciliacionCorreoLiderEvent
   | ConciliacionStakeholdersAvisoEvent
   | TimeEntryConfirmationEvent
-  | TimeEntryAdminNotificationEvent; 
+  | TimeEntryAdminNotificationEvent
+  | ReubicacionAlertaEvent; // ← NUEVO
+ 
 
 export interface ConciliacionCorreoLiderEvent {
   eventType: 'conciliacion_correo_lider';

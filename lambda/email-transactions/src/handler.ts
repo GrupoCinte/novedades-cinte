@@ -10,7 +10,9 @@ import { ConciliacionServicioFinalizadaEmail } from './templates/ConciliacionSer
 import { ConciliacionStakeholdersAvisoEmail } from './templates/ConciliacionStakeholdersAvisoEmail.js';
 import { TimeEntryConfirmationEmail } from './templates/TimeEntryConfirmationEmail.js';
 import { AdminTimeEntryNotificationEmail } from './templates/AdminTimeEntryNotificationEmail.js';
+import { ReubicacionAlertaEmail } from './templates/ReubicacionAlertaEmail.js';// ← NUEVO
 import { sendHtmlEmailWithInlineLogo } from './sesSend.js';
+
 
 import type { 
   ConciliacionCorreoLiderEvent,
@@ -19,7 +21,8 @@ import type {
   FormSubmittedNotificationEvent,
   FormStatusChangedNotificationEvent,
   TimeEntryConfirmationEvent,
-  TransactionalEmailEvent
+  TransactionalEmailEvent,
+  ReubicacionAlertaEvent, // ← NUEVO 
 } from './types.js';
 
 const sesClient = new SESClient({ region: process.env.AWS_REGION || 'us-east-1' });
@@ -108,6 +111,38 @@ function parseTimeEntryEvent(data: Partial<TimeEntryConfirmationEvent>): TimeEnt
   return data as TimeEntryConfirmationEvent;
 }
 
+// nuevo
+function parseReubicacionAlerta(data: any): ReubicacionAlertaEvent {
+  if (data?.eventType !== 'reubicacion_alerta') {
+    throw new Error('eventType invalido');
+  }
+  if (!data?.eventId) throw new Error('eventId requerido');
+  if (!data?.casoId) throw new Error('casoId requerido');
+
+  const destinatarios: string[] = data.destinatarios;
+  if (!Array.isArray(destinatarios) || destinatarios.length === 0) {
+    throw new Error('destinatarios requerido');
+  }
+  for (const email of destinatarios) {
+    if (!String(email || '').includes('@')) {
+      throw new Error('destinatarios.email invalido');
+    }
+  }
+
+  if (!String(data?.consultor?.nombre || '').trim()) {
+    throw new Error('consultor.nombre requerido');
+  }
+  if (!String(data?.hito || '').trim()) {
+    throw new Error('hito requerido');
+  }
+  if (!String(data?.fechaFin || '').trim()) {
+    throw new Error('fechaFin requerido');
+  }
+
+  return data as ReubicacionAlertaEvent;
+}
+//nuevo
+
 function parseFormEvent(data: any): FormSubmittedNotificationEvent | FormStatusChangedNotificationEvent {
   if (!data?.eventId) throw new Error('eventId requerido');
   if (!data?.novedadId) throw new Error('novedadId requerido');
@@ -151,6 +186,10 @@ function parseEventPayload(rawEvent: unknown): TransactionalEmailEvent {
   // Eventos de novedades (formularios)
   if (data?.eventType === 'form_submitted' || data?.eventType === 'form_status_changed') {
     return parseFormEvent(data);
+  }
+
+  if (data?.eventType === 'reubicacion_alerta') {
+    return parseReubicacionAlerta(data); // ← NUEVO
   }
 
   throw new Error('eventType invalido');
@@ -363,7 +402,68 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
         messageIds: { to: result.MessageId || null }
       });
     }
+
+//nuevo
+  if (payload.eventType === 'reubicacion_alerta') {
+    const typedPayload = payload as ReubicacionAlertaEvent;
+    const html = await render(React.createElement(ReubicacionAlertaEmail, { payload: typedPayload }));
     
+    const hitoMap: Record<string, string> = {
+      dia_0: 'Dia 0 - Inicio del ciclo',
+      dia_3: 'Dia habil 3 - Recordatorio',
+      dia_5: 'Dia habil 5 - Ultimo dia',
+      extension: 'Extension de plazo',
+      novedad: 'Novedad en el caso'
+    };
+  
+    const subject = `${hitoMap[typedPayload.hito] || 'Alerta'} - ${typedPayload.consultor.nombre}`;
+  
+    const settled = await Promise.allSettled(
+      typedPayload.destinatarios.map((email: string) =>
+        sendHtmlEmailWithInlineLogo(sesClient, {
+          from: fromEmail,
+          to: email,
+          subject,
+          html
+        })
+      )
+    );
+  
+    const failures: { to: string; message: string }[] = [];
+    const messageIds: Record<string, string | null> = {};
+  
+    for (let i = 0; i < settled.length; i++) {
+      const email = typedPayload.destinatarios[i];
+      const entry = settled[i];
+      if (entry.status === 'rejected') {
+        failures.push({
+          to: email,
+          message: (entry.reason as Error).message || String(entry.reason)
+        });
+      } else {
+        messageIds[email] = (entry.value as SendRawEmailCommandOutput).MessageId || null;
+      }
+    }
+  
+    if (failures.length > 0) {
+      return json(500, {
+        ok: false,
+        eventId: payload.eventId,
+        errorType: 'PartialOrFullEmailFailure',
+        message: 'Algunos correos de alerta no se pudieron enviar.',
+        messageIds,
+        failures
+      });
+    }
+  
+    return json(200, {
+      ok: true,
+      eventId: payload.eventId,
+      messageIds
+    });
+  }
+//nuevo
+
     // ===== ADMINISTRADORES =====
     if (payload.eventType === 'time_entry_admin_notification') {
       const typedPayload = payload as unknown as TimeEntryConfirmationEvent;

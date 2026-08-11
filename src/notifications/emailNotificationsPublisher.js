@@ -1,4 +1,4 @@
-    const { InvokeCommand } = require('@aws-sdk/client-lambda');
+const { InvokeCommand } = require('@aws-sdk/client-lambda');
 
     function validateFormSubmittedPayload(payload) {
         if (!payload || typeof payload !== 'object') return false;
@@ -81,6 +81,30 @@
         return true;
     }
 
+
+    // src/notifications/emailNotificationsPublisher.js
+
+        function validateReubicacionAlertaPayload(payload) {
+        if (!payload || typeof payload !== 'object') return false;
+        if (payload.eventType !== 'reubicacion_alerta') return false;
+        if (!payload.eventId || !payload.casoId) return false;
+        
+        const destinatarios = payload.destinatarios;
+        if (!Array.isArray(destinatarios) || destinatarios.length === 0) return false;
+        for (const email of destinatarios) {
+            const e = String(email || '').trim();
+            if (!e.includes('@')) return false;
+        }
+
+        if (!String(payload?.consultor?.nombre || '').trim()) return false;
+        if (!String(payload?.hito || '').trim()) return false;
+        if (!String(payload?.fechaFin || '').trim()) return false;
+
+        return true;
+    }
+    // src/notifications/emailNotificationsPublisher.js
+
+
     function createEmailNotificationsPublisher({
         lambdaClient,
         functionName,
@@ -147,6 +171,15 @@
             return publishEvent(payload, 'time_entry_admin_notification', validateTimeEntryConfirmationPayload);
         }
 
+        // src/notifications/emailNotificationsPublisher.js
+
+        async function publishReubicacionAlerta(payload) {
+            return publishEvent(payload, null, validateReubicacionAlertaPayload);
+        }
+
+        // src/notifications/emailNotificationsPublisher.js
+
+
         return {
             publishFormSubmitted,
             publishFormStatusChanged,
@@ -154,7 +187,8 @@
             publishConciliacionCorreoLider,
             publishConciliacionStakeholdersAviso,
             publishTimeEntryConfirmation,
-            publishTimeEntryAdminNotification
+            publishTimeEntryAdminNotification,
+            publishReubicacionAlerta  // ← NUEVO
         };
     }
 
@@ -165,5 +199,6 @@
         validateConciliacionServicioFinalizadaPayload,
         validateConciliacionCorreoLiderPayload,
         validateConciliacionStakeholdersAvisoPayload,
-        validateTimeEntryConfirmationPayload
+        validateTimeEntryConfirmationPayload,
+        validateReubicacionAlertaPayload  // ← NUEVO
     };
