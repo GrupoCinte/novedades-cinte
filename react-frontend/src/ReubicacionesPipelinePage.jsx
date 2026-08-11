@@ -95,6 +95,28 @@ function EstadoBadge({ estado, isLight }) {
 }
 
 
+//COMPONENTE TIPO FICHA BADGE (igual que en Ficha Novedades)
+function TipoFichaBadge({ value, isLight }) {
+    const label = value || '—';
+    
+    // Si no hay valor, mostrar guión sin badge
+    if (!value) {
+        return <span className="text-xs text-slate-400">—</span>;
+    }
+    
+    // Mismo estilo que TipoBadge en Ficha Novedades
+    const cls = isLight
+        ? 'bg-sky-100 text-sky-800 border border-sky-200'
+        : 'bg-sky-900/40 text-sky-200 border border-sky-700/50';
+    
+    return (
+        <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cls}`}>
+            {label}
+        </span>
+    );
+}
+
+
 function emptyForm() {
     return { cedula: '', fecha_fin: '', cliente_destino: '', causal: '' };
 }
@@ -602,7 +624,8 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
                                             <td className={dash.tdCell}>{row.puesto || '—'}</td>
                                             <td className={dash.tdCell}>{formatMontoDisplay(row.salario, row.montos_divisa?.salario || 'COP')}</td>
                                             <td className={dash.tdCell}>{formatMontoDisplay(row.auxilios, row.montos_divisa?.auxilios || 'COP')}</td>
-                                            <td className={dash.tdCell}>{row.tipo_ficha || '—'}</td>
+                                            <td className={dash.tdCell}>
+                                            <TipoFichaBadge value={row.tipo_ficha} isLight={isLight} /></td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
                                                 {String(row.fecha_fin || '').slice(0, 10)}
                                             </td>

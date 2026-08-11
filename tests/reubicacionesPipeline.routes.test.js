@@ -172,12 +172,12 @@ test('GET /api/directorio/reubicaciones-pipeline 200 super_admin con contrato', 
     assert.equal(it.dias_restantes, 20);
 });
 
-test('GET /api/directorio/reubicaciones-pipeline/tipo-ficha-opciones 200 super_admin', async () => {
-    const app = buildApp('super_admin', buildPoolListNoSearch({ tipoFichaOptions: ['Alta', 'Renovación'] }));
+test('GET /api/directorio/reubicaciones-pipeline/tipo-ficha-opciones solo deja SALIDA y EXTENSIÓN', async () => {
+    const app = buildApp('super_admin', buildPoolListNoSearch({ tipoFichaOptions: ['id_modificacion', 'salida', 'extension', 'otra'] }));
     const res = await request(app).get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones');
     assert.equal(res.status, 200);
     assert.equal(res.body.ok, true);
-    assert.deepEqual(res.body.items, ['Alta', 'Renovación']);
+    assert.deepEqual(res.body.items, ['SALIDA', 'EXTENSIÓN']);
 });
 
 test('GET /api/directorio/reubicaciones-pipeline 200 filtra por tipo_ficha', async () => {
