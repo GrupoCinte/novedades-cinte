@@ -286,4 +286,8 @@ class ReubicacionesAuthService {
 }
 
 // Exportar una única instancia
+<<<<<<< HEAD
 module.exports = new ReubicacionesAuthService();
+=======
+module.exports = new ReubicacionesAuthService();
+>>>>>>> feature/HU-04-decision-aptitud-observacion-ch
