@@ -156,7 +156,6 @@ function registerSeguimientoRoutes(deps) {
                 if (acta.estado === 'FINALIZADO') {
                     return res.status(403).json({ ok: false, error: 'Los Gerentes de Proyecto no pueden editar actas finalizadas.' });
                 }
-                const scope = { gpEmail, gpUserId };
                 const currentGpId = await resolveGpInternalUserIdForScope(scope);
                 if (String(acta.gp_id) !== String(currentGpId)) {
                     return res.status(403).json({ ok: false, error: 'No tienes permisos para editar el borrador de otro Gerente de Proyecto.' });
@@ -245,7 +244,6 @@ function registerSeguimientoRoutes(deps) {
             }
 
             if (role === 'gp') {
-                const scope = { gpEmail, gpUserId };
                 const currentGpId = await resolveGpInternalUserIdForScope(scope);
                 if (String(acta.gp_id) !== String(currentGpId)) {
                     return res.status(403).json({ ok: false, error: 'No tienes permisos para reintentar el correo de esta acta.' });
