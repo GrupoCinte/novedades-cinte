@@ -513,7 +513,17 @@ function registerDirectorioRoutes(deps) {
 
 
         const fechaActual = new Date();
-        const estadoResult = calcularEstado(fechaFin, null, fechaActual);
+        const estadoResult = calcularEstado(
+            {
+                fecha_fin: fechaFin,
+                cliente_destino: row.cliente_destino,
+                causal: row.causal,
+                gp_user_id: row.gp_user_id,
+                gp_asignado_id: row.gp_asignado_id
+            },
+            null,
+            fechaActual
+        );
 
         let diasHabiles = 0;
         if (estadoResult.estado === 'En proceso') {
@@ -1108,23 +1118,21 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
+    const normalizeTipoFichaValue = (value) => {
+        const raw = String(value ?? '').trim();
+        if (!raw) return null;
+        const key = raw.toLowerCase();
+        if (key === 'salida' || key === 'salida ') return 'salida';
+        if (key === 'extension' || key === 'extensión') return 'extension';
+        return null;
+    };
+
     app.get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones', verificarToken, reubicacionesGuard(), async (_req, res) => {
         try {
-            const q = await pool.query(
-                `SELECT DISTINCT tipo_ficha
-                 FROM (
-                     SELECT DISTINCT ON (f.colaborador_cedula_match)
-                            NULLIF(TRIM(f.tipo_novedad), '') AS tipo_ficha
-                     FROM ficha_novedades_staging f
-                     WHERE f.tipo_novedad IS NOT NULL
-                       AND f.colaborador_cedula_match IN (SELECT cedula FROM reubicaciones_pipeline)
-                     ORDER BY f.colaborador_cedula_match, f.created_at DESC
-                 ) t
-                 WHERE tipo_ficha IS NOT NULL
-                 ORDER BY tipo_ficha`
-            );
-            const items = q.rows.map((row) => row.tipo_ficha).filter(Boolean);
-            return res.json({ ok: true, items });
+            return res.json({
+                ok: true,
+                items: ['SALIDA', 'EXTENSIÓN']
+            });
         } catch (e) {
             console.error('GET directorio reubicaciones-pipeline tipo-ficha-opciones:', e);
             return res.status(500).json({ ok: false, error: 'No se pudo obtener opciones de tipo ficha.' });
@@ -1140,41 +1148,11 @@ function registerDirectorioRoutes(deps) {
             const offset = d.offset ?? 0;
 
             const role = normalizeRoleOrNull(req.user?.role);
-
-            if (role === 'gp') {
-                try {
-                    const casosGP = await authService.getCasosPorAlcanceGP(req.user, pool);
-                    const accionesPermitidas = authService.getAccionesPermitidas(role);
-                    
-                    return res.json({
-                        ok: true,
-                        items: casosGP.map(normalizePipelineRow),
-                        total: casosGP.length,
-                        limit,
-                        offset,
-                        meta: {
-                            rol: role,
-                            acciones_permitidas: accionesPermitidas,
-                            alcance: 'solo sus clientes'
-                        }
-                    });
-                } catch (e) {
-                    console.error('Error obteniendo casos por alcance GP:', e);
-                    return res.status(403).json({ 
-                        ok: false, 
-                        error: 'No se pudieron obtener los casos de su alcance.' 
-                    });
-                }
-            }
+            const isGp = role === 'gp';
 
             const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
             const semaforoSql = `(CASE WHEN ${diasSql} < 0 THEN 'Vencido' WHEN ${diasSql} > 30 THEN 'Verde' WHEN ${diasSql} >= 15 THEN 'Amarillo' ELSE 'Rojo' END)`;
-            const estadoSql = `(CASE WHEN rp.fecha_fin < CURRENT_DATE THEN 'Con novedad' ELSE 'En proceso' END)`;
             const clienteActualSql = `COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), ''))`;
-            const fromJoin = `
-                FROM reubicaciones_pipeline rp
-                INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id`;
 
             const selectFields = `
                 SELECT
@@ -1193,6 +1171,7 @@ function registerDirectorioRoutes(deps) {
                     c.puesto,
                     c.lider_catalogo,
                     u_gp.full_name AS gp_nombre,
+                    c.gp_user_id,
                     c.perfil_cargo,
                     c.sueldo_nomina AS salario,
                     c.auxilio_transporte_obligatorio AS auxilios,
@@ -1201,19 +1180,16 @@ function registerDirectorioRoutes(deps) {
                      WHERE f.colaborador_cedula_match = rp.cedula
                      ORDER BY f.created_at DESC 
                      LIMIT 1) AS tipo_ficha,
-                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes,
-                    (CASE 
-                        WHEN rp.fecha_fin < CURRENT_DATE THEN 'Con novedad' 
-                        ELSE 'En proceso' 
-                    END) AS estado,
-                    (CASE 
-                        WHEN rp.fecha_fin < CURRENT_DATE THEN 'Vencido'
-                        WHEN rp.fecha_fin > (CURRENT_DATE + 30) THEN 'Verde'
-                        WHEN rp.fecha_fin >= (CURRENT_DATE + 15) THEN 'Amarillo'
-                        ELSE 'Rojo'
-                    END) AS semaforo
+                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
+            `;
+            const fromJoin = `
                 FROM reubicaciones_pipeline rp
                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id`;
+            const gpFromJoin = `
+                FROM reubicaciones_pipeline rp
+                INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                INNER JOIN clientes_lideres cl ON ${clienteActualSql} = cl.cliente
                 LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id`;
 
             const whereParts = [];
@@ -1248,10 +1224,7 @@ function registerDirectorioRoutes(deps) {
 
             // 1. Filtro por estado
             const estadoFiltro = textOrNull(d.estado);
-            if (estadoFiltro) {
-                whereParts.push(`${estadoSql} = $${whereParams.length + 1}`);
-                whereParams.push(estadoFiltro);
-            }
+            const estadoFiltroNormalizado = estadoFiltro ? String(estadoFiltro).trim() : '';
 
             // 2. Filtro por tipo de contrato
             const tipoContrato = textOrNull(d.tipo_contrato);
@@ -1262,13 +1235,35 @@ function registerDirectorioRoutes(deps) {
 
             // 3. Filtro por tipo de ficha (tipo_novedad más reciente de ficha_novedades_staging)
             const tipoFichaFiltro = textOrNull(d.tipo_ficha);
-            if (tipoFichaFiltro) {
-                whereParts.push(`LOWER((SELECT NULLIF(TRIM(f.tipo_novedad), '')
-                                       FROM ficha_novedades_staging f
-                                       WHERE f.colaborador_cedula_match = rp.cedula
-                                       ORDER BY f.created_at DESC
-                                       LIMIT 1)) = LOWER($${whereParams.length + 1})`);
-                whereParams.push(tipoFichaFiltro);
+            const tipoFichaDbValue = tipoFichaFiltro ? normalizeTipoFichaValue(tipoFichaFiltro) : null;
+            if (tipoFichaDbValue) {
+                // ✅ CORRECTO: Usa el MISMO parámetro para ambas condiciones
+                const paramIndex = whereParams.length + 1;
+                whereParts.push(`(
+                    LOWER((SELECT NULLIF(TRIM(f.tipo_novedad), '')
+                           FROM ficha_novedades_staging f
+                           WHERE f.colaborador_cedula_match = rp.cedula
+                           ORDER BY f.created_at DESC
+                           LIMIT 1)) = LOWER($${paramIndex})
+                    AND LOWER(COALESCE(rp.tipo_ficha, '')) = LOWER($${paramIndex})
+                )`);
+                whereParams.push(tipoFichaDbValue); // ✅ SOLO UNA VEZ
+            } else {
+                // ✅ SIN FILTRO: Verifica AMBOS (staging Y pipeline)
+                whereParts.push(`(
+                    LOWER((SELECT NULLIF(TRIM(f.tipo_novedad), '')
+                           FROM ficha_novedades_staging f
+                           WHERE f.colaborador_cedula_match = rp.cedula
+                           ORDER BY f.created_at DESC
+                           LIMIT 1)) IN ('salida', 'extension')
+                    AND LOWER(COALESCE(rp.tipo_ficha, '')) IN ('salida', 'extension')
+                )`);
+            }
+
+            if (isGp) {
+                whereParts.push(`cl.gp_user_id = $${whereParams.length + 1}::uuid`);
+                whereParams.push(req.user?.sub);
+                whereParts.push('c.activo = true');
             }
 
             // 4. Filtro por cliente actual (cliente o cliente_proyecto)
@@ -1327,7 +1322,6 @@ function registerDirectorioRoutes(deps) {
                 fecha_fin: `rp.fecha_fin ${dir} NULLS LAST`,
                 dias_restantes: `${diasSql} ${dir} NULLS LAST`,
                 semaforo: `${diasSql} ${dir} NULLS LAST`,
-                estado: `${estadoSql} ${dir} NULLS LAST`,
                 tarifa: `c.tarifa_cliente ${dir} NULLS LAST`
             };
             const orderSql =
@@ -1335,29 +1329,53 @@ function registerDirectorioRoutes(deps) {
                     ? `ORDER BY ${orderMap[sortKey]}`
                     : 'ORDER BY rp.fecha_fin ASC NULLS LAST, c.nombre ASC';
 
-            const countSql = `SELECT COUNT(*)::int AS total ${fromJoin} ${whereSql}`;
-            const cRes = await pool.query(countSql, whereParams);
-            const total = cRes.rows[0]?.total ?? 0;
-
-            const limIdx = whereParams.length + 1;
-            const offIdx = whereParams.length + 2;
-            const listSql = `${selectFields} ${whereSql} ${orderSql} LIMIT $${limIdx}::int OFFSET $${offIdx}::int`;
-            const listParams = [...whereParams, limit, offset];
-            const listRes = await pool.query(listSql, listParams);
-            const rows = listRes.rows;
+            let rows = [];
+            let total = 0;
 
             const accionesPermitidas = authService.getAccionesPermitidas(role);
+            const effectiveFromJoin = isGp ? gpFromJoin : fromJoin;
+
+            if (estadoFiltroNormalizado) {
+                const listSql = `${selectFields} ${effectiveFromJoin} ${whereSql} ${orderSql}`;
+                const listRes = await pool.query(listSql, whereParams);
+                rows = listRes.rows;
+                total = rows.length;
+            } else {
+                const countSql = `SELECT COUNT(*)::int AS total ${effectiveFromJoin} ${whereSql}`;
+                const cRes = await pool.query(countSql, whereParams);
+                total = cRes.rows[0]?.total ?? 0;
+
+                const limIdx = whereParams.length + 1;
+                const offIdx = whereParams.length + 2;
+                const listSql = `${selectFields} ${effectiveFromJoin} ${whereSql} ${orderSql} LIMIT $${limIdx}::int OFFSET $${offIdx}::int`;
+                const listParams = [...whereParams, limit, offset];
+                const listRes = await pool.query(listSql, listParams);
+                rows = listRes.rows;
+            }
+
+            const normalizedRows = rows.map(normalizePipelineRow);
+            const filteredRows = estadoFiltroNormalizado
+                ? normalizedRows.filter((row) => {
+                    const rowEstado = String(row.estado || '').trim();
+                    const rowEstadoNorm = rowEstado.toLowerCase();
+                    const filtroNorm = estadoFiltroNormalizado.toLowerCase();
+                    return rowEstadoNorm === filtroNorm;
+                })
+                : normalizedRows;
+
+            const pagedRows = isGp || estadoFiltroNormalizado ? filteredRows.slice(offset, offset + limit) : filteredRows;
+            const responseTotal = isGp || estadoFiltroNormalizado ? filteredRows.length : total;
 
             return res.json({
                 ok: true,
-                items: rows.map(normalizePipelineRow),
-                total,
+                items: pagedRows,
+                total: responseTotal,
                 limit,
                 offset,
                 meta: { 
                     rol: role,
                     acciones_permitidas: accionesPermitidas,
-                    alcance: role === 'super_admin' ? 'todos los casos' : 'general'
+                    alcance: isGp ? 'solo sus casos' : role === 'super_admin' ? 'todos los casos' : 'general'
                 }
             });
         } catch (e) {
@@ -1844,6 +1862,53 @@ function registerDirectorioRoutes(deps) {
             return res.status(500).json({ ok: false, error: 'Error al obtener decisión' });
         }
     });
+
+    app.post('/api/directorio/reubicaciones-sync/backfill', ...writeGuard, async (req, res) => {
+        console.log('===== BACKFILL EJECUTADO =====');
+        
+        try {
+            const { dryRun = false, limit = 100 } = req.body;
+
+            // Si pool no es válido, usar global.__pool
+            const db = pool && typeof pool.query === 'function' ? pool : global.__pool;
+
+            if (!db || typeof db.query !== 'function') {
+                console.error('No hay pool disponible');
+                return res.status(500).json({ 
+                    ok: false, 
+                    error: 'No hay conexión a la base de datos',
+                    debug: { 
+                        poolInClosure: !!pool, 
+                        globalPool: !!global.__pool 
+                    }
+                });
+            }
+
+            const result = await recoverySync({
+                pool: db,
+                notifyService: require('../notifications/emailNotificationsPublisher'),
+                dryRun: Boolean(dryRun),
+                limit: Math.min(Number(limit) || 100, 500)
+            });
+
+            return res.json({
+                ok: true,
+                ...result,
+                message: dryRun 
+                    ? `Simulación: ${result.found} fichas pendientes encontradas` 
+                    : `${result.processed} fichas procesadas, ${result.errors} errores`
+            });
+        } catch (error) {
+            console.error('[Backfill] Error completo:', error);
+            return res.status(500).json({
+                ok: false,
+                error: error.message || 'No se pudo ejecutar el backfill',
+                stack: error.stack
+            });
+        }
+    });
+
+
 }
 
 
