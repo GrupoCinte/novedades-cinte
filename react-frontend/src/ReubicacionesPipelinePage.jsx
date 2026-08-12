@@ -66,31 +66,56 @@ function formatMontoDisplay(value, currencyCode, defaultCurrency = 'COP') {
 }
 
 // ✅ NUEVO COMPONENTE
-function EstadoBadge({ estado, isLight }) {
-    const s = String(estado || '');
+function EstadoBadge({ estado, semaforo, isLight }) {
+        const s = String(estado || '').trim();
+        const sem = String(semaforo || '').trim();
 
-    // ✅ Mapear valores del semáforo a los nuevos estados
-    if (s === 'Verde' || s === 'Amarillo' || s === 'Rojo') {
-        return (
-            <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${isLight ? 'bg-emerald-100 text-emerald-900' : 'bg-emerald-900/45 text-emerald-100'
-                    }`}
-            >
-                En proceso
-            </span>
-        );
-    }
-    if (s === 'Vencido') {
-        return (
-            <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${isLight ? 'bg-red-200/95 text-red-950' : 'bg-red-950/50 text-red-100'
-                    }`}
-            >
-                Con novedad
-                <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
-            </span>
-        );
-    }
+        if (s === 'Con novedad') {
+            return (
+                <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${isLight ? 'bg-red-200/95 text-red-950' : 'bg-red-950/50 text-red-100'
+                        }`}
+                >
+                    Con novedad
+                    <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                </span>
+            );
+        }
+
+        if (s === 'En proceso') {
+            return (
+                <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${isLight ? 'bg-emerald-100 text-emerald-900' : 'bg-emerald-900/45 text-emerald-100'
+                        }`}
+                >
+                    En proceso
+                </span>
+            );
+        }
+
+        if (s === 'Pendiente') {
+            return (
+                <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${isLight ? 'bg-amber-100 text-amber-900' : 'bg-amber-900/45 text-amber-100'
+                        }`}
+                >
+                    Pendiente
+                </span>
+            );
+        }
+
+        if (sem === 'Vencido') {
+            return (
+                <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${isLight ? 'bg-red-200/95 text-red-950' : 'bg-red-950/50 text-red-100'
+                        }`}
+                >
+                    Con novedad
+                    <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
+                </span>
+            );
+        }
+
     return <span className="text-xs">—</span>;
 }
 
@@ -633,7 +658,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
                                                 {row.dias_restantes != null ? row.dias_restantes : '—'}
                                             </td>
                                             <td className="p-4 whitespace-nowrap">
-                                                <EstadoBadge estado={row.semaforo} isLight={isLight} />
+                                                <EstadoBadge estado={row.estado} semaforo={row.semaforo} isLight={isLight} />
                                             </td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
                                                 {formatTarifaDisplay(row)}
@@ -731,7 +756,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
                         onChange={(e) => setEstadoFiltro(e.target.value)}
                     >
                         <option value="">Todos</option>
-                        <option value="Activo">Activo</option>
+                        <option value="Pendiente">Pendiente</option>
                         <option value="En proceso">En proceso</option>
                         <option value="Con novedad">Con novedad</option>
                     </select>
