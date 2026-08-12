@@ -151,17 +151,7 @@ class ReubicacionesAuthService {
                WHERE f.colaborador_cedula_match = rp.cedula
                ORDER BY f.created_at DESC 
                LIMIT 1) AS tipo_ficha,
-              (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes,
-              (CASE 
-                  WHEN rp.fecha_fin < CURRENT_DATE THEN 'Con novedad' 
-                  ELSE 'En proceso' 
-              END) AS estado,
-              (CASE 
-                  WHEN rp.fecha_fin < CURRENT_DATE THEN 'Vencido'
-                  WHEN rp.fecha_fin > (CURRENT_DATE + 30) THEN 'Verde'
-                  WHEN rp.fecha_fin >= (CURRENT_DATE + 15) THEN 'Amarillo'
-                  ELSE 'Rojo'
-              END) AS semaforo
+              (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
           FROM reubicaciones_pipeline rp
           INNER JOIN colaboradores c ON c.cedula = rp.cedula
           INNER JOIN clientes_lideres cl ON (
