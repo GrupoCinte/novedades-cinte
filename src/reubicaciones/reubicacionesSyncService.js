@@ -1,59 +1,24 @@
 const { normalizeCedula } = require('../utils');
+const { calcularEstado: calcularEstadoReubicacion } = require('./reubicacionesEstados');
 
 function calcularEstado({
     fecha_fin,
     gp_user_id,
     cliente_destino,
     causal,
-    colaborador_existe
+    colaborador_existe,
+    motivo_novedad,
+    fecha_actual
 }) {
-    if (!colaborador_existe) {
-        return {
-            estado: 'Con novedad',
-            motivo: 'Colaborador no encontrado en tabla maestra'
-        };
-    }
-
-    if (!gp_user_id) {
-        return {
-            estado: 'Con novedad',
-            motivo: 'Sin GP asignado'
-        };
-    }
-
-    const faltanDatos = [];
-    if (!cliente_destino) faltanDatos.push('cliente destino');
-    if (!causal) faltanDatos.push('causal');
-
-    if (faltanDatos.length > 0) {
-        return {
-            estado: 'Con novedad',
-            motivo: `Faltan datos: ${faltanDatos.join(', ')}`
-        };
-    }
-
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-    const fecha = new Date(fecha_fin);
-    fecha.setHours(0, 0, 0, 0);
-    const diffDias = Math.ceil((fecha - hoy) / (1000 * 60 * 60 * 24));
-
-    if (diffDias < 0) {
-        return {
-            estado: 'Con novedad',
-            motivo: 'Fecha fin vencida'
-        };
-    } else if (diffDias === 0) {
-        return {
-            estado: 'En proceso',
-            motivo: null
-        };
-    } else {
-        return {
-            estado: 'Pendiente',
-            motivo: null
-        };
-    }
+    return calcularEstadoReubicacion({
+        fecha_fin,
+        gp_user_id,
+        cliente_destino,
+        causal,
+        colaborador_existe,
+        motivo_novedad,
+        fecha_actual
+    });
 }
 
 function esExtension(fechaAnterior, fechaNueva) {
