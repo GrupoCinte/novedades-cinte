@@ -1108,23 +1108,21 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
+    const normalizeTipoFichaValue = (value) => {
+        const raw = String(value ?? '').trim();
+        if (!raw) return null;
+        const key = raw.toLowerCase();
+        if (key === 'salida' || key === 'salida ') return 'salida';
+        if (key === 'extension' || key === 'extensión') return 'extension';
+        return null;
+    };
+
     app.get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones', verificarToken, reubicacionesGuard(), async (_req, res) => {
         try {
-            const q = await pool.query(
-                `SELECT DISTINCT tipo_ficha
-                 FROM (
-                     SELECT DISTINCT ON (f.colaborador_cedula_match)
-                            NULLIF(TRIM(f.tipo_novedad), '') AS tipo_ficha
-                     FROM ficha_novedades_staging f
-                     WHERE f.tipo_novedad IS NOT NULL
-                       AND f.colaborador_cedula_match IN (SELECT cedula FROM reubicaciones_pipeline)
-                     ORDER BY f.colaborador_cedula_match, f.created_at DESC
-                 ) t
-                 WHERE tipo_ficha IS NOT NULL
-                 ORDER BY tipo_ficha`
-            );
-            const items = q.rows.map((row) => row.tipo_ficha).filter(Boolean);
-            return res.json({ ok: true, items });
+            return res.json({
+                ok: true,
+                items: ['SALIDA', 'EXTENSIÓN']
+            });
         } catch (e) {
             console.error('GET directorio reubicaciones-pipeline tipo-ficha-opciones:', e);
             return res.status(500).json({ ok: false, error: 'No se pudo obtener opciones de tipo ficha.' });
@@ -1262,13 +1260,14 @@ function registerDirectorioRoutes(deps) {
 
             // 3. Filtro por tipo de ficha (tipo_novedad más reciente de ficha_novedades_staging)
             const tipoFichaFiltro = textOrNull(d.tipo_ficha);
-            if (tipoFichaFiltro) {
+            const tipoFichaDbValue = tipoFichaFiltro ? normalizeTipoFichaValue(tipoFichaFiltro) : null;
+            if (tipoFichaDbValue) {
                 whereParts.push(`LOWER((SELECT NULLIF(TRIM(f.tipo_novedad), '')
                                        FROM ficha_novedades_staging f
                                        WHERE f.colaborador_cedula_match = rp.cedula
                                        ORDER BY f.created_at DESC
                                        LIMIT 1)) = LOWER($${whereParams.length + 1})`);
-                whereParams.push(tipoFichaFiltro);
+                whereParams.push(tipoFichaDbValue);
             }
 
             // 4. Filtro por cliente actual (cliente o cliente_proyecto)
