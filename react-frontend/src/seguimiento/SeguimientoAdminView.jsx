@@ -202,6 +202,18 @@ export default function SeguimientoAdminView({ token, auth }) {
 
     // Remove columns array since we render directly inline now
 
+    // Fix SonarQube: Extract nested ternary operation into an independent statement
+    const getEstadoBadgeColor = (estado, isLight) => {
+        if (estado === 'FINALIZADO') {
+            return isLight
+                ? 'border-emerald-300 bg-emerald-100 text-emerald-900'
+                : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400';
+        }
+        return isLight
+            ? 'border-amber-300 bg-amber-100 text-amber-900'
+            : 'border-amber-500/20 bg-amber-500/10 text-amber-400';
+    };
+
     return (
         <div className={dash.moduleTabShellFull}>
             <ModuleFiltersToolbar
@@ -276,14 +288,7 @@ export default function SeguimientoAdminView({ token, auth }) {
                                                     )}
                                                 </td>
                                                 <td className="p-4">
-                                                    <span className={`inline-flex w-fit rounded-md border px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${row.estado === 'FINALIZADO'
-                                                            ? isLight
-                                                                ? 'border-emerald-300 bg-emerald-100 text-emerald-900'
-                                                                : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'
-                                                            : isLight
-                                                                ? 'border-amber-300 bg-amber-100 text-amber-900'
-                                                                : 'border-amber-500/20 bg-amber-500/10 text-amber-400'
-                                                        }`}>
+                                                    <span className={`inline-flex w-fit rounded-md border px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${getEstadoBadgeColor(row.estado, isLight)}`}>
                                                         {row.estado}
                                                     </span>
                                                 </td>

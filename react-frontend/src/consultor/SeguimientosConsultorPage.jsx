@@ -23,6 +23,56 @@ const navIconClass = (active, isLight) => {
   return isLight ? 'flex-shrink-0 text-slate-600' : 'flex-shrink-0 text-slate-500';
 };
 
+const ConsultorSidebarContent = ({ isLight, navInactive, currentEmail, currentRoleLabel, closeMobile, sidebarOpen, emailClass, borderSubtle, navigate }) => {
+    const navItemClassLocal = (active) => navItemClass(active, navInactive);
+    const navIconClassLocal = (active) => navIconClass(active, isLight);
+    
+    return (
+        <>
+            <AdminModuleSidebarUser
+                sidebarOpen={sidebarOpen}
+                currentEmail={currentEmail}
+                currentRoleLabel={currentRoleLabel}
+                emailClass={emailClass}
+                borderSubtle={borderSubtle}
+                isLight={isLight}
+            />
+            <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
+                <button
+                    type="button"
+                    onClick={() => {
+                        if(closeMobile) closeMobile();
+                        navigate('/consultor');
+                    }}
+                    className={navItemClassLocal(false)}
+                    title="Volver al portal"
+                >
+                    <Home size={18} className={navIconClassLocal(false)} />
+                    {sidebarOpen ? <span>Volver al portal</span> : null}
+                </button>
+                <button 
+                    type="button" 
+                    className={navItemClassLocal(true)} 
+                    onClick={() => {
+                        if(closeMobile) closeMobile();
+                    }}
+                    title="Actas"
+                >
+                    <ClipboardCheck size={18} className={navIconClassLocal(true)} />
+                    {sidebarOpen ? <span>Actas</span> : null}
+                </button>
+            </nav>
+            <AdminModuleSidebarFooter
+                auth={{ user: { email: currentEmail, role: 'consultor' } }}
+                onLogout={() => navigate('/consultor')}
+                sidebarOpen={sidebarOpen}
+                borderSubtle={borderSubtle}
+                isLight={isLight}
+            />
+        </>
+    );
+};
+
 export default function SeguimientosConsultorPage() {
     const navigate = useNavigate();
     const { me } = useConsultorOutlet();
@@ -109,8 +159,18 @@ export default function SeguimientosConsultorPage() {
     const cardClass = isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-[#0b2844]/50 border-[#65BCF7]/20 shadow-md';
     const headingClass = isLight ? 'text-[#004D87]' : 'text-[#65BCF7]';
 
-    const navItemClassLocal = (active) => navItemClass(active, navInactive);
-    const navIconClassLocal = (active) => navIconClass(active, isLight);
+    // Fix SonarQube: Extract nested ternary operation into an independent statement
+    const getEstadoBadgeColor = (estado, isLight) => {
+        const est = (estado || '').toUpperCase();
+        if (est === 'FINALIZADO') {
+            return isLight
+                ? 'border-emerald-300 bg-emerald-100 text-emerald-900'
+                : 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300';
+        }
+        return isLight
+            ? 'border-slate-300 bg-slate-100 text-slate-700'
+            : 'border-slate-600 bg-slate-800 text-slate-300';
+    };
 
     return (
         <div className={shell}>
@@ -164,37 +224,16 @@ export default function SeguimientosConsultorPage() {
                         </button>
                     }
                 />
-                <AdminModuleSidebarUser
-                    sidebarOpen={true}
+                <ConsultorSidebarContent 
+                    isLight={isLight} 
+                    navInactive={navInactive}
                     currentEmail={currentEmail}
                     currentRoleLabel={currentRoleLabel}
+                    closeMobile={closeMobile}
+                    sidebarOpen={true}
                     emailClass={email}
                     borderSubtle={borderSubtle}
-                    isLight={isLight}
-                />
-                <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            closeMobile();
-                            navigate('/consultor');
-                        }}
-                        className={navItemClassLocal(false)}
-                    >
-                        <Home size={18} className={navIconClassLocal(false)} />
-                        <span>Volver al portal</span>
-                    </button>
-                    <button type="button" className={navItemClassLocal(true)} onClick={closeMobile}>
-                        <ClipboardCheck size={18} className={navIconClassLocal(true)} />
-                        <span>Actas</span>
-                    </button>
-                </nav>
-                <AdminModuleSidebarFooter
-                    auth={{ user: { email: currentEmail, role: 'consultor' } }}
-                    onLogout={() => navigate('/consultor')}
-                    sidebarOpen={true}
-                    borderSubtle={borderSubtle}
-                    isLight={isLight}
+                    navigate={navigate}
                 />
             </aside>
 
@@ -232,41 +271,15 @@ export default function SeguimientosConsultorPage() {
                     }
                 />
 
-                <AdminModuleSidebarUser
-                    sidebarOpen={sidebarOpen}
+                <ConsultorSidebarContent 
+                    isLight={isLight} 
+                    navInactive={navInactive}
                     currentEmail={currentEmail}
                     currentRoleLabel={currentRoleLabel}
+                    sidebarOpen={sidebarOpen}
                     emailClass={email}
                     borderSubtle={borderSubtle}
-                    isLight={isLight}
-                />
-
-                <nav className="flex flex-1 flex-col gap-2 overflow-y-auto p-3">
-                    <button
-                        type="button"
-                        onClick={() => navigate('/consultor')}
-                        className={navItemClassLocal(false)}
-                        title="Volver al portal"
-                    >
-                        <Home size={18} className={navIconClassLocal(false)} />
-                        {sidebarOpen ? <span>Volver al portal</span> : null}
-                    </button>
-                    <button
-                        type="button"
-                        className={navItemClassLocal(true)}
-                        title="Actas"
-                    >
-                        <ClipboardCheck size={18} className={navIconClassLocal(true)} />
-                        {sidebarOpen ? <span>Actas</span> : null}
-                    </button>
-                </nav>
-
-                <AdminModuleSidebarFooter
-                    auth={{ user: { email: currentEmail, role: 'consultor' } }}
-                    onLogout={() => navigate('/consultor')}
-                    sidebarOpen={sidebarOpen}
-                    borderSubtle={borderSubtle}
-                    isLight={isLight}
+                    navigate={navigate}
                 />
             </aside>
 
@@ -313,15 +326,7 @@ export default function SeguimientosConsultorPage() {
                                                             <span className="capitalize">{row.tipo}</span>
                                                         </td>
                                                         <td className="p-4 text-center">
-                                                            <span className={`inline-flex w-fit rounded-md border px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${
-                                                                row.estado === 'FINALIZADO' || row.estado === 'finalizado'
-                                                                    ? isLight
-                                                                        ? 'border-emerald-300 bg-emerald-100 text-emerald-900'
-                                                                        : 'border-emerald-500/50 bg-emerald-500/20 text-emerald-300'
-                                                                    : isLight
-                                                                        ? 'border-slate-300 bg-slate-100 text-slate-700'
-                                                                        : 'border-slate-600 bg-slate-800 text-slate-300'
-                                                            }`}>
+                                                            <span className={`inline-flex w-fit rounded-md border px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${getEstadoBadgeColor(row.estado, isLight)}`}>
                                                                 {row.estado || 'DESCONOCIDO'}
                                                             </span>
                                                         </td>

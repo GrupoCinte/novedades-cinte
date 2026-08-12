@@ -18,16 +18,24 @@ function registerSeguimientoRoutes(deps) {
         allowRoles(['gp', 'cac', 'super_admin'])
     ];
 
+    // Helper to reduce SonarQube duplication
+    async function extractUserContext(req) {
+        const role = String(req.user?.role || '').trim().toLowerCase();
+        const gpEmail = req.user?.email || req.user?.cognito_username || null;
+        const gpUserId = req.user?.id || req.user?.sub || null;
+        const scope = { gpEmail, gpUserId };
+        const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
+        const actor = { id: internalActorId || null, email: gpEmail, role };
+        return { role, gpEmail, gpUserId, scope, actor };
+    }
+
     /**
      * GET /api/seguimiento/cartera
      * Retorna la lista de clientes (y contexto) asignados al rol del usuario.
      */
     app.get('/api/seguimiento/cartera', baseMiddleware, async (req, res) => {
         try {
-            const role = String(req.user?.role || '').trim().toLowerCase();
-            const gpEmail = req.user?.email || req.user?.cognito_username || null;
-            const gpUserId = req.user?.id || req.user?.sub || null;
-            const scope = { gpEmail, gpUserId };
+            const { role, scope } = await extractUserContext(req);
             console.log('[DEBUG /cartera] req.user:', req.user);
             console.log('[DEBUG /cartera] scope:', scope);
             
@@ -58,10 +66,7 @@ function registerSeguimientoRoutes(deps) {
      */
     app.get('/api/seguimiento/actas', baseMiddleware, async (req, res) => {
         try {
-            const role = String(req.user?.role || '').trim().toLowerCase();
-            const gpEmail = req.user?.email || req.user?.cognito_username || null;
-            const gpUserId = req.user?.id || req.user?.sub || null;
-            const scope = { gpEmail, gpUserId };
+            const { role, scope, gpUserId } = await extractUserContext(req);
             
             // Paginación por query string
             const limit = Number.parseInt(req.query.limit || '50', 10);
@@ -107,10 +112,7 @@ function registerSeguimientoRoutes(deps) {
      */
     app.post('/api/seguimiento/actas', baseMiddleware, async (req, res) => {
         try {
-            const role = String(req.user?.role || '').trim().toLowerCase();
-            const gpEmail = req.user?.email || req.user?.cognito_username || null;
-            const gpUserId = req.user?.id || req.user?.sub || null;
-            const scope = { gpEmail, gpUserId };
+            const { role, scope, actor } = await extractUserContext(req);
             
             let gpId = await resolveGpInternalUserIdForScope(scope);
             if (!gpId && role === 'gp') return res.status(403).json({ ok: false, error: 'No se pudo resolver el ID del usuario para asignar el acta' });
@@ -129,8 +131,6 @@ function registerSeguimientoRoutes(deps) {
                 estado: req.body.estado === 'FINALIZADO' ? 'FINALIZADO' : 'Borrador'
             };
 
-            const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
-            const actor = { id: internalActorId || null, email: gpEmail, role };
             const result = await seguimientoService.createActa(data, actor);
 
             res.status(201).json({ ok: true, id: result.id });
@@ -146,11 +146,7 @@ function registerSeguimientoRoutes(deps) {
      */
     app.patch('/api/seguimiento/actas/:id', baseMiddleware, async (req, res) => {
         try {
-            const role = String(req.user?.role || '').trim().toLowerCase();
-            const gpEmail = req.user?.email || req.user?.cognito_username || null;
-            const gpUserId = req.user?.id || req.user?.sub || null;
-            const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
-            const actor = { id: internalActorId || null, email: gpEmail, role };
+            const { role, scope, actor } = await extractUserContext(req);
             const { id } = req.params;
 
             const acta = await seguimientoService.getActa(id);
@@ -186,17 +182,14 @@ function registerSeguimientoRoutes(deps) {
      */
     app.delete('/api/seguimiento/actas/:id', baseMiddleware, async (req, res) => {
         try {
-            const role = String(req.user?.role || '').trim().toLowerCase();
+            const { role, scope, actor } = await extractUserContext(req);
             const { id } = req.params;
 
             const existingActa = await seguimientoService.getActa(id);
             if (!existingActa) return res.status(404).json({ ok: false, error: 'Acta no encontrada' });
 
-            const gpEmail = req.user?.email || req.user?.cognito_username || null;
-            const gpUserId = req.user?.id || req.user?.sub || null;
-            
             if (role === 'gp') {
-                const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
+                const gpId = await resolveGpInternalUserIdForScope(scope);
                 if (String(existingActa.gp_id) !== String(gpId)) {
                     return res.status(403).json({ ok: false, error: 'No tienes permisos para descartar este borrador' });
                 }
@@ -204,9 +197,6 @@ function registerSeguimientoRoutes(deps) {
                     return res.status(403).json({ ok: false, error: 'Un GP no puede eliminar actas finalizadas' });
                 }
             }
-
-            const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
-            const actor = { id: internalActorId || null, email: gpEmail, role };
 
             await seguimientoService.softDeleteActa(id, actor);
             res.json({ ok: true });
@@ -221,11 +211,7 @@ function registerSeguimientoRoutes(deps) {
      */
     app.patch('/api/seguimiento/actas/:id/observaciones-consultor', baseMiddleware, async (req, res) => {
         try {
-            const role = String(req.user?.role || '').trim().toLowerCase();
-            const gpEmail = req.user?.email || req.user?.cognito_username || null;
-            const gpUserId = req.user?.id || req.user?.sub || null;
-            const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
-            const actor = { id: internalActorId || null, email: gpEmail, role };
+            const { actor } = await extractUserContext(req);
             const { id } = req.params;
             const { observacion } = req.body;
 
@@ -249,11 +235,7 @@ function registerSeguimientoRoutes(deps) {
      */
     app.post('/api/seguimiento/actas/:id/reintentar-correo', baseMiddleware, async (req, res) => {
         try {
-            const role = String(req.user?.role || '').trim().toLowerCase();
-            const gpEmail = req.user?.email || req.user?.cognito_username || null;
-            const gpUserId = req.user?.id || req.user?.sub || null;
-            const internalActorId = await seguimientoService.getInternalUserIdByEmail(gpEmail);
-            const actor = { id: internalActorId || null, email: gpEmail, role };
+            const { role, scope, actor } = await extractUserContext(req);
             const { id } = req.params;
 
             const acta = await seguimientoService.getActa(id);
