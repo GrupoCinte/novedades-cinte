@@ -1,1896 +1,2824 @@
-const { z } = require('zod');
-const crypto = require('node:crypto');
-const { buildColaboradorExtendedZodShape } = require('../colaboradores/colaboradoresExtendedZod');
-const { normalizeCatalogValue } = require('../utils');
-const { foldForMatch } = require('../cotizador/clienteNombreMatch');
-const { normalizeRoleOrNull } = require('../rbac');
-const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSemaforo');
-const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
-const { resolveActorUserIdForSession } = require('../resolveActorUserId');
-const { recoverySync } = require('../reubicaciones/reubicacionesSyncService');
-const authService = require('../reubicaciones/reubicacionesAuthService');
-const { calcularEstado } = require('../reubicaciones/reubicacionesEstados');
-const { diasHabilesTranscurridos } = require('../reubicaciones/reubicacionesCalendario');
+const {
+    normalizeNovedadTypeKey,
+    isNovedadTipoRetiradoDelFormulario,
+    normalizeRoleOrNull
+} = require('./rbac');
+const { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow } = require('./novedadHeTime');
+const { buildSundayReportedSetsFromHeRows, computeHeDomingoObservacionForRow } = require('./heDomingoBogota');
+const { computeHoraExtraSplitBogota, resolveHoraExtraLabel, collectRecargoDayKeysInInterval } = require('./heBogotaSplit');
+const { triggerDomingoRecargoRecomputeForInterval, recomputeAndPersistDomingoRecargoGroup } = require('./heDomingoRecargoGroup');
+const {
+    formatCantidadNovedad,
+    formatCantidadNovedadExcelPlain,
+    medidaExcelLabel,
+    getCantidadMedidaKind,
+    getDiasEfectivosNovedad,
+    countCalendarDaysInclusive,
+    countBusinessDaysInclusive: countBusinessDaysInclusiveCantidad
+} = require('./novedadCantidadFormat');
+const {
+    shouldSplitNovedadByCalendarMonth,
+    splitDateRangeByCalendarMonth,
+    computeSegmentCantidadHoras,
+    buildSegmentObservacion
+} = require('./novedadMonthlySplit');
+const {
+    buildHoraExtraExportSlices,
+    compensacionDominicalExcelEtiqueta,
+    formatTipoNovedadHeSlice,
+    formatTipoNovedadHeLegacy,
+    msRangeToExcelHoraFields
+} = require('./novedadHeExcelExport');
+const { parseTimeOrNull: parseTimeOrNullForExport } = require('./utils');
+const {
+    computeHeDomingoCompensacionPreview,
+    buildHeDomingoCompObservacionLine,
+    buildSyntheticHoraExtraRow,
+    isYmdEnVentanaCompensatorio
+} = require('./heDomingoCompensacion');
+const { adminDeleteNovedad, adminPatchNovedad } = require('./novedadAdminService');
+const { markNominaProcesado } = require('./nominaProcesadoService');
+const festivosService = require('./festivosService');
+const { decodePossiblyMisencodedText } = require('./novedadesMapper');
+const { validateObservacionesRechazo } = require('./novedadPersistValidation');
+const { parseActividadesConsultorQuery, listActividadesConsultor, updateActividadEstado } = require('./monitoreo/actividadesConsultorService');
 
-function directorioGuard() {
-    return (req, res, next) => {
-        const role = normalizeRoleOrNull(req.user?.role);
-        if (role !== 'super_admin' && role !== 'cac') {
-            return res.status(403).json({ ok: false, error: 'Sin permiso para el directorio maestro.' });
-        }
-        return next();
+// Inicializar festivos en background al arrancar el servidor
+festivosService.initFestivosCache();
+
+/**
+ * Compensatorio por votación/jurado: jornadas electorales habilitadas (2026).
+ * Solo se permite radicar contra una de estas fechas de votación.
+ * Ventana de disfrute por modalidad: 45 días calendario para jurado, 30 para votación (medio día).
+ */
+const FECHAS_VOTACION_HABILITADAS = new Set(['2026-05-31', '2026-06-21']);
+const DIAS_DISFRUTE_JURADO = 45;
+const DIAS_DISFRUTE_VOTO = 30;
+
+/** Normaliza un valor de hora a HH:MM:SS para comparación lexicográfica del mismo día. */
+function toHmsForCompare(value) {
+    return String(value || '').trim().slice(0, 8);
+}
+
+/**
+ * Detecta si una nueva franja [nuevoIni, nuevoFin) se solapa con alguna de las franjas
+ * existentes (cada una con { hora_inicio, hora_fin }). Los bordes que se tocan
+ * (fin == inicio) NO cuentan como solape. Devuelve la franja existente que choca o null.
+ */
+function findVotacionFranjaSolapada(nuevoIniRaw, nuevoFinRaw, existentes = []) {
+    const nuevoIni = toHmsForCompare(nuevoIniRaw);
+    const nuevoFin = toHmsForCompare(nuevoFinRaw);
+    if (!nuevoIni || !nuevoFin) return null;
+    return (
+        (existentes || []).find((r) => {
+            const exIni = toHmsForCompare(r && r.hora_inicio);
+            const exFin = toHmsForCompare(r && r.hora_fin);
+            if (!exIni || !exFin) return false;
+            return nuevoIni < exFin && exIni < nuevoFin;
+        }) || null
+    );
+}
+
+/** HH:MM para Excel; tolera hora de un dígito desde BD. */
+function formatHoraMinutaParaExcel(value) {
+    const t = parseTimeOrNullForExport(value);
+    if (t) return t.slice(0, 5);
+    const raw = String(value || '').trim();
+    const m = raw.match(/^(\d{1,2}):(\d{2})(?::\d{2})?/);
+    if (!m) return '';
+    const h = Math.min(23, Math.max(0, Number(m[1])));
+    const min = Math.min(59, Math.max(0, Number(m[2])));
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function buildConsultantKeyHeDomingo(row) {
+    const cedula = String(row?.cedula || '').trim() || 'sin-cedula';
+    const nombre = String(row?.nombre || '').trim() || 'Sin nombre';
+    return `${cedula}|||${nombre}`;
+}
+
+function rowIsHoraExtraTipo(row) {
+    return String(row?.tipo_novedad || '').trim().toLowerCase().replace(/\s+/g, ' ') === 'hora extra';
+}
+
+/** Misma clave canónica que `rowIsHoraExtraTipo` pero sobre objeto cliente (`toClientNovedad`). */
+function itemIsHoraExtraTipo(it) {
+    return String(it?.tipoNovedad || '').trim().toLowerCase().replace(/\s+/g, ' ') === 'hora extra';
+}
+
+/**
+ * Solo export Excel: etiquetas canónicas HE para fila legacy (sin desglose por componentes).
+ */
+function formatTipoNovedadParaExportExcel(it) {
+    const tipo = String(it?.tipoNovedad || '').trim();
+    if (!itemIsHoraExtraTipo(it)) return tipo;
+    return formatTipoNovedadHeLegacy(it);
+}
+
+/** Columnas Excel de procesado nómina (post-aprobación). */
+/** Fecha de la decisión para el Excel: aprobación (o rechazo) formateada, '' si sigue pendiente. */
+function resolveFechaAprobacionExcel(it) {
+    const iso = it?.estado === 'Rechazado' ? it?.rechazadoEn : it?.aprobadoEn;
+    return iso ? new Date(iso).toLocaleString('es-ES') : '';
+}
+
+function appendNominaProcesadoExcelFields(baseRow, it) {
+    return {
+        ...baseRow,
+        nominaProcesado: it.nominaProcesado ? 'Sí' : 'No',
+        nominaProcesadoEn: it.nominaProcesadoEn
+            ? new Date(it.nominaProcesadoEn).toLocaleString('es-ES')
+            : '',
+        nominaProcesadoPorCorreo: it.nominaProcesadoPorCorreo || '',
+        nominaProcesadoLote: it.nominaProcesadoLote || ''
     };
 }
 
-/** AUT-576: mallas-turnos sin panel directorio (GP + super_admin/cac). */
-function mallasRoleGuard() {
-    return (req, res, next) => {
-        const role = normalizeRoleOrNull(req.user?.role);
-        if (role === 'super_admin' || role === 'cac' || role === 'gp') {
-            return next();
-        }
-        return res.status(403).json({ ok: false, error: 'Sin permiso para mallas de turnos.' });
+/** Query params compartidos entre listado y export Excel de novedades. */
+function parseNovedadesListQuery(query) {
+    const tipo = String(query?.tipo || '').trim();
+    const estado = String(query?.estado || '').trim();
+    const nombre = String(query?.nombre || '').trim();
+    const cliente = String(query?.cliente || '').trim();
+    const createdFrom = String(query?.createdFrom || '').trim();
+    const createdTo = String(query?.createdTo || '').trim();
+    const gpUserId = String(query?.gpUserId || '').trim();
+    const leadTimeBucketRaw = String(query?.leadTimeBucket || '').trim();
+    const leadTimeBucket = /^[0-3]$/.test(leadTimeBucketRaw) ? leadTimeBucketRaw : '';
+    const nominaProcesadoRaw = String(query?.nominaProcesado || '').trim().toLowerCase();
+    const nominaProcesado = nominaProcesadoRaw === 'si' || nominaProcesadoRaw === 'no' ? nominaProcesadoRaw : '';
+    const fechaInicioDesdeRaw = String(query?.fechaInicioDesde || '').trim();
+    const fechaInicioHastaRaw = String(query?.fechaInicioHasta || '').trim();
+    const fechaInicioDesde = /^\d{4}-\d{2}-\d{2}$/.test(fechaInicioDesdeRaw) ? fechaInicioDesdeRaw : '';
+    const fechaInicioHasta = /^\d{4}-\d{2}-\d{2}$/.test(fechaInicioHastaRaw) ? fechaInicioHastaRaw : '';
+    return {
+        tipo,
+        estado,
+        nombre,
+        cliente,
+        createdFrom,
+        createdTo,
+        ...(gpUserId ? { gpUserId } : {}),
+        ...(leadTimeBucket ? { leadTimeBucket } : {}),
+        ...(nominaProcesado ? { nominaProcesado } : {}),
+        ...(fechaInicioDesde ? { fechaInicioDesde } : {}),
+        ...(fechaInicioHasta ? { fechaInicioHasta } : {})
+    };
+}
+
+/** Cantidad y unidad para export Excel (numérico plano + columna Unidad). */
+function buildExcelCantidadUnidadFields(tipoNovedad, cantidadRaw, it) {
+    const kind = getCantidadMedidaKind(tipoNovedad, it);
+    let value = cantidadRaw;
+    if (kind === 'days') {
+        value = getDiasEfectivosNovedad(tipoNovedad, cantidadRaw, it.fechaInicio, it.fechaFin, it);
+    } else if (kind === 'money') {
+        const m = it.montoCop != null && it.montoCop !== '' ? Number(it.montoCop) : NaN;
+        value = Number.isFinite(m) && m > 0 ? m : Number(cantidadRaw || 0);
+    }
+    return {
+        cantidad: formatCantidadNovedadExcelPlain(value, kind),
+        unidad: medidaExcelLabel(kind)
     };
 }
 
 /**
- * Middleware para verificar acceso al módulo de Reubicaciones
- * HU-01: Acceso colaborativo y permisos de Reubicaciones
+ * Fila Excel HE desagregada (una tipología) o fila legacy sin breakdown.
+ * @param {object} opts
+ * @returns {object} payload para ws.addRow
  */
-function reubicacionesAccessGuard() {
-    return (req, res, next) => {
-        const role = normalizeRoleOrNull(req.user?.role);
-        
-        // Roles que pueden acceder
-        const rolesPermitidos = [
-            'super_admin',
-            'gp',
-            'admin_ch',
-            'team_ch',
-            'atraccion_talento',
-            'cac'
-        ];
-        
-        if (!rolesPermitidos.includes(role)) {
-            return res.status(403).json({ 
-                ok: false, 
-                error: 'Sin permiso para acceder al módulo de Reubicaciones.' 
-            });
-        }
-        return next();
+function buildExcelRowHoraExtraSlice(opts) {
+    const {
+        it,
+        slice,
+        correoActor,
+        esPorHoras
+    } = opts;
+    const obs = String(it.heDomingoObservacion || '').trim();
+    const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, slice.sliceKey);
+    const tipoNovedad = formatTipoNovedadHeSlice(it, slice);
+    const h = Number(slice.hours || 0);
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, h, it);
+    const timeExcel =
+        slice.startMs != null && slice.endMs != null
+            ? msRangeToExcelHoraFields(slice.startMs, slice.endMs)
+            : null;
+    return appendNominaProcesadoExcelFields({
+        fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        fechaAprobacion: resolveFechaAprobacionExcel(it),
+        aprobadoPor: it.estado === 'Pendiente' ? '' : correoActor,
+        nombre: it.nombre || '',
+        cedula: it.cedula || '',
+        correo: it.correoSolicitante || '',
+        cliente: it.cliente || '',
+        tipoNovedad,
+        fechaInicio: timeExcel?.fechaInicio || it.fechaInicio || '',
+        fechaFin: timeExcel?.fechaFin || it.fechaFin || '',
+        cantidad,
+        unidad,
+        horaInicial: esPorHoras ? (timeExcel?.horaInicial || formatHoraMinutaParaExcel(it.horaInicio)) : '',
+        horaFinal: esPorHoras ? (timeExcel?.horaFinal || formatHoraMinutaParaExcel(it.horaFin)) : '',
+        compensacionDominical,
+        observaciones: String(it.observaciones || '').trim(),
+        valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
+        estado: it.estado || '',
+        asignadoRoles: it.asignacionRolesEtiqueta || '—'
+    }, it);
+}
+
+/** HE sin componentes >0: una fila como antes + columnas compensación / id. */
+function buildExcelRowHoraExtraLegacy(opts) {
+    const { it, correoActor, esPorHoras } = opts;
+    const obs = String(it.heDomingoObservacion || '').trim();
+    const rdd = Number(it.horasRecargoDomingoDiurnas || 0);
+    const rdn = Number(it.horasRecargoDomingoNocturnas || 0);
+    const rTot = Number(it.horasRecargoDomingo || 0);
+    const recargoAny = rdd > 0 || rdn > 0 || rTot > 0 || Number(it.horasRecargoNocturno || 0) > 0;
+    const sliceKeyForComp = recargoAny ? 'recargo_diurno' : 'diurna';
+    const compensacionDominical = compensacionDominicalExcelEtiqueta(obs, sliceKeyForComp);
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, it.cantidadHoras, it);
+    return appendNominaProcesadoExcelFields({
+        fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        fechaAprobacion: resolveFechaAprobacionExcel(it),
+        aprobadoPor: it.estado === 'Pendiente' ? '' : correoActor,
+        nombre: it.nombre || '',
+        cedula: it.cedula || '',
+        correo: it.correoSolicitante || '',
+        cliente: it.cliente || '',
+        tipoNovedad: formatTipoNovedadParaExportExcel(it),
+        fechaInicio: it.fechaInicio || '',
+        fechaFin: it.fechaFin || '',
+        cantidad,
+        unidad,
+        horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
+        horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
+        compensacionDominical,
+        observaciones: String(it.observaciones || '').trim(),
+        valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
+        estado: it.estado || '',
+        asignadoRoles: it.asignacionRolesEtiqueta || '—'
+    }, it);
+}
+
+function buildExcelRowOtroTipo(opts) {
+    const { it, correoActor, esPorHoras } = opts;
+    const { cantidad, unidad } = buildExcelCantidadUnidadFields(it.tipoNovedad, it.cantidadHoras, it);
+    return appendNominaProcesadoExcelFields({
+        fechaCreacion: new Date(it.creadoEn).toLocaleString('es-ES'),
+        fechaAprobacion: resolveFechaAprobacionExcel(it),
+        aprobadoPor: it.estado === 'Pendiente' ? '' : correoActor,
+        nombre: it.nombre || '',
+        cedula: it.cedula || '',
+        correo: it.correoSolicitante || '',
+        cliente: it.cliente || '',
+        tipoNovedad: String(it.tipoNovedad || '').trim(),
+        fechaInicio: it.fechaInicio || '',
+        fechaFin: it.fechaFin || '',
+        cantidad,
+        unidad,
+        horaInicial: esPorHoras ? formatHoraMinutaParaExcel(it.horaInicio) : '',
+        horaFinal: esPorHoras ? formatHoraMinutaParaExcel(it.horaFin) : '',
+        compensacionDominical: '',
+        observaciones: String(it.observaciones || '').trim(),
+        valorCop: it.montoCop != null && Number(it.montoCop) > 0 ? Number(it.montoCop) : '',
+        estado: it.estado || '',
+        asignadoRoles: it.asignacionRolesEtiqueta || '—'
+    }, it);
+}
+
+const { randomUUID } = require('node:crypto');
+const { resolvePostedContactFromColaborador } = require('./colaboradorDirectory');
+const { buildFoldToCanonicoMap, matchExcelClienteABd, foldForMatch } = require('./cotizador/clienteNombreMatch');
+
+/**
+ * Solo campos serializables que el front puede guardar en localStorage; evita 500 si res.json falla
+ * al expandir claims Cognito con estructuras inesperadas.
+ */
+function buildSafeLoginClaimsForClient(claims, appRole, baseRole) {
+    const c = claims && typeof claims === 'object' && !Array.isArray(claims) ? claims : {};
+    const groups = c['cognito:groups'];
+    return {
+        sub: c.sub != null ? String(c.sub) : null,
+        email: c.email != null ? String(c.email) : null,
+        name: c.name != null ? String(c.name) : null,
+        'cognito:username': c['cognito:username'] != null ? String(c['cognito:username']) : null,
+        'cognito:groups': Array.isArray(groups) ? groups.map((g) => String(g)) : null,
+        aud: c.aud != null ? (Array.isArray(c.aud) ? c.aud.map(String) : String(c.aud)) : null,
+        iss: c.iss != null ? String(c.iss) : null,
+        token_use: c.token_use != null ? String(c.token_use) : null,
+        auth_time: typeof c.auth_time === 'number' ? c.auth_time : null,
+        iat: typeof c.iat === 'number' ? c.iat : null,
+        exp: typeof c.exp === 'number' ? c.exp : null,
+        role: appRole,
+        baseRole
     };
 }
 
-/**
- * Middleware para verificar acceso a Reubicaciones
- * Permite: super_admin, cac, gp, admin_ch, team_ch, atraccion_talento
- */
-function reubicacionesGuard() {
-    return (req, res, next) => {
-        const role = normalizeRoleOrNull(req.user?.role);
-        const rolesPermitidos = [
-            'super_admin',
-            'cac',
-            'gp',
-            'admin_ch',
-            'team_ch',
-            'atraccion_talento'
-        ];
-        if (!rolesPermitidos.includes(role)) {
-            return res.status(403).json({
-                ok: false,
-                error: 'Sin permiso para acceder a Reubicaciones.'
-            });
-        }
-        return next();
-    };
-}
-
-
-/**
- * Middleware para verificar alcance de GP
- * Solo aplica para usuarios con rol 'gp'
- */
-async function reubicacionesAlcanceGP(req, res, next) {
-    const role = normalizeRoleOrNull(req.user?.role);
-    
-    // Si no es GP, no aplica filtro
-    if (role !== 'gp') {
-        return next();
+function parseMontoCopFromBody(raw) {
+    if (raw == null) return NaN;
+    const s = String(raw)
+        .replace(/\$/g, '')
+        .replace(/\s/g, '')
+        .trim();
+    if (!s) return NaN;
+    const lastComma = s.lastIndexOf(',');
+    let normalized;
+    if (lastComma >= 0) {
+        const whole = s.slice(0, lastComma).replace(/\./g, '').replace(/[^\d]/g, '');
+        const frac = s.slice(lastComma + 1).replace(/[^\d]/g, '').slice(0, 2);
+        if (!whole && !frac) return NaN;
+        normalized = frac !== '' ? `${whole || '0'}.${frac}` : whole;
+    } else {
+        normalized = s.replace(/\./g, '').replace(/[^\d]/g, '');
     }
-    
-    // Si es GP, verificar alcance
-    const { cedula } = req.params;
-    if (cedula) {
-        // Para GET /:cedula, verificar que el GP tenga alcance
-        const tieneAlcance = await authService.gpTieneAlcance(req.user, cedula, pool);
-        if (!tieneAlcance) {
-            return res.status(403).json({ 
-                ok: false, 
-                error: 'No tiene alcance sobre este consultor.' 
-            });
-        }
-    }
-    
-    next();
+    if (normalized === '' || normalized === '.') return NaN;
+    const n = Number(normalized);
+    return Number.isFinite(n) ? n : NaN;
 }
 
-function canAprobarMallaRole(role) {
-    const r = normalizeRoleOrNull(role);
-    return r === 'super_admin' || r === 'cac' || r === 'gp';
-}
-
-async function writeAudit(pool, row) {
-    try {
-        await pool.query(
-            `INSERT INTO audit_log (actor_user_id, actor_role, action, entity_type, entity_id, metadata)
-             VALUES ($1::uuid, $2::user_role, $3, $4, $5::uuid, $6::jsonb)`,
-            [
-                row.actorUserId,
-                row.actorRole || null,
-                row.action,
-                row.entityType,
-                row.entityId || null,
-                JSON.stringify(row.metadata || {})
-            ]
-        );
-    } catch (e) {
-        console.warn('[Directorio] audit_log omitido:', e.message);
-    }
-}
-
-function parseUuidActor(sub) {
-    const s = String(sub || '').trim();
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) return s;
-    return null;
-}
-
-async function assertColaboradorCatalogPair(getLideresByCliente, cliente, lider) {
-    const c = normalizeCatalogValue(cliente);
-    const l = normalizeCatalogValue(lider);
-    if (!c || !l) return;
-    const lista = await getLideresByCliente(c);
-    const ok = lista.some((li) => foldForMatch(li) === foldForMatch(l));
-    if (!ok) {
-        throw Object.assign(new Error('Cliente y líder no forman un par válido en el catálogo activo.'), { status: 400 });
-    }
-}
-
-// Nota: la ejecución directa de `recoverySync` al importar este módulo fue removida
-// para evitar efectos secundarios en el arranque. Ejecuta el backfill vía el endpoint HTTP
-// o llama a `recoverySync` desde una tarea controlada cuando sea necesario.
-
-function registerDirectorioRoutes(deps) {
+function registerRoutes(deps) {
     const {
         app,
-        pool,
-        verificarToken,
-        allowPanel,
-        adminActionLimiter,
-        getLideresByCliente,
-        getAreaFromRole,
-        listClientesLideresPaged,
-        listClientesLideresByClienteSummaryPaged,
-        insertClienteLider,
-        updateClienteLiderById,
-        deleteClienteLiderById,
-        listColaboradoresPaged,
-        insertColaborador,
-        updateColaboradorByCedula,
-        deleteColaboradorByCedula,
-        listGpUsersForDirectorio,
-        insertGpUserPlaceholder,
-        updateGpUserById,
-        resolveOrCreateGpUserIdForColaboradorCedula,
-        clearGpUserReferences,
-        linkGpCognitoSubByEmail,
+        logger,
+        authLimiter,
+        forgotLimiter,
+        submitLimiter,
+        catalogLimiter,
         normalizeCedula,
-        listMallaTurnosCeldasRange,
-        upsertMallaTurnosCeldas,
-        getMallaTurnoAprobacionStatus,
-        getMallaNocturnoConfig,
-        upsertMallaNocturnoConfig,
         getColaboradorByCedula,
-        listAssignedClientesForGpUserId,
-        resolveGpInternalUserIdForScope
+        verificarToken,
+        isStrongPassword,
+        COGNITO_ENABLED,
+        COGNITO_APP_CLIENT_ID,
+        buildCognitoSecretHash,
+        cognitoPublicApi,
+        decodeJwtPayload,
+        buildUserFromCognitoClaims,
+        resolveEffectiveRole,
+        issueAppTokenFromCognito,
+        allowPanel,
+        applyScope,
+        getScopedNovedades,
+        buildScopedNovedadesWhere,
+        listScopedDistinctClientes,
+        getHoraExtraAlerts,
+        listHoraExtraByCedulaForDomingoPolicy,
+        toClientNovedad,
+        allowAnyPanel,
+        getClientesList,
+        normalizeCatalogValue,
+        getLideresByCliente,
+        upload,
+        getNovedadRuleByType,
+        path,
+        allowedMimes,
+        allowedExt,
+        s3Client,
+        buildS3SupportKey,
+        S3_BUCKET_NAME,
+        sanitizeFileName,
+        sanitizeSegment,
+        fs,
+        uploadDir,
+        inferAreaFromNovedad,
+        parseDateOrNull,
+        parseTimeOrNull,
+        pool,
+        S3_SIGNED_URL_TTL_SEC,
+        PutObjectCommand,
+        GetObjectCommand,
+        getSignedUrl,
+        normalizeEstado,
+        canRoleApproveType,
+        FRONTEND_URL,
+        POLICY,
+        xlsx,
+        emailNotificationsPublisher,
+        resolveApproverEmailsForNovedad,
+        revokeAppSessionToken,
+        requireEntraConsultor,
+        requireCatalogConsultorOrStaff,
+        consultorFormPostLimiter,
+        findPendingNovedadDuplicate
     } = deps;
+    const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+    const exposeInternalErrors = String(process.env.EXPOSE_INTERNAL_ERRORS || '').toLowerCase() === 'true';
+    const isDeployedEnv = isProduction || String(process.env.NODE_ENV || '').toLowerCase() === 'staging';
+    const secureCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
+    const sameSite = isProduction ? 'strict' : 'lax';
+    const exportMaxRows = Math.max(1, Number(process.env.EXPORT_MAX_ROWS || 5000));
 
-    /** Lecturas: sin adminActionLimiter (200/hora incluía cada GET y bloqueaba uso normal del directorio). */
-    const readGuard = [verificarToken, allowPanel('directorio'), directorioGuard()];
-    /** Escrituras: mismo límite que cotizador/guardar (costosas / abuso). */
-    const writeGuard = [verificarToken, allowPanel('directorio'), adminActionLimiter, directorioGuard()];
-    /** AUT-576: rutas mallas (GP sin panel directorio). */
-    const mallasReadGuard = [verificarToken, mallasRoleGuard()];
-    const mallasWriteGuard = [verificarToken, mallasRoleGuard(), adminActionLimiter];
-
-    async function assertGpClienteAsignado(req, clienteRaw) {
-        const role = normalizeRoleOrNull(req.user?.role);
-        if (role !== 'gp') return;
-        const cliente = normalizeCatalogValue(clienteRaw);
-        if (!cliente) {
-            throw Object.assign(new Error('Cliente es obligatorio.'), { status: 400 });
+    /** Solo no-producción: ayuda a diagnosticar «en prod hay datos y en local no». */
+    async function attachDevDbProbe(payload) {
+        if (isDeployedEnv || !pool || !payload || typeof payload !== 'object') return;
+        try {
+            const r = await pool.query('SELECT COUNT(*)::int AS c FROM novedades');
+            payload.devDb = {
+                novedadesTotalEnTabla: Number(r.rows[0]?.c) || 0,
+                dbName: String(process.env.DB_NAME || 'novedades_cinte'),
+                dbHost: String(process.env.DB_HOST || 'localhost')
+            };
+        } catch {
+            payload.devDb = { novedadesTotalEnTabla: null, error: 'count_failed' };
         }
-        const gpEmail = String(req.user?.email || '')
+    }
+
+    function requireColaboradorCatalogSelfOrStaff(req, res, next) {
+        const ap = String(req.user?.authProvider || '');
+        const role = normalizeRoleOrNull(req.user?.role);
+        const qCed = normalizeCedula(req.query?.cedula || '');
+        if (ap === 'entra_consultor' && role === 'consultor') {
+            const userCed = normalizeCedula(req.user.cedula || '');
+            if (qCed && userCed && qCed === userCed) return next();
+            return res.status(403).json({ ok: false, error: 'La cédula no coincide con tu sesión.' });
+        }
+        if ((ap === 'cognito_app' || ap === 'cognito') && role && POLICY[role]) return next();
+        if (!ap && role && POLICY[role]) return next();
+        return res.status(403).json({ ok: false, error: 'Sin permiso.' });
+    }
+
+    function setSessionCookie(res, token, maxAgeSec) {
+        const ms = Number(maxAgeSec || 0) > 0 ? Number(maxAgeSec) * 1000 : 8 * 60 * 60 * 1000;
+        res.cookie('cinteSession', token, {
+            httpOnly: true,
+            secure: secureCookie,
+            sameSite,
+            path: '/api',
+            maxAge: ms
+        });
+    }
+
+    function setXsrfCookie(res) {
+        const value = randomUUID();
+        res.cookie('cinteXsrf', value, {
+            httpOnly: false,
+            secure: secureCookie,
+            sameSite,
+            // Se lee desde frontend (document.cookie) para doble envío CSRF.
+            path: '/',
+            maxAge: 8 * 60 * 60 * 1000
+        });
+    }
+
+    async function validateUploadMagicBytes(file) {
+        const ext = path.extname(file?.originalname || '').toLowerCase();
+        const buf = file?.buffer || Buffer.alloc(0);
+        const startsWith = (bytes) => bytes.every((b, i) => buf[i] === b);
+
+        if (ext === '.xls') {
+            const hasOleMagic = buf.length >= 8
+                && buf[0] === 0xd0 && buf[1] === 0xcf && buf[2] === 0x11 && buf[3] === 0xe0
+                && buf[4] === 0xa1 && buf[5] === 0xb1 && buf[6] === 0x1a && buf[7] === 0xe1;
+            return hasOleMagic;
+        }
+        if (ext === '.pdf') return buf.length >= 5 && startsWith([0x25, 0x50, 0x44, 0x46, 0x2d]); // %PDF-
+        if (ext === '.jpg' || ext === '.jpeg') return buf.length >= 3 && startsWith([0xff, 0xd8, 0xff]);
+        if (ext === '.png') return buf.length >= 8 && startsWith([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+        if (ext === '.xlsx') return buf.length >= 4 && startsWith([0x50, 0x4b, 0x03, 0x04]); // zip container
+        return false;
+    }
+
+    function matchFoldToCandidate(raw, candidates) {
+        const f = foldForMatch(raw);
+        if (!f) return null;
+        for (const c of candidates) {
+            if (foldForMatch(c) === f) return c;
+        }
+        return null;
+    }
+
+    function parseDateAtUtcStart(value) {
+        if (!value) return null;
+        const dateValue = new Date(`${value}T00:00:00Z`);
+        if (Number.isNaN(dateValue.getTime())) return null;
+        return dateValue;
+    }
+
+    function ymdAddCalendarDaysUTC(ymd, deltaDays) {
+        const d = parseDateAtUtcStart(ymd);
+        if (!d || !Number.isFinite(deltaDays)) return null;
+        d.setUTCDate(d.getUTCDate() + deltaDays);
+        return d.toISOString().slice(0, 10);
+    }
+
+    /** -1 si a<b, 0 si a===b, 1 si a>b (solo YYYY-MM-DD). */
+    function ymdCompareStrings(a, b) {
+        if (!a || !b) return null;
+        if (a < b) return -1;
+        if (a > b) return 1;
+        return 0;
+    }
+
+    function diffDecimalHoursFromHhmmss(hiStr, hfStr) {
+        if (!hiStr || !hfStr) return null;
+        const parse = (s) => {
+            const m = String(s).match(/^(\d{2}):(\d{2}):(\d{2})$/);
+            if (!m) return null;
+            return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+        };
+        const a = parse(hiStr);
+        const b = parse(hfStr);
+        if (a == null || b == null || b <= a) return null;
+        return (b - a) / 3600;
+    }
+
+    function countBusinessDaysInclusive(startDateRaw, endDateRaw) {
+        const start = parseDateAtUtcStart(startDateRaw);
+        const end = parseDateAtUtcStart(endDateRaw);
+        if (!start || !end || end < start) return 0;
+        let count = 0;
+        const cursor = new Date(start);
+        while (cursor <= end) {
+            const day = cursor.getUTCDay();
+            if (day !== 0 && day !== 6) count += 1; // Sunday/Saturday excluded.
+            cursor.setUTCDate(cursor.getUTCDate() + 1);
+        }
+        return count;
+    }
+
+    function buildFormSubmittedNotificationEvent({
+        novedadId,
+        body,
+        nombreColaborador,
+        cliente,
+        lider,
+        tipoNovedad,
+        fechaInicio,
+        fechaFin,
+        cantidadHoras,
+        montoCop,
+        correoSolicitanteResolved
+    }) {
+        const userEmail = String(
+            correoSolicitanteResolved != null && correoSolicitanteResolved !== ''
+                ? correoSolicitanteResolved
+                : body?.correoSolicitante || ''
+        )
             .trim()
             .toLowerCase();
-        const gpUserId = parseUuidActor(req.user?.sub);
-        if (typeof listAssignedClientesForGpUserId !== 'function' || typeof resolveGpInternalUserIdForScope !== 'function') {
-            throw Object.assign(new Error('Alcance GP no configurado.'), { status: 500 });
-        }
-        const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
-        const assigned = await listAssignedClientesForGpUserId(gpId);
-        const fold = foldForMatch(cliente);
-        const ok = assigned.some((c) => foldForMatch(c) === fold);
-        if (!ok) {
-            throw Object.assign(new Error('Sin permiso para este cliente.'), { status: 403 });
-        }
-    }
-
-    const clienteLiderListSchema = z.object({
-        activo: z.enum(['true', 'false', 'all']).optional(),
-        q: z.string().max(200).optional(),
-        cliente: z.string().min(1).max(500).optional(),
-        limit: z.coerce.number().int().min(1).max(2000).optional(),
-        offset: z.coerce.number().int().min(0).optional()
-    });
-
-    const clienteLiderCreateSchema = z
-        .object({
-            cliente: z.string().min(1).max(500),
-            lider: z.string().min(1).max(500),
-            nit: z.string().min(1).max(40),
-            gp_user_id: z.string().uuid().optional().nullable(),
-            gp_colaborador_cedula: z.string().min(5).max(20).optional().nullable()
-        })
-        .superRefine((data, ctx) => {
-            if (data.gp_user_id && data.gp_colaborador_cedula) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: 'Usa gp_user_id o gp_colaborador_cedula, no ambos.'
-                });
-            }
-            const nd = String(data.nit || '').replace(/\D/g, '');
-            if (!nd) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: 'NIT obligatorio (al menos un dígito)',
-                    path: ['nit']
-                });
-            }
-        });
-
-    const clienteLiderPatchSchema = z
-        .object({
-            activo: z.boolean().optional(),
-            cliente: z.string().min(1).max(500).optional(),
-            lider: z.string().min(1).max(500).optional(),
-            gp_user_id: z.string().uuid().optional().nullable(),
-            gp_colaborador_cedula: z.string().min(5).max(20).optional().nullable(),
-            nit: z.string().max(40).optional()
-        })
-        .superRefine((data, ctx) => {
-            if (data.gp_user_id && data.gp_colaborador_cedula) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: 'Usa gp_user_id o gp_colaborador_cedula, no ambos.'
-                });
-            }
-            const touches =
-                data.cliente !== undefined ||
-                data.lider !== undefined ||
-                data.gp_user_id !== undefined ||
-                data.gp_colaborador_cedula !== undefined;
-            if (!touches) return;
-            const nd = data.nit !== undefined ? String(data.nit).replace(/\D/g, '') : '';
-            if (!nd) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    message: 'NIT obligatorio al actualizar cliente, líder o GP',
-                    path: ['nit']
-                });
-            }
-        });
-
-    async function resolveGpForClienteLiderPayload(parsedData) {
-        if (parsedData.gp_colaborador_cedula) {
-            const resolved = await resolveOrCreateGpUserIdForColaboradorCedula(parsedData.gp_colaborador_cedula);
-            return { gpUserId: resolved.gp_user_id, gpResolution: resolved };
-        }
-        const gpUserId = parsedData.gp_user_id ?? null;
-        return { gpUserId, gpResolution: null };
-    }
-
-    const colabListSchema = z.object({
-        activo: z.enum(['true', 'false', 'all']).optional(),
-        q: z.string().max(200).optional(),
-        /** Filtro exacto por cliente (nombre canónico en colaboradores.cliente). */
-        cliente: z.string().min(1).max(500).optional(),
-        /** Filtro exacto por tipo de contrato; «Sin clasificar» = vacío en BD. */
-        tipo_contrato: z.string().max(200).optional(),
-        limit: z.coerce.number().int().min(1).max(200).optional(),
-        offset: z.coerce.number().int().min(0).optional(),
-        sort: z.enum(['nombre', 'cedula', 'codigo', 'correo', 'cliente', 'lider', 'activo']).optional(),
-        dir: z.enum(['asc', 'desc']).optional()
-    });
-
-    const mallaTurnoFranjaEnum = z.enum(['06_14', '14_22', '22_06']);
-    const mallaIsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-    const mallasTurnosListSchema = z
-        .object({
-            cliente: z.string().min(1).max(500),
-            desde: mallaIsoDate,
-            hasta: mallaIsoDate,
-            origen: z.enum(['mallas', 'nocturnos']).optional()
-        })
-        .superRefine((data, ctx) => {
-            if (data.desde > data.hasta) {
-                ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'desde debe ser anterior o igual a hasta', path: ['hasta'] });
-            }
-            const t0 = new Date(`${data.desde}T12:00:00`);
-            const t1 = new Date(`${data.hasta}T12:00:00`);
-            const spanDays = Math.floor((t1.getTime() - t0.getTime()) / 86400000) + 1;
-            if (spanDays > 400) {
-                ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Rango máximo 400 días', path: ['hasta'] });
-            }
-        });
-    const mallaHhMm = z.string().regex(/^\d{2}:\d{2}$/);
-    const mallaPatchModeEnum = z.enum(['replace', 'merge']);
-    const mallasTurnosPutSchema = z.object({
-        cliente: z.string().min(1).max(500),
-        patches: z
-            .array(
-                z
-                    .object({
-                        fecha: mallaIsoDate,
-                        franja: mallaTurnoFranjaEnum,
-                        cedulas: z.array(z.string().min(5).max(24)).max(10),
-                        horaInicio: mallaHhMm.optional(),
-                        horaFin: mallaHhMm.optional(),
-                        mode: mallaPatchModeEnum.optional(),
-                        origen: z.enum(['mallas', 'nocturnos']).optional()
-                    })
-                    .refine(
-                        (p) =>
-                            (p.horaInicio == null && p.horaFin == null) ||
-                            (p.horaInicio != null && p.horaFin != null),
-                        { message: 'horaInicio y horaFin deben enviarse juntos' }
-                    )
-            )
-            .max(1200)
-    });
-
-    const describeMallaPutValidationError = (zodError) => {
-        const issue = zodError?.issues?.[0];
-        if (!issue) return 'Datos inválidos al guardar la malla.';
-        const path = (Array.isArray(issue.path) ? issue.path : []).map((p) => String(p));
-        const has = (key) => path.includes(key);
-        if (has('cliente')) return 'Selecciona un cliente válido.';
-        if (has('cedulas')) {
-            return 'Cédula inválida (entre 5 y 24 caracteres) o más de 10 personas por franja.';
-        }
-        if (has('fecha')) return 'Una de las fechas seleccionadas no es válida.';
-        if (has('franja')) return 'Franja horaria inválida.';
-        if (has('horaInicio') || has('horaFin')) {
-            return 'Horario nocturno inválido: usa formato HH:MM y envía inicio y fin juntos.';
-        }
-        if (has('mode')) return 'Modo de asignación inválido.';
-        if (has('patches')) return 'Demasiados cambios en una sola operación.';
-        return issue.message || 'Datos inválidos al guardar la malla.';
-    };
-
-    const mallaNocturnoConfigPutSchema = z.object({
-        horaInicio: mallaHhMm,
-        horaFin: mallaHhMm
-    });
-
-    const mallaVariantEnum = z.enum(['mallas', 'nocturnos']);
-    const mallasTurnosAprobacionQuerySchema = z.object({
-        cliente: z.string().min(1).max(500),
-        anio: z.coerce.number().int().min(2000).max(2100),
-        mes: z.coerce.number().int().min(1).max(12),
-        variant: mallaVariantEnum
-    });
-    const mallasTurnosAprobarBodySchema = z.object({
-        cliente: z.string().min(1).max(500),
-        anio: z.coerce.number().int().min(2000).max(2100),
-        mes: z.coerce.number().int().min(1).max(12),
-        variant: mallaVariantEnum
-    });
-
-    const colabExtendedShape = buildColaboradorExtendedZodShape();
-
-    const colabCreateSchema = z.object({
-        cedula: z.string().min(5).max(20),
-        nombre: z.string().min(2).max(400),
-        correo_cinte: z.string().email().max(320).optional().nullable(),
-        cliente: z.string().max(500).optional().nullable(),
-        lider_catalogo: z.string().max(500).optional().nullable(),
-        gp_user_id: z.string().uuid().optional().nullable(),
-        activo: z.boolean().optional(),
-        ...colabExtendedShape
-    });
-
-    const colabPatchSchema = z.object({
-        nombre: z.string().min(2).max(400).optional(),
-        correo_cinte: z.string().email().max(320).optional().nullable(),
-        cliente: z.string().max(500).optional().nullable(),
-        lider_catalogo: z.string().max(500).optional().nullable(),
-        gp_user_id: z.string().uuid().optional().nullable(),
-        activo: z.boolean().optional(),
-        ...colabExtendedShape
-    });
-
-    const gpCreateSchema = z.object({
-        email: z.string().email().max(320),
-        full_name: z.string().min(2).max(400)
-    });
-
-    const gpPatchSchema = z.object({
-        full_name: z.string().min(2).max(400).optional(),
-        is_active: z.boolean().optional()
-    });
-
-    const clienteResumenListSchema = z.object({
-        activo: z.enum(['true', 'false', 'all']).optional(),
-        q: z.string().max(200).optional(),
-        limit: z.coerce.number().int().min(1).max(2000).optional(),
-        offset: z.coerce.number().int().min(0).optional()
-    });
-
-    const reubicacionesPipelineListSchema = z.object({
-        q: z.string().max(200).optional(),
-        limit: z.coerce.number().int().min(1).max(200).optional(),
-        offset: z.coerce.number().int().min(0).optional(),
-        fecha_fin_desde: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
-        fecha_fin_hasta: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
-        semaforo: z.preprocess((val) => {
-            if (val == null || val === '') return undefined;
-            const arr = Array.isArray(val) ? val : String(val).split(',');
-            const cleaned = arr.map((s) => String(s).trim()).filter(Boolean);
-            return cleaned.length ? cleaned : undefined;
-        }, z.array(z.enum(['Verde', 'Amarillo', 'Rojo', 'Vencido'])).optional()),
-        estado: z.string().max(50).optional(),
-        /** @deprecated alias de tipo_contrato */
-        tipo_ficha: z.string().max(200).optional(),
-        tipo_contrato: z.string().max(200).optional(),
-        cliente: z.string().max(200).optional(),
-        gp: z.string().max(200).optional(),
-        aptitud: z.string().max(100).optional(),
-        dias_desde: z.preprocess((v) => {
-            if (v === '' || v == null) return undefined;
-            const num = Number(v);
-            return isNaN(num) ? undefined : num;
-        }, z.number().int().min(0).optional()),
-        dias_hasta: z.preprocess((v) => {
-            if (v === '' || v == null) return undefined;
-            const num = Number(v);
-            return isNaN(num) ? undefined : num;
-        }, z.number().int().min(0).optional()),
-        sort: z
-            .enum([
-                'cedula',
-                'consultor',
-                'tipo_contrato',
-                'cliente_actual',
-                'cliente_destino',
-                'causal',
-                'fecha_fin',
-                'dias_restantes',
-                'semaforo',
-                'estado',
-                'tarifa'
-            ])
-            .optional(),
-        dir: z.enum(['asc', 'desc']).optional()
-    });
-
-    const reubicacionesPipelineCreateSchema = z.object({
-        cedula: z.string().min(5).max(20),
-        fecha_fin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        cliente_destino: z.union([z.string().max(500), z.literal('')]).optional().nullable(),
-        causal: z.union([z.string().max(500), z.literal('')]).optional().nullable()
-    });
-
-    const reubicacionesPipelinePatchSchema = z.object({
-        fecha_fin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-        cliente_destino: z.union([z.string().max(500), z.literal('')]).optional().nullable(),
-        causal: z.union([z.string().max(500), z.literal('')]).optional().nullable()
-    });
-
-    function textOrNull(v) {
-        const s = String(v ?? '').trim();
-        return s ? s : null;
-    }
-
-    function normalizePipelineRow(row) {
-        const dias =
-            row.dias_restantes === null || row.dias_restantes === undefined
-                ? null
-                : Number(row.dias_restantes);
-        let fechaFin = row.fecha_fin;
-        if (fechaFin instanceof Date) fechaFin = fechaFin.toISOString().slice(0, 10);
-        else if (typeof fechaFin === 'string') fechaFin = fechaFin.slice(0, 10);
-
-
-        const fechaActual = new Date();
-        const estadoResult = calcularEstado(fechaFin, null, fechaActual);
-
-        let diasHabiles = 0;
-        if (estadoResult.estado === 'En proceso') {
-            const fechaFinDate = new Date(fechaFin);
-            diasHabiles = diasHabilesTranscurridos(fechaFinDate, fechaActual) || 0;
-        }
-
-
+        const adminBaseUrl = String(FRONTEND_URL || '').trim() || 'http://localhost:5175';
         return {
-            id: row.id,
-            cedula: row.cedula,
-            fecha_fin: fechaFin,
-            cliente_destino: row.cliente_destino,
-            causal: row.causal,
-            consultor: row.nombre || row.consultor || null,
-            tipo_contrato: row.tipo_contrato,
-            cliente_actual: row.cliente_actual,
-            tarifa_cliente: row.tarifa_cliente != null ? Number(row.tarifa_cliente) : null,
-            montos_divisa: row.montos_divisa ?? null,
-            dias_restantes: dias,
-            semaforo: semaforoFromDiasRestantes(dias),
-            estado: estadoResult.estado,
-            dias_transcurridos: estadoResult.diasTranscurridos,
-            motivo: estadoResult.motivo || null,
-            puesto: row.puesto || null,
-            lider_catalogo: row.lider_catalogo || null,
-            gp_nombre: row.gp_nombre || null,
-            perfil_cargo: row.perfil_cargo || null,
-            salario: row.salario != null ? Number(row.salario) : null,
-            auxilios: row.auxilios || null,
-            tipo_ficha: row.tipo_ficha || null,
-            created_at: row.created_at,
-            updated_at: row.updated_at
+            eventType: 'form_submitted',
+            eventId: randomUUID(),
+            occurredAt: new Date().toISOString(),
+            novedadId: String(novedadId || ''),
+            user: {
+                name: String(nombreColaborador || '').trim(),
+                email: userEmail
+            },
+            admin: {
+                actionUrl: `${adminBaseUrl}/admin`
+            },
+            formData: {
+                tipoNovedad: String(tipoNovedad || '').trim(),
+                cliente: String(cliente || '').trim(),
+                lider: String(lider || '').trim(),
+                fechaInicio: fechaInicio || null,
+                fechaFin: fechaFin || null,
+                cantidadHoras: Number(cantidadHoras || 0),
+                montoCop: montoCop == null ? null : Number(montoCop),
+                estado: 'Pendiente'
+            },
+            meta: {
+                source: 'backend-express',
+                env: process.env.NODE_ENV || 'development'
+            }
         };
     }
 
-    const MONTH_SHORT_ES_DASH = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-    function formatMonthYmDash(ym) {
-        const m = /^(\d{4})-(\d{2})$/.exec(String(ym || ''));
-        if (!m) return String(ym || '');
-        const mi = Number(m[2]) - 1;
-        if (mi < 0 || mi > 11) return String(ym || '');
-        return `${MONTH_SHORT_ES_DASH[mi]} ${m[1]}`;
+    function buildFormStatusChangedNotificationEvent({
+        novedadId,
+        nombreColaborador,
+        correoSolicitante,
+        cliente,
+        lider,
+        tipoNovedad,
+        fechaInicio,
+        fechaFin,
+        cantidadHoras,
+        montoCop,
+        previousEstado,
+        newEstado,
+        changedByEmail,
+        rejectionFeedback
+    }) {
+        const userEmail = String(correoSolicitante || '').trim().toLowerCase();
+        const adminBaseUrl = String(FRONTEND_URL || '').trim() || 'http://localhost:5175';
+        const rejectionTrim = String(rejectionFeedback || '').trim();
+        const base = {
+            eventType: 'form_status_changed',
+            eventId: randomUUID(),
+            occurredAt: new Date().toISOString(),
+            novedadId: String(novedadId || ''),
+            user: {
+                name: String(nombreColaborador || '').trim(),
+                email: userEmail
+            },
+            admin: {
+                actionUrl: `${adminBaseUrl}/admin`,
+                consultorNovedadesUrl: `${adminBaseUrl}/consultor/novedades`
+            },
+            formData: {
+                tipoNovedad: String(tipoNovedad || '').trim(),
+                cliente: String(cliente || '').trim(),
+                lider: String(lider || '').trim(),
+                fechaInicio: fechaInicio || null,
+                fechaFin: fechaFin || null,
+                cantidadHoras: Number(cantidadHoras || 0),
+                montoCop: montoCop == null ? null : Number(montoCop),
+                estado: String(newEstado || '').trim()
+            },
+            statusChange: {
+                previousEstado: String(previousEstado || '').trim() || 'Pendiente',
+                newEstado: String(newEstado || '').trim(),
+                changedByEmail: String(changedByEmail || '').trim() || null,
+                changedAt: new Date().toISOString()
+            },
+            meta: {
+                source: 'backend-express',
+                env: process.env.NODE_ENV || 'development'
+            }
+        };
+        if (String(newEstado || '').trim() === 'Rechazado' && rejectionTrim) {
+            base.rejectionFeedback = rejectionTrim;
+        }
+        return base;
     }
 
-    /**
-     * Métricas pre-agregadas para `AdministracionDashboardPage` (una ronda de SQL en paralelo).
-     * Evita decenas/centenares de GET paginados que dejaban el dashboard lento o colgando el proxy.
-     */
-    async function queryAdminDashboardMetrics() {
-        const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
-        const semaforoSql = `(CASE WHEN ${diasSql} < 0 THEN 'Vencido' WHEN ${diasSql} > 30 THEN 'Verde' WHEN ${diasSql} >= 15 THEN 'Amarillo' ELSE 'Rojo' END)`;
-        const SEMAFORO_LABEL_LOCAL = {
-            Verde: 'Proyectado',
-            Amarillo: 'En riesgo',
-            Rojo: 'Urgente',
-            Vencido: 'Vencido'
-        };
-        const [
-            clientesRes,
-            colabRes,
-            reubTotalRes,
-            semRes,
-            tipoCtRes,
-            topCliCons,
-            mesFinRes,
-            topActivosRes
-        ] = await Promise.all([
-            pool.query(
-                `SELECT COUNT(*)::int AS total FROM (
-                    SELECT cl.cliente FROM clientes_lideres cl WHERE cl.activo = true GROUP BY cl.cliente
-                ) t`
-            ),
-            pool.query(
-                `SELECT COUNT(*)::int AS total,
-                        COUNT(*) FILTER (WHERE activo)::int AS activos,
-                        COUNT(*) FILTER (WHERE NOT activo)::int AS inactivos
-                 FROM colaboradores`
-            ),
-            pool.query(
-                `SELECT COUNT(*)::int AS total
-                 FROM reubicaciones_pipeline rp
-                 INNER JOIN colaboradores c ON c.cedula = rp.cedula`
-            ),
-            pool.query(
-                `SELECT ${semaforoSql} AS semaforo, COUNT(*)::int AS n
-                 FROM reubicaciones_pipeline rp
-                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                 GROUP BY 1`
-            ),
-            pool.query(
-                `SELECT COALESCE(NULLIF(TRIM(tipo_contrato::text), ''), 'Sin clasificar') AS name, COUNT(*)::int AS value
-                 FROM colaboradores
-                 GROUP BY 1 ORDER BY value DESC`
-            ),
-            pool.query(
-                `SELECT COALESCE(NULLIF(TRIM(cliente), ''), 'Sin cliente') AS name, COUNT(*)::int AS value
-                 FROM colaboradores
-                 GROUP BY 1 ORDER BY value DESC LIMIT 12`
-            ),
-            pool.query(
-                `SELECT to_char(rp.fecha_fin, 'YYYY-MM') AS month, COUNT(*)::int AS count
-                 FROM reubicaciones_pipeline rp
-                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                 WHERE rp.fecha_fin IS NOT NULL
-                 GROUP BY 1 ORDER BY 1`
-            ),
-            pool.query(
-                `SELECT agg.cliente AS name, agg.active_count::int AS value
-                 FROM (
-                     SELECT cl.cliente, COUNT(*) FILTER (WHERE cl.activo)::int AS active_count
-                     FROM clientes_lideres cl WHERE cl.activo = true GROUP BY cl.cliente
-                 ) agg
-                 ORDER BY agg.active_count DESC, agg.cliente ASC LIMIT 12`
-            )
-        ]);
-
-        const col = colabRes.rows[0] || {};
-        const counts = { Verde: 0, Amarillo: 0, Rojo: 0, Vencido: 0 };
-        for (const row of semRes.rows || []) {
-            const k = String(row.semaforo || '');
-            if (Object.prototype.hasOwnProperty.call(counts, k)) counts[k] = Number(row.n) || 0;
+    async function streamToBuffer(stream) {
+        if (!stream) return Buffer.alloc(0);
+        if (Buffer.isBuffer(stream)) return stream;
+        const chunks = [];
+        for await (const chunk of stream) {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
         }
-        const semaforoOrder = ['Verde', 'Amarillo', 'Rojo', 'Vencido'];
-        const semaforoSeries = semaforoOrder.map((key) => ({
-            key,
-            name: SEMAFORO_LABEL_LOCAL[key],
-            value: counts[key]
-        }));
-        let riesgoCount = 0;
-        for (const key of ['Amarillo', 'Rojo', 'Vencido']) {
-            riesgoCount += counts[key] || 0;
-        }
-
-        const mesFinData = (mesFinRes.rows || []).map((r) => ({
-            month: r.month,
-            label: formatMonthYmDash(r.month),
-            count: Number(r.count) || 0
-        }));
-
-        return {
-            ok: true,
-            clientesActivosTotal: clientesRes.rows[0]?.total ?? 0,
-            colaboradoresTotal: col.total ?? 0,
-            colaboradoresActivos: col.activos ?? 0,
-            colaboradoresInactivos: col.inactivos ?? 0,
-            reubicacionesTotal: reubTotalRes.rows[0]?.total ?? 0,
-            semaforoSeries,
-            tipoContratoData: tipoCtRes.rows || [],
-            topClientesConsultores: topCliCons.rows || [],
-            mesFinData,
-            topActivosCatalogo: topActivosRes.rows || [],
-            riesgoCount
-        };
+        return Buffer.concat(chunks);
     }
 
-    app.get('/api/directorio/admin-dashboard-metrics', ...readGuard, async (_req, res) => {
+    app.post('/api/login', authLimiter, async (req, res) => {
         try {
-            const data = await queryAdminDashboardMetrics();
-            return res.json(data);
-        } catch (e) {
-            console.error('GET directorio admin-dashboard-metrics:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudieron calcular las métricas del dashboard.' });
-        }
-    });
-
-    app.get('/api/directorio/clientes-resumen', ...readGuard, async (req, res) => {
-        try {
-            const q = clienteResumenListSchema.safeParse(req.query);
-            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search } = q.data;
-            let activoBool = null;
-            if (activo === 'true') activoBool = true;
-            if (activo === 'false') activoBool = false;
-            const { rows, total } = await listClientesLideresByClienteSummaryPaged({
-                activo: activoBool,
-                q: search,
-                limit,
-                offset
-            });
-            return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
-        } catch (e) {
-            console.error('GET directorio clientes-resumen:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar el resumen de clientes.' });
-        }
-    });
-
-    app.get('/api/directorio/clientes-lideres', ...readGuard, async (req, res) => {
-        try {
-            const q = clienteLiderListSchema.safeParse(req.query);
-            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search, cliente } = q.data;
-            let activoBool = null;
-            if (activo === 'true') activoBool = true;
-            if (activo === 'false') activoBool = false;
-            const { rows, total } = await listClientesLideresPaged({
-                activo: activoBool,
-                q: search,
-                cliente: cliente || null,
-                limit,
-                offset
-            });
-            return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
-        } catch (e) {
-            console.error('GET directorio clientes-lideres:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar el catálogo.' });
-        }
-    });
-
-    app.post('/api/directorio/clientes-lideres', ...writeGuard, async (req, res) => {
-        try {
-            const parsed = clienteLiderCreateSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const { gpUserId, gpResolution } = await resolveGpForClienteLiderPayload(parsed.data);
-            const row = await insertClienteLider(parsed.data.cliente, parsed.data.lider, gpUserId, parsed.data.nit);
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'clientes_lideres.create',
-                entityType: 'clientes_lideres',
-                entityId: row.id,
-                metadata: {
-                    cliente: row.cliente,
-                    lider: row.lider,
-                    nit: row.nit,
-                    gp_user_id: row.gp_user_id,
-                    gp_colaborador_cedula: parsed.data.gp_colaborador_cedula || null,
-                    gp_created_user: Boolean(gpResolution?.created_gp_user)
+            const { username, email, password } = req.body || {};
+            const identity = email || username;
+            if (!identity || !password) {
+                return res.status(400).json({ ok: false, message: 'Credenciales incompletas' });
+            }
+            if (!COGNITO_ENABLED) {
+                if (password !== '123456') {
+                    return res.status(401).json({ ok: false, message: 'Para desarrollo local la contraseña es 123456' });
                 }
-            });
-            return res.status(201).json({ ok: true, item: row });
-        } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('POST directorio clientes-lideres:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear el par.' });
-        }
-    });
-
-    app.patch('/api/directorio/clientes-lideres/:id', ...writeGuard, async (req, res) => {
-        try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
-            const parsed = clienteLiderPatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const patch = { ...parsed.data };
-            let gpResolution = null;
-            if (patch.gp_colaborador_cedula) {
-                const resolved = await resolveOrCreateGpUserIdForColaboradorCedula(patch.gp_colaborador_cedula);
-                patch.gp_user_id = resolved.gp_user_id;
-                gpResolution = resolved;
-            }
-            delete patch.gp_colaborador_cedula;
-            const row = await updateClienteLiderById(id, patch);
-            if (!row) return res.status(404).json({ ok: false, error: 'No encontrado' });
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'clientes_lideres.patch',
-                entityType: 'clientes_lideres',
-                entityId: row.id,
-                metadata: {
-                    ...patch,
-                    gp_colaborador_cedula: parsed.data.gp_colaborador_cedula || null,
-                    gp_created_user: Boolean(gpResolution?.created_gp_user)
+                const loginIdentity = String(identity || '').trim();
+                const baseUserResult = await pool.query('SELECT * FROM users WHERE email = $1 OR username = $1', [loginIdentity]);
+                if (baseUserResult.rows.length === 0) {
+                    return res.status(404).json({ ok: false, message: 'Usuario de prueba no encontrado en la BD local' });
                 }
-            });
-            return res.json({ ok: true, item: row });
-        } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('PATCH directorio clientes-lideres:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
-        }
-    });
-
-    app.delete('/api/directorio/clientes-lideres/:id', ...writeGuard, async (req, res) => {
-        try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
-            const row = await deleteClienteLiderById(id);
-            if (!row) return res.status(404).json({ ok: false, error: 'No encontrado' });
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'clientes_lideres.delete',
-                entityType: 'clientes_lideres',
-                entityId: row.id,
-                metadata: { cliente: row.cliente, lider: row.lider, nit: row.nit }
-            });
-            return res.json({ ok: true, deleted: row });
-        } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23503' ? 409 : 500);
-            if (st >= 500) console.error('DELETE directorio clientes-lideres:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
-        }
-    });
-
-    app.get('/api/directorio/colaboradores', ...readGuard, async (req, res) => {
-        try {
-            const q = colabListSchema.safeParse(req.query);
-            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search, sort, dir, tipo_contrato: tipoContrato, cliente: clienteColab } =
-                q.data;
-            let activoBool = null;
-            if (activo === 'true') activoBool = true;
-            if (activo === 'false') activoBool = false;
-            const { rows, total } = await listColaboradoresPaged({
-                activo: activoBool,
-                q: search,
-                cliente: clienteColab ? String(clienteColab).trim() : '',
-                tipoContrato: tipoContrato ? String(tipoContrato).trim() : '',
-                limit,
-                offset,
-                sort,
-                dir
-            });
-            return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
-        } catch (e) {
-            console.error('GET directorio colaboradores:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar colaboradores.' });
-        }
-    });
-
-    app.post('/api/directorio/colaboradores', ...writeGuard, async (req, res) => {
-        try {
-            const parsed = colabCreateSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const body = parsed.data;
-            if (body.cliente && body.lider_catalogo) {
-                await assertColaboradorCatalogPair(getLideresByCliente, body.cliente, body.lider_catalogo);
-            }
-            const row = await insertColaborador(body);
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'colaboradores.create',
-                entityType: 'colaboradores',
-                entityId: null,
-                metadata: { cedula: row.cedula }
-            });
-            return res.status(201).json({ ok: true, item: row });
-        } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('POST directorio colaboradores:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear el colaborador.' });
-        }
-    });
-
-    app.patch('/api/directorio/colaboradores/:cedula', ...writeGuard, async (req, res) => {
-        try {
-            const cedula = normalizeCedula(req.params.cedula);
-            if (!cedula) return res.status(400).json({ ok: false, error: 'Cédula inválida' });
-            const parsed = colabPatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const body = parsed.data;
-            if (body.cliente && body.lider_catalogo) {
-                await assertColaboradorCatalogPair(getLideresByCliente, body.cliente, body.lider_catalogo);
-            }
-            const row = await updateColaboradorByCedula(cedula, body);
-            if (!row) return res.status(404).json({ ok: false, error: 'Colaborador no encontrado' });
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'colaboradores.patch',
-                entityType: 'colaboradores',
-                entityId: null,
-                metadata: { cedula: row.cedula, patch: body }
-            });
-            return res.json({ ok: true, item: row });
-        } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23503' ? 400 : 500);
-            if (st >= 500) console.error('PATCH directorio colaboradores:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
-        }
-    });
-
-    app.delete('/api/directorio/colaboradores/:cedula', ...writeGuard, async (req, res) => {
-        try {
-            const cedula = normalizeCedula(req.params.cedula);
-            if (!cedula) return res.status(400).json({ ok: false, error: 'Cédula inválida' });
-            const row = await deleteColaboradorByCedula(cedula);
-            if (!row) return res.status(404).json({ ok: false, error: 'Colaborador no encontrado' });
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'colaboradores.delete',
-                entityType: 'colaboradores',
-                entityId: null,
-                metadata: { cedula }
-            });
-            return res.json({ ok: true, deleted: row.cedula });
-        } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23503' ? 409 : 500);
-            if (st >= 500) console.error('DELETE directorio colaboradores:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
-        }
-    });
-
-    app.get('/api/directorio/mallas-turnos/clientes', ...mallasReadGuard, async (req, res) => {
-        try {
-            const role = normalizeRoleOrNull(req.user?.role);
-            if (role === 'gp') {
-                const gpEmail = String(req.user?.email || '')
-                    .trim()
-                    .toLowerCase();
-                const gpUserId = parseUuidActor(req.user?.sub);
-                const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
-                const assigned = await listAssignedClientesForGpUserId(gpId);
-                const items = assigned.map((cliente) => ({ cliente }));
-                return res.json({ ok: true, items, total: items.length });
-            }
-            const { rows, total } = await listClientesLideresByClienteSummaryPaged({
-                activo: true,
-                limit: 2000,
-                offset: 0
-            });
-            return res.json({ ok: true, items: rows, total: total ?? rows.length });
-        } catch (e) {
-            const st = Number(e?.status) || 500;
-            if (st >= 500) console.error('GET directorio mallas-turnos/clientes:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo listar clientes de mallas.' });
-        }
-    });
-
-    app.get('/api/directorio/mallas-turnos/colaboradores', ...mallasReadGuard, async (req, res) => {
-        try {
-            const q = colabListSchema.safeParse(req.query);
-            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search, sort, dir, tipo_contrato: tipoContrato, cliente: clienteColab } =
-                q.data;
-            const cliente = clienteColab ? String(clienteColab).trim() : '';
-            if (!cliente) {
-                return res.status(400).json({ ok: false, error: 'Cliente es obligatorio.' });
-            }
-            await assertGpClienteAsignado(req, cliente);
-            let activoBool = null;
-            if (activo === 'true') activoBool = true;
-            if (activo === 'false') activoBool = false;
-            const { rows, total } = await listColaboradoresPaged({
-                activo: activoBool,
-                q: search,
-                cliente,
-                tipoContrato: tipoContrato ? String(tipoContrato).trim() : '',
-                limit,
-                offset,
-                sort,
-                dir
-            });
-            return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
-        } catch (e) {
-            const st = Number(e?.status) || 500;
-            if (st >= 500) console.error('GET directorio mallas-turnos/colaboradores:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudieron listar colaboradores.' });
-        }
-    });
-
-    app.get('/api/directorio/mallas-turnos', ...mallasReadGuard, async (req, res) => {
-        try {
-            const parsed = mallasTurnosListSchema.safeParse(req.query);
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { desde, hasta, cliente, origen } = parsed.data;
-            await assertGpClienteAsignado(req, cliente);
-            const items = await listMallaTurnosCeldasRange({ cliente, desde, hasta, origen });
-            return res.json({ ok: true, items });
-        } catch (e) {
-            const st = Number(e?.status) || 500;
-            if (st >= 500) console.error('GET directorio mallas-turnos:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo listar la malla de turnos.' });
-        }
-    });
-
-    app.put('/api/directorio/mallas-turnos', ...mallasWriteGuard, async (req, res) => {
-        try {
-            const parsed = mallasTurnosPutSchema.safeParse(req.body || {});
-            if (!parsed.success) {
-                return res
-                    .status(400)
-                    .json({ ok: false, error: describeMallaPutValidationError(parsed.error) });
-            }
-            const { cliente, patches } = parsed.data;
-            await assertGpClienteAsignado(req, cliente);
-            await upsertMallaTurnosCeldas({ cliente, patches });
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'mallas_turnos.upsert',
-                entityType: 'malla_turno_asignacion',
-                entityId: null,
-                metadata: { cliente, patchCount: patches.length }
-            });
-            return res.json({ ok: true, applied: patches.length });
-        } catch (e) {
-            const st = Number(e?.status) || 500;
-            if (st >= 500) console.error('PUT directorio mallas-turnos:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo guardar la malla.' });
-        }
-    });
-
-    app.get('/api/directorio/mallas-turnos/nocturno-config', ...mallasReadGuard, async (_req, res) => {
-        try {
-            const config = await getMallaNocturnoConfig();
-            return res.json({ ok: true, ...config });
-        } catch (e) {
-            console.error('GET directorio mallas-turnos/nocturno-config:', e);
-            const st = Number(e?.status) || 500;
-            return res.status(st).json({
-                ok: false,
-                error: e.message || 'No se pudo leer el horario nocturno.'
-            });
-        }
-    });
-
-    app.put('/api/directorio/mallas-turnos/nocturno-config', ...writeGuard, async (req, res) => {
-        try {
-            const parsed = mallaNocturnoConfigPutSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const config = await upsertMallaNocturnoConfig(parsed.data);
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'malla_nocturno_config.upsert',
-                entityType: 'malla_nocturno_config',
-                entityId: null,
-                metadata: { horaInicio: config.horaInicio, horaFin: config.horaFin }
-            });
-            return res.json({ ok: true, ...config });
-        } catch (e) {
-            const st = Number(e?.status) || 500;
-            if (st >= 500) console.error('PUT directorio mallas-turnos/nocturno-config:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo guardar el horario nocturno.' });
-        }
-    });
-
-    app.get('/api/directorio/mallas-turnos/aprobacion', ...mallasReadGuard, async (req, res) => {
-        try {
-            const parsed = mallasTurnosAprobacionQuerySchema.safeParse(req.query);
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            await assertGpClienteAsignado(req, parsed.data.cliente);
-            const status = await getMallaTurnoAprobacionStatus(parsed.data);
-            return res.json({ ok: true, ...status });
-        } catch (e) {
-            const st = Number(e?.status) || 500;
-            if (st >= 500) console.error('GET directorio mallas-turnos/aprobacion:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo consultar la aprobación.' });
-        }
-    });
-
-    app.post('/api/directorio/mallas-turnos/aprobar', ...mallasWriteGuard, async (req, res) => {
-        try {
-            const parsed = mallasTurnosAprobarBodySchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const role = normalizeRoleOrNull(req.user?.role);
-            if (!canAprobarMallaRole(role)) {
-                return res.status(403).json({ ok: false, error: 'Sin permiso para aprobar mallas de turnos.' });
-            }
-            await assertGpClienteAsignado(req, parsed.data.cliente);
-            const actorEmail = String(req.user?.email || '').trim();
-            const actorUserId = await resolveActorUserIdForSession(pool, {
-                sub: req.user?.sub,
-                email: actorEmail
-            });
-            const result = await aprobarMallaTurnosMes({
-                pool,
-                ...parsed.data,
-                approver: {
-                    userId: actorUserId,
-                    email: actorEmail,
-                    role
-                },
-                allowReaprobacion: true,
-                getColaboradorByCedula,
-                getLideresByCliente,
-                listMallaTurnosCeldasRange,
-                getMallaNocturnoConfig
-            });
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: role,
-                action: 'mallas_turnos.aprobar',
-                entityType: 'malla_turno_aprobacion',
-                entityId: null,
-                metadata: {
-                    ...parsed.data,
-                    novedadesGeneradas: result.novedadesGeneradas,
-                    reaprobacion: Boolean(result.reaprobacion)
-                }
-            });
-            return res.json({ ok: true, ...result });
-        } catch (e) {
-            const st = Number(e?.status) || 500;
-            if (st >= 500) console.error('POST directorio mallas-turnos/aprobar:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo aprobar la malla.' });
-        }
-    });
-
-    const normalizeTipoFichaValue = (value) => {
-        const raw = String(value ?? '').trim();
-        if (!raw) return null;
-        const key = raw.toLowerCase();
-        if (key === 'salida' || key === 'salida ') return 'salida';
-        if (key === 'extension' || key === 'extensión') return 'extension';
-        return null;
-    };
-
-    app.get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones', verificarToken, reubicacionesGuard(), async (_req, res) => {
-        try {
-            return res.json({
-                ok: true,
-                items: ['SALIDA', 'EXTENSIÓN']
-            });
-        } catch (e) {
-            console.error('GET directorio reubicaciones-pipeline tipo-ficha-opciones:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo obtener opciones de tipo ficha.' });
-        }
-    });
-
-    app.get('/api/directorio/reubicaciones-pipeline', verificarToken, reubicacionesGuard(), async (req, res) => {
-        try {
-            const parsed = reubicacionesPipelineListSchema.safeParse(req.query);
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const d = parsed.data;
-            const limit = d.limit ?? 50;
-            const offset = d.offset ?? 0;
-
-            const role = normalizeRoleOrNull(req.user?.role);
-
-            if (role === 'gp') {
-                try {
-                    const casosGP = await authService.getCasosPorAlcanceGP(req.user, pool);
-                    const accionesPermitidas = authService.getAccionesPermitidas(role);
-                    
-                    return res.json({
-                        ok: true,
-                        items: casosGP.map(normalizePipelineRow),
-                        total: casosGP.length,
-                        limit,
-                        offset,
-                        meta: {
-                            rol: role,
-                            acciones_permitidas: accionesPermitidas,
-                            alcance: 'solo sus clientes'
-                        }
-                    });
-                } catch (e) {
-                    console.error('Error obteniendo casos por alcance GP:', e);
-                    return res.status(403).json({ 
-                        ok: false, 
-                        error: 'No se pudieron obtener los casos de su alcance.' 
-                    });
-                }
+                const baseUser = baseUserResult.rows[0];
+                /** Login: rol solo desde Cognito/BD; no se acepta roleRequested desde el cliente. */
+                const effectiveRole = resolveEffectiveRole(baseUser.role, '');
+                const appAuth = issueAppTokenFromCognito(baseUser, { ExpiresIn: 3600 }, effectiveRole, loginIdentity);
+                setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
+                setXsrfCookie(res);
+                const loginBody = {
+                    ok: true,
+                    expiresIn: appAuth.expiresInSec,
+                    user: appAuth.user,
+                    claims: buildSafeLoginClaimsForClient({
+                        sub: baseUser.id,
+                        email: baseUser.email,
+                        name: baseUser.full_name,
+                        'cognito:username': baseUser.username
+                    }, appAuth.user.role, baseUser.role)
+                };
+                await attachDevDbProbe(loginBody);
+                return res.json(loginBody);
             }
 
-            const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
-            const semaforoSql = `(CASE WHEN ${diasSql} < 0 THEN 'Vencido' WHEN ${diasSql} > 30 THEN 'Verde' WHEN ${diasSql} >= 15 THEN 'Amarillo' ELSE 'Rojo' END)`;
-            const estadoSql = `(CASE WHEN rp.fecha_fin < CURRENT_DATE THEN 'Con novedad' ELSE 'En proceso' END)`;
-            const clienteActualSql = `COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), ''))`;
-            const fromJoin = `
-                FROM reubicaciones_pipeline rp
-                INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id`;
-
-            const selectFields = `
-                SELECT
-                    rp.id,
-                    rp.cedula,
-                    rp.fecha_fin,
-                    rp.cliente_destino,
-                    rp.causal,
-                    rp.created_at,
-                    rp.updated_at,
-                    c.nombre AS consultor,
-                    c.tipo_contrato,
-                    COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) AS cliente_actual,
-                    c.tarifa_cliente,
-                    c.montos_divisa,
-                    c.puesto,
-                    c.lider_catalogo,
-                    u_gp.full_name AS gp_nombre,
-                    c.perfil_cargo,
-                    c.sueldo_nomina AS salario,
-                    c.auxilio_transporte_obligatorio AS auxilios,
-                    (SELECT NULLIF(TRIM(f.tipo_novedad), '') 
-                     FROM ficha_novedades_staging f 
-                     WHERE f.colaborador_cedula_match = rp.cedula
-                     ORDER BY f.created_at DESC 
-                     LIMIT 1) AS tipo_ficha,
-                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes,
-                    (CASE 
-                        WHEN rp.fecha_fin < CURRENT_DATE THEN 'Con novedad' 
-                        ELSE 'En proceso' 
-                    END) AS estado,
-                    (CASE 
-                        WHEN rp.fecha_fin < CURRENT_DATE THEN 'Vencido'
-                        WHEN rp.fecha_fin > (CURRENT_DATE + 30) THEN 'Verde'
-                        WHEN rp.fecha_fin >= (CURRENT_DATE + 15) THEN 'Amarillo'
-                        ELSE 'Rojo'
-                    END) AS semaforo
-                FROM reubicaciones_pipeline rp
-                INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id`;
-
-            const whereParts = [];
-            const whereParams = [];
-
-            const search = textOrNull(d.q);
-            if (search) {
-                const i = whereParams.length + 1;
-                whereParts.push(`(
-                    c.cedula ILIKE '%' || $${i} || '%'
-                    OR c.nombre ILIKE '%' || $${i} || '%'
-                    OR COALESCE(rp.cliente_destino, '') ILIKE '%' || $${i} || '%'
-                    OR COALESCE(rp.causal, '') ILIKE '%' || $${i} || '%'
-                )`);
-                whereParams.push(search);
-            }
-
-            const fd = textOrNull(d.fecha_fin_desde);
-            const fh = textOrNull(d.fecha_fin_hasta);
-            if (fd) {
-                whereParts.push(`rp.fecha_fin >= $${whereParams.length + 1}::date`);
-                whereParams.push(fd);
-            }
-            if (fh) {
-                whereParts.push(`rp.fecha_fin <= $${whereParams.length + 1}::date`);
-                whereParams.push(fh);
-            }
-            if (d.semaforo && d.semaforo.length > 0) {
-                whereParts.push(`${semaforoSql} = ANY($${whereParams.length + 1}::text[])`);
-                whereParams.push(d.semaforo);
-            }
-
-            // 1. Filtro por estado
-            const estadoFiltro = textOrNull(d.estado);
-            if (estadoFiltro) {
-                whereParts.push(`${estadoSql} = $${whereParams.length + 1}`);
-                whereParams.push(estadoFiltro);
-            }
-
-            // 2. Filtro por tipo de contrato
-            const tipoContrato = textOrNull(d.tipo_contrato);
-            if (tipoContrato) {
-                whereParts.push(`LOWER(TRIM(COALESCE(c.tipo_contrato, ''))) = LOWER($${whereParams.length + 1})`);
-                whereParams.push(tipoContrato);
-            }
-
-            // 3. Filtro por tipo de ficha (tipo_novedad más reciente de ficha_novedades_staging)
-            const tipoFichaFiltro = textOrNull(d.tipo_ficha);
-            const tipoFichaDbValue = tipoFichaFiltro ? normalizeTipoFichaValue(tipoFichaFiltro) : null;
-            if (tipoFichaDbValue) {
-                whereParts.push(`LOWER((SELECT NULLIF(TRIM(f.tipo_novedad), '')
-                                       FROM ficha_novedades_staging f
-                                       WHERE f.colaborador_cedula_match = rp.cedula
-                                       ORDER BY f.created_at DESC
-                                       LIMIT 1)) = LOWER($${whereParams.length + 1})`);
-                whereParams.push(tipoFichaDbValue);
-            }
-
-            // 4. Filtro por cliente actual (cliente o cliente_proyecto)
-            const cliente = textOrNull(d.cliente);
-            if (cliente) {
-                whereParts.push(`${clienteActualSql} ILIKE '%' || $${whereParams.length + 1} || '%'`);
-                whereParams.push(cliente);
-            }
-
-            // 4. Filtro por GP (líder catálogo o usuario GP vinculado)
-            const gp = textOrNull(d.gp);
-            if (gp) {
-                whereParts.push(`(
-                    COALESCE(c.lider_catalogo, '') ILIKE '%' || $${whereParams.length + 1} || '%'
-                    OR COALESCE(u_gp.full_name, '') ILIKE '%' || $${whereParams.length + 1} || '%'
-                )`);
-                whereParams.push(gp);
-            }
-
-            // 5. Filtro por aptitud (puesto, perfil o descriptivo SIG)
-            const aptitud = textOrNull(d.aptitud);
-            if (aptitud) {
-                whereParts.push(`(
-                    COALESCE(c.puesto, '') ILIKE '%' || $${whereParams.length + 1} || '%'
-                    OR COALESCE(c.perfil_cargo, '') ILIKE '%' || $${whereParams.length + 1} || '%'
-                    OR COALESCE(c.descriptivo_puesto_sig, '') ILIKE '%' || $${whereParams.length + 1} || '%'
-                )`);
-                whereParams.push(aptitud);
-            }
-
-            // 6. Filtro por días restantes (desde)
-            const diasDesde = d.dias_desde !== undefined && d.dias_desde !== '' ? Number(d.dias_desde) : null;
-            if (diasDesde !== null && !isNaN(diasDesde)) {
-                whereParts.push(`${diasSql} >= $${whereParams.length + 1}`);
-                whereParams.push(diasDesde);
-            }
-
-            // 7. Filtro por días restantes (hasta)
-            const diasHasta = d.dias_hasta !== undefined && d.dias_hasta !== '' ? Number(d.dias_hasta) : null;
-            if (diasHasta !== null && !isNaN(diasHasta)) {
-                whereParts.push(`${diasSql} <= $${whereParams.length + 1}`);
-                whereParams.push(diasHasta);
-            }
-
-            const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
-
-            const dir = d.dir === 'desc' ? 'DESC' : 'ASC';
-            const sortKey = d.sort;
-            const orderMap = {
-                cedula: `c.cedula ${dir}`,
-                consultor: `c.nombre ${dir} NULLS LAST`,
-                tipo_contrato: `c.tipo_contrato ${dir} NULLS LAST`,
-                cliente_actual: `${clienteActualSql} ${dir} NULLS LAST`,
-                cliente_destino: `rp.cliente_destino ${dir} NULLS LAST`,
-                causal: `rp.causal ${dir} NULLS LAST`,
-                fecha_fin: `rp.fecha_fin ${dir} NULLS LAST`,
-                dias_restantes: `${diasSql} ${dir} NULLS LAST`,
-                semaforo: `${diasSql} ${dir} NULLS LAST`,
-                estado: `${estadoSql} ${dir} NULLS LAST`,
-                tarifa: `c.tarifa_cliente ${dir} NULLS LAST`
+            const authParams = {
+                USERNAME: String(identity).trim(),
+                PASSWORD: String(password)
             };
-            const orderSql =
-                sortKey && orderMap[sortKey]
-                    ? `ORDER BY ${orderMap[sortKey]}`
-                    : 'ORDER BY rp.fecha_fin ASC NULLS LAST, c.nombre ASC';
+            const secretHash = buildCognitoSecretHash(authParams.USERNAME);
+            if (secretHash) authParams.SECRET_HASH = secretHash;
 
-            const countSql = `SELECT COUNT(*)::int AS total ${fromJoin} ${whereSql}`;
-            const cRes = await pool.query(countSql, whereParams);
-            const total = cRes.rows[0]?.total ?? 0;
-
-            const limIdx = whereParams.length + 1;
-            const offIdx = whereParams.length + 2;
-            const listSql = `${selectFields} ${whereSql} ${orderSql} LIMIT $${limIdx}::int OFFSET $${offIdx}::int`;
-            const listParams = [...whereParams, limit, offset];
-            const listRes = await pool.query(listSql, listParams);
-            const rows = listRes.rows;
-
-            const accionesPermitidas = authService.getAccionesPermitidas(role);
-
-            return res.json({
-                ok: true,
-                items: rows.map(normalizePipelineRow),
-                total,
-                limit,
-                offset,
-                meta: { 
-                    rol: role,
-                    acciones_permitidas: accionesPermitidas,
-                    alcance: role === 'super_admin' ? 'todos los casos' : 'general'
-                }
+            const out = await cognitoPublicApi('InitiateAuth', {
+                ClientId: COGNITO_APP_CLIENT_ID,
+                AuthFlow: 'USER_PASSWORD_AUTH',
+                AuthParameters: authParams
             });
-        } catch (e) {
-            console.error('GET directorio reubicaciones-pipeline:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar reubicaciones.' });
-        }
-    });
 
-    app.post('/api/directorio/reubicaciones-pipeline', verificarToken, reubicacionesGuard(), async (req, res) => {
-        try {
-            const parsed = reubicacionesPipelineCreateSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const cedula = normalizeCedula(parsed.data.cedula);
-            if (!cedula) return res.status(400).json({ ok: false, error: 'Cédula inválida' });
-            const clienteDestino = textOrNull(parsed.data.cliente_destino);
-            const causal = textOrNull(parsed.data.causal);
-            let row;
-            try {
-                const ins = await pool.query(
-                    `INSERT INTO reubicaciones_pipeline (cedula, fecha_fin, cliente_destino, causal)
-                     VALUES ($1, $2::date, $3, $4)
-                     RETURNING id, cedula, fecha_fin, cliente_destino, causal, created_at, updated_at`,
-                    [cedula, parsed.data.fecha_fin, clienteDestino, causal]
-                );
-                row = ins.rows[0];
-            } catch (e) {
-                if (String(e?.code) === '23505') {
+            if (out.ChallengeName) {
+                if (out.ChallengeName === 'NEW_PASSWORD_REQUIRED') {
                     return res.status(409).json({
                         ok: false,
-                        error: 'Ya existe un registro de reubicación para esta cédula.'
+                        message: 'Cognito requiere cambio de contraseña inicial.',
+                        challenge: out.ChallengeName,
+                        session: out.Session || ''
                     });
                 }
-                if (String(e?.code) === '23503') {
+                return res.status(409).json({
+                    ok: false,
+                    message: `Reto de autenticación no soportado: ${out.ChallengeName}`,
+                    challenge: out.ChallengeName,
+                    session: out.Session || ''
+                });
+            }
+
+            const auth = out.AuthenticationResult || {};
+            const idToken = auth.IdToken || '';
+            const accessToken = auth.AccessToken || '';
+            if (!idToken || !accessToken) {
+                return res.status(401).json({ ok: false, message: 'No se recibieron tokens de Cognito' });
+            }
+
+            const claims = decodeJwtPayload(idToken);
+            if (!claims) {
+                return res.status(401).json({ ok: false, message: 'Token Cognito inválido.' });
+            }
+            const baseUser = buildUserFromCognitoClaims(claims);
+            /** Login Cognito: rol efectivo solo desde grupos/claims; ignorar roleRequested del body. */
+            const effectiveRole = resolveEffectiveRole(baseUser.role, '');
+            const loginIdentity = String(identity || '').trim();
+            const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
+            setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
+            setXsrfCookie(res);
+            const loginBody = {
+                ok: true,
+                expiresIn: appAuth.expiresInSec,
+                user: appAuth.user,
+                claims: buildSafeLoginClaimsForClient(claims, appAuth.user.role, baseUser.role)
+            };
+            await attachDevDbProbe(loginBody);
+            return res.json(loginBody);
+        } catch (error) {
+            console.error('Error login:', error);
+            const status = Number(error?.status);
+            const isClientError = Number.isFinite(status) && status >= 400 && status < 500;
+            if (isClientError) {
+                return res.status(status).json({ ok: false, message: error.message || 'Error de autenticacion Cognito' });
+            }
+            return res.status(500).json({
+                ok: false,
+                message: (!isDeployedEnv && exposeInternalErrors && error?.message) ? String(error.message) : 'Error interno'
+            });
+        }
+    });
+
+    app.post('/api/auth/complete-new-password', authLimiter, async (req, res) => {
+        try {
+            const { email, newPassword, session, phoneNumber } = req.body || {};
+            const username = String(email || '').trim();
+            const challengeSession = String(session || '').trim();
+            if (!username || !newPassword || !challengeSession) {
+                return res.status(400).json({ ok: false, message: 'Email, session y nueva contraseña son obligatorios' });
+            }
+            if (!isStrongPassword(newPassword)) {
+                return res.status(400).json({ ok: false, message: 'La contrasena debe tener 12+ caracteres, mayuscula, minuscula, numero y simbolo.' });
+            }
+            if (!COGNITO_ENABLED) {
+                return res.status(400).json({ ok: false, message: 'Cognito no está habilitado' });
+            }
+
+            const challengeResponses = {
+                USERNAME: username,
+                NEW_PASSWORD: newPassword
+            };
+            const rawPhone = String(phoneNumber || '').trim();
+            if (rawPhone) {
+                challengeResponses['userAttributes.phone_number'] = rawPhone;
+            }
+            const secretHash = buildCognitoSecretHash(username);
+            if (secretHash) challengeResponses.SECRET_HASH = secretHash;
+
+            const out = await cognitoPublicApi('RespondToAuthChallenge', {
+                ClientId: COGNITO_APP_CLIENT_ID,
+                ChallengeName: 'NEW_PASSWORD_REQUIRED',
+                Session: challengeSession,
+                ChallengeResponses: challengeResponses
+            });
+
+            const auth = out.AuthenticationResult || {};
+            const idToken = auth.IdToken || '';
+            const accessToken = auth.AccessToken || '';
+            if (!idToken || !accessToken) {
+                return res.status(401).json({ ok: false, message: 'No se recibieron tokens de Cognito' });
+            }
+
+            const claims = decodeJwtPayload(idToken);
+            if (!claims) {
+                return res.status(401).json({ ok: false, message: 'Token Cognito inválido.' });
+            }
+            const baseUser = buildUserFromCognitoClaims(claims);
+            /** Primer acceso: mismo criterio que /api/login — rol solo desde Cognito. */
+            const effectiveRole = resolveEffectiveRole(baseUser.role, '');
+            const loginIdentity = username;
+            const appAuth = issueAppTokenFromCognito(baseUser, auth, effectiveRole, loginIdentity);
+            setSessionCookie(res, appAuth.token, appAuth.expiresInSec);
+            setXsrfCookie(res);
+            const loginBody = {
+                ok: true,
+                expiresIn: appAuth.expiresInSec,
+                user: appAuth.user,
+                claims: buildSafeLoginClaimsForClient(claims, appAuth.user.role, baseUser.role)
+            };
+            await attachDevDbProbe(loginBody);
+            return res.json(loginBody);
+        } catch (error) {
+            console.error('Error complete-new-password:', error);
+            const status = Number(error?.status);
+            const isClientError = COGNITO_ENABLED && Number.isFinite(status) && status >= 400 && status < 500;
+            if (isClientError) {
+                return res.status(status).json({ ok: false, message: error.message || 'Error completando reto de contraseña' });
+            }
+            return res.status(500).json({
+                ok: false,
+                message: (!isDeployedEnv && exposeInternalErrors && error?.message) ? String(error.message) : 'Error interno'
+            });
+        }
+    });
+
+    app.get('/api/me', verificarToken, async (req, res) => {
+        const payload = { ok: true, me: req.user };
+        await attachDevDbProbe(payload);
+        res.json(payload);
+    });
+
+    app.post('/api/auth/forgot-password', forgotLimiter, async (req, res) => {
+        try {
+            const { email } = req.body || {};
+            if (!email) return res.status(400).json({ ok: false, message: 'Email es obligatorio' });
+            if (!COGNITO_ENABLED) {
+                return res.status(503).json({ ok: false, message: 'Recuperación disponible solo vía Cognito.' });
+            }
+
+            const username = String(email).trim();
+            const body = {
+                ClientId: COGNITO_APP_CLIENT_ID,
+                Username: username
+            };
+            const secretHash = buildCognitoSecretHash(username);
+            if (secretHash) body.SecretHash = secretHash;
+            await cognitoPublicApi('ForgotPassword', body);
+            return res.json({ ok: true, message: 'Si el email existe, se envio instruccion' });
+        } catch (error) {
+            console.error('Error forgot-password:', error);
+            const status = Number(error?.status) || 500;
+            if (status >= 400 && status < 500) {
+                return res.status(status).json({ ok: false, message: error.message || 'Error de recuperacion Cognito' });
+            }
+            return res.status(500).json({ ok: false, message: 'Error interno' });
+        }
+    });
+
+    app.post('/api/auth/reset-password', authLimiter, async (req, res) => {
+        try {
+            const { email, code, newPassword } = req.body || {};
+            if (!newPassword) return res.status(400).json({ ok: false, message: 'Nueva contrasena es obligatoria' });
+            if (!isStrongPassword(newPassword)) {
+                return res.status(400).json({ ok: false, message: 'La contrasena debe tener 12+ caracteres, mayuscula, minuscula, numero y simbolo.' });
+            }
+            if (!COGNITO_ENABLED) {
+                return res.status(503).json({ ok: false, message: 'Reset disponible solo vía Cognito.' });
+            }
+
+            const username = String(email || '').trim();
+            const confirmationCode = String(code || '').trim();
+            if (!username || !confirmationCode) {
+                return res.status(400).json({ ok: false, message: 'Correo y codigo son obligatorios' });
+            }
+            const body = {
+                ClientId: COGNITO_APP_CLIENT_ID,
+                Username: username,
+                ConfirmationCode: confirmationCode,
+                Password: newPassword
+            };
+            const secretHash = buildCognitoSecretHash(username);
+            if (secretHash) body.SecretHash = secretHash;
+            await cognitoPublicApi('ConfirmForgotPassword', body);
+            return res.json({ ok: true, message: 'Contrasena actualizada. Inicia sesion nuevamente.' });
+        } catch (error) {
+            console.error('Error reset-password:', error);
+            const status = Number(error?.status) || 500;
+            if (status >= 400 && status < 500) {
+                return res.status(status).json({ ok: false, message: error.message || 'Error de reset Cognito' });
+            }
+            return res.status(500).json({ ok: false, message: 'Error interno' });
+        }
+    });
+
+    app.post('/api/auth/change-password', verificarToken, authLimiter, async (req, res) => {
+        try {
+            const { currentPassword, newPassword } = req.body || {};
+            if (!currentPassword || !newPassword) {
+                return res.status(400).json({ ok: false, message: 'Contrasena actual y nueva son obligatorias' });
+            }
+            if (!isStrongPassword(newPassword)) {
+                return res.status(400).json({ ok: false, message: 'La contrasena debe tener 12+ caracteres, mayuscula, minuscula, numero y simbolo.' });
+            }
+
+            if (!COGNITO_ENABLED) {
+                return res.status(503).json({ ok: false, message: 'Cambio de contraseña disponible solo vía Cognito.' });
+            }
+            const username = String(req.user?.username || req.user?.email || '').trim();
+            if (!username) {
+                return res.status(400).json({ ok: false, message: 'No se pudo resolver el usuario autenticado para cambio de contraseña.' });
+            }
+            const authParams = {
+                USERNAME: username,
+                PASSWORD: String(currentPassword)
+            };
+            const secretHash = buildCognitoSecretHash(authParams.USERNAME);
+            if (secretHash) authParams.SECRET_HASH = secretHash;
+            const authOut = await cognitoPublicApi('InitiateAuth', {
+                ClientId: COGNITO_APP_CLIENT_ID,
+                AuthFlow: 'USER_PASSWORD_AUTH',
+                AuthParameters: authParams
+            });
+            const cognitoAccessToken = String(authOut?.AuthenticationResult?.AccessToken || '').trim();
+            if (!cognitoAccessToken) {
+                return res.status(401).json({ ok: false, message: 'No se pudo validar la contraseña actual en Cognito.' });
+            }
+            await cognitoPublicApi('ChangePassword', {
+                PreviousPassword: String(currentPassword),
+                ProposedPassword: String(newPassword),
+                AccessToken: cognitoAccessToken
+            });
+            // Invalidar la sesión de aplicación actual para evitar reutilizar un JWT revocado
+            // en cambios sucesivos (AUT-462).
+            revokeAppSessionToken(req.authToken);
+            res.clearCookie('cinteSession', { path: '/api', sameSite, secure: secureCookie });
+            res.clearCookie('cinteXsrf', { path: '/', sameSite, secure: secureCookie });
+            return res.json({ ok: true, message: 'Contrasena actualizada. Vuelve a iniciar sesion.' });
+        } catch (error) {
+            console.error('Error change-password:', error);
+            const status = Number(error?.status) || 500;
+            if (status >= 400 && status < 500) {
+                return res.status(status).json({ ok: false, message: error.message || 'Error de cambio de clave Cognito' });
+            }
+            return res.status(500).json({ ok: false, message: 'Error interno' });
+        }
+    });
+
+    app.post('/api/auth/logout', verificarToken, async (req, res) => {
+        revokeAppSessionToken(req.authToken);
+        res.clearCookie('cinteSession', { path: '/api', sameSite, secure: secureCookie });
+        res.clearCookie('cinteXsrf', { path: '/', sameSite, secure: secureCookie });
+        return res.json({ ok: true });
+    });
+
+    app.get('/api/dashboard/metrics', verificarToken, allowPanel('dashboard'), applyScope, async (req, res) => {
+        try {
+            const scopedRows = await getScopedNovedades(req.scope);
+            const total = scopedRows.length;
+            const porEstado = scopedRows.reduce((acc, n) => {
+                const estado = String(n.estado || 'Pendiente');
+                acc[estado] = (acc[estado] || 0) + 1;
+                return acc;
+            }, {});
+            return res.json({ ok: true, data: { total, porEstado, areaScope: req.scope.areas[0] || 'Sin área' } });
+        } catch (error) {
+            console.error('Error metrics:', error);
+            return res.status(500).json({ ok: false, error: 'Error consultando métricas' });
+        }
+    });
+
+    /** Listado de solo lectura para el submódulo Monitoreo de actividades. */
+    app.get(
+        '/api/admin/actividades',
+        verificarToken,
+        allowPanel('monitoreo'),
+        applyScope,
+        async (req, res) => {
+            try {
+                const filters = parseActividadesConsultorQuery(req.query);
+                const role = String(req.user?.role || '').trim().toLowerCase();
+                if (!['super_admin', 'cac', 'gp'].includes(role)) {
+                    return res.status(403).json({ ok: false, error: 'Sin permisos para esta operación' });
+                }
+                const items = await listActividadesConsultor(pool, {
+                    filters,
+                    role,
+                    gpUserId: req.scope?.gpUserId
+                });
+                return res.json({ ok: true, items });
+            } catch (error) {
+                const status = Number(error?.status);
+                if (status >= 400 && status < 500) {
+                    return res.status(status).json({ ok: false, error: error.message || 'Filtros inválidos' });
+                }
+                logger.error({ err: { message: error?.message } }, 'Error consultando actividades de consultores');
+                return res.status(500).json({ ok: false, error: 'Error consultando actividades' });
+            }
+        }
+    );
+
+    /** Decisión sobre actividad de consultor: aprobar o rechazar. */
+    app.patch(
+        '/api/admin/actividades/:id/estado',
+        verificarToken,
+        allowPanel('monitoreo'),
+        applyScope,
+        async (req, res) => {
+            console.log(`[BACKEND] Solicitud PATCH /api/admin/actividades/${req.params.id}/estado recibida`);
+            try {
+                const role = String(req.user?.role || '').trim().toLowerCase();
+                if (!['super_admin', 'cac', 'gp'].includes(role)) {
+                    return res.status(403).json({ ok: false, error: 'Sin permisos para esta operación' });
+                }
+                const result = await updateActividadEstado(pool, {
+                    id: req.params.id,
+                    nuevoEstado: req.body?.estado,
+                    observaciones: req.body?.observaciones,
+                    actor: {
+                        userId: req.user.sub || req.user.id,
+                        role: req.user.role,
+                        email: req.user.email
+                    },
+                    role,
+                    gpUserId: req.scope?.gpUserId
+                });
+                return res.json(result);
+            } catch (error) {
+                const status = Number(error?.status);
+                if (status >= 400 && status < 500) {
+                    return res.status(status).json({ ok: false, error: error.message });
+                }
+                logger.error({ err: { message: error?.message } }, 'Error actualizando estado de actividad');
+                return res.status(500).json({ ok: false, error: 'Error actualizando estado de actividad' });
+            }
+        }
+    );
+
+    app.get('/api/novedades/clientes-filtro', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
+        try {
+            const gpUserId = String(req.query.gpUserId || '').trim();
+            const items = await listScopedDistinctClientes(req.scope, gpUserId ? { gpUserId } : {});
+            return res.json({ ok: true, items });
+        } catch (error) {
+            console.error('Error novedades/clientes-filtro:', error);
+            return res.status(500).json({ ok: false, error: 'Error consultando clientes del alcance' });
+        }
+    });
+
+    app.get('/api/novedades', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
+        try {
+            const listOpts = parseNovedadesListQuery(req.query);
+            const rows = await getScopedNovedades(req.scope, listOpts);
+            const page = Math.max(1, Number(req.query.page || 1));
+            const limitRaw = Number(req.query.limit || 0);
+            const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 200) : 0;
+            const total = rows.length;
+            const start = limit > 0 ? (page - 1) * limit : 0;
+            const end = limit > 0 ? start + limit : total;
+            const pagedRows = rows.slice(start, end);
+            const items = pagedRows.map(toClientNovedad);
+            const totalPages = limit > 0 ? Math.max(1, Math.ceil(total / limit)) : 1;
+            return res.json({
+                ok: true,
+                items,
+                data: items,
+                pagination: {
+                    page,
+                    limit: limit || total,
+                    total,
+                    totalPages
+                }
+            });
+        } catch (error) {
+            console.error('Error novedades:', error);
+            return res.status(500).json({ ok: false, error: 'Error consultando novedades' });
+        }
+    });
+
+    app.get('/api/novedades/export-excel', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), applyScope, async (req, res) => {
+        try {
+            const ExcelJS = require('exceljs');
+            const listOpts = parseNovedadesListQuery(req.query);
+            const rows = await getScopedNovedades(req.scope, listOpts);
+            if (rows.length > exportMaxRows) {
+                return res.status(413).json({
+                    ok: false,
+                    error: `La exportación supera el límite permitido (${exportMaxRows} registros). Ajusta filtros o exporta por rangos.`
+                });
+            }
+            const items = rows.map(toClientNovedad);
+            const heDomingoDep = {
+                toUtcMsFromDateAndTime,
+                resolveFallbackDateKeyFromRow,
+                festivosSet: await festivosService.getFestivosSet()
+            };
+            const sundaySetsExport = buildSundayReportedSetsFromHeRows(
+                rows.filter(rowIsHoraExtraTipo),
+                buildConsultantKeyHeDomingo,
+                heDomingoDep
+            );
+
+            const columns = [
+                { header: 'Fecha Creación', key: 'fechaCreacion', width: 20 },
+                { header: 'Fecha Aprobación', key: 'fechaAprobacion', width: 20 },
+                { header: 'Aprobado por', key: 'aprobadoPor', width: 32 },
+                { header: 'Nombre', key: 'nombre', width: 28 },
+                { header: 'Cédula', key: 'cedula', width: 14 },
+                { header: 'Correo', key: 'correo', width: 30 },
+                { header: 'Cliente', key: 'cliente', width: 22 },
+                { header: 'Tipo Novedad', key: 'tipoNovedad', width: 28 },
+                { header: 'Fecha Inicio', key: 'fechaInicio', width: 14 },
+                { header: 'Fecha Fin', key: 'fechaFin', width: 14 },
+                { header: 'Cantidad', key: 'cantidad', width: 18 },
+                { header: 'Unidad', key: 'unidad', width: 10 },
+                { header: 'Hora inicial', key: 'horaInicial', width: 12 },
+                { header: 'Hora final', key: 'horaFinal', width: 12 },
+                { header: 'Compensación dominical', key: 'compensacionDominical', width: 32 },
+                { header: 'Observaciones', key: 'observaciones', width: 48 },
+                { header: 'Valor bonificación (COP)', key: 'valorCop', width: 22 },
+                { header: 'Estado', key: 'estado', width: 14 },
+                { header: 'Procesado nómina', key: 'nominaProcesado', width: 16 },
+                { header: 'Procesado nómina (fecha)', key: 'nominaProcesadoEn', width: 22 },
+                { header: 'Procesado nómina (correo)', key: 'nominaProcesadoPorCorreo', width: 28 },
+                { header: 'Procesado nómina (lote)', key: 'nominaProcesadoLote', width: 22 },
+                { header: 'Asignado a (roles)', key: 'asignadoRoles', width: 36 }
+            ];
+
+            const wb = new ExcelJS.Workbook();
+            wb.creator = 'CINTE Novedades';
+            wb.created = new Date();
+            const ws = wb.addWorksheet('Reporte Novedades');
+            ws.columns = columns;
+
+            const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF004D87' } };
+            const headerFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11, name: 'Montserrat' };
+            const thinBorder = {
+                top: { style: 'thin', color: { argb: 'FF1A3A56' } },
+                left: { style: 'thin', color: { argb: 'FF1A3A56' } },
+                bottom: { style: 'thin', color: { argb: 'FF1A3A56' } },
+                right: { style: 'thin', color: { argb: 'FF1A3A56' } }
+            };
+
+            const headerRow = ws.getRow(1);
+            headerRow.eachCell((cell) => {
+                cell.fill = headerFill;
+                cell.font = headerFont;
+                cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+                cell.border = thinBorder;
+            });
+            headerRow.height = 24;
+
+            for (let i = 0; i < items.length; i++) {
+                const it = items[i];
+                const row = rows[i];
+                const correoActor = it.estado === 'Rechazado' ? (it.rechazadoPorCorreo || '') : (it.aprobadoPorCorreo || '');
+                const esPorHoras = getCantidadMedidaKind(it.tipoNovedad, it) === 'hours';
+                let observacionHeDomingo = '';
+                if (rowIsHoraExtraTipo(row)) {
+                    observacionHeDomingo = computeHeDomingoObservacionForRow(row, sundaySetsExport, buildConsultantKeyHeDomingo, heDomingoDep);
+                    if (!observacionHeDomingo && String(row.he_domingo_observacion || '').trim()) {
+                        observacionHeDomingo = String(row.he_domingo_observacion || '').trim();
+                    }
+                }
+                if (itemIsHoraExtraTipo(it)) {
+                    const slices = buildHoraExtraExportSlices(it, heDomingoDep);
+                    if (slices && slices.length) {
+                        for (const slice of slices) {
+                            ws.addRow(
+                                buildExcelRowHoraExtraSlice({
+                                    it,
+                                    slice,
+                                    observacionHeDomingo,
+                                    correoActor,
+                                    esPorHoras
+                                })
+                            );
+                        }
+                    } else {
+                        ws.addRow(
+                            buildExcelRowHoraExtraLegacy({
+                                it,
+                                observacionHeDomingo,
+                                correoActor,
+                                esPorHoras
+                            })
+                        );
+                    }
+                } else {
+                    ws.addRow(
+                        buildExcelRowOtroTipo({
+                            it,
+                            observacionHeDomingo,
+                            correoActor,
+                            esPorHoras
+                        })
+                    );
+                }
+            }
+
+            ws.eachRow((row, rowNum) => {
+                if (rowNum === 1) return;
+                row.eachCell((cell) => {
+                    cell.border = thinBorder;
+                    cell.alignment = { vertical: 'middle' };
+                    cell.font = { size: 10, name: 'Montserrat' };
+                });
+            });
+
+            columns.forEach((col, idx) => {
+                let maxLen = col.header.length;
+                ws.getColumn(idx + 1).eachCell({ includeEmpty: false }, (cell) => {
+                    const len = String(cell.value || '').length;
+                    if (len > maxLen) maxLen = len;
+                });
+                ws.getColumn(idx + 1).width = Math.min(maxLen + 4, 50);
+            });
+
+            const excelColName = (index1Based) => {
+                let n = Number(index1Based || 1);
+                let name = '';
+                while (n > 0) {
+                    const rem = (n - 1) % 26;
+                    name = String.fromCharCode(65 + rem) + name;
+                    n = Math.floor((n - 1) / 26);
+                }
+                return name || 'A';
+            };
+            ws.autoFilter = { from: 'A1', to: `${excelColName(columns.length)}1` };
+
+            const filename = `novedades_reporte_${new Date().toISOString().slice(0, 10)}.xlsx`;
+            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            res.setHeader(
+                'Content-Disposition',
+                `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`
+            );
+            await wb.xlsx.write(res);
+            res.end();
+        } catch (error) {
+            console.error('Error exportando novedades Excel:', error);
+            if (!res.headersSent) {
+                return res.status(500).json({ ok: false, error: 'Error exportando reporte Excel' });
+            }
+        }
+    });
+
+    app.get('/api/novedades/hora-extra-alertas', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
+        try {
+            const createdFrom = String(req.query.createdFrom || '').trim();
+            const createdTo = String(req.query.createdTo || '').trim();
+            const gpUserId = String(req.query.gpUserId || '').trim();
+            const data = await getHoraExtraAlerts(req.scope, {
+                createdFrom,
+                createdTo,
+                maxDailyHours: 2,
+                maxMonthlyHours: 48,
+                ...(gpUserId ? { gpUserId } : {})
+            });
+            return res.json({ ok: true, data });
+        } catch (error) {
+            console.error('Error hora-extra-alertas:', error);
+            return res.status(500).json({ ok: false, error: 'Error consultando alertas de hora extra' });
+        }
+    });
+
+    app.get('/api/festivos', catalogLimiter, async (req, res) => {
+        try {
+            const festivosSet = await festivosService.getFestivosSet();
+            return res.json({ ok: true, festivos: Array.from(festivosSet) });
+        } catch (err) {
+            console.error('Error in GET /api/festivos:', err);
+            return res.status(500).json({ ok: false, festivos: [] });
+        }
+    });
+
+    app.get('/api/catalogos/clientes', verificarToken, requireCatalogConsultorOrStaff, catalogLimiter, async (req, res) => {
+        try {
+            const rawItems = await getClientesList();
+            const items = rawItems
+                .slice(0, 500)
+                .map((v) => decodePossiblyMisencodedText(String(v || '').trim()))
+                .filter(Boolean);
+            return res.json({ ok: true, items });
+        } catch (error) {
+            console.error('Error catalogo clientes:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo consultar catalogo de clientes' });
+        }
+    });
+
+    app.get('/api/catalogos/lideres', verificarToken, requireCatalogConsultorOrStaff, catalogLimiter, async (req, res) => {
+        try {
+            const cliente = normalizeCatalogValue(req.query?.cliente || '');
+            if (!cliente) return res.status(400).json({ ok: false, error: 'Parametro cliente es obligatorio' });
+            const items = (await getLideresByCliente(cliente))
+                .slice(0, 500)
+                .map((v) => decodePossiblyMisencodedText(String(v || '').trim()))
+                .filter(Boolean);
+            return res.json({ ok: true, items, cliente });
+        } catch (error) {
+            console.error('Error catalogo lideres:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo consultar catalogo de lideres' });
+        }
+    });
+
+    app.get(
+        '/api/catalogos/colaborador',
+        verificarToken,
+        requireColaboradorCatalogSelfOrStaff,
+        catalogLimiter,
+        async (req, res) => {
+        try {
+            const cedula = normalizeCedula(req.query?.cedula || '');
+            if (!cedula) {
+                return res.status(400).json({ ok: false, error: 'Cédula requerida (solo números, sin puntos ni comas).' });
+            }
+            const row = await getColaboradorByCedula(cedula);
+            if (!row) {
+                return res.status(404).json({ ok: false, error: 'Cédula no registrada en el directorio de colaboradores.' });
+            }
+            const clienteRaw = String(row.cliente || '').trim();
+            const liderRaw = String(row.lider_catalogo || '').trim();
+            const clienteNorm = normalizeCatalogValue(clienteRaw);
+            const liderNorm = normalizeCatalogValue(liderRaw);
+            let clienteOut = clienteNorm;
+            let liderOut = liderNorm;
+            const clientesList = await getClientesList();
+            const { map: foldClienteMap } = buildFoldToCanonicoMap(clientesList);
+            const clienteCanon = matchExcelClienteABd(clienteNorm, foldClienteMap);
+            if (clienteCanon) clienteOut = clienteCanon;
+            const lideresLista = await getLideresByCliente(clienteNorm);
+            if (liderNorm && lideresLista.length > 0) {
+                const liderMatch = matchFoldToCandidate(liderNorm, lideresLista);
+                if (liderMatch) liderOut = liderMatch;
+            }
+            const lockCliente = Boolean(clienteNorm);
+            const lockLider = Boolean(liderNorm);
+            const correoOut = String(row.correo_cinte || '').trim().toLowerCase();
+            const lockCorreo = Boolean(correoOut);
+            return res.json({
+                ok: true,
+                cedula: row.cedula,
+                nombre: decodePossiblyMisencodedText(String(row.nombre || '').trim()),
+                // Precarga el correo Cinte en el formulario público. Riesgo de enumeración mitigado con
+                // catalogLimiter; el POST /api/enviar-novedad sigue resolviendo el correo desde BD (no confía solo en el cliente).
+                correo: correoOut,
+                lockCorreo,
+                cliente: decodePossiblyMisencodedText(String(clienteOut || '').trim()),
+                lider: decodePossiblyMisencodedText(String(liderOut || '').trim()),
+                lockCliente,
+                lockLider
+            });
+        } catch (error) {
+            console.error('Error catalogo colaborador:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo consultar el colaborador' });
+        }
+        }
+    );
+
+    app.post(
+        '/api/hora-extra-domingo-preview',
+        verificarToken,
+        consultorFormPostLimiter,
+        requireEntraConsultor,
+        async (req, res) => {
+        try {
+            const body = req.body || {};
+            const cedula = normalizeCedula(body.cedula || '');
+            if (!cedula) {
+                return res.status(400).json({ ok: false, error: 'Cédula requerida (solo números).' });
+            }
+            if (req.user?.authProvider === 'entra_consultor') {
+                const tokenCed = normalizeCedula(req.user.cedula || '');
+                if (!tokenCed || tokenCed !== cedula) {
+                    return res.status(403).json({ ok: false, error: 'La cédula no coincide con tu sesión.' });
+                }
+            }
+            const col = await getColaboradorByCedula(cedula);
+            if (!col) {
+                return res.status(404).json({ ok: false, error: 'Cédula no registrada en el directorio de colaboradores.' });
+            }
+            const fi = parseDateOrNull(body.fechaInicio);
+            const ff = parseDateOrNull(body.fechaFin);
+            const hi = parseTimeOrNull(body.horaInicio);
+            const hf = parseTimeOrNull(body.horaFin);
+            if (!fi || !ff || !hi || !hf) {
+                return res.status(400).json({ ok: false, error: 'Indica fecha inicio, fecha fin, hora inicio y hora fin de Hora Extra.' });
+            }
+            const nombreCol = String(col.nombre || body.nombre || '').trim();
+            const rowsHe = await listHoraExtraByCedulaForDomingoPolicy(cedula);
+            const synthetic = buildSyntheticHoraExtraRow({
+                nombre: nombreCol,
+                cedula,
+                fechaInicio: fi,
+                fechaFin: ff,
+                horaInicio: hi,
+                horaFin: hf
+            });
+            const dep = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow, festivosSet: await festivosService.getFestivosSet() };
+            const prev = computeHeDomingoCompensacionPreview(rowsHe, synthetic, dep, buildConsultantKeyHeDomingo);
+            if (prev.requiereEleccionCompensacion && !prev.domingoTrabajadoYmd) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'No se pudo determinar el domingo trabajado para la ventana de compensación. Revisa el lapso de Hora Extra.'
+                });
+            }
+            return res.json({
+                ok: true,
+                requiereEleccionCompensacion: prev.requiereEleccionCompensacion,
+                esTercerDomingoOMas: prev.esTercerDomingoOMas,
+                domingoTrabajadoYmd: prev.domingoTrabajadoYmd,
+                compensatorioTiempoMinYmd: prev.compensatorioTiempoMinYmd,
+                compensatorioTiempoMaxYmd: prev.compensatorioTiempoMaxYmd,
+                maxTier: prev.maxTier
+            });
+        } catch (error) {
+            console.error('hora-extra-domingo-preview:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo calcular la política de domingo.' });
+        }
+        }
+    );
+
+    /**
+     * Pre-chequeo de duplicado pendiente para el formulario (spec evitar-duplicados-radicacion-novedad).
+     * Permite a la UI deshabilitar el botón Enviar antes del POST. No hace falta el lock de cédula
+     * (ya lo cubre `requireEntraConsultor` + comparación con la sesión Entra).
+     *
+     * GET /api/novedades/duplicado-pendiente?tipo=...&fechaInicio=YYYY-MM-DD[&fechaFin=...&horaInicio=HH:MM&horaFin=HH:MM]
+     * → { ok: true, duplicado: boolean }
+     */
+    app.get(
+        '/api/novedades/duplicado-pendiente',
+        verificarToken,
+        consultorFormPostLimiter,
+        requireEntraConsultor,
+        async (req, res) => {
+            try {
+                const tipoNovedadRaw = String(req.query.tipo || req.query.tipoNovedad || '').trim();
+                if (!tipoNovedadRaw) {
+                    return res.status(400).json({ ok: false, error: 'tipo requerido' });
+                }
+                const ruleType = getNovedadRuleByType(tipoNovedadRaw);
+                const tipoKey = String(ruleType?.key || normalizeNovedadTypeKey(tipoNovedadRaw) || '');
+                if (!tipoKey) {
+                    return res.status(400).json({ ok: false, error: 'tipo no válido' });
+                }
+                if (tipoKey === 'compensatorio_votacion_jurado') {
+                    return res.json({ ok: true, duplicado: false, scope: 'fuera_de_alcance' });
+                }
+                const fechaInicio = parseDateOrNull(req.query.fechaInicio);
+                const fechaFin = parseDateOrNull(req.query.fechaFin);
+                const horaInicio = parseTimeOrNull(req.query.horaInicio);
+                const horaFin = parseTimeOrNull(req.query.horaFin);
+                if (!fechaInicio) {
+                    return res.json({ ok: true, duplicado: false });
+                }
+                const cedulaToken = normalizeCedula(req.user?.cedula || '');
+                if (!cedulaToken) {
+                    return res.status(403).json({ ok: false, error: 'Sesión sin cédula asociada.' });
+                }
+                const tipoNovedad = String(ruleType?.displayName || tipoNovedadRaw).trim();
+                const result = await findPendingNovedadDuplicate({
+                    cedula: cedulaToken,
+                    tipoNovedad,
+                    fechaInicio,
+                    fechaFin,
+                    horaInicio,
+                    horaFin
+                });
+                return res.json({ ok: true, duplicado: Boolean(result?.duplicado) });
+            } catch (error) {
+                console.error('duplicado-pendiente:', error);
+                return res.status(500).json({ ok: false, error: 'No se pudo verificar duplicado.' });
+            }
+        }
+    );
+
+    app.post(
+        '/api/enviar-novedad',
+        verificarToken,
+        consultorFormPostLimiter,
+        requireEntraConsultor,
+        upload.any(),
+        async (req, res) => {
+        try {
+            const body = req.body || {};
+            const files = (Array.isArray(req.files) ? req.files : [])
+                .filter((f) => ['soporte', 'soportes'].includes(String(f.fieldname || '').toLowerCase()));
+            let tipoNovedad = String(body.tipoNovedad || body.tipo || '').trim();
+            if (isNovedadTipoRetiradoDelFormulario(tipoNovedad)) {
+                return res.status(400).json({
+                    ok: false,
+                    error:
+                        'Este tipo de novedad ya no está disponible para nuevas solicitudes. Elige otro tipo o contacta a Capital Humano.'
+                });
+            }
+            const consentRaw = String(body.aceptaPoliticaDatos ?? '').trim().toLowerCase();
+            const consentAceptado = consentRaw === 'true' || consentRaw === '1' || consentRaw === 'on';
+            if (!consentAceptado) {
+                return res.status(400).json({
+                    ok: false,
+                    error:
+                        'Debes aceptar la política de tratamiento y protección de datos personales para enviar la solicitud.'
+                });
+            }
+            const observacionesRaw = body.observaciones != null ? String(body.observaciones) : '';
+            if (observacionesRaw.length > 1000) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Observaciones: máximo 1000 caracteres.'
+                });
+            }
+            const observacionesPersist = observacionesRaw.trim() === '' ? null : observacionesRaw;
+            const rule = getNovedadRuleByType(tipoNovedad);
+            const requiredMinSupports = Number(rule?.requiredMinSupports || 0);
+            if (requiredMinSupports > 0 && files.length < requiredMinSupports) {
+                return res.status(400).json({
+                    ok: false,
+                    error: `Debes adjuntar al menos ${requiredMinSupports} soporte(s) para ${rule.displayName || tipoNovedad}.`
+                });
+            }
+
+            for (const file of files) {
+                const ext = path.extname(file.originalname || '').toLowerCase();
+                const mimeOk = !file.mimetype || allowedMimes.has(file.mimetype);
+                const extOk = allowedExt.has(ext);
+                const contentOk = await validateUploadMagicBytes(file);
+                if (!mimeOk || !extOk || !contentOk) {
+                    return res.status(400).json({ ok: false, error: 'Tipo de archivo no permitido. Solo PDF, JPG, PNG, XLS o XLSX.' });
+                }
+            }
+
+            const tipoKeyPostAdjuntos = String(rule?.key || normalizeNovedadTypeKey(tipoNovedad) || '');
+            if (tipoKeyPostAdjuntos === 'vacaciones_dinero') {
+                if (files.length < 1) {
                     return res.status(400).json({
                         ok: false,
-                        error: 'La cédula ingresada no pertenece a ningún colaborador registrado en el directorio.'
+                        error:
+                            'Vacaciones en dinero requiere adjuntar la carta con firma manuscrita (solicitud formal) en formato PDF.'
                     });
                 }
-                throw e;
+                for (const file of files) {
+                    const ext = path.extname(file.originalname || '').toLowerCase();
+                    const mime = String(file.mimetype || '').toLowerCase();
+                    if (ext !== '.pdf' || (mime && mime !== 'application/pdf')) {
+                        return res.status(400).json({
+                            ok: false,
+                            error:
+                                'Vacaciones en dinero solo admite archivos PDF para la carta de solicitud formal con firma manuscrita.'
+                        });
+                    }
+                }
             }
-            const joined = await pool.query(
-                `SELECT
-                    rp.id,
-                    rp.cedula,
-                    rp.fecha_fin,
-                    rp.cliente_destino,
-                    rp.causal,
-                    rp.created_at,
-                    rp.updated_at,
-                    c.nombre AS consultor,
-                    c.tipo_contrato,
-                    COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) AS cliente_actual,
-                    c.tarifa_cliente,
-                    c.montos_divisa,
-                    c.puesto,
-                    c.lider_catalogo,
-                    u_gp.full_name AS gp_nombre,
-                    c.perfil_cargo,
-                    c.sueldo_nomina AS salario,
-                    c.auxilio_transporte_obligatorio AS auxilios,
-                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
-                 FROM reubicaciones_pipeline rp
-                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                 LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id
-                 WHERE rp.id = $1::uuid`,
-                [row.id]
-            );
-            const item = normalizePipelineRow(joined.rows[0]);
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'reubicaciones_pipeline.create',
-                entityType: 'reubicaciones_pipeline',
-                entityId: row.id,
-                metadata: { cedula }
-            });
-            return res.status(201).json({ ok: true, item });
-        } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23503' ? 400 : 500);
-            if (st >= 500) console.error('POST directorio reubicaciones-pipeline:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear.' });
-        }
-    });
 
-    app.patch('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
-        try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-                return res.status(400).json({ ok: false, error: 'Id inválido' });
+            const rutasSoporte = [];
+            for (const file of files) {
+                if (s3Client) {
+                    const s3Key = buildS3SupportKey(body, file.originalname);
+                    await s3Client.send(new PutObjectCommand({
+                        Bucket: S3_BUCKET_NAME,
+                        Key: s3Key,
+                        Body: file.buffer,
+                        ContentType: file.mimetype || 'application/octet-stream',
+                        Metadata: {
+                            originalname: sanitizeFileName(file.originalname || ''),
+                            uploader: sanitizeSegment(body.correoSolicitante || body.nombre || 'anonimo')
+                        }
+                    }));
+                    rutasSoporte.push(s3Key);
+                } else {
+                    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+                    const ext = path.extname(file.originalname || '') || '.bin';
+                    const fallbackName = `soporte-${uniqueSuffix}${ext}`;
+                    await fs.promises.writeFile(path.join(uploadDir, fallbackName), file.buffer);
+                    rutasSoporte.push(`/assets/uploads/${fallbackName}`);
+                }
             }
-            const parsed = reubicacionesPipelinePatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const d = parsed.data;
-            const sets = [];
-            const vals = [];
-            let n = 1;
-            if (d.fecha_fin !== undefined) {
-                sets.push(`fecha_fin = $${n}::date`);
-                vals.push(d.fecha_fin);
-                n += 1;
+            let archivoRuta = null;
+            if (rutasSoporte.length === 1) {
+                archivoRuta = rutasSoporte[0];
+            } else if (rutasSoporte.length > 1) {
+                archivoRuta = JSON.stringify(rutasSoporte);
             }
-            if (d.cliente_destino !== undefined) {
-                sets.push(`cliente_destino = $${n}`);
-                vals.push(textOrNull(d.cliente_destino));
-                n += 1;
-            }
-            if (d.causal !== undefined) {
-                sets.push(`causal = $${n}`);
-                vals.push(textOrNull(d.causal));
-                n += 1;
-            }
-            if (sets.length === 0) return res.status(400).json({ ok: false, error: 'Sin cambios' });
-            sets.push('updated_at = NOW()');
-            vals.push(id);
-            const upd = await pool.query(
-                `UPDATE reubicaciones_pipeline SET ${sets.join(', ')} WHERE id = $${n}::uuid RETURNING id`,
-                vals
-            );
-            if (!upd.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
-            const joined = await pool.query(
-                `SELECT
-                    rp.id,
-                    rp.cedula,
-                    rp.fecha_fin,
-                    rp.cliente_destino,
-                    rp.causal,
-                    rp.created_at,
-                    rp.updated_at,
-                    c.nombre AS consultor,
-                    c.tipo_contrato,
-                    COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) AS cliente_actual,
-                    c.tarifa_cliente,
-                    c.montos_divisa,
-                    c.puesto,
-                    c.lider_catalogo,
-                    u_gp.full_name AS gp_nombre,
-                    c.perfil_cargo,
-                    c.sueldo_nomina AS salario,
-                    c.auxilio_transporte_obligatorio AS auxilios,
-                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
-                 FROM reubicaciones_pipeline rp
-                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                 LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id
-                 WHERE rp.id = $1::uuid`,
-                [id]
-            );
-            const item = normalizePipelineRow(joined.rows[0]);
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'reubicaciones_pipeline.patch',
-                entityType: 'reubicaciones_pipeline',
-                entityId: id,
-                metadata: d
-            });
-            return res.json({ ok: true, item });
-        } catch (e) {
-            console.error('PATCH directorio reubicaciones-pipeline:', e);
-            return res.status(500).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
-        }
-    });
+            const area = inferAreaFromNovedad(body);
 
-    app.delete('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
-        try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-                return res.status(400).json({ ok: false, error: 'Id inválido' });
+            const cedulaNorm = normalizeCedula(body.cedula || '');
+            if (!cedulaNorm) {
+                return res.status(400).json({ ok: false, error: 'Cédula inválida. Usa solo números, sin puntos ni comas.' });
             }
-            const del = await pool.query(`DELETE FROM reubicaciones_pipeline WHERE id = $1::uuid RETURNING id`, [id]);
-            if (!del.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'reubicaciones_pipeline.delete',
-                entityType: 'reubicaciones_pipeline',
-                entityId: id,
-                metadata: {}
-            });
-            return res.json({ ok: true, deleted: id });
-        } catch (e) {
-            console.error('DELETE directorio reubicaciones-pipeline:', e);
-            return res.status(500).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
-        }
-    });
-
-    app.get('/api/directorio/gp', ...readGuard, async (req, res) => {
-        try {
-            const rows = await listGpUsersForDirectorio();
-            return res.json({ ok: true, items: rows });
-        } catch (e) {
-            console.error('GET directorio gp:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar usuarios GP.' });
-        }
-    });
-
-    app.post('/api/directorio/gp', ...writeGuard, async (req, res) => {
-        try {
-            const parsed = gpCreateSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const area = getAreaFromRole('gp');
-            const placeholder = `cognito_gp_placeholder:${crypto.randomBytes(32).toString('hex')}`;
-            const row = await insertGpUserPlaceholder({
-                email: parsed.data.email,
-                fullName: parsed.data.full_name,
-                passwordPlaceholder: placeholder,
-                area
-            });
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'users.gp.create',
-                entityType: 'users',
-                entityId: row.id,
-                metadata: { email: row.email }
-            });
-            return res.status(201).json({ ok: true, item: row });
-        } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('POST directorio gp:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear el GP.' });
-        }
-    });
-
-    app.patch('/api/directorio/gp/:id', ...writeGuard, async (req, res) => {
-        try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
-            const parsed = gpPatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const before = await pool.query(
-                `SELECT id, is_active FROM users WHERE id = $1::uuid AND role = 'gp'::user_role`,
-                [id]
-            );
-            const row = await updateGpUserById(id, parsed.data);
-            if (!row) return res.status(404).json({ ok: false, error: 'GP no encontrado' });
-            if (parsed.data.is_active === false && before.rows[0]?.is_active) {
-                await clearGpUserReferences(id);
+            if (req.user?.authProvider === 'entra_consultor') {
+                const tokenCed = normalizeCedula(req.user.cedula || '');
+                if (!tokenCed || tokenCed !== cedulaNorm) {
+                    return res.status(403).json({ ok: false, error: 'La cédula no coincide con tu sesión.' });
+                }
             }
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'users.gp.patch',
-                entityType: 'users',
-                entityId: row.id,
-                metadata: parsed.data
-            });
-            return res.json({ ok: true, item: row });
-        } catch (e) {
-            console.error('PATCH directorio gp:', e);
-            return res.status(500).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
-        }
-    });
-
-    /** Cualquier usuario con rol `gp` puede vincular su JWT Cognito (`sub`) a la fila interna con el mismo email. */
-    app.post('/api/directorio/gp/vincular-cognito-self', verificarToken, adminActionLimiter, async (req, res) => {
-        try {
-            const role = normalizeRoleOrNull(req.user?.role);
-            if (role !== 'gp') {
-                return res.status(403).json({ ok: false, error: 'Solo usuarios con rol gp pueden vincular su cuenta.' });
-            }
-            const email =
-                String(req.user?.email || '')
-                    .trim()
-                    .toLowerCase() || '';
-            const sub = String(req.user?.sub || '').trim();
-            if (!email || !sub) {
-                return res.status(400).json({ ok: false, error: 'Token sin email o sub; no se puede vincular.' });
-            }
-            const row = await linkGpCognitoSubByEmail(email, sub);
-            if (!row) {
-                return res.status(404).json({
+            const colaborador = await getColaboradorByCedula(cedulaNorm);
+            if (!colaborador) {
+                return res.status(400).json({
                     ok: false,
-                    error: 'No hay fila interna GP activa con este correo. Pide a un administrador que te registre en el directorio.'
+                    error: 'La cédula no está registrada en el directorio de colaboradores. No se puede enviar la novedad.'
                 });
             }
-            return res.json({ ok: true, item: row });
-        } catch (e) {
-            const st = Number(e?.status) || 500;
-            if (st >= 500) console.error('POST vincular gp self:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo vincular.' });
-        }
+            const nombreColaborador = String(colaborador.nombre || '').trim();
 
+            const merged = resolvePostedContactFromColaborador(body, colaborador, normalizeCatalogValue);
+            const cliente = merged.cliente;
+            const lider = merged.lider;
+            const correoSolicitanteFinal = merged.correo;
+
+            if (!cliente || !lider) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'Cliente y líder son obligatorios. Completa el directorio del colaborador o selecciona cliente y líder válidos.'
+                });
+            }
+            const lideresValidos = await getLideresByCliente(cliente);
+            const liderNormPost = normalizeCatalogValue(lider);
+            const liderOk =
+                Boolean(liderNormPost) &&
+                lideresValidos.some((li) => foldForMatch(li) === foldForMatch(liderNormPost));
+            if (!liderOk) {
+                return res.status(400).json({ ok: false, error: 'El lider no pertenece al cliente seleccionado.' });
+            }
+
+            let fecha = parseDateOrNull(body.fecha);
+            let horaInicio = parseTimeOrNull(body.horaInicio);
+            let horaFin = parseTimeOrNull(body.horaFin);
+            let fechaInicio = parseDateOrNull(body.fechaInicio) || fecha;
+            let fechaFin = parseDateOrNull(body.fechaFin);
+            const novedadTypeKey = String(rule?.key || normalizeNovedadTypeKey(tipoNovedad) || '');
+            const todayUtc = new Date().toISOString().slice(0, 10);
+
+            let insertModalidad = null;
+            let insertFechaVotacion = null;
+            let insertUnidad = null;
+
+            if (novedadTypeKey === 'compensatorio_votacion_jurado') {
+                const tipoCanonInsert = String(rule?.displayName || tipoNovedad).trim();
+                tipoNovedad = tipoCanonInsert;
+                const rawMod = String(body.modalidad || body.modalidadVotacion || '')
+                    .trim()
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\s+/g, '_')
+                    .replace(/\+/g, '_');
+                const combinaUnaSolaLegacy = new Set(['jurado_y_voto', 'juradoyvoto', 'jurado_voto']);
+                if (combinaUnaSolaLegacy.has(rawMod)) {
+                    return res.status(422).json({
+                        ok: false,
+                        error:
+                            'La modalidad «jurado y voto» en una sola solicitud ya no aplica. Si cumpliste ambas figuras, radica dos veces: una como jurado (1 día) y otra como votante (medio día con franja horaria).'
+                    });
+                }
+                const modAlias = {
+                    solo_voto: 'solo_voto',
+                    solovoto: 'solo_voto',
+                    voto: 'solo_voto',
+                    votante: 'solo_voto',
+                    solo_jurado: 'solo_jurado',
+                    solojurado: 'solo_jurado',
+                    jurado: 'solo_jurado'
+                };
+                const modalidadKey =
+                    modAlias[rawMod] || (['solo_voto', 'solo_jurado'].includes(rawMod) ? rawMod : '');
+                if (!modalidadKey || !['solo_jurado', 'solo_voto'].includes(modalidadKey)) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'Selecciona modalidad: jurado (1 día) o votación / medio día (con horas de disfrute).'
+                    });
+                }
+                const fv = parseDateOrNull(body.fechaVotacion || body.fecha_votacion);
+                const fd = parseDateOrNull(body.fechaDisfrute || body.fechaDisfruteVotacion || body.fechaInicio);
+                if (!fv) {
+                    return res.status(422).json({ ok: false, error: 'La fecha de votación es obligatoria.' });
+                }
+                if (!fd) {
+                    return res.status(422).json({ ok: false, error: 'La fecha de disfrute es obligatoria.' });
+                }
+                if (!FECHAS_VOTACION_HABILITADAS.has(fv)) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'La fecha de la jornada electoral no está habilitada. Selecciona una de las jornadas válidas.'
+                    });
+                }
+                const diasVentana = modalidadKey === 'solo_jurado' ? DIAS_DISFRUTE_JURADO : DIAS_DISFRUTE_VOTO;
+                const maxVentana = ymdAddCalendarDaysUTC(fv, diasVentana);
+                const hoyBogotaYmd = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+                if (!maxVentana || ymdCompareStrings(hoyBogotaYmd, maxVentana) > 0) {
+                    return res.status(422).json({
+                        ok: false,
+                        error:
+                            `Plazo vencido: el compensatorio debe solicitarse dentro de los ${diasVentana} días calendario posteriores a la votación`
+                    });
+                }
+                if (ymdCompareStrings(fd, fv) < 0 || ymdCompareStrings(fd, maxVentana) > 0) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: `La fecha de disfrute debe estar dentro de los ${diasVentana} días calendario siguientes a la votación`
+                    });
+                }
+
+                if (modalidadKey === 'solo_jurado') {
+                    if (files.length < 1) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'Faltan soportes obligatorios: certificado de jurado de votación'
+                        });
+                    }
+                    fechaInicio = fd;
+                    fechaFin = fd;
+                    fecha = null;
+                    horaInicio = null;
+                    horaFin = null;
+                } else {
+                    const hiVote = parseTimeOrNull(body.horaDisfruteInicio || body.horaDisfruteVotoInicio);
+                    const hfVote = parseTimeOrNull(body.horaDisfruteFin || body.horaDisfruteVotoFin);
+                    if (!hiVote || !hfVote) {
+                        return res.status(422).json({
+                            ok: false,
+                            error:
+                                'En votación / medio día indica hora de inicio y fin del disfrute (HH:mm) sobre la misma fecha de disfrute; el rango no puede superar 4 horas.'
+                        });
+                    }
+                    const hvVote = diffDecimalHoursFromHhmmss(hiVote, hfVote);
+                    if (hvVote == null) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'La hora fin del disfrute debe ser posterior a la hora de inicio.'
+                        });
+                    }
+                    if (hvVote > 4) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'El rango horario del disfrute no puede superar 4 horas.'
+                        });
+                    }
+                    if (files.length < 1) {
+                        return res.status(422).json({ ok: false, error: 'Faltan soportes obligatorios: certificado electoral' });
+                    }
+                    fechaInicio = fd;
+                    fechaFin = fd;
+                    fecha = fd;
+                    horaInicio = hiVote;
+                    horaFin = hfVote;
+                }
+
+                const dupQ = await pool.query(
+                    `SELECT id FROM novedades
+                     WHERE cedula = $1
+                       AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                           = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                       AND fecha_votacion = $3::date
+                       AND coalesce(modalidad, '') = $4
+                       AND estado IN ('Pendiente'::novedad_estado, 'Aprobado'::novedad_estado)
+                     LIMIT 1`,
+                    [cedulaNorm, tipoCanonInsert, fv, modalidadKey]
+                );
+                if (dupQ.rows.length) {
+                    return res.status(409).json({
+                        ok: false,
+                        error: 'Ya existe una solicitud de esta misma modalidad para esta jornada electoral'
+                    });
+                }
+
+                /**
+                 * Votación (medio día): si ya existe otra radicación de votación para la MISMA
+                 * fecha de disfrute (p. ej. una por la jornada del 31-may y otra por la del 21-jun),
+                 * sus franjas horarias no pueden solaparse. Los bordes que se tocan (fin == inicio)
+                 * no cuentan como solape. Comparación lexicográfica de HH:MM:SS sobre el mismo día.
+                 */
+                if (modalidadKey === 'solo_voto' && horaInicio && horaFin) {
+                    const solapeQ = await pool.query(
+                        `SELECT hora_inicio, hora_fin, fecha_votacion FROM novedades
+                         WHERE cedula = $1
+                           AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                               = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                           AND coalesce(modalidad, '') = 'solo_voto'
+                           AND fecha_inicio = $3::date
+                           AND fecha_votacion IS DISTINCT FROM $4::date
+                           AND hora_inicio IS NOT NULL AND hora_fin IS NOT NULL
+                           AND estado IN ('Pendiente'::novedad_estado, 'Aprobado'::novedad_estado)`,
+                        [cedulaNorm, tipoCanonInsert, fd, fv]
+                    );
+                    const solapada = findVotacionFranjaSolapada(horaInicio, horaFin, solapeQ.rows);
+                    if (solapada) {
+                        const exIni = toHmsForCompare(solapada.hora_inicio).slice(0, 5);
+                        const exFin = toHmsForCompare(solapada.hora_fin).slice(0, 5);
+                        return res.status(409).json({
+                            ok: false,
+                            error:
+                                `Ya tienes una solicitud de votación para ese mismo día de disfrute en un horario que se cruza (${exIni}–${exFin}). Elige una franja que no se solape.`
+                        });
+                    }
+                }
+                insertModalidad = modalidadKey;
+                insertFechaVotacion = fv;
+            }
+
+            /**
+             * Tipos que comparten la misma mecánica de `unidad` (Días hábiles vs Horas mismo día)
+             * con ventana "desde hoy hasta 1 año calendario". Permiso remunerado fue el primero;
+             * Permiso no remunerado y Permiso compensatorio en tiempo replican 1:1.
+             */
+            const TYPES_CON_UNIDAD = new Set([
+                'permiso_remunerado',
+                'permiso_no_remunerado',
+                'permiso_compensatorio_tiempo'
+            ]);
+            const permisoConToggleLabel = rule?.displayName || tipoNovedad;
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey)) {
+                const unidadRaw = String(body.unidad || body.permisoUnidad || 'dias').trim().toLowerCase();
+                const unidad = unidadRaw === 'horas' ? 'horas' : 'dias';
+                const pFi = parseDateOrNull(body.fechaInicio);
+                const pFf = parseDateOrNull(body.fechaFin);
+                const pF = parseDateOrNull(body.fecha);
+                const pHi = parseTimeOrNull(body.horaInicio);
+                const pHf = parseTimeOrNull(body.horaFin);
+                const rangoDistinto = Boolean(pFi && pFf && pFf !== pFi);
+                if (unidad === 'horas') {
+                    if (rangoDistinto) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'Modo inválido: combinación de campos no permitida.'
+                        });
+                    }
+                    const day = pF || pFi || pFf;
+                    if (!day || !pHi || !pHf) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'En modo horas indica la fecha del permiso y hora de inicio y fin.'
+                        });
+                    }
+                    const horasVal = diffDecimalHoursFromHhmmss(pHi, pHf);
+                    if (horasVal == null) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'La hora de fin debe ser posterior a la hora de inicio'
+                        });
+                    }
+                    fechaInicio = day;
+                    fechaFin = day;
+                    fecha = day;
+                    horaInicio = pHi;
+                    horaFin = pHf;
+                    insertUnidad = 'horas';
+                } else {
+                    if (pHi && pHf) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'Modo inválido: combinación de campos no permitida.'
+                        });
+                    }
+                    if (!pFi || !pFf) {
+                        return res.status(400).json({
+                            ok: false,
+                            error: `${permisoConToggleLabel} en días requiere fecha inicio y fecha fin.`
+                        });
+                    }
+                    if (pFf < pFi) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: 'La fecha de fin debe ser posterior o igual a la fecha de inicio'
+                        });
+                    }
+                    fechaInicio = pFi;
+                    fechaFin = pFf;
+                    horaInicio = null;
+                    horaFin = null;
+                    fecha = null;
+                    insertUnidad = 'dias';
+                }
+            }
+
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey) && (insertUnidad === 'horas' || insertUnidad === 'dias')) {
+                const minPermisoRem = todayUtc;
+                const maxPermisoRem = (() => {
+                    const d = parseDateAtUtcStart(todayUtc);
+                    if (!d) return null;
+                    d.setUTCFullYear(d.getUTCFullYear() + 1);
+                    return d.toISOString().slice(0, 10);
+                })();
+                const antesDeMin = (ymd) => Boolean(ymd) && ymdCompareStrings(String(ymd), minPermisoRem) < 0;
+                const despuesDeMax = (ymd) =>
+                    Boolean(maxPermisoRem) && Boolean(ymd) && ymdCompareStrings(String(ymd), maxPermisoRem) > 0;
+                if (insertUnidad === 'horas') {
+                    if (antesDeMin(fechaInicio) || despuesDeMax(fechaInicio)) {
+                        return res.status(422).json({
+                            ok: false,
+                            error:
+                                `${permisoConToggleLabel} (horas): la fecha debe ser desde hoy y no posterior a un año calendario desde hoy.`
+                        });
+                    }
+                } else {
+                    if (antesDeMin(fechaInicio) || despuesDeMax(fechaInicio) || antesDeMin(fechaFin) || despuesDeMax(fechaFin)) {
+                        return res.status(422).json({
+                            ok: false,
+                            error:
+                                `${permisoConToggleLabel} (días): las fechas deben ser desde hoy y no posteriores a un año calendario desde hoy.`
+                        });
+                    }
+                }
+            }
+
+            if (novedadTypeKey !== 'vacaciones_dinero' && !fechaInicio) {
+                return res.status(400).json({ ok: false, error: 'Fecha Inicio es obligatoria.' });
+            }
+            if (fechaFin && fechaInicio && fechaFin < fechaInicio) {
+                return res.status(400).json({ ok: false, error: 'Fecha Fin no puede ser menor a Fecha Inicio.' });
+            }
+            if (novedadTypeKey === 'incapacidad' && fechaInicio > todayUtc) {
+                return res.status(400).json({ ok: false, error: 'Incapacidad no puede tener Fecha Inicio futura.' });
+            }
+
+            let cantidadHoras = Number(body.cantidadHoras || 0) || 0;
+            let horasDiurnas = Number(body.horasDiurnas || 0) || 0;
+            let horasNocturnas = Number(body.horasNocturnas || 0) || 0;
+            let horasRecargoDomingo = 0;
+            let horasRecargoDomingoDiurnas = 0;
+            let horasRecargoDomingoNocturnas = 0;
+            let tipoHoraExtra = String(body.tipoHoraExtra || '').trim() || null;
+            let heDomingoObservacionInsert = null;
+
+            if (novedadTypeKey === 'compensatorio_votacion_jurado') {
+                if (insertModalidad === 'solo_jurado') {
+                    cantidadHoras = 1;
+                } else if (insertModalidad === 'solo_voto' && horaInicio && horaFin) {
+                    const hvComp = diffDecimalHoursFromHhmmss(horaInicio, horaFin);
+                    cantidadHoras = hvComp != null ? Number(hvComp.toFixed(2)) : 0;
+                }
+            }
+
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey) && insertUnidad === 'horas' && horaInicio && horaFin) {
+                const hv = diffDecimalHoursFromHhmmss(horaInicio, horaFin);
+                cantidadHoras = hv != null ? Number(hv.toFixed(2)) : 0;
+            }
+
+            if (TYPES_CON_UNIDAD.has(novedadTypeKey) && insertUnidad === 'dias' && fechaInicio && fechaFin) {
+                cantidadHoras = countBusinessDaysInclusive(fechaInicio, fechaFin);
+                if (cantidadHoras <= 0) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: `El rango seleccionado no contiene días hábiles para ${String(permisoConToggleLabel).toLowerCase()}.`
+                    });
+                }
+            }
+
+            if (novedadTypeKey === 'vacaciones_tiempo') {
+                if (!fechaFin) {
+                    return res.status(400).json({ ok: false, error: 'Vacaciones en tiempo requiere Fecha Fin.' });
+                }
+                const businessDays = countBusinessDaysInclusive(fechaInicio, fechaFin);
+                if (businessDays <= 0) {
+                    return res.status(400).json({ ok: false, error: 'El rango de fechas no contiene días hábiles para vacaciones.' });
+                }
+                cantidadHoras = businessDays;
+            }
+
+            if (novedadTypeKey === 'vacaciones_dinero') {
+                const diasRaw = Number(body.diasSolicitados ?? body.cantidadHoras ?? 0);
+                if (!Number.isFinite(diasRaw) || diasRaw < 1 || Math.floor(diasRaw) !== diasRaw) {
+                    return res.status(400).json({
+                        ok: false,
+                        error: 'Vacaciones en dinero requiere cantidad de días (entero mayor o igual a 1).'
+                    });
+                }
+                cantidadHoras = Math.floor(diasRaw);
+            }
+
+            if (novedadTypeKey === 'hora_extra') {
+                if (!horaInicio || !horaFin || !fechaInicio || !fechaFin) {
+                    return res.status(400).json({ ok: false, error: 'Hora Extra requiere Fecha Inicio/Fin y Hora Inicio/Fin.' });
+                }
+                const startMs = toUtcMsFromDateAndTime(fechaInicio, horaInicio);
+                const endMs = toUtcMsFromDateAndTime(fechaFin, horaFin);
+                const MAX_HORA_EXTRA_MS = 168 * 60 * 60 * 1000;
+                if (
+                    startMs != null &&
+                    endMs != null &&
+                    Number.isFinite(endMs - startMs) &&
+                    endMs - startMs > MAX_HORA_EXTRA_MS
+                ) {
+                    return res.status(400).json({
+                        ok: false,
+                        error: 'Hora Extra: el lapso entre inicio y fin no puede superar 168 horas (7 días).'
+                    });
+                }
+                const festivosSetHe = await festivosService.getFestivosSet();
+                const split = computeHoraExtraSplitBogota(startMs, endMs, festivosSetHe);
+                if (split.total <= 0) {
+                    return res.status(400).json({ ok: false, error: 'La fecha/hora fin debe ser mayor a la fecha/hora inicio.' });
+                }
+                cantidadHoras = split.total;
+                horasDiurnas = split.diurnas;
+                horasNocturnas = split.nocturnas;
+                horasRecargoDomingo = split.horasRecargoDomingo;
+                horasRecargoDomingoDiurnas = split.horasRecargoDomingoDiurnas;
+                horasRecargoDomingoNocturnas = split.horasRecargoDomingoNocturnas;
+                tipoHoraExtra = resolveHoraExtraLabel(
+                    horasDiurnas,
+                    horasNocturnas,
+                    horasRecargoDomingoDiurnas,
+                    horasRecargoDomingoNocturnas
+                );
+
+                const rowsHeDom = await listHoraExtraByCedulaForDomingoPolicy(cedulaNorm);
+                const syntheticHeDom = buildSyntheticHoraExtraRow({
+                    nombre: nombreColaborador,
+                    cedula: cedulaNorm,
+                    fechaInicio,
+                    fechaFin,
+                    horaInicio,
+                    horaFin
+                });
+                const depHeDom = { toUtcMsFromDateAndTime, resolveFallbackDateKeyFromRow, festivosSet: festivosSetHe };
+                const prevHeDom = computeHeDomingoCompensacionPreview(
+                    rowsHeDom,
+                    syntheticHeDom,
+                    depHeDom,
+                    buildConsultantKeyHeDomingo
+                );
+                const rawCompHe = String(body.heDomingoCompensacion || '').trim().toLowerCase();
+                const rawDiaComp = String(body.diaCompensatorioYmd || body.domingoCompensatorioYmd || '').trim();
+                if (prevHeDom.requiereEleccionCompensacion) {
+                    if (rawCompHe !== 'tiempo' && rawCompHe !== 'dinero') {
+                        return res.status(400).json({
+                            ok: false,
+                            error: 'Hora Extra (segundo domingo con HE en el mes): elige compensación en tiempo o en dinero.'
+                        });
+                    }
+                    if (rawCompHe === 'tiempo') {
+                        if (!prevHeDom.domingoTrabajadoYmd) {
+                            return res.status(400).json({
+                                ok: false,
+                                error: 'No se pudo determinar el domingo trabajado para validar el día compensatorio.'
+                            });
+                        }
+                        if (!isYmdEnVentanaCompensatorio(prevHeDom.domingoTrabajadoYmd, rawDiaComp)) {
+                            return res.status(400).json({
+                                ok: false,
+                                error: `Indica un día compensatorio entre ${prevHeDom.compensatorioTiempoMinYmd} y ${prevHeDom.compensatorioTiempoMaxYmd} (lunes a sábado de la semana siguiente al domingo trabajado).`
+                            });
+                        }
+                        heDomingoObservacionInsert = buildHeDomingoCompObservacionLine({
+                            mode: 'tiempo',
+                            workedYmd: prevHeDom.domingoTrabajadoYmd,
+                            compensatorioYmd: rawDiaComp
+                        });
+                    } else {
+                        heDomingoObservacionInsert = buildHeDomingoCompObservacionLine({
+                            mode: 'dinero',
+                            workedYmd: prevHeDom.domingoTrabajadoYmd
+                        });
+                    }
+                } else if (prevHeDom.esTercerDomingoOMas && prevHeDom.domingoTrabajadoYmd) {
+                    heDomingoObservacionInsert = buildHeDomingoCompObservacionLine({
+                        mode: 'tercer_domingo',
+                        workedYmd: prevHeDom.domingoTrabajadoYmd
+                    });
+                } else if (rawCompHe || rawDiaComp) {
+                    return res.status(400).json({
+                        ok: false,
+                        error: 'Esta Hora Extra no aplica elección de compensación dominical; no envíes compensación en tiempo/dinero.'
+                    });
+                }
+            }
+
+            let montoCop = null;
+            if (novedadTypeKey === 'bonos') {
+                const rawMonto = body.montoCop ?? body.montoBono ?? body.valorBonificacion;
+                const parsed = parseMontoCopFromBody(rawMonto);
+                if (!Number.isFinite(parsed) || parsed <= 0) {
+                    return res.status(400).json({ ok: false, error: 'Bonos requiere un valor en pesos mayor a cero.' });
+                }
+                montoCop = Number(parsed.toFixed(2));
+                cantidadHoras = 0;
+            } else if (novedadTypeKey === 'apoyo') {
+                /**
+                 * HU disponibilidad-monto-diligenciado-por-gp: el consultor radica SIN monto.
+                 * El valor en pesos lo diligencia el GP (o super_admin/CAC) en el momento de aprobar
+                 * o rechazar la novedad vía POST /api/actualizar-estado. Cualquier monto enviado
+                 * por el cliente al radicar se ignora intencionalmente (defensa en profundidad).
+                 */
+                montoCop = null;
+                cantidadHoras = 0;
+            }
+
+            const gpUserIdSnapshot = colaborador.gp_user_id || null;
+
+            let insertFechaInicio = fechaInicio;
+            let insertFechaFin = fechaFin;
+            if (novedadTypeKey === 'vacaciones_dinero') {
+                insertFechaInicio = fechaInicio || todayUtc;
+                insertFechaFin = null;
+            }
+
+            const INSERT_NOVEDAD_SQL = `INSERT INTO novedades (
+                    nombre, cedula, correo_solicitante, cliente, lider, gp_user_id, tipo_novedad, area,
+                    fecha, hora_inicio, hora_fin, fecha_inicio, fecha_fin,
+                    cantidad_horas, horas_diurnas, horas_nocturnas, horas_recargo_domingo, horas_recargo_domingo_diurnas, horas_recargo_domingo_nocturnas, tipo_hora_extra, soporte_ruta, monto_cop, he_domingo_observacion,
+                    modalidad, fecha_votacion, unidad, observaciones,
+                    estado
+                )
+                VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8::user_area,
+                    $9::date, $10::time, $11::time, $12::date, $13::date,
+                    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                    $24, $25::date, $26, $27,
+                    'Pendiente'::novedad_estado
+                )
+                RETURNING id`;
+
+            const buildInsertParams = ({
+                segFechaInicio,
+                segFechaFin,
+                segCantidadHoras,
+                segObservaciones
+            }) => [
+                nombreColaborador,
+                cedulaNorm,
+                correoSolicitanteFinal,
+                cliente,
+                lider,
+                gpUserIdSnapshot,
+                tipoNovedad,
+                area,
+                fecha,
+                horaInicio,
+                horaFin,
+                segFechaInicio,
+                segFechaFin,
+                segCantidadHoras,
+                horasDiurnas,
+                horasNocturnas,
+                horasRecargoDomingo,
+                horasRecargoDomingoDiurnas,
+                horasRecargoDomingoNocturnas,
+                tipoHoraExtra,
+                archivoRuta,
+                montoCop,
+                heDomingoObservacionInsert || null,
+                insertModalidad,
+                insertFechaVotacion || null,
+                insertUnidad || null,
+                segObservaciones
+            ];
+
+            const isPendingDuplicateError = (insertError) =>
+                String(insertError?.code || '') === '23505' &&
+                String(insertError?.constraint || '') === 'uq_novedades_pendiente_dedup';
+
+            const pendingDuplicateResponse = () =>
+                res.status(409).json({
+                    ok: false,
+                    error:
+                        'Ya tienes una solicitud pendiente del mismo tipo para esas fechas. Espera la decisión o contáctate con Capital Humano.'
+                });
+
+            /**
+             * Anti-duplicados (spec evitar-duplicados-radicacion-novedad):
+             * Bloquear si la misma cédula ya tiene una novedad PENDIENTE con el mismo tipo y mismas
+             * fechas/horas. No aplica a `compensatorio_votacion_jurado` (tiene su propia regla previa).
+             */
+            const findPendingDuplicateForInsert = async (dbClient, fi, ff) => {
+                if (novedadTypeKey === 'compensatorio_votacion_jurado' || !fi) {
+                    return null;
+                }
+                const dupPend = await dbClient.query(
+                    `SELECT id FROM novedades
+                     WHERE cedula = $1
+                       AND lower(regexp_replace(trim(coalesce(tipo_novedad, '')), '\\s+', ' ', 'g'))
+                           = lower(regexp_replace(trim($2::text), '\\s+', ' ', 'g'))
+                       AND fecha_inicio = $3::date
+                       AND COALESCE(fecha_fin, fecha_inicio) = COALESCE($4::date, $3::date)
+                       AND COALESCE(hora_inicio, TIME '00:00:00') = COALESCE($5::time, TIME '00:00:00')
+                       AND COALESCE(hora_fin,    TIME '00:00:00') = COALESCE($6::time, TIME '00:00:00')
+                       AND estado = 'Pendiente'::novedad_estado
+                     LIMIT 1`,
+                    [cedulaNorm, tipoNovedad, fi, ff, horaInicio, horaFin]
+                );
+                return dupPend.rows.length ? dupPend.rows[0].id : null;
+            };
+
+            const cantidadDeps = {
+                countCalendarDaysInclusive,
+                countBusinessDaysInclusive: countBusinessDaysInclusiveCantidad
+            };
+
+            const publishFormSubmittedForRow = async ({
+                novedadId,
+                rowFechaInicio,
+                rowFechaFin,
+                rowCantidadHoras
+            }) => {
+                const emailPayload = buildFormSubmittedNotificationEvent({
+                    novedadId,
+                    body,
+                    nombreColaborador,
+                    cliente,
+                    lider,
+                    tipoNovedad,
+                    fechaInicio: rowFechaInicio,
+                    fechaFin: rowFechaFin,
+                    cantidadHoras: rowCantidadHoras,
+                    montoCop,
+                    correoSolicitanteResolved: correoSolicitanteFinal
+                });
+                try {
+                    if (typeof resolveApproverEmailsForNovedad === 'function') {
+                        const { emails, reason, insights } = await resolveApproverEmailsForNovedad(tipoNovedad, {
+                            cliente
+                        });
+                        emailPayload.admin.notifyTo = emails;
+                        if (emails.length === 0) {
+                            console.warn(
+                                '[email-notifications] notifyTo vacío desde Cognito; la Lambda no usará EMAIL_ADMIN_TO* (solo correo al solicitante).',
+                                { novedadId, tipoNovedad, reason, insights }
+                            );
+                        }
+                    }
+                } catch (resolverErr) {
+                    emailPayload.admin.notifyTo = [];
+                    console.error('[email-notifications] Error resolviendo correos de approvers (Cognito)', {
+                        novedadId,
+                        tipoNovedad,
+                        message: resolverErr?.message || String(resolverErr)
+                    });
+                }
+                try {
+                    const publishResult = await emailNotificationsPublisher?.publishFormSubmitted?.(emailPayload);
+                    if (publishResult?.accepted) {
+                        console.log('[email-notifications] Evento form_submitted aceptado.', {
+                            eventId: emailPayload.eventId,
+                            requestId: publishResult.requestId
+                        });
+                    } else if (!publishResult?.skipped) {
+                        console.warn('[email-notifications] Evento no aceptado.', {
+                            eventId: emailPayload.eventId,
+                            statusCode: publishResult?.statusCode || 0
+                        });
+                    }
+                } catch (notifyError) {
+                    console.error('[email-notifications] Error publicando evento form_submitted', {
+                        eventId: emailPayload.eventId,
+                        message: notifyError?.message || String(notifyError)
+                    });
+                }
+            };
+
+            const applyMonthlySplit =
+                novedadTypeKey !== 'vacaciones_dinero' &&
+                insertFechaFin &&
+                shouldSplitNovedadByCalendarMonth(novedadTypeKey, insertFechaInicio, insertFechaFin);
+
+            if (applyMonthlySplit) {
+                const originalFi = insertFechaInicio;
+                const originalFf = insertFechaFin;
+                const segments = splitDateRangeByCalendarMonth(originalFi, originalFf);
+                if (!segments.length) {
+                    return res.status(422).json({
+                        ok: false,
+                        error: 'No se pudo dividir el rango de fechas por mes calendario.'
+                    });
+                }
+
+                const segmentRows = [];
+                for (const seg of segments) {
+                    const segCantidad = computeSegmentCantidadHoras(
+                        novedadTypeKey,
+                        seg.fechaInicio,
+                        seg.fechaFin,
+                        cantidadDeps
+                    );
+                    if (segCantidad <= 0) {
+                        return res.status(422).json({
+                            ok: false,
+                            error: `El segmento ${seg.segmentIndex}/${seg.segmentTotal} no contiene días válidos para ${tipoNovedad}.`
+                        });
+                    }
+                    const dupId = await findPendingDuplicateForInsert(pool, seg.fechaInicio, seg.fechaFin);
+                    if (dupId) {
+                        return pendingDuplicateResponse();
+                    }
+                    segmentRows.push({
+                        ...seg,
+                        cantidadHoras: segCantidad,
+                        observaciones: buildSegmentObservacion(
+                            observacionesPersist,
+                            seg.segmentIndex,
+                            seg.segmentTotal,
+                            originalFi,
+                            originalFf
+                        )
+                    });
+                }
+
+                const dbClient = typeof pool.connect === 'function' ? await pool.connect() : pool;
+                const insertedIds = [];
+                try {
+                    if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                        await dbClient.query('BEGIN');
+                    }
+                    for (const seg of segmentRows) {
+                        let insertResult;
+                        try {
+                            insertResult = await dbClient.query(
+                                INSERT_NOVEDAD_SQL,
+                                buildInsertParams({
+                                    segFechaInicio: seg.fechaInicio,
+                                    segFechaFin: seg.fechaFin,
+                                    segCantidadHoras: seg.cantidadHoras,
+                                    segObservaciones: seg.observaciones
+                                })
+                            );
+                        } catch (insertError) {
+                            if (isPendingDuplicateError(insertError)) {
+                                if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                                    await dbClient.query('ROLLBACK');
+                                }
+                                return pendingDuplicateResponse();
+                            }
+                            throw insertError;
+                        }
+                        insertedIds.push(String(insertResult?.rows?.[0]?.id || ''));
+                    }
+                    if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                        await dbClient.query('COMMIT');
+                    }
+                } catch (splitInsertError) {
+                    if (typeof dbClient.query === 'function' && dbClient !== pool) {
+                        try {
+                            await dbClient.query('ROLLBACK');
+                        } catch (_rollbackErr) {
+                            /* ignore */
+                        }
+                    }
+                    throw splitInsertError;
+                } finally {
+                    if (typeof dbClient.release === 'function') {
+                        dbClient.release();
+                    }
+                }
+
+                for (let i = 0; i < segmentRows.length; i += 1) {
+                    await publishFormSubmittedForRow({
+                        novedadId: insertedIds[i],
+                        rowFechaInicio: segmentRows[i].fechaInicio,
+                        rowFechaFin: segmentRows[i].fechaFin,
+                        rowCantidadHoras: segmentRows[i].cantidadHoras
+                    });
+                }
+
+                if (novedadTypeKey === 'hora_extra') {
+                    const festivosSetHePost = await festivosService.getFestivosSet();
+                    const domingoKeys = new Set();
+                    for (const seg of segmentRows) {
+                        const segStartMs = toUtcMsFromDateAndTime(seg.fechaInicio, horaInicio);
+                        const segEndMs = toUtcMsFromDateAndTime(seg.fechaFin, horaFin);
+                        for (const k of collectRecargoDayKeysInInterval(segStartMs, segEndMs, festivosSetHePost)) {
+                            domingoKeys.add(k);
+                        }
+                    }
+                    if (domingoKeys.size) {
+                        await recomputeAndPersistDomingoRecargoGroup(
+                            pool,
+                            cedulaNorm,
+                            [...domingoKeys],
+                            festivosSetHePost
+                        );
+                    }
+                }
+
+                return res.json({
+                    ok: true,
+                    success: true,
+                    id: insertedIds[0] || '',
+                    ids: insertedIds,
+                    splitCount: insertedIds.length
+                });
+            }
+
+            const dupIdSingle = await findPendingDuplicateForInsert(pool, insertFechaInicio, insertFechaFin);
+            if (dupIdSingle) {
+                return pendingDuplicateResponse();
+            }
+
+            let insertResult;
+            try {
+                insertResult = await pool.query(
+                    INSERT_NOVEDAD_SQL,
+                    buildInsertParams({
+                        segFechaInicio: insertFechaInicio,
+                        segFechaFin: insertFechaFin,
+                        segCantidadHoras: cantidadHoras,
+                        segObservaciones: observacionesPersist
+                    })
+                );
+            } catch (insertError) {
+                if (isPendingDuplicateError(insertError)) {
+                    return pendingDuplicateResponse();
+                }
+                throw insertError;
+            }
+            const novedadId = insertResult?.rows?.[0]?.id || '';
+            if (novedadTypeKey === 'hora_extra') {
+                const heStartMs = toUtcMsFromDateAndTime(insertFechaInicio, horaInicio);
+                const heEndMs = toUtcMsFromDateAndTime(insertFechaFin, horaFin);
+                const festivosSetHePost = await festivosService.getFestivosSet();
+                await triggerDomingoRecargoRecomputeForInterval(
+                    pool,
+                    cedulaNorm,
+                    heStartMs,
+                    heEndMs,
+                    festivosSetHePost
+                );
+            }
+            await publishFormSubmittedForRow({
+                novedadId,
+                rowFechaInicio: insertFechaInicio,
+                rowFechaFin: insertFechaFin,
+                rowCantidadHoras: cantidadHoras
+            });
+            return res.json({ ok: true, success: true, id: novedadId });
+        } catch (error) {
+            console.error('Error al guardar:', error);
+            return res.status(500).json({ ok: false, error: 'Error al guardar' });
+        }
+        }
+    );
+
+    app.get('/api/soportes/url', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), async (req, res) => {
+        try {
+            const key = String(req.query.key || '').trim();
+            if (!key) return res.status(400).json({ ok: false, error: 'Key de soporte requerida' });
+
+            if (key.startsWith('/assets/')) {
+                const safePath = path.posix.normalize(key.replace(/\\/g, '/'));
+                if (!safePath.startsWith('/assets/uploads/')) {
+                    return res.status(400).json({ ok: false, error: 'Clave de soporte inválida' });
+                }
+                const origin = `${req.protocol}://${req.get('host')}`;
+                return res.json({ ok: true, url: `${origin}${safePath}`, source: 'local' });
+            }
+
+            if (!s3Client) {
+                return res.status(400).json({
+                    ok: false,
+                    error:
+                        'S3 no está configurado en backend. Revise .env: S3_ENABLED=true requiere S3_BUCKET_NAME y credenciales AWS (S3_AUTH_MODE=keys → AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).'
+                });
+            }
+
+            const command = new GetObjectCommand({
+                Bucket: S3_BUCKET_NAME,
+                Key: key
+            });
+            const url = await getSignedUrl(s3Client, command, { expiresIn: S3_SIGNED_URL_TTL_SEC });
+            return res.json({ ok: true, url, source: 's3', expiresIn: S3_SIGNED_URL_TTL_SEC });
+        } catch (error) {
+            console.error('Error firmando URL de soporte:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo generar URL firmada' });
+        }
     });
 
-    app.post('/api/directorio/reubicaciones-sync/backfill', ...writeGuard, async (req, res) => {
-        console.log('===== BACKFILL EJECUTADO =====');
-        
+    app.get('/api/soportes/preview', verificarToken, allowAnyPanel(['dashboard', 'calendar', 'gestion']), async (req, res) => {
         try {
-            const { dryRun = false, limit = 100 } = req.body;
-
-            // Si pool no es válido, usar global.__pool
-            const db = pool && typeof pool.query === 'function' ? pool : global.__pool;
-
-            if (!db || typeof db.query !== 'function') {
-                console.error('No hay pool disponible');
-                return res.status(500).json({ 
-                    ok: false, 
-                    error: 'No hay conexión a la base de datos',
-                    debug: { 
-                        poolInClosure: !!pool, 
-                        globalPool: !!global.__pool 
-                    }
-                });
+            const key = String(req.query.key || '').trim();
+            if (!key) return res.status(400).json({ ok: false, error: 'Key de soporte requerida' });
+            const lower = key.toLowerCase();
+            if (!(lower.endsWith('.xls') || lower.endsWith('.xlsx'))) {
+                return res.status(400).json({ ok: false, error: 'La previsualización aplica solo para Excel (XLS/XLSX).' });
             }
 
-            const result = await recoverySync({
-                pool: db,
-                notifyService: require('../notifications/emailNotificationsPublisher'),
-                dryRun: Boolean(dryRun),
-                limit: Math.min(Number(limit) || 100, 500)
-            });
+            let workbookBuffer = null;
+            if (key.startsWith('/assets/')) {
+                const safePath = path.posix.normalize(key.replace(/\\/g, '/'));
+                if (!safePath.startsWith('/assets/uploads/')) {
+                    return res.status(400).json({ ok: false, error: 'Clave de soporte inválida' });
+                }
+                const absolutePath = path.join(process.cwd(), safePath.replace(/^\/+/, ''));
+                workbookBuffer = await fs.promises.readFile(absolutePath);
+            } else {
+                if (!s3Client) {
+                    return res.status(400).json({
+                        ok: false,
+                        error:
+                            'S3 no está configurado en backend. Revise .env: S3_ENABLED=true requiere S3_BUCKET_NAME y credenciales AWS (S3_AUTH_MODE=keys → AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY).'
+                    });
+                }
+                const s3Out = await s3Client.send(new GetObjectCommand({
+                    Bucket: S3_BUCKET_NAME,
+                    Key: key
+                }));
+                workbookBuffer = await streamToBuffer(s3Out.Body);
+            }
 
+            const workbook = xlsx.read(workbookBuffer, { type: 'buffer' });
+            const sheetName = workbook.SheetNames?.[0];
+            if (!sheetName) {
+                return res.status(404).json({ ok: false, error: 'El archivo Excel no contiene hojas.' });
+            }
+            const sheet = workbook.Sheets[sheetName];
+            const rows = xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+            const limited = rows.slice(0, 100).map((row) => (Array.isArray(row) ? row.slice(0, 20) : []));
             return res.json({
                 ok: true,
-                ...result,
-                message: dryRun 
-                    ? `Simulación: ${result.found} fichas pendientes encontradas` 
-                    : `${result.processed} fichas procesadas, ${result.errors} errores`
+                sheetName,
+                rows: limited,
+                totalRows: rows.length,
+                truncated: rows.length > 100
             });
         } catch (error) {
-            console.error('[Backfill] Error completo:', error);
-            return res.status(500).json({
-                ok: false,
-                error: error.message || 'No se pudo ejecutar el backfill',
-                stack: error.stack
-            });
+            console.error('Error previsualizando Excel:', error);
+            return res.status(500).json({ ok: false, error: 'No se pudo previsualizar el archivo Excel.' });
         }
     });
 
-
-
-
-    // ============================================
-    // ENDPOINTS DE HU-04: OBSERVACIONES Y DECISIONES
-    // ============================================
-
-    const observacionesService = require('../reubicaciones/reubicacionesObservacionesService');
-    const decisionesService = require('../reubicaciones/reubicacionesDecisionesService');
-
-    /**
-     * Middleware para verificar rol de CH (admin_ch o team_ch)
-     */
-    function isCH(usuario) {
-        const role = normalizeRoleOrNull(usuario?.role);
-        return role === 'admin_ch' || role === 'team_ch' || role === 'super_admin';
-    }
-
-    /**
-     * Middleware para verificar rol de GP
-     */
-    function isGP(usuario) {
-        const role = normalizeRoleOrNull(usuario?.role);
-        return role === 'gp' || role === 'super_admin';
-    }
-
-    /**
-     * POST /api/directorio/reubicaciones/:id/observacion
-     * CH registra observación
-     */
-    app.post('/api/directorio/reubicaciones/:id/observacion', verificarToken, adminActionLimiter, async (req, res) => {
+    app.post('/api/novedades/nomina-procesar', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
         try {
-            console.log('🔍 req.user.role:', req.user?.role);
-            console.log('🔍 normalized:', normalizeRoleOrNull(req.user?.role));
-            console.log('🔍 isCH:', isCH(req.user));
-            const pipelineId = String(req.params.id || '').trim();
-            const { observacion } = req.body;
-
-            // Validar que el usuario tenga rol CH
-            if (!isCH(req.user)) {
-                return res.status(403).json({ ok: false, error: 'Solo CH puede registrar observaciones' });
-            }
-
-            const result = await observacionesService.registrarObservacion({
-                pipelineId,
-                observacion,
-                actor: {
-                    user_id: parseUuidActor(req.user?.sub),
-                    role: normalizeRoleOrNull(req.user?.role)
-                },
-                pool
+            const result = await markNominaProcesado({
+                pool,
+                req,
+                buildScopedNovedadesWhere,
+                body: req.body
             });
-
             return res.status(result.status).json(result.body);
         } catch (error) {
-            console.error('POST /directorio/reubicaciones/:id/observacion:', error);
-            return res.status(500).json({ ok: false, error: 'Error al registrar observación' });
+            console.error('Error nomina-procesar:', error);
+            return res.status(500).json({ ok: false, error: 'Error al marcar procesado nómina' });
         }
     });
 
-    /**
-     * GET /api/directorio/reubicaciones/:id/observacion
-     * Obtener última observación + historial
-     */
-    app.get('/api/directorio/reubicaciones/:id/observacion', verificarToken, async (req, res) => {
+    app.delete('/api/novedades/:id', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
         try {
-            const pipelineId = String(req.params.id || '').trim();
-
-            // Verificar que el caso existe (OPCIONAL: verificar alcance GP)
-            const caseExists = await pool.query(
-                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
-                [pipelineId]
-            );
-            if (caseExists.rows.length === 0) {
-                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
-            }
-
-            const actual = await observacionesService.obtenerUltimaObservacion({ pipelineId, pool });
-            const historial = await observacionesService.obtenerHistorialObservaciones({ pipelineId, pool });
-
-            return res.json({
-                ok: true,
-                data: {
-                    actual,
-                    historial
-                }
-            });
-        } catch (error) {
-            console.error('GET /directorio/reubicaciones/:id/observacion:', error);
-            return res.status(500).json({ ok: false, error: 'Error al obtener observación' });
-        }
-    });
-
-    /**
-     * POST /api/directorio/reubicaciones/:id/decision
-     * GP registra decisión
-     */
-    app.post('/api/directorio/reubicaciones/:id/decision', verificarToken, adminActionLimiter, async (req, res) => {
-        try {
-            const pipelineId = String(req.params.id || '').trim();
-            const { decision, justificacion } = req.body;
-
-            // Validar que el usuario tenga rol GP
-            if (!isGP(req.user)) {
-                return res.status(403).json({ ok: false, error: 'Solo GP puede registrar decisiones' });
-            }
-
-            const result = await decisionesService.registrarDecision({
-                pipelineId,
-                decision,
-                justificacion,
-                decididoPor: {
-                    user_id: parseUuidActor(req.user?.sub),
-                    role: normalizeRoleOrNull(req.user?.role)
-                },
-                pool
-            });
-
+            const result = await adminDeleteNovedad({ pool, req, idParam: req.params.id });
             return res.status(result.status).json(result.body);
         } catch (error) {
-            console.error('POST /directorio/reubicaciones/:id/decision:', error);
-            return res.status(500).json({ ok: false, error: 'Error al registrar decisión' });
+            console.error('Error eliminando novedad (admin):', error);
+            return res.status(500).json({ ok: false, error: 'Error al eliminar la novedad' });
         }
     });
 
-    /**
-     * GET /api/directorio/reubicaciones/:id/decision
-     * Obtener última decisión + historial
-     */
-    app.get('/api/directorio/reubicaciones/:id/decision', verificarToken, async (req, res) => {
+    app.patch('/api/novedades/:id', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
         try {
-            const pipelineId = String(req.params.id || '').trim();
+            const result = await adminPatchNovedad({
+                pool,
+                req,
+                idParam: req.params.id,
+                normalizeEstado,
+                parseDateOrNull,
+                parseTimeOrNull
+            });
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('Error actualizando novedad (admin):', error);
+            return res.status(500).json({ ok: false, error: 'Error al actualizar la novedad' });
+        }
+    });
 
-            // Verificar que el caso existe
-            const caseExists = await pool.query(
-                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
-                [pipelineId]
-            );
-            if (caseExists.rows.length === 0) {
-                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
+    app.post('/api/actualizar-estado', verificarToken, allowPanel('gestion'), applyScope, async (req, res) => {
+        try {
+            const { id, nuevoEstado } = req.body || {};
+            const fromHoraExtraAlert = Boolean(req.body?.fromHoraExtraAlert);
+            const estado = normalizeEstado(nuevoEstado);
+            const rawMontoCop = req.body?.montoCop ?? req.body?.monto_cop ?? null;
+            const actorSub = String(req.user?.sub || '').trim();
+            const actorUserIdRaw = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(actorSub)
+                ? actorSub
+                : null;
+
+            let actorUserId = null;
+            if (actorUserIdRaw || req.user?.email) {
+                try {
+                    const uq = await pool.query(
+                        'SELECT id FROM users WHERE id = $1 OR email = $2 LIMIT 1',
+                        [actorUserIdRaw, req.user?.email || '']
+                    );
+                    actorUserId = uq.rows[0]?.id || null;
+                } catch {
+                    actorUserId = null;
+                }
             }
 
-            const actual = await decisionesService.obtenerUltimaDecision({ pipelineId, pool });
-            const historial = await decisionesService.obtenerHistorialDecisiones({ pipelineId, pool });
+            let q;
+            const selectNovedadEstadoRow = `SELECT id, area, tipo_novedad, estado, nombre, cedula, correo_solicitante, cliente, lider, fecha_inicio, fecha_fin, hora_inicio, hora_fin, cantidad_horas, monto_cop`;
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id || ''))) {
+                q = await pool.query(`${selectNovedadEstadoRow}
+                     FROM novedades
+                     WHERE id = $1::uuid
+                     LIMIT 1`, [id]);
+            } else {
+                q = await pool.query(`${selectNovedadEstadoRow}
+                     FROM novedades
+                     WHERE creado_en = $1::timestamptz
+                     LIMIT 1`, [id]);
+            }
+            const item = q.rows[0];
+            if (!item) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
 
-            return res.json({
-                ok: true,
-                data: {
-                    actual,
-                    historial
+            if (!req.scope.canViewAllAreas && (!item.area || !req.scope.areas.includes(item.area))) {
+                return res.status(403).json({ ok: false, error: 'No autorizado sobre esta área' });
+            }
+            if (!canRoleApproveType(req.user.role, item.tipo_novedad)) {
+                return res.status(403).json({ ok: false, error: 'Este rol no puede aprobar/rechazar este tipo de novedad' });
+            }
+
+            /**
+             * HU disponibilidad-monto-diligenciado-por-gp: en Disponibilidad, el aprobador (GP/super_admin/CAC)
+             * DEBE diligenciar el monto en COP en el momento de Aprobar o Rechazar. Sin monto válido > 0,
+             * la transición se rechaza con HTTP 400 y la fila queda intacta.
+             */
+            const itemTypeKey = normalizeNovedadTypeKey(item.tipo_novedad);
+            let nuevoMontoCopParaUpdate = null;
+            const aplicaDiligenciamientoMonto =
+                itemTypeKey === 'apoyo' && (estado === 'Aprobado' || estado === 'Rechazado');
+            if (aplicaDiligenciamientoMonto) {
+                const parsedMonto = parseMontoCopFromBody(rawMontoCop);
+                if (!Number.isFinite(parsedMonto) || parsedMonto <= 0) {
+                    return res.status(400).json({
+                        ok: false,
+                        error: 'Disponibilidad requiere un valor en pesos mayor a cero.'
+                    });
                 }
-            });
-        } catch (error) {
-            console.error('GET /directorio/reubicaciones/:id/decision:', error);
-            return res.status(500).json({ ok: false, error: 'Error al obtener decisión' });
-        }
-    });
+                nuevoMontoCopParaUpdate = Number(parsedMonto.toFixed(2));
+            }
 
-    app.post('/api/directorio/reubicaciones-sync/backfill', ...writeGuard, async (req, res) => {
-        console.log('===== BACKFILL EJECUTADO =====');
-        
-        try {
-            const { dryRun = false, limit = 100 } = req.body;
+            let observacionesRechazoParam = null;
+            if (estado === 'Rechazado') {
+                const rawObsRechazo =
+                    req.body?.observacionesRechazo ?? req.body?.observaciones_rechazo ?? '';
+                const obsCheck = validateObservacionesRechazo(rawObsRechazo);
+                if (!obsCheck.ok) {
+                    return res.status(400).json({ ok: false, error: obsCheck.error });
+                }
+                observacionesRechazoParam = obsCheck.value;
+            }
 
-            // Si pool no es válido, usar global.__pool
-            const db = pool && typeof pool.query === 'function' ? pool : global.__pool;
-
-            if (!db || typeof db.query !== 'function') {
-                console.error('No hay pool disponible');
-                return res.status(500).json({ 
-                    ok: false, 
-                    error: 'No hay conexión a la base de datos',
-                    debug: { 
-                        poolInClosure: !!pool, 
-                        globalPool: !!global.__pool 
-                    }
+            const emailOk = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || '').trim());
+            // Derivar actor exclusivamente del token/sesión validado en backend (MED-006).
+            let actorEmail = String(req.user?.email || '').trim();
+            if (!emailOk(actorEmail) && String(req.user?.username || '').includes('@')) {
+                actorEmail = String(req.user.username).trim();
+            }
+            if (!actorEmail) {
+                const payload = decodeJwtPayload(req.authToken) || {};
+                const un = String(payload.username || '').trim();
+                const cognitoU = String(payload['cognito:username'] || '').trim();
+                actorEmail =
+                    String(payload.email || '').trim()
+                    || (emailOk(payload.preferred_username) ? String(payload.preferred_username).trim() : '')
+                    || (un.includes('@') ? un : '')
+                    || (cognitoU.includes('@') ? cognitoU : '')
+                    || '';
+            }
+            if (!actorEmail) {
+                console.warn('[actualizar-estado] actorEmail vacío tras fallbacks', {
+                    sub: req.user?.sub,
+                    role: req.user?.role
                 });
             }
+            await pool.query(
+                `UPDATE novedades
+                 SET estado = $1::novedad_estado,
+                     aprobado_en = CASE WHEN $1::novedad_estado = 'Aprobado' THEN NOW() ELSE NULL END,
+                     aprobado_por_rol = CASE WHEN $1::novedad_estado = 'Aprobado' THEN $2::user_role ELSE NULL END,
+                     aprobado_por_user_id = CASE WHEN $1::novedad_estado = 'Aprobado' THEN $3::uuid ELSE NULL END,
+                     aprobado_por_email = CASE WHEN $1::novedad_estado = 'Aprobado' THEN NULLIF($4::text, '') ELSE NULL END,
+                     rechazado_en = CASE WHEN $1::novedad_estado = 'Rechazado' THEN NOW() ELSE NULL END,
+                     rechazado_por_rol = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $2::user_role ELSE NULL END,
+                     rechazado_por_user_id = CASE WHEN $1::novedad_estado = 'Rechazado' THEN $3::uuid ELSE NULL END,
+                     rechazado_por_email = CASE WHEN $1::novedad_estado = 'Rechazado' THEN NULLIF($4::text, '') ELSE NULL END,
+                     monto_cop = CASE WHEN $7::boolean THEN $8::numeric ELSE monto_cop END,
+                     alerta_he_origen = CASE WHEN $6::boolean THEN TRUE ELSE alerta_he_origen END,
+                     alerta_he_resuelta_estado = CASE WHEN $6::boolean THEN $1::text ELSE alerta_he_resuelta_estado END,
+                     alerta_he_resuelta_en = CASE WHEN $6::boolean THEN NOW() ELSE alerta_he_resuelta_en END,
+                     alerta_he_resuelta_por_email = CASE WHEN $6::boolean THEN NULLIF($4::text, '') ELSE alerta_he_resuelta_por_email END,
+                     observaciones_rechazo = CASE WHEN $1::novedad_estado = 'Rechazado'::novedad_estado THEN NULLIF($9::text, '') ELSE observaciones_rechazo END
+                 WHERE id = $5::uuid`,
+                [
+                    estado,
+                    req.user.role,
+                    actorUserId,
+                    actorEmail,
+                    item.id,
+                    fromHoraExtraAlert,
+                    aplicaDiligenciamientoMonto,
+                    nuevoMontoCopParaUpdate,
+                    observacionesRechazoParam
+                ]
+            );
 
-            const result = await recoverySync({
-                pool: db,
-                notifyService: require('../notifications/emailNotificationsPublisher'),
-                dryRun: Boolean(dryRun),
-                limit: Math.min(Number(limit) || 100, 500)
-            });
+            await pool.query(
+                `INSERT INTO novedad_status_history (novedad_id, estado_anterior, estado_nuevo, changed_by_user_id, changed_by_role)
+                 VALUES ($1::uuid, $2::novedad_estado, $3::novedad_estado, $4::uuid, $5::user_role)`,
+                [item.id, normalizeEstado(item.estado), estado, actorUserId, req.user.role]
+            );
+
+            // AUT-586: al aprobar/rechazar HE, recalcular tope dominical del grupo (excluye Rechazado).
+            if (rowIsHoraExtraTipo(item) && (estado === 'Aprobado' || estado === 'Rechazado')) {
+                try {
+                    const heStartMs = toUtcMsFromDateAndTime(item.fecha_inicio, item.hora_inicio);
+                    const heEndMs = toUtcMsFromDateAndTime(item.fecha_fin, item.hora_fin);
+                    const cedulaNorm = String(item.cedula || '').trim();
+                    if (cedulaNorm && heStartMs != null && heEndMs != null) {
+                        const festivosSetHeStatus = await festivosService.getFestivosSet();
+                        await triggerDomingoRecargoRecomputeForInterval(
+                            pool,
+                            cedulaNorm,
+                            heStartMs,
+                            heEndMs,
+                            festivosSetHeStatus
+                        );
+                    }
+                } catch (recomputeErr) {
+                    console.error('[actualizar-estado] Error recomputando tope dominical HE', {
+                        novedadId: item.id,
+                        message: recomputeErr?.message || String(recomputeErr)
+                    });
+                }
+            }
+
+            const submitterEmail = String(item.correo_solicitante || '').trim().toLowerCase();
+            if (submitterEmail.includes('@') && (estado === 'Aprobado' || estado === 'Rechazado')) {
+                const statusPayload = buildFormStatusChangedNotificationEvent({
+                    novedadId: item.id,
+                    nombreColaborador: item.nombre,
+                    correoSolicitante: submitterEmail,
+                    cliente: item.cliente,
+                    lider: item.lider,
+                    tipoNovedad: item.tipo_novedad,
+                    fechaInicio: item.fecha_inicio,
+                    fechaFin: item.fecha_fin,
+                    cantidadHoras: item.cantidad_horas,
+                    montoCop: aplicaDiligenciamientoMonto ? nuevoMontoCopParaUpdate : item.monto_cop,
+                    previousEstado: normalizeEstado(item.estado),
+                    newEstado: estado,
+                    changedByEmail: actorEmail,
+                    rejectionFeedback: observacionesRechazoParam
+                });
+                try {
+                    const publishResult = await emailNotificationsPublisher?.publishFormStatusChanged?.(statusPayload);
+                    if (publishResult?.accepted) {
+                        console.log('[email-notifications] Evento form_status_changed aceptado.', {
+                            eventId: statusPayload.eventId,
+                            requestId: publishResult.requestId,
+                            novedadId: item.id
+                        });
+                    } else if (!publishResult?.skipped) {
+                        console.warn('[email-notifications] Evento form_status_changed no aceptado.', {
+                            eventId: statusPayload.eventId,
+                            statusCode: publishResult?.statusCode || 0,
+                            novedadId: item.id
+                        });
+                    }
+                } catch (notifyError) {
+                    console.error('[email-notifications] Error publicando evento form_status_changed', {
+                        eventId: statusPayload.eventId,
+                        novedadId: item.id,
+                        message: notifyError?.message || String(notifyError)
+                    });
+                }
+            }
 
             return res.json({
                 ok: true,
-                ...result,
-                message: dryRun 
-                    ? `Simulación: ${result.found} fichas pendientes encontradas` 
-                    : `${result.processed} fichas procesadas, ${result.errors} errores`
+                success: true,
+                persistedEmail: estado === 'Aprobado' || estado === 'Rechazado' ? actorEmail || null : null,
+                fromHoraExtraAlert
             });
         } catch (error) {
-            console.error('[Backfill] Error completo:', error);
-            return res.status(500).json({
-                ok: false,
-                error: error.message || 'No se pudo ejecutar el backfill',
-                stack: error.stack
-            });
+            console.error('Error al actualizar estado:', error);
+            return res.status(500).json({ ok: false, error: 'Error al actualizar' });
         }
     });
 
+    app.get('/api/debug/whoami', verificarToken, allowPanel('admin'), async (req, res) => {
+        if (isDeployedEnv) {
+            return res.status(404).json({ ok: false, error: 'No encontrado' });
+        }
+        return res.json({ ok: true, me: req.user });
+    });
 
+    app.use((err, req, res, next) => {
+        const requestId = String(req.headers['x-request-id'] || randomUUID());
+        if (err && (err.code === 'LIMIT_FILE_SIZE' || /Tipo de archivo no permitido/i.test(err.message))) {
+            const message = err.code === 'LIMIT_FILE_SIZE' ? 'El archivo supera 5MB.' : 'Tipo de archivo no permitido. Solo PDF, JPG, PNG, XLS o XLSX.';
+            return res.status(400).json({ ok: false, error: message });
+        }
+        if (err) {
+            logger.error({
+                requestId,
+                path: req.path,
+                method: req.method,
+                actor: req.user?.email || req.user?.sub || null,
+                message: err?.message || String(err),
+                stack: err?.stack
+            }, 'Error no controlado');
+            const publicMessage = (!isDeployedEnv && exposeInternalErrors && err?.message)
+                ? String(err.message)
+                : 'Error interno del servidor';
+            return res.status(500).json({ ok: false, error: publicMessage, requestId });
+        }
+        return next();
+    });
 }
 
-
-module.exports = { registerDirectorioRoutes };
+module.exports = {
+    registerRoutes,
+    findVotacionFranjaSolapada,
+    FECHAS_VOTACION_HABILITADAS,
+    DIAS_DISFRUTE_JURADO,
+    DIAS_DISFRUTE_VOTO
+};
