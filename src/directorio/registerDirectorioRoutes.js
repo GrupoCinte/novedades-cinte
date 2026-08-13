@@ -22,6 +22,17 @@ function directorioGuard() {
     };
 }
 
+function gpCatalogReadGuard() {
+    return (req, res, next) => {
+        const role = normalizeRoleOrNull(req.user?.role);
+        const allowed = new Set(['super_admin', 'cac', 'admin_ch', 'team_ch', 'atraccion_talento']);
+        if (!allowed.has(role)) {
+            return res.status(403).json({ ok: false, error: 'Sin permiso para consultar el catálogo de GP.' });
+        }
+        return next();
+    };
+}
+
 /** AUT-576: mallas-turnos sin panel directorio (GP + super_admin/cac). */
 function mallasRoleGuard() {
     return (req, res, next) => {
@@ -441,6 +452,7 @@ function registerDirectorioRoutes(deps) {
         q: z.string().max(200).optional(),
         limit: z.coerce.number().int().min(1).max(200).optional(),
         offset: z.coerce.number().int().min(0).optional(),
+        scope: z.enum(['activos', 'historico']).optional(),
         fecha_fin_desde: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
         fecha_fin_hasta: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
         semaforo: z.preprocess((val) => {
@@ -502,35 +514,108 @@ function registerDirectorioRoutes(deps) {
         return s ? s : null;
     }
 
+    async function registrarVencimientoAutomaticoSiAplica(pool, casoId) {
+        try {
+            const casoRes = await pool.query(
+                `SELECT
+                    rp.id,
+                    rp.consultor_id,
+                    rp.fecha_fin,
+                    (
+                        SELECT EXISTS (
+                            SELECT 1 FROM reubicaciones_observaciones ro WHERE ro.pipeline_id = rp.id
+                        )
+                    ) AS tiene_observacion,
+                    (
+                        SELECT EXISTS (
+                            SELECT 1 FROM reubicaciones_decisiones rd WHERE rd.pipeline_id = rp.id
+                        )
+                    ) AS tiene_decision,
+                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
+                 FROM reubicaciones_pipeline rp
+                 WHERE rp.id = $1::uuid`,
+                [casoId]
+            );
+            const caso = casoRes.rows[0];
+            if (!caso || !caso.fecha_fin) return;
+
+            const diasRestantes = Number(caso.dias_restantes ?? 0);
+            const fechaFin = new Date(`${caso.fecha_fin}T00:00:00`);
+            const fechaHoy = new Date();
+            fechaHoy.setHours(0, 0, 0, 0);
+
+            // Para todos los casos ya vencidos, con un único evento automático en el historial.
+            if (fechaFin > fechaHoy || diasRestantes > -6) return;
+
+            const existeRes = await pool.query(
+                `SELECT 1
+                 FROM reubicaciones_historial
+                 WHERE caso_id = $1::uuid
+                   AND tipo = 'vencimiento_automatico'
+                 LIMIT 1`,
+                [casoId]
+            );
+            if (existeRes.rows.length > 0) return;
+
+            await pool.query(
+                `INSERT INTO reubicaciones_historial (
+                    caso_id,
+                    consultor_id,
+                    tipo,
+                    actor_nombre,
+                    actor_rol,
+                    origen,
+                    descripcion,
+                    before_data,
+                    after_data,
+                    fecha
+                 ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+                [
+                    casoId,
+                    caso.consultor_id,
+                    'vencimiento_automatico',
+                    'Sistema',
+                    'sistema',
+                    'SISTEMA',
+                    'Movimiento automático por vencimiento de fecha de decisión',
+                    JSON.stringify({ estado: 'En revisión' }),
+                    JSON.stringify({ estado: 'Vencido', generado_por: 'sistema', motivo: 'Movimiento automático por vencimiento de fecha de decisión' })
+                ]
+            );
+        } catch (error) {
+            console.warn('[Reubicaciones] No se pudo registrar vencimiento automático:', error.message);
+        }
+    }
+
     function normalizePipelineRow(row) {
-        const dias =
-            row.dias_restantes === null || row.dias_restantes === undefined
-                ? null
-                : Number(row.dias_restantes);
+        const dias = row.dias_restantes;
         let fechaFin = row.fecha_fin;
         if (fechaFin instanceof Date) fechaFin = fechaFin.toISOString().slice(0, 10);
         else if (typeof fechaFin === 'string') fechaFin = fechaFin.slice(0, 10);
 
+        const tieneEventos = (row.total_eventos || 0) > 1;
+        const pasoElPlazo = dias !== null && dias <= -6;
+        const estaVencido = tieneEventos || pasoElPlazo || row.visible === false;
 
+        // Calcular estado para mostrar
         const fechaActual = new Date();
-        const estadoResult = calcularEstado(
-            {
-                fecha_fin: fechaFin,
-                cliente_destino: row.cliente_destino,
-                causal: row.causal,
-                gp_user_id: row.gp_user_id,
-                gp_asignado_id: row.gp_asignado_id
-            },
-            null,
-            fechaActual
-        );
+        const fechaFinDate = new Date(fechaFin);
+        let estado = row.estado || 'Pendiente';
 
-        let diasHabiles = 0;
-        if (estadoResult.estado === 'En proceso') {
-            const fechaFinDate = new Date(fechaFin);
-            diasHabiles = diasHabilesTranscurridos(fechaFinDate, fechaActual) || 0;
+        if (row.motivo_novedad) {
+            estado = 'Con novedad';
+        } else if (dias !== null && Number(dias) <= -6) {
+            estado = 'Vencido';
+        } else if (fechaFinDate > fechaActual) {
+            estado = 'Pendiente';
+        } else if (fechaFinDate <= fechaActual) {
+            const diasHabiles = diasHabilesTranscurridos(fechaFinDate, fechaActual) || 0;
+            if (diasHabiles <= 5) {
+                estado = `En proceso (día ${diasHabiles})`;
+            } else {
+                estado = `En proceso (día 5)`;
+            }
         }
-
 
         return {
             id: row.id,
@@ -545,9 +630,11 @@ function registerDirectorioRoutes(deps) {
             montos_divisa: row.montos_divisa ?? null,
             dias_restantes: dias,
             semaforo: semaforoFromDiasRestantes(dias),
-            estado: estadoResult.estado,
-            dias_transcurridos: estadoResult.diasTranscurridos,
-            motivo: estadoResult.motivo || null,
+            estado: estado,
+            motivo: row.motivo_novedad || null,
+            vencido: estaVencido,
+            total_eventos: row.total_eventos || 0,
+            tiene_eventos: tieneEventos,
             puesto: row.puesto || null,
             lider_catalogo: row.lider_catalogo || null,
             gp_nombre: row.gp_nombre || null,
@@ -555,6 +642,9 @@ function registerDirectorioRoutes(deps) {
             salario: row.salario != null ? Number(row.salario) : null,
             auxilios: row.auxilios || null,
             tipo_ficha: row.tipo_ficha || null,
+            visible: row.visible !== undefined ? row.visible : true,
+            etiqueta_vencimiento: row.etiqueta_vencimiento || null,
+            estado_reubicacion: row.estado_reubicacion || null,
             created_at: row.created_at,
             updated_at: row.updated_at
         };
@@ -1149,6 +1239,7 @@ function registerDirectorioRoutes(deps) {
 
             const role = normalizeRoleOrNull(req.user?.role);
             const isGp = role === 'gp';
+            const scope = d.scope || 'activos';
 
             const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
             const semaforoSql = `(CASE WHEN ${diasSql} < 0 THEN 'Vencido' WHEN ${diasSql} > 30 THEN 'Verde' WHEN ${diasSql} >= 15 THEN 'Amarillo' ELSE 'Rojo' END)`;
@@ -1161,6 +1252,11 @@ function registerDirectorioRoutes(deps) {
                     rp.fecha_fin,
                     rp.cliente_destino,
                     rp.causal,
+                    rp.estado,
+                    rp.visible,
+                    rp.etiqueta_vencimiento,
+                    rp.motivo_novedad,
+                    rp.estado_reubicacion,
                     rp.created_at,
                     rp.updated_at,
                     c.nombre AS consultor,
@@ -1180,7 +1276,8 @@ function registerDirectorioRoutes(deps) {
                      WHERE f.colaborador_cedula_match = rp.cedula
                      ORDER BY f.created_at DESC 
                      LIMIT 1) AS tipo_ficha,
-                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
+                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes,
+                    (SELECT COUNT(*) FROM reubicaciones_historial WHERE caso_id = rp.id) AS total_eventos
             `;
             const fromJoin = `
                 FROM reubicaciones_pipeline rp
@@ -1222,6 +1319,21 @@ function registerDirectorioRoutes(deps) {
                 whereParams.push(d.semaforo);
             }
 
+            if (scope === 'activos') {
+                // ✅ POR REVISAR: Todos los que NO han pasado el día 5
+                whereParts.push(`(
+                    rp.visible = true 
+                    AND rp.fecha_fin >= (NOW() - INTERVAL '5 days')::date
+                )`);
+            } else if (scope === 'historico') {
+                // ✅ HISTÓRICO: TODOS los casos (incluyendo los activos)
+                // La vista "Histórico" muestra todos los casos, pero los activos
+                // solo aparecen si tienen eventos (que siempre tienen porque se crea con "Ficha recibida")
+                whereParts.push(`(
+                    rp.visible = true 
+                    OR rp.fecha_fin < (NOW() - INTERVAL '5 days')::date
+                )`);
+            }
             // 1. Filtro por estado
             const estadoFiltro = textOrNull(d.estado);
             const estadoFiltroNormalizado = estadoFiltro ? String(estadoFiltro).trim() : '';
@@ -1353,6 +1465,9 @@ function registerDirectorioRoutes(deps) {
                 rows = listRes.rows;
             }
 
+            for (const row of rows) {
+                await registrarVencimientoAutomaticoSiAplica(pool, row.id);
+            }
             const normalizedRows = rows.map(normalizePipelineRow);
             const filteredRows = estadoFiltroNormalizado
                 ? normalizedRows.filter((row) => {
@@ -1366,14 +1481,25 @@ function registerDirectorioRoutes(deps) {
             const pagedRows = isGp || estadoFiltroNormalizado ? filteredRows.slice(offset, offset + limit) : filteredRows;
             const responseTotal = isGp || estadoFiltroNormalizado ? filteredRows.length : total;
 
+            const historicoCountRes = await pool.query(
+                `SELECT COUNT(*)::int AS total 
+                 FROM reubicaciones_pipeline rp
+                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 WHERE rp.estado IN ('Vencido', 'Inactivo', 'Reubicado')
+                 AND rp.visible = false`
+            );
+            const historicoCount = historicoCountRes.rows[0]?.total ?? 0;
+
             return res.json({
                 ok: true,
                 items: pagedRows,
                 total: responseTotal,
+                historicoCount, // ← NUEVO
                 limit,
                 offset,
                 meta: { 
                     rol: role,
+                    scope, // ← NUEVO
                     acciones_permitidas: accionesPermitidas,
                     alcance: isGp ? 'solo sus casos' : role === 'super_admin' ? 'todos los casos' : 'general'
                 }
@@ -1408,6 +1534,8 @@ function registerDirectorioRoutes(deps) {
                         error: 'Ya existe un registro de reubicación para esta cédula.'
                     });
                 }
+
+                 
                 if (String(e?.code) === '23503') {
                     return res.status(400).json({
                         ok: false,
@@ -1416,6 +1544,38 @@ function registerDirectorioRoutes(deps) {
                 }
                 throw e;
             }
+
+            try {
+                await pool.query(
+                    `INSERT INTO reubicaciones_historial (
+                        caso_id,
+                        consultor_id,
+                        tipo,
+                        origen,
+                        descripcion,
+                        after_data,
+                        source_event_id,
+                        fecha
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+                    [
+                        row.id,
+                        cedula,  // consultor_id (usamos la cédula)
+                        'ficha_recibida',
+                        'MANUAL',
+                        'Caso creado manualmente desde el panel de administración',
+                        JSON.stringify({ 
+                            fecha_fin: parsed.data.fecha_fin,
+                            cliente_destino: clienteDestino || null,
+                            causal: causal || null,
+                            origen: 'manual'
+                        }),
+                        'manual_' + row.id
+                    ]
+                );
+            } catch (histError) {
+                console.warn('⚠️ No se pudo guardar en reubicaciones_historial:', histError.message);
+            }
+
             const joined = await pool.query(
                 `SELECT
                     rp.id,
@@ -1456,9 +1616,9 @@ function registerDirectorioRoutes(deps) {
         } catch (e) {
             const st = Number(e?.status) || (String(e?.code) === '23503' ? 400 : 500);
             if (st >= 500) console.error('POST directorio reubicaciones-pipeline:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear.' });
-        }
-    });
+                return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear.' });
+            }
+        });
 
     app.patch('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
@@ -1469,9 +1629,30 @@ function registerDirectorioRoutes(deps) {
             const parsed = reubicacionesPipelinePatchSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const d = parsed.data;
+
+            // ✅ Función para formatear fecha
+            const formatYmd = (date) => {
+                if (!date) return null;
+                const d = new Date(date);
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+
+            const beforeRes = await pool.query(
+                `SELECT fecha_fin, cliente_destino, causal, consultor_id FROM reubicaciones_pipeline WHERE id = $1::uuid`,
+                [id]
+            );
+            if (beforeRes.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+            }
+            const before = beforeRes.rows[0];
+
             const sets = [];
             const vals = [];
             let n = 1;
+
             if (d.fecha_fin !== undefined) {
                 sets.push(`fecha_fin = $${n}::date`);
                 vals.push(d.fecha_fin);
@@ -1487,14 +1668,52 @@ function registerDirectorioRoutes(deps) {
                 vals.push(textOrNull(d.causal));
                 n += 1;
             }
-            if (sets.length === 0) return res.status(400).json({ ok: false, error: 'Sin cambios' });
+
+            if (sets.length === 0) {
+                return res.status(400).json({ ok: false, error: 'Sin cambios' });
+            }
+
             sets.push('updated_at = NOW()');
             vals.push(id);
+
             const upd = await pool.query(
                 `UPDATE reubicaciones_pipeline SET ${sets.join(', ')} WHERE id = $${n}::uuid RETURNING id`,
                 vals
             );
-            if (!upd.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+
+            if (!upd.rows.length) {
+                return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+            }
+
+            // ✅ Insertar en historial con fechas formateadas
+            if (d.fecha_fin && d.fecha_fin !== before.fecha_fin) {
+                try {
+                    await pool.query(
+                        `INSERT INTO reubicaciones_historial (
+                            caso_id,
+                            consultor_id,
+                            tipo,
+                            origen,
+                            descripcion,
+                            before_data,
+                            after_data,
+                            fecha
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+                        [
+                            id,
+                            before.consultor_id || null,
+                            'cambio_estado',
+                            'SISTEMA',
+                            `Cambio de fecha de término: ${formatYmd(before.fecha_fin)} → ${formatYmd(d.fecha_fin)}`,
+                            JSON.stringify({ fecha_fin: formatYmd(before.fecha_fin) }),
+                            JSON.stringify({ fecha_fin: formatYmd(d.fecha_fin) })
+                        ]
+                    );
+                } catch (histError) {
+                    console.warn('⚠️ No se pudo guardar en reubicaciones_historial:', histError.message);
+                }
+            }
+
             const joined = await pool.query(
                 `SELECT
                     rp.id,
@@ -1516,13 +1735,15 @@ function registerDirectorioRoutes(deps) {
                     c.sueldo_nomina AS salario,
                     c.auxilio_transporte_obligatorio AS auxilios,
                     (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
-                 FROM reubicaciones_pipeline rp
-                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                 LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id
-                 WHERE rp.id = $1::uuid`,
+                FROM reubicaciones_pipeline rp
+                INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id
+                WHERE rp.id = $1::uuid`,
                 [id]
             );
+
             const item = normalizePipelineRow(joined.rows[0]);
+
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user?.sub),
                 actorRole: normalizeRoleOrNull(req.user?.role),
@@ -1531,7 +1752,9 @@ function registerDirectorioRoutes(deps) {
                 entityId: id,
                 metadata: d
             });
+
             return res.json({ ok: true, item });
+
         } catch (e) {
             console.error('PATCH directorio reubicaciones-pipeline:', e);
             return res.status(500).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
@@ -1561,7 +1784,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/gp', ...readGuard, async (req, res) => {
+    app.get('/api/directorio/gp', verificarToken, gpCatalogReadGuard(), async (req, res) => {
         try {
             const rows = await listGpUsersForDirectorio();
             return res.json({ ok: true, items: rows });
@@ -1908,8 +2131,187 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
+    app.get('/api/directorio/reubicaciones/:id/historial', verificarToken, reubicacionesGuard(), async (req, res) => {
+        try {
+            const id = String(req.params.id || '').trim();
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+                return res.status(400).json({ ok: false, error: 'Id inválido' });
+            }
+
+            await registrarVencimientoAutomaticoSiAplica(pool, id);
+
+            const role = normalizeRoleOrNull(req.user?.role);
+            const isGp = role === 'gp';
+
+            // 1. Verificar que el caso existe
+            const casoRes = await pool.query(
+                `SELECT rp.id, rp.cedula, rp.fecha_fin, rp.cliente_destino, rp.causal, rp.estado, rp.visible, rp.etiqueta_vencimiento,
+                        c.nombre AS consultor, c.cliente AS cliente_actual,
+                        u_gp.full_name AS gp_nombre, c.gp_user_id
+                 FROM reubicaciones_pipeline rp
+                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id
+                 WHERE rp.id = $1::uuid`,
+                [id]
+            );
+
+            if (casoRes.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
+            }
+
+            const caso = casoRes.rows[0];
+
+            // 2. Si es GP, verificar alcance
+            if (isGp) {
+                const tieneAlcance = await pool.query(
+                    `SELECT 1 FROM clientes_lideres cl
+                     WHERE cl.cliente = $1::text
+                     AND cl.gp_user_id = $2::uuid`,
+                    [caso.cliente_actual || '', req.user?.sub]
+                );
+                if (tieneAlcance.rows.length === 0) {
+                    return res.status(403).json({ 
+                        ok: false, 
+                        error: 'No tiene alcance sobre este caso' 
+                    });
+                }
+            }
+
+            // 3. Obtener eventos del historial
+            const historialRes = await pool.query(
+                `SELECT 
+                    id,
+                    tipo,
+                    fecha,
+                    actor_nombre,
+                    actor_rol,
+                    origen,
+                    descripcion,
+                    before_data,
+                    after_data
+                 FROM reubicaciones_historial
+                 WHERE caso_id = $1::uuid
+                 ORDER BY fecha DESC`,
+                [id]
+            );
+
+            // 4. Obtener última observación - CORREGIDO con JOIN a users
+            const obsRes = await pool.query(
+                `SELECT 
+                    o.observacion,
+                    o.version,
+                    o.fecha,
+                    u.full_name AS actor_nombre,
+                    o.actor_role AS actor_rol
+                 FROM reubicaciones_observaciones o
+                 LEFT JOIN users u ON o.actor_user_id = u.id
+                 WHERE o.pipeline_id = $1::uuid
+                 ORDER BY o.version DESC
+                 LIMIT 1`,
+                [id]
+            );
+
+            // 5. Obtener última decisión - CORREGIDO con JOIN a users
+            const decRes = await pool.query(
+                `SELECT 
+                    d.decision,
+                    d.justificacion,
+                    d.fecha,
+                    u.full_name AS actor_nombre,
+                    d.decidido_por_role AS actor_rol
+                 FROM reubicaciones_decisiones d
+                 LEFT JOIN users u ON d.decidido_por_user_id = u.id
+                 WHERE d.pipeline_id = $1::uuid
+                 ORDER BY d.fecha DESC
+                 LIMIT 1`,
+                [id]
+            );
+
+            // 6. Formatear respuesta
+            const historial = historialRes.rows.map(evento => ({
+                id: evento.id,
+                tipo: evento.tipo,
+                tipo_label: getTipoLabel(evento.tipo),
+                fecha: evento.fecha,
+                actor: evento.actor_nombre,
+                rol: evento.actor_rol,
+                origen: evento.origen,
+                descripcion: evento.descripcion,
+                before: evento.before_data,
+                after: evento.after_data
+            }));
+
+            const tieneAutoVencimiento = historial.some(evento => evento.tipo === 'vencimiento_automatico');
+            const fechaFin = caso.fecha_fin ? new Date(`${caso.fecha_fin}T00:00:00`) : null;
+            const fechaHoy = new Date();
+            fechaHoy.setHours(0, 0, 0, 0);
+            const casoVencidoHistorico = Boolean(
+                fechaFin &&
+                fechaFin <= fechaHoy &&
+                Number(caso.dias_restantes ?? 0) <= -6
+            );
+
+            if (!tieneAutoVencimiento && casoVencidoHistorico) {
+                historial.push({
+                    id: `auto-vencimiento-${id}`,
+                    tipo: 'vencimiento_automatico',
+                    tipo_label: getTipoLabel('vencimiento_automatico'),
+                    fecha: new Date().toISOString(),
+                    actor: 'Sistema',
+                    rol: 'sistema',
+                    origen: 'SISTEMA',
+                    descripcion: 'Movimiento automático por vencimiento de fecha de decisión',
+                    before: { estado: 'En revisión' },
+                    after: { estado: 'Vencido', generado_por: 'sistema', motivo: 'Movimiento automático por vencimiento de fecha de decisión' }
+                });
+            }
+
+            const data = {
+                historial,
+                observacion_final: obsRes.rows[0]?.observacion || null,
+                observacion_version: obsRes.rows[0]?.version || null,
+                observacion_actor: obsRes.rows[0]?.actor_nombre || null,
+                observacion_rol: obsRes.rows[0]?.actor_rol || null,
+                observacion_fecha: obsRes.rows[0]?.fecha || null,
+                decision_final: decRes.rows[0]?.decision || null,
+                decision_actor: decRes.rows[0]?.actor_nombre || null,
+                decision_rol: decRes.rows[0]?.actor_rol || null,
+                decision_fecha: decRes.rows[0]?.fecha || null,
+                decision_justificacion: decRes.rows[0]?.justificacion || null,
+                etiqueta_vencimiento: caso.etiqueta_vencimiento || null
+            };
+
+            return res.json({ ok: true, data });
+
+        } catch (error) {
+            console.error('GET /directorio/reubicaciones/:id/historial:', error);
+            return res.status(500).json({ 
+                ok: false, 
+                error: 'Error al cargar el historial' 
+            });
+        }
+    });
+
+    // Helper para traducir tipos de evento (dentro de la función)
+    function getTipoLabel(tipo) {
+        const labels = {
+            'ficha_recibida': 'Ficha recibida',
+            'ficha_actualizada': 'Ficha actualizada',
+            'cambio_estado': 'Cambio de estado',
+            'observacion_ch': 'Observación CH',
+            'decision_aptitud': 'Decisión GP',
+            'reubicacion': 'Reubicación',
+            'vencimiento_automatico': 'Vencimiento automático',
+            'inactivacion': 'Inactivación',
+            'sincronizacion': 'Sincronización',
+            'desactualizacion_zoho': 'Desactualización Zoho'
+        };
+        return labels[tipo] || tipo;
+    }
 
 }
+
+
 
 
 module.exports = { registerDirectorioRoutes };
