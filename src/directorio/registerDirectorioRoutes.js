@@ -7,12 +7,27 @@ const { normalizeRoleOrNull } = require('../rbac');
 const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSemaforo');
 const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
 const { resolveActorUserIdForSession } = require('../resolveActorUserId');
+const { recoverySync } = require('../reubicaciones/reubicacionesSyncService');
+const authService = require('../reubicaciones/reubicacionesAuthService');
+const { calcularEstado } = require('../reubicaciones/reubicacionesEstados');
+const { diasHabilesTranscurridos } = require('../reubicaciones/reubicacionesCalendario');
 
 function directorioGuard() {
     return (req, res, next) => {
         const role = normalizeRoleOrNull(req.user?.role);
         if (role !== 'super_admin' && role !== 'cac') {
             return res.status(403).json({ ok: false, error: 'Sin permiso para el directorio maestro.' });
+        }
+        return next();
+    };
+}
+
+function gpCatalogReadGuard() {
+    return (req, res, next) => {
+        const role = normalizeRoleOrNull(req.user?.role);
+        const allowed = new Set(['super_admin', 'cac', 'admin_ch', 'team_ch', 'atraccion_talento']);
+        if (!allowed.has(role)) {
+            return res.status(403).json({ ok: false, error: 'Sin permiso para consultar el catálogo de GP.' });
         }
         return next();
     };
@@ -27,6 +42,88 @@ function mallasRoleGuard() {
         }
         return res.status(403).json({ ok: false, error: 'Sin permiso para mallas de turnos.' });
     };
+}
+
+/**
+ * Middleware para verificar acceso al módulo de Reubicaciones
+ * HU-01: Acceso colaborativo y permisos de Reubicaciones
+ */
+function reubicacionesAccessGuard() {
+    return (req, res, next) => {
+        const role = normalizeRoleOrNull(req.user?.role);
+        
+        // Roles que pueden acceder
+        const rolesPermitidos = [
+            'super_admin',
+            'gp',
+            'admin_ch',
+            'team_ch',
+            'atraccion_talento',
+            'cac'
+        ];
+        
+        if (!rolesPermitidos.includes(role)) {
+            return res.status(403).json({ 
+                ok: false, 
+                error: 'Sin permiso para acceder al módulo de Reubicaciones.' 
+            });
+        }
+        return next();
+    };
+}
+
+/**
+ * Middleware para verificar acceso a Reubicaciones
+ * Permite: super_admin, cac, gp, admin_ch, team_ch, atraccion_talento
+ */
+function reubicacionesGuard() {
+    return (req, res, next) => {
+        const role = normalizeRoleOrNull(req.user?.role);
+        const rolesPermitidos = [
+            'super_admin',
+            'cac',
+            'gp',
+            'admin_ch',
+            'team_ch',
+            'atraccion_talento'
+        ];
+        if (!rolesPermitidos.includes(role)) {
+            return res.status(403).json({
+                ok: false,
+                error: 'Sin permiso para acceder a Reubicaciones.'
+            });
+        }
+        return next();
+    };
+}
+
+
+/**
+ * Middleware para verificar alcance de GP
+ * Solo aplica para usuarios con rol 'gp'
+ */
+async function reubicacionesAlcanceGP(req, res, next) {
+    const role = normalizeRoleOrNull(req.user?.role);
+    
+    // Si no es GP, no aplica filtro
+    if (role !== 'gp') {
+        return next();
+    }
+    
+    // Si es GP, verificar alcance
+    const { cedula } = req.params;
+    if (cedula) {
+        // Para GET /:cedula, verificar que el GP tenga alcance
+        const tieneAlcance = await authService.gpTieneAlcance(req.user, cedula, pool);
+        if (!tieneAlcance) {
+            return res.status(403).json({ 
+                ok: false, 
+                error: 'No tiene alcance sobre este consultor.' 
+            });
+        }
+    }
+    
+    next();
 }
 
 function canAprobarMallaRole(role) {
@@ -69,6 +166,10 @@ async function assertColaboradorCatalogPair(getLideresByCliente, cliente, lider)
         throw Object.assign(new Error('Cliente y líder no forman un par válido en el catálogo activo.'), { status: 400 });
     }
 }
+
+// Nota: la ejecución directa de `recoverySync` al importar este módulo fue removida
+// para evitar efectos secundarios en el arranque. Ejecuta el backfill vía el endpoint HTTP
+// o llama a `recoverySync` desde una tarea controlada cuando sea necesario.
 
 function registerDirectorioRoutes(deps) {
     const {
@@ -351,6 +452,7 @@ function registerDirectorioRoutes(deps) {
         q: z.string().max(200).optional(),
         limit: z.coerce.number().int().min(1).max(200).optional(),
         offset: z.coerce.number().int().min(0).optional(),
+        scope: z.enum(['activos', 'historico']).optional(),
         fecha_fin_desde: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
         fecha_fin_hasta: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
         semaforo: z.preprocess((val) => {
@@ -359,6 +461,23 @@ function registerDirectorioRoutes(deps) {
             const cleaned = arr.map((s) => String(s).trim()).filter(Boolean);
             return cleaned.length ? cleaned : undefined;
         }, z.array(z.enum(['Verde', 'Amarillo', 'Rojo', 'Vencido'])).optional()),
+        estado: z.string().max(50).optional(),
+        /** @deprecated alias de tipo_contrato */
+        tipo_ficha: z.string().max(200).optional(),
+        tipo_contrato: z.string().max(200).optional(),
+        cliente: z.string().max(200).optional(),
+        gp: z.string().max(200).optional(),
+        aptitud: z.string().max(100).optional(),
+        dias_desde: z.preprocess((v) => {
+            if (v === '' || v == null) return undefined;
+            const num = Number(v);
+            return isNaN(num) ? undefined : num;
+        }, z.number().int().min(0).optional()),
+        dias_hasta: z.preprocess((v) => {
+            if (v === '' || v == null) return undefined;
+            const num = Number(v);
+            return isNaN(num) ? undefined : num;
+        }, z.number().int().min(0).optional()),
         sort: z
             .enum([
                 'cedula',
@@ -370,6 +489,7 @@ function registerDirectorioRoutes(deps) {
                 'fecha_fin',
                 'dias_restantes',
                 'semaforo',
+                'estado',
                 'tarifa'
             ])
             .optional(),
@@ -394,27 +514,137 @@ function registerDirectorioRoutes(deps) {
         return s ? s : null;
     }
 
+    async function registrarVencimientoAutomaticoSiAplica(pool, casoId) {
+        try {
+            const casoRes = await pool.query(
+                `SELECT
+                    rp.id,
+                    rp.consultor_id,
+                    rp.fecha_fin,
+                    (
+                        SELECT EXISTS (
+                            SELECT 1 FROM reubicaciones_observaciones ro WHERE ro.pipeline_id = rp.id
+                        )
+                    ) AS tiene_observacion,
+                    (
+                        SELECT EXISTS (
+                            SELECT 1 FROM reubicaciones_decisiones rd WHERE rd.pipeline_id = rp.id
+                        )
+                    ) AS tiene_decision,
+                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
+                 FROM reubicaciones_pipeline rp
+                 WHERE rp.id = $1::uuid`,
+                [casoId]
+            );
+            const caso = casoRes.rows[0];
+            if (!caso || !caso.fecha_fin) return;
+
+            const diasRestantes = Number(caso.dias_restantes ?? 0);
+            const fechaFin = new Date(`${caso.fecha_fin}T00:00:00`);
+            const fechaHoy = new Date();
+            fechaHoy.setHours(0, 0, 0, 0);
+
+            // Para todos los casos ya vencidos, con un único evento automático en el historial.
+            if (fechaFin > fechaHoy || diasRestantes > -6) return;
+
+            const existeRes = await pool.query(
+                `SELECT 1
+                 FROM reubicaciones_historial
+                 WHERE caso_id = $1::uuid
+                   AND tipo = 'vencimiento_automatico'
+                 LIMIT 1`,
+                [casoId]
+            );
+            if (existeRes.rows.length > 0) return;
+
+            await pool.query(
+                `INSERT INTO reubicaciones_historial (
+                    caso_id,
+                    consultor_id,
+                    tipo,
+                    actor_nombre,
+                    actor_rol,
+                    origen,
+                    descripcion,
+                    before_data,
+                    after_data,
+                    fecha
+                 ) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, NOW())`,
+                [
+                    casoId,
+                    caso.consultor_id,
+                    'vencimiento_automatico',
+                    'Sistema',
+                    'sistema',
+                    'SISTEMA',
+                    'Movimiento automático por vencimiento de fecha de decisión',
+                    JSON.stringify({ estado: 'En revisión' }),
+                    JSON.stringify({ estado: 'Vencido', generado_por: 'sistema', motivo: 'Movimiento automático por vencimiento de fecha de decisión' })
+                ]
+            );
+        } catch (error) {
+            console.warn('[Reubicaciones] No se pudo registrar vencimiento automático:', error.message);
+        }
+    }
+
     function normalizePipelineRow(row) {
-        const dias =
-            row.dias_restantes === null || row.dias_restantes === undefined
-                ? null
-                : Number(row.dias_restantes);
+        const dias = row.dias_restantes;
         let fechaFin = row.fecha_fin;
         if (fechaFin instanceof Date) fechaFin = fechaFin.toISOString().slice(0, 10);
         else if (typeof fechaFin === 'string') fechaFin = fechaFin.slice(0, 10);
+
+        const tieneEventos = (row.total_eventos || 0) > 1;
+        const pasoElPlazo = dias !== null && dias <= -6;
+        const estaVencido = tieneEventos || pasoElPlazo || row.visible === false;
+
+        // Calcular estado para mostrar
+        const fechaActual = new Date();
+        const fechaFinDate = new Date(fechaFin);
+        let estado = row.estado || 'Pendiente';
+
+        if (row.motivo_novedad) {
+            estado = 'Con novedad';
+        } else if (dias !== null && Number(dias) <= -6) {
+            estado = 'Vencido';
+        } else if (fechaFinDate > fechaActual) {
+            estado = 'Pendiente';
+        } else if (fechaFinDate <= fechaActual) {
+            const diasHabiles = diasHabilesTranscurridos(fechaFinDate, fechaActual) || 0;
+            if (diasHabiles <= 5) {
+                estado = `En proceso (día ${diasHabiles})`;
+            } else {
+                estado = `En proceso (día 5)`;
+            }
+        }
+
         return {
             id: row.id,
             cedula: row.cedula,
             fecha_fin: fechaFin,
             cliente_destino: row.cliente_destino,
             causal: row.causal,
-            consultor: row.consultor,
+            consultor: row.nombre || row.consultor || null,
             tipo_contrato: row.tipo_contrato,
             cliente_actual: row.cliente_actual,
             tarifa_cliente: row.tarifa_cliente != null ? Number(row.tarifa_cliente) : null,
             montos_divisa: row.montos_divisa ?? null,
             dias_restantes: dias,
             semaforo: semaforoFromDiasRestantes(dias),
+            estado: estado,
+            motivo: row.motivo_novedad || null,
+            vencido: estaVencido,
+            total_eventos: row.total_eventos || 0,
+            tiene_eventos: tieneEventos,
+            puesto: row.puesto || null,
+            lider_catalogo: row.lider_catalogo || null,
+            gp_nombre: row.gp_nombre || null,
+            perfil_cargo: row.perfil_cargo || null,
+            salario: row.salario != null ? Number(row.salario) : null,
+            auxilios: row.auxilios || null,
+            tipo_ficha: row.tipo_ficha || null,
+            visible: row.visible !== undefined ? row.visible : true,
+            etiqueta_vencimiento: row.etiqueta_vencimiento || null,
+            estado_reubicacion: row.estado_reubicacion || null,
             created_at: row.created_at,
             updated_at: row.updated_at
         };
@@ -978,7 +1208,28 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/reubicaciones-pipeline', ...readGuard, async (req, res) => {
+    const normalizeTipoFichaValue = (value) => {
+        const raw = String(value ?? '').trim();
+        if (!raw) return null;
+        const key = raw.toLowerCase();
+        if (key === 'salida' || key === 'salida ') return 'salida';
+        if (key === 'extension' || key === 'extensión') return 'extension';
+        return null;
+    };
+
+    app.get('/api/directorio/reubicaciones-pipeline/tipo-ficha-opciones', verificarToken, reubicacionesGuard(), async (_req, res) => {
+        try {
+            return res.json({
+                ok: true,
+                items: ['SALIDA', 'EXTENSIÓN']
+            });
+        } catch (e) {
+            console.error('GET directorio reubicaciones-pipeline tipo-ficha-opciones:', e);
+            return res.status(500).json({ ok: false, error: 'No se pudo obtener opciones de tipo ficha.' });
+        }
+    });
+
+    app.get('/api/directorio/reubicaciones-pipeline', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const parsed = reubicacionesPipelineListSchema.safeParse(req.query);
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
@@ -986,8 +1237,13 @@ function registerDirectorioRoutes(deps) {
             const limit = d.limit ?? 50;
             const offset = d.offset ?? 0;
 
+            const role = normalizeRoleOrNull(req.user?.role);
+            const isGp = role === 'gp';
+            const scope = d.scope || 'activos';
+
             const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
             const semaforoSql = `(CASE WHEN ${diasSql} < 0 THEN 'Vencido' WHEN ${diasSql} > 30 THEN 'Verde' WHEN ${diasSql} >= 15 THEN 'Amarillo' ELSE 'Rojo' END)`;
+            const clienteActualSql = `COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), ''))`;
 
             const selectFields = `
                 SELECT
@@ -996,16 +1252,42 @@ function registerDirectorioRoutes(deps) {
                     rp.fecha_fin,
                     rp.cliente_destino,
                     rp.causal,
+                    rp.estado,
+                    rp.visible,
+                    rp.etiqueta_vencimiento,
+                    rp.motivo_novedad,
+                    rp.estado_reubicacion,
                     rp.created_at,
                     rp.updated_at,
                     c.nombre AS consultor,
                     c.tipo_contrato,
-                    c.cliente AS cliente_actual,
+                    COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) AS cliente_actual,
                     c.tarifa_cliente,
                     c.montos_divisa,
-                    ${diasSql} AS dias_restantes
+                    c.puesto,
+                    c.lider_catalogo,
+                    u_gp.full_name AS gp_nombre,
+                    c.gp_user_id,
+                    c.perfil_cargo,
+                    c.sueldo_nomina AS salario,
+                    c.auxilio_transporte_obligatorio AS auxilios,
+                    (SELECT NULLIF(TRIM(f.tipo_novedad), '') 
+                     FROM ficha_novedades_staging f 
+                     WHERE f.colaborador_cedula_match = rp.cedula
+                     ORDER BY f.created_at DESC 
+                     LIMIT 1) AS tipo_ficha,
+                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes,
+                    (SELECT COUNT(*) FROM reubicaciones_historial WHERE caso_id = rp.id) AS total_eventos
+            `;
+            const fromJoin = `
                 FROM reubicaciones_pipeline rp
-                INNER JOIN colaboradores c ON c.cedula = rp.cedula`;
+                INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id`;
+            const gpFromJoin = `
+                FROM reubicaciones_pipeline rp
+                INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                INNER JOIN clientes_lideres cl ON ${clienteActualSql} = cl.cliente
+                LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id`;
 
             const whereParts = [];
             const whereParams = [];
@@ -1037,6 +1319,107 @@ function registerDirectorioRoutes(deps) {
                 whereParams.push(d.semaforo);
             }
 
+            if (scope === 'activos') {
+                // ✅ POR REVISAR: Todos los que NO han pasado el día 5
+                whereParts.push(`(
+                    rp.visible = true 
+                    AND rp.fecha_fin >= (NOW() - INTERVAL '5 days')::date
+                )`);
+            } else if (scope === 'historico') {
+                // ✅ HISTÓRICO: TODOS los casos (incluyendo los activos)
+                // La vista "Histórico" muestra todos los casos, pero los activos
+                // solo aparecen si tienen eventos (que siempre tienen porque se crea con "Ficha recibida")
+                whereParts.push(`(
+                    rp.visible = true 
+                    OR rp.fecha_fin < (NOW() - INTERVAL '5 days')::date
+                )`);
+            }
+            // 1. Filtro por estado
+            const estadoFiltro = textOrNull(d.estado);
+            const estadoFiltroNormalizado = estadoFiltro ? String(estadoFiltro).trim() : '';
+
+            // 2. Filtro por tipo de contrato
+            const tipoContrato = textOrNull(d.tipo_contrato);
+            if (tipoContrato) {
+                whereParts.push(`LOWER(TRIM(COALESCE(c.tipo_contrato, ''))) = LOWER($${whereParams.length + 1})`);
+                whereParams.push(tipoContrato);
+            }
+
+            // 3. Filtro por tipo de ficha (tipo_novedad más reciente de ficha_novedades_staging)
+            const tipoFichaFiltro = textOrNull(d.tipo_ficha);
+            const tipoFichaDbValue = tipoFichaFiltro ? normalizeTipoFichaValue(tipoFichaFiltro) : null;
+            if (tipoFichaDbValue) {
+                // ✅ CORRECTO: Usa el MISMO parámetro para ambas condiciones
+                const paramIndex = whereParams.length + 1;
+                whereParts.push(`(
+                    LOWER((SELECT NULLIF(TRIM(f.tipo_novedad), '')
+                           FROM ficha_novedades_staging f
+                           WHERE f.colaborador_cedula_match = rp.cedula
+                           ORDER BY f.created_at DESC
+                           LIMIT 1)) = LOWER($${paramIndex})
+                    AND LOWER(COALESCE(rp.tipo_ficha, '')) = LOWER($${paramIndex})
+                )`);
+                whereParams.push(tipoFichaDbValue); // ✅ SOLO UNA VEZ
+            } else {
+                // ✅ SIN FILTRO: Verifica AMBOS (staging Y pipeline)
+                whereParts.push(`(
+                    LOWER((SELECT NULLIF(TRIM(f.tipo_novedad), '')
+                           FROM ficha_novedades_staging f
+                           WHERE f.colaborador_cedula_match = rp.cedula
+                           ORDER BY f.created_at DESC
+                           LIMIT 1)) IN ('salida', 'extension')
+                    AND LOWER(COALESCE(rp.tipo_ficha, '')) IN ('salida', 'extension')
+                )`);
+            }
+
+            if (isGp) {
+                whereParts.push(`cl.gp_user_id = $${whereParams.length + 1}::uuid`);
+                whereParams.push(req.user?.sub);
+                whereParts.push('c.activo = true');
+            }
+
+            // 4. Filtro por cliente actual (cliente o cliente_proyecto)
+            const cliente = textOrNull(d.cliente);
+            if (cliente) {
+                whereParts.push(`${clienteActualSql} ILIKE '%' || $${whereParams.length + 1} || '%'`);
+                whereParams.push(cliente);
+            }
+
+            // 4. Filtro por GP (líder catálogo o usuario GP vinculado)
+            const gp = textOrNull(d.gp);
+            if (gp) {
+                whereParts.push(`(
+                    COALESCE(c.lider_catalogo, '') ILIKE '%' || $${whereParams.length + 1} || '%'
+                    OR COALESCE(u_gp.full_name, '') ILIKE '%' || $${whereParams.length + 1} || '%'
+                )`);
+                whereParams.push(gp);
+            }
+
+            // 5. Filtro por aptitud (puesto, perfil o descriptivo SIG)
+            const aptitud = textOrNull(d.aptitud);
+            if (aptitud) {
+                whereParts.push(`(
+                    COALESCE(c.puesto, '') ILIKE '%' || $${whereParams.length + 1} || '%'
+                    OR COALESCE(c.perfil_cargo, '') ILIKE '%' || $${whereParams.length + 1} || '%'
+                    OR COALESCE(c.descriptivo_puesto_sig, '') ILIKE '%' || $${whereParams.length + 1} || '%'
+                )`);
+                whereParams.push(aptitud);
+            }
+
+            // 6. Filtro por días restantes (desde)
+            const diasDesde = d.dias_desde !== undefined && d.dias_desde !== '' ? Number(d.dias_desde) : null;
+            if (diasDesde !== null && !isNaN(diasDesde)) {
+                whereParts.push(`${diasSql} >= $${whereParams.length + 1}`);
+                whereParams.push(diasDesde);
+            }
+
+            // 7. Filtro por días restantes (hasta)
+            const diasHasta = d.dias_hasta !== undefined && d.dias_hasta !== '' ? Number(d.dias_hasta) : null;
+            if (diasHasta !== null && !isNaN(diasHasta)) {
+                whereParts.push(`${diasSql} <= $${whereParams.length + 1}`);
+                whereParams.push(diasHasta);
+            }
+
             const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
             const dir = d.dir === 'desc' ? 'DESC' : 'ASC';
@@ -1045,7 +1428,7 @@ function registerDirectorioRoutes(deps) {
                 cedula: `c.cedula ${dir}`,
                 consultor: `c.nombre ${dir} NULLS LAST`,
                 tipo_contrato: `c.tipo_contrato ${dir} NULLS LAST`,
-                cliente_actual: `c.cliente ${dir} NULLS LAST`,
+                cliente_actual: `${clienteActualSql} ${dir} NULLS LAST`,
                 cliente_destino: `rp.cliente_destino ${dir} NULLS LAST`,
                 causal: `rp.causal ${dir} NULLS LAST`,
                 fecha_fin: `rp.fecha_fin ${dir} NULLS LAST`,
@@ -1058,27 +1441,68 @@ function registerDirectorioRoutes(deps) {
                     ? `ORDER BY ${orderMap[sortKey]}`
                     : 'ORDER BY rp.fecha_fin ASC NULLS LAST, c.nombre ASC';
 
-            const fromJoin = `
-                FROM reubicaciones_pipeline rp
-                INNER JOIN colaboradores c ON c.cedula = rp.cedula`;
+            let rows = [];
+            let total = 0;
 
-            const countSql = `SELECT COUNT(*)::int AS total ${fromJoin} ${whereSql}`;
-            const cRes = await pool.query(countSql, whereParams);
-            const total = cRes.rows[0]?.total ?? 0;
+            const accionesPermitidas = authService.getAccionesPermitidas(role);
+            const effectiveFromJoin = isGp ? gpFromJoin : fromJoin;
 
-            const limIdx = whereParams.length + 1;
-            const offIdx = whereParams.length + 2;
-            const listSql = `${selectFields} ${whereSql} ${orderSql} LIMIT $${limIdx}::int OFFSET $${offIdx}::int`;
-            const listParams = [...whereParams, limit, offset];
-            const listRes = await pool.query(listSql, listParams);
-            const rows = listRes.rows;
+            if (estadoFiltroNormalizado) {
+                const listSql = `${selectFields} ${effectiveFromJoin} ${whereSql} ${orderSql}`;
+                const listRes = await pool.query(listSql, whereParams);
+                rows = listRes.rows;
+                total = rows.length;
+            } else {
+                const countSql = `SELECT COUNT(*)::int AS total ${effectiveFromJoin} ${whereSql}`;
+                const cRes = await pool.query(countSql, whereParams);
+                total = cRes.rows[0]?.total ?? 0;
+
+                const limIdx = whereParams.length + 1;
+                const offIdx = whereParams.length + 2;
+                const listSql = `${selectFields} ${effectiveFromJoin} ${whereSql} ${orderSql} LIMIT $${limIdx}::int OFFSET $${offIdx}::int`;
+                const listParams = [...whereParams, limit, offset];
+                const listRes = await pool.query(listSql, listParams);
+                rows = listRes.rows;
+            }
+
+            for (const row of rows) {
+                await registrarVencimientoAutomaticoSiAplica(pool, row.id);
+            }
+            const normalizedRows = rows.map(normalizePipelineRow);
+            const filteredRows = estadoFiltroNormalizado
+                ? normalizedRows.filter((row) => {
+                    const rowEstado = String(row.estado || '').trim();
+                    const rowEstadoNorm = rowEstado.toLowerCase();
+                    const filtroNorm = estadoFiltroNormalizado.toLowerCase();
+                    return rowEstadoNorm === filtroNorm;
+                })
+                : normalizedRows;
+
+            const pagedRows = isGp || estadoFiltroNormalizado ? filteredRows.slice(offset, offset + limit) : filteredRows;
+            const responseTotal = isGp || estadoFiltroNormalizado ? filteredRows.length : total;
+
+            const historicoCountRes = await pool.query(
+                `SELECT COUNT(*)::int AS total 
+                 FROM reubicaciones_pipeline rp
+                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 WHERE rp.estado IN ('Vencido', 'Inactivo', 'Reubicado')
+                 AND rp.visible = false`
+            );
+            const historicoCount = historicoCountRes.rows[0]?.total ?? 0;
 
             return res.json({
                 ok: true,
-                items: rows.map(normalizePipelineRow),
-                total,
+                items: pagedRows,
+                total: responseTotal,
+                historicoCount, // ← NUEVO
                 limit,
-                offset
+                offset,
+                meta: { 
+                    rol: role,
+                    scope, // ← NUEVO
+                    acciones_permitidas: accionesPermitidas,
+                    alcance: isGp ? 'solo sus casos' : role === 'super_admin' ? 'todos los casos' : 'general'
+                }
             });
         } catch (e) {
             console.error('GET directorio reubicaciones-pipeline:', e);
@@ -1086,7 +1510,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.post('/api/directorio/reubicaciones-pipeline', ...writeGuard, async (req, res) => {
+    app.post('/api/directorio/reubicaciones-pipeline', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const parsed = reubicacionesPipelineCreateSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
@@ -1110,6 +1534,8 @@ function registerDirectorioRoutes(deps) {
                         error: 'Ya existe un registro de reubicación para esta cédula.'
                     });
                 }
+
+                 
                 if (String(e?.code) === '23503') {
                     return res.status(400).json({
                         ok: false,
@@ -1118,6 +1544,38 @@ function registerDirectorioRoutes(deps) {
                 }
                 throw e;
             }
+
+            try {
+                await pool.query(
+                    `INSERT INTO reubicaciones_historial (
+                        caso_id,
+                        consultor_id,
+                        tipo,
+                        origen,
+                        descripcion,
+                        after_data,
+                        source_event_id,
+                        fecha
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+                    [
+                        row.id,
+                        cedula,  // consultor_id (usamos la cédula)
+                        'ficha_recibida',
+                        'MANUAL',
+                        'Caso creado manualmente desde el panel de administración',
+                        JSON.stringify({ 
+                            fecha_fin: parsed.data.fecha_fin,
+                            cliente_destino: clienteDestino || null,
+                            causal: causal || null,
+                            origen: 'manual'
+                        }),
+                        'manual_' + row.id
+                    ]
+                );
+            } catch (histError) {
+                console.warn('⚠️ No se pudo guardar en reubicaciones_historial:', histError.message);
+            }
+
             const joined = await pool.query(
                 `SELECT
                     rp.id,
@@ -1129,12 +1587,19 @@ function registerDirectorioRoutes(deps) {
                     rp.updated_at,
                     c.nombre AS consultor,
                     c.tipo_contrato,
-                    c.cliente AS cliente_actual,
+                    COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) AS cliente_actual,
                     c.tarifa_cliente,
                     c.montos_divisa,
+                    c.puesto,
+                    c.lider_catalogo,
+                    u_gp.full_name AS gp_nombre,
+                    c.perfil_cargo,
+                    c.sueldo_nomina AS salario,
+                    c.auxilio_transporte_obligatorio AS auxilios,
                     (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
                  FROM reubicaciones_pipeline rp
                  INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id
                  WHERE rp.id = $1::uuid`,
                 [row.id]
             );
@@ -1151,11 +1616,11 @@ function registerDirectorioRoutes(deps) {
         } catch (e) {
             const st = Number(e?.status) || (String(e?.code) === '23503' ? 400 : 500);
             if (st >= 500) console.error('POST directorio reubicaciones-pipeline:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear.' });
-        }
-    });
+                return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear.' });
+            }
+        });
 
-    app.patch('/api/directorio/reubicaciones-pipeline/:id', ...writeGuard, async (req, res) => {
+    app.patch('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
@@ -1164,9 +1629,30 @@ function registerDirectorioRoutes(deps) {
             const parsed = reubicacionesPipelinePatchSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const d = parsed.data;
+
+            // ✅ Función para formatear fecha
+            const formatYmd = (date) => {
+                if (!date) return null;
+                const d = new Date(date);
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+
+            const beforeRes = await pool.query(
+                `SELECT fecha_fin, cliente_destino, causal, consultor_id FROM reubicaciones_pipeline WHERE id = $1::uuid`,
+                [id]
+            );
+            if (beforeRes.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+            }
+            const before = beforeRes.rows[0];
+
             const sets = [];
             const vals = [];
             let n = 1;
+
             if (d.fecha_fin !== undefined) {
                 sets.push(`fecha_fin = $${n}::date`);
                 vals.push(d.fecha_fin);
@@ -1182,14 +1668,52 @@ function registerDirectorioRoutes(deps) {
                 vals.push(textOrNull(d.causal));
                 n += 1;
             }
-            if (sets.length === 0) return res.status(400).json({ ok: false, error: 'Sin cambios' });
+
+            if (sets.length === 0) {
+                return res.status(400).json({ ok: false, error: 'Sin cambios' });
+            }
+
             sets.push('updated_at = NOW()');
             vals.push(id);
+
             const upd = await pool.query(
                 `UPDATE reubicaciones_pipeline SET ${sets.join(', ')} WHERE id = $${n}::uuid RETURNING id`,
                 vals
             );
-            if (!upd.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+
+            if (!upd.rows.length) {
+                return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+            }
+
+            // ✅ Insertar en historial con fechas formateadas
+            if (d.fecha_fin && d.fecha_fin !== before.fecha_fin) {
+                try {
+                    await pool.query(
+                        `INSERT INTO reubicaciones_historial (
+                            caso_id,
+                            consultor_id,
+                            tipo,
+                            origen,
+                            descripcion,
+                            before_data,
+                            after_data,
+                            fecha
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+                        [
+                            id,
+                            before.consultor_id || null,
+                            'cambio_estado',
+                            'SISTEMA',
+                            `Cambio de fecha de término: ${formatYmd(before.fecha_fin)} → ${formatYmd(d.fecha_fin)}`,
+                            JSON.stringify({ fecha_fin: formatYmd(before.fecha_fin) }),
+                            JSON.stringify({ fecha_fin: formatYmd(d.fecha_fin) })
+                        ]
+                    );
+                } catch (histError) {
+                    console.warn('⚠️ No se pudo guardar en reubicaciones_historial:', histError.message);
+                }
+            }
+
             const joined = await pool.query(
                 `SELECT
                     rp.id,
@@ -1201,16 +1725,25 @@ function registerDirectorioRoutes(deps) {
                     rp.updated_at,
                     c.nombre AS consultor,
                     c.tipo_contrato,
-                    c.cliente AS cliente_actual,
+                    COALESCE(NULLIF(TRIM(c.cliente), ''), NULLIF(TRIM(c.cliente_proyecto), '')) AS cliente_actual,
                     c.tarifa_cliente,
                     c.montos_divisa,
+                    c.puesto,
+                    c.lider_catalogo,
+                    u_gp.full_name AS gp_nombre,
+                    c.perfil_cargo,
+                    c.sueldo_nomina AS salario,
+                    c.auxilio_transporte_obligatorio AS auxilios,
                     (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
-                 FROM reubicaciones_pipeline rp
-                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                 WHERE rp.id = $1::uuid`,
+                FROM reubicaciones_pipeline rp
+                INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id
+                WHERE rp.id = $1::uuid`,
                 [id]
             );
+
             const item = normalizePipelineRow(joined.rows[0]);
+
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user?.sub),
                 actorRole: normalizeRoleOrNull(req.user?.role),
@@ -1219,14 +1752,16 @@ function registerDirectorioRoutes(deps) {
                 entityId: id,
                 metadata: d
             });
+
             return res.json({ ok: true, item });
+
         } catch (e) {
             console.error('PATCH directorio reubicaciones-pipeline:', e);
             return res.status(500).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
         }
     });
 
-    app.delete('/api/directorio/reubicaciones-pipeline/:id', ...writeGuard, async (req, res) => {
+    app.delete('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
@@ -1249,7 +1784,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/gp', ...readGuard, async (req, res) => {
+    app.get('/api/directorio/gp', verificarToken, gpCatalogReadGuard(), async (req, res) => {
         try {
             const rows = await listGpUsersForDirectorio();
             return res.json({ ok: true, items: rows });
@@ -1345,7 +1880,438 @@ function registerDirectorioRoutes(deps) {
             if (st >= 500) console.error('POST vincular gp self:', e);
             return res.status(st).json({ ok: false, error: e.message || 'No se pudo vincular.' });
         }
+
     });
+
+    app.post('/api/directorio/reubicaciones-sync/backfill', ...writeGuard, async (req, res) => {
+        console.log('===== BACKFILL EJECUTADO =====');
+        
+        try {
+            const { dryRun = false, limit = 100 } = req.body;
+
+            // Si pool no es válido, usar global.__pool
+            const db = pool && typeof pool.query === 'function' ? pool : global.__pool;
+
+            if (!db || typeof db.query !== 'function') {
+                console.error('No hay pool disponible');
+                return res.status(500).json({ 
+                    ok: false, 
+                    error: 'No hay conexión a la base de datos',
+                    debug: { 
+                        poolInClosure: !!pool, 
+                        globalPool: !!global.__pool 
+                    }
+                });
+            }
+
+            const result = await recoverySync({
+                pool: db,
+                notifyService: require('../notifications/emailNotificationsPublisher'),
+                dryRun: Boolean(dryRun),
+                limit: Math.min(Number(limit) || 100, 500)
+            });
+
+            return res.json({
+                ok: true,
+                ...result,
+                message: dryRun 
+                    ? `Simulación: ${result.found} fichas pendientes encontradas` 
+                    : `${result.processed} fichas procesadas, ${result.errors} errores`
+            });
+        } catch (error) {
+            console.error('[Backfill] Error completo:', error);
+            return res.status(500).json({
+                ok: false,
+                error: error.message || 'No se pudo ejecutar el backfill',
+                stack: error.stack
+            });
+        }
+    });
+
+
+
+
+    // ============================================
+    // ENDPOINTS DE HU-04: OBSERVACIONES Y DECISIONES
+    // ============================================
+
+    const observacionesService = require('../reubicaciones/reubicacionesObservacionesService');
+    const decisionesService = require('../reubicaciones/reubicacionesDecisionesService');
+
+    /**
+     * Middleware para verificar rol de CH (admin_ch o team_ch)
+     */
+    function isCH(usuario) {
+        const role = normalizeRoleOrNull(usuario?.role);
+        return role === 'admin_ch' || role === 'team_ch' || role === 'super_admin';
+    }
+
+    /**
+     * Middleware para verificar rol de GP
+     */
+    function isGP(usuario) {
+        const role = normalizeRoleOrNull(usuario?.role);
+        return role === 'gp' || role === 'super_admin';
+    }
+
+    /**
+     * POST /api/directorio/reubicaciones/:id/observacion
+     * CH registra observación
+     */
+    app.post('/api/directorio/reubicaciones/:id/observacion', verificarToken, adminActionLimiter, async (req, res) => {
+        try {
+            console.log('🔍 req.user.role:', req.user?.role);
+            console.log('🔍 normalized:', normalizeRoleOrNull(req.user?.role));
+            console.log('🔍 isCH:', isCH(req.user));
+            const pipelineId = String(req.params.id || '').trim();
+            const { observacion } = req.body;
+
+            // Validar que el usuario tenga rol CH
+            if (!isCH(req.user)) {
+                return res.status(403).json({ ok: false, error: 'Solo CH puede registrar observaciones' });
+            }
+
+            const result = await observacionesService.registrarObservacion({
+                pipelineId,
+                observacion,
+                actor: {
+                    user_id: parseUuidActor(req.user?.sub),
+                    role: normalizeRoleOrNull(req.user?.role)
+                },
+                pool
+            });
+
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('POST /directorio/reubicaciones/:id/observacion:', error);
+            return res.status(500).json({ ok: false, error: 'Error al registrar observación' });
+        }
+    });
+
+    /**
+     * GET /api/directorio/reubicaciones/:id/observacion
+     * Obtener última observación + historial
+     */
+    app.get('/api/directorio/reubicaciones/:id/observacion', verificarToken, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+
+            // Verificar que el caso existe (OPCIONAL: verificar alcance GP)
+            const caseExists = await pool.query(
+                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
+                [pipelineId]
+            );
+            if (caseExists.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
+            }
+
+            const actual = await observacionesService.obtenerUltimaObservacion({ pipelineId, pool });
+            const historial = await observacionesService.obtenerHistorialObservaciones({ pipelineId, pool });
+
+            return res.json({
+                ok: true,
+                data: {
+                    actual,
+                    historial
+                }
+            });
+        } catch (error) {
+            console.error('GET /directorio/reubicaciones/:id/observacion:', error);
+            return res.status(500).json({ ok: false, error: 'Error al obtener observación' });
+        }
+    });
+
+    /**
+     * POST /api/directorio/reubicaciones/:id/decision
+     * GP registra decisión
+     */
+    app.post('/api/directorio/reubicaciones/:id/decision', verificarToken, adminActionLimiter, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+            const { decision, justificacion } = req.body;
+
+            // Validar que el usuario tenga rol GP
+            if (!isGP(req.user)) {
+                return res.status(403).json({ ok: false, error: 'Solo GP puede registrar decisiones' });
+            }
+
+            const result = await decisionesService.registrarDecision({
+                pipelineId,
+                decision,
+                justificacion,
+                decididoPor: {
+                    user_id: parseUuidActor(req.user?.sub),
+                    role: normalizeRoleOrNull(req.user?.role)
+                },
+                pool
+            });
+
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            console.error('POST /directorio/reubicaciones/:id/decision:', error);
+            return res.status(500).json({ ok: false, error: 'Error al registrar decisión' });
+        }
+    });
+
+    /**
+     * GET /api/directorio/reubicaciones/:id/decision
+     * Obtener última decisión + historial
+     */
+    app.get('/api/directorio/reubicaciones/:id/decision', verificarToken, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+
+            // Verificar que el caso existe
+            const caseExists = await pool.query(
+                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
+                [pipelineId]
+            );
+            if (caseExists.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
+            }
+
+            const actual = await decisionesService.obtenerUltimaDecision({ pipelineId, pool });
+            const historial = await decisionesService.obtenerHistorialDecisiones({ pipelineId, pool });
+
+            return res.json({
+                ok: true,
+                data: {
+                    actual,
+                    historial
+                }
+            });
+        } catch (error) {
+            console.error('GET /directorio/reubicaciones/:id/decision:', error);
+            return res.status(500).json({ ok: false, error: 'Error al obtener decisión' });
+        }
+    });
+
+    app.post('/api/directorio/reubicaciones-sync/backfill', ...writeGuard, async (req, res) => {
+        console.log('===== BACKFILL EJECUTADO =====');
+        
+        try {
+            const { dryRun = false, limit = 100 } = req.body;
+
+            // Si pool no es válido, usar global.__pool
+            const db = pool && typeof pool.query === 'function' ? pool : global.__pool;
+
+            if (!db || typeof db.query !== 'function') {
+                console.error('No hay pool disponible');
+                return res.status(500).json({ 
+                    ok: false, 
+                    error: 'No hay conexión a la base de datos',
+                    debug: { 
+                        poolInClosure: !!pool, 
+                        globalPool: !!global.__pool 
+                    }
+                });
+            }
+
+            const result = await recoverySync({
+                pool: db,
+                notifyService: require('../notifications/emailNotificationsPublisher'),
+                dryRun: Boolean(dryRun),
+                limit: Math.min(Number(limit) || 100, 500)
+            });
+
+            return res.json({
+                ok: true,
+                ...result,
+                message: dryRun 
+                    ? `Simulación: ${result.found} fichas pendientes encontradas` 
+                    : `${result.processed} fichas procesadas, ${result.errors} errores`
+            });
+        } catch (error) {
+            console.error('[Backfill] Error completo:', error);
+            return res.status(500).json({
+                ok: false,
+                error: error.message || 'No se pudo ejecutar el backfill',
+                stack: error.stack
+            });
+        }
+    });
+
+    app.get('/api/directorio/reubicaciones/:id/historial', verificarToken, reubicacionesGuard(), async (req, res) => {
+        try {
+            const id = String(req.params.id || '').trim();
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+                return res.status(400).json({ ok: false, error: 'Id inválido' });
+            }
+
+            await registrarVencimientoAutomaticoSiAplica(pool, id);
+
+            const role = normalizeRoleOrNull(req.user?.role);
+            const isGp = role === 'gp';
+
+            // 1. Verificar que el caso existe
+            const casoRes = await pool.query(
+                `SELECT rp.id, rp.cedula, rp.fecha_fin, rp.cliente_destino, rp.causal, rp.estado, rp.visible, rp.etiqueta_vencimiento,
+                        c.nombre AS consultor, c.cliente AS cliente_actual,
+                        u_gp.full_name AS gp_nombre, c.gp_user_id
+                 FROM reubicaciones_pipeline rp
+                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 LEFT JOIN users u_gp ON u_gp.id = c.gp_user_id
+                 WHERE rp.id = $1::uuid`,
+                [id]
+            );
+
+            if (casoRes.rows.length === 0) {
+                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
+            }
+
+            const caso = casoRes.rows[0];
+
+            // 2. Si es GP, verificar alcance
+            if (isGp) {
+                const tieneAlcance = await pool.query(
+                    `SELECT 1 FROM clientes_lideres cl
+                     WHERE cl.cliente = $1::text
+                     AND cl.gp_user_id = $2::uuid`,
+                    [caso.cliente_actual || '', req.user?.sub]
+                );
+                if (tieneAlcance.rows.length === 0) {
+                    return res.status(403).json({ 
+                        ok: false, 
+                        error: 'No tiene alcance sobre este caso' 
+                    });
+                }
+            }
+
+            // 3. Obtener eventos del historial
+            const historialRes = await pool.query(
+                `SELECT 
+                    id,
+                    tipo,
+                    fecha,
+                    actor_nombre,
+                    actor_rol,
+                    origen,
+                    descripcion,
+                    before_data,
+                    after_data
+                 FROM reubicaciones_historial
+                 WHERE caso_id = $1::uuid
+                 ORDER BY fecha DESC`,
+                [id]
+            );
+
+            // 4. Obtener última observación - CORREGIDO con JOIN a users
+            const obsRes = await pool.query(
+                `SELECT 
+                    o.observacion,
+                    o.version,
+                    o.fecha,
+                    u.full_name AS actor_nombre,
+                    o.actor_role AS actor_rol
+                 FROM reubicaciones_observaciones o
+                 LEFT JOIN users u ON o.actor_user_id = u.id
+                 WHERE o.pipeline_id = $1::uuid
+                 ORDER BY o.version DESC
+                 LIMIT 1`,
+                [id]
+            );
+
+            // 5. Obtener última decisión - CORREGIDO con JOIN a users
+            const decRes = await pool.query(
+                `SELECT 
+                    d.decision,
+                    d.justificacion,
+                    d.fecha,
+                    u.full_name AS actor_nombre,
+                    d.decidido_por_role AS actor_rol
+                 FROM reubicaciones_decisiones d
+                 LEFT JOIN users u ON d.decidido_por_user_id = u.id
+                 WHERE d.pipeline_id = $1::uuid
+                 ORDER BY d.fecha DESC
+                 LIMIT 1`,
+                [id]
+            );
+
+            // 6. Formatear respuesta
+            const historial = historialRes.rows.map(evento => ({
+                id: evento.id,
+                tipo: evento.tipo,
+                tipo_label: getTipoLabel(evento.tipo),
+                fecha: evento.fecha,
+                actor: evento.actor_nombre,
+                rol: evento.actor_rol,
+                origen: evento.origen,
+                descripcion: evento.descripcion,
+                before: evento.before_data,
+                after: evento.after_data
+            }));
+
+            const tieneAutoVencimiento = historial.some(evento => evento.tipo === 'vencimiento_automatico');
+            const fechaFin = caso.fecha_fin ? new Date(`${caso.fecha_fin}T00:00:00`) : null;
+            const fechaHoy = new Date();
+            fechaHoy.setHours(0, 0, 0, 0);
+            const casoVencidoHistorico = Boolean(
+                fechaFin &&
+                fechaFin <= fechaHoy &&
+                Number(caso.dias_restantes ?? 0) <= -6
+            );
+
+            if (!tieneAutoVencimiento && casoVencidoHistorico) {
+                historial.push({
+                    id: `auto-vencimiento-${id}`,
+                    tipo: 'vencimiento_automatico',
+                    tipo_label: getTipoLabel('vencimiento_automatico'),
+                    fecha: new Date().toISOString(),
+                    actor: 'Sistema',
+                    rol: 'sistema',
+                    origen: 'SISTEMA',
+                    descripcion: 'Movimiento automático por vencimiento de fecha de decisión',
+                    before: { estado: 'En revisión' },
+                    after: { estado: 'Vencido', generado_por: 'sistema', motivo: 'Movimiento automático por vencimiento de fecha de decisión' }
+                });
+            }
+
+            const data = {
+                historial,
+                observacion_final: obsRes.rows[0]?.observacion || null,
+                observacion_version: obsRes.rows[0]?.version || null,
+                observacion_actor: obsRes.rows[0]?.actor_nombre || null,
+                observacion_rol: obsRes.rows[0]?.actor_rol || null,
+                observacion_fecha: obsRes.rows[0]?.fecha || null,
+                decision_final: decRes.rows[0]?.decision || null,
+                decision_actor: decRes.rows[0]?.actor_nombre || null,
+                decision_rol: decRes.rows[0]?.actor_rol || null,
+                decision_fecha: decRes.rows[0]?.fecha || null,
+                decision_justificacion: decRes.rows[0]?.justificacion || null,
+                etiqueta_vencimiento: caso.etiqueta_vencimiento || null
+            };
+
+            return res.json({ ok: true, data });
+
+        } catch (error) {
+            console.error('GET /directorio/reubicaciones/:id/historial:', error);
+            return res.status(500).json({ 
+                ok: false, 
+                error: 'Error al cargar el historial' 
+            });
+        }
+    });
+
+    // Helper para traducir tipos de evento (dentro de la función)
+    function getTipoLabel(tipo) {
+        const labels = {
+            'ficha_recibida': 'Ficha recibida',
+            'ficha_actualizada': 'Ficha actualizada',
+            'cambio_estado': 'Cambio de estado',
+            'observacion_ch': 'Observación CH',
+            'decision_aptitud': 'Decisión GP',
+            'reubicacion': 'Reubicación',
+            'vencimiento_automatico': 'Vencimiento automático',
+            'inactivacion': 'Inactivación',
+            'sincronizacion': 'Sincronización',
+            'desactualizacion_zoho': 'Desactualización Zoho'
+        };
+        return labels[tipo] || tipo;
+    }
+
 }
+
+
+
 
 module.exports = { registerDirectorioRoutes };
