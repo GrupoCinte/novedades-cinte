@@ -94,12 +94,13 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
                                 const isSelected = selectedIds.has(c.cedula);
                                 const cargoDisplay = c.cargo || c.puesto || 'N/A';
                                 const empresaDisplay = c.cliente || c.empleador || 'CINTe';
+                                
+                                const selectedCls = isLight ? 'bg-blue-50 border border-blue-200' : 'bg-blue-900/30 border border-blue-800';
+                                const unselectedCls = isLight ? 'hover:bg-slate-100' : 'hover:bg-slate-700';
+                                const activeCls = isSelected ? selectedCls : unselectedCls;
+
                                 return (
-                                    <label key={c.cedula} className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
-                                        isSelected 
-                                            ? (isLight ? 'bg-blue-50 border border-blue-200' : 'bg-blue-900/30 border border-blue-800') 
-                                            : (isLight ? 'hover:bg-slate-100' : 'hover:bg-slate-700')
-                                    }`}>
+                                    <label key={c.cedula} className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${activeCls}`}>
                                         <input 
                                             type="checkbox" 
                                             className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-600"

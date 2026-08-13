@@ -7,6 +7,204 @@ import { authHeaders } from '../shared/authUtils.js';
 import ParticipantesSubModal from './ParticipantesSubModal.jsx';
 import PlanesAccionSubModal from './PlanesAccionSubModal.jsx';
 
+const parseActaData = (actaData, gpName, gpPuesto, tipoSeleccionado, clientesCartera) => {
+    if (!actaData) {
+        return {
+            tipo: tipoSeleccionado || 'Consultor',
+            cliente: clientesCartera.length === 1 ? clientesCartera[0] : '',
+            fechaActa: new Date().toISOString().split('T')[0],
+            isFinalizado: false,
+            horaInicio: '',
+            horaFin: '',
+            responsableNombre: gpName,
+            responsableCargo: gpPuesto,
+            quienRealizaNombre: gpName,
+            quienRealizaCargo: gpPuesto,
+            objetivo: '',
+            agenda: '',
+            participantes: [],
+            planesAccion: [],
+            observacionConsultor: '',
+            observacionConsultorFecha: ''
+        };
+    }
+
+    const pJson = actaData.payload_json || {};
+    return {
+        tipo: actaData.tipo === 'cliente' ? 'Cliente' : 'Consultor',
+        cliente: actaData.cliente || '',
+        fechaActa: actaData.fecha_acta ? new Date(actaData.fecha_acta).toISOString().split('T')[0] : '',
+        isFinalizado: actaData.estado === 'FINALIZADO',
+        horaInicio: pJson.hora_inicio || '',
+        horaFin: pJson.hora_fin || '',
+        responsableNombre: pJson.responsable_nombre || gpName,
+        responsableCargo: pJson.responsable_cargo || gpPuesto,
+        quienRealizaNombre: pJson.quien_realiza_nombre || gpName,
+        quienRealizaCargo: pJson.quien_realiza_cargo || gpPuesto,
+        objetivo: pJson.objetivo || '',
+        agenda: pJson.agenda || '',
+        participantes: pJson.participantes_detalle || [],
+        planesAccion: pJson.planes_accion || [],
+        observacionConsultor: pJson.observacion_consultor || '',
+        observacionConsultorFecha: pJson.observacion_consultor_fecha || ''
+    };
+};
+
+const getRole = (auth) => String(auth?.user?.role || auth?.claims?.role || '').trim().toLowerCase();
+const getGpEmail = (auth) => String(auth?.user?.email || auth?.claims?.email || '').trim().toLowerCase();
+const getGpName = (auth) => String(auth?.user?.name || auth?.claims?.name || '').trim();
+
+const getGpPuesto = (colabs, gpEmail) => {
+    const gpColab = colabs.find(c => {
+        const ce = String(c.correo || c.email || '').trim().toLowerCase();
+        return ce && ce === gpEmail;
+    });
+    return gpColab ? (gpColab.puesto || gpColab.cargo || '') : '';
+};
+
+const validateActaData = (cliente, fechaActa, horaInicio, horaFin, participantes) => {
+    if (!cliente) return 'Debes seleccionar un cliente.';
+    if (!fechaActa || !horaInicio || !horaFin) return 'Debes proveer la fecha y las horas de inicio y fin.';
+    if (participantes.length === 0) return 'Debes agregar al menos un participante para diligenciar el desarrollo.';
+    return null;
+};
+
+const mergeParticipantes = (current, selected) => {
+    const currentMap = new Map(current.map(p => [p.cedula, p]));
+    return selected.map(s => currentMap.get(s.cedula) || { ...s, desarrollo: '' });
+};
+
+const SectionTitle = ({ children }) => {
+    const { isLight } = useModuleTheme();
+    return (
+        <h3 className={`text-base font-bold mt-6 mb-4 pb-2 border-b ${isLight ? 'border-slate-200 text-[#2F7BB8]' : 'border-slate-700 text-[#65BCF7]'}`}>
+            {children}
+        </h3>
+    );
+};
+
+const Label = ({ children }) => {
+    const { isLight } = useModuleTheme();
+    return (
+        <label className={`block text-xs font-semibold uppercase tracking-wider mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+            {children}
+        </label>
+    );
+};
+
+const ParticipantesSection = ({ participantes, isReadOnly, removeParticipante, setParticipantesOpen, isLight, dash }) => (
+    <div>
+        {!isReadOnly && (
+            <button type="button" onClick={() => setParticipantesOpen(true)} className="mb-4 inline-flex items-center gap-2 rounded-lg border border-[#2F7BB8] text-[#2F7BB8] px-3 py-1.5 text-sm font-semibold hover:bg-blue-50 transition-colors">
+                + Agregar participantes
+            </button>
+        )}
+        
+        {participantes.length === 0 ? (
+            <p className={`text-sm italic ${dash.mutedSm}`}>No hay participantes seleccionados.</p>
+        ) : (
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-100 text-slate-700">
+                        <tr>
+                            <th className="px-4 py-2">Nombre</th>
+                            <th className="px-4 py-2">Cargo</th>
+                            <th className="px-4 py-2">Empresa</th>
+                            {!isReadOnly && <th className="px-4 py-2 w-10"></th>}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {participantes.map(p => (
+                            <tr key={p.cedula} className="border-t border-slate-200">
+                                <td className="px-4 py-2 font-medium">{p.nombre}</td>
+                                <td className="px-4 py-2 text-slate-500">{p.cargo}</td>
+                                <td className="px-4 py-2 text-slate-500">{p.empresa}</td>
+                                {!isReadOnly && (
+                                    <td className="px-4 py-2">
+                                        <button type="button" onClick={() => removeParticipante(p.cedula)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
+                                    </td>
+                                )}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        )}
+    </div>
+);
+
+const DesarrolloSection = ({ participantes, isReadOnly, isLight, dash, inputCls, updateDesarrollo }) => (
+    <>
+        {participantes.length === 0 ? (
+            <p className={`text-sm italic ${dash.mutedSm}`}>Agrega participantes para registrar su desarrollo.</p>
+        ) : (
+            <div className="space-y-4">
+                {participantes.map(p => (
+                    <div key={p.cedula} className={`p-4 rounded-lg border ${isLight ? 'border-slate-200 bg-white shadow-sm' : 'border-slate-700 bg-slate-800'}`}>
+                        <h4 className={`text-sm font-bold mb-2 flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
+                            <span className="w-2 h-2 rounded-full bg-[#2F7BB8]"></span>
+                            Intervención: {p.nombre} <span className="font-normal opacity-70 text-xs">({p.cargo})</span>
+                        </h4>
+                        <textarea 
+                            rows={3} 
+                            value={p.desarrollo || ''} 
+                            onChange={e => updateDesarrollo(p.cedula, e.target.value)} 
+                            className={inputCls} 
+                            disabled={isReadOnly} 
+                            placeholder={`Registra aquí lo conversado por ${p.nombre}...`} 
+                        />
+                    </div>
+                ))}
+            </div>
+        )}
+    </>
+);
+
+const PlanesAccionSection = ({ planesAccion, isReadOnly, setPlanesOpen, removePlan, isLight, dash }) => (
+    <div>
+        {!isReadOnly && (
+            <button type="button" onClick={() => setPlanesOpen(true)} className="mb-4 inline-flex items-center gap-2 rounded-lg border border-[#2F7BB8] text-[#2F7BB8] px-3 py-1.5 text-sm font-semibold hover:bg-blue-50 transition-colors">
+                + Agregar plan de acción
+            </button>
+        )}
+
+        {planesAccion.length === 0 ? (
+            <p className={`text-sm italic ${dash.mutedSm}`}>No hay planes de acción registrados.</p>
+        ) : (
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-left text-sm">
+                    <thead className="bg-slate-100 text-slate-700">
+                        <tr>
+                            <th className="px-4 py-2">Tarea</th>
+                            <th className="px-4 py-2">Crit.</th>
+                            <th className="px-4 py-2">Responsable</th>
+                            <th className="px-4 py-2">Entrega</th>
+                            <th className="px-4 py-2">Recursos</th>
+                            {!isReadOnly && <th className="px-4 py-2 w-10"></th>}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {planesAccion.map((plan, idx) => (
+                            <tr key={`${plan.tarea}-${idx}`} className="border-t border-slate-200">
+                                <td className="px-4 py-2">{plan.tarea}</td>
+                                <td className="px-4 py-2 font-medium">{plan.criticidad.charAt(0)}</td>
+                                <td className="px-4 py-2">{plan.responsable}</td>
+                                <td className="px-4 py-2 whitespace-nowrap">{plan.fechaEntrega}</td>
+                                <td className="px-4 py-2 text-xs">{plan.recursos}</td>
+                                {!isReadOnly && (
+                                    <td className="px-4 py-2">
+                                        <button type="button" onClick={() => removePlan(idx)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
+                                    </td>
+                                )}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        )}
+    </div>
+);
+
 export default function SeguimientoFormModal({ 
     open, 
     onClose, 
@@ -24,7 +222,7 @@ export default function SeguimientoFormModal({
         ? 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-[#2F7BB8] focus:ring-1 focus:ring-[#2F7BB8] disabled:opacity-60'
         : 'w-full rounded-lg border border-slate-600 bg-[#1e293b] px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-[#2F7BB8] focus:ring-1 focus:ring-[#2F7BB8] disabled:opacity-60';
     
-    const role = String(auth?.user?.role || auth?.claims?.role || '').trim().toLowerCase();
+    const role = getRole(auth);
     const isGp = role === 'gp';
 
     const [loading, setLoading] = useState(false);
@@ -68,7 +266,6 @@ export default function SeguimientoFormModal({
     // Sub-modal for confirming finalize
     const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
     const [isFinalizado, setIsFinalizado] = useState(false);
-    const [fechaFinalizado, setFechaFinalizado] = useState(null);
 
     // Cálculos de fecha para restricciones
     const { minDateStr, maxDateStr } = useMemo(() => {
@@ -95,8 +292,8 @@ export default function SeguimientoFormModal({
             setLoading(true);
             setError(null);
             
-            const gpEmail = String(auth?.user?.email || auth?.claims?.email || '').trim().toLowerCase();
-            const gpName = String(auth?.user?.name || auth?.claims?.name || '').trim();
+            const gpEmail = getGpEmail(auth);
+            const gpName = getGpName(auth);
             
             fetch('/api/directorio/colaboradores', fetchOpts())
                 .then(r => r.json())
@@ -104,63 +301,26 @@ export default function SeguimientoFormModal({
                     const colabs = d.items || [];
                     setColaboradores(colabs);
                     
-                    // Buscar puesto del GP en el directorio (la DB usa 'puesto' para colaboradores)
-                    const gpColab = colabs.find(c => {
-                        const ce = String(c.correo || c.email || '').trim().toLowerCase();
-                        return ce && ce === gpEmail;
-                    });
-                    const gpPuesto = gpColab ? (gpColab.puesto || gpColab.cargo || '') : '';
+                    const gpPuesto = getGpPuesto(colabs, gpEmail);
                     
-                    if (actaId && actaData) {
-                        setTipo(actaData.tipo === 'cliente' ? 'Cliente' : 'Consultor');
-                        setCliente(actaData.cliente || '');
-                        setFechaActa(actaData.fecha_acta ? new Date(actaData.fecha_acta).toISOString().split('T')[0] : '');
-                        setIsFinalizado(actaData.estado === 'FINALIZADO');
-                        setFechaFinalizado(actaData.finalizado_at || null);
-        
-                        const pJson = actaData.payload_json || {};
-                        setHoraInicio(pJson.hora_inicio || '');
-                        setHoraFin(pJson.hora_fin || '');
-                        
-                        // Si existen en DB se cargan, si no, se toma del GP logueado
-                        setResponsableNombre(pJson.responsable_nombre || gpName);
-                        setResponsableCargo(pJson.responsable_cargo || gpPuesto);
-                        setQuienRealizaNombre(pJson.quien_realiza_nombre || gpName);
-                        setQuienRealizaCargo(pJson.quien_realiza_cargo || gpPuesto);
-                        
-                        setObjetivo(pJson.objetivo || '');
-                        setAgenda(pJson.agenda || '');
-                        
-                        setParticipantes(pJson.participantes_detalle || []);
-                        setPlanesAccion(pJson.planes_accion || []);
-                        
-                        setObservacionConsultor(pJson.observacion_consultor || '');
-                        setObservacionConsultorFecha(pJson.observacion_consultor_fecha || '');
-                    } else {
-                        // Nueva acta
-                        setTipo(tipoSeleccionado || 'Consultor');
-                        if (clientesCartera.length === 1) {
-                            setCliente(clientesCartera[0]);
-                        } else {
-                            setCliente('');
-                        }
-                        setFechaActa(new Date().toISOString().split('T')[0]);
-                        setIsFinalizado(false);
-                        setFechaFinalizado(null);
-        
-                        setHoraInicio('');
-                        setHoraFin('');
-                        setResponsableNombre(gpName);
-                        setResponsableCargo(gpPuesto);
-                        setQuienRealizaNombre(gpName);
-                        setQuienRealizaCargo(gpPuesto);
-                        setObjetivo('');
-                        setAgenda('');
-                        setParticipantes([]);
-                        setPlanesAccion([]);
-                        setObservacionConsultor('');
-                        setObservacionConsultorFecha('');
-                    }
+                    const parsed = parseActaData(actaId ? actaData : null, gpName, gpPuesto, tipoSeleccionado, clientesCartera);
+                    
+                    setTipo(parsed.tipo);
+                    setCliente(parsed.cliente);
+                    setFechaActa(parsed.fechaActa);
+                    setIsFinalizado(parsed.isFinalizado);
+                    setHoraInicio(parsed.horaInicio);
+                    setHoraFin(parsed.horaFin);
+                    setResponsableNombre(parsed.responsableNombre);
+                    setResponsableCargo(parsed.responsableCargo);
+                    setQuienRealizaNombre(parsed.quienRealizaNombre);
+                    setQuienRealizaCargo(parsed.quienRealizaCargo);
+                    setObjetivo(parsed.objetivo);
+                    setAgenda(parsed.agenda);
+                    setParticipantes(parsed.participantes);
+                    setPlanesAccion(parsed.planesAccion);
+                    setObservacionConsultor(parsed.observacionConsultor);
+                    setObservacionConsultorFecha(parsed.observacionConsultorFecha);
                 })
                 .catch(console.error)
                 .finally(() => setLoading(false));
@@ -172,14 +332,7 @@ export default function SeguimientoFormModal({
 
     // Participantes Logic
     const handleAcceptParticipantes = (selectedItems) => {
-        // Merge with existing to preserve 'desarrollo' text
-        const currentMap = new Map(participantes.map(p => [p.cedula, p]));
-        const merged = selectedItems.map(s => {
-            const existing = currentMap.get(s.cedula);
-            if (existing) return existing;
-            return { ...s, desarrollo: '' };
-        });
-        setParticipantes(merged);
+        setParticipantes(mergeParticipantes(participantes, selectedItems));
     };
 
     const updateDesarrollo = (cedula, text) => {
@@ -200,16 +353,9 @@ export default function SeguimientoFormModal({
     };
 
     const saveActa = async (estadoFinal) => {
-        if (!cliente) {
-            setError('Debes seleccionar un cliente.');
-            return;
-        }
-        if (!fechaActa || !horaInicio || !horaFin) {
-            setError('Debes proveer la fecha y las horas de inicio y fin.');
-            return;
-        }
-        if (participantes.length === 0) {
-            setError('Debes agregar al menos un participante para diligenciar el desarrollo.');
+        const validationError = validateActaData(cliente, fechaActa, horaInicio, horaFin, participantes);
+        if (validationError) {
+            setError(validationError);
             return;
         }
 
@@ -274,16 +420,6 @@ export default function SeguimientoFormModal({
     };
 
     // UI Components
-    const SectionTitle = ({ children }) => (
-        <h3 className={`text-base font-bold mt-6 mb-4 pb-2 border-b ${isLight ? 'border-slate-200 text-[#2F7BB8]' : 'border-slate-700 text-[#65BCF7]'}`}>
-            {children}
-        </h3>
-    );
-    const Label = ({ children }) => (
-        <label className={`block text-xs font-semibold uppercase tracking-wider mb-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-            {children}
-        </label>
-    );
 
     return (
         <>
@@ -298,14 +434,14 @@ export default function SeguimientoFormModal({
                             {error && <span className="text-red-500 text-sm font-semibold">{error}</span>}
                         </div>
                         <div className="flex gap-2">
-                            <button className={dash.borrarFiltros} onClick={onClose} disabled={saving}>Cancelar</button>
+                            <button type="button" className={dash.borrarFiltros} onClick={onClose} disabled={saving}>Cancelar</button>
                             {!isReadOnly && (
-                                <button className={dash.btnPrimaryCinte} onClick={() => saveActa('Borrador')} disabled={saving}>
+                                <button type="button" className={dash.btnPrimaryCinte} onClick={() => saveActa('Borrador')} disabled={saving}>
                                     {saving ? 'Guardando...' : 'Guardar Borrador'}
                                 </button>
                             )}
                             {!isReadOnly && (
-                                <button className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-all disabled:opacity-50" onClick={() => setConfirmFinalizeOpen(true)} disabled={saving}>
+                                <button type="button" className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-all disabled:opacity-50" onClick={() => setConfirmFinalizeOpen(true)} disabled={saving}>
                                     Finalizar Acta
                                 </button>
                             )}
@@ -380,44 +516,14 @@ export default function SeguimientoFormModal({
 
                             {/* SECCIÓN 4: Participantes */}
                             <SectionTitle>4. Participantes</SectionTitle>
-                            <div>
-                                {!isReadOnly && (
-                                    <button type="button" onClick={() => setParticipantesOpen(true)} className="mb-4 inline-flex items-center gap-2 rounded-lg border border-[#2F7BB8] text-[#2F7BB8] px-3 py-1.5 text-sm font-semibold hover:bg-blue-50 transition-colors">
-                                        + Agregar participantes
-                                    </button>
-                                )}
-                                
-                                {participantes.length === 0 ? (
-                                    <p className={`text-sm italic ${dash.mutedSm}`}>No hay participantes seleccionados.</p>
-                                ) : (
-                                    <div className="overflow-x-auto rounded-lg border border-slate-200">
-                                        <table className="w-full text-left text-sm">
-                                            <thead className={`bg-slate-100 ${isLight ? 'text-slate-700' : 'text-slate-700'}`}>
-                                                <tr>
-                                                    <th className="px-4 py-2">Nombre</th>
-                                                    <th className="px-4 py-2">Cargo</th>
-                                                    <th className="px-4 py-2">Empresa</th>
-                                                    {!isReadOnly && <th className="px-4 py-2 w-10"></th>}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {participantes.map(p => (
-                                                    <tr key={p.cedula} className="border-t border-slate-200">
-                                                        <td className="px-4 py-2 font-medium">{p.nombre}</td>
-                                                        <td className="px-4 py-2 text-slate-500">{p.cargo}</td>
-                                                        <td className="px-4 py-2 text-slate-500">{p.empresa}</td>
-                                                        {!isReadOnly && (
-                                                            <td className="px-4 py-2">
-                                                                <button onClick={() => removeParticipante(p.cedula)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
-                                                            </td>
-                                                        )}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
-                            </div>
+                            <ParticipantesSection 
+                                participantes={participantes}
+                                isReadOnly={isReadOnly}
+                                removeParticipante={removeParticipante}
+                                setParticipantesOpen={setParticipantesOpen}
+                                isLight={isLight}
+                                dash={dash}
+                            />
 
                             {/* SECCIÓN 5: Agenda */}
                             <SectionTitle>5. Agenda</SectionTitle>
@@ -427,73 +533,25 @@ export default function SeguimientoFormModal({
 
                             {/* SECCIÓN 6: Desarrollo de la reunión */}
                             <SectionTitle>6. Desarrollo de la reunión</SectionTitle>
-                            {participantes.length === 0 ? (
-                                <p className={`text-sm italic ${dash.mutedSm}`}>Agrega participantes para registrar su desarrollo.</p>
-                            ) : (
-                                <div className="space-y-4">
-                                    {participantes.map(p => (
-                                        <div key={p.cedula} className={`p-4 rounded-lg border ${isLight ? 'border-slate-200 bg-white shadow-sm' : 'border-slate-700 bg-slate-800'}`}>
-                                            <h4 className={`text-sm font-bold mb-2 flex items-center gap-2 ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>
-                                                <span className="w-2 h-2 rounded-full bg-[#2F7BB8]"></span>
-                                                Intervención: {p.nombre} <span className="font-normal opacity-70 text-xs">({p.cargo})</span>
-                                            </h4>
-                                            <textarea 
-                                                rows={3} 
-                                                value={p.desarrollo || ''} 
-                                                onChange={e => updateDesarrollo(p.cedula, e.target.value)} 
-                                                className={inputCls} 
-                                                disabled={isReadOnly} 
-                                                placeholder={`Registra aquí lo conversado por ${p.nombre}...`} 
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            <DesarrolloSection 
+                                participantes={participantes}
+                                isReadOnly={isReadOnly}
+                                isLight={isLight}
+                                dash={dash}
+                                inputCls={inputCls}
+                                updateDesarrollo={updateDesarrollo}
+                            />
 
                             {/* SECCIÓN 7: Planes de acción */}
                             <SectionTitle>7. Planes de acción</SectionTitle>
-                            <div>
-                                {!isReadOnly && (
-                                    <button type="button" onClick={() => setPlanesOpen(true)} className="mb-4 inline-flex items-center gap-2 rounded-lg border border-[#2F7BB8] text-[#2F7BB8] px-3 py-1.5 text-sm font-semibold hover:bg-blue-50 transition-colors">
-                                        + Agregar plan de acción
-                                    </button>
-                                )}
-
-                                {planesAccion.length === 0 ? (
-                                    <p className={`text-sm italic ${dash.mutedSm}`}>No hay planes de acción registrados.</p>
-                                ) : (
-                                    <div className="overflow-x-auto rounded-lg border border-slate-200">
-                                        <table className="w-full text-left text-sm">
-                                            <thead className={`bg-slate-100 ${isLight ? 'text-slate-700' : 'text-slate-700'}`}>
-                                                <tr>
-                                                    <th className="px-4 py-2">Tarea</th>
-                                                    <th className="px-4 py-2">Crit.</th>
-                                                    <th className="px-4 py-2">Responsable</th>
-                                                    <th className="px-4 py-2">Entrega</th>
-                                                    <th className="px-4 py-2">Recursos</th>
-                                                    {!isReadOnly && <th className="px-4 py-2 w-10"></th>}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {planesAccion.map((plan, idx) => (
-                                                    <tr key={idx} className="border-t border-slate-200">
-                                                        <td className="px-4 py-2">{plan.tarea}</td>
-                                                        <td className="px-4 py-2 font-medium">{plan.criticidad.charAt(0)}</td>
-                                                        <td className="px-4 py-2">{plan.responsable}</td>
-                                                        <td className="px-4 py-2 whitespace-nowrap">{plan.fechaEntrega}</td>
-                                                        <td className="px-4 py-2 text-xs">{plan.recursos}</td>
-                                                        {!isReadOnly && (
-                                                            <td className="px-4 py-2">
-                                                                <button onClick={() => removePlan(idx)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
-                                                            </td>
-                                                        )}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
-                            </div>
+                            <PlanesAccionSection 
+                                planesAccion={planesAccion}
+                                isReadOnly={isReadOnly}
+                                setPlanesOpen={setPlanesOpen}
+                                removePlan={removePlan}
+                                isLight={isLight}
+                                dash={dash}
+                            />
 
                             {/* SECCIÓN 8 y 9: Cierre */}
                             <SectionTitle>8. Cierre y Próxima Reunión</SectionTitle>
@@ -556,8 +614,8 @@ export default function SeguimientoFormModal({
                 size="sm"
                 footer={
                     <div className="flex justify-end gap-2 w-full">
-                        <button className={dash.borrarFiltros} onClick={() => setConfirmFinalizeOpen(false)} disabled={saving}>Cancelar</button>
-                        <button className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700" onClick={() => saveActa('FINALIZADO')} disabled={saving}>
+                        <button type="button" className={dash.borrarFiltros} onClick={() => setConfirmFinalizeOpen(false)} disabled={saving}>Cancelar</button>
+                        <button type="button" className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700" onClick={() => saveActa('FINALIZADO')} disabled={saving}>
                             {saving ? 'Finalizando...' : 'Sí, Finalizar'}
                         </button>
                     </div>

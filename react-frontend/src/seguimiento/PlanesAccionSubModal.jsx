@@ -9,6 +9,7 @@ export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr,
     const inputCls = isLight 
         ? 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-[#2F7BB8]'
         : 'w-full rounded-lg border border-slate-600 bg-[#1e293b] px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-[#2F7BB8]';
+    const labelCls = `block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`;
 
     const [tarea, setTarea] = useState('');
     const [criticidad, setCriticidad] = useState('Media (M)');
@@ -57,11 +58,11 @@ export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr,
         >
             <div className="p-6 space-y-4">
                 <div>
-                    <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Tarea / Acción</label>
+                    <label className={labelCls}>Tarea / Acción</label>
                     <input type="text" value={tarea} onChange={e => setTarea(e.target.value)} className={inputCls} placeholder="Ej. Actualizar matriz de riesgos" />
                 </div>
                 <div>
-                    <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Criticidad</label>
+                    <label className={labelCls}>Criticidad</label>
                     <select value={criticidad} onChange={e => setCriticidad(e.target.value)} className={inputCls}>
                         <option value="Alta (A)">Alta (A)</option>
                         <option value="Media (M)">Media (M)</option>
@@ -69,11 +70,11 @@ export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr,
                     </select>
                 </div>
                 <div>
-                    <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Responsable</label>
+                    <label className={labelCls}>Responsable</label>
                     <input type="text" value={responsable} onChange={e => setResponsable(e.target.value)} className={inputCls} placeholder="Nombre del responsable" />
                 </div>
                 <div>
-                    <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Fecha de Entrega</label>
+                    <label className={labelCls}>Fecha de Entrega</label>
                     <input 
                         type="date" 
                         value={fechaEntrega} 
@@ -84,7 +85,7 @@ export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr,
                     />
                 </div>
                 <div>
-                    <label className={`block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Recursos (Opcional)</label>
+                    <label className={labelCls}>Recursos (Opcional)</label>
                     <input type="text" value={recursos} onChange={e => setRecursos(e.target.value)} className={inputCls} placeholder="Ej. Presupuesto, acceso a servidor..." />
                 </div>
             </div>
