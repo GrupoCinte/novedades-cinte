@@ -7,13 +7,15 @@ const { isFestivo, getFestivosSet } = require('../festivosService');
 async function diasHabilesEntre(fechaInicio, fechaFin) {
     const festivos = await getFestivosSet();
     let count = 0;
-    const current = new Date(fechaInicio);
+    let current = new Date(fechaInicio);
     const end = new Date(fechaFin);
 
     current.setHours(0, 0, 0, 0);
     end.setHours(0, 0, 0, 0);
 
-    while (current <= end) {
+    while (true) {
+        if (current.getTime() > end.getTime()) break;
+
         const dia = current.getDay(); // 0=domingo, 6=sábado
         const ymd = current.toISOString().split('T')[0];
 
@@ -41,11 +43,13 @@ async function diasHabilesTranscurridos(fechaTermino, fechaActual = new Date()) 
  */
 async function sumarDiasHabiles(fechaInicio, cantidad) {
     const festivos = await getFestivosSet();
-    const current = new Date(fechaInicio);
+    let current = new Date(fechaInicio);
     current.setHours(0, 0, 0, 0);
 
     let agregados = 0;
-    while (agregados < cantidad) {
+    while (true) {
+        if (agregados >= cantidad) break;
+
         current.setDate(current.getDate() + 1);
         const dia = current.getDay();
         const ymd = current.toISOString().split('T')[0];

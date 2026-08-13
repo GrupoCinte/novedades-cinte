@@ -11,7 +11,7 @@ const ESTADOS = {
 
 function normalizeDateValue(value) {
     if (value === null || value === undefined || value === '') return null;
-    const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+    const date = value instanceof Date ? new Date(value) : new Date(value);
     if (Number.isNaN(date.getTime())) return null;
     date.setHours(0, 0, 0, 0);
     return date;
@@ -24,15 +24,26 @@ function contarDiasHabilesColombia(fechaInicio, fechaFin, holidayMap = null) {
 
     const cache = holidayMap || {};
     let count = 0;
-    const cursor = new Date(inicio.getTime());
-    for (let d = new Date(cursor.getTime()); d <= fin; d.setDate(d.getDate() + 1)) {
+    const cursor = new Date(inicio);
+    let d = new Date(cursor);
+
+    while (true) {
+        if (d > fin) break;
+
         const day = d.getDay();
-        if (day === 0 || day === 6) continue;
+        if (day === 0 || day === 6) {
+            d.setDate(d.getDate() + 1);
+            continue;
+        }
         const ymd = toYmd(d);
         const year = d.getFullYear();
         const holidays = cache[year] || getFestivosColombia(year);
-        if (holidays.has(ymd)) continue;
+        if (holidays.has(ymd)) {
+            d.setDate(d.getDate() + 1);
+            continue;
+        }
         count += 1;
+        d.setDate(d.getDate() + 1);
     }
     return count;
 }
@@ -46,18 +57,28 @@ function contarDiasHabilesTranscurridos(fechaTermino, fechaActual) {
 
     const holidayMap = {};
     let count = 0;
-    //CORRECCIÓN: empezar DESPUÉS de la fecha de término
-    let cursor = new Date(inicio.getTime());
-    cursor.setDate(cursor.getDate() + 1);  // ← Agregar ESTA línea
-    
-    for (let d = new Date(cursor.getTime()); d <= fin; d.setDate(d.getDate() + 1)) {
+    // CORRECCIÓN: empezar DESPUÉS de la fecha de término
+    let cursor = new Date(inicio);
+    cursor.setDate(cursor.getDate() + 1);
+
+    let d = new Date(cursor);
+    while (true) {
+        if (d > fin) break;
+
         const day = d.getDay();
-        if (day === 0 || day === 6) continue;
+        if (day === 0 || day === 6) {
+            d.setDate(d.getDate() + 1);
+            continue;
+        }
         const ymd = toYmd(d);
         const year = d.getFullYear();
         if (!holidayMap[year]) holidayMap[year] = getFestivosColombia(year);
-        if (holidayMap[year].has(ymd)) continue;
+        if (holidayMap[year].has(ymd)) {
+            d.setDate(d.getDate() + 1);
+            continue;
+        }
         count += 1;
+        d.setDate(d.getDate() + 1);
     }
     return count;
 }
