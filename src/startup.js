@@ -52,6 +52,15 @@ function logStartupConfig(deps) {
     logger.info({ assetsPath: path.join(process.cwd(), 'assets') }, 'Carpeta assets');
 }
 
+async function safeInit(fn, pool, name) {
+    if (typeof fn !== 'function') return;
+    try {
+        await fn(pool);
+    } catch (e) {
+        logger.warn({ error: e?.message }, `Inicialización DDL ${name} omitida o sin permisos`);
+    }
+}
+
 async function startServer(deps) {
     const {
         app,
@@ -145,28 +154,15 @@ async function startServer(deps) {
     await ensureConciliacionesNovedadConsumoTable();
     await ensureColaboradorAsignacionesTable();
     await ensureColaboradorTarifaHistorialTable();
-    if (typeof ensureActividadesConsultorTable === 'function') {
-        try {
-            await ensureActividadesConsultorTable();
-        } catch (e) {
-            logger.warn({ error: e?.message }, 'Inicialización DDL actividades_consultor omitida o sin permisos');
-        }
-    }
 
-    if (typeof ensureSeguimientoTables === 'function') {
-        try {
-            await ensureSeguimientoTables(pool);
-        } catch (e) {
-            logger.warn({ error: e?.message }, 'Inicialización DDL seguimiento omitida o sin permisos');
-        }
-    }
+    await safeInit(ensureActividadesConsultorTable, pool, 'actividades_consultor');
+    await safeInit(ensureSeguimientoTables, pool, 'seguimiento');
 
-    try {
+    await safeInit(async () => {
         const { migrateColaboradoresToAsignaciones } = require('./conciliaciones/colaboradorAsignaciones');
         await migrateColaboradoresToAsignaciones(pool);
-    } catch (e) {
-        logger.warn({ error: e?.message }, 'Migración colaborador_asignaciones omitida');
-    }
+    }, null, 'colaborador_asignaciones');
+
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
     /**
@@ -175,17 +171,8 @@ async function startServer(deps) {
      * + catálogos (motivo_baja, ciudades, EPS/AFP/ARL/CCF) + buzón staging + log ETL.
      * Idempotente: si la BD no es owner se loguea WARN y se sigue.
      */
-    try {
-        await ensureOnboardingSchema({ pool, logger });
-    } catch (e) {
-        logger.error({ error: e && e.message ? e.message : e }, 'Onboarding schema: error de DDL (continúa arranque)');
-    }
-
-    try {
-        await ensureSourcingSchema({ pool, logger });
-    } catch (e) {
-        logger.error({ error: e && e.message ? e.message : e }, 'Sourcing schema: error de DDL (continúa arranque)');
-    }
+    await safeInit(() => ensureOnboardingSchema({ pool, logger }), null, 'onboarding_schema');
+    await safeInit(() => ensureSourcingSchema({ pool, logger }), null, 'sourcing_schema');
 
     const server = app.listen(PORT, () => {
         logStartupConfig(deps);
