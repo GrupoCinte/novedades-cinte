@@ -1,4 +1,4 @@
-const path = require('path');
+const path = require('node:path');
 const { logger } = require('./logger');
 const {
     initContratacionRealtime,
@@ -84,16 +84,8 @@ async function startServer(deps) {
         ensureCinteLeonardoPair,
         ensureActividadesConsultorTable,
         ensureSeguimientoTables,
-        PORT,
-        COGNITO_ENABLED,
-        COGNITO_REGION,
-        COGNITO_USER_POOL_ID,
-        COGNITO_APP_CLIENT_SECRET,
-        s3Client,
-        S3_ENABLED,
-        S3_BUCKET_NAME,
-        S3_REGION,
-        S3_AUTH_MODE
+        ensureSeguimientoTables,
+        PORT
     } = deps;
 
     await pool.query('SELECT NOW()');
@@ -133,21 +125,17 @@ async function startServer(deps) {
     await ensureConciliacionesNovedadConsumoTable();
     await ensureColaboradorAsignacionesTable();
     await ensureColaboradorTarifaHistorialTable();
-    if (typeof ensureActividadesConsultorTable === 'function') {
+    const safeInit = async (fn, args, fallbackMsg) => {
+        if (typeof fn !== 'function') return;
         try {
-            await ensureActividadesConsultorTable();
+            await fn(...(args || []));
         } catch (e) {
-            logger.warn({ error: e?.message }, 'Inicialización DDL actividades_consultor omitida o sin permisos');
+            logger.warn({ error: e?.message }, fallbackMsg);
         }
-    }
+    };
 
-    if (typeof ensureSeguimientoTables === 'function') {
-        try {
-            await ensureSeguimientoTables(pool);
-        } catch (e) {
-            logger.warn({ error: e?.message }, 'Inicialización DDL seguimiento omitida o sin permisos');
-        }
-    }
+    await safeInit(ensureActividadesConsultorTable, [], 'Inicialización DDL actividades_consultor omitida o sin permisos');
+    await safeInit(ensureSeguimientoTables, [pool], 'Inicialización DDL seguimiento omitida o sin permisos');
 
     try {
         const { migrateColaboradoresToAsignaciones } = require('./conciliaciones/colaboradorAsignaciones');
@@ -166,13 +154,13 @@ async function startServer(deps) {
     try {
         await ensureOnboardingSchema({ pool, logger });
     } catch (e) {
-        logger.error({ error: e && e.message ? e.message : e }, 'Onboarding schema: error de DDL (continúa arranque)');
+        logger.error({ error: e?.message || e }, 'Onboarding schema: error de DDL (continúa arranque)');
     }
 
     try {
         await ensureSourcingSchema({ pool, logger });
     } catch (e) {
-        logger.error({ error: e && e.message ? e.message : e }, 'Sourcing schema: error de DDL (continúa arranque)');
+        logger.error({ error: e?.message || e }, 'Sourcing schema: error de DDL (continúa arranque)');
     }
 
     const server = app.listen(PORT, () => {
@@ -192,10 +180,10 @@ async function startServer(deps) {
     }
 
     server.on('error', (err) => {
-        if (err && err.code === 'EADDRINUSE') {
+        if (err?.code === 'EADDRINUSE') {
             logger.fatal({ port: PORT }, 'Puerto en uso: libera el proceso o cambia PORT');
         } else {
-            logger.fatal({ error: err && err.message ? err.message : err }, 'Error al escuchar HTTP');
+            logger.fatal({ error: err?.message || err }, 'Error al escuchar HTTP');
         }
         process.exit(1);
     });
