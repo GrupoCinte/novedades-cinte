@@ -1883,54 +1883,6 @@ function registerDirectorioRoutes(deps) {
 
     });
 
-    app.post('/api/directorio/reubicaciones-sync/backfill', ...writeGuard, async (req, res) => {
-        console.log('===== BACKFILL EJECUTADO =====');
-        
-        try {
-            const { dryRun = false, limit = 100 } = req.body;
-
-            // Si pool no es válido, usar global.__pool
-            const db = pool && typeof pool.query === 'function' ? pool : global.__pool;
-
-            if (!db || typeof db.query !== 'function') {
-                console.error('No hay pool disponible');
-                return res.status(500).json({ 
-                    ok: false, 
-                    error: 'No hay conexión a la base de datos',
-                    debug: { 
-                        poolInClosure: !!pool, 
-                        globalPool: !!global.__pool 
-                    }
-                });
-            }
-
-            const result = await recoverySync({
-                pool: db,
-                notifyService: require('../notifications/emailNotificationsPublisher'),
-                dryRun: Boolean(dryRun),
-                limit: Math.min(Number(limit) || 100, 500)
-            });
-
-            return res.json({
-                ok: true,
-                ...result,
-                message: dryRun 
-                    ? `Simulación: ${result.found} fichas pendientes encontradas` 
-                    : `${result.processed} fichas procesadas, ${result.errors} errores`
-            });
-        } catch (error) {
-            console.error('[Backfill] Error completo:', error);
-            return res.status(500).json({
-                ok: false,
-                error: error.message || 'No se pudo ejecutar el backfill',
-                stack: error.stack
-            });
-        }
-    });
-
-
-
-
     // ============================================
     // ENDPOINTS DE HU-04: OBSERVACIONES Y DECISIONES
     // ============================================
