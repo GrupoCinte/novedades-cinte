@@ -7,6 +7,39 @@ import { authHeaders } from '../shared/authUtils.js';
 import ParticipantesSubModal from './ParticipantesSubModal.jsx';
 import PlanesAccionSubModal from './PlanesAccionSubModal.jsx';
 
+// Helpers para UI y validaciones (reducen complejidad y ternarios anidados)
+const getCorreoEstadoClass = (estado) => {
+    if (estado === 'fallido') return 'bg-red-50 text-red-700 border border-red-200';
+    if (estado === 'enviado') return 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+    return 'bg-amber-50 text-amber-700 border border-amber-200';
+};
+
+const getCorreoEstadoMessage = (estado) => {
+    if (estado === 'fallido') return 'No se pudo enviar el correo a los participantes. Inténtalo de nuevo.';
+    if (estado === 'enviado') return 'El correo fue enviado exitosamente y el ciclo de 30 días ha iniciado.';
+    return 'El envío del correo se está procesando en segundo plano.';
+};
+
+const validateTimeBounds = (fechaActa, inicio, fin) => {
+    if (!fechaActa || !inicio || !fin) return 'Debes proveer la fecha y las horas de inicio y fin.';
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    if (!timeRegex.test(inicio)) return 'El formato de Hora de inicio no es válido (usa formato 24h, ej. 08:30, 14:00).';
+    if (!timeRegex.test(fin)) return 'El formato de Hora de finalización no es válido (usa formato 24h, ej. 08:30, 14:00).';
+    if (inicio >= fin) return 'La Hora de inicio debe ser estrictamente anterior a la Hora de fin.';
+    return null;
+};
+
+const validateContent = (fechaActa, agenda, participantes, planesAccion, tipoSeleccionado, clienteFinal) => {
+    if (participantes.length === 0) return 'Debes agregar al menos un participante para diligenciar el desarrollo.';
+    if (!fechaActa) return 'La Fecha es obligatoria para finalizar el acta.';
+    if (!agenda || agenda.trim() === '') return 'El campo Temas (Agenda) es obligatorio para finalizar el acta.';
+    if (participantes.some(p => !p.desarrollo || p.desarrollo.trim() === '')) return 'El Desarrollo (Feedback) de todos los participantes es obligatorio para finalizar el acta.';
+    if (planesAccion.length === 0) return 'Debes agregar al menos un compromiso (Planes de Acción) para finalizar el acta.';
+    if (tipoSeleccionado === 'Consultor' && participantes.length === 0) return 'Debes seleccionar consultores para finalizar este tipo de acta.';
+    if (!clienteFinal) return 'Error interno: No se pudo determinar el cliente asociado al acta.';
+    return null;
+};
+
 export default function SeguimientoFormModal({ 
     open, 
     onClose, 
@@ -270,53 +303,17 @@ export default function SeguimientoFormModal({
         if (!clienteFinal && participantes.length > 0) {
             const pConCliente = participantes.find(p => p.empresa && p.empresa !== 'CINTe');
             clienteFinal = pConCliente ? pConCliente.empresa : (clientesCartera.length > 0 ? clientesCartera[0] : 'General');
-            // Nota: El setCliente se hace en saveActa, aquí solo validamos.
         }
 
-        if (participantes.length === 0) {
-            setError('Debes agregar al menos un participante para diligenciar el desarrollo.');
-            return false;
-        }
-        if (!fechaActa) {
-            setError('La Fecha es obligatoria para finalizar el acta.');
-            return false;
-        }
-        if (!agenda || agenda.trim() === '') {
-            setError('El campo Temas (Agenda) es obligatorio para finalizar el acta.');
-            return false;
-        }
-        if (participantes.some(p => !p.desarrollo || p.desarrollo.trim() === '')) {
-            setError('El Desarrollo (Feedback) de todos los participantes es obligatorio para finalizar el acta.');
-            return false;
-        }
-        if (planesAccion.length === 0) {
-            setError('Debes agregar al menos un compromiso (Planes de Acción) para finalizar el acta.');
-            return false;
-        }
-        if (tipoSeleccionado === 'Consultor' && participantes.length === 0) {
-            setError('Debes seleccionar consultores para finalizar este tipo de acta.');
-            return false;
-        }
-        if (!clienteFinal) {
-            setError('Error interno: No se pudo determinar el cliente asociado al acta.');
-            return false;
-        }
-        if (!fechaActa || !horaInicio || !horaFin) {
-            setError('Debes proveer la fecha y las horas de inicio y fin.');
+        const contentError = validateContent(fechaActa, agenda, participantes, planesAccion, tipoSeleccionado, clienteFinal);
+        if (contentError) {
+            setError(contentError);
             return false;
         }
 
-        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-        if (!timeRegex.test(horaInicio)) {
-            setError('El formato de Hora de inicio no es válido (usa formato 24h, ej. 08:30, 14:00).');
-            return false;
-        }
-        if (!timeRegex.test(horaFin)) {
-            setError('El formato de Hora de finalización no es válido (usa formato 24h, ej. 08:30, 14:00).');
-            return false;
-        }
-        if (horaInicio >= horaFin) {
-            setError('La Hora de inicio debe ser estrictamente anterior a la Hora de fin.');
+        const timeError = validateTimeBounds(fechaActa, horaInicio, horaFin);
+        if (timeError) {
+            setError(timeError);
             return false;
         }
         
@@ -499,13 +496,7 @@ export default function SeguimientoFormModal({
                             
                             {/* ESTADO DEL CORREO DE CIERRE */}
                             {isFinalizado && localCorreoEstado && localCorreoEstado !== 'no_aplica' && (
-                                <div className={`p-4 rounded-lg flex items-center justify-between mb-4 ${
-                                    localCorreoEstado === 'fallido' 
-                                        ? 'bg-red-50 text-red-700 border border-red-200' 
-                                        : localCorreoEstado === 'enviado'
-                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                            : 'bg-amber-50 text-amber-700 border border-amber-200'
-                                }`}>
+                                <div className={`p-4 rounded-lg flex items-center justify-between mb-4 ${getCorreoEstadoClass(localCorreoEstado)}`}>
                                     <div>
                                         <p className="font-semibold text-sm flex items-center gap-2">
                                             {localCorreoEstado === 'fallido' && (
@@ -526,9 +517,7 @@ export default function SeguimientoFormModal({
                                             Estado del correo de cierre: <span className="uppercase tracking-wider">{localCorreoEstado}</span>
                                         </p>
                                         <p className="text-xs mt-1 opacity-90">
-                                            {localCorreoEstado === 'fallido' ? 'No se pudo enviar el correo a los participantes. Inténtalo de nuevo.' : 
-                                             localCorreoEstado === 'enviado' ? 'El correo fue enviado exitosamente y el ciclo de 30 días ha iniciado.' : 
-                                             'El envío del correo se está procesando en segundo plano.'}
+                                            {getCorreoEstadoMessage(localCorreoEstado)}
                                         </p>
                                     </div>
                                     {localCorreoEstado === 'fallido' && (

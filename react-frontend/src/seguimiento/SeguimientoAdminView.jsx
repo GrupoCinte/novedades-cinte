@@ -9,6 +9,33 @@ import { CheckCircle2, X } from 'lucide-react';
 
 import { authHeaders } from '../shared/authUtils.js';
 
+// Helper: Extrae la lógica de filtrado para reducir complejidad cognitiva
+const matchActaFilters = (a, filters) => {
+    const { filterCliente, filterTipo, filterFechaInicio, filterFechaFin } = filters;
+    const matchCliente = !filterCliente || (a.cliente || '').toLowerCase().includes(filterCliente.toLowerCase());
+    const matchTipo = !filterTipo || (a.tipo || '').toLowerCase() === filterTipo.toLowerCase();
+    
+    let matchFecha = true;
+    if (a.fecha_acta && (filterFechaInicio || filterFechaFin)) {
+        const d = new Date(a.fecha_acta);
+        d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+        const yyyyMmDd = d.toISOString().split('T')[0];
+        if (filterFechaInicio && yyyyMmDd < filterFechaInicio) matchFecha = false;
+        if (filterFechaFin && yyyyMmDd > filterFechaFin) matchFecha = false;
+    } else if (!a.fecha_acta && (filterFechaInicio || filterFechaFin)) {
+        matchFecha = false;
+    }
+    
+    return matchCliente && matchTipo && matchFecha;
+};
+
+// Helper: Extrae la lógica de renderizado del texto vacío para evitar ternarios anidados
+const getEmptyStateMessage = (hasActas, isGp) => {
+    if (hasActas) return 'Ningún acta coincide con los filtros.';
+    if (isGp) return 'No hay actas registradas en tu cartera.';
+    return 'No hay actas registradas.';
+};
+
 export default function SeguimientoAdminView({ token, auth }) {
     const { isLight } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
@@ -70,25 +97,7 @@ export default function SeguimientoAdminView({ token, auth }) {
     const chipLabel = activeCount === 0 ? 'Sin filtros' : `${activeCount} filtro${activeCount > 1 ? 's' : ''} activo${activeCount > 1 ? 's' : ''}`;
 
     const filteredActas = useMemo(() => {
-        return actas.filter(a => {
-            const matchCliente = !filterCliente || (a.cliente || '').toLowerCase().includes(filterCliente.toLowerCase());
-            const matchTipo = !filterTipo || (a.tipo || '').toLowerCase() === filterTipo.toLowerCase();
-            
-            let matchFecha = true;
-            if (a.fecha_acta && (filterFechaInicio || filterFechaFin)) {
-                const d = new Date(a.fecha_acta);
-                d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
-                // Remove time part to compare just the date string YYYY-MM-DD safely
-                const yyyyMmDd = d.toISOString().split('T')[0];
-                
-                if (filterFechaInicio && yyyyMmDd < filterFechaInicio) matchFecha = false;
-                if (filterFechaFin && yyyyMmDd > filterFechaFin) matchFecha = false;
-            } else if (!a.fecha_acta && (filterFechaInicio || filterFechaFin)) {
-                matchFecha = false; // If searching by date but acta has no date
-            }
-            
-            return matchCliente && matchTipo && matchFecha;
-        });
+        return actas.filter(a => matchActaFilters(a, { filterCliente, filterTipo, filterFechaInicio, filterFechaFin }));
     }, [actas, filterCliente, filterTipo, filterFechaInicio, filterFechaFin]);
 
     const handleSaved = (estadoFinal) => {
@@ -203,15 +212,72 @@ export default function SeguimientoAdminView({ token, auth }) {
     // Remove columns array since we render directly inline now
 
     // Fix SonarQube: Extract nested ternary operation into an independent statement
-    const getEstadoBadgeColor = (estado, isLight) => {
+    const getEstadoBadgeColor = (estado, isLightTheme) => {
         if (estado === 'FINALIZADO') {
-            return isLight
+            return isLightTheme
                 ? 'border-emerald-300 bg-emerald-100 text-emerald-900'
                 : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400';
         }
-        return isLight
+        return isLightTheme
             ? 'border-amber-300 bg-amber-100 text-amber-900'
             : 'border-amber-500/20 bg-amber-500/10 text-amber-400';
+    };
+
+    // Fix SonarQube: Extraer el cuerpo de la tabla para reducir complejidad cognitiva y ternarios anidados
+    const renderTableBody = () => {
+        if (loading) {
+            return <tr><td colSpan={6} className={`p-12 text-center font-medium ${dash.muted}`}>Cargando actas...</td></tr>;
+        }
+        if (filteredActas.length === 0) {
+            return <tr><td colSpan={6} className={`p-12 text-center font-medium ${dash.muted}`}>{getEmptyStateMessage(actas.length > 0, isGp)}</td></tr>;
+        }
+        return filteredActas.map((row) => {
+            const names = row.participantes?.map(p => p.nombre).filter(Boolean) || [];
+            let formattedDate = '-';
+            if (row.fecha_acta) {
+                const d = new Date(row.fecha_acta);
+                d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+                formattedDate = d.toLocaleDateString();
+            }
+            const canDelete = row.estado === 'Borrador' || role === 'cac' || role === 'super admin' || role === 'super_admin';
+
+            return (
+                <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => handleEditRow(row)}>
+                    <td className={dash.tdName}>{row.cliente}</td>
+                    <td className={dash.tdCell}>
+                        <span className="capitalize">{row.tipo}</span>
+                    </td>
+                    <td className={dash.tdCell}>
+                        {names.length === 0 ? (
+                            <span className={dash.mutedSm}>Sin participantes</span>
+                        ) : (
+                            <span className="truncate max-w-[200px] block" title={names.join(', ')}>{names.join(', ')}</span>
+                        )}
+                    </td>
+                    <td className="p-4">
+                        <span className={`inline-flex w-fit rounded-md border px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${getEstadoBadgeColor(row.estado, isLight)}`}>
+                            {row.estado}
+                        </span>
+                    </td>
+                    <td className={`p-4 pr-6 text-right ${dash.mutedSm}`}>
+                        {formattedDate}
+                    </td>
+                    <td className="p-4 text-center">
+                        {canDelete && (
+                            <button 
+                                className="text-slate-400 hover:text-red-500 transition-colors p-1.5 rounded-md hover:bg-red-50"
+                                onClick={(e) => handleDeleteClick(e, row)}
+                                title={row.estado === 'Borrador' ? "Eliminar borrador" : "Eliminar acta"}
+                            >
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
+                        )}
+                    </td>
+                </tr>
+            );
+        });
     };
 
     return (
@@ -267,55 +333,7 @@ export default function SeguimientoAdminView({ token, auth }) {
                                 </tr>
                             </thead>
                             <tbody className={dash.tbody}>
-                                {loading ? (
-                                    <tr><td colSpan={6} className={`p-12 text-center font-medium ${dash.muted}`}>Cargando actas...</td></tr>
-                                ) : filteredActas.length === 0 ? (
-                                    <tr><td colSpan={6} className={`p-12 text-center font-medium ${dash.muted}`}>{actas.length > 0 ? 'Ningún acta coincide con los filtros.' : isGp ? 'No hay actas registradas en tu cartera.' : 'No hay actas registradas.'}</td></tr>
-                                ) : (
-                                    filteredActas.map((row) => {
-                                        const names = row.participantes?.map(p => p.nombre).filter(Boolean) || [];
-                                        return (
-                                            <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => handleEditRow(row)}>
-                                                <td className={dash.tdName}>{row.cliente}</td>
-                                                <td className={dash.tdCell}>
-                                                    <span className="capitalize">{row.tipo}</span>
-                                                </td>
-                                                <td className={dash.tdCell}>
-                                                    {names.length === 0 ? (
-                                                        <span className={dash.mutedSm}>Sin participantes</span>
-                                                    ) : (
-                                                        <span className="truncate max-w-[200px] block" title={names.join(', ')}>{names.join(', ')}</span>
-                                                    )}
-                                                </td>
-                                                <td className="p-4">
-                                                    <span className={`inline-flex w-fit rounded-md border px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${getEstadoBadgeColor(row.estado, isLight)}`}>
-                                                        {row.estado}
-                                                    </span>
-                                                </td>
-                                                <td className={`p-4 pr-6 text-right ${dash.mutedSm}`}>
-                                                    {row.fecha_acta ? (() => {
-                                                        const d = new Date(row.fecha_acta);
-                                                        d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
-                                                        return d.toLocaleDateString();
-                                                    })() : '-'}
-                                                </td>
-                                                <td className="p-4 text-center">
-                                                    {(row.estado === 'Borrador' || role === 'cac' || role === 'super admin' || role === 'super_admin') && (
-                                                        <button 
-                                                            className="text-slate-400 hover:text-red-500 transition-colors p-1.5 rounded-md hover:bg-red-50"
-                                                            onClick={(e) => handleDeleteClick(e, row)}
-                                                            title={row.estado === 'Borrador' ? "Eliminar borrador" : "Eliminar acta"}
-                                                        >
-                                                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                            </svg>
-                                                        </button>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                )}
+                                {renderTableBody()}
                             </tbody>
                         </table>
                     </div>
