@@ -155,6 +155,33 @@ function initContratacionRealtime(server, deps = {}) {
         }
     }
 
+    // Job de recovery para Reubicaciones (HU-02)
+    const { recoverySync } = require('../reubicaciones/reubicacionesSyncService');
+    const REUBICACIONES_SYNC_INTERVAL_MS = Number(process.env.REUBICACIONES_SYNC_INTERVAL_MS || 300000);
+    let reubicacionesSyncIntervalHandle = null;
+
+    if (deps && deps.pool && process.env.REUBICACIONES_SYNC_ENABLED !== 'false') {
+        reubicacionesSyncIntervalHandle = setInterval(async () => {
+            try {
+                const result = await recoverySync({ 
+                    pool: deps.pool, 
+                    notifyService: require('../notifications/emailNotificationsPublisher'),
+                    dryRun: false,
+                    limit: 100
+                });
+                if (result.processed > 0 || result.errors > 0) {
+                    logger.info(`[Reubicaciones] Recovery sync: ${result.processed} procesados, ${result.errors} errores`);
+                }
+            } catch (error) {
+                logger.error('[Reubicaciones] Recovery sync error:', error);
+            }
+        }, REUBICACIONES_SYNC_INTERVAL_MS);
+        if (typeof reubicacionesSyncIntervalHandle.unref === 'function') {
+            reubicacionesSyncIntervalHandle.unref();
+        }
+        logger.info({ intervalMs: REUBICACIONES_SYNC_INTERVAL_MS }, 'Reubicaciones recovery sync activo');
+    }
+
     const pollerEnabled = String(process.env.CONTRATACION_STREAM_POLLER_ENABLED || '').toLowerCase() === 'true';
     const autopromoteEnabled = String(process.env.ONBOARDING_AUTOPROMOTE || '').toLowerCase() === 'true';
 
@@ -283,6 +310,10 @@ function shutdownContratacionRealtime() {
         }
         active.wsServer = null;
     }
+    if (reubicacionesSyncIntervalHandle) {
+        clearInterval(reubicacionesSyncIntervalHandle);
+        reubicacionesSyncIntervalHandle = null;
+    }    
     active.promotionService = null;
     active.fichaNovedadesService = null;
     active.promotionSync = null;
