@@ -7,10 +7,8 @@ const {
 const { ensureOnboardingSchema } = require('./onboarding/onboardingSchema');
 const { ensureSourcingSchema } = require('./sourcing/sourcingSchema');
 
-function logStartupConfig(deps) {
-    const { PORT, COGNITO_ENABLED, COGNITO_REGION, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_SECRET, s3Client, S3_ENABLED, S3_BUCKET_NAME, S3_REGION, S3_AUTH_MODE } = deps;
-    logger.info({ port: PORT }, `Servidor listo en http://localhost:${PORT}`);
-    logger.info({ dbName: process.env.DB_NAME || 'novedades_cinte', dbHost: process.env.DB_HOST || 'localhost', dbPort: process.env.DB_PORT || 5432 }, 'DB conectada');
+function logCognitoConfig(deps) {
+    const { COGNITO_ENABLED, COGNITO_REGION, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_SECRET } = deps;
     if (COGNITO_ENABLED) {
         logger.info({ cognitoRegion: COGNITO_REGION || 'sin-region', userPoolId: COGNITO_USER_POOL_ID || 'sin-pool' }, 'Cognito activo');
         if (!COGNITO_APP_CLIENT_SECRET) {
@@ -19,6 +17,10 @@ function logStartupConfig(deps) {
     } else {
         logger.warn('Cognito inactivo: usando JWT local.');
     }
+}
+
+function logS3Config(deps) {
+    const { s3Client, S3_ENABLED, S3_BUCKET_NAME, S3_REGION, S3_AUTH_MODE } = deps;
     if (s3Client) {
         logger.info({ bucket: S3_BUCKET_NAME, region: S3_REGION, authMode: S3_AUTH_MODE }, 'S3 activo');
         if (S3_AUTH_MODE === 'role') {
@@ -37,6 +39,16 @@ function logStartupConfig(deps) {
     } else {
         logger.warn('S3 inactivo: usando almacenamiento local en /assets/uploads.');
     }
+}
+
+function logStartupConfig(deps) {
+    const { PORT } = deps;
+    logger.info({ port: PORT }, `Servidor listo en http://localhost:${PORT}`);
+    logger.info({ dbName: process.env.DB_NAME || 'novedades_cinte', dbHost: process.env.DB_HOST || 'localhost', dbPort: process.env.DB_PORT || 5432 }, 'DB conectada');
+    
+    logCognitoConfig(deps);
+    logS3Config(deps);
+    
     logger.info({ assetsPath: path.join(process.cwd(), 'assets') }, 'Carpeta assets');
 }
 
