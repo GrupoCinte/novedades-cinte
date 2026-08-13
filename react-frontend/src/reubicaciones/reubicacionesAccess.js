@@ -48,13 +48,12 @@ function resolveRoleFromTokenPayload(payload) {
     if (fromDirect && ROLE_PRIORITY.includes(fromDirect)) return fromDirect;
 
     const groupsClaim = payload['cognito:groups'];
-    const groups = Array.isArray(groupsClaim)
-        ? groupsClaim
-        : groupsClaim
-            ? [groupsClaim]
-            : [];
-    const normalized = groups.map((g) => String(g || '').toLowerCase());
-    const fromGroups = ROLE_PRIORITY.find((role) => normalized.includes(role));
+    const groups = Array.isArray(groupsClaim) ? groupsClaim : [];
+    const extraGroup = groupsClaim && !Array.isArray(groupsClaim) ? [groupsClaim] : [];
+    const normalized = new Set(
+        [...groups, ...extraGroup].map((g) => String(g || '').toLowerCase())
+    );
+    const fromGroups = ROLE_PRIORITY.find((role) => normalized.has(role));
     return fromGroups || '';
 }
 

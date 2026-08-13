@@ -1,4 +1,4 @@
-import { Pencil, Trash2, Eye, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Pencil, Trash2, CheckCircle, XCircle } from 'lucide-react';
 import GestionModalShell from './shared/modals/GestionModalShell.jsx';
 import { useModuleTheme } from './moduleTheme.js';
 import { buildGestionTableDash } from './gestionTableDashTheme.js';
@@ -8,7 +8,7 @@ import { userCanDecideAptitud, userCanRegisterObservacion, userCanModifyReubicac
 
 
 function getCsrfToken() {
-    const match = document.cookie.match(/cinteXsrf=([^;]+)/);
+    const match = /cinteXsrf=([^;]+)/.exec(document.cookie);
     return match ? match[1] : '';
 }
 
@@ -106,7 +106,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
             } else {
                 setError(data.error || 'Error al guardar observacion');
             }
-        } catch (e) {
+        } catch {
             setError('Error al guardar observacion');
         } finally {
             setLoading(false);
@@ -171,7 +171,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
             } else {
                 setError(data.error || 'Error al guardar decision');
             }
-        } catch (e) {
+        } catch {
             setError('Error al guardar decision');
         } finally {
             setLoading(false);
@@ -299,6 +299,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                             </p>
                             {historialObs.length > 1 && (
                                 <button
+                                    type="button"
                                     onClick={() => setMostrarHistorialObs(!mostrarHistorialObs)}
                                     className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1"
                                 >
@@ -327,10 +328,11 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
 
                     {puedeEscribirObs && (
                         <div className="mt-3 space-y-2">
-                            <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                            <label htmlFor="reubicacion-nueva-observacion" className="text-xs font-medium text-slate-600 dark:text-slate-300">
                                 Nueva observacion
                             </label>
                             <textarea
+                                id="reubicacion-nueva-observacion"
                                 value={observacion}
                                 onChange={(e) => {
                                     if (e.target.value.length <= 1000) {
@@ -344,6 +346,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                             />
                             <div className="flex justify-end">
                                 <button
+                                    type="button"
                                     onClick={handleGuardarObservacion}
                                     disabled={loading || !observacion.trim()}
                                     className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -432,6 +435,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                         <div className="mt-3 space-y-3">
                             <div className="flex gap-4">
                                 <button
+                                    type="button"
                                     onClick={() => { setDecision('APTO'); setError(''); }}
                                     className={`flex-1 p-2 rounded-lg border-2 transition-colors ${
                                         decision === 'APTO'
@@ -444,6 +448,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                                     <span className="text-sm font-medium">Apto</span>
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => { setDecision('NO_APTO'); setError(''); }}
                                     className={`flex-1 p-2 rounded-lg border-2 transition-colors ${
                                         decision === 'NO_APTO'
@@ -457,10 +462,11 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                                 </button>
                             </div>
                             <div>
-                                <label className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                                <label htmlFor="reubicacion-justificacion-decision" className="text-xs font-medium text-slate-600 dark:text-slate-300">
                                     Justificacion <span className="text-red-500">*</span>
                                 </label>
                                 <textarea
+                                    id="reubicacion-justificacion-decision"
                                     value={justificacion}
                                     onChange={(e) => {
                                         if (e.target.value.length <= 500) {
@@ -475,6 +481,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                             </div>
                             <div className="flex justify-end">
                                 <button
+                                    type="button"
                                     onClick={handleGuardarDecision}
                                     disabled={loading || !decision || !justificacion.trim()}
                                     className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"

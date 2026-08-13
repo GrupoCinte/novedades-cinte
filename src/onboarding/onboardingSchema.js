@@ -888,12 +888,6 @@ async function ensureReubicacionesSchema({ pool, logger }) {
     }
 }
 
-// Agregar la llamada en ensureOnboardingSchema()
-async function ensureOnboardingSchema({ pool, logger } = {}) {
-    // ... funciones existentes ...
-    await ensureReubicacionesSchema({ pool, logger });
-    // ...
-}
 
 module.exports = {
     ensureOnboardingSchema,
