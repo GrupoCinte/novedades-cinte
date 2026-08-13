@@ -471,12 +471,12 @@ function registerDirectorioRoutes(deps) {
         dias_desde: z.preprocess((v) => {
             if (v === '' || v == null) return undefined;
             const num = Number(v);
-            return isNaN(num) ? undefined : num;
+            return Number.isNaN(num) ? undefined : num;
         }, z.number().int().min(0).optional()),
         dias_hasta: z.preprocess((v) => {
             if (v === '' || v == null) return undefined;
             const num = Number(v);
-            return isNaN(num) ? undefined : num;
+            return Number.isNaN(num) ? undefined : num;
         }, z.number().int().min(0).optional()),
         sort: z
             .enum([
@@ -512,6 +512,12 @@ function registerDirectorioRoutes(deps) {
     function textOrNull(v) {
         const s = String(v ?? '').trim();
         return s ? s : null;
+    }
+
+    function parseOptionalNumber(v) {
+        if (v === '' || v == null) return undefined;
+        const num = Number(v);
+        return Number.isNaN(num) ? undefined : num;
     }
 
     async function registrarVencimientoAutomaticoSiAplica(pool, casoId) {
@@ -1407,15 +1413,15 @@ function registerDirectorioRoutes(deps) {
             }
 
             // 6. Filtro por días restantes (desde)
-            const diasDesde = d.dias_desde !== undefined && d.dias_desde !== '' ? Number(d.dias_desde) : null;
-            if (diasDesde !== null && !isNaN(diasDesde)) {
+            const diasDesde = d.dias_desde !== undefined && d.dias_desde !== '' ? parseOptionalNumber(d.dias_desde) : null;
+            if (diasDesde !== null && !Number.isNaN(diasDesde)) {
                 whereParts.push(`${diasSql} >= $${whereParams.length + 1}`);
                 whereParams.push(diasDesde);
             }
 
             // 7. Filtro por días restantes (hasta)
-            const diasHasta = d.dias_hasta !== undefined && d.dias_hasta !== '' ? Number(d.dias_hasta) : null;
-            if (diasHasta !== null && !isNaN(diasHasta)) {
+            const diasHasta = d.dias_hasta !== undefined && d.dias_hasta !== '' ? parseOptionalNumber(d.dias_hasta) : null;
+            if (diasHasta !== null && !Number.isNaN(diasHasta)) {
                 whereParts.push(`${diasSql} <= $${whereParams.length + 1}`);
                 whereParams.push(diasHasta);
             }
