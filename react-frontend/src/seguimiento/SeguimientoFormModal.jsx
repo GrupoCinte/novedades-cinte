@@ -8,6 +8,230 @@ import { MoreVertical } from 'lucide-react';
 import ParticipantesSubModal from './ParticipantesSubModal.jsx';
 import PlanesAccionSubModal from './PlanesAccionSubModal.jsx';
 
+const getGpPuesto = (colabs, gpEmail) => {
+    const gpColab = colabs.find(c => {
+        const ce = String(c.correo_cinte || c.correo || c.email || '').trim().toLowerCase();
+        return ce && ce === gpEmail;
+    });
+    return gpColab ? (gpColab.puesto || gpColab.cargo || '') : '';
+};
+
+const getEmptyActaData = (gpName, gpPuesto, tipoSeleccionado, clientesCartera) => ({
+    tipo: tipoSeleccionado || 'Consultor',
+    cliente: clientesCartera.length === 1 ? clientesCartera[0] : '',
+    fechaActa: new Date().toISOString().split('T')[0],
+    isFinalizado: false,
+    fechaFinalizado: null,
+    horaInicio: '',
+    horaFin: '',
+    responsableNombre: gpName,
+    responsableCargo: gpPuesto,
+    quienRealizaNombre: gpName,
+    quienRealizaCargo: gpPuesto,
+    objetivo: '',
+    agenda: '',
+    proximaReunion: '',
+    participantes: [],
+    planesAccion: [],
+    observacionConsultor: '',
+    observacionConsultorFecha: ''
+});
+
+const getParsedActaData = (actaData, gpName, gpPuesto) => {
+    const pJson = actaData.payload_json || {};
+    return {
+        tipo: actaData.tipo === 'cliente' ? 'Cliente' : 'Consultor',
+        cliente: actaData.cliente || '',
+        fechaActa: actaData.fecha_acta ? new Date(actaData.fecha_acta).toISOString().split('T')[0] : '',
+        isFinalizado: actaData.estado === 'FINALIZADO',
+        fechaFinalizado: actaData.finalizado_at || null,
+        horaInicio: pJson.hora_inicio || '',
+        horaFin: pJson.hora_fin || '',
+        responsableNombre: pJson.responsable_nombre || gpName,
+        responsableCargo: pJson.responsable_cargo || gpPuesto,
+        quienRealizaNombre: pJson.quien_realiza_nombre || gpName,
+        quienRealizaCargo: pJson.quien_realiza_cargo || gpPuesto,
+        objetivo: pJson.objetivo || '',
+        agenda: pJson.agenda || '',
+        proximaReunion: pJson.proxima_reunion || '',
+        participantes: pJson.participantes_detalle || [],
+        planesAccion: pJson.planes_accion || [],
+        observacionConsultor: pJson.observacion_consultor || '',
+        observacionConsultorFecha: pJson.observacion_consultor_fecha || ''
+    };
+};
+
+const parseActaData = (actaData, gpName, gpPuesto, tipoSeleccionado, clientesCartera) => {
+    if (actaData) {
+        return getParsedActaData(actaData, gpName, gpPuesto);
+    }
+    return getEmptyActaData(gpName, gpPuesto, tipoSeleccionado, clientesCartera);
+};
+
+const mergeParticipantes = (participantes, selectedItems) => {
+    const currentMap = new Map(participantes.map(p => [p.cedula, p]));
+    return selectedItems.map(s => {
+        const existing = currentMap.get(s.cedula);
+        if (existing) return existing;
+        return { ...s, desarrollo: '' };
+    });
+};
+
+const resolveClienteFinal = (cliente, merged, clientesCartera) => {
+    if (!cliente && merged.length > 0 && clientesCartera.length > 0) {
+        const pConCliente = merged.find(p => clientesCartera.includes(p.empresa));
+        return pConCliente ? pConCliente.empresa : clientesCartera[0];
+    }
+    return cliente;
+};
+
+const validateFinalizado = ({ fechaActa, agenda, participantes, planesAccion, tipoSeleccionado }) => {
+    if (!fechaActa) return 'La Fecha es obligatoria para finalizar el acta.';
+    if (!agenda || agenda.trim() === '') return 'El campo Temas (Agenda) es obligatorio para finalizar el acta.';
+    if (participantes.some(p => !p.desarrollo || p.desarrollo.trim() === '')) return 'El Desarrollo (Feedback) de todos los participantes es obligatorio para finalizar el acta.';
+    if (planesAccion.length === 0) return 'Debes agregar al menos un compromiso (Planes de Acción) para finalizar el acta.';
+    if (tipoSeleccionado === 'Consultor' && participantes.length === 0) return 'Debes seleccionar consultores para finalizar este tipo de acta.';
+    return null;
+};
+
+const validateActaData = (params) => {
+    const { estadoFinal, fechaActa, participantes, clienteFinal, horaInicio, horaFin } = params;
+    if (participantes.length === 0) return 'Debes agregar al menos un participante para diligenciar el desarrollo.';
+    if (estadoFinal === 'FINALIZADO') {
+        const finErr = validateFinalizado(params);
+        if (finErr) return finErr;
+    }
+    if (!clienteFinal) return 'Error interno: No se pudo determinar el cliente asociado al acta.';
+    if (!fechaActa || !horaInicio || !horaFin) return 'Debes proveer la fecha y las horas de inicio y fin.';
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    if (!timeRegex.test(horaInicio)) return 'El formato de Hora de inicio no es válido (usa formato 24h, ej. 08:30, 14:00).';
+    if (!timeRegex.test(horaFin)) return 'El formato de Hora de finalización no es válido (usa formato 24h, ej. 08:30, 14:00).';
+    return null;
+};
+
+const SectionTitle = ({ children, isLight }) => (
+    <h3 className={`text-base font-bold mt-6 mb-4 pb-2 border-b ${isLight ? 'border-slate-200 text-[#2F7BB8]' : 'border-slate-700 text-[#65BCF7]'}`}>
+        {children}
+    </h3>
+);
+
+const ParticipantesSection = ({ participantes, isReadOnly, removeParticipante, setParticipantesOpen, dash }) => (
+    <div>
+        {!isReadOnly && (
+            <button type="button" onClick={() => setParticipantesOpen(true)} className={`mb-4 ${dash.borrarFiltros}`}>
+                + Agregar participantes
+            </button>
+        )}
+        
+        {participantes.length === 0 ? (
+            <p className={`text-sm italic ${dash.mutedSm}`}>No hay participantes seleccionados.</p>
+        ) : (
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-left text-sm border-collapse">
+                    <thead className={dash.thead}>
+                        <tr>
+                            <th className="p-4 font-semibold">Nombre</th>
+                            <th className="p-4 font-semibold">Cargo</th>
+                            <th className="p-4 font-semibold">Empresa</th>
+                            {!isReadOnly && <th className="p-4 font-semibold w-10"></th>}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {participantes.map(p => (
+                            <tr key={p.cedula} className={dash.trHover}>
+                                <td className={dash.tdName}>{p.nombre}</td>
+                                <td className={dash.tdCell}>{p.cargo}</td>
+                                <td className={dash.tdCell}>{p.empresa}</td>
+                                {!isReadOnly && (
+                                    <td className="px-4 py-2 text-right">
+                                        <button type="button" onClick={() => removeParticipante(p.cedula)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
+                                    </td>
+                                )}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        )}
+    </div>
+);
+
+const DesarrolloSection = ({ participantes, isReadOnly, dash, inputCls, updateDesarrollo }) => (
+    <>
+        {participantes.length === 0 ? (
+            <p className={`text-sm italic ${dash.mutedSm}`}>Agrega participantes para registrar su desarrollo.</p>
+        ) : (
+            <div className="space-y-4">
+                {participantes.map(p => (
+                    <div key={p.cedula} className={`p-4 ${dash.card}`}>
+                        <h4 className={`mb-2 flex items-center gap-2 ${dash.titleLg} !text-sm`}>
+                            <span className="w-2 h-2 rounded-full bg-[#2F7BB8]"></span>
+                            Evaluación de servicio: {p.nombre} <span className="font-normal text-slate-500 dark:text-slate-400">({p.cargo})</span>
+                        </h4>
+                        <div>
+                            <label htmlFor={`desarrollo-${p.cedula}`} className={`block mb-1 ${dash.labelFilter}`}>Observaciones / Comentarios</label>
+                            <textarea 
+                                id={`desarrollo-${p.cedula}`}
+                                rows={3} 
+                                value={p.desarrollo || ''} 
+                                onChange={e => updateDesarrollo(p.cedula, e.target.value)} 
+                                className={inputCls} 
+                                readOnly={isReadOnly} 
+                                placeholder={`Registra aquí lo conversado por ${p.nombre}...`} 
+                            />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )}
+    </>
+);
+
+const PlanesAccionSection = ({ planesAccion, isReadOnly, setPlanesOpen, removePlan, dash }) => (
+    <div>
+        {!isReadOnly && (
+            <button type="button" onClick={() => setPlanesOpen(true)} className={`mb-4 ${dash.borrarFiltros}`}>
+                + Agregar plan de acción
+            </button>
+        )}
+
+        {planesAccion.length === 0 ? (
+            <p className={`text-sm italic ${dash.mutedSm}`}>No hay planes de acción registrados.</p>
+        ) : (
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full text-left text-sm border-collapse">
+                    <thead className={dash.thead}>
+                        <tr>
+                            <th className="p-4 font-semibold">Tarea</th>
+                            <th className="p-4 font-semibold">Crit.</th>
+                            <th className="p-4 font-semibold">Responsable</th>
+                            <th className="p-4 font-semibold">Entrega</th>
+                            <th className="p-4 font-semibold">Recursos</th>
+                            {!isReadOnly && <th className="p-4 font-semibold w-10"></th>}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {planesAccion.map((plan, idx) => (
+                            <tr key={plan.tarea} className={dash.trHover}>
+                                <td className={dash.tdCell}>{plan.tarea}</td>
+                                <td className={dash.tdCell}><span className="font-medium">{plan.criticidad.charAt(0)}</span></td>
+                                <td className={dash.tdCell}>{plan.responsable}</td>
+                                <td className={dash.tdCell + " whitespace-nowrap"}>{plan.fechaEntrega}</td>
+                                <td className={dash.tdCell + " text-xs"}>{plan.recursos}</td>
+                                {!isReadOnly && (
+                                    <td className="px-4 py-2 text-right">
+                                        <button type="button" onClick={() => removePlan(idx)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
+                                    </td>
+                                )}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        )}
+    </div>
+);
+
 export default function SeguimientoFormModal({ 
     open, 
     onClose, 
@@ -24,9 +248,6 @@ export default function SeguimientoFormModal({
     const [menuOpen, setMenuOpen] = useState(false);
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const inputCls = `${field} w-full`;
-    
-    const role = String(auth?.user?.role || auth?.claims?.role || '').trim().toLowerCase();
-    const isGp = role === 'gp';
 
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -69,8 +290,6 @@ export default function SeguimientoFormModal({
     
     // Sub-modal for confirming finalize
     const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
-    const [isFinalizado, setIsFinalizado] = useState(false);
-    const [fechaFinalizado, setFechaFinalizado] = useState(null);
 
     // Cálculos de fecha para restricciones
     const { minDateStr, maxDateStr } = useMemo(() => {
@@ -106,65 +325,25 @@ export default function SeguimientoFormModal({
                     const colabs = d.items || [];
                     setColaboradores(colabs);
                     
-                    // Buscar puesto del GP en el directorio (la DB usa 'puesto' para colaboradores)
-                    const gpColab = colabs.find(c => {
-                        const ce = String(c.correo_cinte || c.correo || c.email || '').trim().toLowerCase();
-                        return ce && ce === gpEmail;
-                    });
-                    const gpPuesto = gpColab ? (gpColab.puesto || gpColab.cargo || '') : '';
+                    const gpPuesto = getGpPuesto(colabs, gpEmail);
+                    const parsed = parseActaData(actaId ? actaData : null, gpName, gpPuesto, tipoSeleccionado, clientesCartera);
                     
-                    if (actaId && actaData) {
-                        setTipo(actaData.tipo === 'cliente' ? 'Cliente' : 'Consultor');
-                        setCliente(actaData.cliente || '');
-                        setFechaActa(actaData.fecha_acta ? new Date(actaData.fecha_acta).toISOString().split('T')[0] : '');
-                        setIsFinalizado(actaData.estado === 'FINALIZADO');
-                        setFechaFinalizado(actaData.finalizado_at || null);
-        
-                        const pJson = actaData.payload_json || {};
-                        setHoraInicio(pJson.hora_inicio || '');
-                        setHoraFin(pJson.hora_fin || '');
-                        
-                        // Si existen en DB se cargan, si no, se toma del GP logueado
-                        setResponsableNombre(pJson.responsable_nombre || gpName);
-                        setResponsableCargo(pJson.responsable_cargo || gpPuesto);
-                        setQuienRealizaNombre(pJson.quien_realiza_nombre || gpName);
-                        setQuienRealizaCargo(pJson.quien_realiza_cargo || gpPuesto);
-                        
-                        setObjetivo(pJson.objetivo || '');
-                        setAgenda(pJson.agenda || '');
-                        setProximaReunion(pJson.proxima_reunion || '');
-                        
-                        setParticipantes(pJson.participantes_detalle || []);
-                        setPlanesAccion(pJson.planes_accion || []);
-                        
-                        setObservacionConsultor(pJson.observacion_consultor || '');
-                        setObservacionConsultorFecha(pJson.observacion_consultor_fecha || '');
-                    } else {
-                        // Nueva acta
-                        setTipo(tipoSeleccionado || 'Consultor');
-                        if (clientesCartera.length === 1) {
-                            setCliente(clientesCartera[0]);
-                        } else {
-                            setCliente('');
-                        }
-                        setFechaActa(new Date().toISOString().split('T')[0]);
-                        setIsFinalizado(false);
-                        setFechaFinalizado(null);
-        
-                        setHoraInicio('');
-                        setHoraFin('');
-                        setResponsableNombre(gpName);
-                        setResponsableCargo(gpPuesto);
-                        setQuienRealizaNombre(gpName);
-                        setQuienRealizaCargo(gpPuesto);
-                        setObjetivo('');
-                        setAgenda('');
-                        setProximaReunion('');
-                        setParticipantes([]);
-                        setPlanesAccion([]);
-                        setObservacionConsultor('');
-                        setObservacionConsultorFecha('');
-                    }
+                    setTipo(parsed.tipo);
+                    setCliente(parsed.cliente);
+                    setFechaActa(parsed.fechaActa);
+                    setHoraInicio(parsed.horaInicio);
+                    setHoraFin(parsed.horaFin);
+                    setResponsableNombre(parsed.responsableNombre);
+                    setResponsableCargo(parsed.responsableCargo);
+                    setQuienRealizaNombre(parsed.quienRealizaNombre);
+                    setQuienRealizaCargo(parsed.quienRealizaCargo);
+                    setObjetivo(parsed.objetivo);
+                    setAgenda(parsed.agenda);
+                    setProximaReunion(parsed.proximaReunion);
+                    setParticipantes(parsed.participantes);
+                    setPlanesAccion(parsed.planesAccion);
+                    setObservacionConsultor(parsed.observacionConsultor);
+                    setObservacionConsultorFecha(parsed.observacionConsultorFecha);
                 })
                 .catch(console.error)
                 .finally(() => setLoading(false));
@@ -176,24 +355,10 @@ export default function SeguimientoFormModal({
 
     // Participantes Logic
     const handleAcceptParticipantes = (selectedItems) => {
-        // Merge with existing to preserve 'desarrollo' text
-        const currentMap = new Map(participantes.map(p => [p.cedula, p]));
-        const merged = selectedItems.map(s => {
-            const existing = currentMap.get(s.cedula);
-            if (existing) return existing;
-            return { ...s, desarrollo: '' };
-        });
+        const merged = mergeParticipantes(participantes, selectedItems);
         setParticipantes(merged);
-
-        // Auto-assign internal 'cliente' based on participants if not already set
-        if (!cliente && merged.length > 0 && clientesCartera.length > 0) {
-            const pConCliente = merged.find(p => clientesCartera.includes(p.empresa));
-            if (pConCliente) {
-                setCliente(pConCliente.empresa);
-            } else {
-                setCliente(clientesCartera[0]);
-            }
-        }
+        const newCliente = resolveClienteFinal(cliente, merged, clientesCartera);
+        if (newCliente !== cliente) setCliente(newCliente);
     };
 
     const updateDesarrollo = (cedula, text) => {
@@ -227,9 +392,9 @@ export default function SeguimientoFormModal({
         if (raw.length > 4) raw = raw.slice(0, 4);
         
         // Validaciones básicas en vivo
-        if (raw.length >= 1 && parseInt(raw[0], 10) > 2) raw = '2'; // La hora no puede empezar con 3+
-        if (raw.length >= 2 && parseInt(raw.slice(0, 2), 10) > 23) raw = '23' + raw.slice(2);
-        if (raw.length >= 3 && parseInt(raw[2], 10) > 5) raw = raw.slice(0, 2) + '5' + raw.slice(3);
+        if (raw.length >= 1 && Number.parseInt(raw[0], 10) > 2) raw = '2'; // La hora no puede empezar con 3+
+        if (raw.length >= 2 && Number.parseInt(raw.slice(0, 2), 10) > 23) raw = '23' + raw.slice(2);
+        if (raw.length >= 3 && Number.parseInt(raw[2], 10) > 5) raw = raw.slice(0, 2) + '5' + raw.slice(3);
         
         // Insertar los dos puntos
         let formatted = raw;
@@ -274,6 +439,7 @@ export default function SeguimientoFormModal({
                     setError(err.error || 'No se pudo descartar el borrador vacío.');
                 }
             } catch (e) {
+                console.error(e);
                 setError('Error de conexión al descartar borrador.');
             } finally {
                 setSaving(false);
@@ -285,58 +451,33 @@ export default function SeguimientoFormModal({
     };
 
     const saveActa = async (estadoFinal) => {
-        if (participantes.length === 0) {
-            setError('Debes agregar al menos un participante para diligenciar el desarrollo.');
-            return;
-        }
-
-        if (estadoFinal === 'FINALIZADO') {
-            if (!fechaActa) {
-                setError('La Fecha es obligatoria para finalizar el acta.');
-                return;
-            }
-            if (!agenda || agenda.trim() === '') {
-                setError('El campo Temas (Agenda) es obligatorio para finalizar el acta.');
-                return;
-            }
-            if (participantes.some(p => !p.desarrollo || p.desarrollo.trim() === '')) {
-                setError('El Desarrollo (Feedback) de todos los participantes es obligatorio para finalizar el acta.');
-                return;
-            }
-            if (planesAccion.length === 0) {
-                setError('Debes agregar al menos un compromiso (Planes de Acción) para finalizar el acta.');
-                return;
-            }
-            if (tipoSeleccionado === 'Consultor' && participantes.length === 0) {
-                setError('Debes seleccionar consultores para finalizar este tipo de acta.');
-                return;
-            }
-        }
-
         let clienteFinal = cliente;
         if (!clienteFinal && participantes.length > 0) {
             const pConCliente = participantes.find(p => p.empresa && p.empresa !== 'CINTe');
-            clienteFinal = pConCliente ? pConCliente.empresa : (clientesCartera.length > 0 ? clientesCartera[0] : 'General');
+            if (pConCliente) {
+                clienteFinal = pConCliente.empresa;
+            } else if (clientesCartera.length > 0) {
+                clienteFinal = clientesCartera[0];
+            } else {
+                clienteFinal = 'General';
+            }
             setCliente(clienteFinal);
         }
 
-        if (!clienteFinal) {
-            setError('Error interno: No se pudo determinar el cliente asociado al acta.');
-            return;
-        }
-        
-        if (!fechaActa || !horaInicio || !horaFin) {
-            setError('Debes proveer la fecha y las horas de inicio y fin.');
-            return;
-        }
-
-        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-        if (!timeRegex.test(horaInicio)) {
-            setError('El formato de Hora de inicio no es válido (usa formato 24h, ej. 08:30, 14:00).');
-            return;
-        }
-        if (!timeRegex.test(horaFin)) {
-            setError('El formato de Hora de finalización no es válido (usa formato 24h, ej. 08:30, 14:00).');
+        const validationParams = {
+            estadoFinal, 
+            fechaActa, 
+            agenda, 
+            participantes, 
+            planesAccion, 
+            tipoSeleccionado, 
+            clienteFinal, 
+            horaInicio, 
+            horaFin
+        };
+        const validationError = validateActaData(validationParams);
+        if (validationError) {
+            setError(validationError);
             return;
         }
 
@@ -401,12 +542,7 @@ export default function SeguimientoFormModal({
         }
     };
 
-    // UI Components
-    const SectionTitle = ({ children }) => (
-        <h3 className={`text-base font-bold mt-6 mb-4 pb-2 border-b ${isLight ? 'border-slate-200 text-[#2F7BB8]' : 'border-slate-700 text-[#65BCF7]'}`}>
-            {children}
-        </h3>
-    );
+
 
     return (
         <>
@@ -424,6 +560,7 @@ export default function SeguimientoFormModal({
                             {!isReadOnly && (
                                 <div className="relative">
                                     <button 
+                                        type="button"
                                         onClick={() => setMenuOpen(!menuOpen)} 
                                         className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors"
                                         title="Opciones del borrador"
@@ -433,12 +570,14 @@ export default function SeguimientoFormModal({
                                     {menuOpen && (
                                         <div className="absolute right-0 bottom-full mb-2 w-48 bg-white border border-slate-200 shadow-xl rounded-lg overflow-hidden z-50">
                                             <button 
+                                                type="button"
                                                 onClick={handleLimpiar} 
                                                 className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                                             >
                                                 Limpiar formulario
                                             </button>
                                             <button 
+                                                type="button"
                                                 onClick={handleDescartar} 
                                                 className="w-full text-left px-4 py-2 text-sm text-red-600 font-medium hover:bg-red-50 transition-colors"
                                             >
@@ -449,6 +588,7 @@ export default function SeguimientoFormModal({
                                 </div>
                             )}
                             <button 
+                                type="button"
                                 className={dash.borrarFiltros} 
                                 onClick={() => {
                                     if (isReadOnly) {
@@ -462,7 +602,7 @@ export default function SeguimientoFormModal({
                                 {saving ? 'Guardando...' : 'Cancelar'}
                             </button>
                             {!isReadOnly && (
-                                <button className={dash.btnPrimaryCinte} onClick={() => setConfirmFinalizeOpen(true)} disabled={saving}>
+                                <button type="button" className={dash.btnPrimaryCinte} onClick={() => setConfirmFinalizeOpen(true)} disabled={saving}>
                                     Finalizar Acta
                                 </button>
                             )}
@@ -477,11 +617,12 @@ export default function SeguimientoFormModal({
                         <div className="space-y-2 pb-6">
                             
                             {/* SECCIÓN 1: Información General */}
-                            <SectionTitle>1. Información General</SectionTitle>
+                            <SectionTitle isLight={isLight}>1. Información General</SectionTitle>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <div className="md:col-span-2">
-                                    <label className={`block mb-1 ${dash.labelFilter}`}>Fecha de reunión</label>
+                                    <label htmlFor="fechaReunion" className={`block mb-1 ${dash.labelFilter}`}>Fecha de reunión</label>
                                     <input 
+                                        id="fechaReunion"
                                         type="date" 
                                         value={fechaActa} 
                                         onChange={e => setFechaActa(e.target.value)} 
@@ -492,168 +633,85 @@ export default function SeguimientoFormModal({
                                     />
                                 </div>
                                 <div>
-                                    <label className={`block mb-1 ${dash.labelFilter}`}>Hora Inicio (24h)</label>
-                                    <input type="text" placeholder="--:--" maxLength="5" value={horaInicio} onChange={e => handleTimeInput(e.target.value, setHoraInicio)} className={inputCls} readOnly={isReadOnly} />
+                                    <label htmlFor="horaInicio" className={`block mb-1 ${dash.labelFilter}`}>Hora Inicio (24h)</label>
+                                    <input id="horaInicio" type="text" placeholder="--:--" maxLength="5" value={horaInicio} onChange={e => handleTimeInput(e.target.value, setHoraInicio)} className={inputCls} readOnly={isReadOnly} />
                                 </div>
                                 <div>
-                                    <label className={`block mb-1 ${dash.labelFilter}`}>Hora Fin (24h)</label>
-                                    <input type="text" placeholder="--:--" maxLength="5" value={horaFin} onChange={e => handleTimeInput(e.target.value, setHoraFin)} className={inputCls} readOnly={isReadOnly} />
+                                    <label htmlFor="horaFin" className={`block mb-1 ${dash.labelFilter}`}>Hora Fin (24h)</label>
+                                    <input id="horaFin" type="text" placeholder="--:--" maxLength="5" value={horaFin} onChange={e => handleTimeInput(e.target.value, setHoraFin)} className={inputCls} readOnly={isReadOnly} />
                                 </div>
                             </div>
 
                             {/* SECCIÓN 2: Responsable */}
-                            <SectionTitle>2. Responsable de la reunión</SectionTitle>
+                            <SectionTitle isLight={isLight}>2. Responsable de la reunión</SectionTitle>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className={`block mb-1 ${dash.labelFilter}`}>Nombres y apellidos</label>
-                                    <input type="text" value={responsableNombre} onChange={e => setResponsableNombre(e.target.value)} className={inputCls} readOnly />
+                                    <label htmlFor="responsableNombre" className={`block mb-1 ${dash.labelFilter}`}>Nombres y apellidos</label>
+                                    <input id="responsableNombre" type="text" value={responsableNombre} onChange={e => setResponsableNombre(e.target.value)} className={inputCls} readOnly />
                                 </div>
                                 <div>
-                                    <label className={`block mb-1 ${dash.labelFilter}`}>Cargo / Puesto</label>
-                                    <input type="text" value={responsableCargo} onChange={e => setResponsableCargo(e.target.value)} className={inputCls} readOnly />
+                                    <label htmlFor="responsableCargo" className={`block mb-1 ${dash.labelFilter}`}>Cargo / Puesto</label>
+                                    <input id="responsableCargo" type="text" value={responsableCargo} onChange={e => setResponsableCargo(e.target.value)} className={inputCls} readOnly />
                                 </div>
                             </div>
 
                             {/* SECCIÓN 3: Objetivo */}
-                            <SectionTitle>3. Objetivo</SectionTitle>
+                            <SectionTitle isLight={isLight}>3. Objetivo</SectionTitle>
                             <div>
                                 <textarea rows={2} value={objetivo} onChange={e => setObjetivo(e.target.value)} className={inputCls} readOnly={isReadOnly} placeholder="¿Cuál fue el propósito de este seguimiento?" />
                             </div>
 
                             {/* SECCIÓN 4: Participantes */}
-                            <SectionTitle>4. Participantes</SectionTitle>
-                            <div>
-                                {!isReadOnly && (
-                                    <button type="button" onClick={() => setParticipantesOpen(true)} className={`mb-4 ${dash.borrarFiltros}`}>
-                                        + Agregar participantes
-                                    </button>
-                                )}
-                                
-                                {participantes.length === 0 ? (
-                                    <p className={`text-sm italic ${dash.mutedSm}`}>No hay participantes seleccionados.</p>
-                                ) : (
-                                    <div className="overflow-x-auto rounded-lg border border-slate-200">
-                                        <table className="w-full text-left text-sm border-collapse">
-                                            <thead className={dash.thead}>
-                                                <tr>
-                                                    <th className="p-4 font-semibold">Nombre</th>
-                                                    <th className="p-4 font-semibold">Cargo</th>
-                                                    <th className="p-4 font-semibold">Empresa</th>
-                                                    {!isReadOnly && <th className="p-4 font-semibold w-10"></th>}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {participantes.map(p => (
-                                                    <tr key={p.cedula} className={dash.trHover}>
-                                                        <td className={dash.tdName}>{p.nombre}</td>
-                                                        <td className={dash.tdCell}>{p.cargo}</td>
-                                                        <td className={dash.tdCell}>{p.empresa}</td>
-                                                        {!isReadOnly && (
-                                                            <td className="px-4 py-2 text-right">
-                                                                <button onClick={() => removeParticipante(p.cedula)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
-                                                            </td>
-                                                        )}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
-                            </div>
+                            <SectionTitle isLight={isLight}>4. Participantes</SectionTitle>
+                            <ParticipantesSection 
+                                participantes={participantes} 
+                                isReadOnly={isReadOnly} 
+                                removeParticipante={removeParticipante} 
+                                setParticipantesOpen={setParticipantesOpen} 
+                                dash={dash} 
+                            />
 
                             {/* SECCIÓN 5: Agenda */}
-                            <SectionTitle>5. Agenda</SectionTitle>
+                            <SectionTitle isLight={isLight}>5. Agenda</SectionTitle>
                             <div>
                                 <textarea rows={4} value={agenda} onChange={e => setAgenda(e.target.value)} className={inputCls} readOnly={isReadOnly} placeholder="Lista los puntos de la agenda (Temas a ser tratados)..." />
                             </div>
 
                             {/* SECCIÓN 6: Desarrollo de la reunión */}
-                            <SectionTitle>6. Desarrollo de la reunión</SectionTitle>
-                            {participantes.length === 0 ? (
-                                <p className={`text-sm italic ${dash.mutedSm}`}>Agrega participantes para registrar su desarrollo.</p>
-                            ) : (
-                                <div className="space-y-4">
-                                    {participantes.map(p => (
-                                        <div key={p.cedula} className={`p-4 ${dash.card}`}>
-                                            <h4 className={`mb-2 flex items-center gap-2 ${dash.titleLg} !text-sm`}>
-                                                <span className="w-2 h-2 rounded-full bg-[#2F7BB8]"></span>
-                                                Evaluación de servicio: {p.nombre} <span className="font-normal text-slate-500 dark:text-slate-400">({p.cargo})</span>
-                                            </h4>
-                                            <div>
-                                                <label className={`block mb-1 ${dash.labelFilter}`}>Observaciones / Comentarios</label>
-                                                <textarea 
-                                                    rows={3} 
-                                                    value={p.desarrollo || ''} 
-                                                    onChange={e => updateDesarrollo(p.cedula, e.target.value)} 
-                                                    className={inputCls} 
-                                                    readOnly={isReadOnly} 
-                                                    placeholder={`Registra aquí lo conversado por ${p.nombre}...`} 
-                                                />
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            <SectionTitle isLight={isLight}>6. Desarrollo de la reunión</SectionTitle>
+                            <DesarrolloSection 
+                                participantes={participantes} 
+                                isReadOnly={isReadOnly} 
+                                dash={dash} 
+                                inputCls={inputCls} 
+                                updateDesarrollo={updateDesarrollo} 
+                            />
 
                             {/* SECCIÓN 7: Planes de acción */}
-                            <SectionTitle>7. Planes de acción</SectionTitle>
-                            <div>
-                                {!isReadOnly && (
-                                    <button type="button" onClick={() => setPlanesOpen(true)} className="mb-4 inline-flex items-center gap-2 rounded-lg border border-[#2F7BB8] text-[#2F7BB8] px-3 py-1.5 text-sm font-semibold hover:bg-blue-50 transition-colors">
-                                        + Agregar plan de acción
-                                    </button>
-                                )}
-
-                                {planesAccion.length === 0 ? (
-                                    <p className={`text-sm italic ${dash.mutedSm}`}>No hay planes de acción registrados.</p>
-                                ) : (
-                                    <div className="overflow-x-auto rounded-lg border border-slate-200">
-                                        <table className="w-full text-left text-sm">
-                                            <thead className={dash.thead}>
-                                                <tr>
-                                                    <th className="p-4 font-semibold">Tarea / Acción</th>
-                                                    <th className="p-4 font-semibold">Criticidad</th>
-                                                    <th className="p-4 font-semibold">Responsable</th>
-                                                    <th className="p-4 font-semibold">F. Entrega</th>
-                                                    <th className="p-4 font-semibold">Recursos</th>
-                                                    {!isReadOnly && <th className="p-4 font-semibold w-10"></th>}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {planesAccion.map((plan, idx) => (
-                                                    <tr key={idx} className={dash.trHover}>
-                                                        <td className={dash.tdCell}>{plan.tarea}</td>
-                                                        <td className={dash.tdCell}>{plan.criticidad}</td>
-                                                        <td className={dash.tdName}>{plan.responsable}</td>
-                                                        <td className={dash.tdCell}>{plan.fechaEntrega}</td>
-                                                        <td className={dash.tdMuted}>{plan.recursos || '-'}</td>
-                                                        {!isReadOnly && (
-                                                            <td className="px-4 py-2">
-                                                                <button onClick={() => removePlan(idx)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
-                                                            </td>
-                                                        )}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
-                            </div>
+                            <SectionTitle isLight={isLight}>7. Planes de acción</SectionTitle>
+                            <PlanesAccionSection 
+                                planesAccion={planesAccion} 
+                                isReadOnly={isReadOnly} 
+                                setPlanesOpen={setPlanesOpen} 
+                                removePlan={removePlan} 
+                                dash={dash} 
+                            />
 
                             {/* SECCIÓN 8 y 9: Cierre */}
-                            <SectionTitle>8. Cierre y Próxima Reunión</SectionTitle>
+                            <SectionTitle isLight={isLight}>8. Cierre y Próxima Reunión</SectionTitle>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className={`block mb-1 ${dash.labelFilter}`}>Quien realiza el acta</label>
-                                    <input type="text" value={quienRealizaNombre} className={inputCls} readOnly />
+                                    <label htmlFor="quienRealizaNombre" className={`block mb-1 ${dash.labelFilter}`}>Quien realiza el acta</label>
+                                    <input id="quienRealizaNombre" type="text" value={quienRealizaNombre} className={inputCls} readOnly />
                                 </div>
                                 <div>
-                                    <label className={`block mb-1 ${dash.labelFilter}`}>Cargo / Puesto</label>
-                                    <input type="text" value={quienRealizaCargo} className={inputCls} readOnly />
+                                    <label htmlFor="quienRealizaCargo" className={`block mb-1 ${dash.labelFilter}`}>Cargo / Puesto</label>
+                                    <input id="quienRealizaCargo" type="text" value={quienRealizaCargo} className={inputCls} readOnly />
                                 </div>
                                 <div className="md:col-span-2 mt-2">
-                                    <label className={`block mb-1 ${dash.labelFilter}`}>Próxima reunión</label>
+                                    <label htmlFor="proximaReunion" className={`block mb-1 ${dash.labelFilter}`}>Próxima reunión</label>
                                     <select 
+                                        id="proximaReunion"
                                         value={proximaReunion} 
                                         onChange={e => setProximaReunion(e.target.value)} 
                                         className={inputCls} 
@@ -713,8 +771,8 @@ export default function SeguimientoFormModal({
                 size="sm"
                 footer={
                     <div className="flex justify-end gap-2 w-full">
-                        <button className={dash.borrarFiltros} onClick={() => saveActa('Borrador')} disabled={saving}>Cancelar</button>
-                        <button className={dash.btnPrimaryCinte} onClick={() => saveActa('FINALIZADO')} disabled={saving}>
+                        <button type="button" className={dash.borrarFiltros} onClick={() => saveActa('Borrador')} disabled={saving}>Cancelar</button>
+                        <button type="button" className={dash.btnPrimaryCinte} onClick={() => saveActa('FINALIZADO')} disabled={saving}>
                             {saving ? 'Finalizando...' : 'Finalizar'}
                         </button>
                     </div>

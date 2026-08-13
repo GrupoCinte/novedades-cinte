@@ -7,36 +7,43 @@ const {
 const { ensureOnboardingSchema } = require('./onboarding/onboardingSchema');
 const { ensureSourcingSchema } = require('./sourcing/sourcingSchema');
 
-function logStartupConfig(deps) {
-    const { PORT, COGNITO_ENABLED, COGNITO_REGION, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_SECRET, s3Client, S3_ENABLED, S3_BUCKET_NAME, S3_REGION, S3_AUTH_MODE } = deps;
-    logger.info({ port: PORT }, `Servidor listo en http://localhost:${PORT}`);
-    logger.info({ dbName: process.env.DB_NAME || 'novedades_cinte', dbHost: process.env.DB_HOST || 'localhost', dbPort: process.env.DB_PORT || 5432 }, 'DB conectada');
-    if (COGNITO_ENABLED) {
-        logger.info({ cognitoRegion: COGNITO_REGION || 'sin-region', userPoolId: COGNITO_USER_POOL_ID || 'sin-pool' }, 'Cognito activo');
-        if (!COGNITO_APP_CLIENT_SECRET) {
+function logCognitoConfig(deps) {
+    if (deps.COGNITO_ENABLED) {
+        logger.info({ cognitoRegion: deps.COGNITO_REGION || 'sin-region', userPoolId: deps.COGNITO_USER_POOL_ID || 'sin-pool' }, 'Cognito activo');
+        if (!deps.COGNITO_APP_CLIENT_SECRET) {
             logger.warn('COGNITO_APP_CLIENT_SECRET no configurado (solo valido para app client sin secret).');
         }
     } else {
         logger.warn('Cognito inactivo: usando JWT local.');
     }
-    if (s3Client) {
-        logger.info({ bucket: S3_BUCKET_NAME, region: S3_REGION, authMode: S3_AUTH_MODE }, 'S3 activo');
-        if (S3_AUTH_MODE === 'role') {
+}
+
+function logS3Config(deps) {
+    if (deps.s3Client) {
+        logger.info({ bucket: deps.S3_BUCKET_NAME, region: deps.S3_REGION, authMode: deps.S3_AUTH_MODE }, 'S3 activo');
+        if (deps.S3_AUTH_MODE === 'role') {
             logger.info('S3 usando IAM Role (sin access keys en .env).');
-        } else if (S3_AUTH_MODE === 'keys') {
+        } else if (deps.S3_AUTH_MODE === 'keys') {
             if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
                 logger.warn('S3_AUTH_MODE=keys pero faltan AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.');
             } else {
                 logger.warn('S3 usando access keys locales (modo temporal).');
             }
         }
-    } else if (S3_ENABLED) {
+    } else if (deps.S3_ENABLED) {
         logger.warn(
             'S3_ENABLED=true pero falta S3_BUCKET_NAME (o está vacío): soportes en S3 no funcionarán hasta completar .env (ver .env.example).'
         );
     } else {
         logger.warn('S3 inactivo: usando almacenamiento local en /assets/uploads.');
     }
+}
+
+function logStartupConfig(deps) {
+    logger.info({ port: deps.PORT }, `Servidor listo en http://localhost:${deps.PORT}`);
+    logger.info({ dbName: process.env.DB_NAME || 'novedades_cinte', dbHost: process.env.DB_HOST || 'localhost', dbPort: process.env.DB_PORT || 5432 }, 'DB conectada');
+    logCognitoConfig(deps);
+    logS3Config(deps);
     logger.info({ assetsPath: path.join(process.cwd(), 'assets') }, 'Carpeta assets');
 }
 
@@ -83,7 +90,6 @@ async function startServer(deps) {
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         ensureActividadesConsultorTable,
-        ensureSeguimientoTables,
         ensureSeguimientoTables,
         PORT
     } = deps;

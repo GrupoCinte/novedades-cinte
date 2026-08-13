@@ -48,8 +48,8 @@ export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr,
             size="md"
             footer={
                 <div className="flex justify-end gap-2 w-full">
-                    <button className={dash.borrarFiltros} onClick={onClose}>Cancelar</button>
-                    <button className={dash.btnPrimaryCinte} onClick={handleAceptar}>Agregar</button>
+                    <button type="button" className={dash.borrarFiltros} onClick={onClose}>Cancelar</button>
+                    <button type="button" className={dash.btnPrimaryCinte} onClick={handleAceptar}>Agregar</button>
                 </div>
             }
         >

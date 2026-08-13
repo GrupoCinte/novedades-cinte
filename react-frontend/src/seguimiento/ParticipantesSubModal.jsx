@@ -3,6 +3,13 @@ import GestionModalShell from '../shared/modals/GestionModalShell.jsx';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 
+const getLabelClass = (isSelected, isLight) => {
+    if (isSelected) {
+        return isLight ? 'bg-blue-50 border border-blue-200' : 'bg-blue-900/30 border border-blue-800';
+    }
+    return isLight ? 'hover:bg-slate-100' : 'hover:bg-slate-700';
+};
+
 export default function ParticipantesSubModal({ open, onClose, onAccept, colaboradores = [], participantesActuales = [] }) {
     const { isLight } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
@@ -16,7 +23,7 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
 
     const uniqueClientes = useMemo(() => {
         const clientes = colaboradores.map(c => c.cliente || c.empleador || 'CINTe');
-        return [...new Set(clientes)].sort();
+        return [...new Set(clientes)].sort((a, b) => a.localeCompare(b));
     }, [colaboradores]);
 
     // Initialize selected from current participants
@@ -36,10 +43,10 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
         if (!search.trim()) return porCliente.slice(0, 100); 
         const s = search.toLowerCase();
         return porCliente.filter(c => 
-            (c.nombre && c.nombre.toLowerCase().includes(s)) ||
-            (c.cedula && String(c.cedula).includes(s)) ||
-            (c.cargo && c.cargo.toLowerCase().includes(s)) ||
-            (c.puesto && c.puesto.toLowerCase().includes(s))
+            (c.nombre?.toLowerCase().includes(s)) ||
+            (c.cedula?.toString().includes(s)) ||
+            (c.cargo?.toLowerCase().includes(s)) ||
+            (c.puesto?.toLowerCase().includes(s))
         ).slice(0, 100);
     }, [search, selectedCliente, colaboradores]);
 
@@ -80,8 +87,8 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
                         {selectedIds.size} seleccionados
                     </span>
                     <div className="flex gap-2">
-                        <button className={dash.borrarFiltros} onClick={onClose}>Cancelar</button>
-                        <button className={dash.btnPrimaryCinte} onClick={handleAceptar}>Aceptar Selección</button>
+                        <button type="button" className={dash.borrarFiltros} onClick={onClose}>Cancelar</button>
+                        <button type="button" className={dash.btnPrimaryCinte} onClick={handleAceptar}>Aceptar Selección</button>
                     </div>
                 </div>
             }
@@ -89,8 +96,9 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
             <div className="p-4 flex flex-col h-[60vh] gap-4">
                 <div className="flex gap-4 flex-col sm:flex-row">
                     <div className="flex-1">
-                        <label className={`block mb-1 text-sm font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Cliente</label>
+                        <label htmlFor="clienteSelect" className={`block mb-1 text-sm font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Cliente</label>
                         <select 
+                            id="clienteSelect"
                             value={selectedCliente} 
                             onChange={e => setSelectedCliente(e.target.value)}
                             className={inputCls}
@@ -102,8 +110,9 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
                         </select>
                     </div>
                     <div className="flex-1">
-                        <label className={`block mb-1 text-sm font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Buscar Colaborador</label>
+                        <label htmlFor="colaboradorSearch" className={`block mb-1 text-sm font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Buscar Colaborador</label>
                         <input 
+                            id="colaboradorSearch"
                             type="text" 
                             placeholder="Buscar por nombre, cédula o cargo..." 
                             value={search}
@@ -115,23 +124,23 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
                 </div>
                 
                 <div className={`flex-1 overflow-y-auto rounded-lg border ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800'} p-2`}>
-                    {!selectedCliente ? (
+                    {!selectedCliente && (
                         <p className={`text-sm p-4 text-center ${dash.mutedSm}`}>Selecciona un cliente para ver sus colaboradores.</p>
-                    ) : filtered.length === 0 ? (
+                    )}
+                    {selectedCliente && filtered.length === 0 && (
                         <p className={`text-sm p-4 text-center ${dash.mutedSm}`}>No se encontraron colaboradores para este cliente.</p>
-                    ) : (
+                    )}
+                    {selectedCliente && filtered.length > 0 && (
                         <div className="space-y-1">
                             {filtered.map(c => {
                                 const isSelected = selectedIds.has(c.cedula);
                                 const cargoDisplay = c.cargo || c.puesto || 'N/A';
                                 const empresaDisplay = c.cliente || c.empleador || 'CINTe';
+                                const chkId = `chk-${c.cedula}`;
                                 return (
-                                    <label key={c.cedula} className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
-                                        isSelected 
-                                            ? (isLight ? 'bg-blue-50 border border-blue-200' : 'bg-blue-900/30 border border-blue-800') 
-                                            : (isLight ? 'hover:bg-slate-100' : 'hover:bg-slate-700')
-                                    }`}>
+                                    <label htmlFor={chkId} aria-label={`Seleccionar a ${c.nombre}`} key={c.cedula} className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${getLabelClass(isSelected, isLight)}`}>
                                         <input 
+                                            id={chkId}
                                             type="checkbox" 
                                             className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
                                             checked={isSelected}
