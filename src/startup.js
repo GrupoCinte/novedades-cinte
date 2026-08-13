@@ -1,4 +1,4 @@
-const path = require('path');
+const path = require('node:path');
 const { logger } = require('./logger');
 const {
     initContratacionRealtime,
@@ -105,16 +105,7 @@ async function startServer(deps) {
         ensureCinteLeonardoPair,
         ensureActividadesConsultorTable,
         ensureSeguimientoTables,
-        PORT,
-        COGNITO_ENABLED,
-        COGNITO_REGION,
-        COGNITO_USER_POOL_ID,
-        COGNITO_APP_CLIENT_SECRET,
-        s3Client,
-        S3_ENABLED,
-        S3_BUCKET_NAME,
-        S3_REGION,
-        S3_AUTH_MODE
+        PORT
     } = deps;
 
     await pool.query('SELECT NOW()');
@@ -191,10 +182,10 @@ async function startServer(deps) {
     }
 
     server.on('error', (err) => {
-        if (err && err.code === 'EADDRINUSE') {
+        if (err?.code === 'EADDRINUSE') {
             logger.fatal({ port: PORT }, 'Puerto en uso: libera el proceso o cambia PORT');
         } else {
-            logger.fatal({ error: err && err.message ? err.message : err }, 'Error al escuchar HTTP');
+            logger.fatal({ error: err?.message || err }, 'Error al escuchar HTTP');
         }
         process.exit(1);
     });

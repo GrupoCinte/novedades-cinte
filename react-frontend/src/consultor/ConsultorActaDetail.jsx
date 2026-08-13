@@ -34,7 +34,7 @@ const ParticipantesTable = ({ participantes, isLight }) => {
                 </thead>
                 <tbody>
                     {participantes.map((p, idx) => (
-                        <tr key={idx} className={`border-b last:border-0 ${isLight ? 'border-slate-100' : 'border-slate-800'}`}>
+                        <tr key={p.cedula || p.email || p.nombre || String(idx)} className={`border-b last:border-0 ${isLight ? 'border-slate-100' : 'border-slate-800'}`}>
                             <td className="p-3 font-medium">{p.nombre || p.email}</td>
                             <td className="p-3">{p.cargo || p.rol || 'N/A'}</td>
                             <td className="p-3">{p.empresa || 'N/A'}</td>
@@ -57,7 +57,7 @@ const DesarrolloSection = ({ participantes, isLight }) => {
                 const desarrollo = p.desarrollo;
                 if (!desarrollo) return null;
                 return (
-                    <div key={idx} className={`p-4 rounded-lg border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/30 border-slate-700/50'}`}>
+                    <div key={p.cedula || p.email || p.nombre || String(idx)} className={`p-4 rounded-lg border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/30 border-slate-700/50'}`}>
                         <h4 className="font-bold text-sm mb-2 text-[#2F7BB8]">Consultor: {p.nombre || p.email}</h4>
                         <p className="text-sm whitespace-pre-wrap leading-relaxed">{desarrollo}</p>
                     </div>
@@ -75,7 +75,7 @@ const PlanesAccionSection = ({ planesAccion, compromisosAntiguos, isLight }) => 
         return (
             <div className="space-y-3">
                 {planesAccion.map((plan, idx) => (
-                    <div key={idx} className={`p-4 rounded-lg border flex flex-col gap-2 ${isLight ? 'border-slate-200 bg-white' : 'border-slate-700/50 bg-slate-800/30'}`}>
+                    <div key={plan.id || plan.tarea || String(idx)} className={`p-4 rounded-lg border flex flex-col gap-2 ${isLight ? 'border-slate-200 bg-white' : 'border-slate-700/50 bg-slate-800/30'}`}>
                         <div className="font-medium text-sm">{plan.tarea}</div>
                         <div className="flex flex-wrap gap-4 text-xs opacity-80">
                             <span><strong>Responsable:</strong> {plan.responsable || 'N/A'}</span>
@@ -111,16 +111,38 @@ const TimerBadge = ({ isExpired, timeLeftStr, isLight }) => {
 };
 
 const ObservacionConsultorState = ({ isExpired, savedObservacion, isEditing, setIsEditing, observacionTxt, setObservacionTxt, handleSaveObservacion, saving, savedMsg, isLight }) => {
+    const containerClasses = isLight 
+        ? 'bg-slate-50 border-slate-200' 
+        : 'bg-slate-800/50 border-slate-700';
+    
+    const textClasses = isLight ? 'text-slate-700' : 'text-slate-300';
+    const buttonCancelClasses = isLight 
+        ? 'border-slate-300 text-slate-700 hover:bg-slate-50' 
+        : 'border-slate-600 text-slate-300 hover:bg-slate-800';
+    
+    const textareaClasses = isLight 
+        ? 'bg-white border-slate-200 focus:ring-blue-500/20 focus:border-blue-500' 
+        : 'bg-[#0b2844]/50 border-slate-700 focus:ring-[#65BCF7]/20 focus:border-[#65BCF7] text-slate-200';
+        
+    const editBtnClasses = isLight 
+        ? 'text-slate-400 hover:bg-slate-200 hover:text-slate-700' 
+        : 'text-slate-500 hover:bg-slate-700 hover:text-slate-300';
+
+    const canSave = observacionTxt.trim() && observacionTxt !== savedObservacion && !saving;
+    const saveBtnClasses = canSave
+        ? (isLight ? 'bg-blue-600 hover:bg-blue-700' : 'bg-[#65BCF7] hover:bg-[#4BA3E3] text-[#04141E]')
+        : 'opacity-50 cursor-not-allowed bg-slate-400 text-slate-100';
+
     if (isExpired) {
         if (savedObservacion) {
             return (
-                <div className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700'}`}>
-                    <p className={`text-sm whitespace-pre-wrap leading-relaxed ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{savedObservacion}</p>
+                <div className={`p-4 rounded-xl border ${containerClasses}`}>
+                    <p className={`text-sm whitespace-pre-wrap leading-relaxed ${textClasses}`}>{savedObservacion}</p>
                 </div>
             );
         }
         return (
-            <div className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700'}`}>
+            <div className={`p-4 rounded-xl border ${containerClasses}`}>
                 <p className="text-sm text-slate-500 italic">No registraste observaciones dentro del plazo permitido.</p>
             </div>
         );
@@ -133,7 +155,7 @@ const ObservacionConsultorState = ({ isExpired, savedObservacion, isEditing, set
                     value={observacionTxt}
                     onChange={(e) => setObservacionTxt(e.target.value)}
                     placeholder="Escribe tu observación sobre el acta aquí..."
-                    className={`w-full h-32 p-3 text-sm rounded-xl border focus:ring-2 focus:outline-none resize-y ${isLight ? 'bg-white border-slate-200 focus:ring-blue-500/20 focus:border-blue-500' : 'bg-[#0b2844]/50 border-slate-700 focus:ring-[#65BCF7]/20 focus:border-[#65BCF7] text-slate-200'}`}
+                    className={`w-full h-32 p-3 text-sm rounded-xl border focus:ring-2 focus:outline-none resize-y ${textareaClasses}`}
                     disabled={saving}
                 />
                 <div className="flex justify-end gap-3 items-center">
@@ -144,20 +166,22 @@ const ObservacionConsultorState = ({ isExpired, savedObservacion, isEditing, set
                     )}
                     {savedObservacion && (
                         <button
+                            type="button"
                             onClick={() => {
                                 setObservacionTxt(savedObservacion);
                                 setIsEditing(false);
                             }}
-                            className={`px-4 py-2 text-sm font-semibold rounded-lg border transition-all ${isLight ? 'border-slate-300 text-slate-700 hover:bg-slate-50' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}
+                            className={`px-4 py-2 text-sm font-semibold rounded-lg border transition-all ${buttonCancelClasses}`}
                             disabled={saving}
                         >
                             Cancelar
                         </button>
                     )}
                     <button
+                        type="button"
                         onClick={handleSaveObservacion}
-                        disabled={saving || !observacionTxt.trim() || observacionTxt === savedObservacion}
-                        className={`flex items-center gap-2 px-5 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-sm ${observacionTxt.trim() && observacionTxt !== savedObservacion && !saving ? (isLight ? 'bg-blue-600 hover:bg-blue-700' : 'bg-[#65BCF7] hover:bg-[#4BA3E3] text-[#04141E]') : 'opacity-50 cursor-not-allowed bg-slate-400 text-slate-100'}`}
+                        disabled={!canSave}
+                        className={`flex items-center gap-2 px-5 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-sm ${saveBtnClasses}`}
                     >
                         {saving ? 'Guardando...' : (savedObservacion ? 'Guardar cambios' : 'Guardar observación')}
                     </button>
@@ -167,12 +191,13 @@ const ObservacionConsultorState = ({ isExpired, savedObservacion, isEditing, set
     }
 
     return (
-        <div className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700'}`}>
+        <div className={`p-4 rounded-xl border ${containerClasses}`}>
             <div className="flex justify-between items-start gap-4">
-                <p className={`text-sm whitespace-pre-wrap leading-relaxed flex-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{savedObservacion}</p>
+                <p className={`text-sm whitespace-pre-wrap leading-relaxed flex-1 ${textClasses}`}>{savedObservacion}</p>
                 <button
+                    type="button"
                     onClick={() => setIsEditing(true)}
-                    className={`p-1.5 rounded-md transition-colors flex-shrink-0 ${isLight ? 'text-slate-400 hover:bg-slate-200 hover:text-slate-700' : 'text-slate-500 hover:bg-slate-700 hover:text-slate-300'}`}
+                    className={`p-1.5 rounded-md transition-colors flex-shrink-0 ${editBtnClasses}`}
                     title="Editar observación"
                 >
                     <Edit2 size={16} />
@@ -195,7 +220,7 @@ const useActaTimer = (finalizadoAt) => {
 
         const updateTimer = () => {
             const finalizado = new Date(finalizadoAt).getTime();
-            const now = new Date().getTime();
+            const now = Date.now();
             const diffMs = now - finalizado;
             const msIn72h = 72 * 60 * 60 * 1000;
             const leftMs = msIn72h - diffMs;
@@ -310,13 +335,25 @@ export default function ConsultorActaDetail({ open, onClose, actaData, me }) {
     const overlayClass = "fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4";
 
     return (
-        <div className={overlayClass} onClick={onClose}>
-            <div className={modalClass} onClick={e => e.stopPropagation()}>
+        <div 
+            className={overlayClass} 
+            onClick={onClose}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }}
+        >
+            <div 
+                className={modalClass} 
+                onClick={e => e.stopPropagation()}
+                role="presentation"
+                onKeyDown={(e) => e.stopPropagation()}
+            >
                 
                 {/* Encabezado */}
                 <div className={`px-6 py-5 border-b flex items-center justify-between ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700/50'}`}>
                     <h2 className="text-xl font-bold">Detalle del Acta</h2>
                     <button 
+                        type="button"
                         onClick={onClose}
                         className={`p-2 rounded-full transition-colors ${isLight ? 'hover:bg-slate-200 text-slate-500' : 'hover:bg-slate-700 text-slate-400'}`}
                     >
