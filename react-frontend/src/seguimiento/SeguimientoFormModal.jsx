@@ -40,6 +40,107 @@ const validateContent = (fechaActa, agenda, participantes, planesAccion, tipoSel
     return null;
 };
 
+const ParticipantesTable = ({ participantes, isReadOnly, removeParticipante, dash }) => {
+    if (participantes.length === 0) {
+        return <p className={`text-sm italic ${dash.mutedSm}`}>No hay participantes seleccionados.</p>;
+    }
+    return (
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-left text-sm border-collapse">
+                <thead className={dash.thead}>
+                    <tr>
+                        <th className="p-4 font-semibold">Nombre</th>
+                        <th className="p-4 font-semibold">Cargo</th>
+                        <th className="p-4 font-semibold">Empresa</th>
+                        {!isReadOnly && <th className="p-4 font-semibold w-10"></th>}
+                    </tr>
+                </thead>
+                <tbody>
+                    {participantes.map(p => (
+                        <tr key={p.cedula} className={dash.trHover}>
+                            <td className={dash.tdName}>{p.nombre}</td>
+                            <td className={dash.tdCell}>{p.cargo}</td>
+                            <td className={dash.tdCell}>{p.empresa}</td>
+                            {!isReadOnly && (
+                                <td className="px-4 py-2 text-right">
+                                    <button onClick={() => removeParticipante(p.cedula)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
+                                </td>
+                            )}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
+const DesarrolloList = ({ participantes, isReadOnly, updateDesarrollo, dash, inputCls }) => {
+    if (participantes.length === 0) {
+        return <p className={`text-sm italic ${dash.mutedSm}`}>Agrega participantes para registrar su desarrollo.</p>;
+    }
+    return (
+        <div className="space-y-4">
+            {participantes.map(p => (
+                <div key={p.cedula} className={`p-4 ${dash.card}`}>
+                    <h4 className={`mb-2 flex items-center gap-2 ${dash.titleLg} !text-sm`}>
+                        <span className="w-2 h-2 rounded-full bg-[#2F7BB8]"></span>
+                        Evaluación de servicio: {p.nombre} <span className="font-normal text-slate-500 dark:text-slate-400">({p.cargo})</span>
+                    </h4>
+                    <div>
+                        <label className={`block mb-1 ${dash.labelFilter}`}>Observaciones / Comentarios</label>
+                        <textarea 
+                            rows={3} 
+                            value={p.desarrollo || ''} 
+                            onChange={e => updateDesarrollo(p.cedula, e.target.value)} 
+                            className={inputCls} 
+                            readOnly={isReadOnly} 
+                            placeholder={`Registra aquí lo conversado por ${p.nombre}...`} 
+                        />
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const PlanesAccionTable = ({ planesAccion, isReadOnly, removePlan, dash }) => {
+    if (planesAccion.length === 0) {
+        return <p className={`text-sm italic ${dash.mutedSm}`}>No hay planes de acción registrados.</p>;
+    }
+    return (
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-left text-sm">
+                <thead className={dash.thead}>
+                    <tr>
+                        <th className="p-4 font-semibold">Tarea / Acción</th>
+                        <th className="p-4 font-semibold">Criticidad</th>
+                        <th className="p-4 font-semibold">Responsable</th>
+                        <th className="p-4 font-semibold">F. Entrega</th>
+                        <th className="p-4 font-semibold">Recursos</th>
+                        {!isReadOnly && <th className="p-4 font-semibold w-10"></th>}
+                    </tr>
+                </thead>
+                <tbody>
+                    {planesAccion.map((plan, idx) => (
+                        <tr key={idx} className={dash.trHover}>
+                            <td className={dash.tdCell}>{plan.tarea}</td>
+                            <td className={dash.tdCell}>{plan.criticidad}</td>
+                            <td className={dash.tdName}>{plan.responsable}</td>
+                            <td className={dash.tdCell}>{plan.fechaEntrega}</td>
+                            <td className={dash.tdMuted}>{plan.recursos || '-'}</td>
+                            {!isReadOnly && (
+                                <td className="px-4 py-2">
+                                    <button onClick={() => removePlan(idx)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
+                                </td>
+                            )}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
 export default function SeguimientoFormModal({ 
     open, 
     onClose, 
@@ -584,37 +685,7 @@ export default function SeguimientoFormModal({
                                         + Agregar participantes
                                     </button>
                                 )}
-                                
-                                {participantes.length === 0 ? (
-                                    <p className={`text-sm italic ${dash.mutedSm}`}>No hay participantes seleccionados.</p>
-                                ) : (
-                                    <div className="overflow-x-auto rounded-lg border border-slate-200">
-                                        <table className="w-full text-left text-sm border-collapse">
-                                            <thead className={dash.thead}>
-                                                <tr>
-                                                    <th className="p-4 font-semibold">Nombre</th>
-                                                    <th className="p-4 font-semibold">Cargo</th>
-                                                    <th className="p-4 font-semibold">Empresa</th>
-                                                    {!isReadOnly && <th className="p-4 font-semibold w-10"></th>}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {participantes.map(p => (
-                                                    <tr key={p.cedula} className={dash.trHover}>
-                                                        <td className={dash.tdName}>{p.nombre}</td>
-                                                        <td className={dash.tdCell}>{p.cargo}</td>
-                                                        <td className={dash.tdCell}>{p.empresa}</td>
-                                                        {!isReadOnly && (
-                                                            <td className="px-4 py-2 text-right">
-                                                                <button onClick={() => removeParticipante(p.cedula)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
-                                                            </td>
-                                                        )}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
+                                <ParticipantesTable participantes={participantes} isReadOnly={isReadOnly} removeParticipante={removeParticipante} dash={dash} />
                             </div>
 
                             {/* SECCIÓN 5: Agenda */}
@@ -625,31 +696,7 @@ export default function SeguimientoFormModal({
 
                             {/* SECCIÓN 6: Desarrollo de la reunión */}
                             <SectionTitle>6. Desarrollo de la reunión</SectionTitle>
-                            {participantes.length === 0 ? (
-                                <p className={`text-sm italic ${dash.mutedSm}`}>Agrega participantes para registrar su desarrollo.</p>
-                            ) : (
-                                <div className="space-y-4">
-                                    {participantes.map(p => (
-                                        <div key={p.cedula} className={`p-4 ${dash.card}`}>
-                                            <h4 className={`mb-2 flex items-center gap-2 ${dash.titleLg} !text-sm`}>
-                                                <span className="w-2 h-2 rounded-full bg-[#2F7BB8]"></span>
-                                                Evaluación de servicio: {p.nombre} <span className="font-normal text-slate-500 dark:text-slate-400">({p.cargo})</span>
-                                            </h4>
-                                            <div>
-                                                <label className={`block mb-1 ${dash.labelFilter}`}>Observaciones / Comentarios</label>
-                                                <textarea 
-                                                    rows={3} 
-                                                    value={p.desarrollo || ''} 
-                                                    onChange={e => updateDesarrollo(p.cedula, e.target.value)} 
-                                                    className={inputCls} 
-                                                    readOnly={isReadOnly} 
-                                                    placeholder={`Registra aquí lo conversado por ${p.nombre}...`} 
-                                                />
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
+                            <DesarrolloList participantes={participantes} isReadOnly={isReadOnly} updateDesarrollo={updateDesarrollo} dash={dash} inputCls={inputCls} />
 
                             {/* SECCIÓN 7: Planes de acción */}
                             <SectionTitle>7. Planes de acción</SectionTitle>
@@ -659,41 +706,7 @@ export default function SeguimientoFormModal({
                                         + Agregar plan de acción
                                     </button>
                                 )}
-
-                                {planesAccion.length === 0 ? (
-                                    <p className={`text-sm italic ${dash.mutedSm}`}>No hay planes de acción registrados.</p>
-                                ) : (
-                                    <div className="overflow-x-auto rounded-lg border border-slate-200">
-                                        <table className="w-full text-left text-sm">
-                                            <thead className={dash.thead}>
-                                                <tr>
-                                                    <th className="p-4 font-semibold">Tarea / Acción</th>
-                                                    <th className="p-4 font-semibold">Criticidad</th>
-                                                    <th className="p-4 font-semibold">Responsable</th>
-                                                    <th className="p-4 font-semibold">F. Entrega</th>
-                                                    <th className="p-4 font-semibold">Recursos</th>
-                                                    {!isReadOnly && <th className="p-4 font-semibold w-10"></th>}
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {planesAccion.map((plan, idx) => (
-                                                    <tr key={idx} className={dash.trHover}>
-                                                        <td className={dash.tdCell}>{plan.tarea}</td>
-                                                        <td className={dash.tdCell}>{plan.criticidad}</td>
-                                                        <td className={dash.tdName}>{plan.responsable}</td>
-                                                        <td className={dash.tdCell}>{plan.fechaEntrega}</td>
-                                                        <td className={dash.tdMuted}>{plan.recursos || '-'}</td>
-                                                        {!isReadOnly && (
-                                                            <td className="px-4 py-2">
-                                                                <button onClick={() => removePlan(idx)} className="text-red-500 font-bold px-2 py-1 rounded hover:bg-red-50">X</button>
-                                                            </td>
-                                                        )}
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                )}
+                                <PlanesAccionTable planesAccion={planesAccion} isReadOnly={isReadOnly} removePlan={removePlan} dash={dash} />
                             </div>
 
                             {/* SECCIÓN 8 y 9: Cierre */}

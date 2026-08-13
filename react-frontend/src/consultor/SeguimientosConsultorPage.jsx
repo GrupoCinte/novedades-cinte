@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useConsultorOutlet } from '../useConsultorOutlet.js';
 import { useUiTheme } from '../UiThemeContext.jsx';
 import { buildCsrfHeaders } from '../cognitoAuth.js';
-import { ClipboardCheck, FileText, Home, Menu, ChevronLeft, ChevronRight, X, Calendar, Users, Eye } from 'lucide-react';
+import { ClipboardCheck, Home, Menu, ChevronLeft, ChevronRight, X, Eye } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import AdminModuleSidebarBrand from '../AdminModuleSidebarBrand.jsx';
 import AdminModuleSidebarUser from '../AdminModuleSidebarUser.jsx';
@@ -71,6 +71,55 @@ const ConsultorSidebarContent = ({ isLight, navInactive, currentEmail, currentRo
             />
         </>
     );
+};
+
+const SeguimientosTableBody = ({ loading, seguimientos, dash, isLight, getEstadoBadgeColor, handleViewDetail }) => {
+    if (loading) {
+        return (
+            <tr>
+                <td colSpan={5} className={`p-12 text-center font-medium ${dash.muted}`}>
+                    Cargando actas...
+                </td>
+            </tr>
+        );
+    }
+    if (seguimientos.length === 0) {
+        return (
+            <tr>
+                <td colSpan={5} className={`p-12 text-center font-medium ${dash.muted}`}>
+                    No tienes actas de seguimiento finalizadas registradas.
+                </td>
+            </tr>
+        );
+    }
+    return seguimientos.map((row) => (
+        <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => handleViewDetail(row.id)}>
+            <td className={dash.tdName}>{row.cliente_nombre || row.cliente}</td>
+            <td className={dash.tdCell}>
+                <span className="capitalize">{row.tipo}</span>
+            </td>
+            <td className="p-4 text-center">
+                <span className={`inline-flex w-fit rounded-md border px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${getEstadoBadgeColor(row.estado, isLight)}`}>
+                    {row.estado || 'DESCONOCIDO'}
+                </span>
+            </td>
+            <td className="p-4 text-center">
+                {row.fecha_acta ? new Date(row.fecha_acta).toLocaleDateString() : '-'}
+            </td>
+            <td className="p-4 pr-6 text-right">
+                <button
+                    onClick={(e) => { e.stopPropagation(); handleViewDetail(row.id); }}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                        isLight 
+                        ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' 
+                        : 'bg-[#2F7BB8]/20 text-[#a8dcff] hover:bg-[#2F7BB8]/40'
+                    }`}
+                >
+                    <Eye size={16} /> Ver detalle
+                </button>
+            </td>
+        </tr>
+    ));
 };
 
 export default function SeguimientosConsultorPage() {
@@ -305,50 +354,14 @@ export default function SeguimientosConsultorPage() {
                                         </tr>
                                     </thead>
                                     <tbody className={dash.tbody}>
-                                        {loading ? (
-                                            <tr>
-                                                <td colSpan={5} className={`p-12 text-center font-medium ${dash.muted}`}>
-                                                    Cargando actas...
-                                                </td>
-                                            </tr>
-                                        ) : seguimientos.length === 0 ? (
-                                            <tr>
-                                                <td colSpan={5} className={`p-12 text-center font-medium ${dash.muted}`}>
-                                                    No tienes actas de seguimiento finalizadas registradas.
-                                                </td>
-                                            </tr>
-                                        ) : (
-                                            seguimientos.map((row) => {
-                                                return (
-                                                    <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => handleViewDetail(row.id)}>
-                                                        <td className={dash.tdName}>{row.cliente_nombre || row.cliente}</td>
-                                                        <td className={dash.tdCell}>
-                                                            <span className="capitalize">{row.tipo}</span>
-                                                        </td>
-                                                        <td className="p-4 text-center">
-                                                            <span className={`inline-flex w-fit rounded-md border px-2 py-1 text-[11px] font-bold uppercase tracking-wider ${getEstadoBadgeColor(row.estado, isLight)}`}>
-                                                                {row.estado || 'DESCONOCIDO'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="p-4 text-center">
-                                                            {row.fecha_acta ? new Date(row.fecha_acta).toLocaleDateString() : '-'}
-                                                        </td>
-                                                        <td className="p-4 pr-6 text-right">
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); handleViewDetail(row.id); }}
-                                                                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                                                                    isLight 
-                                                                    ? 'bg-blue-50 text-blue-700 hover:bg-blue-100' 
-                                                                    : 'bg-[#2F7BB8]/20 text-[#a8dcff] hover:bg-[#2F7BB8]/40'
-                                                                }`}
-                                                            >
-                                                                <Eye size={16} /> Ver detalle
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })
-                                        )}
+                                        <SeguimientosTableBody 
+                                            loading={loading}
+                                            seguimientos={seguimientos}
+                                            dash={dash}
+                                            isLight={isLight}
+                                            getEstadoBadgeColor={getEstadoBadgeColor}
+                                            handleViewDetail={handleViewDetail}
+                                        />
                                     </tbody>
                                 </table>
                             </div>

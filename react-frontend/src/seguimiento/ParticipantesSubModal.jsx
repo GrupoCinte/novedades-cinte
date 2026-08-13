@@ -3,6 +3,13 @@ import GestionModalShell from '../shared/modals/GestionModalShell.jsx';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 
+const getRowClass = (isSelected, isLight) => {
+    if (isSelected) {
+        return isLight ? 'bg-blue-50 border border-blue-200' : 'bg-blue-900/30 border border-blue-800';
+    }
+    return isLight ? 'hover:bg-slate-100' : 'hover:bg-slate-700';
+};
+
 export default function ParticipantesSubModal({ open, onClose, onAccept, colaboradores = [], participantesActuales = [] }) {
     const { isLight } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
@@ -115,22 +122,20 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
                 </div>
                 
                 <div className={`flex-1 overflow-y-auto rounded-lg border ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800'} p-2`}>
-                    {!selectedCliente ? (
+                    {!selectedCliente && (
                         <p className={`text-sm p-4 text-center ${dash.mutedSm}`}>Selecciona un cliente para ver sus colaboradores.</p>
-                    ) : filtered.length === 0 ? (
+                    )}
+                    {selectedCliente && filtered.length === 0 && (
                         <p className={`text-sm p-4 text-center ${dash.mutedSm}`}>No se encontraron colaboradores para este cliente.</p>
-                    ) : (
+                    )}
+                    {selectedCliente && filtered.length > 0 && (
                         <div className="space-y-1">
                             {filtered.map(c => {
                                 const isSelected = selectedIds.has(c.cedula);
                                 const cargoDisplay = c.cargo || c.puesto || 'N/A';
                                 const empresaDisplay = c.cliente || c.empleador || 'CINTe';
                                 return (
-                                    <label key={c.cedula} className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
-                                        isSelected 
-                                            ? (isLight ? 'bg-blue-50 border border-blue-200' : 'bg-blue-900/30 border border-blue-800') 
-                                            : (isLight ? 'hover:bg-slate-100' : 'hover:bg-slate-700')
-                                    }`}>
+                                    <label key={c.cedula} className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${getRowClass(isSelected, isLight)}`}>
                                         <input 
                                             type="checkbox" 
                                             className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-600"

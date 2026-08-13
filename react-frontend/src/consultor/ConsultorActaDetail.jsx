@@ -3,6 +3,185 @@ import { X, Clock, AlertTriangle, CheckCircle, Edit2 } from 'lucide-react';
 import { useUiTheme } from '../UiThemeContext.jsx';
 import { buildCsrfHeaders } from '../cognitoAuth.js';
 
+const DataBlock = ({ label, value }) => (
+    <div className="mb-4">
+        <h4 className="font-semibold text-sm mb-1 text-slate-500 dark:text-slate-400">{label}</h4>
+        <div className="text-sm leading-relaxed whitespace-pre-wrap">
+            {value || <span className="italic opacity-60">N/A</span>}
+        </div>
+    </div>
+);
+
+const SectionTitle = ({ children, isLight }) => (
+    <h3 className={`text-base font-bold mt-6 mb-4 pb-2 border-b ${isLight ? 'border-slate-200 text-[#2F7BB8]' : 'border-slate-700 text-[#65BCF7]'}`}>
+        {children}
+    </h3>
+);
+
+const ParticipantesTable = ({ participantes, isLight }) => {
+    if (participantes.length === 0) {
+        return <p className="italic opacity-60 text-sm">No hay participantes registrados.</p>;
+    }
+    return (
+        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+            <table className="w-full text-left text-sm border-collapse">
+                <thead className={isLight ? 'bg-slate-100 text-slate-600' : 'bg-slate-800 text-slate-300'}>
+                    <tr>
+                        <th className="p-3 font-semibold border-b border-slate-200 dark:border-slate-700">Nombre</th>
+                        <th className="p-3 font-semibold border-b border-slate-200 dark:border-slate-700">Cargo</th>
+                        <th className="p-3 font-semibold border-b border-slate-200 dark:border-slate-700">Empresa</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {participantes.map((p, idx) => (
+                        <tr key={idx} className={`border-b last:border-0 ${isLight ? 'border-slate-100' : 'border-slate-800'}`}>
+                            <td className="p-3 font-medium">{p.nombre || p.email}</td>
+                            <td className="p-3">{p.cargo || p.rol || 'N/A'}</td>
+                            <td className="p-3">{p.empresa || 'N/A'}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+};
+
+const DesarrolloSection = ({ participantes, isLight }) => {
+    if (participantes.length === 0) {
+        return <p className="italic opacity-60 text-sm">No se registró desarrollo.</p>;
+    }
+    const hasDesarrollo = participantes.some(p => p.desarrollo);
+    return (
+        <div className="space-y-4">
+            {participantes.map((p, idx) => {
+                const desarrollo = p.desarrollo;
+                if (!desarrollo) return null;
+                return (
+                    <div key={idx} className={`p-4 rounded-lg border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/30 border-slate-700/50'}`}>
+                        <h4 className="font-bold text-sm mb-2 text-[#2F7BB8]">Consultor: {p.nombre || p.email}</h4>
+                        <p className="text-sm whitespace-pre-wrap leading-relaxed">{desarrollo}</p>
+                    </div>
+                );
+            })}
+            {!hasDesarrollo && (
+                <p className="italic opacity-60 text-sm">No se registraron comentarios de desarrollo para los participantes.</p>
+            )}
+        </div>
+    );
+};
+
+const PlanesAccionSection = ({ planesAccion, compromisosAntiguos, isLight }) => {
+    if (planesAccion.length > 0) {
+        return (
+            <div className="space-y-3">
+                {planesAccion.map((plan, idx) => (
+                    <div key={idx} className={`p-4 rounded-lg border flex flex-col gap-2 ${isLight ? 'border-slate-200 bg-white' : 'border-slate-700/50 bg-slate-800/30'}`}>
+                        <div className="font-medium text-sm">{plan.tarea}</div>
+                        <div className="flex flex-wrap gap-4 text-xs opacity-80">
+                            <span><strong>Responsable:</strong> {plan.responsable || 'N/A'}</span>
+                            <span><strong>Fecha de entrega:</strong> {plan.fechaEntrega || plan.fecha || 'N/A'}</span>
+                            {plan.criticidad && <span><strong>Prioridad:</strong> {plan.criticidad}</span>}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    }
+    if (compromisosAntiguos) {
+        return <DataBlock label="Compromisos registrados" value={compromisosAntiguos} />;
+    }
+    return <p className="italic opacity-60 text-sm">No hay planes de acción ni compromisos registrados.</p>;
+};
+
+const TimerBadge = ({ isExpired, timeLeftStr, isLight }) => {
+    if (!isExpired) {
+        return (
+            <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-md ${isLight ? 'text-slate-600 bg-slate-100 border border-slate-200 shadow-sm' : 'text-emerald-400 bg-emerald-900/30'}`}>
+                <Clock size={14} />
+                {timeLeftStr}
+            </div>
+        );
+    }
+    return (
+        <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-md ${isLight ? 'text-slate-500 bg-slate-50 border border-slate-200' : 'text-red-400 bg-red-900/30'}`}>
+            <AlertTriangle size={14} />
+            {timeLeftStr}
+        </div>
+    );
+};
+
+const ObservacionConsultorState = ({ isExpired, savedObservacion, isEditing, setIsEditing, observacionTxt, setObservacionTxt, handleSaveObservacion, saving, savedMsg, isLight }) => {
+    if (isExpired) {
+        if (savedObservacion) {
+            return (
+                <div className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700'}`}>
+                    <p className={`text-sm whitespace-pre-wrap leading-relaxed ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{savedObservacion}</p>
+                </div>
+            );
+        }
+        return (
+            <div className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700'}`}>
+                <p className="text-sm text-slate-500 italic">No registraste observaciones dentro del plazo permitido.</p>
+            </div>
+        );
+    }
+
+    if (isEditing) {
+        return (
+            <div className="space-y-3">
+                <textarea
+                    value={observacionTxt}
+                    onChange={(e) => setObservacionTxt(e.target.value)}
+                    placeholder="Escribe tu observación sobre el acta aquí..."
+                    className={`w-full h-32 p-3 text-sm rounded-xl border focus:ring-2 focus:outline-none resize-y ${isLight ? 'bg-white border-slate-200 focus:ring-blue-500/20 focus:border-blue-500' : 'bg-[#0b2844]/50 border-slate-700 focus:ring-[#65BCF7]/20 focus:border-[#65BCF7] text-slate-200'}`}
+                    disabled={saving}
+                />
+                <div className="flex justify-end gap-3 items-center">
+                    {savedMsg && (
+                        <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 mr-auto">
+                            <CheckCircle size={14} /> {savedMsg}
+                        </p>
+                    )}
+                    {savedObservacion && (
+                        <button
+                            onClick={() => {
+                                setObservacionTxt(savedObservacion);
+                                setIsEditing(false);
+                            }}
+                            className={`px-4 py-2 text-sm font-semibold rounded-lg border transition-all ${isLight ? 'border-slate-300 text-slate-700 hover:bg-slate-50' : 'border-slate-600 text-slate-300 hover:bg-slate-800'}`}
+                            disabled={saving}
+                        >
+                            Cancelar
+                        </button>
+                    )}
+                    <button
+                        onClick={handleSaveObservacion}
+                        disabled={saving || !observacionTxt.trim() || observacionTxt === savedObservacion}
+                        className={`flex items-center gap-2 px-5 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-sm ${observacionTxt.trim() && observacionTxt !== savedObservacion && !saving ? (isLight ? 'bg-blue-600 hover:bg-blue-700' : 'bg-[#65BCF7] hover:bg-[#4BA3E3] text-[#04141E]') : 'opacity-50 cursor-not-allowed bg-slate-400 text-slate-100'}`}
+                    >
+                        {saving ? 'Guardando...' : (savedObservacion ? 'Guardar cambios' : 'Guardar observación')}
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700'}`}>
+            <div className="flex justify-between items-start gap-4">
+                <p className={`text-sm whitespace-pre-wrap leading-relaxed flex-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{savedObservacion}</p>
+                <button
+                    onClick={() => setIsEditing(true)}
+                    className={`p-1.5 rounded-md transition-colors flex-shrink-0 ${isLight ? 'text-slate-400 hover:bg-slate-200 hover:text-slate-700' : 'text-slate-500 hover:bg-slate-700 hover:text-slate-300'}`}
+                    title="Editar observación"
+                >
+                    <Edit2 size={16} />
+                </button>
+            </div>
+        </div>
+    );
+};
+
 export default function ConsultorActaDetail({ open, onClose, actaData, me }) {
     const { theme } = useUiTheme();
     const isLight = theme === 'light';
@@ -106,21 +285,6 @@ export default function ConsultorActaDetail({ open, onClose, actaData, me }) {
     }`;
     const overlayClass = "fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4";
 
-    const SectionTitle = ({ children }) => (
-        <h3 className={`text-base font-bold mt-6 mb-4 pb-2 border-b ${isLight ? 'border-slate-200 text-[#2F7BB8]' : 'border-slate-700 text-[#65BCF7]'}`}>
-            {children}
-        </h3>
-    );
-
-    const DataBlock = ({ label, value }) => (
-        <div className="mb-4">
-            <h4 className="font-semibold text-sm mb-1 text-slate-500 dark:text-slate-400">{label}</h4>
-            <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                {value || <span className="italic opacity-60">N/A</span>}
-            </div>
-        </div>
-    );
-
     return (
         <div className={overlayClass} onClick={onClose}>
             <div className={modalClass} onClick={e => e.stopPropagation()}>
@@ -139,205 +303,60 @@ export default function ConsultorActaDetail({ open, onClose, actaData, me }) {
                 {/* Contenido */}
                 <div className="flex-1 overflow-y-auto p-6 md:p-8 font-body">
                     
-                    <SectionTitle>1. Información General</SectionTitle>
+                    <SectionTitle isLight={isLight}>1. Información General</SectionTitle>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <DataBlock label="Fecha de reunión" value={fecha} />
                         <DataBlock label="Hora de inicio" value={horaInicio} />
                         <DataBlock label="Hora de fin" value={horaFin} />
                     </div>
 
-                    <SectionTitle>2. Responsable de la reunión</SectionTitle>
+                    <SectionTitle isLight={isLight}>2. Responsable de la reunión</SectionTitle>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <DataBlock label="Nombres y apellidos" value={responsableNombre} />
                         <DataBlock label="Cargo / Puesto" value={responsableCargo} />
                     </div>
 
-                    <SectionTitle>3. Objetivo</SectionTitle>
+                    <SectionTitle isLight={isLight}>3. Objetivo</SectionTitle>
                     <DataBlock label="¿Cuál fue el propósito de este seguimiento?" value={objetivo} />
 
-                    <SectionTitle>4. Participantes</SectionTitle>
-                    {participantes.length > 0 ? (
-                        <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                            <table className="w-full text-left text-sm border-collapse">
-                                <thead className={isLight ? 'bg-slate-100 text-slate-600' : 'bg-slate-800 text-slate-300'}>
-                                    <tr>
-                                        <th className="p-3 font-semibold border-b border-slate-200 dark:border-slate-700">Nombre</th>
-                                        <th className="p-3 font-semibold border-b border-slate-200 dark:border-slate-700">Cargo</th>
-                                        <th className="p-3 font-semibold border-b border-slate-200 dark:border-slate-700">Empresa</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {participantes.map((p, idx) => (
-                                        <tr key={idx} className={`border-b last:border-0 ${isLight ? 'border-slate-100' : 'border-slate-800'}`}>
-                                            <td className="p-3 font-medium">{p.nombre || p.email}</td>
-                                            <td className="p-3">{p.cargo || p.rol || 'N/A'}</td>
-                                            <td className="p-3">{p.empresa || 'N/A'}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    ) : (
-                        <p className="italic opacity-60 text-sm">No hay participantes registrados.</p>
-                    )}
+                    <SectionTitle isLight={isLight}>4. Participantes</SectionTitle>
+                    <ParticipantesTable participantes={participantes} isLight={isLight} />
 
-                    <SectionTitle>5. Agenda</SectionTitle>
+                    <SectionTitle isLight={isLight}>5. Agenda</SectionTitle>
                     <DataBlock label="Temas tratados" value={agenda} />
 
-                    <SectionTitle>6. Desarrollo de la reunión</SectionTitle>
-                    {participantes.length > 0 ? (
-                        <div className="space-y-4">
-                            {participantes.map((p, idx) => {
-                                const desarrollo = p.desarrollo;
-                                if (!desarrollo) return null;
-                                return (
-                                    <div key={idx} className={`p-4 rounded-lg border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/30 border-slate-700/50'}`}>
-                                        <h4 className="font-bold text-sm mb-2 text-[#2F7BB8]">Consultor: {p.nombre || p.email}</h4>
-                                        <p className="text-sm whitespace-pre-wrap leading-relaxed">{desarrollo}</p>
-                                    </div>
-                                );
-                            })}
-                            {!participantes.some(p => p.desarrollo) && (
-                                <p className="italic opacity-60 text-sm">No se registraron comentarios de desarrollo para los participantes.</p>
-                            )}
-                        </div>
-                    ) : (
-                        <p className="italic opacity-60 text-sm">No se registró desarrollo.</p>
-                    )}
+                    <SectionTitle isLight={isLight}>6. Desarrollo de la reunión</SectionTitle>
+                    <DesarrolloSection participantes={participantes} isLight={isLight} />
 
-                    <SectionTitle>7. Planes de acción / Compromisos</SectionTitle>
-                    {planesAccion.length > 0 ? (
-                        <div className="space-y-3">
-                            {planesAccion.map((plan, idx) => (
-                                <div key={idx} className={`p-4 rounded-lg border flex flex-col gap-2 ${isLight ? 'border-slate-200 bg-white' : 'border-slate-700/50 bg-slate-800/30'}`}>
-                                    <div className="font-medium text-sm">{plan.tarea}</div>
-                                    <div className="flex flex-wrap gap-4 text-xs opacity-80">
-                                        <span><strong>Responsable:</strong> {plan.responsable || 'N/A'}</span>
-                                        <span><strong>Fecha de entrega:</strong> {plan.fechaEntrega || plan.fecha || 'N/A'}</span>
-                                        {plan.criticidad && <span><strong>Prioridad:</strong> {plan.criticidad}</span>}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : compromisosAntiguos ? (
-                        <DataBlock label="Compromisos registrados" value={compromisosAntiguos} />
-                    ) : (
-                        <p className="italic opacity-60 text-sm">No hay planes de acción ni compromisos registrados.</p>
-                    )}
+                    <SectionTitle isLight={isLight}>7. Planes de acción / Compromisos</SectionTitle>
+                    <PlanesAccionSection planesAccion={planesAccion} compromisosAntiguos={compromisosAntiguos} isLight={isLight} />
 
-                    {(observaciones) && (
+                    {observaciones && (
                         <>
-                            <SectionTitle>Observaciones Generales</SectionTitle>
+                            <SectionTitle isLight={isLight}>Observaciones Generales</SectionTitle>
                             <DataBlock label="Registradas por el administrador" value={observaciones} />
                         </>
                     )}
 
-                    <SectionTitle>8. Observaciones del consultor</SectionTitle>
+                    <SectionTitle isLight={isLight}>8. Observaciones del consultor</SectionTitle>
                     <div className={`p-5 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/40 border-slate-700/50'}`}>
                         <div className="flex items-center justify-between mb-4">
                             <h4 className="font-bold text-sm">Tu observación sobre el acta</h4>
-                            {!isExpired ? (
-                                <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-md ${
-                                    isLight 
-                                    ? 'text-slate-600 bg-slate-100 border border-slate-200 shadow-sm' 
-                                    : 'text-emerald-400 bg-emerald-900/30'
-                                }`}>
-                                    <Clock size={14} />
-                                    {timeLeftStr}
-                                </div>
-                            ) : (
-                                <div className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-md ${
-                                    isLight 
-                                    ? 'text-slate-500 bg-slate-50 border border-slate-200' 
-                                    : 'text-red-400 bg-red-900/30'
-                                }`}>
-                                    <AlertTriangle size={14} />
-                                    {timeLeftStr}
-                                </div>
-                            )}
+                            <TimerBadge isExpired={isExpired} timeLeftStr={timeLeftStr} isLight={isLight} />
                         </div>
-
-                        {/* Lógica de Estados: Vencido, Editando, Solo Lectura */}
-                        {isExpired ? (
-                            savedObservacion ? (
-                                <div className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700'}`}>
-                                    <p className={`text-sm whitespace-pre-wrap leading-relaxed ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                                        {savedObservacion}
-                                    </p>
-                                </div>
-                            ) : (
-                                <div className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700'}`}>
-                                    <p className="text-sm text-slate-500 italic">No registraste observaciones dentro del plazo permitido.</p>
-                                </div>
-                            )
-                        ) : (
-                            isEditing ? (
-                                <div className="space-y-3">
-                                    <textarea
-                                        value={observacionTxt}
-                                        onChange={(e) => setObservacionTxt(e.target.value)}
-                                        placeholder="Escribe tu observación sobre el acta aquí..."
-                                        className={`w-full h-32 p-3 text-sm rounded-xl border focus:ring-2 focus:outline-none resize-y ${
-                                            isLight 
-                                            ? 'bg-white border-slate-200 focus:ring-blue-500/20 focus:border-blue-500' 
-                                            : 'bg-[#0b2844]/50 border-slate-700 focus:ring-[#65BCF7]/20 focus:border-[#65BCF7] text-slate-200'
-                                        }`}
-                                        disabled={saving}
-                                    />
-                                    <div className="flex justify-end gap-3 items-center">
-                                        {savedMsg && (
-                                            <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 mr-auto">
-                                                <CheckCircle size={14} /> {savedMsg}
-                                            </p>
-                                        )}
-                                        {savedObservacion && (
-                                            <button
-                                                onClick={() => {
-                                                    setObservacionTxt(savedObservacion);
-                                                    setIsEditing(false);
-                                                }}
-                                                className={`px-4 py-2 text-sm font-semibold rounded-lg border transition-all ${
-                                                    isLight
-                                                    ? 'border-slate-300 text-slate-700 hover:bg-slate-50'
-                                                    : 'border-slate-600 text-slate-300 hover:bg-slate-800'
-                                                }`}
-                                                disabled={saving}
-                                            >
-                                                Cancelar
-                                            </button>
-                                        )}
-                                        <button
-                                            onClick={handleSaveObservacion}
-                                            disabled={saving || !observacionTxt.trim() || observacionTxt === savedObservacion}
-                                            className={`flex items-center gap-2 px-5 py-2 text-sm font-bold text-white rounded-lg transition-all shadow-sm ${
-                                                observacionTxt.trim() && observacionTxt !== savedObservacion && !saving
-                                                ? (isLight ? 'bg-blue-600 hover:bg-blue-700' : 'bg-[#65BCF7] hover:bg-[#4BA3E3] text-[#04141E]')
-                                                : 'opacity-50 cursor-not-allowed bg-slate-400 text-slate-100'
-                                            }`}
-                                        >
-                                            {saving ? 'Guardando...' : (savedObservacion ? 'Guardar cambios' : 'Guardar observación')}
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className={`p-4 rounded-xl border ${isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-800/50 border-slate-700'}`}>
-                                    <div className="flex justify-between items-start gap-4">
-                                        <p className={`text-sm whitespace-pre-wrap leading-relaxed flex-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                                            {savedObservacion}
-                                        </p>
-                                        <button
-                                            onClick={() => setIsEditing(true)}
-                                            className={`p-1.5 rounded-md transition-colors flex-shrink-0 ${
-                                                isLight ? 'text-slate-400 hover:bg-slate-200 hover:text-slate-700' : 'text-slate-500 hover:bg-slate-700 hover:text-slate-300'
-                                            }`}
-                                            title="Editar observación"
-                                        >
-                                            <Edit2 size={16} />
-                                        </button>
-                                    </div>
-                                </div>
-                            )
-                        )}
+                        
+                        <ObservacionConsultorState 
+                            isExpired={isExpired}
+                            savedObservacion={savedObservacion}
+                            isEditing={isEditing}
+                            setIsEditing={setIsEditing}
+                            observacionTxt={observacionTxt}
+                            setObservacionTxt={setObservacionTxt}
+                            handleSaveObservacion={handleSaveObservacion}
+                            saving={saving}
+                            savedMsg={savedMsg}
+                            isLight={isLight}
+                        />
                     </div>
                 </div>
             </div>
