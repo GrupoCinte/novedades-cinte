@@ -2,11 +2,8 @@
 
 const { v4: uuidv4 } = require('uuid');
 
-/**
- * Registrar una nueva observacion de CH
- */
+
 async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
-    // 1. Validar longitud
     if (!observacion || observacion.trim().length === 0) {
         return {
             status: 400,
@@ -21,7 +18,6 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
     }
 
     try {
-        // 2. Verificar que el caso existe Y obtener consultor_id
         const caseExists = await pool.query(
             'SELECT id, consultor_id FROM reubicaciones_pipeline WHERE id = $1',
             [pipelineId]
@@ -34,7 +30,6 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
         }
         const consultorId = caseExists.rows[0]?.consultor_id || null;
 
-        // 3. Obtener ultima version Y la observacion anterior
         const lastVersion = await pool.query(
             'SELECT MAX(version) as max_version, observacion FROM reubicaciones_observaciones WHERE pipeline_id = $1 GROUP BY observacion', 
             [pipelineId]
@@ -42,7 +37,6 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
         const nextVersion = (lastVersion.rows[0]?.max_version || 0) + 1;
         const observacionAnterior = lastVersion.rows[0]?.observacion || null;  
 
-        // 4. Insertar nueva observacion
         const result = await pool.query(
             `INSERT INTO reubicaciones_observaciones 
              (id, pipeline_id, version, observacion, actor_user_id, actor_role, fecha)
@@ -58,7 +52,6 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
             ]
         );
 
-                // Insertar en reubicaciones_historial (HU-06)
         try {
             await pool.query(
                 `INSERT INTO reubicaciones_historial (
@@ -84,8 +77,7 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
                 ]
             );
         } catch (histError) {
-            // ✅ LOG COMPLETO DEL ERROR
-            console.error('❌ ERROR en reubicaciones_historial:', {
+            console.error('ERROR en reubicaciones_historial:', {
                 message: histError.message,
                 stack: histError.stack,
                 code: histError.code,
@@ -97,7 +89,6 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
         }
 
 
-        // Guardar en estado_historial (opcional - para compatibilidad)
         try {
             await pool.query(
                 `INSERT INTO reubicaciones_estado_historial 
@@ -133,9 +124,7 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
     }
 }
 
-/**
- * Obtener la ultima observacion de un caso
- */
+
 async function obtenerUltimaObservacion({ pipelineId, pool }) {
     try {
         const result = await pool.query(
@@ -157,9 +146,7 @@ async function obtenerUltimaObservacion({ pipelineId, pool }) {
     }
 }
 
-/**
- * Obtener todo el historial de observaciones de un caso
- */
+
 async function obtenerHistorialObservaciones({ pipelineId, pool }) {
     try {
         const result = await pool.query(

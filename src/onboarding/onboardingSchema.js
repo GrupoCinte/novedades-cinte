@@ -729,10 +729,8 @@ async function ensureDynamoStreamCheckpointTable({ pool, logger }) {
 
 
 
-// Agregar esta función al final del archivo
-async function ensureReubicacionesSchema({ pool, logger }) {
+async function ensureReubicacionesPipelineColumns({ pool, logger }) {
     try {
-        // 1. Extender reubicaciones_pipeline
         await pool.query(`
             ALTER TABLE public.reubicaciones_pipeline 
             ADD COLUMN IF NOT EXISTS estado VARCHAR(20) DEFAULT 'Pendiente',
@@ -746,20 +744,37 @@ async function ensureReubicacionesSchema({ pool, logger }) {
             ADD COLUMN IF NOT EXISTS estado_reubicacion VARCHAR(20),
             ADD COLUMN IF NOT EXISTS consultor_id TEXT
         `);
-        
-        try {
-            await pool.query(`
-                ALTER TABLE public.reubicaciones_historial 
-                ALTER COLUMN consultor_id TYPE TEXT
-            `);
-        } catch (alterError) {
-            // Si la columna no existe o ya es TEXT, ignorar
-            if (!isIgnorableDdlError(alterError)) {
-                console.warn('No se pudo cambiar consultor_id a TEXT:', alterError.message);
-            }
+
+        await pool.query(`
+            ALTER TABLE public.ficha_novedades_staging 
+            ADD COLUMN IF NOT EXISTS sincronizado_pipeline BOOLEAN DEFAULT FALSE
+        `);
+
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_ficha_novedades_sincronizado 
+                ON ficha_novedades_staging(sincronizado_pipeline) 
+                WHERE sincronizado_pipeline = FALSE AND status = 'aplicado'
+        `);
+
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_estado 
+                ON reubicaciones_pipeline(estado);
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_tipo_ficha 
+                ON reubicaciones_pipeline(tipo_ficha);
+            CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_visible 
+                ON reubicaciones_pipeline(visible)
+        `);
+    } catch (error) {
+        if (isIgnorableDdlError(error)) {
+            logWarn(logger, 'Permisos insuficientes para columnas reubicaciones_pipeline.');
+            return;
         }
-        
-        // 2. Crear historial
+        throw error;
+    }
+}
+
+async function ensureReubicacionesEstadoHistorial({ pool, logger }) {
+    try {
         await pool.query(`
             CREATE TABLE IF NOT EXISTS public.reubicaciones_estado_historial (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -771,37 +786,22 @@ async function ensureReubicacionesSchema({ pool, logger }) {
                 cambiado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         `);
-        
-        // 3. Índices
+
         await pool.query(`
             CREATE INDEX IF NOT EXISTS idx_reubicaciones_historial_pipeline 
-                ON reubicaciones_estado_historial(pipeline_id, cambiado_en DESC);
-            CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_estado 
-                ON reubicaciones_pipeline(estado);
-            CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_tipo_ficha 
-                ON reubicaciones_pipeline(tipo_ficha);
-            CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_visible 
-                ON reubicaciones_pipeline(visible)
+                ON reubicaciones_estado_historial(pipeline_id, cambiado_en DESC)
         `);
-        
-        // 4. Extender ficha_novedades_staging
-        await pool.query(`
-            ALTER TABLE public.ficha_novedades_staging 
-            ADD COLUMN IF NOT EXISTS sincronizado_pipeline BOOLEAN DEFAULT FALSE
-        `);
-        
-        // 5. Índice para recovery
-        await pool.query(`
-            CREATE INDEX IF NOT EXISTS idx_ficha_novedades_sincronizado 
-                ON ficha_novedades_staging(sincronizado_pipeline) 
-                WHERE sincronizado_pipeline = FALSE AND status = 'aplicado'
-        `);
+    } catch (error) {
+        if (isIgnorableDdlError(error)) {
+            logWarn(logger, 'Permisos insuficientes para reubicaciones_estado_historial.');
+            return;
+        }
+        throw error;
+    }
+}
 
-        // ============================================
-        // NUEVO: TABLAS DE HU-04
-        // ============================================
-
-        // 6. Tabla de observaciones de CH
+async function ensureReubicacionesObservaciones({ pool, logger }) {
+    try {
         await pool.query(`
             CREATE TABLE IF NOT EXISTS public.reubicaciones_observaciones (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -823,8 +823,17 @@ async function ensureReubicacionesSchema({ pool, logger }) {
             CREATE INDEX IF NOT EXISTS idx_reubicaciones_obs_fecha 
                 ON reubicaciones_observaciones(fecha DESC)
         `);
+    } catch (error) {
+        if (isIgnorableDdlError(error)) {
+            logWarn(logger, 'Permisos insuficientes para reubicaciones_observaciones.');
+            return;
+        }
+        throw error;
+    }
+}
 
-        // 7. Tabla de decisiones de GP
+async function ensureReubicacionesDecisiones({ pool, logger }) {
+    try {
         await pool.query(`
             CREATE TABLE IF NOT EXISTS public.reubicaciones_decisiones (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -845,8 +854,17 @@ async function ensureReubicacionesSchema({ pool, logger }) {
             CREATE INDEX IF NOT EXISTS idx_reubicaciones_dec_fecha 
                 ON reubicaciones_decisiones(fecha DESC)
         `);
+    } catch (error) {
+        if (isIgnorableDdlError(error)) {
+            logWarn(logger, 'Permisos insuficientes para reubicaciones_decisiones.');
+            return;
+        }
+        throw error;
+    }
+}
 
-        // 8. Tabla de historial completo (HU-06)
+async function ensureReubicacionesHistorial({ pool, logger }) {
+    try {
         await pool.query(`
             CREATE TABLE IF NOT EXISTS public.reubicaciones_historial (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -877,7 +895,34 @@ async function ensureReubicacionesSchema({ pool, logger }) {
             CREATE INDEX IF NOT EXISTS idx_historial_tipo 
                 ON reubicaciones_historial(tipo)
         `);
-        
+    } catch (error) {
+        if (isIgnorableDdlError(error)) {
+            logWarn(logger, 'Permisos insuficientes para reubicaciones_historial.');
+            return;
+        }
+        throw error;
+    }
+}
+
+async function ensureReubicacionesSchema({ pool, logger }) {
+    try {
+        await ensureReubicacionesPipelineColumns({ pool, logger });
+        await ensureReubicacionesEstadoHistorial({ pool, logger });
+        await ensureReubicacionesObservaciones({ pool, logger });
+        await ensureReubicacionesDecisiones({ pool, logger });
+        await ensureReubicacionesHistorial({ pool, logger });
+
+        try {
+            await pool.query(`
+                ALTER TABLE public.reubicaciones_historial 
+                ALTER COLUMN consultor_id TYPE TEXT
+            `);
+        } catch (alterError) {
+            if (!isIgnorableDdlError(alterError)) {
+                console.warn('No se pudo cambiar consultor_id a TEXT:', alterError.message);
+            }
+        }
+
         logInfo(logger, 'Esquema reubicaciones listo (idempotente).');
     } catch (error) {
         if (isIgnorableDdlError(error)) {
