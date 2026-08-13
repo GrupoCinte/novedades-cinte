@@ -11,7 +11,7 @@ const ESTADOS = {
 
 function normalizeDateValue(value) {
     if (value === null || value === undefined || value === '') return null;
-    const date = value instanceof Date ? new Date(value) : new Date(value);
+    const date = new Date(value);
     if (Number.isNaN(date.getTime())) return null;
     date.setHours(0, 0, 0, 0);
     return date;
