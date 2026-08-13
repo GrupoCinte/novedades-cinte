@@ -35,7 +35,6 @@ async function registrarDecision({ pipelineId, decision, justificacion, decidido
     }
 
     try {
-        // 2. Verificar que el caso existe Y obtener consultor_id
         const caseExists = await pool.query(
             'SELECT id, cedula, consultor_id FROM reubicaciones_pipeline WHERE id = $1',
             [pipelineId]
@@ -48,7 +47,6 @@ async function registrarDecision({ pipelineId, decision, justificacion, decidido
         }
         const consultorId = caseExists.rows[0]?.consultor_id || null;
 
-        // 3. Obtener decision anterior (para historial)
         const previousDecision = await pool.query(
             'SELECT decision, justificacion FROM reubicaciones_decisiones WHERE pipeline_id = $1 ORDER BY fecha DESC LIMIT 1',
             [pipelineId]
@@ -158,9 +156,7 @@ async function registrarDecision({ pipelineId, decision, justificacion, decidido
     }
 }
 
-/**
- * Obtener la ultima decision de un caso
- */
+
 async function obtenerUltimaDecision({ pipelineId, pool }) {
     const result = await pool.query(
         `SELECT 
@@ -177,9 +173,7 @@ async function obtenerUltimaDecision({ pipelineId, pool }) {
     return result.rows[0] || null;
 }
 
-/**
- * Obtener todo el historial de decisiones de un caso
- */
+
 async function obtenerHistorialDecisiones({ pipelineId, pool }) {
     const result = await pool.query(
         `SELECT 
@@ -195,9 +189,7 @@ async function obtenerHistorialDecisiones({ pipelineId, pool }) {
     return result.rows;
 }
 
-/**
- * Verificar si un usuario puede decidir (GP o super_admin)
- */
+
 function puedeDecidir(usuario) {
     const role = usuario?.role || usuario?.rol;
     return role === 'gp' || role === 'super_admin';
