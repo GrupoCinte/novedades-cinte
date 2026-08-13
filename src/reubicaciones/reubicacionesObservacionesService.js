@@ -2,34 +2,24 @@
 
 const { v4: uuidv4 } = require('uuid');
 
-/**
- * Registrar una nueva observación de CH
- * @param {Object} params
- * @param {string} params.pipelineId - ID del caso
- * @param {string} params.observacion - Texto de la observación (1-1000 caracteres)
- * @param {Object} params.actor - Usuario que registra (user_id, role)
- * @param {import('pg').Pool} params.pool - Pool de PostgreSQL
- * @returns {Promise<{ status: number, body: object }>}
- */
+
 async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
-    // 1. Validar longitud
     if (!observacion || observacion.trim().length === 0) {
         return {
             status: 400,
-            body: { ok: false, error: 'La observación no puede estar vacía' }
+            body: { ok: false, error: 'La observacion no puede estar vacia' }
         };
     }
     if (observacion.length > 1000) {
         return {
             status: 400,
-            body: { ok: false, error: 'La observación no puede exceder 1000 caracteres' }
+            body: { ok: false, error: 'La observacion no puede exceder 1000 caracteres' }
         };
     }
 
     try {
-        // 2. Verificar que el caso existe
         const caseExists = await pool.query(
-            'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
+            'SELECT id, consultor_id FROM reubicaciones_pipeline WHERE id = $1',
             [pipelineId]
         );
         if (caseExists.rows.length === 0) {
@@ -38,15 +28,15 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
                 body: { ok: false, error: 'Caso no encontrado' }
             };
         }
+        const consultorId = caseExists.rows[0]?.consultor_id || null;
 
-        // 3. Obtener última versión
         const lastVersion = await pool.query(
-            'SELECT MAX(version) as max_version FROM reubicaciones_observaciones WHERE pipeline_id = $1',
+            'SELECT MAX(version) as max_version, observacion FROM reubicaciones_observaciones WHERE pipeline_id = $1 GROUP BY observacion', 
             [pipelineId]
         );
         const nextVersion = (lastVersion.rows[0]?.max_version || 0) + 1;
+        const observacionAnterior = lastVersion.rows[0]?.observacion || null;  
 
-        // 4. Insertar nueva observación
         const result = await pool.query(
             `INSERT INTO reubicaciones_observaciones 
              (id, pipeline_id, version, observacion, actor_user_id, actor_role, fecha)
@@ -62,7 +52,43 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
             ]
         );
 
-        // 5. Intentar guardar historial, pero SIN ROMPER si falla
+        try {
+            await pool.query(
+                `INSERT INTO reubicaciones_historial (
+                    caso_id,
+                    consultor_id,
+                    tipo,
+                    actor_nombre,
+                    actor_rol,
+                    descripcion,
+                    before_data,
+                    after_data,
+                    fecha
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+                [
+                    pipelineId,
+                    consultorId,
+                    'observacion_ch',
+                    actor.nombre || 'Usuario',
+                    actor.role,
+                    `Registro de observación (v${nextVersion})`,
+                    observacionAnterior ? JSON.stringify({ observacion: observacionAnterior }) : null,
+                    JSON.stringify({ observacion: observacion.trim() })
+                ]
+            );
+        } catch (histError) {
+            console.error('ERROR en reubicaciones_historial:', {
+                message: histError.message,
+                stack: histError.stack,
+                code: histError.code,
+                detail: histError.detail,
+                pipelineId,
+                consultorId,
+                nextVersion
+            });
+        }
+
+
         try {
             await pool.query(
                 `INSERT INTO reubicaciones_estado_historial 
@@ -73,12 +99,11 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
                     'OBSERVACION_PREVIA',
                     'OBSERVACION_REGISTRADA',
                     `obs_${result.rows[0].id}`,
-                    `CH registró observación versión ${nextVersion}`
+                    `CH registro observacion version ${nextVersion}`
                 ]
             );
         } catch (histError) {
-            // Solo log, no romper la operación principal
-            console.warn('⚠️ No se pudo guardar en reubicaciones_estado_historial:', histError.message);
+            console.warn('No se pudo guardar en reubicaciones_estado_historial:', histError.message);
         }
 
         return {
@@ -86,26 +111,20 @@ async function registrarObservacion({ pipelineId, observacion, actor, pool }) {
             body: { 
                 ok: true, 
                 data: result.rows[0], 
-                message: 'Observación guardada exitosamente' 
+                message: 'Observacion guardada exitosamente' 
             }
         };
     } catch (error) {
-        console.error('❌ Error en registrarObservacion:', error);
-        console.error('❌ Stack:', error.stack);
+        console.error('Error en registrarObservacion:', error);
+        console.error('Stack:', error.stack);
         return {
             status: 500,
-            body: { ok: false, error: error.message || 'Error al guardar observación' }
+            body: { ok: false, error: error.message || 'Error al guardar observacion' }
         };
     }
 }
 
-/**
- * Obtener la última observación de un caso
- * @param {Object} params
- * @param {string} params.pipelineId - ID del caso
- * @param {import('pg').Pool} params.pool - Pool de PostgreSQL
- * @returns {Promise<Object|null>}
- */
+
 async function obtenerUltimaObservacion({ pipelineId, pool }) {
     try {
         const result = await pool.query(
@@ -122,18 +141,12 @@ async function obtenerUltimaObservacion({ pipelineId, pool }) {
         );
         return result.rows[0] || null;
     } catch (error) {
-        console.error('❌ Error en obtenerUltimaObservacion:', error);
+        console.error('Error en obtenerUltimaObservacion:', error);
         return null;
     }
 }
 
-/**
- * Obtener todo el historial de observaciones de un caso
- * @param {Object} params
- * @param {string} params.pipelineId - ID del caso
- * @param {import('pg').Pool} params.pool - Pool de PostgreSQL
- * @returns {Promise<Array>}
- */
+
 async function obtenerHistorialObservaciones({ pipelineId, pool }) {
     try {
         const result = await pool.query(
@@ -149,7 +162,7 @@ async function obtenerHistorialObservaciones({ pipelineId, pool }) {
         );
         return result.rows || [];
     } catch (error) {
-        console.error('❌ Error en obtenerHistorialObservaciones:', error);
+        console.error('Error en obtenerHistorialObservaciones:', error);
         return [];
     }
 }
