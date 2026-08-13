@@ -140,13 +140,27 @@ async function sincronizarConPipeline({
         };
     }
 
+// 1. Obtener datos del colaborador
     const colab = await pool.query(
-        `SELECT cedula, nombre, gp_user_id, cliente FROM colaboradores WHERE cedula = $1`,
+        `SELECT cedula, nombre, cliente, lider_catalogo FROM colaboradores WHERE cedula = $1`,
         [ced]
     );
     const colaboradorExiste = colab.rows.length > 0;
-    const gp_user_id = colaboradorExiste ? colab.rows[0].gp_user_id : null;
-    const colaborador_nombre = colaboradorExiste ? colab.rows[0].nombre : null;
+    const cliente = colaboradorExiste ? colab.rows[0].cliente : null;
+    const lider = colaboradorExiste ? colab.rows[0].lider_catalogo : null;
+    const consultor_id = colaboradorExiste ? colab.rows[0].cedula : null;
+    
+    // 2. Obtener GP desde clientes_lideres usando cliente y líder
+    let gp_user_id = null;
+    if (cliente && lider) {
+        const liderResult = await pool.query(
+            `SELECT gp_user_id FROM clientes_lideres 
+             WHERE cliente = $1 AND lider = $2 AND activo = TRUE 
+             LIMIT 1`,
+            [cliente, lider]
+        );
+        gp_user_id = liderResult.rows[0]?.gp_user_id || null;
+    }
 
     const fecha_fin = normalized.fecha_termino || patch.fecha_termino;
     const cliente_destino = normalized.cliente_destino || patch.cliente_destino || normalized.cliente || patch.cliente;
@@ -185,8 +199,8 @@ async function sincronizarConPipeline({
         const insert = await pool.query(
             `INSERT INTO reubicaciones_pipeline 
              (cedula, fecha_fin, cliente_destino, causal, estado, motivo_novedad, tipo_ficha, 
-              gp_asignado_id, ultimo_evento_id)
-             VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9)
+              gp_asignado_id, ultimo_evento_id, consultor_id)
+             VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9,  $10)
              RETURNING id`,
             [
                 ced,
@@ -197,19 +211,52 @@ async function sincronizarConPipeline({
                 motivo,
                 tipo_novedad.toUpperCase(),
                 gp_user_id || null,
-                external_id
+                external_id,
+                consultor_id 
             ]
         );
         pipeline_id = insert.rows[0].id;
 
-        await registrarHistorial({
-            pipeline_id,
-            estado_anterior: null,
-            estado_nuevo: estado,
-            evento_id: external_id,
-            motivo: motivo || 'Caso creado desde ficha',
-            pool
-        });
+
+        try {
+            await pool.query(
+                `INSERT INTO reubicaciones_historial (
+                    caso_id,
+                    consultor_id,
+                    tipo,
+                    origen,
+                    descripcion,
+                    after_data,
+                    source_event_id,
+                    fecha
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+                [
+                    pipeline_id,
+                    consultor_id,
+                    'ficha_recibida',
+                    'ZOHO',
+                    `Ficha de ${tipo_novedad} recibida desde ZOHO`,
+                    JSON.stringify({ 
+                        fecha_fin, 
+                        tipo: tipo_novedad,
+                        cliente_destino: cliente_destino || null,
+                        causal: causal || null
+                    }),
+                    external_id
+                ]
+            );
+        } catch (histError) {
+            console.warn('⚠️ No se pudo guardar en reubicaciones_historial:', histError.message);
+        }
+
+    await registrarHistorial({
+        pipeline_id,
+        estado_anterior: null,
+        estado_nuevo: estado,
+        evento_id: external_id,
+        motivo: motivo || 'Caso creado desde ficha',
+        pool
+    });
 
     } else {
         const existing = casoExistente.rows[0];
@@ -231,6 +278,7 @@ async function sincronizarConPipeline({
                  tipo_ficha = $6,
                  gp_asignado_id = COALESCE($7, gp_asignado_id),
                  ultimo_evento_id = $8,
+                 consultor_id = COALESCE($10, consultor_id),
                  updated_at = NOW()
              WHERE id = $9`,
             [
@@ -242,21 +290,58 @@ async function sincronizarConPipeline({
                 tipo_novedad.toUpperCase(),
                 gp_user_id || null,
                 external_id,
-                pipeline_id
+                pipeline_id,
+                consultor_id 
             ]
         );
 
-        if (estado_anterior !== estado) {
-            await registrarHistorial({
-                pipeline_id,
-                estado_anterior,
-                estado_nuevo: estado,
-                evento_id: external_id,
-                motivo: motivo || `Cambio de estado desde ${estado_anterior}`,
-                pool
-            });
+         try {
+                await pool.query(
+                    `INSERT INTO reubicaciones_historial (
+                        caso_id,
+                        consultor_id,
+                        tipo,
+                        origen,
+                        descripcion,
+                        before_data,
+                        after_data,
+                        source_event_id,
+                        fecha
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+                    [
+                        pipeline_id,
+                        consultor_id,
+                        'ficha_actualizada',
+                        'ZOHO',
+                        `Ficha actualizada: ${tipo_novedad}`,
+                        JSON.stringify({ 
+                            fecha_fin: fecha_anterior,
+                            tipo: existing.tipo_ficha
+                        }),
+                        JSON.stringify({ 
+                            fecha_fin,
+                            tipo: tipo_novedad,
+                            cliente_destino: cliente_destino || null,
+                            causal: causal || null
+                        }),
+                        external_id
+                    ]
+                );
+            } catch (histError) {
+                console.warn('⚠️ No se pudo guardar en reubicaciones_historial:', histError.message);
+            }
+        
+            if (estado_anterior !== estado) {
+                await registrarHistorial({
+                    pipeline_id,
+                    estado_anterior,
+                    estado_nuevo: estado,
+                    evento_id: external_id,
+                    motivo: motivo || `Cambio de estado desde ${estado_anterior}`,
+                    pool
+                });
+            }
         }
-    }
 
     if (staging_id) {
         await pool.query(
