@@ -6,6 +6,7 @@ import { buildGestionTableDash } from './gestionTableDashTheme.js';
 import GestionModalShell from './shared/modals/GestionModalShell.jsx';
 import ModuleFiltersToolbar from './shared/filters/ModuleFiltersToolbar.jsx';
 import ModuleFiltersDrawer from './shared/filters/ModuleFiltersDrawer.jsx';
+import { ReubicacionHistoricoModal } from './ReubicacionHistoricoModal.jsx';
 import {
     buildReubicacionesChipLabel,
     REUBICACIONES_FILTER_DEFAULTS
@@ -82,7 +83,7 @@ function EstadoBadge({ estado, semaforo, isLight }) {
             );
         }
 
-        if (s === 'En proceso') {
+        if (s && s.startsWith('En proceso')) {
             return (
                 <span
                     className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${isLight ? 'bg-emerald-100 text-emerald-900' : 'bg-emerald-900/45 text-emerald-100'
@@ -104,13 +105,13 @@ function EstadoBadge({ estado, semaforo, isLight }) {
             );
         }
 
-        if (sem === 'Vencido') {
+        if (s === 'Vencido' || sem === 'Vencido') {
             return (
                 <span
                     className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${isLight ? 'bg-red-200/95 text-red-950' : 'bg-red-950/50 text-red-100'
                         }`}
                 >
-                    Con novedad
+                    Vencido
                     <AlertTriangle className="h-3 w-3 shrink-0" aria-hidden />
                 </span>
             );
@@ -185,6 +186,8 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
     const [items, setItems] = useState([]);
     const [total, setTotal] = useState(0);
+    const [viewMode, setViewMode] = useState('activos'); // 'activos' | 'historico'
+    const [historicoCount, setHistoricoCount] = useState(0);
     const [loading, setLoading] = useState(false);
     const [q, setQ] = useState('');
     const [appliedQ, setAppliedQ] = useState('');
@@ -217,6 +220,10 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
     const [editRow, setEditRow] = useState(null);
     const [editForm, setEditForm] = useState(emptyForm);
     const [editSaving, setEditSaving] = useState(false);
+
+    const [historicoModalOpen, setHistoricoModalOpen] = useState(false);
+    const [selectedHistoricoRow, setSelectedHistoricoRow] = useState(null);
+
 
     const [confirmDeleteRow, setConfirmDeleteRow] = useState(null);
 
@@ -318,7 +325,8 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
         try {
             const u = new URLSearchParams({
                 limit: String(pageSize),
-                offset: String(offset)
+                offset: String(offset),
+                scope: viewMode
             });
             const qq = String(appliedQ || '').trim();
             if (qq) u.set('q', qq);
@@ -346,10 +354,12 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
             if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
             setItems(Array.isArray(j.items) ? j.items : []);
             setTotal(Number(j.total) || 0);
+            setHistoricoCount(Number(j.historicoCount) || 0);
         } catch (e) {
             setMsg({ text: e.message || 'No se pudo cargar el pipeline.', ok: false });
             setItems([]);
             setTotal(0);
+            setHistoricoCount(0);
         } finally {
             setLoading(false);
         }
@@ -368,7 +378,8 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
         diasHasta,
         sort,
         userRole,
-        userCliente
+        userCliente,
+        viewMode
     ]);
 
     useEffect(() => {
@@ -429,6 +440,19 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
         })();
         return () => { cancelled = true; };
     }, [token]);
+
+
+    useEffect(() => {
+        setEstadoFiltro('');
+        setTipoFichaFiltro('');
+        setClienteFiltro('');
+        setGpFiltro('');
+        setDiasDesde('');
+        setDiasHasta('');
+        setAppliedQ('');
+        setQ('');
+        setPage(1);
+    }, [viewMode]);
 
 
     useEffect(() => {
@@ -582,6 +606,45 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
                         <Plus size={16} /> Nuevo registro
                     </span>
                 </button>
+
+                {/* ✅ NUEVO: Botones de vista */}
+                <div className={`flex overflow-hidden rounded-lg border ${
+                    isLight ? 'border-slate-200' : 'border-white/10'
+                }`}>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setViewMode('activos');
+                            setPage(1);
+                        }}
+                        className={`px-3 py-1.5 text-xs font-semibold ${
+                            viewMode === 'activos'
+                                ? 'bg-[#2F7BB8] text-white'
+                                : isLight
+                                    ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                    : 'bg-white/5 text-slate-300 hover:bg-white/10'
+                        }`}
+                    >
+                        Por revisar
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setViewMode('historico');
+                            setPage(1);
+                        }}
+                        className={`px-3 py-1.5 text-xs font-semibold ${
+                            viewMode === 'historico'
+                                ? 'bg-[#2F7BB8] text-white'
+                                : isLight
+                                    ? 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                    : 'bg-white/5 text-slate-300 hover:bg-white/10'
+                        }`}
+                    >
+                        Histórico{historicoCount > 0 ? ` (${historicoCount})` : ''}
+                    </button>
+                </div>
+                    
                 <button type="button" onClick={load} className={dash.compactBtn}>
                     Refrescar
                 </button>
@@ -625,24 +688,36 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
                                     items.map((row) => (
                                         <tr key={row.id} className={dash.trHover}>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
-                                            <td
-                                                className={`cursor-pointer hover:text-[#65BCF7]`}
-                                                onClick={() => {
-                                                    setSelectedRow(row);
-                                                    setModalOpen(true);
-                                                }}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter' || e.key === ' ') {
-                                                        e.preventDefault();
-                                                        setSelectedRow(row);
-                                                        setModalOpen(true);
-                                                    }
-                                                }}
-                                                role="button"
-                                                tabIndex={0}
-                                            >
-                                                {row.consultor || '—'}
-                                            </td>
+                                                <td
+                                                    className={`cursor-pointer hover:text-[#65BCF7]`}
+                                                    onClick={() => {
+                                                        if (viewMode === 'historico') {
+                                                            // ✅ Abrir modal de histórico
+                                                            setSelectedHistoricoRow(row);
+                                                            setHistoricoModalOpen(true);
+                                                        } else {
+                                                            // ✅ Abrir modal normal (con edición)
+                                                            setSelectedRow(row);
+                                                            setModalOpen(true);
+                                                        }
+                                                    }}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault();
+                                                            if (viewMode === 'historico') {
+                                                                setSelectedHistoricoRow(row);
+                                                                setHistoricoModalOpen(true);
+                                                            } else {
+                                                                setSelectedRow(row);
+                                                                setModalOpen(true);
+                                                            }
+                                                        }
+                                                    }}
+                                                    role="button"
+                                                    tabIndex={0}
+                                                >
+                                                    {row.consultor || '—'}
+                                                </td>
                                             <td className={dash.tdCell}>{row.tipo_contrato || '—'}</td>
                                             <td className={dash.tdCell}>{row.cliente_actual || '—'}</td>
                                             <td className={dash.tdCell}>{row.cliente_destino || '—'}</td>
@@ -782,61 +857,49 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
                     </select>
                 </div>
 
-                {/* 4. Cliente - SELECT con permisos */}
-                <div className="flex flex-col gap-1.5">
-                    <label htmlFor="reubicaciones-drawer-cliente" className={dash.filtrosDrawerLabel}>
-                        Cliente
-                    </label>
-                    <select
-                        id="reubicaciones-drawer-cliente"
-                        className={`${field} w-full text-sm`}
-                        value={clienteFiltro}
-                        onChange={(e) => setClienteFiltro(e.target.value)}
-                        disabled={userRole === 'gp'}
-                    >
-                        <option value="">
-                            {userRole === 'gp' ? 'Tu cliente asignado' : 'Todos los clientes'}
-                        </option>
-                        {catClientes.map((cliente) => (
-                            <option key={cliente} value={cliente}>
-                                {cliente}
-                            </option>
-                        ))}
-                    </select>
-                    {userRole === 'gp' && (
-                        <p className="text-xs text-slate-400">
-                            Como GP, solo puedes ver reubicaciones de tu cliente asignado.
-                        </p>
-                    )}
-                </div>
+                {userRole !== 'gp' && (
+                    <>
+                        {/* 4. Cliente - SELECT con permisos */}
+                        <div className="flex flex-col gap-1.5">
+                            <label htmlFor="reubicaciones-drawer-cliente" className={dash.filtrosDrawerLabel}>
+                                Cliente
+                            </label>
+                            <select
+                                id="reubicaciones-drawer-cliente"
+                                className={`${field} w-full text-sm`}
+                                value={clienteFiltro}
+                                onChange={(e) => setClienteFiltro(e.target.value)}
+                            >
+                                <option value="">Todos los clientes</option>
+                                {catClientes.map((cliente) => (
+                                    <option key={cliente} value={cliente}>
+                                        {cliente}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
 
-                {/* 5. GP - SELECT en lugar de input */}
-                <div className="flex flex-col gap-1.5">
-                    <label htmlFor="reubicaciones-drawer-gp" className={dash.filtrosDrawerLabel}>
-                        GP (Gerente de Proyecto)
-                    </label>
-                    <select
-                        id="reubicaciones-drawer-gp"
-                        className={`${field} w-full text-sm`}
-                        value={gpFiltro}
-                        onChange={(e) => setGpFiltro(e.target.value)}
-                        disabled={userRole === 'gp'}
-                    >
-                        <option value="">
-                            {userRole === 'gp' ? 'Tu GP asignado' : 'Todos los GPs'}
-                        </option>
-                        {catGps.map((gp) => (
-                            <option key={gp} value={gp}>
-                                {gp}
-                            </option>
-                        ))}
-                    </select>
-                    {userRole === 'gp' && (
-                        <p className="text-xs text-slate-400">
-                            Como GP, solo puedes ver reubicaciones de tu cliente asignado.
-                        </p>
-                    )}
-                </div>
+                        {/* 5. GP - SELECT en lugar de input */}
+                        <div className="flex flex-col gap-1.5">
+                            <label htmlFor="reubicaciones-drawer-gp" className={dash.filtrosDrawerLabel}>
+                                GP (Gerente de Proyecto)
+                            </label>
+                            <select
+                                id="reubicaciones-drawer-gp"
+                                className={`${field} w-full text-sm`}
+                                value={gpFiltro}
+                                onChange={(e) => setGpFiltro(e.target.value)}
+                            >
+                                <option value="">Todos los GPs</option>
+                                {catGps.map((gp) => (
+                                    <option key={gp} value={gp}>
+                                        {gp}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                    </>
+                )}
 
                 {/* 8. Días restantes - NUEVO */}
                 <div className="flex flex-col gap-1.5">
@@ -1036,6 +1099,17 @@ function ReubicacionesPipelinePageInner({ token, navIntent, auth }) {
                     setModalOpen(false);
                     setConfirmDeleteRow(row);
                 }}
+            />
+
+            <ReubicacionHistoricoModal
+                isOpen={historicoModalOpen}
+                onClose={() => {
+                    setHistoricoModalOpen(false);
+                    setSelectedHistoricoRow(null);
+                }}
+                row={selectedHistoricoRow}
+                token={token}
+                auth={auth}
             />
         </div>
     );

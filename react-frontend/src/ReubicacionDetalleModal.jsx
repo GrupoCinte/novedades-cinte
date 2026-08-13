@@ -283,6 +283,11 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                         <div className={`${infoCardClass} sm:col-span-2`}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Estado</p>
                             <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.estado || row.semaforo || '—'}</p>
+                            {(String(row.estado || '').startsWith('Con novedad') || row.motivo) && (
+                                <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">
+                                    <strong>Razón:</strong> {row.motivo || 'Faltan datos o inconsistencia en la ficha'}
+                                </p>
+                            )}
                         </div>
                     </div>
 
