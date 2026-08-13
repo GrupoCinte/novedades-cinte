@@ -182,52 +182,19 @@ const ObservacionConsultorState = ({ isExpired, savedObservacion, isEditing, set
     );
 };
 
-export default function ConsultorActaDetail({ open, onClose, actaData, me }) {
-    const { theme } = useUiTheme();
-    const isLight = theme === 'light';
-
-    if (!open || !actaData) return null;
-
-    const pJson = actaData.payload_json || {};
-
-    const fecha = actaData.fecha_acta ? new Date(actaData.fecha_acta).toLocaleDateString() : 'N/A';
-    const horaInicio = pJson.hora_inicio || 'N/A';
-    const horaFin = pJson.hora_fin || 'N/A';
-    const responsableNombre = pJson.responsable_nombre || 'N/A';
-    const responsableCargo = pJson.responsable_cargo || 'N/A';
-    const objetivo = pJson.objetivo || 'Sin objetivo registrado.';
-    const agenda = pJson.agenda || 'Sin agenda registrada.';
-    const planesAccion = pJson.planes_accion || [];
-    const compromisosAntiguos = actaData.compromisos || pJson.compromisos || '';
-    const observaciones = actaData.observaciones || pJson.observaciones || '';
-
-    // Priorizar los participantes vivos de la BD para tener la observación actualizada
-    const participantes = (actaData.participantes && actaData.participantes.length > 0) 
-        ? actaData.participantes 
-        : (pJson.participantes_detalle || []);
-
-    // Buscar el participante correspondiente al consultor actual
-    const myParticipant = participantes.find(p => p.email === me?.email || p.cedula === me?.cedula);
-    const initialObs = myParticipant?.observacion || pJson.observacion_consultor || '';
-
-    const [savedObservacion, setSavedObservacion] = useState(initialObs);
-    const [observacionTxt, setObservacionTxt] = useState(initialObs);
-    const [isEditing, setIsEditing] = useState(!initialObs);
-    
-    const [saving, setSaving] = useState(false);
-    const [savedMsg, setSavedMsg] = useState('');
+const useActaTimer = (finalizadoAt) => {
     const [timeLeftStr, setTimeLeftStr] = useState('');
     const [isExpired, setIsExpired] = useState(false);
 
     useEffect(() => {
-        if (!actaData.finalizado_at) {
+        if (!finalizadoAt) {
             setIsExpired(true);
             setTimeLeftStr('Fecha de finalización no disponible.');
             return;
         }
 
         const updateTimer = () => {
-            const finalizado = new Date(actaData.finalizado_at).getTime();
+            const finalizado = new Date(finalizadoAt).getTime();
             const now = new Date().getTime();
             const diffMs = now - finalizado;
             const msIn72h = 72 * 60 * 60 * 1000;
@@ -249,14 +216,24 @@ export default function ConsultorActaDetail({ open, onClose, actaData, me }) {
         updateTimer();
         const interval = setInterval(updateTimer, 60000);
         return () => clearInterval(interval);
-    }, [actaData.finalizado_at]);
+    }, [finalizadoAt]);
+
+    return { isExpired, timeLeftStr };
+};
+
+const useObservacionConsultor = (initialObs, actaId, isExpired) => {
+    const [savedObservacion, setSavedObservacion] = useState(initialObs);
+    const [observacionTxt, setObservacionTxt] = useState(initialObs);
+    const [isEditing, setIsEditing] = useState(!initialObs);
+    const [saving, setSaving] = useState(false);
+    const [savedMsg, setSavedMsg] = useState('');
 
     const handleSaveObservacion = async () => {
         if (!observacionTxt.trim() || isExpired) return;
         setSaving(true);
         setSavedMsg('');
         try {
-            const res = await fetch(`/api/consultor/seguimientos/${actaData.id}/observacion`, {
+            const res = await fetch(`/api/consultor/seguimientos/${actaId}/observacion`, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -274,11 +251,58 @@ export default function ConsultorActaDetail({ open, onClose, actaData, me }) {
                 alert(data.error || 'Error al guardar la observación');
             }
         } catch (err) {
+            console.error(err);
             alert('Error de red al guardar la observación');
         } finally {
             setSaving(false);
         }
     };
+
+    return {
+        savedObservacion, observacionTxt, isEditing, saving, savedMsg,
+        setObservacionTxt, setIsEditing, handleSaveObservacion
+    };
+};
+
+export default function ConsultorActaDetail({ open, onClose, actaData, me }) {
+    const { theme } = useUiTheme();
+    const isLight = theme === 'light';
+
+    const pJson = actaData?.payload_json || {};
+    
+    // Priorizar los participantes vivos de la BD para tener la observación actualizada
+    const participantes = (actaData?.participantes && actaData.participantes.length > 0) 
+        ? actaData.participantes 
+        : (pJson.participantes_detalle || []);
+
+    // Buscar el participante correspondiente al consultor actual
+    const myParticipant = participantes.find(p => p.email === me?.email || p.cedula === me?.cedula);
+    const initialObs = myParticipant?.observacion || pJson.observacion_consultor || '';
+
+    const { isExpired, timeLeftStr } = useActaTimer(actaData?.finalizado_at);
+    const { 
+        savedObservacion, 
+        observacionTxt, 
+        isEditing, 
+        saving, 
+        savedMsg,
+        setObservacionTxt, 
+        setIsEditing, 
+        handleSaveObservacion 
+    } = useObservacionConsultor(initialObs, actaData?.id, isExpired);
+
+    if (!open || !actaData) return null;
+
+    const fecha = actaData.fecha_acta ? new Date(actaData.fecha_acta).toLocaleDateString() : 'N/A';
+    const horaInicio = pJson.hora_inicio || 'N/A';
+    const horaFin = pJson.hora_fin || 'N/A';
+    const responsableNombre = pJson.responsable_nombre || 'N/A';
+    const responsableCargo = pJson.responsable_cargo || 'N/A';
+    const objetivo = pJson.objetivo || 'Sin objetivo registrado.';
+    const agenda = pJson.agenda || 'Sin agenda registrada.';
+    const planesAccion = pJson.planes_accion || [];
+    const compromisosAntiguos = actaData.compromisos || pJson.compromisos || '';
+    const observaciones = actaData.observaciones || pJson.observaciones || '';
 
     const modalClass = `relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 ${
         isLight ? 'bg-white text-slate-800' : 'bg-slate-900 text-slate-200 border border-slate-700/50'

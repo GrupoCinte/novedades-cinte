@@ -136,7 +136,9 @@ export default function SeguimientoAdminView({ token, auth }) {
                 const dataActas = await resActas.json();
                 setActas(dataActas.items || []);
             }
-        } catch (err) { }
+        } catch { 
+            // Ignorar errores por ahora
+        }
     }, [fetchOpts]);
 
     useEffect(() => {
@@ -157,7 +159,7 @@ export default function SeguimientoAdminView({ token, auth }) {
                     const dataCartera = await resCartera.json();
                     setClientesCartera(dataCartera.clientes || []);
                 }
-            } catch (err) {
+            } catch {
                 // Ignore errors for now
             } finally {
                 setLoading(false);
@@ -197,11 +199,10 @@ export default function SeguimientoAdminView({ token, auth }) {
                 refreshActas();
                 setTimeout(() => setSuccessMessage(''), 4000);
             } else {
-                const errData = await res.json();
-                alert(errData.error || 'Error al eliminar el acta');
+                console.error('Error al eliminar el acta');
             }
-        } catch (error) {
-            alert('Error de conexión al eliminar');
+        } catch {
+            console.error('Error de red al eliminar el acta');
         } finally {
             setIsDeleting(false);
             setDeleteModalOpen(false);

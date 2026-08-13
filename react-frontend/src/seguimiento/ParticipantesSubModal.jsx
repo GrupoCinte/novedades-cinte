@@ -23,7 +23,7 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
 
     const uniqueClientes = useMemo(() => {
         const clientes = colaboradores.map(c => c.cliente || c.empleador || 'CINTe');
-        return [...new Set(clientes)].sort();
+        return [...new Set(clientes)].sort((a, b) => a.localeCompare(b));
     }, [colaboradores]);
 
     // Initialize selected from current participants
