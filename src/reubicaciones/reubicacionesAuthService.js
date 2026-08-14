@@ -221,12 +221,14 @@ class ReubicacionesAuthService {
 
     const allowedSet = roleAllowed[role];
     if (allowedSet && !allowedSet.has(accion)) {
-      const motivo =
-        role === 'gp'
-          ? 'Los GPs solo pueden ver y decidir aptitud'
-          : role === 'atraccion_talento'
-          ? 'AT solo puede ver y gestionar reubicación'
-          : 'CH solo puede ver y registrar observaciones';
+      let motivo;
+      if (role === 'gp') {
+        motivo = 'Los GPs solo pueden ver y decidir aptitud';
+      } else if (role === 'atraccion_talento') {
+        motivo = 'AT solo puede ver y gestionar reubicación';
+      } else {
+        motivo = 'CH solo puede ver y registrar observaciones';
+      }
       return { permitido: false, motivo };
     }
 
