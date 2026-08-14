@@ -76,6 +76,9 @@ migrations/
 # Matriz RBAC versionada (excepción a *.md)
 !docs/RBAC_MATRIX.md
 
+# Bitácora local de cambios: no versionar ni subir a GitHub
+docs/HISTORIAL-CAMBIOS.md
+
 # Sourcing worker (Atracción de Talento) — secretos y artefactos locales (NO subir)
 # Perfil persistente del navegador (contiene Cookies, Login Data, History reales)
 sourcing-worker/.elempleo-profile/

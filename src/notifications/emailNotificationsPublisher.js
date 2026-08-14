@@ -65,6 +65,32 @@
         return Boolean(String(payload?.servicio?.cliente || '').trim());
     }
 
+    function validateSeguimientoCierrePayload(payload) {
+        if (!payload || typeof payload !== 'object') return false;
+        if (payload.eventType !== 'seguimiento_cierre') return false;
+        if (!payload.eventId || !payload.seguimientoId) return false;
+        if (!['consultor', 'cliente'].includes(String(payload.tipo || '').toLowerCase())) return false;
+        const recipients = payload.recipients;
+        if (!Array.isArray(recipients) || recipients.length === 0) return false;
+        for (const r of recipients) {
+            if (!String(r?.email || '').includes('@')) return false;
+        }
+        return Boolean(String(payload?.acta?.cliente || '').trim());
+    }
+
+    function validateSeguimientoVencimientoPayload(payload) {
+        if (!payload || typeof payload !== 'object') return false;
+        if (payload.eventType !== 'seguimiento_vencimiento') return false;
+        if (!payload.eventId || !payload.seguimientoId) return false;
+        if (!['T5', 'T1'].includes(String(payload.kind || ''))) return false;
+        const recipients = payload.recipients;
+        if (!Array.isArray(recipients) || recipients.length === 0) return false;
+        for (const r of recipients) {
+            if (!String(r?.email || '').includes('@')) return false;
+        }
+        return Boolean(String(payload.venceEl || '').trim());
+    }
+
     function validateTimeEntryConfirmationPayload(payload) {
         if (!payload || typeof payload !== 'object') return false;
         if (payload.eventType !== 'time_entry_confirmation') return false;
@@ -91,6 +117,13 @@
         async function publishEvent(payload, customEventType, validateFn) {
             if (!isEnabled) {
                 return { accepted: false, skipped: true, reason: 'disabled' };
+            }
+            const eventType = customEventType || payload?.eventType;
+            if (
+                (eventType === 'time_entry_confirmation' || eventType === 'time_entry_admin_notification')
+                && String(process.env.EMAIL_ACTIVIDADES_ENABLED || 'false').toLowerCase() !== 'true'
+            ) {
+                return { accepted: false, skipped: true, reason: 'actividades_disabled' };
             }
             if (!validateFn(payload)) {
                 return { accepted: false, skipped: true, reason: 'invalid_payload' };
@@ -147,6 +180,14 @@
             return publishEvent(payload, 'time_entry_admin_notification', validateTimeEntryConfirmationPayload);
         }
 
+        async function publishSeguimientoCierre(payload) {
+            return publishEvent(payload, null, validateSeguimientoCierrePayload);
+        }
+
+        async function publishSeguimientoVencimiento(payload) {
+            return publishEvent(payload, null, validateSeguimientoVencimientoPayload);
+        }
+
         return {
             publishFormSubmitted,
             publishFormStatusChanged,
@@ -154,7 +195,9 @@
             publishConciliacionCorreoLider,
             publishConciliacionStakeholdersAviso,
             publishTimeEntryConfirmation,
-            publishTimeEntryAdminNotification
+            publishTimeEntryAdminNotification,
+            publishSeguimientoCierre,
+            publishSeguimientoVencimiento
         };
     }
 
@@ -165,5 +208,7 @@
         validateConciliacionServicioFinalizadaPayload,
         validateConciliacionCorreoLiderPayload,
         validateConciliacionStakeholdersAvisoPayload,
-        validateTimeEntryConfirmationPayload
+        validateTimeEntryConfirmationPayload,
+        validateSeguimientoCierrePayload,
+        validateSeguimientoVencimientoPayload
     };
