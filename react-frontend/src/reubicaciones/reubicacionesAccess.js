@@ -64,10 +64,8 @@ function resolveRoleFromTokenPayload(payload) {
             ? [groupsClaim]
             : [];
 
-    const groups = groupsArray;
-
     const normalized = new Set(
-        groups
+        groupsArray
             .filter(Boolean)
             .map((group) => String(group).trim().toLowerCase())
     );
@@ -75,40 +73,43 @@ function resolveRoleFromTokenPayload(payload) {
     return ROLE_PRIORITY.find((role) => normalized.has(role)) || '';
 }
 
-export function userHasReubicacionesPanel(authOrToken) {
+function getReubicacionesAccessContext(authOrToken) {
     const payload = normalizePayload(authOrToken);
-    if (!payload) return false;
+    if (!payload || typeof payload !== 'object') {
+        return { payload: null, role: '', panels: [], hasPanel: false };
+    }
 
     const role = resolveRoleFromTokenPayload(payload);
     const panels = Array.isArray(payload.panels) ? payload.panels.map(String) : [];
+    const hasPanel = panels.includes('reubicaciones') || ROLES_WITH_REUBICACIONES_PANEL.has(role);
 
-    if (panels.includes('reubicaciones')) return true;
-    return ROLES_WITH_REUBICACIONES_PANEL.has(role);
+    return { payload, role, panels, hasPanel };
+}
+
+function hasRolePermission(authOrToken, allowedRoles) {
+    const { role } = getReubicacionesAccessContext(authOrToken);
+    return allowedRoles.has(role);
+}
+
+export function userHasReubicacionesPanel(authOrToken) {
+    const { hasPanel } = getReubicacionesAccessContext(authOrToken);
+    return hasPanel;
 }
 
 export function userCanDecideAptitud(authOrToken) {
-    const payload = normalizePayload(authOrToken);
-    const role = resolveRoleFromTokenPayload(payload);
-    return ROLES_CAN_DECIDE_APTITUD.has(role);
+    return hasRolePermission(authOrToken, ROLES_CAN_DECIDE_APTITUD);
 }
 
 export function userCanRegisterObservacion(authOrToken) {
-    const payload = normalizePayload(authOrToken);
-    const role = resolveRoleFromTokenPayload(payload);
-    return ROLES_CAN_REGISTER_OBSERVACION.has(role);
+    return hasRolePermission(authOrToken, ROLES_CAN_REGISTER_OBSERVACION);
 }
 
 export function userCanModifyReubicacion(authOrToken) {
-    const payload = normalizePayload(authOrToken);
-    const role = resolveRoleFromTokenPayload(payload);
-    return ROLES_CAN_MODIFY.has(role);
+    return hasRolePermission(authOrToken, ROLES_CAN_MODIFY);
 }
 
 export function getReubicacionesPermissions(authOrToken) {
-    const payload = normalizePayload(authOrToken);
-    const role = resolveRoleFromTokenPayload(payload);
-    const panels = Array.isArray(payload?.panels) ? payload.panels.map(String) : [];
-    const hasPanel = panels.includes('reubicaciones') || ROLES_WITH_REUBICACIONES_PANEL.has(role);
+    const { role, hasPanel } = getReubicacionesAccessContext(authOrToken);
 
     return {
         hasPanel,
