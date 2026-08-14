@@ -150,6 +150,65 @@ test('POST /api/consultor/actividades crea entrada correctamente', async () => {
     }
 });
 
+test('POST /api/consultor/actividades no dispara correos si EMAIL_ACTIVIDADES_ENABLED no es true', async () => {
+    const prev = process.env.EMAIL_ACTIVIDADES_ENABLED;
+    delete process.env.EMAIL_ACTIVIDADES_ENABLED;
+    const app = createMockApp();
+    let published = 0;
+    const mockStore = {
+        getConsultorContextByCedula: async () => ({ cliente: 'CLIENTE TEST' }),
+        createManualActivity: async (params) => ({
+            kind: 'created',
+            activity: {
+                id: 'act-uuid-mail',
+                cedula: params.cedula,
+                cliente: 'CLIENTE TEST',
+                descripcion: params.descripcion,
+                inicio: params.inicio,
+                fin: params.fin,
+                origen: 'manual',
+                estado: 'pendiente'
+            }
+        })
+    };
+    const emailNotificationsPublisher = {
+        publishTimeEntryConfirmation: async () => { published += 1; },
+        publishTimeEntryAdminNotification: async () => { published += 1; }
+    };
+
+    registerActividadesRoutes({
+        app,
+        verificarToken: mockVerificarToken,
+        requireEntraConsultor: mockRequireEntraConsultor,
+        actividadesStore: mockStore,
+        emailNotificationsPublisher,
+        listEmailsInGroups: async () => { published += 10; return { emails: ['admin@test.com'] }; }
+    });
+
+    const server = app.listen(0);
+    const port = server.address().port;
+    try {
+        const res = await fetch(`http://localhost:${port}/api/consultor/actividades`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                descripcion: 'Sin correo',
+                fecha: '2026-07-24',
+                horaInicio: '08:00',
+                horaFin: '12:00'
+            })
+        });
+        const json = await res.json();
+        assert.equal(res.status, 201);
+        assert.equal(json.ok, true);
+        assert.equal(published, 0);
+    } finally {
+        if (prev === undefined) delete process.env.EMAIL_ACTIVIDADES_ENABLED;
+        else process.env.EMAIL_ACTIVIDADES_ENABLED = prev;
+        server.close();
+    }
+});
+
 test('POST /api/consultor/actividades/cronometro/iniciar crea temporizador activo', async () => {
     const app = createMockApp();
     const mockStore = {

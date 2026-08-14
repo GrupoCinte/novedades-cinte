@@ -118,6 +118,13 @@
             if (!isEnabled) {
                 return { accepted: false, skipped: true, reason: 'disabled' };
             }
+            const eventType = customEventType || payload?.eventType;
+            if (
+                (eventType === 'time_entry_confirmation' || eventType === 'time_entry_admin_notification')
+                && String(process.env.EMAIL_ACTIVIDADES_ENABLED || 'false').toLowerCase() !== 'true'
+            ) {
+                return { accepted: false, skipped: true, reason: 'actividades_disabled' };
+            }
             if (!validateFn(payload)) {
                 return { accepted: false, skipped: true, reason: 'invalid_payload' };
             }

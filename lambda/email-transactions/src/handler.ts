@@ -273,6 +273,24 @@ function monthLabel(anio: number, mes: number) {
 
 export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyResultV2> => {
   try {
+    const raw = parseRawPayload(event) as { eventType?: unknown; eventId?: unknown; entryId?: unknown };
+    const incomingType = String(raw?.eventType || '');
+    if (
+      (incomingType === 'time_entry_confirmation' || incomingType === 'time_entry_admin_notification')
+      && String(process.env.EMAIL_ACTIVIDADES_ENABLED || 'false').toLowerCase() !== 'true'
+    ) {
+      console.warn('[email-transactions] Correos de actividades desactivados; se omite envío', {
+        eventType: incomingType,
+        eventId: raw?.eventId || null,
+        entryId: raw?.entryId || null
+      });
+      return json(200, {
+        ok: true,
+        skipped: 'actividades_disabled',
+        eventId: raw?.eventId || null
+      });
+    }
+
     if (!fromEmail) throw new Error('SES_FROM_EMAIL no configurado');
     const payload = parseEventPayload(event);
 
