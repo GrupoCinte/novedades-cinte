@@ -2,7 +2,7 @@
 
 function parseDateOnly(value) {
     if (!value) return null;
-    const date = value instanceof Date ? new Date(value.getTime()) : new Date(value);
+    const date = value instanceof Date ? new Date(value) : new Date(value);
     if (Number.isNaN(date.getTime())) return null;
     date.setHours(0, 0, 0, 0);
     return date;
@@ -34,7 +34,7 @@ function easterSunday(year) {
 }
 
 function addDays(date, days) {
-    const next = new Date(date.getTime());
+    const next = new Date(date);
     next.setDate(next.getDate() + days);
     return next;
 }
@@ -91,14 +91,9 @@ function getDiasHabilesColombia(fechaInicio, fechaFin, holidaySet = null) {
 
     const set = holidaySet || getFestivosColombia(inicio.getFullYear());
     let count = 0;
-    for (let cursor = new Date(inicio.getTime()); cursor <= fin; cursor.setDate(cursor.getDate() + 1)) {
+    for (let cursor = new Date(inicio); cursor <= fin; cursor.setDate(cursor.getDate() + 1)) {
         const ymd = toYmd(cursor);
-        const inRangeYear = cursor.getFullYear();
-        if (cursor.getFullYear() !== inRangeYear) {
-            // no-op; set already covers current year only if start and end same year
-        }
         if (cursor.getDay() === 0 || cursor.getDay() === 6) continue;
-        const holidayKey = `${cursor.getFullYear()}-${ymd.slice(5)}`;
         if (set.has(ymd)) continue;
         count += 1;
     }
