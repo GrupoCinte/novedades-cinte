@@ -20,6 +20,25 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-13 22:27:32 · `feature/AUT-287-completar-seguimiento` · `25169ab4`
+- **Commit:** `25169ab40e0f88ecfc65c47c08f2c0ecde94a182`
+- **Ticket:** AUT-287
+- **Requerimiento funcional:** Se dejan de imprimir en consola del servidor datos de sesión y de actas al consultar cartera o listar seguimientos.
+- **Componente técnico:** `src/seguimiento/registerSeguimientoRoutes.js` — se eliminaron `console.log` de depuración en GET cartera y GET actas.
+- **Cambios (uno a uno):**
+  - Sin log de `req.user` ni del alcance al consultar cartera.
+  - Sin log por cada acta al armar el permiso de edición.
+
+### 2026-08-13 22:27:29 · `feature/AUT-287-completar-seguimiento` · `f624699d`
+- **Commit:** `f624699dc7239843108b907a2a3496756b1622c4`
+- **Ticket:** AUT-287
+- **Requerimiento funcional:** La rama de lectura de actas en el portal del consultor queda alineada con `testing` (cartera y formulario de acta ya mergeados).
+- **Componente técnico:** merge de `origin/testing` en `feature/AUT-287-completar-seguimiento`. Conflictos de UI de acta y de arranque resueltos conservando la versión de AUT-287.
+- **Cambios (uno a uno):**
+  - Integración de `testing` tras el merge de AUT-283 (PR #157).
+  - En conflictos de formulario, participantes y planes de acción se conservó la versión de esta rama.
+  - En arranque se conservó el `safeInit` de AUT-287 (sin redefinir el helper).
+
 ### 2026-08-13 21:50:03 · `testing` · `1a078972`
 - **Commit:** `1a078972e9281a60a0abac4e479579a4490535bb`
 - **Ticket:** AUT-283
