@@ -12,7 +12,7 @@ const {
   isNovedadTipoRetiradoDelFormulario
 } = require('../src/rbac');
 
-const EXPECTED_ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'analista_conciliaciones', 'gp', 'nomina', 'comercial', 'consultor'];
+const EXPECTED_ROLE_PRIORITY = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'analista_conciliaciones', 'gp', 'atraccion_talento', 'nomina', 'comercial', 'consultor'];
 const allRoles = Object.keys(POLICY).sort();
 
 describe('RBAC - prioridad de roles', () => {
@@ -53,8 +53,8 @@ describe('RBAC - permisos por tipo', () => {
     assert.deepEqual(POLICY.comercial?.panels, ['comercial']);
   });
 
-  it('gp ve gestión de novedades y onboarding (lectura acotada a sus clientes), sin contratacion ni comercial', () => {
-    assert.deepEqual([...(POLICY.gp?.panels || [])].sort(), ['conciliaciones', 'gestion', 'monitoreo', 'onboarding']);
+  it('gp ve gestión de novedades, onboarding y reubicaciones (lectura acotada a sus clientes), sin contratacion ni comercial', () => {
+    assert.deepEqual([...(POLICY.gp?.panels || [])].sort(), ['conciliaciones', 'gestion', 'monitoreo', 'onboarding', 'reubicaciones']);
     assert.equal(POLICY.gp.panels.includes('contratacion'), false);
     assert.equal(POLICY.gp.panels.includes('comercial'), false);
     assert.equal(POLICY.gp.panels.includes('directorio'), false);
