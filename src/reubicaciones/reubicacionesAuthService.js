@@ -15,7 +15,7 @@ class ReubicacionesAuthService {
    * @returns {boolean}
    */
   tieneAccesoModulo(usuario) {
-    if (!usuario || !usuario.rol) return false;
+    if (!usuario?.rol) return false;
     
     const rolesPermitidos = [
       'super_admin',
@@ -36,7 +36,6 @@ class ReubicacionesAuthService {
    */
   getAccionesPermitidas(rol) {
     const acciones = {
-      // super_admin: TODO
       super_admin: [
         'view',
         'create',
@@ -48,13 +47,11 @@ class ReubicacionesAuthService {
         'view_historial'
       ],
       
-      // GP: Solo ve sus clientes y decide aptitud
       gp: [
         'view',
         'decide_aptitud'
       ],
       
-      // CH: Ve todos y registra observaciones
       admin_ch: [
         'view',
         'register_observacion'
@@ -65,13 +62,11 @@ class ReubicacionesAuthService {
         'register_observacion'
       ],
       
-      // AT: Ve todos y gestiona reubicación
       atraccion_talento: [
         'view',
         'manage_reubicacion'
       ],
       
-      // CAC: Ve, crea y edita
       cac: [
         'view',
         'create',
@@ -205,56 +200,41 @@ class ReubicacionesAuthService {
    * @returns {Object} { permitido: boolean, motivo: string }
    */
   puedeRealizarAccion(usuario, accion, caso = null) {
-    const acciones = this.getAccionesPermitidas(usuario.rol);
-    
+    const acciones = this.getAccionesPermitidas(usuario?.rol);
+
     // ❌ Si la acción no está en la lista, NO puede
     if (!acciones.includes(accion)) {
-      return { 
-        permitido: false, 
-        motivo: `Acción "${accion}" no permitida para el rol ${usuario.rol}` 
+      return {
+        permitido: false,
+        motivo: `Acción "${accion}" no permitida para el rol ${usuario?.rol}`
       };
     }
 
-    // ✅ Reglas específicas por rol
-    
-    // 🔒 GP: solo puede decidir aptitud en SUS casos
-    if (usuario.rol === 'gp') {
-      if (accion === 'decide_aptitud' && caso && caso.gp_asignado_id !== usuario.id) {
-        return { 
-          permitido: false, 
-          motivo: 'No tiene alcance sobre este caso' 
-        };
-      }
-      // GP solo puede ver y decidir aptitud
-      if (accion !== 'view' && accion !== 'decide_aptitud') {
-        return { 
-          permitido: false, 
-          motivo: 'Los GPs solo pueden ver y decidir aptitud' 
-        };
-      }
+    // Reglas role-specific simplificadas mediante mapas para reducir complejidad
+    const role = usuario?.rol;
+    const roleAllowed = {
+      gp: new Set(['view', 'decide_aptitud']),
+      atraccion_talento: new Set(['view', 'manage_reubicacion']),
+      admin_ch: new Set(['view', 'register_observacion']),
+      team_ch: new Set(['view', 'register_observacion'])
+    };
+
+    const allowedSet = roleAllowed[role];
+    if (allowedSet && !allowedSet.has(accion)) {
+      const motivo =
+        role === 'gp'
+          ? 'Los GPs solo pueden ver y decidir aptitud'
+          : role === 'atraccion_talento'
+          ? 'AT solo puede ver y gestionar reubicación'
+          : 'CH solo puede ver y registrar observaciones';
+      return { permitido: false, motivo };
     }
 
-    // AT: solo puede ver y gestionar reubicación
-    if (usuario.rol === 'atraccion_talento') {
-      if (accion !== 'view' && accion !== 'manage_reubicacion') {
-        return { 
-          permitido: false, 
-          motivo: 'AT solo puede ver y gestionar reubicación' 
-        };
-      }
+    // Regla adicional: GP solo decide aptitud en sus casos
+    if (role === 'gp' && accion === 'decide_aptitud' && caso && caso.gp_asignado_id !== usuario.id) {
+      return { permitido: false, motivo: 'No tiene alcance sobre este caso' };
     }
 
-    //  CH: solo puede ver y registrar observaciones
-    if (usuario.rol === 'admin_ch' || usuario.rol === 'team_ch') {
-      if (accion !== 'view' && accion !== 'register_observacion') {
-        return { 
-          permitido: false, 
-          motivo: 'CH solo puede ver y registrar observaciones' 
-        };
-      }
-    }
-
-    //  Todas las validaciones pasaron
     return { permitido: true };
   }
 
