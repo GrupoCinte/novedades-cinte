@@ -1556,6 +1556,20 @@ function registerOnboardingRoutes(deps) {
         }
         try {
             const data = await fichaNovedades.listNovedades(parsed.data);
+            try {
+                // Logs solicitados: muestra subject, payload_raw y payload_normalizado
+                const qCedula = String(parsed.data.cedula || '').trim();
+                for (const it of (data.items || [])) {
+                    if (qCedula && it.colaborador_cedula_match !== qCedula) continue;
+                    if (it.tipo_novedad === 'extension') {
+                        console.log('[Onboarding][ficha-novedades] id=', it.id, 'subject=', it.subject || '-');
+                        console.log('[Onboarding][ficha-novedades] payload_raw= ' + JSON.stringify(it.payload_raw || {}, null, 2));
+                        console.log('[Onboarding][ficha-novedades] payload_normalizado= ' + JSON.stringify(it.payload_normalizado || {}, null, 2));
+                    }
+                }
+            } catch (logErr) {
+                console.warn('[Onboarding] Error al loggear fichas:', logErr && logErr.message);
+            }
             return res.json({ ok: true, ...data });
         } catch (e) {
             return res.status(500).json({ ok: false, error: e.message });
