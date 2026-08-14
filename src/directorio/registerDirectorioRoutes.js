@@ -150,6 +150,33 @@ async function writeAudit(pool, row) {
     }
 }
 
+function respondWithRouteError(res, scope, error, fallbackMessage) {
+    const statusCode = Number(error?.status) || (String(error?.code) === '23505' ? 409 : 500);
+    if (statusCode >= 500) console.error(scope, error);
+    return res.status(statusCode).json({
+        ok: false,
+        error: error?.message || fallbackMessage
+    });
+}
+
+function tryParseRouteSchema(schema, payload, res, invalidMessage) {
+    const parsed = schema.safeParse(payload || {});
+    if (!parsed.success) {
+        res.status(400).json({ ok: false, error: invalidMessage || 'Datos inválidos' });
+        return null;
+    }
+    return parsed.data;
+}
+
+async function assertPipelineCaseExists(pool, pipelineId, res, message = 'Caso no encontrado') {
+    const caseExists = await pool.query('SELECT id FROM reubicaciones_pipeline WHERE id = $1', [pipelineId]);
+    if (caseExists.rows.length === 0) {
+        res.status(404).json({ ok: false, error: message });
+        return false;
+    }
+    return true;
+}
+
 function parseUuidActor(sub) {
     const s = String(sub || '').trim();
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) return s;
@@ -788,9 +815,9 @@ function registerDirectorioRoutes(deps) {
 
     app.get('/api/directorio/clientes-resumen', ...readGuard, async (req, res) => {
         try {
-            const q = clienteResumenListSchema.safeParse(req.query);
-            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search } = q.data;
+            const q = tryParseRouteSchema(clienteResumenListSchema, req.query, res, 'Parámetros inválidos');
+            if (!q) return;
+            const { activo, limit, offset, q: search } = q;
             let activoBool = null;
             if (activo === 'true') activoBool = true;
             if (activo === 'false') activoBool = false;
@@ -802,16 +829,15 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
         } catch (e) {
-            console.error('GET directorio clientes-resumen:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar el resumen de clientes.' });
+            return respondWithRouteError(res, 'GET directorio clientes-resumen:', e, 'No se pudo listar el resumen de clientes.');
         }
     });
 
     app.get('/api/directorio/clientes-lideres', ...readGuard, async (req, res) => {
         try {
-            const q = clienteLiderListSchema.safeParse(req.query);
-            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search, cliente } = q.data;
+            const q = tryParseRouteSchema(clienteLiderListSchema, req.query, res, 'Parámetros inválidos');
+            if (!q) return;
+            const { activo, limit, offset, q: search, cliente } = q;
             let activoBool = null;
             if (activo === 'true') activoBool = true;
             if (activo === 'false') activoBool = false;
@@ -824,17 +850,16 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
         } catch (e) {
-            console.error('GET directorio clientes-lideres:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar el catálogo.' });
+            return respondWithRouteError(res, 'GET directorio clientes-lideres:', e, 'No se pudo listar el catálogo.');
         }
     });
 
     app.post('/api/directorio/clientes-lideres', ...writeGuard, async (req, res) => {
         try {
-            const parsed = clienteLiderCreateSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const { gpUserId, gpResolution } = await resolveGpForClienteLiderPayload(parsed.data);
-            const row = await insertClienteLider(parsed.data.cliente, parsed.data.lider, gpUserId, parsed.data.nit);
+            const parsed = tryParseRouteSchema(clienteLiderCreateSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
+            const { gpUserId, gpResolution } = await resolveGpForClienteLiderPayload(parsed);
+            const row = await insertClienteLider(parsed.cliente, parsed.lider, gpUserId, parsed.nit);
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user?.sub),
                 actorRole: normalizeRoleOrNull(req.user?.role),
@@ -846,15 +871,13 @@ function registerDirectorioRoutes(deps) {
                     lider: row.lider,
                     nit: row.nit,
                     gp_user_id: row.gp_user_id,
-                    gp_colaborador_cedula: parsed.data.gp_colaborador_cedula || null,
+                    gp_colaborador_cedula: parsed.gp_colaborador_cedula || null,
                     gp_created_user: Boolean(gpResolution?.created_gp_user)
                 }
             });
             return res.status(201).json({ ok: true, item: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('POST directorio clientes-lideres:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear el par.' });
+            return respondWithRouteError(res, 'POST directorio clientes-lideres:', e, 'No se pudo crear el par.');
         }
     });
 
@@ -862,9 +885,9 @@ function registerDirectorioRoutes(deps) {
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
-            const parsed = clienteLiderPatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const patch = { ...parsed.data };
+            const parsed = tryParseRouteSchema(clienteLiderPatchSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
+            const patch = { ...parsed };
             let gpResolution = null;
             if (patch.gp_colaborador_cedula) {
                 const resolved = await resolveOrCreateGpUserIdForColaboradorCedula(patch.gp_colaborador_cedula);
@@ -882,15 +905,13 @@ function registerDirectorioRoutes(deps) {
                 entityId: row.id,
                 metadata: {
                     ...patch,
-                    gp_colaborador_cedula: parsed.data.gp_colaborador_cedula || null,
+                    gp_colaborador_cedula: parsed.gp_colaborador_cedula || null,
                     gp_created_user: Boolean(gpResolution?.created_gp_user)
                 }
             });
             return res.json({ ok: true, item: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('PATCH directorio clientes-lideres:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
+            return respondWithRouteError(res, 'PATCH directorio clientes-lideres:', e, 'No se pudo actualizar.');
         }
     });
 
@@ -910,18 +931,15 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, deleted: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23503' ? 409 : 500);
-            if (st >= 500) console.error('DELETE directorio clientes-lideres:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
+            return respondWithRouteError(res, 'DELETE directorio clientes-lideres:', e, 'No se pudo eliminar.');
         }
     });
 
     app.get('/api/directorio/colaboradores', ...readGuard, async (req, res) => {
         try {
-            const q = colabListSchema.safeParse(req.query);
-            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search, sort, dir, tipo_contrato: tipoContrato, cliente: clienteColab } =
-                q.data;
+            const q = tryParseRouteSchema(colabListSchema, req.query, res, 'Parámetros inválidos');
+            if (!q) return;
+            const { activo, limit, offset, q: search, sort, dir, tipo_contrato: tipoContrato, cliente: clienteColab } = q;
             let activoBool = null;
             if (activo === 'true') activoBool = true;
             if (activo === 'false') activoBool = false;
@@ -937,16 +955,15 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
         } catch (e) {
-            console.error('GET directorio colaboradores:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar colaboradores.' });
+            return respondWithRouteError(res, 'GET directorio colaboradores:', e, 'No se pudo listar colaboradores.');
         }
     });
 
     app.post('/api/directorio/colaboradores', ...writeGuard, async (req, res) => {
         try {
-            const parsed = colabCreateSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const body = parsed.data;
+            const parsed = tryParseRouteSchema(colabCreateSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
+            const body = parsed;
             if (body.cliente && body.lider_catalogo) {
                 await assertColaboradorCatalogPair(getLideresByCliente, body.cliente, body.lider_catalogo);
             }
@@ -961,9 +978,7 @@ function registerDirectorioRoutes(deps) {
             });
             return res.status(201).json({ ok: true, item: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('POST directorio colaboradores:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear el colaborador.' });
+            return respondWithRouteError(res, 'POST directorio colaboradores:', e, 'No se pudo crear el colaborador.');
         }
     });
 
@@ -971,9 +986,9 @@ function registerDirectorioRoutes(deps) {
         try {
             const cedula = normalizeCedula(req.params.cedula);
             if (!cedula) return res.status(400).json({ ok: false, error: 'Cédula inválida' });
-            const parsed = colabPatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const body = parsed.data;
+            const parsed = tryParseRouteSchema(colabPatchSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
+            const body = parsed;
             if (body.cliente && body.lider_catalogo) {
                 await assertColaboradorCatalogPair(getLideresByCliente, body.cliente, body.lider_catalogo);
             }
@@ -989,9 +1004,7 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, item: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23503' ? 400 : 500);
-            if (st >= 500) console.error('PATCH directorio colaboradores:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
+            return respondWithRouteError(res, 'PATCH directorio colaboradores:', e, 'No se pudo actualizar.');
         }
     });
 
@@ -1011,9 +1024,7 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, deleted: row.cedula });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23503' ? 409 : 500);
-            if (st >= 500) console.error('DELETE directorio colaboradores:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
+            return respondWithRouteError(res, 'DELETE directorio colaboradores:', e, 'No se pudo eliminar.');
         }
     });
 
@@ -1802,13 +1813,13 @@ function registerDirectorioRoutes(deps) {
 
     app.post('/api/directorio/gp', ...writeGuard, async (req, res) => {
         try {
-            const parsed = gpCreateSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            const parsed = tryParseRouteSchema(gpCreateSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
             const area = getAreaFromRole('gp');
             const placeholder = `cognito_gp_placeholder:${crypto.randomBytes(32).toString('hex')}`;
             const row = await insertGpUserPlaceholder({
-                email: parsed.data.email,
-                fullName: parsed.data.full_name,
+                email: parsed.email,
+                fullName: parsed.full_name,
                 passwordPlaceholder: placeholder,
                 area
             });
@@ -1822,9 +1833,7 @@ function registerDirectorioRoutes(deps) {
             });
             return res.status(201).json({ ok: true, item: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('POST directorio gp:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear el GP.' });
+            return respondWithRouteError(res, 'POST directorio gp:', e, 'No se pudo crear el GP.');
         }
     });
 
@@ -1832,15 +1841,15 @@ function registerDirectorioRoutes(deps) {
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
-            const parsed = gpPatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            const parsed = tryParseRouteSchema(gpPatchSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
             const before = await pool.query(
                 `SELECT id, is_active FROM users WHERE id = $1::uuid AND role = 'gp'::user_role`,
                 [id]
             );
-            const row = await updateGpUserById(id, parsed.data);
+            const row = await updateGpUserById(id, parsed);
             if (!row) return res.status(404).json({ ok: false, error: 'GP no encontrado' });
-            if (parsed.data.is_active === false && before.rows[0]?.is_active) {
+            if (parsed.is_active === false && before.rows[0]?.is_active) {
                 await clearGpUserReferences(id);
             }
             await writeAudit(pool, {
@@ -1849,12 +1858,11 @@ function registerDirectorioRoutes(deps) {
                 action: 'users.gp.patch',
                 entityType: 'users',
                 entityId: row.id,
-                metadata: parsed.data
+                metadata: parsed
             });
             return res.json({ ok: true, item: row });
         } catch (e) {
-            console.error('PATCH directorio gp:', e);
-            return res.status(500).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
+            return respondWithRouteError(res, 'PATCH directorio gp:', e, 'No se pudo actualizar.');
         }
     });
 
@@ -1918,13 +1926,9 @@ function registerDirectorioRoutes(deps) {
      */
     app.post('/api/directorio/reubicaciones/:id/observacion', verificarToken, adminActionLimiter, async (req, res) => {
         try {
-            console.log('🔍 req.user.role:', req.user?.role);
-            console.log('🔍 normalized:', normalizeRoleOrNull(req.user?.role));
-            console.log('🔍 isCH:', isCH(req.user));
             const pipelineId = String(req.params.id || '').trim();
             const { observacion } = req.body;
 
-            // Validar que el usuario tenga rol CH
             if (!isCH(req.user)) {
                 return res.status(403).json({ ok: false, error: 'Solo CH puede registrar observaciones' });
             }
@@ -1953,15 +1957,8 @@ function registerDirectorioRoutes(deps) {
     app.get('/api/directorio/reubicaciones/:id/observacion', verificarToken, async (req, res) => {
         try {
             const pipelineId = String(req.params.id || '').trim();
-
-            // Verificar que el caso existe (OPCIONAL: verificar alcance GP)
-            const caseExists = await pool.query(
-                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
-                [pipelineId]
-            );
-            if (caseExists.rows.length === 0) {
-                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
-            }
+            const caseExists = await assertPipelineCaseExists(pool, pipelineId, res);
+            if (!caseExists) return;
 
             const actual = await observacionesService.obtenerUltimaObservacion({ pipelineId, pool });
             const historial = await observacionesService.obtenerHistorialObservaciones({ pipelineId, pool });
@@ -1988,7 +1985,6 @@ function registerDirectorioRoutes(deps) {
             const pipelineId = String(req.params.id || '').trim();
             const { decision, justificacion } = req.body;
 
-            // Validar que el usuario tenga rol GP
             if (!isGP(req.user)) {
                 return res.status(403).json({ ok: false, error: 'Solo GP puede registrar decisiones' });
             }
@@ -2018,15 +2014,8 @@ function registerDirectorioRoutes(deps) {
     app.get('/api/directorio/reubicaciones/:id/decision', verificarToken, async (req, res) => {
         try {
             const pipelineId = String(req.params.id || '').trim();
-
-            // Verificar que el caso existe
-            const caseExists = await pool.query(
-                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
-                [pipelineId]
-            );
-            if (caseExists.rows.length === 0) {
-                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
-            }
+            const caseExists = await assertPipelineCaseExists(pool, pipelineId, res);
+            if (!caseExists) return;
 
             const actual = await decisionesService.obtenerUltimaDecision({ pipelineId, pool });
             const historial = await decisionesService.obtenerHistorialDecisiones({ pipelineId, pool });
