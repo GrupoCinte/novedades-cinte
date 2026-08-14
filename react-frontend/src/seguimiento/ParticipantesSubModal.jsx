@@ -3,6 +3,13 @@ import GestionModalShell from '../shared/modals/GestionModalShell.jsx';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 
+const getRowClass = (isSelected, isLight) => {
+    if (isSelected) {
+        return isLight ? 'bg-blue-50 border border-blue-200' : 'bg-blue-900/30 border border-blue-800';
+    }
+    return isLight ? 'hover:bg-slate-100' : 'hover:bg-slate-700';
+};
+
 export default function ParticipantesSubModal({ open, onClose, onAccept, colaboradores = [], participantesActuales = [] }) {
     const { isLight } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
@@ -12,6 +19,12 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
 
     const [search, setSearch] = useState('');
     const [selectedIds, setSelectedIds] = useState(new Set());
+    const [selectedCliente, setSelectedCliente] = useState('');
+
+    const uniqueClientes = useMemo(() => {
+        const clientes = colaboradores.map(c => c.cliente || c.empleador || 'CINTe');
+        return [...new Set(clientes)].sort((a, b) => a.localeCompare(b));
+    }, [colaboradores]);
 
     // Initialize selected from current participants
     React.useEffect(() => {
@@ -19,19 +32,23 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
             const currentIds = new Set(participantesActuales.map(p => p.cedula).filter(Boolean));
             setSelectedIds(currentIds);
             setSearch('');
+            setSelectedCliente('');
         }
     }, [open, participantesActuales]);
 
     const filtered = useMemo(() => {
-        if (!search.trim()) return colaboradores.slice(0, 50); // Show max 50 default to prevent lag
+        if (!selectedCliente) return []; // No mostrar nada si no hay cliente seleccionado
+        const porCliente = colaboradores.filter(c => (c.cliente || c.empleador || 'CINTe') === selectedCliente);
+        
+        if (!search.trim()) return porCliente.slice(0, 100); 
         const s = search.toLowerCase();
-        return colaboradores.filter(c => 
+        return porCliente.filter(c => 
             (c.nombre && c.nombre.toLowerCase().includes(s)) ||
             (c.cedula && String(c.cedula).includes(s)) ||
             (c.cargo && c.cargo.toLowerCase().includes(s)) ||
             (c.puesto && c.puesto.toLowerCase().includes(s))
         ).slice(0, 100);
-    }, [search, colaboradores]);
+    }, [search, selectedCliente, colaboradores]);
 
     const toggleSelection = (cedula) => {
         const newSet = new Set(selectedIds);
@@ -51,7 +68,7 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
                 cargo: colab.cargo || colab.puesto || colab.rol || 'N/A',
                 // Empresa -> El cliente asignado o "CINTe" por defecto si es staff
                 empresa: colab.cliente || colab.empleador || 'CINTe',
-                email: colab.correo || colab.email || ''
+                email: colab.correo_cinte || colab.correo || colab.email || ''
             };
         });
         onAccept(accepted);
@@ -77,30 +94,48 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
             }
         >
             <div className="p-4 flex flex-col h-[60vh] gap-4">
-                <input 
-                    type="text" 
-                    placeholder="Buscar por nombre, cédula o cargo..." 
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    className={inputCls}
-                />
+                <div className="flex gap-4 flex-col sm:flex-row">
+                    <div className="flex-1">
+                        <label className={`block mb-1 text-sm font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Cliente</label>
+                        <select 
+                            value={selectedCliente} 
+                            onChange={e => setSelectedCliente(e.target.value)}
+                            className={inputCls}
+                        >
+                            <option value="">-- Seleccionar Cliente --</option>
+                            {uniqueClientes.map(c => (
+                                <option key={c} value={c}>{c}</option>
+                            ))}
+                        </select>
+                    </div>
+                    <div className="flex-1">
+                        <label className={`block mb-1 text-sm font-semibold ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Buscar Colaborador</label>
+                        <input 
+                            type="text" 
+                            placeholder="Buscar por nombre, cédula o cargo..." 
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            className={inputCls}
+                            disabled={!selectedCliente}
+                        />
+                    </div>
+                </div>
                 
                 <div className={`flex-1 overflow-y-auto rounded-lg border ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800'} p-2`}>
-                    {filtered.length === 0 ? (
-                        <p className={`text-sm p-4 text-center ${dash.mutedSm}`}>No se encontraron colaboradores.</p>
-                    ) : (
+                    {!selectedCliente && (
+                        <p className={`text-sm p-4 text-center ${dash.mutedSm}`}>Selecciona un cliente para ver sus colaboradores.</p>
+                    )}
+                    {selectedCliente && filtered.length === 0 && (
+                        <p className={`text-sm p-4 text-center ${dash.mutedSm}`}>No se encontraron colaboradores para este cliente.</p>
+                    )}
+                    {selectedCliente && filtered.length > 0 && (
                         <div className="space-y-1">
                             {filtered.map(c => {
                                 const isSelected = selectedIds.has(c.cedula);
                                 const cargoDisplay = c.cargo || c.puesto || 'N/A';
                                 const empresaDisplay = c.cliente || c.empleador || 'CINTe';
-                                
-                                const selectedCls = isLight ? 'bg-blue-50 border border-blue-200' : 'bg-blue-900/30 border border-blue-800';
-                                const unselectedCls = isLight ? 'hover:bg-slate-100' : 'hover:bg-slate-700';
-                                const activeCls = isSelected ? selectedCls : unselectedCls;
-
                                 return (
-                                    <label key={c.cedula} className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${activeCls}`}>
+                                    <label key={c.cedula} className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer transition-colors ${getRowClass(isSelected, isLight)}`}>
                                         <input 
                                             type="checkbox" 
                                             className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-600"
@@ -109,7 +144,7 @@ export default function ParticipantesSubModal({ open, onClose, onAccept, colabor
                                         />
                                         <div className="flex-1">
                                             <p className={`text-sm font-bold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                                                {c.nombre} <span className="font-normal text-xs opacity-70">({c.cedula})</span>
+                                                {c.nombre} <span className="font-normal text-xs text-slate-500 dark:text-slate-400">({c.cedula})</span>
                                             </p>
                                             <p className={`text-xs mt-0.5 ${dash.mutedSm}`}>
                                                 {cargoDisplay} • {empresaDisplay}

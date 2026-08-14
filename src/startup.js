@@ -7,10 +7,8 @@ const {
 const { ensureOnboardingSchema } = require('./onboarding/onboardingSchema');
 const { ensureSourcingSchema } = require('./sourcing/sourcingSchema');
 
-function logStartupConfig(deps) {
-    const { PORT, COGNITO_ENABLED, COGNITO_REGION, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_SECRET, s3Client, S3_ENABLED, S3_BUCKET_NAME, S3_REGION, S3_AUTH_MODE } = deps;
-    logger.info({ port: PORT }, `Servidor listo en http://localhost:${PORT}`);
-    logger.info({ dbName: process.env.DB_NAME || 'novedades_cinte', dbHost: process.env.DB_HOST || 'localhost', dbPort: process.env.DB_PORT || 5432 }, 'DB conectada');
+function logCognitoConfig(deps) {
+    const { COGNITO_ENABLED, COGNITO_REGION, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_SECRET } = deps;
     if (COGNITO_ENABLED) {
         logger.info({ cognitoRegion: COGNITO_REGION || 'sin-region', userPoolId: COGNITO_USER_POOL_ID || 'sin-pool' }, 'Cognito activo');
         if (!COGNITO_APP_CLIENT_SECRET) {
@@ -19,6 +17,10 @@ function logStartupConfig(deps) {
     } else {
         logger.warn('Cognito inactivo: usando JWT local.');
     }
+}
+
+function logS3Config(deps) {
+    const { s3Client, S3_ENABLED, S3_BUCKET_NAME, S3_REGION, S3_AUTH_MODE } = deps;
     if (s3Client) {
         logger.info({ bucket: S3_BUCKET_NAME, region: S3_REGION, authMode: S3_AUTH_MODE }, 'S3 activo');
         if (S3_AUTH_MODE === 'role') {
@@ -37,7 +39,26 @@ function logStartupConfig(deps) {
     } else {
         logger.warn('S3 inactivo: usando almacenamiento local en /assets/uploads.');
     }
+}
+
+function logStartupConfig(deps) {
+    const { PORT } = deps;
+    logger.info({ port: PORT }, `Servidor listo en http://localhost:${PORT}`);
+    logger.info({ dbName: process.env.DB_NAME || 'novedades_cinte', dbHost: process.env.DB_HOST || 'localhost', dbPort: process.env.DB_PORT || 5432 }, 'DB conectada');
+    
+    logCognitoConfig(deps);
+    logS3Config(deps);
+    
     logger.info({ assetsPath: path.join(process.cwd(), 'assets') }, 'Carpeta assets');
+}
+
+async function safeInit(fn, pool, name) {
+    if (typeof fn !== 'function') return;
+    try {
+        await fn(pool);
+    } catch (e) {
+        logger.warn({ error: e?.message }, `Inicialización DDL ${name} omitida o sin permisos`);
+    }
 }
 
 async function startServer(deps) {
@@ -124,24 +145,15 @@ async function startServer(deps) {
     await ensureConciliacionesNovedadConsumoTable();
     await ensureColaboradorAsignacionesTable();
     await ensureColaboradorTarifaHistorialTable();
-    const safeInit = async (fn, args, fallbackMsg) => {
-        if (typeof fn !== 'function') return;
-        try {
-            await fn(...(args || []));
-        } catch (e) {
-            logger.warn({ error: e?.message }, fallbackMsg);
-        }
-    };
 
-    await safeInit(ensureActividadesConsultorTable, [], 'Inicialización DDL actividades_consultor omitida o sin permisos');
-    await safeInit(ensureSeguimientoTables, [pool], 'Inicialización DDL seguimiento omitida o sin permisos');
+    await safeInit(ensureActividadesConsultorTable, pool, 'actividades_consultor');
+    await safeInit(ensureSeguimientoTables, pool, 'seguimiento');
 
-    try {
+    await safeInit(async () => {
         const { migrateColaboradoresToAsignaciones } = require('./conciliaciones/colaboradorAsignaciones');
         await migrateColaboradoresToAsignaciones(pool);
-    } catch (e) {
-        logger.warn({ error: e?.message }, 'Migración colaborador_asignaciones omitida');
-    }
+    }, null, 'colaborador_asignaciones');
+
     await ensureUsersCognitoSubColumn();
     await ensureCinteLeonardoPair();
     /**
@@ -150,17 +162,8 @@ async function startServer(deps) {
      * + catálogos (motivo_baja, ciudades, EPS/AFP/ARL/CCF) + buzón staging + log ETL.
      * Idempotente: si la BD no es owner se loguea WARN y se sigue.
      */
-    try {
-        await ensureOnboardingSchema({ pool, logger });
-    } catch (e) {
-        logger.error({ error: e?.message || e }, 'Onboarding schema: error de DDL (continúa arranque)');
-    }
-
-    try {
-        await ensureSourcingSchema({ pool, logger });
-    } catch (e) {
-        logger.error({ error: e?.message || e }, 'Sourcing schema: error de DDL (continúa arranque)');
-    }
+    await safeInit(() => ensureOnboardingSchema({ pool, logger }), null, 'onboarding_schema');
+    await safeInit(() => ensureSourcingSchema({ pool, logger }), null, 'sourcing_schema');
 
     const server = app.listen(PORT, () => {
         logStartupConfig(deps);

@@ -8,6 +8,7 @@ import ConsultorProtectedLayout from './ConsultorProtectedLayout.jsx';
 import ConsultorPortalHome from './ConsultorPortalHome.jsx';
 import ConsultorNovedadesPage from './ConsultorNovedadesPage.jsx';
 import ConsultorModulePlaceholder from './ConsultorModulePlaceholder.jsx';
+import SeguimientosConsultorPage from './consultor/SeguimientosConsultorPage.jsx';
 import MisActividadesModule from './consultor/actividades/MisActividadesModule.jsx';
 import Login from './Login';
 import ForgotPassword from './ForgotPassword';
@@ -311,7 +312,7 @@ function App() {
             />
             <Route
               path="examenes-evaluaciones"
-              element={<ConsultorModulePlaceholder title="Exámenes y Evaluaciones" />}
+              element={<SeguimientosConsultorPage />}
             />
             <Route
               path="documentacion"

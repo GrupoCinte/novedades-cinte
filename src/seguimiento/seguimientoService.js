@@ -42,6 +42,7 @@ function createSeguimientoService({ pool }) {
                 a.fecha_acta,
                 a.estado,
                 a.correo_cierre_estado,
+                a.payload_json,
                 a.created_at,
                 a.updated_at,
                 (
@@ -59,8 +60,27 @@ function createSeguimientoService({ pool }) {
         return rows || [];
     }
 
+    function validateFinalizadoActa(data) {
+        if (!data.fecha_acta) throw new Error('Fecha de acta es obligatoria para finalizar.');
+        const hInicio = data.payload_json?.hora_inicio || '';
+        const hFin = data.payload_json?.hora_fin || '';
+        const timeRegex = /^([01]\d|2[0-3]):[0-5]\d$/;
+        if (!timeRegex.test(hInicio)) throw new Error('El formato de Hora de inicio no es válido (usa formato 24h, ej. 08:30).');
+        if (!timeRegex.test(hFin)) throw new Error('El formato de Hora de fin no es válido (usa formato 24h, ej. 14:00).');
+        
+        if (!data.payload_json?.objetivo?.trim()) throw new Error('El objetivo de la sesión es obligatorio.');
+        if (!data.payload_json?.agenda?.trim()) throw new Error('La agenda desarrollada es obligatoria.');
+        if (!data.payload_json?.planes_accion || data.payload_json.planes_accion.length === 0) throw new Error('Debe agregar al menos un plan de acción para finalizar.');
+        if (!data.participantes || data.participantes.length === 0) throw new Error('Debe agregar al menos un participante.');
+    }
+
     async function createActa(data, actor) {
         const { gp_id, cliente, tipo, fecha_acta, estado, compromisos, observaciones, payload_json, participantes } = data;
+        
+        if (estado === 'FINALIZADO') {
+            validateFinalizadoActa(data);
+        }
+
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -99,8 +119,12 @@ function createSeguimientoService({ pool }) {
     }
 
     async function updateActa(id, data, actor) {
-        validateAllDates(data.fecha_acta, data.payload_json);
         const { cliente, tipo, fecha_acta, estado, compromisos, observaciones, payload_json, participantes } = data;
+        
+        if (estado === 'FINALIZADO') {
+            validateFinalizadoActa(data);
+        }
+
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
@@ -109,8 +133,11 @@ function createSeguimientoService({ pool }) {
             if (currentRes.rows.length === 0) throw new Error('Acta no encontrada o eliminada');
             const estadoAnterior = currentRes.rows[0].estado;
 
-            if (estadoAnterior === 'FINALIZADO' && String(actor.role).toLowerCase() === 'gp') {
-                throw new Error('Un GP no puede editar un acta ya finalizada');
+            if (estadoAnterior === 'FINALIZADO') {
+                const r = String(actor.role).toLowerCase();
+                if (r !== 'cac' && r !== 'super_admin') {
+                    throw new Error('El acta ya se encuentra finalizada y no puede ser modificada por tu rol');
+                }
             }
 
             const isNowFinalizado = estadoAnterior !== 'FINALIZADO' && estado === 'FINALIZADO';
@@ -253,13 +280,52 @@ function createSeguimientoService({ pool }) {
         }
     }
 
+    async function getInternalUserIdByEmail(email) {
+        if (!email) return null;
+        const res = await pool.query('SELECT id FROM users WHERE email = $1 AND is_active = TRUE LIMIT 1', [email]);
+        return res.rows[0]?.id || null;
+    }
+
+    async function reintentarCorreoCierre(id, actor) {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+            
+            // Simula éxito del correo pendiente de envío
+            const sql = `
+                UPDATE seguimiento_acta 
+                SET correo_cierre_estado = 'enviado',
+                    updated_at = NOW()
+                WHERE id = $1
+                RETURNING correo_cierre_estado
+            `;
+            const { rows } = await client.query(sql, [id]);
+            const newStatus = rows[0]?.correo_cierre_estado || 'pendiente';
+
+            await client.query(
+                `INSERT INTO seguimiento_historial (acta_id, accion, estado_anterior, estado_nuevo, actor_user_id, actor_email, actor_role) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [id, 'reintentar_correo', 'FINALIZADO', 'FINALIZADO', actor.id, actor.email, actor.role]
+            );
+
+            await client.query('COMMIT');
+            return newStatus;
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
+    }
+
     return {
         listActas,
         getActa,
         createActa,
         updateActa,
         softDeleteActa,
-        addObservacionConsultor
+        addObservacionConsultor,
+        getInternalUserIdByEmail,
+        reintentarCorreoCierre
     };
 }
 

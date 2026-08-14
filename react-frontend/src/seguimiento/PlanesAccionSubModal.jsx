@@ -3,34 +3,34 @@ import GestionModalShell from '../shared/modals/GestionModalShell.jsx';
 import { useModuleTheme } from '../moduleTheme.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 
-export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr, maxDateStr }) {
-    const { isLight } = useModuleTheme();
+export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr, maxDateStr, participantes = [] }) {
+    const { isLight, field } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
-    const inputCls = isLight 
-        ? 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:outline-none focus:border-[#2F7BB8]'
-        : 'w-full rounded-lg border border-slate-600 bg-[#1e293b] px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-[#2F7BB8]';
-    const labelCls = `block text-xs font-semibold mb-1 ${isLight ? 'text-slate-700' : 'text-slate-300'}`;
+    const inputCls = `${field} w-full`;
 
     const [tarea, setTarea] = useState('');
-    const [criticidad, setCriticidad] = useState('Media (M)');
+    const [criticidad, setCriticidad] = useState('');
     const [responsable, setResponsable] = useState('');
     const [fechaEntrega, setFechaEntrega] = useState('');
     const [recursos, setRecursos] = useState('');
+    const [error, setError] = useState(null);
 
     // Reset when opened
     React.useEffect(() => {
         if (open) {
             setTarea('');
-            setCriticidad('Media (M)');
+            setCriticidad('');
             setResponsable('');
             setFechaEntrega('');
             setRecursos('');
+            setError(null);
         }
     }, [open]);
 
     const handleAceptar = () => {
-        if (!tarea || !responsable || !fechaEntrega) {
-            alert('Tarea, Responsable y Fecha de entrega son obligatorios.');
+        setError(null);
+        if (!tarea?.trim() || !criticidad || !responsable || !fechaEntrega) {
+            setError('Tarea, Criticidad, Responsable y Fecha de entrega son obligatorios.');
             return;
         }
         onAdd({
@@ -58,23 +58,29 @@ export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr,
         >
             <div className="p-6 space-y-4">
                 <div>
-                    <label className={labelCls}>Tarea / Acción</label>
+                    <label className={`block mb-1 ${dash.labelFilter}`}>Tarea / Acción</label>
                     <input type="text" value={tarea} onChange={e => setTarea(e.target.value)} className={inputCls} placeholder="Ej. Actualizar matriz de riesgos" />
                 </div>
                 <div>
-                    <label className={labelCls}>Criticidad</label>
+                    <label className={`block mb-1 ${dash.labelFilter}`}>Criticidad</label>
                     <select value={criticidad} onChange={e => setCriticidad(e.target.value)} className={inputCls}>
+                        <option value="">Seleccione la criticidad</option>
                         <option value="Alta (A)">Alta (A)</option>
                         <option value="Media (M)">Media (M)</option>
                         <option value="Baja (B)">Baja (B)</option>
                     </select>
                 </div>
                 <div>
-                    <label className={labelCls}>Responsable</label>
-                    <input type="text" value={responsable} onChange={e => setResponsable(e.target.value)} className={inputCls} placeholder="Nombre del responsable" />
+                    <label className={`block mb-1 ${dash.labelFilter}`}>Responsable</label>
+                    <select value={responsable} onChange={e => setResponsable(e.target.value)} className={inputCls}>
+                        <option value="">Seleccione un responsable</option>
+                        {participantes.map(p => (
+                            <option key={p.id || p.cedula} value={p.nombre}>{p.nombre}</option>
+                        ))}
+                    </select>
                 </div>
                 <div>
-                    <label className={labelCls}>Fecha de Entrega</label>
+                    <label className={`block mb-1 ${dash.labelFilter}`}>Fecha de Entrega</label>
                     <input 
                         type="date" 
                         value={fechaEntrega} 
@@ -85,9 +91,14 @@ export default function PlanesAccionSubModal({ open, onClose, onAdd, minDateStr,
                     />
                 </div>
                 <div>
-                    <label className={labelCls}>Recursos (Opcional)</label>
+                    <label className={`block mb-1 ${dash.labelFilter}`}>Recursos (Opcional)</label>
                     <input type="text" value={recursos} onChange={e => setRecursos(e.target.value)} className={inputCls} placeholder="Ej. Presupuesto, acceso a servidor..." />
                 </div>
+                {error && (
+                    <div className="text-red-500 text-sm font-semibold mt-2">
+                        {error}
+                    </div>
+                )}
             </div>
         </GestionModalShell>
     );
