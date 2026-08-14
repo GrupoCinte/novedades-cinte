@@ -82,6 +82,7 @@ Al entrar a **`/admin`** con sesión válida, según el rol aparecen tarjetas co
 - **Onboarding (maestro de personal)** — módulo madre con personal activo, bajas, SENA, staff, licencias, calculadora, extranjeros, pólizas y capacitaciones. Aplica a **Super administrador**, **CAC**, **Admin CH**, **Equipo CH**; **GP** y **Nómina** ven el módulo en modo lectura con su alcance.
 - **Módulo de administración** (Directorio) — **Super administrador** y **CAC**; **Admin CH** y **Equipo CH** **no** tienen esta tarjeta.
 - **Mallas de turnos** — tarjeta propia para **GP** (sin abrir el resto del Directorio): editar y aprobar/reaprobar mallas de sus **clientes asignados**. **Super administrador** y **CAC** entran por el módulo de administración.
+- **Seguimiento a Consultores/Clientes** — submódulo dentro del Módulo de administración. Disponible para **GP** (filtrado a su cartera asignada), **CAC** y **Super administrador** (sin filtro de asignación). Resto de roles **denegados**.
 
 ### Grupos Cognito (Conciliaciones)
 

@@ -92,6 +92,10 @@ function getCedulaOrError(req, res) {
  * Publica eventos de confirmación para consultor y administradores.
  * Fallos de publish no deben tumbar la respuesta HTTP de la mutación.
  */
+function isActividadesEmailEnabled() {
+    return String(process.env.EMAIL_ACTIVIDADES_ENABLED || 'false').toLowerCase() === 'true';
+}
+
 async function publishActivityEvents({
     emailPublisher: publisher,
     activity,
@@ -101,6 +105,13 @@ async function publishActivityEvents({
     resolveAdminNotifyTo = null
 }) {
     if (!activity?.id || !publisher) return;
+    if (!isActividadesEmailEnabled()) {
+        console.warn('[Publisher] Correos de actividades desactivados (EMAIL_ACTIVIDADES_ENABLED!=true); se omite envío.', {
+            entryId: activity.id,
+            action
+        });
+        return;
+    }
     const { randomUUID } = require('crypto');
     const entryData = buildEntryDataForEmail(activity);
     if (!entryData?.date || !entryData?.schedule) {

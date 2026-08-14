@@ -3,11 +3,13 @@ import { render } from '@react-email/render';
 import * as React from 'react';
 import { UserConfirmationEmail } from './templates/UserConfirmationEmail.js';
 import { AdminNotificationEmail } from './templates/AdminNotificationEmail.js';
-import { UserStatusUpdateEmail } from './templates/UserStatusUpdateEmail.js';
 import { ConciliacionCorreoLiderEmail } from './templates/ConciliacionCorreoLiderEmail.js';
 import { ConciliacionServicioFinalizadaEmail } from './templates/ConciliacionServicioFinalizadaEmail.js';
 import { ConciliacionStakeholdersAvisoEmail } from './templates/ConciliacionStakeholdersAvisoEmail.js';
 import { TimeEntryConfirmationEmail } from './templates/TimeEntryConfirmationEmail.js';
+import { AdminTimeEntryNotificationEmail } from './templates/AdminTimeEntryNotificationEmail.js';
+import { SeguimientoCierreEmail } from './templates/SeguimientoCierreEmail.js';
+import { SeguimientoVencimientoEmail } from './templates/SeguimientoVencimientoEmail.js';
 import { sendHtmlEmailWithInlineLogo } from './sesSend.js';
 const sesClient = new SESClient({ region: process.env.AWS_REGION || 'us-east-1' });
 const fromEmail = String(process.env.SES_FROM_EMAIL || '').trim();
@@ -86,7 +88,7 @@ function parseConciliacionStakeholdersAviso(data) {
     return data;
 }
 function parseTimeEntryEvent(data) {
-    if (data?.eventType !== 'time_entry_confirmation') {
+    if (data?.eventType !== 'time_entry_confirmation' && data?.eventType !== 'time_entry_admin_notification') {
         throw new Error('eventType invalido');
     }
     if (!data?.eventId)
@@ -109,24 +111,7 @@ function parseTimeEntryEvent(data) {
         throw new Error('entryData.schedule requerido');
     return data;
 }
-function parseEventPayload(rawEvent) {
-    const payload = parseRawPayload(rawEvent);
-    const data = payload;
-    if (data?.eventType === 'conciliacion_correo_lider') {
-        return parseConciliacionCorreoLider(data);
-    }
-    if (data?.eventType === 'conciliacion_servicio_finalizada') {
-        return parseConciliacionServicioFinalizada(data);
-    }
-    if (data?.eventType === 'conciliacion_stakeholders_aviso') {
-        return parseConciliacionStakeholdersAviso(data);
-    }
-    if (data?.eventType === 'time_entry_confirmation') {
-        return parseTimeEntryEvent(data);
-    }
-    if (data?.eventType !== 'form_submitted' && data?.eventType !== 'form_status_changed') {
-        throw new Error('eventType invalido');
-    }
+function parseFormEvent(data) {
     if (!data?.eventId)
         throw new Error('eventId requerido');
     if (!data?.novedadId)
@@ -147,6 +132,75 @@ function parseEventPayload(rawEvent) {
         throw new Error('statusChange.newEstado invalido');
     }
     return statusEvent;
+}
+function parseEventPayload(rawEvent) {
+    const payload = parseRawPayload(rawEvent);
+    const data = payload;
+    // Eventos de actividades (consultor y admin)
+    if (data?.eventType === 'time_entry_admin_notification' || data?.eventType === 'time_entry_confirmation') {
+        return parseTimeEntryEvent(data);
+    }
+    // Eventos de conciliaciones
+    if (data?.eventType === 'conciliacion_correo_lider') {
+        return parseConciliacionCorreoLider(data);
+    }
+    if (data?.eventType === 'conciliacion_servicio_finalizada') {
+        return parseConciliacionServicioFinalizada(data);
+    }
+    if (data?.eventType === 'conciliacion_stakeholders_aviso') {
+        return parseConciliacionStakeholdersAviso(data);
+    }
+    // Eventos de novedades (formularios)
+    if (data?.eventType === 'form_submitted' || data?.eventType === 'form_status_changed') {
+        return parseFormEvent(data);
+    }
+    if (data?.eventType === 'seguimiento_cierre') {
+        return parseSeguimientoCierre(data);
+    }
+    if (data?.eventType === 'seguimiento_vencimiento') {
+        return parseSeguimientoVencimiento(data);
+    }
+    throw new Error('eventType invalido');
+}
+function parseSeguimientoCierre(data) {
+    if (data?.eventType !== 'seguimiento_cierre')
+        throw new Error('eventType invalido');
+    if (!data?.eventId)
+        throw new Error('eventId requerido');
+    if (!String(data?.seguimientoId || '').trim())
+        throw new Error('seguimientoId requerido');
+    if (!['consultor', 'cliente'].includes(String(data?.tipo || '').toLowerCase()))
+        throw new Error('tipo invalido');
+    const recipients = data.recipients;
+    if (!Array.isArray(recipients) || recipients.length === 0)
+        throw new Error('recipients requerido');
+    for (const r of recipients) {
+        if (!String(r?.email || '').includes('@'))
+            throw new Error('recipients.email invalido');
+    }
+    if (!String(data?.acta?.cliente || '').trim())
+        throw new Error('acta.cliente requerido');
+    return data;
+}
+function parseSeguimientoVencimiento(data) {
+    if (data?.eventType !== 'seguimiento_vencimiento')
+        throw new Error('eventType invalido');
+    if (!data?.eventId)
+        throw new Error('eventId requerido');
+    if (!String(data?.seguimientoId || '').trim())
+        throw new Error('seguimientoId requerido');
+    if (!['T5', 'T1'].includes(String(data?.kind || '')))
+        throw new Error('kind invalido');
+    const recipients = data.recipients;
+    if (!Array.isArray(recipients) || recipients.length === 0)
+        throw new Error('recipients requerido');
+    for (const r of recipients) {
+        if (!String(r?.email || '').includes('@'))
+            throw new Error('recipients.email invalido');
+    }
+    if (!String(data?.venceEl || '').trim())
+        throw new Error('venceEl requerido');
+    return data;
 }
 function resolveAdminRecipientsFromEnv() {
     const csv = adminToCsv
@@ -185,6 +239,33 @@ function resolveAdminRecipientsForSubmitted(payload) {
     }
     return resolveAdminRecipientsFromEnv();
 }
+/**
+ * Destinatarios admin para actividades:
+ * 1) `admin.notifyTo` si el backend lo envió (Cognito/BD)
+ * 2) SUPER_ADMIN_EMAILS / CAC_EMAILS / GP_EMAILS
+ * 3) EMAIL_ADMIN_TO / EMAIL_ADMIN_TO_CSV (mismo fallback que novedades)
+ */
+async function resolveAdminRecipientsForActivity(payload) {
+    const admin = payload.admin;
+    if (admin != null && Object.prototype.hasOwnProperty.call(admin, 'notifyTo')) {
+        const fromPayload = resolveNotifyToFromPayload({ admin });
+        if (fromPayload.length > 0)
+            return fromPayload;
+        // notifyTo explícito vacío: no caer a ENV (misma regla que form_submitted)
+        return [];
+    }
+    const fromRoleEnv = [
+        ...(process.env.SUPER_ADMIN_EMAILS || '').split(','),
+        ...(process.env.CAC_EMAILS || '').split(','),
+        ...(process.env.GP_EMAILS || '').split(',')
+    ]
+        .map((e) => e.trim().toLowerCase())
+        .filter((e) => e.includes('@'));
+    if (fromRoleEnv.length > 0) {
+        return Array.from(new Set(fromRoleEnv));
+    }
+    return resolveAdminRecipientsFromEnv();
+}
 function monthLabel(anio, mes) {
     const names = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
     const m = Math.max(1, Math.min(12, Number(mes) || 1));
@@ -192,9 +273,91 @@ function monthLabel(anio, mes) {
 }
 export const handler = async (event) => {
     try {
+        const raw = parseRawPayload(event);
+        const incomingType = String(raw?.eventType || '');
+        if ((incomingType === 'time_entry_confirmation' || incomingType === 'time_entry_admin_notification')
+            && String(process.env.EMAIL_ACTIVIDADES_ENABLED || 'false').toLowerCase() !== 'true') {
+            console.warn('[email-transactions] Correos de actividades desactivados; se omite envío', {
+                eventType: incomingType,
+                eventId: raw?.eventId || null,
+                entryId: raw?.entryId || null
+            });
+            return json(200, {
+                ok: true,
+                skipped: 'actividades_disabled',
+                eventId: raw?.eventId || null
+            });
+        }
         if (!fromEmail)
             throw new Error('SES_FROM_EMAIL no configurado');
         const payload = parseEventPayload(event);
+        if (payload.eventType === 'seguimiento_cierre') {
+            const html = await render(React.createElement(SeguimientoCierreEmail, { payload }));
+            const subject = `Seguimiento finalizado — ${payload.acta.cliente}`;
+            const settled = await Promise.allSettled(payload.recipients.map((r) => sendHtmlEmailWithInlineLogo(sesClient, {
+                from: fromEmail,
+                to: String(r.email).trim(),
+                subject,
+                html
+            })));
+            const messageIds = {};
+            const failures = [];
+            for (let i = 0; i < settled.length; i += 1) {
+                const to = String(payload.recipients[i]?.email || '').trim();
+                const entry = settled[i];
+                if (entry.status === 'rejected') {
+                    const err = entry.reason;
+                    failures.push({ to, message: err?.message || String(entry.reason) });
+                    continue;
+                }
+                messageIds[to] = entry.value.MessageId || null;
+            }
+            if (failures.length > 0) {
+                return json(500, {
+                    ok: false,
+                    eventId: payload.eventId,
+                    errorType: 'PartialOrFullEmailFailure',
+                    message: 'Uno o más correos de cierre de seguimiento no se pudieron enviar.',
+                    messageIds,
+                    failures
+                });
+            }
+            return json(200, { ok: true, eventId: payload.eventId, messageIds });
+        }
+        if (payload.eventType === 'seguimiento_vencimiento') {
+            const html = await render(React.createElement(SeguimientoVencimientoEmail, { payload }));
+            const dias = payload.kind === 'T5' ? '5' : '1';
+            const subject = `Seguimiento próximo a vencer (T-${dias}) — ${payload.sujetoLabel}`;
+            const settled = await Promise.allSettled(payload.recipients.map((r) => sendHtmlEmailWithInlineLogo(sesClient, {
+                from: fromEmail,
+                to: String(r.email).trim(),
+                subject,
+                html
+            })));
+            const messageIds = {};
+            const failures = [];
+            for (let i = 0; i < settled.length; i += 1) {
+                const to = String(payload.recipients[i]?.email || '').trim();
+                const entry = settled[i];
+                if (entry.status === 'rejected') {
+                    const err = entry.reason;
+                    failures.push({ to, message: err?.message || String(entry.reason) });
+                    continue;
+                }
+                messageIds[to] = entry.value.MessageId || null;
+            }
+            if (failures.length > 0) {
+                return json(500, {
+                    ok: false,
+                    eventId: payload.eventId,
+                    errorType: 'PartialOrFullEmailFailure',
+                    message: 'Uno o más correos de vencimiento de seguimiento no se pudieron enviar.',
+                    messageIds,
+                    failures
+                });
+            }
+            return json(200, { ok: true, eventId: payload.eventId, messageIds });
+        }
         if (payload.eventType === 'conciliacion_correo_lider') {
             const html = await render(React.createElement(ConciliacionCorreoLiderEmail, { payload }));
             const subject = String(payload.asunto || '').trim();
@@ -306,24 +469,71 @@ export const handler = async (event) => {
                 messageIds: { to: result.MessageId || null }
             });
         }
-        if (payload.eventType === 'form_status_changed') {
-            const userHtml = await render(React.createElement(UserStatusUpdateEmail, { payload }));
-            const subject = `Actualizacion de solicitud ${payload.novedadId}: ${payload.formData.estado}`;
-            const userResult = await sendHtmlEmailWithInlineLogo(sesClient, {
+        // ===== ADMINISTRADORES =====
+        if (payload.eventType === 'time_entry_admin_notification') {
+            const typedPayload = payload;
+            const html = await render(React.createElement(AdminTimeEntryNotificationEmail, { payload: typedPayload }));
+            const ADMIN_ACTION_TEXT_MAP = {
+                created: 'registrada',
+                updated: 'actualizada',
+                deleted: 'eliminada'
+            };
+            const adminActionText = ADMIN_ACTION_TEXT_MAP[typedPayload.action] || 'actualizada';
+            const subject = `Nueva actividad ${adminActionText} por ${typedPayload.consultant.name}`;
+            const adminEmails = await resolveAdminRecipientsForActivity(typedPayload);
+            // Si no hay destinatarios, registrar y terminar
+            if (adminEmails.length === 0) {
+                console.warn('[email-transactions] Sin destinatarios admin para actividad', {
+                    entryId: payload.entryId,
+                    client: payload.entryData.client
+                });
+                return json(200, {
+                    ok: true,
+                    eventId: payload.eventId,
+                    messageIds: { admin: null },
+                    warn: 'no_admin_recipients'
+                });
+            }
+            const settled = await Promise.allSettled(adminEmails.map((email) => sendHtmlEmailWithInlineLogo(sesClient, {
                 from: fromEmail,
-                to: payload.user.email,
+                to: email,
                 subject,
-                html: userHtml
-            });
+                html
+            })));
+            // Manejo de resultados
+            const failures = [];
+            const messageIds = {};
+            for (let i = 0; i < settled.length; i += 1) {
+                const to = adminEmails[i];
+                const entry = settled[i];
+                if (entry.status === 'rejected') {
+                    const err = entry.reason;
+                    failures.push({ to, message: err?.message || String(entry.reason) });
+                    continue;
+                }
+                messageIds[to] = entry.value.MessageId || null;
+            }
+            if (failures.length > 0) {
+                console.error('[email-transactions] Algunos correos admin fallaron', {
+                    eventId: payload.eventId,
+                    failures
+                });
+                return json(500, {
+                    ok: false,
+                    eventId: payload.eventId,
+                    errorType: 'PartialOrFullEmailFailure',
+                    message: 'Uno o más correos admin no se pudieron enviar.',
+                    messageIds,
+                    failures
+                });
+            }
             return json(200, {
                 ok: true,
                 eventId: payload.eventId,
-                messageIds: {
-                    user: userResult.MessageId || null
-                }
+                messageIds
             });
         }
-        const userHtml = await render(React.createElement(UserConfirmationEmail, { payload }));
+        const userHtml = await render(React.createElement(UserConfirmationEmail, { payload: payload }));
         const userSubject = `Solicitud Radicada - ${payload.formData.tipoNovedad}`;
         const adminRecipients = resolveAdminRecipientsForSubmitted(payload);
         if (adminRecipients.length === 0) {
@@ -346,7 +556,7 @@ export const handler = async (event) => {
                 }
             });
         }
-        const adminHtml = await render(React.createElement(AdminNotificationEmail, { payload }));
+        const adminHtml = await render(React.createElement(AdminNotificationEmail, { payload: payload }));
         const adminSubject = `Nueva solicitud ${payload.formData.tipoNovedad} - ${payload.novedadId}`;
         const taskSpecs = [
             {

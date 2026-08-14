@@ -97,6 +97,11 @@ const { registerOnboardingRoutes } = require('./src/onboarding/registerOnboardin
 const { registerDirectorioRoutes } = require('./src/directorio/registerDirectorioRoutes');
 const { registerConciliacionesRoutes } = require('./src/conciliaciones/registerConciliacionesRoutes');
 const { registerSourcingRoutes } = require('./src/sourcing/registerSourcingRoutes');
+const { ensureSeguimientoTables } = require('./src/seguimiento/seguimientoSchema');
+const { createSeguimientoService } = require('./src/seguimiento/seguimientoService');
+const { registerSeguimientoRoutes } = require('./src/seguimiento/registerSeguimientoRoutes');
+const { createSeguimientoConsultorService } = require('./src/seguimiento/seguimientoConsultorService');
+const { registerConsultorSeguimientoRoutes } = require('./src/seguimiento/registerConsultorSeguimientoRoutes');
 const { createEmailNotificationsPublisher } = require('./src/notifications/emailNotificationsPublisher');
 const { createResolveApproverEmailsFromCognito } = require('./src/notifications/resolveApproverEmailsFromCognito');
 
@@ -778,6 +783,12 @@ const { startServer } = require('./src/startup');
 const cotizadorStore = createCotizadorStore({ pool });
 const tiRolesStore = createTiRolesStore({ pool });
 const actividadesStore = createActividadesStore({ pool });
+const seguimientoService = createSeguimientoService({
+    pool,
+    emailNotificationsPublisher,
+    listEmailsInGroups
+});
+const seguimientoConsultorService = createSeguimientoConsultorService({ pool });
 
 const secureEntraCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
 const sameSiteEntra = isProduction ? 'strict' : 'lax';
@@ -1020,58 +1031,76 @@ listEmailsInGroups,
 listGpEmailsForCliente
 });
 
+registerSeguimientoRoutes({
+    app,
+    verificarToken,
+    allowPanel,
+    allowRoles,
+    resolveGpInternalUserIdForScope,
+    listAssignedClientesForGpUserId,
+    seguimientoService
+});
+
+registerConsultorSeguimientoRoutes({
+    app,
+    verificarToken,
+    requireEntraConsultor,
+    seguimientoConsultorService
+});
+
 startServer({
-app,
-pool,
-ensureUserRoleEnumValues,
-ensureClientesLideresTable,
-ensureClientesLideresNitColumn,
-ensureClientesLideresGpUserColumn,
-ensureNovedadesIndexes,
-ensureNovedadesHourSplitColumns,
-ensureNovedadesMontoCopColumn,
-ensureNovedadesApproverEmailColumns,
-ensureNovedadesHoraExtraAlertColumns,
-ensureNovedadesHeDomingoObservacionColumn,
-ensureNovedadesNominaVerificacionColumns,
-ensureNovedadesNominaProcesadoColumns,
-ensureNovedadesHorasRecargoDomingoColumn,
-ensureNovedadesModalidadVotacionUnidadColumns,
-ensureNovedadesObservacionesColumn,
-ensureNovedadesObservacionesRechazoColumn,
-ensureNovedadesDuplicadoPendienteIndex,
-migrateExcelIfNeeded,
-migrateClientesLideresFromExcelIfNeeded,
-ensureColaboradoresTable,
-ensureColaboradoresDirectoryColumns,
-ensureReubicacionesPipelineTable,
-ensureMallaTurnosCeldaTable,
-ensureMallaTurnoAsignacionTable,
-ensureMallaTurnoAprobacionTable,
-ensureMallaNocturnoConfigTable,
-ensureNovedadesMallaOrigenRefColumn,
-ensureConciliacionesFacturacionTable,
-ensureConciliacionesFacturacionHistorialTable,
-ensureConciliacionesServicioNotificacionesTable,
-ensureConciliacionesServicioCierreTable,
-ensureConciliacionesEmailPlantillasTable,
-ensureConciliacionesEmailAccionesTable,
-ensureConciliacionesNovedadConsumoTable,
-ensureColaboradorAsignacionesTable,
-ensureColaboradorTarifaHistorialTable,
-ensureUsersCognitoSubColumn,
-ensureCinteLeonardoPair,
-ensureActividadesConsultorTable: actividadesStore.ensureActividadesConsultorTable,
-PORT,
-COGNITO_ENABLED,
-COGNITO_REGION,
-COGNITO_USER_POOL_ID,
-COGNITO_APP_CLIENT_SECRET,
-s3Client,
-S3_ENABLED,
-S3_BUCKET_NAME,
-S3_REGION,
-S3_AUTH_MODE
+    app,
+    pool,
+    ensureUserRoleEnumValues,
+    ensureClientesLideresTable,
+    ensureClientesLideresNitColumn,
+    ensureClientesLideresGpUserColumn,
+    ensureNovedadesIndexes,
+    ensureNovedadesHourSplitColumns,
+    ensureNovedadesMontoCopColumn,
+    ensureNovedadesApproverEmailColumns,
+    ensureNovedadesHoraExtraAlertColumns,
+    ensureNovedadesHeDomingoObservacionColumn,
+    ensureNovedadesNominaVerificacionColumns,
+    ensureNovedadesNominaProcesadoColumns,
+    ensureNovedadesHorasRecargoDomingoColumn,
+    ensureNovedadesModalidadVotacionUnidadColumns,
+    ensureNovedadesObservacionesColumn,
+    ensureNovedadesObservacionesRechazoColumn,
+    ensureNovedadesDuplicadoPendienteIndex,
+    migrateExcelIfNeeded,
+    migrateClientesLideresFromExcelIfNeeded,
+    ensureColaboradoresTable,
+    ensureColaboradoresDirectoryColumns,
+    ensureReubicacionesPipelineTable,
+    ensureMallaTurnosCeldaTable,
+    ensureMallaTurnoAsignacionTable,
+    ensureMallaTurnoAprobacionTable,
+    ensureMallaNocturnoConfigTable,
+    ensureNovedadesMallaOrigenRefColumn,
+    ensureConciliacionesFacturacionTable,
+    ensureConciliacionesFacturacionHistorialTable,
+    ensureConciliacionesServicioNotificacionesTable,
+    ensureConciliacionesServicioCierreTable,
+    ensureConciliacionesEmailPlantillasTable,
+    ensureConciliacionesEmailAccionesTable,
+    ensureConciliacionesNovedadConsumoTable,
+    ensureColaboradorAsignacionesTable,
+    ensureColaboradorTarifaHistorialTable,
+    ensureUsersCognitoSubColumn,
+    ensureCinteLeonardoPair,
+    ensureActividadesConsultorTable: actividadesStore.ensureActividadesConsultorTable,
+    ensureSeguimientoTables,
+    PORT,
+    COGNITO_ENABLED,
+    COGNITO_REGION,
+    COGNITO_USER_POOL_ID,
+    COGNITO_APP_CLIENT_SECRET,
+    s3Client,
+    S3_ENABLED,
+    S3_BUCKET_NAME,
+    S3_REGION,
+    S3_AUTH_MODE
 }).catch((error) => {
 console.error('Fallo inicializando servidor:', error);
 process.exit(1);

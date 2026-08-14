@@ -34,3 +34,10 @@ export function resolveGestionPublicUrl(): string {
   if (fromEnv) return fromEnv;
   return `${DEFAULT_PUBLIC_ORIGIN}/`;
 }
+
+/** Deep-link portal consultor → Exámenes y Evaluaciones (correo de cierre de acta). */
+export function resolveConsultorSeguimientoUrl(): string {
+  const fromEnv = String(process.env.EMAIL_CONSULTOR_SEGUIMIENTO_URL || '').trim();
+  if (fromEnv) return fromEnv;
+  return `${DEFAULT_PUBLIC_ORIGIN}/consultor/examenes-evaluaciones`;
+}
