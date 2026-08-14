@@ -36,9 +36,7 @@ function registerSeguimientoRoutes(deps) {
     app.get('/api/seguimiento/cartera', baseMiddleware, async (req, res) => {
         try {
             const { role, scope } = await extractUserContext(req);
-            console.log('[DEBUG /cartera] req.user:', req.user);
-            console.log('[DEBUG /cartera] scope:', scope);
-            
+
             // 1. Resolver si el usuario aplica como GP y obtener su UUID interno
             let gpId = null;
             if (role === 'gp') {
@@ -93,7 +91,6 @@ function registerSeguimientoRoutes(deps) {
                         can_edit = true;
                     }
                 }
-                console.log(`[DEBUG /actas map] actaId: ${acta.id}, gp_id: ${acta.gp_id}, gpId: ${gpId}, estado: ${acta.estado}, can_edit: ${can_edit}`);
                 return { ...acta, can_edit };
             });
 
