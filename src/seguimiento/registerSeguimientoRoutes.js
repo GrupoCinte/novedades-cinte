@@ -79,7 +79,18 @@ function registerSeguimientoRoutes(deps) {
             }
 
             // 2. Delegar la consulta al servicio de negocio inyectado
-            const actas = await seguimientoService.listActas({ clientesAsignados, limit, offset });
+            const proximosVencer =
+                String(req.query.proximosVencer || '').toLowerCase() === 'true' ||
+                String(req.query.proximosVencer || '') === '1';
+            const maxDias = Number.parseInt(req.query.maxDias || '5', 10);
+
+            const actas = await seguimientoService.listActas({
+                clientesAsignados,
+                limit,
+                offset,
+                proximosVencer,
+                maxDias
+            });
 
             // 3. Transformar respuesta HTTP y agregar permisos dinámicos (can_edit)
             const actasWithPermissions = actas.map(acta => {
@@ -257,6 +268,40 @@ function registerSeguimientoRoutes(deps) {
         } catch (error) {
             console.error('[Seguimiento] Error en POST /api/seguimiento/actas/:id/reintentar-correo:', error);
             const status = Number(error.statusCode) || 400;
+            res.status(status).json({ ok: false, error: error.message });
+        }
+    });
+
+    function allowInternalOrStaff(req, res, next) {
+        const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+        const expected = String(process.env.SEGUIMIENTO_INTERNAL_TOKEN || process.env.INTERNAL_TOKEN || '').trim();
+        if (expected && token && token === expected) return next();
+        return verificarToken(req, res, () => allowRoles(['cac', 'super_admin'])(req, res, next));
+    }
+
+    app.get('/api/seguimiento/internal/elegibles-recordatorio', allowInternalOrStaff, async (req, res) => {
+        try {
+            const kind = String(req.query.kind || '').toUpperCase();
+            const items = await seguimientoService.listElegiblesRecordatorio({
+                kind,
+                asOfDate: req.query.asOfDate || undefined
+            });
+            res.json({ ok: true, items });
+        } catch (error) {
+            const status = Number(error.statusCode) || 500;
+            res.status(status).json({ ok: false, error: error.message });
+        }
+    });
+
+    app.post('/api/seguimiento/internal/process-reminder', allowInternalOrStaff, async (req, res) => {
+        try {
+            const result = await seguimientoService.processReminderMessage({
+                seguimientoId: req.body?.seguimientoId,
+                kind: req.body?.kind
+            });
+            res.json({ ok: true, result });
+        } catch (error) {
+            const status = Number(error.statusCode) || 500;
             res.status(status).json({ ok: false, error: error.message });
         }
     });
