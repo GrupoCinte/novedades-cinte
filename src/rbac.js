@@ -19,7 +19,7 @@ const POLICY = {
      * financiero) sin filtro por área del JWT; el alcance sigue acotado por `clientes_lideres.gp_user_id`. La aprobación se
      * mantiene limitada por `approvers` en `NOVELTY_RULES` (no se gana capacidad de decidir por este flag).
      */
-    gp: { panels: ['gestion', 'onboarding', 'conciliaciones', 'monitoreo'], viewAllAreas: true },
+    gp: { panels: ['gestion', 'onboarding', 'conciliaciones', 'monitoreo', 'reubicaciones'], viewAllAreas: true },
     analista_conciliaciones: { panels: ['conciliaciones'], viewAllAreas: true },
     /** Nómina: ve Conciliaciones completo (wide) en solo lectura; mutaciones en facturacionRevision / conciliacionRbac. */
     nomina: { panels: ['dashboard', 'calendar', 'gestion', 'onboarding', 'conciliaciones'], viewAllAreas: true },

@@ -196,14 +196,14 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         setFiltersPanelOpen(false);
     }, [mainView]);
 
-    useEffect(() => {        
-    if ((chOnly || atOnly || gpMallasOnly) && mainView === 'cliente') {
-        setMainView('reubicaciones');
-        return;
-    }
-        const gpAllowedViews = canAccessMonitoreo ? ['mallasTurnos', 'monitoreo', 'reubicaciones'] : ['mallasTurnos', 'reubicaciones'];
+    useEffect(() => {
+        if ((chOnly || atOnly || gpMallasOnly) && mainView === 'cliente') {
+            setMainView('reubicaciones');
+        }
+    }, [chOnly, atOnly, gpMallasOnly, mainView]);
+
     const gpAllowedViews = useMemo(() => {
-        const views = ['mallasTurnos'];
+        const views = ['reubicaciones', 'mallasTurnos'];
         if (canAccessMonitoreo) views.push('monitoreo');
         if (canAccessSeguimiento) views.push('seguimiento');
         return views;
@@ -236,24 +236,18 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         } else if (v === 'catalogo-ti' && showTiCatalogSubmod) {
             nextView = 'catalogoTi';
         }
-        if (gpMallasOnly) {
-            if (v) {
-                const next = new URLSearchParams(searchParams);
-                next.delete('v');
-                setSearchParams(next, { replace: true });
 
-        if (nextView) {
-            if (gpMallasOnly && !gpAllowedViews.includes(nextView)) {
-                setMainView('mallasTurnos');
-            } else {
-                setMainView(nextView);
-            }
+        if (!nextView) return;
+
+        if (gpMallasOnly && !gpAllowedViews.includes(nextView)) {
+            setMainView('mallasTurnos');
+        } else {
+            setMainView(nextView);
         }
 
         const nextParams = new URLSearchParams(searchParams);
         nextParams.delete('v');
         setSearchParams(nextParams, { replace: true });
-
     }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly, gpAllowedViews, canAccessMonitoreo, canAccessSeguimiento]);
 
     const [msg, setMsg] = useState(null);
