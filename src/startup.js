@@ -1,4 +1,4 @@
-const path = require('path');
+const path = require('node:path');
 const { logger } = require('./logger');
 const {
     initContratacionRealtime,
@@ -6,6 +6,39 @@ const {
 } = require('./contratacion/initContratacionRealtime');
 const { ensureOnboardingSchema } = require('./onboarding/onboardingSchema');
 const { ensureSourcingSchema } = require('./sourcing/sourcingSchema');
+
+function logStartupConfig(deps) {
+    const { PORT, COGNITO_ENABLED, COGNITO_REGION, COGNITO_USER_POOL_ID, COGNITO_APP_CLIENT_SECRET, s3Client, S3_ENABLED, S3_BUCKET_NAME, S3_REGION, S3_AUTH_MODE } = deps;
+    logger.info({ port: PORT }, `Servidor listo en http://localhost:${PORT}`);
+    logger.info({ dbName: process.env.DB_NAME || 'novedades_cinte', dbHost: process.env.DB_HOST || 'localhost', dbPort: process.env.DB_PORT || 5432 }, 'DB conectada');
+    if (COGNITO_ENABLED) {
+        logger.info({ cognitoRegion: COGNITO_REGION || 'sin-region', userPoolId: COGNITO_USER_POOL_ID || 'sin-pool' }, 'Cognito activo');
+        if (!COGNITO_APP_CLIENT_SECRET) {
+            logger.warn('COGNITO_APP_CLIENT_SECRET no configurado (solo valido para app client sin secret).');
+        }
+    } else {
+        logger.warn('Cognito inactivo: usando JWT local.');
+    }
+    if (s3Client) {
+        logger.info({ bucket: S3_BUCKET_NAME, region: S3_REGION, authMode: S3_AUTH_MODE }, 'S3 activo');
+        if (S3_AUTH_MODE === 'role') {
+            logger.info('S3 usando IAM Role (sin access keys en .env).');
+        } else if (S3_AUTH_MODE === 'keys') {
+            if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+                logger.warn('S3_AUTH_MODE=keys pero faltan AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.');
+            } else {
+                logger.warn('S3 usando access keys locales (modo temporal).');
+            }
+        }
+    } else if (S3_ENABLED) {
+        logger.warn(
+            'S3_ENABLED=true pero falta S3_BUCKET_NAME (o está vacío): soportes en S3 no funcionarán hasta completar .env (ver .env.example).'
+        );
+    } else {
+        logger.warn('S3 inactivo: usando almacenamiento local en /assets/uploads.');
+    }
+    logger.info({ assetsPath: path.join(process.cwd(), 'assets') }, 'Carpeta assets');
+}
 
 async function startServer(deps) {
     const {
@@ -50,16 +83,8 @@ async function startServer(deps) {
         ensureUsersCognitoSubColumn,
         ensureCinteLeonardoPair,
         ensureActividadesConsultorTable,
-        PORT,
-        COGNITO_ENABLED,
-        COGNITO_REGION,
-        COGNITO_USER_POOL_ID,
-        COGNITO_APP_CLIENT_SECRET,
-        s3Client,
-        S3_ENABLED,
-        S3_BUCKET_NAME,
-        S3_REGION,
-        S3_AUTH_MODE
+        ensureSeguimientoTables,
+        PORT
     } = deps;
 
     await pool.query('SELECT NOW()');
@@ -99,13 +124,17 @@ async function startServer(deps) {
     await ensureConciliacionesNovedadConsumoTable();
     await ensureColaboradorAsignacionesTable();
     await ensureColaboradorTarifaHistorialTable();
-    if (typeof ensureActividadesConsultorTable === 'function') {
+    const safeInit = async (fn, args, fallbackMsg) => {
+        if (typeof fn !== 'function') return;
         try {
-            await ensureActividadesConsultorTable();
+            await fn(...(args || []));
         } catch (e) {
-            logger.warn({ error: e?.message }, 'Inicialización DDL actividades_consultor omitida o sin permisos');
+            logger.warn({ error: e?.message }, fallbackMsg);
         }
-    }
+    };
+
+    await safeInit(ensureActividadesConsultorTable, [], 'Inicialización DDL actividades_consultor omitida o sin permisos');
+    await safeInit(ensureSeguimientoTables, [pool], 'Inicialización DDL seguimiento omitida o sin permisos');
 
     try {
         const { migrateColaboradoresToAsignaciones } = require('./conciliaciones/colaboradorAsignaciones');
@@ -124,45 +153,17 @@ async function startServer(deps) {
     try {
         await ensureOnboardingSchema({ pool, logger });
     } catch (e) {
-        logger.error({ error: e && e.message ? e.message : e }, 'Onboarding schema: error de DDL (continúa arranque)');
+        logger.error({ error: e?.message || e }, 'Onboarding schema: error de DDL (continúa arranque)');
     }
 
     try {
         await ensureSourcingSchema({ pool, logger });
     } catch (e) {
-        logger.error({ error: e && e.message ? e.message : e }, 'Sourcing schema: error de DDL (continúa arranque)');
+        logger.error({ error: e?.message || e }, 'Sourcing schema: error de DDL (continúa arranque)');
     }
 
     const server = app.listen(PORT, () => {
-        logger.info({ port: PORT }, `Servidor listo en http://localhost:${PORT}`);
-        logger.info({ dbName: process.env.DB_NAME || 'novedades_cinte', dbHost: process.env.DB_HOST || 'localhost', dbPort: process.env.DB_PORT || 5432 }, 'DB conectada');
-        if (COGNITO_ENABLED) {
-            logger.info({ cognitoRegion: COGNITO_REGION || 'sin-region', userPoolId: COGNITO_USER_POOL_ID || 'sin-pool' }, 'Cognito activo');
-            if (!COGNITO_APP_CLIENT_SECRET) {
-                logger.warn('COGNITO_APP_CLIENT_SECRET no configurado (solo valido para app client sin secret).');
-            }
-        } else {
-            logger.warn('Cognito inactivo: usando JWT local.');
-        }
-        if (s3Client) {
-            logger.info({ bucket: S3_BUCKET_NAME, region: S3_REGION, authMode: S3_AUTH_MODE }, 'S3 activo');
-            if (S3_AUTH_MODE === 'role') {
-                logger.info('S3 usando IAM Role (sin access keys en .env).');
-            } else if (S3_AUTH_MODE === 'keys') {
-                if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
-                    logger.warn('S3_AUTH_MODE=keys pero faltan AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY.');
-                } else {
-                    logger.warn('S3 usando access keys locales (modo temporal).');
-                }
-            }
-        } else if (S3_ENABLED) {
-            logger.warn(
-                'S3_ENABLED=true pero falta S3_BUCKET_NAME (o está vacío): soportes en S3 no funcionarán hasta completar .env (ver .env.example).'
-            );
-        } else {
-            logger.warn('S3 inactivo: usando almacenamiento local en /assets/uploads.');
-        }
-        logger.info({ assetsPath: path.join(process.cwd(), 'assets') }, 'Carpeta assets');
+        logStartupConfig(deps);
     });
 
     /**
@@ -178,10 +179,10 @@ async function startServer(deps) {
     }
 
     server.on('error', (err) => {
-        if (err && err.code === 'EADDRINUSE') {
+        if (err?.code === 'EADDRINUSE') {
             logger.fatal({ port: PORT }, 'Puerto en uso: libera el proceso o cambia PORT');
         } else {
-            logger.fatal({ error: err && err.message ? err.message : err }, 'Error al escuchar HTTP');
+            logger.fatal({ error: err?.message || err }, 'Error al escuchar HTTP');
         }
         process.exit(1);
     });
