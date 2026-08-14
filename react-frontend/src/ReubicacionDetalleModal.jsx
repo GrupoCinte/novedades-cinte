@@ -1,13 +1,12 @@
 import { Pencil, Trash2, CheckCircle, XCircle } from 'lucide-react';
 import MonitorGlassModalShell from './shared/modals/MonitorGlassModalShell.jsx';
 import { useModuleTheme } from './moduleTheme.js';
-import { buildMonitorGlassModalTheme } from './shared/modals/monitorGlassModalTheme.js';
 import { formatMoneyAmountOnly } from './multiCurrencyMoney.js';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { userCanDecideAptitud, userCanRegisterObservacion, userCanModifyReubicacion } from './reubicaciones/reubicacionesAccess';
 
 function getCsrfToken() {
-    const match = document.cookie.match(/cinteXsrf=([^;]+)/);
+    const match = /cinteXsrf=([^;]+)/.exec(document.cookie || '');
     return match ? match[1] : '';
 }
 
@@ -19,9 +18,47 @@ function formatMontoDisplay(val, currencyCode = 'COP') {
     return `$ ${formatMoneyAmountOnly(num, ccy)}`;
 }
 
+function getStatusThemeClasses(isLight, kind) {
+    if (kind === 'success') {
+        return isLight ? 'bg-emerald-50 text-emerald-700' : 'bg-emerald-950/20 text-emerald-300';
+    }
+    return isLight ? 'bg-rose-50 text-rose-700' : 'bg-rose-950/20 text-rose-300';
+}
+
+function getDecisionCardClass(isLight, decisionValue) {
+    const isApto = decisionValue === 'APTO';
+    if (isApto) {
+        return isLight
+            ? 'bg-emerald-50/90 border border-emerald-200 text-emerald-800'
+            : 'bg-emerald-950/35 border border-emerald-800/50 text-emerald-200';
+    }
+    return isLight
+        ? 'bg-rose-50/90 border border-rose-200 text-rose-800'
+        : 'bg-rose-950/35 border border-rose-800/50 text-rose-200';
+}
+
+function getDecisionLabelClass(isLight, decisionValue) {
+    const isApto = decisionValue === 'APTO';
+    if (isApto) {
+        return isLight ? 'text-emerald-700' : 'text-emerald-300';
+    }
+    return isLight ? 'text-rose-700' : 'text-rose-300';
+}
+
+function getDecisionButtonClass(isLight, decisionValue, selectedValue) {
+    const isSelected = decisionValue === selectedValue;
+    if (isSelected) {
+        return decisionValue === 'APTO'
+            ? isLight ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-emerald-600/60 bg-emerald-900/30 text-emerald-300'
+            : isLight ? 'border-rose-400 bg-rose-100 text-rose-800 shadow-sm' : 'border-rose-600/60 bg-rose-900/30 text-rose-300';
+    }
+    return decisionValue === 'APTO'
+        ? isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-700/50'
+        : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-rose-300' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-rose-700/50';
+}
+
 export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onEdit, onDelete }) {
     const { isLight } = useModuleTheme();
-    const T = buildMonitorGlassModalTheme(isLight);
 
     // Estados para observaciones y decisiones
     const [observacion, setObservacion] = useState('');
@@ -42,9 +79,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
     const puedeDecidir = userCanDecideAptitud(auth);
     const canModify = userCanModifyReubicacion(auth);
 
-    const infoCardClass = isLight
-        ? 'rounded-lg p-2.5 shadow-none bg-transparent'
-        : 'rounded-lg p-2.5 shadow-none bg-transparent';
+    const infoCardClass = 'rounded-lg p-2.5 shadow-none bg-transparent';
     const infoLabelClass = isLight ? 'text-xs font-medium text-slate-500' : 'text-xs font-medium text-slate-400';
     const infoValueClass = isLight ? 'mt-0.5 font-semibold text-slate-700' : 'mt-0.5 font-semibold text-slate-200';
     const textCapitalizedClass = 'capitalize';
@@ -53,18 +88,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
         ? 'w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 shadow-none placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-0'
         : 'w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-100 shadow-none placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-0';
 
-    // Cargar datos al abrir el modal
-    useEffect(() => {
-        if (isOpen && row?.id) {
-            cargarObservacion();
-            cargarDecision();
-        }
-    }, [isOpen, row?.id]);
-
-    // ============================================
-    // OBSERVACIONES
-    // ============================================
-    const cargarObservacion = async () => {
+    const cargarObservacion = useCallback(async () => {
         try {
             const res = await fetch(`/api/directorio/reubicaciones/${row.id}/observacion`, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -77,10 +101,37 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                     setObservacion(data.data.actual.observacion);
                 }
             }
-        } catch (e) {
-            console.error('Error cargando observacion:', e);
+        } catch (error) {
+            console.error('Error cargando observacion:', error);
         }
-    };
+    }, [row?.id, token]);
+
+    const cargarDecision = useCallback(async () => {
+        try {
+            const res = await fetch(`/api/directorio/reubicaciones/${row.id}/decision`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (data.ok) {
+                setDecisionActual(data.data?.actual || null);
+                setHistorialDec(data.data?.historial || []);
+            }
+        } catch (error) {
+            console.error('Error cargando decision:', error);
+        }
+    }, [row?.id, token]);
+
+    // Cargar datos al abrir el modal
+    useEffect(() => {
+        if (isOpen && row?.id) {
+            cargarObservacion();
+            cargarDecision();
+        }
+    }, [isOpen, row?.id, cargarObservacion, cargarDecision]);
+
+    // ============================================
+    // OBSERVACIONES
+    // ============================================
 
     const handleGuardarObservacion = async () => {
         if (!observacion.trim()) {
@@ -115,7 +166,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
             } else {
                 setError(data.error || 'Error al guardar observación');
             }
-        } catch (e) {
+        } catch {
             setError('Error al guardar observación');
         } finally {
             setLoading(false);
@@ -125,21 +176,6 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
     // ============================================
     // DECISIONES
     // ============================================
-    const cargarDecision = async () => {
-        try {
-            const res = await fetch(`/api/directorio/reubicaciones/${row.id}/decision`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const data = await res.json();
-            if (data.ok) {
-                setDecisionActual(data.data?.actual || null);
-                setHistorialDec(data.data?.historial || []);
-            }
-        } catch (e) {
-            console.error('Error cargando decision:', e);
-        }
-    };
-
     const handleGuardarDecision = async () => {
         if (!decision) {
             setError('Debes seleccionar una decisión (APTO o NO APTO)');
@@ -181,7 +217,7 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
             } else {
                 setError(data.error || 'Error al guardar decisión');
             }
-        } catch (e) {
+        } catch {
             setError('Error al guardar decisión');
         } finally {
             setLoading(false);
@@ -190,9 +226,211 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
 
     if (!isOpen || !row) return null;
 
-    // ============================================
-    // FOOTER
-    // ============================================
+    const renderObservacionSection = () => {
+        const hasObservation = Boolean(observacionActual);
+
+        return (
+            <div className="border-t border-slate-200/70 dark:border-slate-700 pt-3">
+                <h3 className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                    Observación de Capital Humano
+                </h3>
+
+                {hasObservation ? (
+                    <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/60'}`}>
+                        <div className={`flex items-center gap-2 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                            <span className="font-semibold">v{observacionActual.version}</span>
+                            <span>•</span>
+                            <span>{observacionActual.actor_nombre || 'Usuario'}</span>
+                            <span className={isLight ? 'text-slate-500' : 'text-blue-400'}>({observacionActual.actor_role})</span>
+                            <span>•</span>
+                            <span>{new Date(observacionActual.fecha).toLocaleString('es-CO')}</span>
+                        </div>
+                        <p className={`text-sm mt-1 whitespace-pre-wrap ${isLight ? 'text-slate-700' : 'text-slate-300'} ${textCapitalizedClass}`}>
+                            {observacionActual.observacion}
+                        </p>
+                        {historialObs.length > 1 && (
+                            <button
+                                type="button"
+                                onClick={() => setMostrarHistorialObs(!mostrarHistorialObs)}
+                                className={`text-xs mt-1 hover:underline ${isLight ? 'text-slate-600' : 'text-sky-300'}`}
+                            >
+                                {mostrarHistorialObs ? 'Ocultar historial' : `Ver historial (${historialObs.length} versiones)`}
+                            </button>
+                        )}
+                        {mostrarHistorialObs && historialObs.slice(1).map((item) => (
+                            <div
+                                key={item.id}
+                                className={`mt-2 rounded p-2 text-xs ${isLight ? 'bg-slate-100 text-slate-700 border border-slate-200' : 'bg-slate-800/80 text-slate-200 border border-slate-700'}`}
+                            >
+                                <div className={`flex items-center gap-2 ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                                    <span className="font-semibold">v{item.version}</span>
+                                    <span>•</span>
+                                    <span>{item.actor_nombre || 'Usuario'}</span>
+                                    <span>({item.actor_role})</span>
+                                    <span>•</span>
+                                    <span>{new Date(item.fecha).toLocaleString('es-CO')}</span>
+                                </div>
+                                <p className={`mt-0.5 ${isLight ? 'text-slate-700' : 'text-slate-200'} ${textCapitalizedClass}`}>{item.observacion}</p>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+                        <p className={`text-sm ${subtleTextClass}`}>Sin evaluación</p>
+                    </div>
+                )}
+
+                {puedeEscribirObs && (
+                    <div className="mt-3 space-y-2">
+                        <label htmlFor="observacion-nueva" className={`text-xs font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                            Nueva observación
+                        </label>
+                        <textarea
+                            id="observacion-nueva"
+                            value={observacion}
+                            onChange={(e) => {
+                                if (e.target.value.length <= 1000) {
+                                    setObservacion(e.target.value);
+                                    setError('');
+                                }
+                            }}
+                            placeholder="Escribe aquí tu observación sobre el desempeño del consultor..."
+                            className={`${fieldClass} min-h-[80px] resize-y`}
+                            disabled={loading}
+                        />
+                        <div className="flex justify-end">
+                            <button
+                                type="button"
+                                onClick={handleGuardarObservacion}
+                                disabled={loading || !observacion.trim()}
+                                className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loading ? 'Guardando...' : 'Guardar observación'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+                {!puedeEscribirObs && (
+                    <p className="text-xs text-gray-400 mt-1">Solo CH puede registrar observaciones</p>
+                )}
+            </div>
+        );
+    };
+
+    const renderDecisionSection = () => {
+        const hasDecision = Boolean(decisionActual);
+
+        return (
+            <div className="border-t border-slate-200/70 dark:border-slate-700 pt-3">
+                <h3 className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                    Decisión de aptitud
+                </h3>
+
+                {hasDecision ? (
+                    <div className={`mt-2 rounded-lg p-3 ${getDecisionCardClass(isLight, decisionActual.decision)}`}>
+                        <div className="flex items-center gap-2">
+                            {decisionActual.decision === 'APTO' ? (
+                                <CheckCircle size={16} className={isLight ? 'text-emerald-600' : 'text-emerald-400'} />
+                            ) : (
+                                <XCircle size={16} className={isLight ? 'text-rose-600' : 'text-rose-400'} />
+                            )}
+                            <span className={`font-semibold ${getDecisionLabelClass(isLight, decisionActual.decision)}`}>
+                                {decisionActual.decision}
+                            </span>
+                            <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
+                                por {decisionActual.decidido_por_nombre || 'Usuario'} ({decisionActual.decidido_por_role})
+                            </span>
+                            <span className="text-xs text-slate-400">
+                                {new Date(decisionActual.fecha).toLocaleString('es-CO')}
+                            </span>
+                        </div>
+                        <p className={`text-sm mt-1 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
+                            <span className="font-medium">Justificación:</span> {decisionActual.justificacion}
+                        </p>
+                        {historialDec.length > 1 && (
+                            <details className="mt-2">
+                                <summary className={`text-xs cursor-pointer ${isLight ? 'text-sky-700' : 'text-sky-300'}`}>
+                                    Ver historial ({historialDec.length} decisiones)
+                                </summary>
+                                {historialDec.slice(1).map((item) => (
+                                    <div key={item.id} className={`mt-1 p-2 rounded text-xs border ${getDecisionCardClass(isLight, item.decision)}`}>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`font-semibold ${getDecisionLabelClass(isLight, item.decision)}`}>{item.decision}</span>
+                                            <span className={isLight ? 'text-slate-600' : 'text-slate-300'}>por {item.decidido_por_nombre || 'Usuario'}</span>
+                                            <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>({item.decidido_por_role})</span>
+                                            <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>{new Date(item.fecha).toLocaleString('es-CO')}</span>
+                                        </div>
+                                        <p className={isLight ? 'text-slate-700' : 'text-slate-200'}>{item.justificacion}</p>
+                                    </div>
+                                ))}
+                            </details>
+                        )}
+                    </div>
+                ) : (
+                    <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+                        <p className={`text-sm ${subtleTextClass}`}>Sin decisión tomada</p>
+                    </div>
+                )}
+
+                {puedeDecidir && (
+                    <div className="mt-3 space-y-3">
+                        <div className="flex gap-4">
+                            <button
+                                type="button"
+                                onClick={() => { setDecision('APTO'); setError(''); }}
+                                className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${getDecisionButtonClass(isLight, 'APTO', decision)}`}
+                                disabled={loading}
+                            >
+                                <CheckCircle size={16} className="mx-auto text-green-600" />
+                                <span className="text-sm font-medium">Apto</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => { setDecision('NO_APTO'); setError(''); }}
+                                className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${getDecisionButtonClass(isLight, 'NO_APTO', decision)}`}
+                                disabled={loading}
+                            >
+                                <XCircle size={16} className="mx-auto text-red-600" />
+                                <span className="text-sm font-medium">No apto</span>
+                            </button>
+                        </div>
+                        <div>
+                            <label htmlFor="justificacion-decision" className={`text-xs font-medium ${subtleTextClass}`}>
+                                Justificación <span className="text-red-500">*</span>
+                            </label>
+                            <textarea
+                                id="justificacion-decision"
+                                value={justificacion}
+                                onChange={(e) => {
+                                    if (e.target.value.length <= 500) {
+                                        setJustificacion(e.target.value);
+                                        setError('');
+                                    }
+                                }}
+                                placeholder="Explica los motivos de tu decisión..."
+                                className={`${fieldClass} min-h-[60px] resize-y`}
+                                disabled={loading}
+                            />
+                        </div>
+                        <div className="flex justify-end">
+                            <button
+                                type="button"
+                                onClick={handleGuardarDecision}
+                                disabled={loading || !decision || !justificacion.trim()}
+                                className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {loading ? 'Guardando...' : 'Guardar decisión'}
+                            </button>
+                        </div>
+                    </div>
+                )}
+                {!puedeDecidir && (
+                    <p className="text-xs text-gray-400 mt-1">Solo GP puede tomar decisiones de aptitud</p>
+                )}
+            </div>
+        );
+    };
+
     const footer = (
         <div className="flex justify-end gap-2 w-full pt-2">
             {canModify && (
@@ -222,9 +460,6 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
         </div>
     );
 
-    // ============================================
-    // RENDER - USANDO MonitorGlassModalShell
-    // ============================================
     return (
         <MonitorGlassModalShell
             open={isOpen}
@@ -235,10 +470,8 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
             footer={footer}
             bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-6 pt-2"
         >
-            {/* ✅ CONTENIDO CON SCROLL PROPIO */}
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto custom-scrollbar pr-1">
                 <div className="space-y-4 font-body">
-                    {/* INFO DEL CASO */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Cédula</p>
@@ -291,230 +524,16 @@ export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onE
                         </div>
                     </div>
 
-                    {/* ================================================ */}
-                    {/* OBSERVACION DE CH */}
-                    {/* ================================================ */}
-                    <div className={`border-t border-slate-200/70 dark:border-slate-700 pt-3`}>
-                        <h3 className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                            Observación de Capital Humano
-                        </h3>
+                    {renderObservacionSection()}
+                    {renderDecisionSection()}
 
-                        {observacionActual ? (
-                            <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/60'}`}>
-                                <div className={`flex items-center gap-2 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-                                    <span className="font-semibold">v{observacionActual.version}</span>
-                                    <span>•</span>
-                                    <span>{observacionActual.actor_nombre || 'Usuario'}</span>
-                                    <span className={isLight ? 'text-slate-500' : 'text-blue-400'}>({observacionActual.actor_role})</span>
-                                    <span>•</span>
-                                    <span>{new Date(observacionActual.fecha).toLocaleString('es-CO')}</span>
-                                </div>
-                                <p className={`text-sm mt-1 whitespace-pre-wrap ${isLight ? 'text-slate-700' : 'text-slate-300'} ${textCapitalizedClass}`}>
-                                    {observacionActual.observacion}
-                                </p>
-                                {historialObs.length > 1 && (
-                                    <button
-                                        onClick={() => setMostrarHistorialObs(!mostrarHistorialObs)}
-                                        className={`text-xs mt-1 hover:underline ${isLight ? 'text-slate-600' : 'text-sky-300'}`}
-                                    >
-                                        {mostrarHistorialObs ? 'Ocultar historial' : `Ver historial (${historialObs.length} versiones)`}
-                                    </button>
-                                )}
-                                {mostrarHistorialObs && historialObs.slice(1).map((item) => (
-                                    <div
-                                        key={item.id}
-                                        className={`mt-2 rounded p-2 text-xs ${isLight ? 'bg-slate-100 text-slate-700 border border-slate-200' : 'bg-slate-800/80 text-slate-200 border border-slate-700'}`}
-                                    >
-                                        <div className={`flex items-center gap-2 ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-                                            <span className="font-semibold">v{item.version}</span>
-                                            <span>•</span>
-                                            <span>{item.actor_nombre || 'Usuario'}</span>
-                                            <span>({item.actor_role})</span>
-                                            <span>•</span>
-                                            <span>{new Date(item.fecha).toLocaleString('es-CO')}</span>
-                                        </div>
-                                        <p className={`mt-0.5 ${isLight ? 'text-slate-700' : 'text-slate-200'} ${textCapitalizedClass}`}>{item.observacion}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
-                                <p className={`text-sm ${subtleTextClass}`}>Sin evaluación</p>
-                            </div>
-                        )}
-
-                        {puedeEscribirObs && (
-                            <div className="mt-3 space-y-2">
-                                <label className={`text-xs font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                                    Nueva observación
-                                </label>
-                                <textarea
-                                    value={observacion}
-                                    onChange={(e) => {
-                                        if (e.target.value.length <= 1000) {
-                                            setObservacion(e.target.value);
-                                            setError('');
-                                        }
-                                    }}
-                                    placeholder="Escribe aquí tu observación sobre el desempeño del consultor..."
-                                    className={`${fieldClass} min-h-[80px] resize-y`}
-                                    disabled={loading}
-                                />
-                                <div className="flex justify-end">
-                                    <button
-                                        onClick={handleGuardarObservacion}
-                                        disabled={loading || !observacion.trim()}
-                                        className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        {loading ? 'Guardando...' : 'Guardar observación'}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-                        {!puedeEscribirObs && (
-                            <p className="text-xs text-gray-400 mt-1">Solo CH puede registrar observaciones</p>
-                        )}
-                    </div>
-
-                    {/* ================================================ */}
-                    {/* DECISION DE GP */}
-                    {/* ================================================ */}
-                    <div className={`border-t border-slate-200/70 dark:border-slate-700 pt-3`}>
-                        <h3 className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                            Decisión de aptitud
-                        </h3>
-
-                        {decisionActual ? (
-                            <div className={`mt-2 rounded-lg p-3 ${
-                                decisionActual.decision === 'APTO'
-                                    ? isLight ? 'bg-emerald-50/90 border border-emerald-200 text-emerald-800' : 'bg-emerald-950/35 border border-emerald-800/50 text-emerald-200'
-                                    : isLight ? 'bg-rose-50/90 border border-rose-200 text-rose-800' : 'bg-rose-950/35 border border-rose-800/50 text-rose-200'
-                            }`}>
-                                <div className="flex items-center gap-2">
-                                    {decisionActual.decision === 'APTO' ? (
-                                        <CheckCircle size={16} className={isLight ? 'text-emerald-600' : 'text-emerald-400'} />
-                                    ) : (
-                                        <XCircle size={16} className={isLight ? 'text-rose-600' : 'text-rose-400'} />
-                                    )}
-                                    <span className={`font-semibold ${
-                                        decisionActual.decision === 'APTO'
-                                            ? isLight ? 'text-emerald-700' : 'text-emerald-300'
-                                            : isLight ? 'text-rose-700' : 'text-rose-300'
-                                    }`}>
-                                        {decisionActual.decision}
-                                    </span>
-                                    <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
-                                        por {decisionActual.decidido_por_nombre || 'Usuario'} ({decisionActual.decidido_por_role})
-                                    </span>
-                                    <span className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-400'}`}>
-                                        {new Date(decisionActual.fecha).toLocaleString('es-CO')}
-                                    </span>
-                                </div>
-                                <p className={`text-sm mt-1 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
-                                    <span className="font-medium">Justificación:</span> {decisionActual.justificacion}
-                                </p>
-                                {historialDec.length > 1 && (
-                                    <details className="mt-2">
-                                        <summary className={`text-xs cursor-pointer ${isLight ? 'text-sky-700' : 'text-sky-300'}`}>
-                                            Ver historial ({historialDec.length} decisiones)
-                                        </summary>
-                                        {historialDec.slice(1).map((item) => (
-                                            <div key={item.id} className={`mt-1 p-2 rounded text-xs border ${
-                                                item.decision === 'APTO'
-                                                    ? isLight ? 'bg-emerald-50/90 border-emerald-200 text-emerald-800' : 'bg-emerald-950/35 border-emerald-800/50 text-emerald-200'
-                                                    : isLight ? 'bg-rose-50/90 border-rose-200 text-rose-800' : 'bg-rose-950/35 border-rose-800/50 text-rose-200'
-                                            }`}>
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`font-semibold ${
-                                                        item.decision === 'APTO'
-                                                            ? isLight ? 'text-emerald-700' : 'text-emerald-300'
-                                                            : isLight ? 'text-rose-700' : 'text-rose-300'
-                                                    }`}>{item.decision}</span>
-                                                    <span className={isLight ? 'text-slate-600' : 'text-slate-300'}>por {item.decidido_por_nombre || 'Usuario'}</span>
-                                                    <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>({item.decidido_por_role})</span>
-                                                    <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>{new Date(item.fecha).toLocaleString('es-CO')}</span>
-                                                </div>
-                                                <p className={isLight ? 'text-slate-700' : 'text-slate-200'}>{item.justificacion}</p>
-                                            </div>
-                                        ))}
-                                    </details>
-                                )}
-                            </div>
-                        ) : (
-                            <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
-                                <p className={`text-sm ${subtleTextClass}`}>Sin decisión tomada</p>
-                            </div>
-                        )}
-
-                        {puedeDecidir && (
-                            <div className="mt-3 space-y-3">
-                                <div className="flex gap-4">
-                                    <button
-                                        onClick={() => { setDecision('APTO'); setError(''); }}
-                                        className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                                            decision === 'APTO'
-                                                ? isLight ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-emerald-600/60 bg-emerald-900/30 text-emerald-300'
-                                                : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-700/50'
-                                        }`}
-                                        disabled={loading}
-                                    >
-                                        <CheckCircle size={16} className="mx-auto text-green-600" />
-                                        <span className="text-sm font-medium">Apto</span>
-                                    </button>
-                                    <button
-                                        onClick={() => { setDecision('NO_APTO'); setError(''); }}
-                                        className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                                            decision === 'NO_APTO'
-                                                ? isLight ? 'border-rose-400 bg-rose-100 text-rose-800 shadow-sm' : 'border-rose-600/60 bg-rose-900/30 text-rose-300'
-                                                : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-rose-300' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-rose-700/50'
-                                        }`}
-                                        disabled={loading}
-                                    >
-                                        <XCircle size={16} className="mx-auto text-red-600" />
-                                        <span className="text-sm font-medium">No apto</span>
-                                    </button>
-                                </div>
-                                <div>
-                                    <label className={`text-xs font-medium ${subtleTextClass}`}>
-                                        Justificación <span className="text-red-500">*</span>
-                                    </label>
-                                    <textarea
-                                        value={justificacion}
-                                        onChange={(e) => {
-                                            if (e.target.value.length <= 500) {
-                                                setJustificacion(e.target.value);
-                                                setError('');
-                                            }
-                                        }}
-                                        placeholder="Explica los motivos de tu decisión..."
-                                        className={`${fieldClass} min-h-[60px] resize-y`}
-                                        disabled={loading}
-                                    />
-                                </div>
-                                <div className="flex justify-end">
-                                    <button
-                                        onClick={handleGuardarDecision}
-                                        disabled={loading || !decision || !justificacion.trim()}
-                                        className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        {loading ? 'Guardando...' : 'Guardar decisión'}
-                                    </button>
-                                </div>
-                            </div>
-                        )}
-                        {!puedeDecidir && (
-                            <p className="text-xs text-gray-400 mt-1">Solo GP puede tomar decisiones de aptitud</p>
-                        )}
-                    </div>
-
-                    {/* MENSAJES DE ERROR / SUCCESS */}
                     {error && (
-                        <div className={`rounded-lg p-2 text-sm ${isLight ? 'bg-rose-50 text-rose-700' : 'bg-rose-950/20 text-rose-300'}`}>
+                        <div className={`rounded-lg p-2 text-sm ${getStatusThemeClasses(isLight, 'error')}`}>
                             {error}
                         </div>
                     )}
                     {success && (
-                        <div className={`rounded-lg p-2 text-sm ${isLight ? 'bg-emerald-50 text-emerald-700' : 'bg-emerald-950/20 text-emerald-300'}`}>
+                        <div className={`rounded-lg p-2 text-sm ${getStatusThemeClasses(isLight, 'success')}`}>
                             {success}
                         </div>
                     )}
