@@ -1933,34 +1933,67 @@ function registerDirectorioRoutes(deps) {
         return role === 'gp' || role === 'super_admin';
     }
 
+    async function handleReubicacionAction(req, res, actionType) {
+        try {
+            const pipelineId = validateUuidV4(req.params.id, res);
+            if (!pipelineId) return;
+
+            if (actionType === 'observacion' && !isCH(req.user)) {
+                return res.status(403).json({ ok: false, error: 'Solo CH puede registrar observaciones' });
+            }
+            if (actionType === 'decision' && !isGP(req.user)) {
+                return res.status(403).json({ ok: false, error: 'Solo GP puede registrar decisiones' });
+            }
+
+            const body = req.body || {};
+            if (actionType === 'observacion' && !String(body.observacion || '').trim()) {
+                return res.status(400).json({ ok: false, error: 'Observación es requerida' });
+            }
+            if (actionType === 'decision' && !String(body.decision || '').trim()) {
+                return res.status(400).json({ ok: false, error: 'Decisión es requerida' });
+            }
+
+            const actor = {
+                user_id: parseUuidActor(req.user?.sub),
+                role: normalizeRoleOrNull(req.user?.role)
+            };
+
+            if (actionType === 'observacion') {
+                const result = await observacionesService.registrarObservacion({
+                    pipelineId,
+                    observacion: String(body.observacion).trim(),
+                    actor,
+                    pool
+                });
+                return res.status(result.status).json(result.body);
+            }
+
+            const result = await decisionesService.registrarDecision({
+                pipelineId,
+                decision: String(body.decision).trim(),
+                justificacion: body.justificacion == null ? null : String(body.justificacion).trim(),
+                decididoPor: actor,
+                pool
+            });
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            const logPrefix = actionType === 'observacion'
+                ? 'POST /directorio/reubicaciones/:id/observacion'
+                : 'POST /directorio/reubicaciones/:id/decision';
+            console.error(`${logPrefix}:`, error);
+            return res.status(500).json({
+                ok: false,
+                error: actionType === 'observacion' ? 'Error al registrar observación' : 'Error al registrar decisión'
+            });
+        }
+    }
+
     /**
      * POST /api/directorio/reubicaciones/:id/observacion
      * CH registra observación
      */
     app.post('/api/directorio/reubicaciones/:id/observacion', verificarToken, adminActionLimiter, async (req, res) => {
-        try {
-            const pipelineId = String(req.params.id || '').trim();
-            const { observacion } = req.body;
-
-            if (!isCH(req.user)) {
-                return res.status(403).json({ ok: false, error: 'Solo CH puede registrar observaciones' });
-            }
-
-            const result = await observacionesService.registrarObservacion({
-                pipelineId,
-                observacion,
-                actor: {
-                    user_id: parseUuidActor(req.user?.sub),
-                    role: normalizeRoleOrNull(req.user?.role)
-                },
-                pool
-            });
-
-            return res.status(result.status).json(result.body);
-        } catch (error) {
-            console.error('POST /directorio/reubicaciones/:id/observacion:', error);
-            return res.status(500).json({ ok: false, error: 'Error al registrar observación' });
-        }
+        return handleReubicacionAction(req, res, 'observacion');
     });
 
     /**
@@ -1969,7 +2002,8 @@ function registerDirectorioRoutes(deps) {
      */
     app.get('/api/directorio/reubicaciones/:id/observacion', verificarToken, async (req, res) => {
         try {
-            const pipelineId = String(req.params.id || '').trim();
+            const pipelineId = validateUuidV4(req.params.id, res);
+            if (!pipelineId) return;
             const caseExists = await assertPipelineCaseExists(pool, pipelineId, res);
             if (!caseExists) return;
 
@@ -1994,30 +2028,7 @@ function registerDirectorioRoutes(deps) {
      * GP registra decisión
      */
     app.post('/api/directorio/reubicaciones/:id/decision', verificarToken, adminActionLimiter, async (req, res) => {
-        try {
-            const pipelineId = String(req.params.id || '').trim();
-            const { decision, justificacion } = req.body;
-
-            if (!isGP(req.user)) {
-                return res.status(403).json({ ok: false, error: 'Solo GP puede registrar decisiones' });
-            }
-
-            const result = await decisionesService.registrarDecision({
-                pipelineId,
-                decision,
-                justificacion,
-                decididoPor: {
-                    user_id: parseUuidActor(req.user?.sub),
-                    role: normalizeRoleOrNull(req.user?.role)
-                },
-                pool
-            });
-
-            return res.status(result.status).json(result.body);
-        } catch (error) {
-            console.error('POST /directorio/reubicaciones/:id/decision:', error);
-            return res.status(500).json({ ok: false, error: 'Error al registrar decisión' });
-        }
+        return handleReubicacionAction(req, res, 'decision');
     });
 
     /**
@@ -2026,7 +2037,8 @@ function registerDirectorioRoutes(deps) {
      */
     app.get('/api/directorio/reubicaciones/:id/decision', verificarToken, async (req, res) => {
         try {
-            const pipelineId = String(req.params.id || '').trim();
+            const pipelineId = validateUuidV4(req.params.id, res);
+            if (!pipelineId) return;
             const caseExists = await assertPipelineCaseExists(pool, pipelineId, res);
             if (!caseExists) return;
 
