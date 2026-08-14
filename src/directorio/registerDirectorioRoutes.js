@@ -150,6 +150,50 @@ async function writeAudit(pool, row) {
     }
 }
 
+function respondWithRouteError(res, scope, error, fallbackMessage) {
+    const statusCode = Number(error?.status) || (String(error?.code) === '23505' ? 409 : 500);
+    if (statusCode >= 500) console.error(scope, error);
+    return res.status(statusCode).json({
+        ok: false,
+        error: error?.message || fallbackMessage
+    });
+}
+
+function tryParseRouteSchema(schema, payload, res, invalidMessage) {
+    const parsed = schema.safeParse(payload || {});
+    if (!parsed.success) {
+        res.status(400).json({ ok: false, error: invalidMessage || 'Datos inválidos' });
+        return null;
+    }
+    return parsed.data;
+}
+
+async function assertPipelineCaseExists(pool, pipelineId, res, message = 'Caso no encontrado') {
+    const caseExists = await pool.query('SELECT id FROM reubicaciones_pipeline WHERE id = $1', [pipelineId]);
+    if (caseExists.rows.length === 0) {
+        res.status(404).json({ ok: false, error: message });
+        return false;
+    }
+    return true;
+}
+
+function validateUuidLike(id, res, pattern, message = 'Id inválido') {
+    const trimmed = String(id || '').trim();
+    if (!pattern.test(trimmed)) {
+        res.status(400).json({ ok: false, error: message });
+        return null;
+    }
+    return trimmed;
+}
+
+function validateUuid36(id, res) {
+    return validateUuidLike(id, res, /^[0-9a-f-]{36}$/i);
+}
+
+function validateUuidV4(id, res) {
+    return validateUuidLike(id, res, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+}
+
 function parseUuidActor(sub) {
     const s = String(sub || '').trim();
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) return s;
@@ -471,12 +515,12 @@ function registerDirectorioRoutes(deps) {
         dias_desde: z.preprocess((v) => {
             if (v === '' || v == null) return undefined;
             const num = Number(v);
-            return isNaN(num) ? undefined : num;
+            return Number.isNaN(num) ? undefined : num;
         }, z.number().int().min(0).optional()),
         dias_hasta: z.preprocess((v) => {
             if (v === '' || v == null) return undefined;
             const num = Number(v);
-            return isNaN(num) ? undefined : num;
+            return Number.isNaN(num) ? undefined : num;
         }, z.number().int().min(0).optional()),
         sort: z
             .enum([
@@ -512,6 +556,12 @@ function registerDirectorioRoutes(deps) {
     function textOrNull(v) {
         const s = String(v ?? '').trim();
         return s ? s : null;
+    }
+
+    function parseOptionalNumber(v) {
+        if (v === '' || v == null) return undefined;
+        const num = Number(v);
+        return Number.isNaN(num) ? undefined : num;
     }
 
     async function registrarVencimientoAutomaticoSiAplica(pool, casoId) {
@@ -782,9 +832,9 @@ function registerDirectorioRoutes(deps) {
 
     app.get('/api/directorio/clientes-resumen', ...readGuard, async (req, res) => {
         try {
-            const q = clienteResumenListSchema.safeParse(req.query);
-            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search } = q.data;
+            const q = tryParseRouteSchema(clienteResumenListSchema, req.query, res, 'Parámetros inválidos');
+            if (!q) return;
+            const { activo, limit, offset, q: search } = q;
             let activoBool = null;
             if (activo === 'true') activoBool = true;
             if (activo === 'false') activoBool = false;
@@ -796,16 +846,15 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
         } catch (e) {
-            console.error('GET directorio clientes-resumen:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar el resumen de clientes.' });
+            return respondWithRouteError(res, 'GET directorio clientes-resumen:', e, 'No se pudo listar el resumen de clientes.');
         }
     });
 
     app.get('/api/directorio/clientes-lideres', ...readGuard, async (req, res) => {
         try {
-            const q = clienteLiderListSchema.safeParse(req.query);
-            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search, cliente } = q.data;
+            const q = tryParseRouteSchema(clienteLiderListSchema, req.query, res, 'Parámetros inválidos');
+            if (!q) return;
+            const { activo, limit, offset, q: search, cliente } = q;
             let activoBool = null;
             if (activo === 'true') activoBool = true;
             if (activo === 'false') activoBool = false;
@@ -818,17 +867,16 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
         } catch (e) {
-            console.error('GET directorio clientes-lideres:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar el catálogo.' });
+            return respondWithRouteError(res, 'GET directorio clientes-lideres:', e, 'No se pudo listar el catálogo.');
         }
     });
 
     app.post('/api/directorio/clientes-lideres', ...writeGuard, async (req, res) => {
         try {
-            const parsed = clienteLiderCreateSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const { gpUserId, gpResolution } = await resolveGpForClienteLiderPayload(parsed.data);
-            const row = await insertClienteLider(parsed.data.cliente, parsed.data.lider, gpUserId, parsed.data.nit);
+            const parsed = tryParseRouteSchema(clienteLiderCreateSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
+            const { gpUserId, gpResolution } = await resolveGpForClienteLiderPayload(parsed);
+            const row = await insertClienteLider(parsed.cliente, parsed.lider, gpUserId, parsed.nit);
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user?.sub),
                 actorRole: normalizeRoleOrNull(req.user?.role),
@@ -840,25 +888,23 @@ function registerDirectorioRoutes(deps) {
                     lider: row.lider,
                     nit: row.nit,
                     gp_user_id: row.gp_user_id,
-                    gp_colaborador_cedula: parsed.data.gp_colaborador_cedula || null,
+                    gp_colaborador_cedula: parsed.gp_colaborador_cedula || null,
                     gp_created_user: Boolean(gpResolution?.created_gp_user)
                 }
             });
             return res.status(201).json({ ok: true, item: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('POST directorio clientes-lideres:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear el par.' });
+            return respondWithRouteError(res, 'POST directorio clientes-lideres:', e, 'No se pudo crear el par.');
         }
     });
 
     app.patch('/api/directorio/clientes-lideres/:id', ...writeGuard, async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
-            const parsed = clienteLiderPatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const patch = { ...parsed.data };
+            const id = validateUuid36(req.params.id, res);
+            if (!id) return;
+            const parsed = tryParseRouteSchema(clienteLiderPatchSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
+            const patch = { ...parsed };
             let gpResolution = null;
             if (patch.gp_colaborador_cedula) {
                 const resolved = await resolveOrCreateGpUserIdForColaboradorCedula(patch.gp_colaborador_cedula);
@@ -876,22 +922,20 @@ function registerDirectorioRoutes(deps) {
                 entityId: row.id,
                 metadata: {
                     ...patch,
-                    gp_colaborador_cedula: parsed.data.gp_colaborador_cedula || null,
+                    gp_colaborador_cedula: parsed.gp_colaborador_cedula || null,
                     gp_created_user: Boolean(gpResolution?.created_gp_user)
                 }
             });
             return res.json({ ok: true, item: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('PATCH directorio clientes-lideres:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
+            return respondWithRouteError(res, 'PATCH directorio clientes-lideres:', e, 'No se pudo actualizar.');
         }
     });
 
     app.delete('/api/directorio/clientes-lideres/:id', ...writeGuard, async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
+            const id = validateUuid36(req.params.id, res);
+            if (!id) return;
             const row = await deleteClienteLiderById(id);
             if (!row) return res.status(404).json({ ok: false, error: 'No encontrado' });
             await writeAudit(pool, {
@@ -904,18 +948,15 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, deleted: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23503' ? 409 : 500);
-            if (st >= 500) console.error('DELETE directorio clientes-lideres:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
+            return respondWithRouteError(res, 'DELETE directorio clientes-lideres:', e, 'No se pudo eliminar.');
         }
     });
 
     app.get('/api/directorio/colaboradores', ...readGuard, async (req, res) => {
         try {
-            const q = colabListSchema.safeParse(req.query);
-            if (!q.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
-            const { activo, limit, offset, q: search, sort, dir, tipo_contrato: tipoContrato, cliente: clienteColab } =
-                q.data;
+            const q = tryParseRouteSchema(colabListSchema, req.query, res, 'Parámetros inválidos');
+            if (!q) return;
+            const { activo, limit, offset, q: search, sort, dir, tipo_contrato: tipoContrato, cliente: clienteColab } = q;
             let activoBool = null;
             if (activo === 'true') activoBool = true;
             if (activo === 'false') activoBool = false;
@@ -931,16 +972,15 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, items: rows, total, limit: limit ?? 50, offset: offset ?? 0 });
         } catch (e) {
-            console.error('GET directorio colaboradores:', e);
-            return res.status(500).json({ ok: false, error: 'No se pudo listar colaboradores.' });
+            return respondWithRouteError(res, 'GET directorio colaboradores:', e, 'No se pudo listar colaboradores.');
         }
     });
 
     app.post('/api/directorio/colaboradores', ...writeGuard, async (req, res) => {
         try {
-            const parsed = colabCreateSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const body = parsed.data;
+            const parsed = tryParseRouteSchema(colabCreateSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
+            const body = parsed;
             if (body.cliente && body.lider_catalogo) {
                 await assertColaboradorCatalogPair(getLideresByCliente, body.cliente, body.lider_catalogo);
             }
@@ -955,9 +995,7 @@ function registerDirectorioRoutes(deps) {
             });
             return res.status(201).json({ ok: true, item: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('POST directorio colaboradores:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear el colaborador.' });
+            return respondWithRouteError(res, 'POST directorio colaboradores:', e, 'No se pudo crear el colaborador.');
         }
     });
 
@@ -965,9 +1003,9 @@ function registerDirectorioRoutes(deps) {
         try {
             const cedula = normalizeCedula(req.params.cedula);
             if (!cedula) return res.status(400).json({ ok: false, error: 'Cédula inválida' });
-            const parsed = colabPatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
-            const body = parsed.data;
+            const parsed = tryParseRouteSchema(colabPatchSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
+            const body = parsed;
             if (body.cliente && body.lider_catalogo) {
                 await assertColaboradorCatalogPair(getLideresByCliente, body.cliente, body.lider_catalogo);
             }
@@ -983,9 +1021,7 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, item: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23503' ? 400 : 500);
-            if (st >= 500) console.error('PATCH directorio colaboradores:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
+            return respondWithRouteError(res, 'PATCH directorio colaboradores:', e, 'No se pudo actualizar.');
         }
     });
 
@@ -1005,9 +1041,7 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, deleted: row.cedula });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23503' ? 409 : 500);
-            if (st >= 500) console.error('DELETE directorio colaboradores:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
+            return respondWithRouteError(res, 'DELETE directorio colaboradores:', e, 'No se pudo eliminar.');
         }
     });
 
@@ -1407,15 +1441,15 @@ function registerDirectorioRoutes(deps) {
             }
 
             // 6. Filtro por días restantes (desde)
-            const diasDesde = d.dias_desde !== undefined && d.dias_desde !== '' ? Number(d.dias_desde) : null;
-            if (diasDesde !== null && !isNaN(diasDesde)) {
+            const diasDesde = d.dias_desde !== undefined && d.dias_desde !== '' ? parseOptionalNumber(d.dias_desde) : null;
+            if (diasDesde !== null && !Number.isNaN(diasDesde)) {
                 whereParts.push(`${diasSql} >= $${whereParams.length + 1}`);
                 whereParams.push(diasDesde);
             }
 
             // 7. Filtro por días restantes (hasta)
-            const diasHasta = d.dias_hasta !== undefined && d.dias_hasta !== '' ? Number(d.dias_hasta) : null;
-            if (diasHasta !== null && !isNaN(diasHasta)) {
+            const diasHasta = d.dias_hasta !== undefined && d.dias_hasta !== '' ? parseOptionalNumber(d.dias_hasta) : null;
+            if (diasHasta !== null && !Number.isNaN(diasHasta)) {
                 whereParts.push(`${diasSql} <= $${whereParams.length + 1}`);
                 whereParams.push(diasHasta);
             }
@@ -1622,10 +1656,8 @@ function registerDirectorioRoutes(deps) {
 
     app.patch('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-                return res.status(400).json({ ok: false, error: 'Id inválido' });
-            }
+            const id = validateUuidV4(req.params.id, res);
+            if (!id) return;
             const parsed = reubicacionesPipelinePatchSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const d = parsed.data;
@@ -1763,10 +1795,8 @@ function registerDirectorioRoutes(deps) {
 
     app.delete('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-                return res.status(400).json({ ok: false, error: 'Id inválido' });
-            }
+            const id = validateUuidV4(req.params.id, res);
+            if (!id) return;
             const del = await pool.query(`DELETE FROM reubicaciones_pipeline WHERE id = $1::uuid RETURNING id`, [id]);
             if (!del.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
             await writeAudit(pool, {
@@ -1796,13 +1826,13 @@ function registerDirectorioRoutes(deps) {
 
     app.post('/api/directorio/gp', ...writeGuard, async (req, res) => {
         try {
-            const parsed = gpCreateSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            const parsed = tryParseRouteSchema(gpCreateSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
             const area = getAreaFromRole('gp');
             const placeholder = `cognito_gp_placeholder:${crypto.randomBytes(32).toString('hex')}`;
             const row = await insertGpUserPlaceholder({
-                email: parsed.data.email,
-                fullName: parsed.data.full_name,
+                email: parsed.email,
+                fullName: parsed.full_name,
                 passwordPlaceholder: placeholder,
                 area
             });
@@ -1816,25 +1846,23 @@ function registerDirectorioRoutes(deps) {
             });
             return res.status(201).json({ ok: true, item: row });
         } catch (e) {
-            const st = Number(e?.status) || (String(e?.code) === '23505' ? 409 : 500);
-            if (st >= 500) console.error('POST directorio gp:', e);
-            return res.status(st).json({ ok: false, error: e.message || 'No se pudo crear el GP.' });
+            return respondWithRouteError(res, 'POST directorio gp:', e, 'No se pudo crear el GP.');
         }
     });
 
     app.patch('/api/directorio/gp/:id', ...writeGuard, async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
-            const parsed = gpPatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            const id = validateUuid36(req.params.id, res);
+            if (!id) return;
+            const parsed = tryParseRouteSchema(gpPatchSchema, req.body, res, 'Datos inválidos');
+            if (!parsed) return;
             const before = await pool.query(
                 `SELECT id, is_active FROM users WHERE id = $1::uuid AND role = 'gp'::user_role`,
                 [id]
             );
-            const row = await updateGpUserById(id, parsed.data);
+            const row = await updateGpUserById(id, parsed);
             if (!row) return res.status(404).json({ ok: false, error: 'GP no encontrado' });
-            if (parsed.data.is_active === false && before.rows[0]?.is_active) {
+            if (parsed.is_active === false && before.rows[0]?.is_active) {
                 await clearGpUserReferences(id);
             }
             await writeAudit(pool, {
@@ -1843,12 +1871,11 @@ function registerDirectorioRoutes(deps) {
                 action: 'users.gp.patch',
                 entityType: 'users',
                 entityId: row.id,
-                metadata: parsed.data
+                metadata: parsed
             });
             return res.json({ ok: true, item: row });
         } catch (e) {
-            console.error('PATCH directorio gp:', e);
-            return res.status(500).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
+            return respondWithRouteError(res, 'PATCH directorio gp:', e, 'No se pudo actualizar.');
         }
     });
 
@@ -1883,54 +1910,6 @@ function registerDirectorioRoutes(deps) {
 
     });
 
-    app.post('/api/directorio/reubicaciones-sync/backfill', ...writeGuard, async (req, res) => {
-        console.log('===== BACKFILL EJECUTADO =====');
-        
-        try {
-            const { dryRun = false, limit = 100 } = req.body;
-
-            // Si pool no es válido, usar global.__pool
-            const db = pool && typeof pool.query === 'function' ? pool : global.__pool;
-
-            if (!db || typeof db.query !== 'function') {
-                console.error('No hay pool disponible');
-                return res.status(500).json({ 
-                    ok: false, 
-                    error: 'No hay conexión a la base de datos',
-                    debug: { 
-                        poolInClosure: !!pool, 
-                        globalPool: !!global.__pool 
-                    }
-                });
-            }
-
-            const result = await recoverySync({
-                pool: db,
-                notifyService: require('../notifications/emailNotificationsPublisher'),
-                dryRun: Boolean(dryRun),
-                limit: Math.min(Number(limit) || 100, 500)
-            });
-
-            return res.json({
-                ok: true,
-                ...result,
-                message: dryRun 
-                    ? `Simulación: ${result.found} fichas pendientes encontradas` 
-                    : `${result.processed} fichas procesadas, ${result.errors} errores`
-            });
-        } catch (error) {
-            console.error('[Backfill] Error completo:', error);
-            return res.status(500).json({
-                ok: false,
-                error: error.message || 'No se pudo ejecutar el backfill',
-                stack: error.stack
-            });
-        }
-    });
-
-
-
-
     // ============================================
     // ENDPOINTS DE HU-04: OBSERVACIONES Y DECISIONES
     // ============================================
@@ -1954,38 +1933,67 @@ function registerDirectorioRoutes(deps) {
         return role === 'gp' || role === 'super_admin';
     }
 
+    async function handleReubicacionAction(req, res, actionType) {
+        try {
+            const pipelineId = validateUuidV4(req.params.id, res);
+            if (!pipelineId) return;
+
+            if (actionType === 'observacion' && !isCH(req.user)) {
+                return res.status(403).json({ ok: false, error: 'Solo CH puede registrar observaciones' });
+            }
+            if (actionType === 'decision' && !isGP(req.user)) {
+                return res.status(403).json({ ok: false, error: 'Solo GP puede registrar decisiones' });
+            }
+
+            const body = req.body || {};
+            if (actionType === 'observacion' && !String(body.observacion || '').trim()) {
+                return res.status(400).json({ ok: false, error: 'Observación es requerida' });
+            }
+            if (actionType === 'decision' && !String(body.decision || '').trim()) {
+                return res.status(400).json({ ok: false, error: 'Decisión es requerida' });
+            }
+
+            const actor = {
+                user_id: parseUuidActor(req.user?.sub),
+                role: normalizeRoleOrNull(req.user?.role)
+            };
+
+            if (actionType === 'observacion') {
+                const result = await observacionesService.registrarObservacion({
+                    pipelineId,
+                    observacion: String(body.observacion).trim(),
+                    actor,
+                    pool
+                });
+                return res.status(result.status).json(result.body);
+            }
+
+            const result = await decisionesService.registrarDecision({
+                pipelineId,
+                decision: String(body.decision).trim(),
+                justificacion: body.justificacion == null ? null : String(body.justificacion).trim(),
+                decididoPor: actor,
+                pool
+            });
+            return res.status(result.status).json(result.body);
+        } catch (error) {
+            const logPrefix = actionType === 'observacion'
+                ? 'POST /directorio/reubicaciones/:id/observacion'
+                : 'POST /directorio/reubicaciones/:id/decision';
+            console.error(`${logPrefix}:`, error);
+            return res.status(500).json({
+                ok: false,
+                error: actionType === 'observacion' ? 'Error al registrar observación' : 'Error al registrar decisión'
+            });
+        }
+    }
+
     /**
      * POST /api/directorio/reubicaciones/:id/observacion
      * CH registra observación
      */
     app.post('/api/directorio/reubicaciones/:id/observacion', verificarToken, adminActionLimiter, async (req, res) => {
-        try {
-            console.log('🔍 req.user.role:', req.user?.role);
-            console.log('🔍 normalized:', normalizeRoleOrNull(req.user?.role));
-            console.log('🔍 isCH:', isCH(req.user));
-            const pipelineId = String(req.params.id || '').trim();
-            const { observacion } = req.body;
-
-            // Validar que el usuario tenga rol CH
-            if (!isCH(req.user)) {
-                return res.status(403).json({ ok: false, error: 'Solo CH puede registrar observaciones' });
-            }
-
-            const result = await observacionesService.registrarObservacion({
-                pipelineId,
-                observacion,
-                actor: {
-                    user_id: parseUuidActor(req.user?.sub),
-                    role: normalizeRoleOrNull(req.user?.role)
-                },
-                pool
-            });
-
-            return res.status(result.status).json(result.body);
-        } catch (error) {
-            console.error('POST /directorio/reubicaciones/:id/observacion:', error);
-            return res.status(500).json({ ok: false, error: 'Error al registrar observación' });
-        }
+        return handleReubicacionAction(req, res, 'observacion');
     });
 
     /**
@@ -1994,16 +2002,10 @@ function registerDirectorioRoutes(deps) {
      */
     app.get('/api/directorio/reubicaciones/:id/observacion', verificarToken, async (req, res) => {
         try {
-            const pipelineId = String(req.params.id || '').trim();
-
-            // Verificar que el caso existe (OPCIONAL: verificar alcance GP)
-            const caseExists = await pool.query(
-                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
-                [pipelineId]
-            );
-            if (caseExists.rows.length === 0) {
-                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
-            }
+            const pipelineId = validateUuidV4(req.params.id, res);
+            if (!pipelineId) return;
+            const caseExists = await assertPipelineCaseExists(pool, pipelineId, res);
+            if (!caseExists) return;
 
             const actual = await observacionesService.obtenerUltimaObservacion({ pipelineId, pool });
             const historial = await observacionesService.obtenerHistorialObservaciones({ pipelineId, pool });
@@ -2026,31 +2028,7 @@ function registerDirectorioRoutes(deps) {
      * GP registra decisión
      */
     app.post('/api/directorio/reubicaciones/:id/decision', verificarToken, adminActionLimiter, async (req, res) => {
-        try {
-            const pipelineId = String(req.params.id || '').trim();
-            const { decision, justificacion } = req.body;
-
-            // Validar que el usuario tenga rol GP
-            if (!isGP(req.user)) {
-                return res.status(403).json({ ok: false, error: 'Solo GP puede registrar decisiones' });
-            }
-
-            const result = await decisionesService.registrarDecision({
-                pipelineId,
-                decision,
-                justificacion,
-                decididoPor: {
-                    user_id: parseUuidActor(req.user?.sub),
-                    role: normalizeRoleOrNull(req.user?.role)
-                },
-                pool
-            });
-
-            return res.status(result.status).json(result.body);
-        } catch (error) {
-            console.error('POST /directorio/reubicaciones/:id/decision:', error);
-            return res.status(500).json({ ok: false, error: 'Error al registrar decisión' });
-        }
+        return handleReubicacionAction(req, res, 'decision');
     });
 
     /**
@@ -2059,16 +2037,10 @@ function registerDirectorioRoutes(deps) {
      */
     app.get('/api/directorio/reubicaciones/:id/decision', verificarToken, async (req, res) => {
         try {
-            const pipelineId = String(req.params.id || '').trim();
-
-            // Verificar que el caso existe
-            const caseExists = await pool.query(
-                'SELECT id FROM reubicaciones_pipeline WHERE id = $1',
-                [pipelineId]
-            );
-            if (caseExists.rows.length === 0) {
-                return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
-            }
+            const pipelineId = validateUuidV4(req.params.id, res);
+            if (!pipelineId) return;
+            const caseExists = await assertPipelineCaseExists(pool, pipelineId, res);
+            if (!caseExists) return;
 
             const actual = await decisionesService.obtenerUltimaDecision({ pipelineId, pool });
             const historial = await decisionesService.obtenerHistorialDecisiones({ pipelineId, pool });
