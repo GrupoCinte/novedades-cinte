@@ -10,6 +10,7 @@ import { ConciliacionServicioFinalizadaEmail } from './templates/ConciliacionSer
 import { ConciliacionStakeholdersAvisoEmail } from './templates/ConciliacionStakeholdersAvisoEmail.js';
 import { TimeEntryConfirmationEmail } from './templates/TimeEntryConfirmationEmail.js';
 import { AdminTimeEntryNotificationEmail } from './templates/AdminTimeEntryNotificationEmail.js';
+import { SeguimientoCierreEmail } from './templates/SeguimientoCierreEmail.js';
 import { sendHtmlEmailWithInlineLogo } from './sesSend.js';
 
 import type { 
@@ -18,6 +19,7 @@ import type {
   ConciliacionStakeholdersAvisoEvent,
   FormSubmittedNotificationEvent,
   FormStatusChangedNotificationEvent,
+  SeguimientoCierreEvent,
   TimeEntryConfirmationEvent,
   TransactionalEmailEvent
 } from './types.js';
@@ -153,7 +155,25 @@ function parseEventPayload(rawEvent: unknown): TransactionalEmailEvent {
     return parseFormEvent(data);
   }
 
+  if (data?.eventType === 'seguimiento_cierre') {
+    return parseSeguimientoCierre(data as Partial<SeguimientoCierreEvent>);
+  }
+
   throw new Error('eventType invalido');
+}
+
+function parseSeguimientoCierre(data: Partial<SeguimientoCierreEvent>): SeguimientoCierreEvent {
+  if (data?.eventType !== 'seguimiento_cierre') throw new Error('eventType invalido');
+  if (!data?.eventId) throw new Error('eventId requerido');
+  if (!String(data?.seguimientoId || '').trim()) throw new Error('seguimientoId requerido');
+  if (!['consultor', 'cliente'].includes(String(data?.tipo || '').toLowerCase())) throw new Error('tipo invalido');
+  const recipients = data.recipients;
+  if (!Array.isArray(recipients) || recipients.length === 0) throw new Error('recipients requerido');
+  for (const r of recipients) {
+    if (!String(r?.email || '').includes('@')) throw new Error('recipients.email invalido');
+  }
+  if (!String(data?.acta?.cliente || '').trim()) throw new Error('acta.cliente requerido');
+  return data as SeguimientoCierreEvent;
 }
 
 
@@ -236,6 +256,44 @@ export const handler: Handler = async (event: unknown): Promise<APIGatewayProxyR
   try {
     if (!fromEmail) throw new Error('SES_FROM_EMAIL no configurado');
     const payload = parseEventPayload(event);
+
+    if (payload.eventType === 'seguimiento_cierre') {
+      const html = await render(React.createElement(SeguimientoCierreEmail, { payload }));
+      const subject = `Seguimiento finalizado — ${payload.acta.cliente}`;
+      const settled = await Promise.allSettled(
+        payload.recipients.map((r) =>
+          sendHtmlEmailWithInlineLogo(sesClient, {
+            from: fromEmail,
+            to: String(r.email).trim(),
+            subject,
+            html
+          })
+        )
+      );
+      const messageIds: Record<string, string | null> = {};
+      const failures: { to: string; message: string }[] = [];
+      for (let i = 0; i < settled.length; i += 1) {
+        const to = String(payload.recipients[i]?.email || '').trim();
+        const entry = settled[i];
+        if (entry.status === 'rejected') {
+          const err = entry.reason as Error;
+          failures.push({ to, message: err?.message || String(entry.reason) });
+          continue;
+        }
+        messageIds[to] = (entry.value as SendRawEmailCommandOutput).MessageId || null;
+      }
+      if (failures.length > 0) {
+        return json(500, {
+          ok: false,
+          eventId: payload.eventId,
+          errorType: 'PartialOrFullEmailFailure',
+          message: 'Uno o más correos de cierre de seguimiento no se pudieron enviar.',
+          messageIds,
+          failures
+        });
+      }
+      return json(200, { ok: true, eventId: payload.eventId, messageIds });
+    }
 
     if (payload.eventType === 'conciliacion_correo_lider') {
       const html = await render(React.createElement(ConciliacionCorreoLiderEmail, { payload }));

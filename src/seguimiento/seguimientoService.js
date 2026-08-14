@@ -1,4 +1,33 @@
-function createSeguimientoService({ pool }) {
+const { buildSeguimientoCierreEvent } = require('../notifications/seguimientoEmailEvents');
+
+function addDaysBogotaDate(baseDate, days) {
+    const d = baseDate instanceof Date ? new Date(baseDate.getTime()) : new Date(String(baseDate));
+    const utc = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+    const next = new Date(utc + Number(days) * 86400000);
+    return next.toISOString().slice(0, 10);
+}
+
+function todayBogotaDate() {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Bogota',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+    });
+    return fmt.format(new Date());
+}
+
+function daysUntil(dateYmd, fromYmd = todayBogotaDate()) {
+    const a = new Date(`${fromYmd}T12:00:00Z`).getTime();
+    const b = new Date(`${dateYmd}T12:00:00Z`).getTime();
+    return Math.round((b - a) / 86400000);
+}
+
+function normalizeTipo(tipo) {
+    return String(tipo || '').trim().toLowerCase();
+}
+
+function createSeguimientoService({ pool, emailNotificationsPublisher } = {}) {
     if (!pool) {
         throw new TypeError('createSeguimientoService: pool es obligatorio');
     }
@@ -42,6 +71,7 @@ function createSeguimientoService({ pool }) {
                 a.fecha_acta,
                 a.estado,
                 a.correo_cierre_estado,
+                a.ciclo_vence_at,
                 a.payload_json,
                 a.created_at,
                 a.updated_at,
@@ -109,6 +139,10 @@ function createSeguimientoService({ pool }) {
             );
 
             await client.query('COMMIT');
+            if (estado === 'FINALIZADO') {
+                const acta = await getActa(actaId, null);
+                await publishCierreForActa(acta);
+            }
             return { id: actaId };
         } catch (err) {
             await client.query('ROLLBACK');
@@ -167,6 +201,10 @@ function createSeguimientoService({ pool }) {
             );
 
             await client.query('COMMIT');
+            if (isNowFinalizado) {
+                const acta = await getActa(id, null);
+                await publishCierreForActa(acta);
+            }
             return { id };
         } catch (err) {
             await client.query('ROLLBACK');
@@ -286,35 +324,136 @@ function createSeguimientoService({ pool }) {
         return res.rows[0]?.id || null;
     }
 
-    async function reintentarCorreoCierre(id, actor) {
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
-            
-            // Simula éxito del correo pendiente de envío
-            const sql = `
-                UPDATE seguimiento_acta 
-                SET correo_cierre_estado = 'enviado',
-                    updated_at = NOW()
-                WHERE id = $1
-                RETURNING correo_cierre_estado
-            `;
-            const { rows } = await client.query(sql, [id]);
-            const newStatus = rows[0]?.correo_cierre_estado || 'pendiente';
-
-            await client.query(
-                `INSERT INTO seguimiento_historial (acta_id, accion, estado_anterior, estado_nuevo, actor_user_id, actor_email, actor_role) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                [id, 'reintentar_correo', 'FINALIZADO', 'FINALIZADO', actor.id, actor.email, actor.role]
-            );
-
-            await client.query('COMMIT');
-            return newStatus;
-        } catch (err) {
-            await client.query('ROLLBACK');
-            throw err;
-        } finally {
-            client.release();
+    function cierreRecipientsFromActa(acta) {
+        const seen = new Set();
+        const recipients = [];
+        for (const p of acta?.participantes || []) {
+            const email = String(p.email || '').trim().toLowerCase();
+            if (!email.includes('@') || seen.has(email)) continue;
+            seen.add(email);
+            recipients.push({ email, name: p.nombre || undefined });
         }
+        return recipients;
+    }
+
+    function compromisosResumen(payload) {
+        const list = Array.isArray(payload?.planes_accion)
+            ? payload.planes_accion
+            : Array.isArray(payload?.compromisos)
+                ? payload.compromisos
+                : [];
+        return list
+            .map((c) => String(c?.descripcion || c?.tarea || '').trim())
+            .filter(Boolean)
+            .slice(0, 8)
+            .join('; ');
+    }
+
+    async function persistCorreoResult(actaId, result) {
+        if (result?.accepted) {
+            const ciclo = addDaysBogotaDate(new Date(), 30);
+            await pool.query(
+                `UPDATE seguimiento_acta
+                 SET correo_cierre_estado = 'enviado',
+                     correos_cierre_enviados_at = NOW(),
+                     correo_cierre_last_error = NULL,
+                     ciclo_vence_at = $2::date,
+                     updated_at = NOW()
+                 WHERE id = $1::uuid`,
+                [actaId, ciclo]
+            );
+            return { correoCierreEstado: 'enviado', cicloVenceAt: ciclo };
+        }
+        const estado = result?.skipped && result?.reason === 'disabled' ? 'pendiente' : 'fallido';
+        const err =
+            result?.error ||
+            result?.reason ||
+            (result?.skipped ? `skipped:${result.reason}` : 'publish_failed');
+        await pool.query(
+            `UPDATE seguimiento_acta
+             SET correo_cierre_estado = $2,
+                 correos_cierre_enviados_at = NULL,
+                 correo_cierre_last_error = $3,
+                 ciclo_vence_at = NULL,
+                 updated_at = NOW()
+             WHERE id = $1::uuid`,
+            [actaId, estado, String(err).slice(0, 1000)]
+        );
+        return { correoCierreEstado: estado, cicloVenceAt: null, error: err };
+    }
+
+    async function publishCierreForActa(acta) {
+        if (!acta?.id) {
+            return { correoCierreEstado: 'fallido', cicloVenceAt: null, error: 'acta_missing' };
+        }
+        const recipients = cierreRecipientsFromActa(acta);
+        if (recipients.length === 0) {
+            return persistCorreoResult(acta.id, {
+                accepted: false,
+                skipped: true,
+                reason: 'no_recipients'
+            });
+        }
+        if (!emailNotificationsPublisher?.publishSeguimientoCierre) {
+            return persistCorreoResult(acta.id, {
+                accepted: false,
+                skipped: true,
+                reason: 'publisher_missing'
+            });
+        }
+        const p = acta.payload_json || {};
+        const realizadoPorNombre =
+            String(p.responsable_nombre || p.responsableNombre || '').trim() ||
+            String(p.quien_realiza_nombre || p.quienRealizaNombre || '').trim() ||
+            '';
+        const event = buildSeguimientoCierreEvent({
+            seguimientoId: acta.id,
+            tipo: normalizeTipo(acta.tipo) === 'cliente' ? 'cliente' : 'consultor',
+            recipients,
+            realizadoPorNombre,
+            acta: {
+                fecha: String(acta.fecha_acta || '').slice(0, 10),
+                cliente: acta.cliente,
+                modalidad: p.modalidad || '',
+                temasTratados: p.agenda || p.temasTratados || '',
+                feedback: p.objetivo || p.feedback || '',
+                compromisosResumen: compromisosResumen(p)
+            }
+        });
+        const pub = await emailNotificationsPublisher.publishSeguimientoCierre(event);
+        return persistCorreoResult(acta.id, pub);
+    }
+
+    async function reintentarCorreoCierre(id, actor) {
+        const acta = await getActa(id, null);
+        if (!acta) {
+            const err = new Error('Acta no encontrada');
+            err.statusCode = 404;
+            throw err;
+        }
+        if (String(acta.estado || '').toUpperCase() !== 'FINALIZADO') {
+            const err = new Error('Solo actas finalizadas pueden reintentar correo');
+            err.statusCode = 409;
+            throw err;
+        }
+        if (acta.correo_cierre_estado === 'enviado') {
+            const err = new Error('El correo de cierre ya fue enviado');
+            err.statusCode = 409;
+            throw err;
+        }
+        const role = String(actor?.role || '').toLowerCase();
+        if (role === 'gp' && String(acta.gp_id || '') !== String(actor?.id || '')) {
+            const err = new Error('GP solo puede reintentar sus actas');
+            err.statusCode = 403;
+            throw err;
+        }
+        const correo = await publishCierreForActa(acta);
+        await pool.query(
+            `INSERT INTO seguimiento_historial (acta_id, accion, estado_anterior, estado_nuevo, actor_user_id, actor_email, actor_role, detalle)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+            [id, 'reintentar_correo', 'FINALIZADO', 'FINALIZADO', actor?.id || null, actor?.email || null, actor?.role || null, JSON.stringify(correo)]
+        );
+        return correo;
     }
 
     return {
@@ -325,10 +464,14 @@ function createSeguimientoService({ pool }) {
         softDeleteActa,
         addObservacionConsultor,
         getInternalUserIdByEmail,
-        reintentarCorreoCierre
+        reintentarCorreoCierre,
+        reintentarCorreo: reintentarCorreoCierre
     };
 }
 
 module.exports = {
-    createSeguimientoService
+    createSeguimientoService,
+    addDaysBogotaDate,
+    todayBogotaDate,
+    daysUntil
 };
