@@ -21,7 +21,8 @@ Pipeline diario desacoplado del portal Node (sin cron en `server.js`).
 ## Variables
 
 - Selector: `QUEUE_URL`, `DATABASE_URL` **o** (`API_BASE_URL` + `INTERNAL_TOKEN`)
-- Worker: `API_BASE_URL`, `INTERNAL_TOKEN` (JWT staff CAC/SA)
+- Worker: `API_BASE_URL`, `INTERNAL_TOKEN` (secreto aleatorio M2M; no usar un JWT de usuario)
+- El portal también acepta JWT de CAC / Super administrador en esas rutas internas (uso manual). El token de las Lambdas debe ser el secreto, no la sesión de una persona.
 
 ## Nota
 

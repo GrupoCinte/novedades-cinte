@@ -541,6 +541,9 @@ function createSeguimientoService({ pool, emailNotificationsPublisher, listEmail
 
     async function processReminderMessage({ seguimientoId, kind }) {
         const k = String(kind || '').toUpperCase();
+        if (!['T5', 'T1'].includes(k)) {
+            return { ok: false, reason: 'invalid_kind' };
+        }
         const acta = await getActa(seguimientoId, null);
         if (!acta) return { ok: false, reason: 'not_found' };
         if (String(acta.estado || '').toUpperCase() !== 'FINALIZADO' || acta.correo_cierre_estado !== 'enviado' || !acta.ciclo_vence_at) {
