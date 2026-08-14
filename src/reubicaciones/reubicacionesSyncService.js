@@ -46,6 +46,13 @@ async function registrarHistorial({
     );
 }
 
+function computeFields(normalized, patch) {
+    const fecha_fin = normalized?.fecha_termino || patch?.fecha_termino;
+    const cliente_destino = normalized?.cliente_destino || patch?.cliente_destino || normalized?.cliente || patch?.cliente;
+    const causal = normalized?.causal || patch?.causal || normalized?.termino || patch?.termino;
+    return { fecha_fin, cliente_destino, causal };
+}
+
 async function generarAlertaExtension({
     pipeline_id,
     cedula,
@@ -147,14 +154,7 @@ async function sincronizarConPipeline({
             );
             gp_user_id = liderResult.rows[0]?.gp_user_id || null;
         }
-        return { exists, cliente, lider, consultor_id, gp_user_id, nombre };
-    }
-
-    function computeFields(normalized, patch) {
-        const fecha_fin = normalized?.fecha_termino || patch?.fecha_termino;
-        const cliente_destino = normalized?.cliente_destino || patch?.cliente_destino || normalized?.cliente || patch?.cliente;
-        const causal = normalized?.causal || patch?.causal || normalized?.termino || patch?.termino;
-        return { fecha_fin, cliente_destino, causal };
+        return { exists, consultor_id, gp_user_id, nombre };
     }
 
     async function insertNuevoCaso({ ced, fecha_fin, cliente_destino, causal, estado, motivo, tipo_novedad, gp_user_id, external_id, consultor_id }) {
@@ -204,7 +204,7 @@ async function sincronizarConPipeline({
     // --- flow ---
     if (await alreadyProcessed()) return { ok: true, idempotent: true, message: 'Evento ya sincronizado' };
 
-    const { exists: colaboradorExiste, cliente, lider, consultor_id, gp_user_id, nombre: colaborador_nombre } = await fetchCollaboratorAndGP();
+    const { exists: colaboradorExiste, consultor_id, gp_user_id, nombre: colaborador_nombre } = await fetchCollaboratorAndGP();
     const { fecha_fin, cliente_destino, causal } = computeFields(normalized, patch);
     if (!fecha_fin) {
         console.log('=== FICHA SIN FECHA ===', { external_id, tipo_novedad, normalized, patch });

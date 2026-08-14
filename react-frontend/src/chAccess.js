@@ -1,5 +1,4 @@
 
-import { getPanelsFromToken } from './comercialAccess';
 import { userHasDirectorioPanel } from './directorioAccess';
 
 function resolveRole(authOrToken) {

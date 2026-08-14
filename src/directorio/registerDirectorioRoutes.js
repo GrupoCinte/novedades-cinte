@@ -1555,7 +1555,14 @@ function registerDirectorioRoutes(deps) {
             );
             const historicoCount = historicoCountRes.rows[0]?.total ?? 0;
 
-            const alcance = isGp ? 'solo sus casos' : role === 'super_admin' ? 'todos los casos' : 'general';
+            let alcance;
+            if (isGp) {
+                alcance = 'solo sus casos';
+            } else if (role === 'super_admin') {
+                alcance = 'todos los casos';
+            } else {
+                alcance = 'general';
+            }
             return res.json({
                 ok: true,
                 items: pagedRows,
@@ -1956,18 +1963,22 @@ function registerDirectorioRoutes(deps) {
             const pipelineId = validateUuidV4(req.params.id, res);
             if (!pipelineId) return;
 
-            if (actionType === 'observacion' && !isCH(req.user)) {
+            const isObservacion = actionType === 'observacion';
+            const isDecision = actionType === 'decision';
+
+            // permisos
+            if (isObservacion && !isCH(req.user)) {
                 return res.status(403).json({ ok: false, error: 'Solo CH puede registrar observaciones' });
             }
-            if (actionType === 'decision' && !isGP(req.user)) {
+            if (isDecision && !isGP(req.user)) {
                 return res.status(403).json({ ok: false, error: 'Solo GP puede registrar decisiones' });
             }
 
             const body = req.body || {};
-            if (actionType === 'observacion' && !String(body.observacion || '').trim()) {
+            if (isObservacion && !String(body.observacion || '').trim()) {
                 return res.status(400).json({ ok: false, error: 'Observación es requerida' });
             }
-            if (actionType === 'decision' && !String(body.decision || '').trim()) {
+            if (isDecision && !String(body.decision || '').trim()) {
                 return res.status(400).json({ ok: false, error: 'Decisión es requerida' });
             }
 
@@ -1976,7 +1987,7 @@ function registerDirectorioRoutes(deps) {
                 role: normalizeRoleOrNull(req.user?.role)
             };
 
-            if (actionType === 'observacion') {
+            async function doObservacion() {
                 const result = await observacionesService.registrarObservacion({
                     pipelineId,
                     observacion: String(body.observacion).trim(),
@@ -1986,14 +1997,21 @@ function registerDirectorioRoutes(deps) {
                 return res.status(result.status).json(result.body);
             }
 
-            const result = await decisionesService.registrarDecision({
-                pipelineId,
-                decision: String(body.decision).trim(),
-                justificacion: body.justificacion == null ? null : String(body.justificacion).trim(),
-                decididoPor: actor,
-                pool
-            });
-            return res.status(result.status).json(result.body);
+            async function doDecision() {
+                const result = await decisionesService.registrarDecision({
+                    pipelineId,
+                    decision: String(body.decision).trim(),
+                    justificacion: body.justificacion == null ? null : String(body.justificacion).trim(),
+                    decididoPor: actor,
+                    pool
+                });
+                return res.status(result.status).json(result.body);
+            }
+
+            if (isObservacion) return await doObservacion();
+            if (isDecision) return await doDecision();
+
+            return res.status(400).json({ ok: false, error: 'Acción no soportada' });
         } catch (error) {
             const logPrefix = actionType === 'observacion'
                 ? 'POST /directorio/reubicaciones/:id/observacion'

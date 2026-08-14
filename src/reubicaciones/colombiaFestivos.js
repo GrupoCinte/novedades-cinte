@@ -2,7 +2,7 @@
 
 function parseDateOnly(value) {
     if (!value) return null;
-    const date = value instanceof Date ? new Date(value) : new Date(value);
+    const date = new Date(value);
     if (Number.isNaN(date.getTime())) return null;
     date.setHours(0, 0, 0, 0);
     return date;
@@ -91,11 +91,14 @@ function getDiasHabilesColombia(fechaInicio, fechaFin, holidaySet = null) {
 
     const set = holidaySet || getFestivosColombia(inicio.getFullYear());
     let count = 0;
-    for (let cursor = new Date(inicio); cursor <= fin; cursor.setDate(cursor.getDate() + 1)) {
+    let cursor = new Date(inicio.getTime());
+    const endTime = fin.getTime();
+    while (cursor.getTime() <= endTime) {
         const ymd = toYmd(cursor);
-        if (cursor.getDay() === 0 || cursor.getDay() === 6) continue;
-        if (set.has(ymd)) continue;
-        count += 1;
+        if (cursor.getDay() !== 0 && cursor.getDay() !== 6 && !set.has(ymd)) {
+            count += 1;
+        }
+        cursor.setDate(cursor.getDate() + 1);
     }
 
     return count;
