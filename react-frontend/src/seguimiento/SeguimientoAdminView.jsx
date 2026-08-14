@@ -47,6 +47,7 @@ export default function SeguimientoAdminView({ token, auth }) {
     const [clientesCartera, setClientesCartera] = useState([]);
     const [loading, setLoading] = useState(false);
     const [successMessage, setSuccessMessage] = useState('');
+    const [tab, setTab] = useState('todas');
 
     // Estado para el panel de filtros
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
@@ -129,9 +130,13 @@ export default function SeguimientoAdminView({ token, auth }) {
         credentials: 'include'
     }), [token]);
 
+    const actasUrl = tab === 'proximos'
+        ? '/api/seguimiento/actas?proximosVencer=true&maxDias=5'
+        : '/api/seguimiento/actas';
+
     const refreshActas = useCallback(async () => {
         try {
-            const resActas = await fetch('/api/seguimiento/actas', fetchOpts());
+            const resActas = await fetch(actasUrl, fetchOpts());
             if (resActas.ok) {
                 const dataActas = await resActas.json();
                 setActas(dataActas.items || []);
@@ -139,14 +144,14 @@ export default function SeguimientoAdminView({ token, auth }) {
         } catch { 
             // Ignorar errores por ahora
         }
-    }, [fetchOpts]);
+    }, [actasUrl, fetchOpts]);
 
     useEffect(() => {
         const fetchData = async () => {
             setLoading(true);
             try {
                 const [resActas, resCartera] = await Promise.all([
-                    fetch('/api/seguimiento/actas', fetchOpts()),
+                    fetch(actasUrl, fetchOpts()),
                     fetch('/api/seguimiento/cartera', fetchOpts())
                 ]);
 
@@ -227,10 +232,10 @@ export default function SeguimientoAdminView({ token, auth }) {
     // Fix SonarQube: Extraer el cuerpo de la tabla para reducir complejidad cognitiva y ternarios anidados
     const renderTableBody = () => {
         if (loading) {
-            return <tr><td colSpan={6} className={`p-12 text-center font-medium ${dash.muted}`}>Cargando actas...</td></tr>;
+            return <tr><td colSpan={7} className={`p-12 text-center font-medium ${dash.muted}`}>Cargando actas...</td></tr>;
         }
         if (filteredActas.length === 0) {
-            return <tr><td colSpan={6} className={`p-12 text-center font-medium ${dash.muted}`}>{getEmptyStateMessage(actas.length > 0, isGp)}</td></tr>;
+            return <tr><td colSpan={7} className={`p-12 text-center font-medium ${dash.muted}`}>{getEmptyStateMessage(actas.length > 0, isGp)}</td></tr>;
         }
         return filteredActas.map((row) => {
             const names = row.participantes?.map(p => p.nombre).filter(Boolean) || [];
@@ -263,6 +268,11 @@ export default function SeguimientoAdminView({ token, auth }) {
                     <td className={`p-4 pr-6 text-right ${dash.mutedSm}`}>
                         {formattedDate}
                     </td>
+                    <td className={`p-4 ${dash.mutedSm}`}>
+                        {row.ciclo_vence_at
+                            ? `${String(row.ciclo_vence_at).slice(0, 10)}${row.diasRestantes != null ? ` (${row.diasRestantes}d)` : ''}`
+                            : '—'}
+                    </td>
                     <td className="p-4 text-center">
                         {canDelete && (
                             <button 
@@ -291,6 +301,22 @@ export default function SeguimientoAdminView({ token, auth }) {
                 panelId="directorio-seguimiento-filtros-panel"
                 dash={dash}
             >
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setTab('todas')}
+                        className={tab === 'todas' ? dash.btnPrimaryCinte : `inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold ${isLight ? 'border-slate-300 text-slate-700' : 'border-slate-600 text-slate-200'}`}
+                    >
+                        Todas
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setTab('proximos')}
+                        className={tab === 'proximos' ? dash.btnPrimaryCinte : `inline-flex items-center justify-center rounded-lg border px-4 py-2 text-sm font-semibold ${isLight ? 'border-slate-300 text-slate-700' : 'border-slate-600 text-slate-200'}`}
+                    >
+                        Próximos a vencer
+                    </button>
+                </div>
                 <div className="flex-1" />
                 <button
                     type="button"
@@ -330,6 +356,7 @@ export default function SeguimientoAdminView({ token, auth }) {
                                     <th className="p-4 font-semibold">Participantes</th>
                                     <th className="p-4 font-semibold">Estado</th>
                                     <th className="p-4 font-semibold text-right pr-6">Fecha Reunión</th>
+                                    <th className="p-4 font-semibold">Vence</th>
                                     <th className="p-4 w-12 text-center"></th>
                                 </tr>
                             </thead>

@@ -780,7 +780,8 @@ const tiRolesStore = createTiRolesStore({ pool });
 const actividadesStore = createActividadesStore({ pool });
 const seguimientoService = createSeguimientoService({
     pool,
-    emailNotificationsPublisher
+    emailNotificationsPublisher,
+    listEmailsInGroups
 });
 const seguimientoConsultorService = createSeguimientoConsultorService({ pool });
 

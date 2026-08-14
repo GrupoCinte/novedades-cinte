@@ -1,4 +1,4 @@
-const { buildSeguimientoCierreEvent } = require('../notifications/seguimientoEmailEvents');
+const { buildSeguimientoCierreEvent, buildSeguimientoVencimientoEvent } = require('../notifications/seguimientoEmailEvents');
 
 function addDaysBogotaDate(baseDate, days) {
     const d = baseDate instanceof Date ? new Date(baseDate.getTime()) : new Date(String(baseDate));
@@ -27,7 +27,7 @@ function normalizeTipo(tipo) {
     return String(tipo || '').trim().toLowerCase();
 }
 
-function createSeguimientoService({ pool, emailNotificationsPublisher } = {}) {
+function createSeguimientoService({ pool, emailNotificationsPublisher, listEmailsInGroups } = {}) {
     if (!pool) {
         throw new TypeError('createSeguimientoService: pool es obligatorio');
     }
@@ -40,7 +40,14 @@ function createSeguimientoService({ pool, emailNotificationsPublisher } = {}) {
      * IMPORTANTE: Esta función es de solo lectura (AUT-283).
      * Las funciones de escritura se implementarán en AUT-284.
      */
-    async function listActas({ gpId = null, clientesAsignados = null, limit = 50, offset = 0 } = {}) {
+    async function listActas({
+        gpId = null,
+        clientesAsignados = null,
+        limit = 50,
+        offset = 0,
+        proximosVencer = false,
+        maxDias = 5
+    } = {}) {
         const queryParams = [];
         let whereClause = "WHERE a.deleted_at IS NULL";
 
@@ -54,6 +61,15 @@ function createSeguimientoService({ pool, emailNotificationsPublisher } = {}) {
             // Fallback just in case, though we'll use clientesAsignados mostly
             queryParams.push(gpId);
             whereClause += ` AND a.gp_id = $${queryParams.length}::uuid`;
+        }
+
+        if (proximosVencer) {
+            whereClause += ` AND UPPER(a.estado) = 'FINALIZADO'`;
+            whereClause += ` AND a.correo_cierre_estado = 'enviado'`;
+            whereClause += ` AND a.ciclo_vence_at IS NOT NULL`;
+            queryParams.push(Number(maxDias) || 5);
+            whereClause += ` AND a.ciclo_vence_at::date BETWEEN (timezone('America/Bogota', now()))::date
+                 AND ((timezone('America/Bogota', now()))::date + ($${queryParams.length}::int))`;
         }
 
         queryParams.push(limit);
@@ -87,7 +103,13 @@ function createSeguimientoService({ pool, emailNotificationsPublisher } = {}) {
         `;
 
         const { rows } = await pool.query(sql, queryParams);
-        return rows || [];
+        return (rows || []).map((row) => {
+            const ciclo = row.ciclo_vence_at ? String(row.ciclo_vence_at).slice(0, 10) : null;
+            return {
+                ...row,
+                diasRestantes: ciclo ? daysUntil(ciclo) : null
+            };
+        });
     }
 
     function validateFinalizadoActa(data) {
@@ -456,6 +478,111 @@ function createSeguimientoService({ pool, emailNotificationsPublisher } = {}) {
         return correo;
     }
 
+    async function listElegiblesRecordatorio({ kind, asOfDate = todayBogotaDate() } = {}) {
+        const k = String(kind || '').toUpperCase();
+        if (!['T5', 'T1'].includes(k)) {
+            const err = new Error('kind debe ser T5 o T1');
+            err.statusCode = 400;
+            throw err;
+        }
+        const dias = k === 'T5' ? 5 : 1;
+        const flagCol = k === 'T5' ? 'reminder_t5_sent_at' : 'reminder_t1_sent_at';
+        const { rows } = await pool.query(
+            `SELECT id, tipo, cliente, gp_id, ciclo_vence_at
+             FROM seguimiento_acta
+             WHERE deleted_at IS NULL
+               AND UPPER(estado) = 'FINALIZADO'
+               AND correo_cierre_estado = 'enviado'
+               AND ciclo_vence_at IS NOT NULL
+               AND ${flagCol} IS NULL
+               AND ciclo_vence_at::date = ($1::date + $2::int)`,
+            [asOfDate, dias]
+        );
+        return rows.map((r) => ({
+            seguimientoId: r.id,
+            kind: k,
+            cicloVenceAt: String(r.ciclo_vence_at).slice(0, 10),
+            tipo: r.tipo,
+            sujetoLabel: r.cliente,
+            gpUserId: r.gp_id
+        }));
+    }
+
+    async function resolveReminderRecipients(actaRow) {
+        const recipients = [];
+        const seen = new Set();
+        if (actaRow.gp_id) {
+            const { rows } = await pool.query(
+                `SELECT email FROM users WHERE id = $1::uuid LIMIT 1`,
+                [actaRow.gp_id]
+            );
+            const email = String(rows[0]?.email || '').trim().toLowerCase();
+            if (email.includes('@') && !seen.has(email)) {
+                seen.add(email);
+                recipients.push({ email, role: 'gp' });
+            }
+        }
+        if (typeof listEmailsInGroups === 'function') {
+            try {
+                const res = await listEmailsInGroups(['super_admin', 'cac']);
+                const emails = Array.isArray(res?.emails) ? res.emails : Array.isArray(res) ? res : [];
+                for (const e of emails) {
+                    const email = String(e || '').trim().toLowerCase();
+                    if (!email.includes('@') || seen.has(email)) continue;
+                    seen.add(email);
+                    recipients.push({ email, role: 'staff' });
+                }
+            } catch (e) {
+                console.warn('[Seguimiento] listEmailsInGroups falló:', e?.message || e);
+            }
+        }
+        return recipients;
+    }
+
+    async function processReminderMessage({ seguimientoId, kind }) {
+        const k = String(kind || '').toUpperCase();
+        if (!['T5', 'T1'].includes(k)) {
+            return { ok: false, reason: 'invalid_kind' };
+        }
+        const acta = await getActa(seguimientoId, null);
+        if (!acta) return { ok: false, reason: 'not_found' };
+        if (String(acta.estado || '').toUpperCase() !== 'FINALIZADO' || acta.correo_cierre_estado !== 'enviado' || !acta.ciclo_vence_at) {
+            return { ok: false, reason: 'not_eligible' };
+        }
+        const flagCol = k === 'T5' ? 'reminder_t5_sent_at' : 'reminder_t1_sent_at';
+        if (acta[flagCol]) return { ok: true, skipped: true, reason: 'already_sent' };
+
+        const dias = daysUntil(String(acta.ciclo_vence_at).slice(0, 10));
+        const expected = k === 'T5' ? 5 : 1;
+        if (dias !== expected) return { ok: false, reason: 'day_mismatch', dias };
+
+        const recipients = await resolveReminderRecipients(acta);
+        if (recipients.length === 0) return { ok: false, reason: 'no_recipients' };
+
+        if (!emailNotificationsPublisher?.publishSeguimientoVencimiento) {
+            return { ok: false, reason: 'publisher_missing' };
+        }
+        const event = buildSeguimientoVencimientoEvent({
+            seguimientoId: acta.id,
+            kind: k,
+            recipients,
+            venceEl: String(acta.ciclo_vence_at).slice(0, 10),
+            tipo: normalizeTipo(acta.tipo) === 'cliente' ? 'cliente' : 'consultor',
+            sujetoLabel: acta.cliente
+        });
+        const pub = await emailNotificationsPublisher.publishSeguimientoVencimiento(event);
+        if (!pub?.accepted) {
+            return { ok: false, reason: pub?.reason || pub?.error || 'publish_failed', pub };
+        }
+        await pool.query(
+            `UPDATE seguimiento_acta
+             SET ${flagCol} = NOW(), updated_at = NOW()
+             WHERE id = $1::uuid AND ${flagCol} IS NULL`,
+            [seguimientoId]
+        );
+        return { ok: true, kind: k, recipients: recipients.length };
+    }
+
     return {
         listActas,
         getActa,
@@ -465,7 +592,9 @@ function createSeguimientoService({ pool, emailNotificationsPublisher } = {}) {
         addObservacionConsultor,
         getInternalUserIdByEmail,
         reintentarCorreoCierre,
-        reintentarCorreo: reintentarCorreoCierre
+        reintentarCorreo: reintentarCorreoCierre,
+        listElegiblesRecordatorio,
+        processReminderMessage
     };
 }
 
