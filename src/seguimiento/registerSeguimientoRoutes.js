@@ -247,11 +247,17 @@ function registerSeguimientoRoutes(deps) {
                 }
             }
 
-            const updatedStatus = await seguimientoService.reintentarCorreoCierre(id, actor);
-            res.json({ ok: true, correo_cierre_estado: updatedStatus });
+            const correo = await seguimientoService.reintentarCorreoCierre(id, actor);
+            const estado = correo?.correoCierreEstado || correo?.correo_cierre_estado || correo;
+            res.json({
+                ok: true,
+                correo_cierre_estado: estado,
+                ciclo_vence_at: correo?.cicloVenceAt || null
+            });
         } catch (error) {
             console.error('[Seguimiento] Error en POST /api/seguimiento/actas/:id/reintentar-correo:', error);
-            res.status(400).json({ ok: false, error: error.message });
+            const status = Number(error.statusCode) || 400;
+            res.status(status).json({ ok: false, error: error.message });
         }
     });
 }

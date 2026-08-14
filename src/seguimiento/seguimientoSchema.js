@@ -21,7 +21,15 @@ async function ensureSeguimientoTables(pool) {
         await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS correo_cierre_estado TEXT NOT NULL DEFAULT \'no_aplica\';');
         await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS finalizado_at TIMESTAMPTZ NULL;');
         await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS ciclo_vence_at DATE NULL;');
+        await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS correos_cierre_enviados_at TIMESTAMPTZ NULL;');
+        await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS correo_cierre_last_error TEXT NULL;');
+        await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS reminder_t5_sent_at TIMESTAMPTZ NULL;');
+        await pool.query('ALTER TABLE seguimiento_acta ADD COLUMN IF NOT EXISTS reminder_t1_sent_at TIMESTAMPTZ NULL;');
         await pool.query('ALTER TABLE seguimiento_acta DROP COLUMN IF EXISTS consultor_cedula;');
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_seguimiento_acta_ciclo ON seguimiento_acta (ciclo_vence_at)
+            WHERE deleted_at IS NULL AND correo_cierre_estado = 'enviado' AND UPPER(estado) = 'FINALIZADO'
+        `);
 
         await pool.query('CREATE INDEX IF NOT EXISTS idx_seguimiento_acta_gp ON seguimiento_acta(gp_id)');
         await pool.query('CREATE INDEX IF NOT EXISTS idx_seguimiento_acta_cliente ON seguimiento_acta(cliente)');

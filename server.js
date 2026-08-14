@@ -778,7 +778,10 @@ const { startServer } = require('./src/startup');
 const cotizadorStore = createCotizadorStore({ pool });
 const tiRolesStore = createTiRolesStore({ pool });
 const actividadesStore = createActividadesStore({ pool });
-const seguimientoService = createSeguimientoService({ pool });
+const seguimientoService = createSeguimientoService({
+    pool,
+    emailNotificationsPublisher
+});
 const seguimientoConsultorService = createSeguimientoConsultorService({ pool });
 
 const secureEntraCookie = String(process.env.COOKIE_SECURE || (isProduction ? 'true' : 'false')).toLowerCase() === 'true';
