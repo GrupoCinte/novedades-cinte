@@ -20,6 +20,18 @@ Bitácora oficial y **única** de cambios del repositorio. Se agrega **una entra
 ## Registro
 
 <!-- Las nuevas entradas se agregan aquí arriba, en orden cronológico inverso. -->
+### 2026-08-13 21:50:03 · `testing` · `1a078972`
+- **Commit:** `1a078972e9281a60a0abac4e479579a4490535bb`
+- **Ticket:** AUT-283
+- **Requerimiento funcional:** El gerente de servicio (y CAC / Super administrador) ya pueden entrar al submódulo Seguimiento en Administración, ver la cartera asignada e iniciar actas de consultor o cliente.
+- **Componente técnico:** merge de PR #157 (`feature/AUT-283-seguimiento-cartera-gp`) en `testing`. Módulo `src/seguimiento/`, vista admin, RBAC y tablas de actas. La PR también trajo el formulario de acta (AUT-284).
+- **Cambios (uno a uno):**
+  - Vista Seguimiento en Directorio (Administración) con listado de cartera y actas.
+  - API `GET /api/seguimiento/cartera` y `GET /api/seguimiento/actas` con alcance GP vs CAC/SA.
+  - Tablas PostgreSQL `seguimiento_acta` y `seguimiento_participante`.
+  - RBAC: gp ve su cartera; cac y super_admin ven sin filtro; resto no ve el submódulo.
+  - Formulario de acta (borrador / finalizar) incluido en el mismo merge.
+
 ### 2026-07-29 22:54:42 · `integrate/testing-atraccion-talento` · `6e0d28fc`
 - **Commit:** `6e0d28fc941e201c404fbe9589ea7b47a1fbd767`
 - **Ticket:** —
