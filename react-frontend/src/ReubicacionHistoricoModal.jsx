@@ -2,7 +2,6 @@
 import { useState, useEffect } from 'react';
 import MonitorGlassModalShell from './shared/modals/MonitorGlassModalShell.jsx';
 import { useModuleTheme } from './moduleTheme.js';
-import { buildMonitorGlassModalTheme } from './shared/modals/monitorGlassModalTheme.js';
 import { formatMoneyAmountOnly } from './multiCurrencyMoney.js';
 
 function formatMontoDisplay(val, currencyCode = 'COP') {
@@ -46,7 +45,29 @@ function getDecisionClass(decision, isLight) {
     return isLight ? 'text-rose-600' : 'text-rose-300';
 }
 
-export function ReubicacionHistoricoModal({ isOpen, onClose, row, token, auth }) {
+function renderCasoInfoItems(row, classes) {
+    const items = [
+        { label: 'Cédula', value: row.cedula },
+        { label: 'Consultor', value: row.consultor || '—' },
+        { label: 'Cliente actual', value: row.cliente_actual || '—' },
+        { label: 'Cliente destino', value: row.cliente_destino || '—' },
+        { label: 'Puesto', value: row.puesto || '—' },
+        { label: 'Salario', value: formatMontoDisplay(row.salario, row.moneda_salario || row.moneda) },
+        { label: 'Auxilios', value: formatMontoDisplay(row.auxilios, row.moneda_auxilios || row.moneda) },
+        { label: 'Tipo ficha', value: row.tipo_ficha || '—' },
+        { label: 'Fecha de fin', value: row.fecha_fin || '—' },
+        { label: 'Días restantes', value: row.dias_restantes ?? '—' }
+    ];
+
+    return items.map((item) => (
+        <div key={item.label} className={classes.infoCardClass}>
+            <p className={`${classes.infoLabelClass} ${classes.textCapitalizedClass}`}>{item.label}</p>
+            <p className={`${classes.infoValueClass} ${classes.textCapitalizedClass}`}>{item.value}</p>
+        </div>
+    ));
+}
+
+export function ReubicacionHistoricoModal({ isOpen, onClose, row, token }) {
     const { isLight } = useModuleTheme();
     const [loading, setLoading] = useState(false);
     const [historial, setHistorial] = useState([]);
@@ -203,46 +224,12 @@ export function ReubicacionHistoricoModal({ isOpen, onClose, row, token, auth })
                     {/* 1. DATOS DEL CASO */}
                     {/* ================================================ */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                        <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Cédula</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cedula}</p>
-                        </div>
-                        <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Consultor</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.consultor || '—'}</p>
-                        </div>
-                        <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Cliente actual</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cliente_actual || '—'}</p>
-                        </div>
-                        <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Cliente destino</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cliente_destino || '—'}</p>
-                        </div>
-                        <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Puesto</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.puesto || '—'}</p>
-                        </div>
-                        <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Salario</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{formatMontoDisplay(row.salario, row.moneda_salario || row.moneda)}</p>
-                        </div>
-                        <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Auxilios</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{formatMontoDisplay(row.auxilios, row.moneda_auxilios || row.moneda)}</p>
-                        </div>
-                        <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Tipo ficha</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.tipo_ficha || '—'}</p>
-                        </div>
-                        <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Fecha de fin</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.fecha_fin || '—'}</p>
-                        </div>
-                        <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Días restantes</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.dias_restantes ?? '—'}</p>
-                        </div>
+                        {renderCasoInfoItems(row, {
+                            infoCardClass,
+                            infoLabelClass,
+                            infoValueClass,
+                            textCapitalizedClass
+                        })}
                         <div className={`${infoCardClass} sm:col-span-2`}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Estado final</p>
                             <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.estado || row.semaforo || '—'}</p>
