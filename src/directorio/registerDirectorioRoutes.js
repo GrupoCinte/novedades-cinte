@@ -177,6 +177,23 @@ async function assertPipelineCaseExists(pool, pipelineId, res, message = 'Caso n
     return true;
 }
 
+function validateUuidLike(id, res, pattern, message = 'Id inválido') {
+    const trimmed = String(id || '').trim();
+    if (!pattern.test(trimmed)) {
+        res.status(400).json({ ok: false, error: message });
+        return null;
+    }
+    return trimmed;
+}
+
+function validateUuid36(id, res) {
+    return validateUuidLike(id, res, /^[0-9a-f-]{36}$/i);
+}
+
+function validateUuidV4(id, res) {
+    return validateUuidLike(id, res, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+}
+
 function parseUuidActor(sub) {
     const s = String(sub || '').trim();
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)) return s;
@@ -883,8 +900,8 @@ function registerDirectorioRoutes(deps) {
 
     app.patch('/api/directorio/clientes-lideres/:id', ...writeGuard, async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
+            const id = validateUuid36(req.params.id, res);
+            if (!id) return;
             const parsed = tryParseRouteSchema(clienteLiderPatchSchema, req.body, res, 'Datos inválidos');
             if (!parsed) return;
             const patch = { ...parsed };
@@ -917,8 +934,8 @@ function registerDirectorioRoutes(deps) {
 
     app.delete('/api/directorio/clientes-lideres/:id', ...writeGuard, async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
+            const id = validateUuid36(req.params.id, res);
+            if (!id) return;
             const row = await deleteClienteLiderById(id);
             if (!row) return res.status(404).json({ ok: false, error: 'No encontrado' });
             await writeAudit(pool, {
@@ -1639,10 +1656,8 @@ function registerDirectorioRoutes(deps) {
 
     app.patch('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-                return res.status(400).json({ ok: false, error: 'Id inválido' });
-            }
+            const id = validateUuidV4(req.params.id, res);
+            if (!id) return;
             const parsed = reubicacionesPipelinePatchSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const d = parsed.data;
@@ -1780,10 +1795,8 @@ function registerDirectorioRoutes(deps) {
 
     app.delete('/api/directorio/reubicaciones-pipeline/:id', verificarToken, reubicacionesGuard(), async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-                return res.status(400).json({ ok: false, error: 'Id inválido' });
-            }
+            const id = validateUuidV4(req.params.id, res);
+            if (!id) return;
             const del = await pool.query(`DELETE FROM reubicaciones_pipeline WHERE id = $1::uuid RETURNING id`, [id]);
             if (!del.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
             await writeAudit(pool, {
@@ -1839,8 +1852,8 @@ function registerDirectorioRoutes(deps) {
 
     app.patch('/api/directorio/gp/:id', ...writeGuard, async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ ok: false, error: 'Id inválido' });
+            const id = validateUuid36(req.params.id, res);
+            if (!id) return;
             const parsed = tryParseRouteSchema(gpPatchSchema, req.body, res, 'Datos inválidos');
             if (!parsed) return;
             const before = await pool.query(
