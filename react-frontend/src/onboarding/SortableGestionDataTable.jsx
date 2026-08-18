@@ -13,7 +13,8 @@ export default function SortableGestionDataTable({
     sort,
     onSort,
     sortableKeys,
-    rowKey
+    rowKey,
+    footer
 }) {
     const G = buildGestionTableDash(Boolean(isLight));
     const clickable = typeof onRowClick === 'function';
@@ -103,6 +104,7 @@ export default function SortableGestionDataTable({
                     </tbody>
                 </table>
             </div>
+            {footer}
         </div>
     );
 }

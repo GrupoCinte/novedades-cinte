@@ -81,6 +81,10 @@ export default function MonitoreoActividadesPage() {
     const [sort, setSort] = useState({ key: 'inicio', dir: 'desc' });
     const [selectedRow, setSelectedRow] = useState(null);
 
+    // Paginación
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(20);
+
     const loadActivities = useCallback(async (mes) => {
         setLoading(true);
         setError('');
@@ -133,6 +137,18 @@ export default function MonitoreoActividadesPage() {
     }, [allActivities, clienteValue, drawerFilters.cedula]);
 
     const sortedRows = useMemo(() => sortRows(filteredActivities, sort), [filteredActivities, sort]);
+
+    // Resetear a página 1 cuando cambian los filtros o el ordenamiento
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filteredActivities.length, sort.key, sort.dir]);
+
+    // Calcular páginas
+    const totalPages = Math.ceil(sortedRows.length / pageSize) || 1;
+    const paginatedRows = useMemo(() => {
+        const startIndex = (currentPage - 1) * pageSize;
+        return sortedRows.slice(startIndex, startIndex + pageSize);
+    }, [sortedRows, currentPage, pageSize]);
 
     // Chip label
     const activeFilterCount = (clienteValue ? 1 : 0) + (drawerFilters.cedula ? 1 : 0);
@@ -245,12 +261,63 @@ export default function MonitoreoActividadesPage() {
             {!loading && !error && filteredActivities.length > 0 && (
                 <SortableGestionDataTable
                     columns={COLUMNS}
-                    rows={sortedRows}
+                    rows={paginatedRows}
                     isLight={isLight}
                     sort={sort}
                     onSort={handleSort}
                     onRowClick={(row) => setSelectedRow(row)}
                     emptyText="No hay actividades para los filtros seleccionados"
+                    footer={
+                        <div className={`flex flex-wrap items-center justify-between gap-4 p-4 border-t ${isLight ? 'border-slate-200 bg-white' : 'border-slate-700/50 bg-slate-800'}`}>
+                            <div className="flex items-center gap-2">
+                                <span className={`text-sm font-medium ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>Mostrar</span>
+                                <select
+                                    className={field}
+                                    value={pageSize}
+                                    onChange={(e) => {
+                                        setPageSize(Number(e.target.value));
+                                        setCurrentPage(1);
+                                    }}
+                                >
+                                    <option value={20}>20</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
+                                <span className={`text-sm font-medium ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>registros</span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <span className={`text-sm font-medium ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
+                                    Página {currentPage} de {totalPages}
+                                </span>
+                                <div className="flex gap-1">
+                                    <button
+                                        type="button"
+                                        disabled={currentPage === 1}
+                                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                        className={`px-3 py-1.5 text-sm font-semibold rounded-md border transition-colors ${
+                                            currentPage === 1
+                                                ? 'opacity-50 cursor-not-allowed ' + (isLight ? 'border-slate-200 text-slate-400' : 'border-slate-700 text-slate-500')
+                                                : isLight ? 'border-slate-300 text-slate-700 hover:bg-slate-50' : 'border-slate-600 text-slate-200 hover:bg-slate-700'
+                                        }`}
+                                    >
+                                        Anterior
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={currentPage >= totalPages}
+                                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                        className={`px-3 py-1.5 text-sm font-semibold rounded-md border transition-colors ${
+                                            currentPage >= totalPages
+                                                ? 'opacity-50 cursor-not-allowed ' + (isLight ? 'border-slate-200 text-slate-400' : 'border-slate-700 text-slate-500')
+                                                : isLight ? 'border-slate-300 text-slate-700 hover:bg-slate-50' : 'border-slate-600 text-slate-200 hover:bg-slate-700'
+                                        }`}
+                                    >
+                                        Siguiente
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    }
                 />
             )}
 
