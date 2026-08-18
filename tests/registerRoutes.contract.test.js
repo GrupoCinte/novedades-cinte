@@ -26,6 +26,7 @@ function buildApp(overrides = {}) {
     submitLimiter: limiter,
     consultorFormPostLimiter: limiter,
     catalogLimiter: limiter,
+    pdfLimiter: limiter,
     normalizeCedula: (v) => String(v || '').replace(/\D/g, ''),
     getColaboradorByCedula: async () => null,
     findPendingNovedadDuplicate: async () => ({ duplicado: false, id: null }),
