@@ -981,6 +981,22 @@ function registerRoutes(deps) {
         }
     });
 
+    async function fetchActividadesItems(req, poolLocal) {
+        const filters = parseActividadesConsultorQuery(req.query);
+        const role = String(req.user?.role || '').trim().toLowerCase();
+        if (!['super_admin', 'cac', 'gp'].includes(role)) {
+            const err = new Error('Sin permisos para esta operación');
+            err.status = 403;
+            throw err;
+        }
+        const items = await listActividadesConsultor(poolLocal, {
+            filters,
+            role,
+            gpUserId: req.scope?.gpUserId
+        });
+        return { items, filters };
+    }
+
     /** Listado de solo lectura para el submódulo Monitoreo de actividades. */
     app.get(
         '/api/admin/actividades',
@@ -989,16 +1005,7 @@ function registerRoutes(deps) {
         applyScope,
         async (req, res) => {
             try {
-                const filters = parseActividadesConsultorQuery(req.query);
-                const role = String(req.user?.role || '').trim().toLowerCase();
-                if (!['super_admin', 'cac', 'gp'].includes(role)) {
-                    return res.status(403).json({ ok: false, error: 'Sin permisos para esta operación' });
-                }
-                const items = await listActividadesConsultor(pool, {
-                    filters,
-                    role,
-                    gpUserId: req.scope?.gpUserId
-                });
+                const { items } = await fetchActividadesItems(req, pool);
                 return res.json({ ok: true, items });
             } catch (error) {
                 const status = Number(error?.status);
@@ -1020,17 +1027,7 @@ function registerRoutes(deps) {
         pdfLimiter,
         async (req, res) => {
             try {
-                const { parseActividadesConsultorQuery, listActividadesConsultor } = require('./monitoreo/actividadesConsultorService');
-                const filters = parseActividadesConsultorQuery(req.query);
-                const role = String(req.user?.role || '').trim().toLowerCase();
-                if (!['super_admin', 'cac', 'gp'].includes(role)) {
-                    return res.status(403).json({ ok: false, error: 'Sin permisos para esta operación' });
-                }
-                const items = await listActividadesConsultor(pool, {
-                    filters,
-                    role,
-                    gpUserId: req.scope?.gpUserId
-                });
+                const { items, filters } = await fetchActividadesItems(req, pool);
                 
                 const { buildActividadesPdfBuffer } = require('./monitoreo/actividadesPdf');
                 const pdfBuffer = await buildActividadesPdfBuffer(items, filters);
