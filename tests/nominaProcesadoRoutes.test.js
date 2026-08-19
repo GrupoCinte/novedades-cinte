@@ -125,6 +125,7 @@ function buildAppWithRole(role, poolExtras = {}) {
         submitLimiter: limiter,
         consultorFormPostLimiter: limiter,
         catalogLimiter: limiter,
+        pdfLimiter: limiter,
         normalizeCedula: (v) => String(v || '').replace(/\D/g, ''),
         getColaboradorByCedula: async () => null,
         verificarToken: noAuth,

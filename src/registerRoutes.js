@@ -344,6 +344,7 @@ function registerRoutes(deps) {
         forgotLimiter,
         submitLimiter,
         catalogLimiter,
+        pdfLimiter,
         normalizeCedula,
         getColaboradorByCedula,
         verificarToken,
@@ -980,6 +981,22 @@ function registerRoutes(deps) {
         }
     });
 
+    async function fetchActividadesItems(req, poolLocal) {
+        const filters = parseActividadesConsultorQuery(req.query);
+        const role = String(req.user?.role || '').trim().toLowerCase();
+        if (!['super_admin', 'cac', 'gp'].includes(role)) {
+            const err = new Error('Sin permisos para esta operación');
+            err.status = 403;
+            throw err;
+        }
+        const items = await listActividadesConsultor(poolLocal, {
+            filters,
+            role,
+            gpUserId: req.scope?.gpUserId
+        });
+        return { items, filters };
+    }
+
     /** Listado de solo lectura para el submódulo Monitoreo de actividades. */
     app.get(
         '/api/admin/actividades',
@@ -988,16 +1005,7 @@ function registerRoutes(deps) {
         applyScope,
         async (req, res) => {
             try {
-                const filters = parseActividadesConsultorQuery(req.query);
-                const role = String(req.user?.role || '').trim().toLowerCase();
-                if (!['super_admin', 'cac', 'gp'].includes(role)) {
-                    return res.status(403).json({ ok: false, error: 'Sin permisos para esta operación' });
-                }
-                const items = await listActividadesConsultor(pool, {
-                    filters,
-                    role,
-                    gpUserId: req.scope?.gpUserId
-                });
+                const { items } = await fetchActividadesItems(req, pool);
                 return res.json({ ok: true, items });
             } catch (error) {
                 const status = Number(error?.status);
@@ -1006,6 +1014,37 @@ function registerRoutes(deps) {
                 }
                 logger.error({ err: { message: error?.message } }, 'Error consultando actividades de consultores');
                 return res.status(500).json({ ok: false, error: 'Error consultando actividades' });
+            }
+        }
+    );
+
+    /** Generar reporte PDF de actividades monitoreadas. */
+    app.get(
+        '/api/admin/actividades/pdf',
+        verificarToken,
+        allowPanel('monitoreo'),
+        applyScope,
+        pdfLimiter,
+        async (req, res) => {
+            try {
+                const { items, filters } = await fetchActividadesItems(req, pool);
+                
+                const { buildActividadesPdfBuffer } = require('./monitoreo/actividadesPdf');
+                const pdfBuffer = await buildActividadesPdfBuffer(items, filters);
+                
+                const safeMonth = filters.fechaDesde ? String(filters.fechaDesde).slice(0, 7) : 'actual';
+                const fileName = `reporte_monitoreo_actividades_${safeMonth}.pdf`;
+                
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+                return res.send(pdfBuffer);
+            } catch (error) {
+                const status = Number(error?.status);
+                if (status >= 400 && status < 500) {
+                    return res.status(status).json({ ok: false, error: error.message || 'Filtros inválidos' });
+                }
+                logger.error({ err: { message: error?.message } }, 'Error generando PDF de actividades');
+                return res.status(500).json({ ok: false, error: 'Error generando PDF de actividades' });
             }
         }
     );
