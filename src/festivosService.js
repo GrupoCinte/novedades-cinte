@@ -67,7 +67,7 @@ async function getFestivosSet() {
         if (combined.size > 0) {
             festivosCache = combined;
             lastFetchTime = now;
-            console.log(`✅ Festivos cacheados: ${festivosCache.size} fechas detectadas para ${currentYear}-${nextYear}`);
+            console.log(` Festivos cacheados: ${festivosCache.size} fechas detectadas para ${currentYear}-${nextYear}`);
         }
     }
     return festivosCache;

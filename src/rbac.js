@@ -11,13 +11,15 @@ const POLICY = {
     admin_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'onboarding', 'atraccion'], viewAllAreas: true },
     team_ch: { panels: ['dashboard', 'calendar', 'gestion', 'contratacion', 'onboarding', 'atraccion'], viewAllAreas: true },
     comercial: { panels: ['comercial'] },
+    /** NUEVO: Atracción de Talento - Gestiona reubicación y sourcing */
+    atraccion_talento: { panels: ['reubicaciones', 'atraccion'], viewAllAreas: true },
     /**
      * Solo gestión de novedades (`allowPanel('gestion')`); sin otros paneles JWT (comercial, contratación, directorio).
      * `viewAllAreas: true` permite a un GP ver TODAS las novedades de sus clientes asignados (operaciones, capital humano,
      * financiero) sin filtro por área del JWT; el alcance sigue acotado por `clientes_lideres.gp_user_id`. La aprobación se
      * mantiene limitada por `approvers` en `NOVELTY_RULES` (no se gana capacidad de decidir por este flag).
      */
-    gp: { panels: ['gestion', 'onboarding', 'conciliaciones', 'monitoreo'], viewAllAreas: true },
+    gp: { panels: ['gestion', 'onboarding', 'conciliaciones', 'monitoreo', 'reubicaciones'], viewAllAreas: true },
     analista_conciliaciones: { panels: ['conciliaciones'], viewAllAreas: true },
     /** Nómina: ve Conciliaciones completo (wide) en solo lectura; mutaciones en facturacionRevision / conciliacionRbac. */
     nomina: { panels: ['dashboard', 'calendar', 'gestion', 'onboarding', 'conciliaciones'], viewAllAreas: true },
@@ -272,10 +274,62 @@ function inferAreaFromNovedad(payload = {}) {
     return 'Operaciones';
 }
 
+/**
+ * Configuración de permisos para el módulo de Reubicaciones
+ * HU-01: Acceso colaborativo y permisos de Reubicaciones
+ */
+const REUBICACIONES_CONFIG = {
+    // Roles con acceso al módulo
+    ACCESS_ROLES: [
+        'super_admin',
+        'gp',
+        'admin_ch',
+        'team_ch',
+        'atraccion_talento',
+        'cac'
+    ],
+    
+    // Acciones permitidas por rol
+    ACTIONS: {
+        super_admin: [
+            'view',
+            'create',
+            'edit',
+            'delete',
+            'decide_aptitud',
+            'register_observacion',
+            'manage_reubicacion',
+            'view_historial'
+        ],
+        gp: [
+            'view',
+            'decide_aptitud'
+        ],
+        admin_ch: [
+            'view',
+            'register_observacion'
+        ],
+        team_ch: [
+            'view',
+            'register_observacion'
+        ],
+        atraccion_talento: [
+            'view',
+            'manage_reubicacion'
+        ],
+        cac: [
+            'view',
+            'create',
+            'edit'
+        ]
+    }
+};
+
 module.exports = {
     POLICY,
     NOVELTY_RULES,
     ROLE_PRIORITY,
+    REUBICACIONES_CONFIG,
     normalizeRoleOrNull,
     resolveRoleFromGroups,
     getAreaFromRole,
