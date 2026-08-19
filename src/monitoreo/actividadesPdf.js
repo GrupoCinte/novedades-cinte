@@ -66,7 +66,7 @@ function buildActividadesPdfBuffer(actividades = [], filters = {}) {
             doc.fontSize(10).font('Helvetica')
                .text(`Fecha de generación: ${formatDateTimeBogota(new Date())}`, 40, curY + 20);
 
-            let filterText = `Mes seleccionado: ${filters.fechaDesde ? filters.fechaDesde.slice(0, 7) : 'Actual'}`;
+            let filterText = `Rango: ${filters.fechaDesde || '—'} a ${filters.fechaHasta || '—'}`;
             if (filters.cliente) filterText += ` | Cliente: ${filters.cliente}`;
             if (filters.cedula) filterText += ` | Cédula: ${filters.cedula}`;
             doc.text(filterText, 40, curY + 35);

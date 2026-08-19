@@ -88,13 +88,13 @@ const DesarrolloList = ({ participantes, isReadOnly, updateDesarrollo, dash, inp
                     </h4>
                     <div>
                         <label className={`block mb-1 ${dash.labelFilter}`}>Observaciones / Comentarios</label>
-                        <textarea
-                            rows={3}
-                            value={p.desarrollo || ''}
-                            onChange={e => updateDesarrollo(p.cedula, e.target.value)}
-                            className={inputCls}
-                            readOnly={isReadOnly}
-                            placeholder={`Registra aquí lo conversado por ${p.nombre}...`}
+                        <textarea 
+                            rows={3} 
+                            value={p.desarrollo || ''} 
+                            onChange={e => updateDesarrollo(p.cedula, e.target.value)} 
+                            className={inputCls} 
+                            readOnly={isReadOnly} 
+                            placeholder={`Registra aquí lo conversado por ${p.nombre}...`} 
                         />
                     </div>
                 </div>
@@ -141,13 +141,13 @@ const PlanesAccionTable = ({ planesAccion, isReadOnly, removePlan, dash }) => {
     );
 };
 
-export default function SeguimientoFormModal({
-    open,
-    onClose,
-    actaId,
+export default function SeguimientoFormModal({ 
+    open, 
+    onClose, 
+    actaId, 
     actaData, // The actual data passed from the parent row
-    token,
-    auth,
+    token, 
+    auth, 
     onSaved,
     tipoSeleccionado,
     clientesCartera = [],
@@ -156,8 +156,9 @@ export default function SeguimientoFormModal({
     const { isLight, field } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const inputCls = `${field} w-full`;
-
+    
     const role = String(auth?.user?.role || auth?.claims?.role || '').trim().toLowerCase();
+    const isGp = role === 'gp';
 
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -167,7 +168,7 @@ export default function SeguimientoFormModal({
 
     // Lists for autocomplete
     const [colaboradores, setColaboradores] = useState([]);
-
+    
     // Submodals state
     const [participantesOpen, setParticipantesOpen] = useState(false);
     const [planesOpen, setPlanesOpen] = useState(false);
@@ -176,11 +177,11 @@ export default function SeguimientoFormModal({
     const [tipo, setTipo] = useState(tipoSeleccionado || 'Consultor');
     const [cliente, setCliente] = useState('');
     const [fechaActa, setFechaActa] = useState(new Date().toISOString().split('T')[0]);
-
+    
     // Form state extendido (payload_json)
     const [horaInicio, setHoraInicio] = useState('');
     const [horaFin, setHoraFin] = useState('');
-
+    
     const [responsableNombre, setResponsableNombre] = useState('');
     const [responsableCargo, setResponsableCargo] = useState('');
     const [quienRealizaNombre, setQuienRealizaNombre] = useState('');
@@ -189,16 +190,21 @@ export default function SeguimientoFormModal({
     const [objetivo, setObjetivo] = useState('');
     const [agenda, setAgenda] = useState('');
     const [proximaReunion, setProximaReunion] = useState('');
-
+    
     // Array de participantes estructurado: { cedula, nombre, cargo, empresa, email, desarrollo }
     const [participantes, setParticipantes] = useState([]);
-
+    
     // Array de planes de acción: { tarea, criticidad, responsable, fechaEntrega, recursos }
     const [planesAccion, setPlanesAccion] = useState([]);
-
+    
+    // Observaciones del consultor (solo lectura para el GP)
+    const [observacionConsultor, setObservacionConsultor] = useState('');
+    const [observacionConsultorFecha, setObservacionConsultorFecha] = useState('');
+    
     // Sub-modal for confirming finalize
     const [confirmFinalizeOpen, setConfirmFinalizeOpen] = useState(false);
     const [isFinalizado, setIsFinalizado] = useState(false);
+    const [fechaFinalizado, setFechaFinalizado] = useState(null);
 
     // Cálculos de fecha para restricciones
     const { minDateStr, maxDateStr } = useMemo(() => {
@@ -208,7 +214,7 @@ export default function SeguimientoFormModal({
         const minM = m === 0 ? 0 : m - 1;
         const minD = new Date(y, minM, 1);
         const maxD = new Date(y, 11, 31);
-
+        
         const pad = (n) => String(n).padStart(2, '0');
         const minDateStr = `${minD.getFullYear()}-${pad(minD.getMonth() + 1)}-${pad(minD.getDate())}`;
         const maxDateStr = `${maxD.getFullYear()}-${pad(maxD.getMonth() + 1)}-${pad(maxD.getDate())}`;
@@ -224,10 +230,10 @@ export default function SeguimientoFormModal({
         if (open) {
             setLoading(true);
             setError(null);
-
+            
             const gpEmail = String(auth?.user?.email || auth?.claims?.email || '').trim().toLowerCase();
             const gpName = String(auth?.user?.name || auth?.claims?.name || '').trim();
-
+            
             const isReadOnlyInternal = actaData ? (actaData.can_edit === false) : false;
 
             const mapActaData = (gpPuestoLocal = '') => {
@@ -238,24 +244,24 @@ export default function SeguimientoFormModal({
                     setIsFinalizado(String(actaData.estado).trim().toUpperCase() === 'FINALIZADO');
                     setFechaFinalizado(actaData.finalizado_at || null);
                     setLocalCorreoEstado(actaData.correo_cierre_estado || 'no_aplica');
-
+    
                     const pJson = actaData.payload_json || {};
                     setHoraInicio(pJson.hora_inicio || '');
                     setHoraFin(pJson.hora_fin || '');
-
+                    
                     // Si existen en DB se cargan, si no, se toma del GP logueado
                     setResponsableNombre(pJson.responsable_nombre || gpName);
                     setResponsableCargo(pJson.responsable_cargo || gpPuestoLocal);
                     setQuienRealizaNombre(pJson.quien_realiza_nombre || gpName);
                     setQuienRealizaCargo(pJson.quien_realiza_cargo || gpPuestoLocal);
-
+                    
                     setObjetivo(pJson.objetivo || '');
                     setAgenda(pJson.agenda || '');
                     setProximaReunion(pJson.proxima_reunion || '');
-
+                    
                     setParticipantes(pJson.participantes_detalle || []);
                     setPlanesAccion(pJson.planes_accion || []);
-
+                    
                     setObservacionConsultor(pJson.observacion_consultor || '');
                     setObservacionConsultorFecha(pJson.observacion_consultor_fecha || '');
                 } else {
@@ -270,7 +276,7 @@ export default function SeguimientoFormModal({
                     setIsFinalizado(false);
                     setFechaFinalizado(null);
                     setLocalCorreoEstado('no_aplica');
-
+    
                     setHoraInicio('');
                     setHoraFin('');
                     setResponsableNombre(gpName);
@@ -295,7 +301,7 @@ export default function SeguimientoFormModal({
                 // 1. Petición específica para el usuario actual (para garantizar que traiga su cargo aunque no esté en los primeros 1000)
                 const emailQuery = encodeURIComponent(gpEmail);
                 const fetchGp = fetch(`/api/directorio/colaboradores?q=${emailQuery}&limit=20`, fetchOpts()).then(r => r.json());
-
+                
                 // 2. Petición general para el selector de participantes (limite 1000)
                 const fetchAll = fetch('/api/directorio/colaboradores?limit=1000', fetchOpts()).then(r => r.json());
 
@@ -303,7 +309,7 @@ export default function SeguimientoFormModal({
                     .then(([gpData, allData]) => {
                         const colabs = allData.items || [];
                         setColaboradores(colabs);
-
+                        
                         // Buscar puesto del GP en la petición específica
                         let gpPuesto = '';
                         const gpItems = gpData.items || [];
@@ -311,11 +317,11 @@ export default function SeguimientoFormModal({
                             const ce = String(c.correo_cinte || c.correo || c.email || '').trim().toLowerCase();
                             return ce === gpEmail;
                         });
-
+                        
                         if (gpColab) {
                             gpPuesto = gpColab.puesto || gpColab.cargo || '';
                         }
-
+                        
                         mapActaData(gpPuesto);
                     })
                     .catch(console.error)
@@ -361,7 +367,7 @@ export default function SeguimientoFormModal({
     const handleAddPlan = (plan) => {
         setPlanesAccion(prev => [...prev, plan]);
     };
-
+    
     const removePlan = (idx) => {
         setPlanesAccion(prev => prev.filter((_, i) => i !== idx));
     };
@@ -378,18 +384,18 @@ export default function SeguimientoFormModal({
         // Solo permitir números
         let raw = value.replace(/\D/g, '');
         if (raw.length > 4) raw = raw.slice(0, 4);
-
+        
         // Validaciones básicas en vivo
         if (raw.length >= 1 && parseInt(raw[0], 10) > 2) raw = '2'; // La hora no puede empezar con 3+
         if (raw.length >= 2 && parseInt(raw.slice(0, 2), 10) > 23) raw = '23' + raw.slice(2);
         if (raw.length >= 3 && parseInt(raw[2], 10) > 5) raw = raw.slice(0, 2) + '5' + raw.slice(3);
-
+        
         // Insertar los dos puntos
         let formatted = raw;
         if (raw.length > 2) {
             formatted = raw.slice(0, 2) + ':' + raw.slice(2);
         }
-
+        
         setter(formatted);
     };
 
@@ -411,7 +417,7 @@ export default function SeguimientoFormModal({
             setError(timeError);
             return false;
         }
-
+        
         setError(null);
         return true;
     };
@@ -461,22 +467,22 @@ export default function SeguimientoFormModal({
             fecha_acta: fechaActa,
             estado: estadoFinal,
             compromisos: '', // Deprecated nativamente, movido a planes_accion
-            observaciones: '',
+            observaciones: '', 
             participantes: participantesRelational,
-            payload_json: payloadJson
+            payload_json: payloadJson 
         };
 
         try {
             const url = actaId ? `/api/seguimiento/actas/${actaId}` : '/api/seguimiento/actas';
             const method = actaId ? 'PATCH' : 'POST';
-
+            
             const res = await fetch(url, {
                 ...fetchOpts(),
                 method,
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
-
+            
             if (!res.ok) {
                 throw new Error(data.error || 'Error al guardar el acta');
             }
@@ -504,7 +510,7 @@ export default function SeguimientoFormModal({
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || 'Error al reintentar el correo');
-
+            
             if (data.correo_cierre_estado) {
                 setLocalCorreoEstado(data.correo_cierre_estado);
             } else {
@@ -526,12 +532,12 @@ export default function SeguimientoFormModal({
             onClose();
             return;
         }
-
+        
         if (isBorradorVacio() && !actaId) {
             onClose();
             return;
         }
-
+        
         // Guardar como borrador y cerrar
         await saveActa('Borrador', true);
         if (onSaved) onSaved('Borrador');
@@ -542,11 +548,12 @@ export default function SeguimientoFormModal({
         await saveActa('FINALIZADO', false); // False allows it to close and trigger refresh
     };
 
-const SectionTitle = ({ children, isLight }) => (
-    <h3 className={`text-base font-bold mt-6 mb-4 pb-2 border-b ${isLight ? 'border-slate-200 text-[#2F7BB8]' : 'border-slate-700 text-[#65BCF7]'}`}>
-        {children}
-    </h3>
-);
+    // UI Components
+    const SectionTitle = ({ children }) => (
+        <h3 className={`text-base font-bold mt-6 mb-4 pb-2 border-b ${isLight ? 'border-slate-200 text-[#2F7BB8]' : 'border-slate-700 text-[#65BCF7]'}`}>
+            {children}
+        </h3>
+    );
 
     return (
         <>
@@ -561,9 +568,9 @@ const SectionTitle = ({ children, isLight }) => (
                             {error && <span className="text-red-500 text-sm font-semibold">{error}</span>}
                         </div>
                         <div className="flex gap-2 items-center">
-                            <button
-                                className={dash.borrarFiltros}
-                                onClick={handleCloseIntent}
+                            <button 
+                                className={dash.borrarFiltros} 
+                                onClick={handleCloseIntent} 
                                 disabled={saving}
                             >
                                 {saving ? 'Guardando...' : (isReadOnly || isFinalizado ? 'Cerrar' : 'Borrador')}
@@ -587,7 +594,7 @@ const SectionTitle = ({ children, isLight }) => (
                         <p className={dash.mutedSm}>Cargando datos del acta...</p>
                     ) : (
                         <div className="space-y-2 pb-6">
-
+                            
                             {/* ESTADO DEL CORREO DE CIERRE */}
                             {isFinalizado && localCorreoEstado && localCorreoEstado !== 'no_aplica' && (
                                 <div className={`p-4 rounded-lg flex items-center justify-between mb-4 ${getCorreoEstadoClass(localCorreoEstado)}`}>
@@ -615,7 +622,7 @@ const SectionTitle = ({ children, isLight }) => (
                                         </p>
                                     </div>
                                     {localCorreoEstado === 'fallido' && (
-                                        <button
+                                        <button 
                                             onClick={handleRetryCorreo}
                                             disabled={retrying}
                                             className="ml-4 px-3 py-1.5 bg-red-600 text-white rounded text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
@@ -631,14 +638,14 @@ const SectionTitle = ({ children, isLight }) => (
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <div className="md:col-span-2">
                                     <label className={`block mb-1 ${dash.labelFilter}`}>Fecha de reunión</label>
-                                    <input
-                                        type="date"
-                                        value={fechaActa}
-                                        onChange={e => setFechaActa(e.target.value)}
+                                    <input 
+                                        type="date" 
+                                        value={fechaActa} 
+                                        onChange={e => setFechaActa(e.target.value)} 
                                         min={minDateStr}
                                         max={maxDateStr}
-                                        className={inputCls}
-                                        readOnly={isReadOnly}
+                                        className={inputCls} 
+                                        readOnly={isReadOnly} 
                                     />
                                 </div>
                                 <div>
@@ -715,10 +722,10 @@ const SectionTitle = ({ children, isLight }) => (
                                 </div>
                                 <div className="md:col-span-2 mt-2">
                                     <label className={`block mb-1 ${dash.labelFilter}`}>Próxima reunión</label>
-                                    <select
-                                        value={proximaReunion}
-                                        onChange={e => setProximaReunion(e.target.value)}
-                                        className={inputCls}
+                                    <select 
+                                        value={proximaReunion} 
+                                        onChange={e => setProximaReunion(e.target.value)} 
+                                        className={inputCls} 
                                         disabled={isReadOnly}
                                     >
                                         <option value="">-- Selecciona --</option>
@@ -729,7 +736,7 @@ const SectionTitle = ({ children, isLight }) => (
                                     </select>
                                 </div>
                             </div>
-
+                            
                             {/* SECCIÓN OPCIONAL: Observaciones de Consultor(es) */}
                             {participantes.some(p => p.observacion) && (
                                 <div className={`mt-6 p-4 rounded-xl border ${isLight ? 'border-amber-200 bg-amber-50' : 'border-amber-900/50 bg-amber-900/20'}`}>
@@ -768,18 +775,18 @@ const SectionTitle = ({ children, isLight }) => (
                 </div>
             </GestionModalShell>
 
-            <ParticipantesSubModal
-                open={participantesOpen}
-                onClose={() => setParticipantesOpen(false)}
-                colaboradores={colaboradores}
+            <ParticipantesSubModal 
+                open={participantesOpen} 
+                onClose={() => setParticipantesOpen(false)} 
+                colaboradores={colaboradores} 
                 participantesActuales={participantes}
-                onAccept={handleAcceptParticipantes}
+                onAccept={handleAcceptParticipantes} 
             />
 
-            <PlanesAccionSubModal
-                open={planesOpen}
-                onClose={() => setPlanesOpen(false)}
-                onAdd={handleAddPlan}
+            <PlanesAccionSubModal 
+                open={planesOpen} 
+                onClose={() => setPlanesOpen(false)} 
+                onAdd={handleAddPlan} 
                 minDateStr={minDateStr}
                 maxDateStr={maxDateStr}
                 participantes={participantes}
