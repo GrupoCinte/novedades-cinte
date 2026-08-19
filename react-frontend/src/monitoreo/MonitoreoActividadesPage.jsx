@@ -6,7 +6,7 @@ import { monthCalendarRangeFromYm } from '../administracionDashboardAggregate.js
 import ModuleFiltersToolbar from '../shared/filters/ModuleFiltersToolbar.jsx';
 import ModuleFiltersDrawer from '../shared/filters/ModuleFiltersDrawer.jsx';
 import SortableGestionDataTable from '../onboarding/SortableGestionDataTable.jsx';
-import { fetchMonitoreoActividades, patchActividadEstado, downloadMonitoreoPdf } from './monitoreoActividadesApi.js';
+import { fetchMonitoreoActividades, downloadMonitoreoPdf } from './monitoreoActividadesApi.js';
 import MonitoreoActividadModal from './MonitoreoActividadModal.jsx';
 
 function currentMonthValue() {
