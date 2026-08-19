@@ -353,6 +353,7 @@ export default function Dashboard({ token, auth, onLogout }) {
     const [fFechaInicioDesde, setFFechaInicioDesde] = useState('');
     const [fFechaInicioHasta, setFFechaInicioHasta] = useState('');
     const [gpFilterOptions, setGpFilterOptions] = useState([]);
+    const canFilterByGp = ['super_admin', 'cac', 'admin_ch', 'team_ch', 'atraccion_talento'].includes(currentRole);
     const isSuperAdminNovedades = currentRole === 'super_admin' || currentRole === 'cac';
     /** Temporal: ocultar el botón «Editar» en el modal de gestión (API PATCH sigue disponible). */
     const gestionMostrarEditar = false;
@@ -564,7 +565,7 @@ export default function Dashboard({ token, auth, onLogout }) {
     }, [loadData, loadGestionData, currentPage, pageSize]);
 
     useEffect(() => {
-        if (!isSuperAdminNovedades) {
+        if (!canFilterByGp) {
             setGpFilterOptions([]);
             return undefined;
         }
@@ -584,11 +585,11 @@ export default function Dashboard({ token, auth, onLogout }) {
         return () => {
             cancelled = true;
         };
-    }, [isSuperAdminNovedades, token]);
+    }, [canFilterByGp, token]);
 
     useEffect(() => {
-        if (!isSuperAdminNovedades) setFGpUserId('');
-    }, [isSuperAdminNovedades]);
+        if (!canFilterByGp) setFGpUserId('');
+    }, [canFilterByGp]);
 
     useEffect(() => {
         const loadCalClientes = async () => {
@@ -3010,7 +3011,7 @@ export default function Dashboard({ token, auth, onLogout }) {
                         tipoOptions={tipoFilterOptions}
                         clienteOptions={gestionClienteOptions}
                         gpFilterOptions={gpFilterOptions}
-                        isSuperAdminNovedades={isSuperAdminNovedades}
+                        isSuperAdminNovedades={canFilterByGp}
                         labelGpOption={labelGpDirectorioOption}
                         showNominaFilters={activeTab === 'Gestión'}
                     />
