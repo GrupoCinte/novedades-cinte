@@ -42,3 +42,19 @@ export async function patchActividadEstado(id, { estado, observaciones } = {}) {
     }
     return res.json();
 }
+
+export async function downloadMonitoreoPdf({ fechaDesde, fechaHasta, cedula, cliente } = {}) {
+    const params = new URLSearchParams();
+    if (fechaDesde) params.set('fechaDesde', fechaDesde);
+    if (fechaHasta) params.set('fechaHasta', fechaHasta);
+    if (cedula) params.set('cedula', cedula);
+    if (cliente) params.set('cliente', cliente);
+    const url = params.toString() ? `${BASE}/pdf?${params}` : `${BASE}/pdf`;
+
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error || `Error ${res.status}`);
+    }
+    return res.blob();
+}

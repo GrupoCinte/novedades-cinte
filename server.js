@@ -793,6 +793,7 @@ registerRoutes({
     submitLimiter,
     consultorFormPostLimiter,
     catalogLimiter,
+    pdfLimiter,
     normalizeCedula,
     getColaboradorByCedula,
     verificarToken,

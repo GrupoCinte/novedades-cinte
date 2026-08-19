@@ -26,6 +26,7 @@ function buildApp(overrides = {}) {
     submitLimiter: limiter,
     consultorFormPostLimiter: limiter,
     catalogLimiter: limiter,
+    pdfLimiter: limiter,
     normalizeCedula: (v) => String(v || '').replace(/\D/g, ''),
     getColaboradorByCedula: async () => null,
     findPendingNovedadDuplicate: async () => ({ duplicado: false, id: null }),
@@ -137,6 +138,53 @@ test('GET /api/admin/actividades devuelve actividades filtradas con contrato de 
 test('GET /api/admin/actividades rechaza fechas inválidas', async () => {
   const app = buildApp();
   const res = await request(app).get('/api/admin/actividades').query({ fechaDesde: '2026-07-31', fechaHasta: '2026-07-01' });
+
+  assert.equal(res.status, 400);
+  assert.equal(res.body.ok, false);
+});
+
+test('GET /api/admin/actividades/pdf genera adjunto PDF', async () => {
+  const app = buildApp({
+    pool: {
+      query: async () => ({
+        rows: [{
+          id: '11111111-1111-4111-8111-111111111111',
+          cedula: '10101010',
+          consultor_nombre: 'Ana',
+          cliente: 'Cliente A',
+          descripcion: 'Soporte',
+          inicio: '2026-07-10T13:00:00.000Z',
+          fin: '2026-07-10T14:00:00.000Z',
+          origen: 'manual',
+          estado: 'pendiente'
+        }]
+      })
+    }
+  });
+  const res = await request(app).get('/api/admin/actividades/pdf').query({ fechaDesde: '2026-07-01', fechaHasta: '2026-07-31' });
+
+  assert.equal(res.status, 200);
+  assert.match(String(res.headers['content-type'] || ''), /application\/pdf/);
+  assert.ok(res.body && res.body.length > 0);
+});
+
+test('GET /api/admin/actividades/pdf rechaza rol sin permiso', async () => {
+  const app = buildApp({
+    verificarToken: (req, _res, next) => {
+      req.user = { role: 'admin_ch', sub: 'u-2', email: 'ch@example.com' };
+      req.scope = { canViewAllAreas: true, areas: [] };
+      next();
+    }
+  });
+  const res = await request(app).get('/api/admin/actividades/pdf');
+
+  assert.equal(res.status, 403);
+  assert.equal(res.body.ok, false);
+});
+
+test('GET /api/admin/actividades/pdf rechaza rango de fechas invertido', async () => {
+  const app = buildApp();
+  const res = await request(app).get('/api/admin/actividades/pdf').query({ fechaDesde: '2026-07-31', fechaHasta: '2026-07-01' });
 
   assert.equal(res.status, 400);
   assert.equal(res.body.ok, false);
