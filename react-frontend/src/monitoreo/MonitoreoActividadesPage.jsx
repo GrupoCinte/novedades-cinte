@@ -9,11 +9,20 @@ import SortableGestionDataTable from '../onboarding/SortableGestionDataTable.jsx
 import { fetchMonitoreoActividades, downloadMonitoreoPdf } from './monitoreoActividadesApi.js';
 import MonitoreoActividadModal from './MonitoreoActividadModal.jsx';
 
-function currentMonthValue() {
-    const d = new Date();
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
+function currentYmBogota() {
+    const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
     return `${y}-${m}`;
+}
+
+function defaultDateRange() {
+    return monthCalendarRangeFromYm(currentYmBogota());
+}
+
+function emptyDraftFilters() {
+    const range = defaultDateRange();
+    return { cliente: '', cedula: '', fechaDesde: range.desde, fechaHasta: range.hasta };
 }
 
 function formatDateTime(value) {
@@ -32,13 +41,6 @@ function formatDuration(inicio, fin) {
     return h ? `${h} h ${mins % 60} min` : `${mins} min`;
 }
 
-function estadoBadge(estado) {
-    const s = String(estado || '').toLowerCase();
-    if (s === 'aprobado') return <span className="inline-flex items-center rounded-md bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Aprobado</span>;
-    if (s === 'rechazado') return <span className="inline-flex items-center rounded-md bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">Rechazado</span>;
-    return <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-700">Pendiente</span>;
-}
-
 const COLUMNS = [
     { key: 'consultor_nombre', label: 'Consultor', sortable: true },
     { key: 'cliente', label: 'Cliente', sortable: true },
@@ -46,8 +48,7 @@ const COLUMNS = [
     { key: 'inicio', label: 'Inicio', sortable: true, render: (r) => formatDateTime(r.inicio) },
     { key: 'fin', label: 'Fin', sortable: true, render: (r) => formatDateTime(r.fin) },
     { key: 'duracion', label: 'Duración', sortable: false, render: (r) => formatDuration(r.inicio, r.fin) },
-    { key: 'origen', label: 'Origen', sortable: true, render: (r) => <span className="capitalize">{r.origen || '—'}</span> },
-    { key: 'estado', label: 'Estado', sortable: true, render: (r) => estadoBadge(r.estado) }
+    { key: 'origen', label: 'Origen', sortable: true, render: (r) => <span className="capitalize">{r.origen || '—'}</span> }
 ];
 
 function sortRows(rows, sort) {
@@ -67,65 +68,30 @@ function sortRows(rows, sort) {
 export default function MonitoreoActividadesPage() {
     const { isLight, field } = useModuleTheme();
     const dash = buildGestionTableDash(isLight);
+    const defaultRange = defaultDateRange();
 
-    // Estado de filtros
-    const [clienteValue, setClienteValue] = useState('');
-    const [monthValue, setMonthValue] = useState(currentMonthValue);
+    const [appliedFilters, setAppliedFilters] = useState(() => emptyDraftFilters());
+    const [drawerFilters, setDrawerFilters] = useState(() => emptyDraftFilters());
     const [drawerOpen, setDrawerOpen] = useState(false);
-    const [drawerFilters, setDrawerFilters] = useState({ cliente: '', cedula: '', monthValue: currentMonthValue() });
 
-    // Estado de datos
-    const [allActivities, setAllActivities] = useState([]); // Actividades completas del mes
+    const [allActivities, setAllActivities] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [actionError, setActionError] = useState('');
     const [sort, setSort] = useState({ key: 'inicio', dir: 'desc' });
     const [selectedRow, setSelectedRow] = useState(null);
     const [isDownloading, setIsDownloading] = useState(false);
-
-    const handleDownloadPdf = async () => {
-        setIsDownloading(true);
-        try {
-            const range = monthCalendarRangeFromYm(monthValue);
-            const blob = await downloadMonitoreoPdf({
-                fechaDesde: range.desde,
-                fechaHasta: range.hasta,
-                cliente: clienteValue || undefined,
-                cedula: drawerFilters.cedula || undefined
-            });
-
-            const safeMonth = range.desde ? String(range.desde).slice(0, 7) : 'actual';
-            const fileName = `reporte_monitoreo_actividades_${safeMonth}.pdf`;
-            
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        } catch (err) {
-            console.error('Error al descargar PDF:', err);
-            alert(err.message || 'Error al generar el reporte PDF.');
-        } finally {
-            setIsDownloading(false);
-        }
-    };
-
-    // Paginación
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState(20);
 
-    const loadActivities = useCallback(async (mes) => {
+    const loadActivities = useCallback(async (filters) => {
         setLoading(true);
         setError('');
+        setActionError('');
         try {
-            const range = monthCalendarRangeFromYm(mes);
-            // Solo pedimos las actividades del mes, sin pre-filtrar cliente o cédula
-            // Esto permite poblar correctamente los desplegables de filtros.
             const data = await fetchMonitoreoActividades({
-                fechaDesde: range.desde,
-                fechaHasta: range.hasta
+                fechaDesde: filters.fechaDesde,
+                fechaHasta: filters.fechaHasta
             });
             setAllActivities(data);
         } catch (loadError) {
@@ -136,10 +102,10 @@ export default function MonitoreoActividadesPage() {
         }
     }, []);
 
-    // Cargar solo cuando cambia el mes (a nivel global)
-    useEffect(() => { void loadActivities(monthValue); }, [loadActivities, monthValue]);
+    useEffect(() => {
+        void loadActivities(appliedFilters);
+    }, [loadActivities, appliedFilters]);
 
-    // Opciones derivadas de TODAS las actividades del mes (no desaparecen al filtrar)
     const clienteOptions = useMemo(() => {
         const seen = new Set();
         for (const item of allActivities) {
@@ -152,105 +118,94 @@ export default function MonitoreoActividadesPage() {
     const consultorOptions = useMemo(() => {
         const seen = new Map();
         for (const item of allActivities) {
-            const cliente = String(item?.cliente || '').trim();
-            if (drawerFilters.cliente && cliente !== drawerFilters.cliente) continue;
-
             const cedula = String(item?.cedula || '').trim();
             if (cedula) seen.set(cedula, String(item?.consultor_nombre || cedula).trim() || cedula);
         }
         return [...seen.entries()].map(([cedula, nombre]) => ({ cedula, nombre }));
-    }, [allActivities, drawerFilters.cliente]);
+    }, [allActivities]);
 
-    useEffect(() => {
-        if (drawerFilters.cedula) {
-            const isValid = consultorOptions.some(c => c.cedula === drawerFilters.cedula);
-            if (!isValid) {
-                setDrawerFilters(f => ({ ...f, cedula: '' }));
-            }
-        }
-    }, [consultorOptions, drawerFilters.cedula]);
-
-    // Aplicar los filtros locales sobre la lista completa
     const filteredActivities = useMemo(() => {
-        return allActivities.filter(a => {
-            if (clienteValue && String(a.cliente || '').trim() !== clienteValue) return false;
-            if (drawerFilters.cedula && String(a.cedula || '').trim() !== drawerFilters.cedula) return false;
+        return allActivities.filter((a) => {
+            if (appliedFilters.cliente && String(a.cliente || '').trim() !== appliedFilters.cliente) return false;
+            if (appliedFilters.cedula && String(a.cedula || '').trim() !== appliedFilters.cedula) return false;
             return true;
         });
-    }, [allActivities, clienteValue, drawerFilters.cedula]);
+    }, [allActivities, appliedFilters.cliente, appliedFilters.cedula]);
 
     const sortedRows = useMemo(() => sortRows(filteredActivities, sort), [filteredActivities, sort]);
 
-    // Resetear a página 1 cuando cambian los filtros o el ordenamiento
     useEffect(() => {
         setCurrentPage(1);
-    }, [filteredActivities.length, sort.key, sort.dir]);
+    }, [appliedFilters.cliente, appliedFilters.cedula, appliedFilters.fechaDesde, appliedFilters.fechaHasta, sort.key, sort.dir, pageSize]);
 
-    // Calcular páginas
     const totalPages = Math.ceil(sortedRows.length / pageSize) || 1;
     const paginatedRows = useMemo(() => {
         const startIndex = (currentPage - 1) * pageSize;
         return sortedRows.slice(startIndex, startIndex + pageSize);
     }, [sortedRows, currentPage, pageSize]);
 
-    // Chip label
-    const activeFilterCount = (clienteValue ? 1 : 0) + (drawerFilters.cedula ? 1 : 0);
+    const rangeIsDefault =
+        appliedFilters.fechaDesde === defaultRange.desde && appliedFilters.fechaHasta === defaultRange.hasta;
+    const activeFilterCount =
+        (appliedFilters.cliente ? 1 : 0) + (appliedFilters.cedula ? 1 : 0) + (rangeIsDefault ? 0 : 1);
     const chipLabel = activeFilterCount ? `${activeFilterCount} filtro(s) activo(s)` : 'Sin filtros';
 
-    // Sort handler
     const handleSort = (key) => {
-        setSort((prev) => prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
+        setSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
     };
 
-    // Drawer handlers
     const handleDrawerApply = () => {
-        setClienteValue(drawerFilters.cliente);
-        if (drawerFilters.monthValue !== monthValue) {
-            setMonthValue(drawerFilters.monthValue);
+        const desde = String(drawerFilters.fechaDesde || '').trim();
+        const hasta = String(drawerFilters.fechaHasta || '').trim();
+        if (desde && hasta && desde > hasta) {
+            setActionError('La fecha inicio no puede ser posterior a la fecha fin.');
+            return;
         }
+        setActionError('');
+        setAppliedFilters({ ...drawerFilters, fechaDesde: desde, fechaHasta: hasta });
         setDrawerOpen(false);
     };
 
     const handleDrawerClear = () => {
-        const empty = { cliente: '', cedula: '', monthValue: currentMonthValue() };
+        const empty = emptyDraftFilters();
         setDrawerFilters(empty);
-        setClienteValue('');
-        if (monthValue !== currentMonthValue()) {
-            setMonthValue(currentMonthValue());
-        }
+        setAppliedFilters(empty);
+        setError('');
+        setActionError('');
         setDrawerOpen(false);
     };
 
-    const handleClienteInlineChange = (e) => {
-        const val = e.target.value;
-        setClienteValue(val);
-        setDrawerFilters((f) => ({ ...f, cliente: val }));
-    };
+    const handleDownloadPdf = async () => {
+        setIsDownloading(true);
+        setActionError('');
+        try {
+            const blob = await downloadMonitoreoPdf({
+                fechaDesde: appliedFilters.fechaDesde || undefined,
+                fechaHasta: appliedFilters.fechaHasta || undefined,
+                cliente: appliedFilters.cliente || undefined,
+                cedula: appliedFilters.cedula || undefined
+            });
 
-    const handleMonthInlineChange = (e) => {
-        const val = e.target.value;
-        setMonthValue(val);
-        setDrawerFilters((f) => ({ ...f, monthValue: val }));
+            const safeMonth = appliedFilters.fechaDesde ? String(appliedFilters.fechaDesde).slice(0, 7) : 'actual';
+            const fileName = `reporte_monitoreo_actividades_${safeMonth}.pdf`;
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (err) {
+            setActionError(err.message || 'Error al generar el reporte PDF.');
+        } finally {
+            setIsDownloading(false);
+        }
     };
 
     return (
         <section className="w-full space-y-3">
-            {/* Barra de filtros inline: Cliente + Mes */}
-            <div className="flex flex-wrap items-end gap-3">
-                <label className="flex flex-col gap-1 text-xs font-semibold">
-                    Cliente
-                    <select className={`${field} min-w-[10rem]`} value={clienteValue} onChange={handleClienteInlineChange}>
-                        <option value="">Todos los clientes</option>
-                        {clienteOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                </label>
-                <label className="flex flex-col gap-1 text-xs font-semibold">
-                    Mes
-                    <input type="month" className={field} value={monthValue} onChange={handleMonthInlineChange} />
-                </label>
-            </div>
-
-            {/* Toolbar con chip + botón de filtros avanzados */}
             <ModuleFiltersToolbar
                 chipLabel={chipLabel}
                 filtersPanelOpen={drawerOpen}
@@ -273,7 +228,6 @@ export default function MonitoreoActividadesPage() {
                 </button>
             </ModuleFiltersToolbar>
 
-            {/* Drawer de filtros avanzados */}
             <ModuleFiltersDrawer
                 open={drawerOpen}
                 onClose={() => setDrawerOpen(false)}
@@ -283,35 +237,70 @@ export default function MonitoreoActividadesPage() {
             >
                 <label className={`flex flex-col gap-1.5 ${dash.filtrosDrawerLabel}`}>
                     Cliente
-                    <select className={field} value={drawerFilters.cliente} onChange={(e) => setDrawerFilters((f) => ({ ...f, cliente: e.target.value }))}>
+                    <select
+                        className={field}
+                        value={drawerFilters.cliente}
+                        onChange={(e) => setDrawerFilters((f) => ({ ...f, cliente: e.target.value }))}
+                    >
                         <option value="">Todos los clientes</option>
-                        {clienteOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                        {clienteOptions.map((c) => (
+                            <option key={c} value={c}>
+                                {c}
+                            </option>
+                        ))}
                     </select>
                 </label>
                 <label className={`flex flex-col gap-1.5 ${dash.filtrosDrawerLabel}`}>
                     Consultor
-                    <select className={field} value={drawerFilters.cedula} onChange={(e) => setDrawerFilters((f) => ({ ...f, cedula: e.target.value }))}>
+                    <select
+                        className={field}
+                        value={drawerFilters.cedula}
+                        onChange={(e) => setDrawerFilters((f) => ({ ...f, cedula: e.target.value }))}
+                    >
                         <option value="">Todos los consultores</option>
-                        {consultorOptions.map(({ cedula, nombre }) => <option key={cedula} value={cedula}>{nombre} · {cedula}</option>)}
+                        {consultorOptions.map(({ cedula, nombre }) => (
+                            <option key={cedula} value={cedula}>
+                                {nombre} · {cedula}
+                            </option>
+                        ))}
                     </select>
                 </label>
                 <label className={`flex flex-col gap-1.5 ${dash.filtrosDrawerLabel}`}>
-                    Mes
-                    <input type="month" className={field} value={drawerFilters.monthValue} onChange={(e) => setDrawerFilters((f) => ({ ...f, monthValue: e.target.value }))} />
+                    Fecha inicio
+                    <input
+                        type="date"
+                        className={field}
+                        value={drawerFilters.fechaDesde}
+                        onChange={(e) => setDrawerFilters((f) => ({ ...f, fechaDesde: e.target.value }))}
+                    />
+                </label>
+                <label className={`flex flex-col gap-1.5 ${dash.filtrosDrawerLabel}`}>
+                    Fecha fin
+                    <input
+                        type="date"
+                        className={field}
+                        value={drawerFilters.fechaHasta}
+                        onChange={(e) => setDrawerFilters((f) => ({ ...f, fechaHasta: e.target.value }))}
+                    />
                 </label>
             </ModuleFiltersDrawer>
 
-            {/* Estados de carga / error / vacío / tabla */}
             {loading && <div className={`${dash.card} px-4 py-10 text-center text-sm`}>Cargando actividades…</div>}
 
-            {!loading && error && <div className={`${dash.card} border-rose-400/50 px-4 py-6 text-center text-sm text-rose-600`}>{error}</div>}
+            {!loading && error && (
+                <div className={`${dash.card} border-rose-400/50 px-4 py-6 text-center text-sm text-rose-600`}>{error}</div>
+            )}
+
+            {actionError && (
+                <div className={`${dash.card} border-rose-400/50 px-4 py-3 text-center text-sm text-rose-600`}>{actionError}</div>
+            )}
 
             {!loading && !error && filteredActivities.length === 0 && (
                 <div className={`flex flex-col items-center gap-3 py-12 text-center ${dash.card} px-4`}>
                     <Activity size={30} className="text-[#65BCF7]" />
                     <div>
                         <h2 className={dash.titleXl}>No hay actividades para los filtros seleccionados</h2>
-                        <p className={`mt-1 text-sm ${dash.muted}`}>Prueba con otro mes o cliente.</p>
+                        <p className={`mt-1 text-sm ${dash.muted}`}>Prueba con otro rango de fechas o cliente.</p>
                     </div>
                 </div>
             )}
@@ -379,12 +368,10 @@ export default function MonitoreoActividadesPage() {
                 />
             )}
 
-            {/* Modal de detalle */}
             {selectedRow && (
                 <MonitoreoActividadModal
                     actividad={selectedRow}
                     onClose={() => setSelectedRow(null)}
-                    onUpdated={() => void loadActivities(monthValue)}
                     isLight={isLight}
                 />
             )}
