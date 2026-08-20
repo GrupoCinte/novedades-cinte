@@ -168,3 +168,55 @@ test('getNovedadImpactoFacturacion clasifica hora extra como suma', () => {
     assert.equal(getNovedadImpactoFacturacion('Hora Extra'), 'suma');
     assert.equal(getNovedadImpactoFacturacion('Incapacidad'), 'resta');
 });
+
+test('HE en modo CALENDAR_DAYS: tarifa ÷ horas laborables del mes × horas (sin monto_cop)', () => {
+    const tarifa = 5_513_847;
+    const r = computeNovedadImpactoMonto(
+        tarifa,
+        {
+            tipo_novedad: 'Hora Extra',
+            cantidad_horas: 180,
+            monto_cop: null
+        },
+        { billingMode: 'CALENDAR_DAYS', factAnio: 2026, factMes: 7 }
+    );
+    const horasMes = 193.2;
+    assert.equal(r.impacto, 'suma');
+    assert.equal(r.medida, 'hours');
+    assert.equal(r.cantidad, 180);
+    assert.equal(r.horasBaseMes, horasMes);
+    assert.equal(r.montoCalculado, true);
+    assert.ok(r.montoCop > 0);
+    assert.equal(r.montoCop, Math.round((tarifa / horasMes) * 180));
+});
+
+test('HE en modo HOURS no cambia: tarifa ÷ baseHours × horas', () => {
+    const tarifa = 5_513_847;
+    const r = computeNovedadImpactoMonto(
+        tarifa,
+        {
+            tipo_novedad: 'Hora Extra',
+            cantidad_horas: 180,
+            monto_cop: null
+        },
+        { billingMode: 'HOURS', baseHours: 180 }
+    );
+    assert.equal(r.medida, 'hours');
+    assert.equal(r.horasBaseMes, 180);
+    assert.equal(r.montoCop, tarifa);
+});
+
+test('Disponibilidad en modo mes sigue usando monto_cop', () => {
+    const r = computeNovedadImpactoMonto(
+        5_000_000,
+        {
+            tipo_novedad: 'Disponibilidad',
+            cantidad_horas: 10,
+            monto_cop: 250_000
+        },
+        { billingMode: 'CALENDAR_DAYS', factAnio: 2026, factMes: 7 }
+    );
+    assert.equal(r.medida, 'money');
+    assert.equal(r.montoCop, 250_000);
+    assert.equal(r.montoCalculado, false);
+});

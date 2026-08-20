@@ -28,19 +28,17 @@ function monthBounds(year, month) {
     };
 }
 
-function resolveFechaSalida(fechaTermino, fechaBajaEfectiva) {
-    const t = isoDate(fechaTermino);
-    const b = isoDate(fechaBajaEfectiva);
-    return b || t || '';
+function resolveFechaSalida(fechaTermino) {
+    return isoDate(fechaTermino);
 }
 
 /**
  * Días calendario facturables dentro del mes M considerando ingreso/salida.
  */
-function computeDiasFacturablesMes({ year, month, fechaIngreso, fechaTermino, fechaBajaEfectiva }) {
+function computeDiasFacturablesMes({ year, month, fechaIngreso, fechaTermino }) {
     const { periodStart, periodEnd, daysInMonth } = monthBounds(year, month);
     const ingreso = isoDate(fechaIngreso);
-    const salida = resolveFechaSalida(fechaTermino, fechaBajaEfectiva);
+    const salida = resolveFechaSalida(fechaTermino);
 
     let effectiveStart = periodStart;
     let effectiveEnd = periodEnd;
@@ -201,7 +199,6 @@ function resolveTarifaBaseMes({
     month,
     fechaIngreso,
     fechaTermino,
-    fechaBajaEfectiva,
     billingMode,
     baseHours,
     tramos = null,
@@ -211,8 +208,7 @@ function resolveTarifaBaseMes({
         year,
         month,
         fechaIngreso,
-        fechaTermino,
-        fechaBajaEfectiva
+        fechaTermino
     });
     const { daysInMonth, effectiveStart, effectiveEnd } = diasCtx;
 
@@ -323,9 +319,9 @@ function colaboradorVisibleEnMesSql(alias, yearParamIdx, monthParamIdx) {
     return `(
         ${p}activo IS NOT FALSE
         OR (
-            COALESCE(${p}fecha_termino, ${p}fecha_baja_efectiva) IS NOT NULL
-            AND EXTRACT(YEAR FROM COALESCE(${p}fecha_termino, ${p}fecha_baja_efectiva)::date) = $${yearParamIdx}::integer
-            AND EXTRACT(MONTH FROM COALESCE(${p}fecha_termino, ${p}fecha_baja_efectiva)::date) = $${monthParamIdx}::integer
+            ${p}fecha_termino IS NOT NULL
+            AND EXTRACT(YEAR FROM ${p}fecha_termino::date) = $${yearParamIdx}::integer
+            AND EXTRACT(MONTH FROM ${p}fecha_termino::date) = $${monthParamIdx}::integer
         )
     )`;
 }

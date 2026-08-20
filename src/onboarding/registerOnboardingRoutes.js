@@ -36,6 +36,7 @@ const {
     isAllowedExtranjerosSort
 } = require('./onboardingListSort');
 const { normalizeColabTextPatch } = require('./chTextNormalize');
+const { applyRegistroBajaColaborador } = require('./bajaColaborador');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -401,11 +402,11 @@ function registerOnboardingRoutes(deps) {
         }
         if (filters.fecha_baja_desde) {
             params.push(filters.fecha_baja_desde);
-            where.push(`c.fecha_baja_efectiva >= $${p++}::date`);
+            where.push(`c.fecha_termino >= $${p++}::date`);
         }
         if (filters.fecha_baja_hasta) {
             params.push(filters.fecha_baja_hasta);
-            where.push(`c.fecha_baja_efectiva <= $${p++}::date`);
+            where.push(`c.fecha_termino <= $${p++}::date`);
         }
         if (filters.gp_user_id) {
             params.push(filters.gp_user_id);
@@ -421,7 +422,7 @@ function registerOnboardingRoutes(deps) {
         }
         if (filters._es_baja) {
             where.push(
-                `(c.activo = FALSE OR c.motivo_baja IS NOT NULL OR c.fecha_baja_efectiva IS NOT NULL)`
+                `(c.activo = FALSE OR c.motivo_baja IS NOT NULL)`
             );
         }
 
@@ -640,7 +641,7 @@ function registerOnboardingRoutes(deps) {
     const bajaSchema = z.object({
         motivo_baja: z.string().min(2).max(200),
         termino: z.string().max(500).optional().nullable(),
-        fecha_termino: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        fecha_termino: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
         observaciones: z.string().max(2000).optional().nullable()
     });
 
@@ -654,39 +655,11 @@ function registerOnboardingRoutes(deps) {
             return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
         }
         try {
-            // Verifica que el motivo esté en el catálogo activo
-            const catQ = await pool.query(
-                `SELECT 1 FROM cat_motivo_baja WHERE motivo = $1 AND activo = TRUE LIMIT 1`,
-                [parsed.data.motivo_baja]
-            );
-            if (catQ.rows.length === 0) {
-                return res.status(400).json({ ok: false, error: 'motivo_baja no está en el catálogo activo.' });
-            }
-
-            const fechaTermino = parsed.data.fecha_termino || null;
-            const q = await pool.query(
-                `UPDATE colaboradores SET
-                    activo = FALSE,
-                    motivo_baja = $1,
-                    termino = COALESCE($2, termino),
-                    fecha_termino = COALESCE($3::date, fecha_termino, CURRENT_DATE),
-                    fecha_baja_efectiva = COALESCE($3::date, CURRENT_DATE),
-                    tiempo_permanencia_meses = CASE
-                        WHEN fecha_ingreso IS NOT NULL
-                        THEN ROUND(
-                            EXTRACT(EPOCH FROM (
-                                COALESCE($3::date, CURRENT_DATE)::timestamp - fecha_ingreso::timestamp
-                            )) / (60*60*24*30.4375), 2)
-                        ELSE tiempo_permanencia_meses
-                    END,
-                    updated_at = NOW()
-                 WHERE cedula = $4
-                 RETURNING cedula, activo, motivo_baja, fecha_termino, fecha_baja_efectiva, tiempo_permanencia_meses`,
-                [parsed.data.motivo_baja, parsed.data.termino || null, fechaTermino, cedula]
-            );
-            if (q.rows.length === 0) {
-                return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
-            }
+            const item = await applyRegistroBajaColaborador(pool, cedula, {
+                motivo_baja: parsed.data.motivo_baja,
+                fecha_termino: parsed.data.fecha_termino,
+                termino: parsed.data.termino
+            });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
                 actorRole: req.user && req.user.role,
@@ -695,10 +668,11 @@ function registerOnboardingRoutes(deps) {
                 entityId: null,
                 metadata: { cedula, ...parsed.data }
             });
-            return res.json({ ok: true, item: q.rows[0] });
+            return res.json({ ok: true, item });
         } catch (e) {
             console.error('[Onboarding baja]', e.message);
-            return res.status(500).json({ ok: false, error: 'Error al marcar baja', message: e.message });
+            const status = Number.isInteger(e?.status) ? e.status : 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al marcar baja' });
         }
     });
 
@@ -1197,8 +1171,8 @@ function registerOnboardingRoutes(deps) {
         const where = [`c.motivo_baja IS NOT NULL`];
         const params = [];
         let p = 1;
-        if (desde) { params.push(desde); where.push(`c.fecha_baja_efectiva >= $${p++}::date`); }
-        if (hasta) { params.push(hasta); where.push(`c.fecha_baja_efectiva <= $${p++}::date`); }
+        if (desde) { params.push(desde); where.push(`c.fecha_termino >= $${p++}::date`); }
+        if (hasta) { params.push(hasta); where.push(`c.fecha_termino <= $${p++}::date`); }
         if (cliente) { params.push(cliente); where.push(`LOWER(TRIM(c.cliente)) = LOWER($${p++})`); }
         if (tipo_personal) { params.push(tipo_personal); where.push(`c.tipo_personal = $${p++}`); }
         const scope = await buildScopeFilter(pool, req.user);
@@ -1242,7 +1216,7 @@ function registerOnboardingRoutes(deps) {
                 params
             );
             const byMonthQ = await pool.query(
-                `SELECT to_char(c.fecha_baja_efectiva, 'YYYY-MM') AS mes, COUNT(*)::int AS cuenta
+                `SELECT to_char(c.fecha_termino, 'YYYY-MM') AS mes, COUNT(*)::int AS cuenta
                  FROM colaboradores c ${whereSql}
                  GROUP BY mes
                  ORDER BY mes DESC`,
@@ -1378,15 +1352,15 @@ function registerOnboardingRoutes(deps) {
             const irpQ = await pool.query(
                 `SELECT
                     COUNT(*) FILTER (
-                        WHERE c.fecha_baja_efectiva BETWEEN ${inicioExpr} AND ${finExpr}
+                        WHERE c.fecha_termino BETWEEN ${inicioExpr} AND ${finExpr}
                     )::int AS bajas_periodo,
                     COUNT(*) FILTER (
                         WHERE c.fecha_ingreso <= ${inicioExpr}
-                          AND (c.fecha_baja_efectiva IS NULL OR c.fecha_baja_efectiva > ${inicioExpr})
+                          AND (c.fecha_termino IS NULL OR c.fecha_termino > ${inicioExpr})
                     )::int AS headcount_inicio,
                     COUNT(*) FILTER (
                         WHERE c.fecha_ingreso <= ${finExpr}
-                          AND (c.fecha_baja_efectiva IS NULL OR c.fecha_baja_efectiva > ${finExpr})
+                          AND (c.fecha_termino IS NULL OR c.fecha_termino > ${finExpr})
                     )::int AS headcount_fin
                  FROM colaboradores c ${irpBase.whereSql}`,
                 irpParams

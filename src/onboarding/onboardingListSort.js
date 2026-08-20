@@ -13,7 +13,7 @@ const PERSONAL_SORT_MAP = {
     tipo_personal: 'c.tipo_personal',
     fecha_ingreso: 'c.fecha_ingreso',
     fecha_termino: 'c.fecha_termino',
-    fecha_baja_efectiva: 'c.fecha_baja_efectiva',
+    fecha_baja_efectiva: 'c.fecha_termino',
     motivo_baja: 'c.motivo_baja',
     tipo_contrato: 'c.tipo_contrato',
     descriptivo_puesto_sig: 'c.descriptivo_puesto_sig',

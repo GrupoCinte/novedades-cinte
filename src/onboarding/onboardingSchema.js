@@ -158,8 +158,7 @@ async function ensureColaboradoresViews({ pool, logger }) {
         `CREATE OR REPLACE VIEW v_colaboradores_bajas AS
          SELECT * FROM colaboradores
          WHERE activo = FALSE
-            OR motivo_baja IS NOT NULL
-            OR fecha_baja_efectiva IS NOT NULL`,
+            OR motivo_baja IS NOT NULL`,
         `CREATE OR REPLACE VIEW v_colaboradores_consultores_activos AS
          SELECT * FROM colaboradores
          WHERE activo = TRUE AND tipo_personal = 'consultor'`,
@@ -171,13 +170,12 @@ async function ensureColaboradoresViews({ pool, logger }) {
          SELECT
              TRIM(c.cliente)                            AS cliente,
              COALESCE(c.tipo_personal, 'consultor')     AS tipo_personal,
-             to_char(c.fecha_baja_efectiva, 'YYYY-MM')  AS mes_baja,
+             to_char(c.fecha_termino, 'YYYY-MM')        AS mes_baja,
              COALESCE(c.motivo_baja, 'Sin motivo')      AS motivo,
              COUNT(*)::int                              AS cuenta,
              ROUND(AVG(c.tiempo_permanencia_meses)::numeric, 2) AS permanencia_avg_meses
          FROM colaboradores c
          WHERE c.motivo_baja IS NOT NULL
-            OR c.fecha_baja_efectiva IS NOT NULL
             OR c.activo = FALSE
          GROUP BY 1, 2, 3, 4`
     ];

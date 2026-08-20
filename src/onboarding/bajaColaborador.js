@@ -63,24 +63,26 @@ async function applyRegistroBajaColaborador(pool, cedulaRaw, opts = {}) {
     }
 
     const fechaTermino = isoDate(opts.fecha_termino);
+    if (!fechaTermino) {
+        throw Object.assign(new Error('fecha_termino es obligatoria'), { status: 400 });
+    }
     const q = await pool.query(
         `UPDATE colaboradores SET
             activo = FALSE,
             motivo_baja = $1,
             termino = COALESCE($2, termino),
-            fecha_termino = COALESCE($3::date, fecha_termino, CURRENT_DATE),
-            fecha_baja_efectiva = COALESCE($3::date, fecha_termino, CURRENT_DATE),
+            fecha_termino = $3::date,
             tiempo_permanencia_meses = CASE
                 WHEN fecha_ingreso IS NOT NULL
                 THEN ROUND(
                     EXTRACT(EPOCH FROM (
-                        COALESCE($3::date, fecha_termino, CURRENT_DATE)::timestamp - fecha_ingreso::timestamp
+                        $3::date::timestamp - fecha_ingreso::timestamp
                     )) / (60*60*24*30.4375), 2)
                 ELSE tiempo_permanencia_meses
             END,
             updated_at = NOW()
          WHERE cedula = $4
-         RETURNING cedula, activo, motivo_baja, fecha_termino, fecha_baja_efectiva`,
+         RETURNING cedula, activo, motivo_baja, fecha_termino`,
         [motivo, opts.termino || null, fechaTermino, cedula]
     );
     if (!q.rows[0]) throw Object.assign(new Error('Colaborador no encontrado'), { status: 404 });

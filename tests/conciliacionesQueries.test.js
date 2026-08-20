@@ -997,9 +997,9 @@ test('applyConciliacionFacturacionRevision: rol nomina ya no puede rechazar', as
 
 function matchesColaboradorVisibleEnMes(col, year, month) {
     if (col.activo !== false) return true;
-    const salida = col.fecha_baja_efectiva || col.fecha_termino;
+    const salida = col.fecha_termino;
     if (!salida) return false;
-    const d = new Date(String(salida).slice(0, 10));
+    const d = new Date(`${String(salida).slice(0, 10)}T12:00:00`);
     return d.getFullYear() === year && d.getMonth() + 1 === month;
 }
 
@@ -1037,7 +1037,7 @@ test('getConciliacionResumenPorClienteMes: inactivo salida junio visible junio n
             cedula: '222',
             nombre: 'Salida Jun',
             activo: false,
-            fecha_baja_efectiva: '2026-06-15',
+            fecha_termino: '2026-06-15',
             cliente: 'Cliente X',
             tarifa_cliente: '2000',
             moneda: 'COP'
@@ -1046,7 +1046,7 @@ test('getConciliacionResumenPorClienteMes: inactivo salida junio visible junio n
             cedula: '333',
             nombre: 'Baja Mar',
             activo: false,
-            fecha_baja_efectiva: '2026-03-01',
+            fecha_termino: '2026-03-01',
             cliente: 'Cliente X',
             tarifa_cliente: '3000',
             moneda: 'COP'
