@@ -70,7 +70,7 @@ describe('zohoLiteParse', () => {
         assert.equal(output.ID_Registro, '20250322');
         assert.equal(output.III_Informacion_Candidato.Identificacion_Numero, '1024598286');
         assert.equal(output.III_Informacion_Candidato.Nombre, 'DIEGO ALBERTO NUÑEZ SANCHEZ');
-        assert.equal(output.I_Informacion_General.Cliente, 'AVAL VALOR COMPARTIDO - AVC');
+        assert.equal(output.I_Informacion_General.Cliente, 'AVC');
         assert.match(output.I_Informacion_General.Fecha_Salida, /Jun 12, 2026/i);
         assert.equal(output.IV_Informacion_Contratacion.Puesto_Cargo, 'LIDER IMPLEMENTACION');
 

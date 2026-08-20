@@ -30,7 +30,7 @@ describe('mapDynamoItemForPromotion', () => {
         assert.equal(payload.correo_cinte, 'diego.contreras@cinte.com.co');
         assert.equal(payload.fecha_ingreso, '2026-05-25');
         assert.ok(payload.sueldo_nomina > 0);
-        assert.equal(payload.cliente, 'EXPERIAN COLOMBIA');
+        assert.equal(payload.cliente, 'EXPERIAN');
         assert.ok(payload.extended && typeof payload.extended === 'object');
         assert.ok(payload.extended.contacto_focal_1_nombre || payload.extended.gerente_servicio);
         assert.ok(payload.primer_contacto_familiar?.includes('Maria') || dynamoItem.primer_contacto_familiar);

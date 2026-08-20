@@ -5,6 +5,7 @@
 
 const { flattenExtractorOutput } = require('../contratacion/extractorToFichaMap');
 const { normalizeChListText } = require('./chTextNormalize');
+const { resolveClienteOnWrite } = require('../clientes/clienteCanonWrite');
 
 const DYNAMO_EMPTY_SENTINEL = 'nada';
 
@@ -253,7 +254,7 @@ function buildLiteExtractorOutput(input) {
     if (fechaSalida && (tipo === 'salida' || tipo === 'cancelacion_salida' || tipo === 'extension')) {
         I.Fecha_Salida = fechaSalida;
     }
-    if (clienteRaw) I.Cliente = normalizeChListText(clienteRaw);
+    if (clienteRaw) I.Cliente = resolveClienteOnWrite(clienteRaw);
     if (tipo === 'extension') {
         const dur = extractDuracion(bodyText);
         if (dur) I.Duracion = dur;

@@ -25,6 +25,7 @@ const {
 } = require('../colaboradores/colaboradoresExtendedColumns');
 const { applyLegacyEmergencyParse } = require('../contratacion/extractorToFichaMap');
 const { normalizeChListText, normalizeColabTextPatch } = require('./chTextNormalize');
+const { resolveClienteOnWrite, loadClientesCanonico } = require('../clientes/clienteCanonWrite');
 
 const EXT_SQL_TYPE_BY_KEY = Object.fromEntries(
     (COLABORADORES_EXTENDED_COLUMNS || []).map((c) => [c.key, String(c.sqlType || 'TEXT').toUpperCase()])
@@ -141,12 +142,15 @@ function normalizePromotionTextFields(payload) {
     if (!payload || typeof payload !== 'object') return payload;
     const out = { ...payload };
     for (const key of ['nombre', 'cliente', 'puesto', 'descriptivo_puesto_sig', 'nombres', 'primer_apellido', 'segundo_apellido']) {
-        if (out[key] != null) out[key] = normalizeChListText(out[key]);
+        if (out[key] == null) continue;
+        out[key] = key === 'cliente' ? resolveClienteOnWrite(out[key]) : normalizeChListText(out[key]);
     }
     if (out.extended && typeof out.extended === 'object') {
         out.extended = { ...out.extended };
         for (const key of ['nombre', 'cliente', 'puesto', 'descriptivo_puesto_sig']) {
-            if (out.extended[key] != null) out.extended[key] = normalizeChListText(out.extended[key]);
+            if (out.extended[key] == null) continue;
+            out.extended[key] =
+                key === 'cliente' ? resolveClienteOnWrite(out.extended[key]) : normalizeChListText(out.extended[key]);
         }
     }
     return out;
@@ -706,6 +710,10 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
             }
 
             const normalizedValidated = normalizePromotionTextFields(validated);
+            if (normalizedValidated.cliente) {
+                const canonList = await loadClientesCanonico(client);
+                normalizedValidated.cliente = resolveClienteOnWrite(normalizedValidated.cliente, canonList);
+            }
             const cedulaInsertada = await upsertColaborador(client, normalizedValidated, {
                 source,
                 tipoPersonal: meta.tipoPersonal

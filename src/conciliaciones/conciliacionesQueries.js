@@ -4,7 +4,7 @@
  * COALESCE(fecha_inicio::date, fecha::date, (creado_en AT TIME ZONE 'America/Bogota')::date)
  */
 
-const { buildFoldToCanonicoMap, matchExcelClienteABd, foldForMatch } = require('../cotizador/clienteNombreMatch');
+const { resolveClienteOnWrite, clienteMatchKey, sameClienteLabel } = require('../clientes/clienteCanonWrite');
 const {
     aggregateServicioCierre,
     mergeConciliacionServicioRows,
@@ -102,13 +102,11 @@ function monthRangeDates(year, month) {
 }
 
 async function resolveClienteCanon(deps, clienteRaw) {
-    const { pool, getClientesList, normalizeCatalogValue } = deps;
+    const { getClientesList, normalizeCatalogValue } = deps;
     const raw = normalizeCatalogValue(clienteRaw);
     if (!raw) return null;
     const clientesCanonico = await getClientesList();
-    const { map } = buildFoldToCanonicoMap(clientesCanonico);
-    const canonical = matchExcelClienteABd(raw, map);
-    return canonical || raw;
+    return resolveClienteOnWrite(raw, clientesCanonico) || raw;
 }
 
 /**
@@ -123,8 +121,8 @@ async function listConciliacionesClientes(deps, scope) {
     const add = (label) => {
         const t = String(label || '').trim();
         if (!t) return;
-        const k = foldForMatch(t);
-        if (!canonicalByFold.has(k)) canonicalByFold.set(k, t);
+        const k = clienteMatchKey(t);
+        if (k && !canonicalByFold.has(k)) canonicalByFold.set(k, t);
     };
 
     if (role === 'gp') {
@@ -172,8 +170,8 @@ function mergeConciliacionClientesLists(pgClients, extraClients) {
     const add = (label) => {
         const t = String(label || '').trim();
         if (!t) return;
-        const k = foldForMatch(t);
-        if (!byFold.has(k)) byFold.set(k, t);
+        const k = clienteMatchKey(t);
+        if (k && !byFold.has(k)) byFold.set(k, t);
     };
     for (const c of pgClients || []) add(c);
     for (const c of extraClients || []) add(c);
@@ -187,8 +185,7 @@ async function assertClienteConciliacionPermitido(deps, scope, clienteRaw) {
         return { ok: true, canon };
     }
     const allowed = await listConciliacionesClientes(deps, scope);
-    const fold = foldForMatch(canon);
-    const ok = allowed.some((c) => foldForMatch(c) === fold);
+    const ok = allowed.some((c) => sameClienteLabel(c, canon));
     if (!ok) return { ok: false, status: 403, error: 'Sin acceso a este cliente' };
     return { ok: true, canon };
 }
@@ -1119,15 +1116,9 @@ async function ensureListoExportTrasAprobacion(deps, scope, { clienteCanon, anio
 
     try {
         const servicios = await deps.listServicios(scope);
-        let matching = (Array.isArray(servicios) ? servicios : []).filter((s) => {
-            const a = String(s?.client || '')
-                .trim()
-                .toLowerCase();
-            const b = String(clienteCanon || '')
-                .trim()
-                .toLowerCase();
-            return a && b && a === b;
-        });
+        let matching = (Array.isArray(servicios) ? servicios : []).filter((s) =>
+            sameClienteLabel(s?.client, clienteCanon)
+        );
         const sid = String(servicioId || '').trim();
         if (sid) {
             matching = matching.filter((s) => String(s.id) === sid);
@@ -1905,9 +1896,7 @@ async function resolveServicioBillingForRevision(deps, scope, clienteCanon, cedu
             const cedNorm = deps.normalizeCedula(cedula);
             serv =
                 list.find((s) => {
-                    const cl = String(s.client || '').trim().toLowerCase();
-                    const canon = String(clienteCanon || '').trim().toLowerCase();
-                    if (!cl || cl !== canon) return false;
+                    if (!sameClienteLabel(s.client, clienteCanon)) return false;
                     const cedulas = Array.isArray(s.consultoresCedulas) ? s.consultoresCedulas : [];
                     return cedulas.some((c) => deps.normalizeCedula(c) === cedNorm);
                 }) || null;
@@ -2534,8 +2523,7 @@ async function getColaCierresPorMes(deps, scope, year, month, clienteOpcional, s
     if (clienteFilter) {
         const canon = await resolveClienteCanon(deps, clienteFilter);
         if (canon) {
-            const foldCanon = foldForMatch(canon);
-            serviciosList = serviciosList.filter((s) => foldForMatch(String(s.client || '')) === foldCanon);
+            serviciosList = serviciosList.filter((s) => sameClienteLabel(s.client, canon));
         } else {
             serviciosList = [];
         }
