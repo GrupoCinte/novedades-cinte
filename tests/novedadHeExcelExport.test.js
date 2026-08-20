@@ -341,4 +341,92 @@ describe('novedadHeExcelExport', () => {
         const fields = msRangeToExcelHoraFields(vuelto.startMs, vuelto.endMs);
         assert.notEqual(fields.horaInicial, '14:00');
     });
+
+    it('AUT-592: vuelto domingo en fila sin recargo → HE Nocturna Dominical', () => {
+        const dep = { toUtcMsFromDateAndTime, festivosSet: new Set() };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            fechaInicio: '2026-07-05',
+            fechaFin: '2026-07-05',
+            horaInicio: '20:45',
+            horaFin: '21:47',
+            horasDiurnas: 0,
+            horasNocturnas: 1.03,
+            horasRecargoDomingoDiurnas: 0,
+            horasRecargoDomingoNocturnas: 0,
+            horasRecargoDomingo: 0,
+            horasRecargoNocturno: 0,
+            heDomingoObservacion: '[HE_DOMINGO_COMP] modo=dinero; trabajado=2026-07-05'
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        const nocDom = slices.find((s) => s.sliceKey === 'nocturna_dominical');
+        const nocLab = slices.find((s) => s.sliceKey === 'nocturna_laboral');
+        assert.ok(nocDom, 'debe ser extra nocturna dominical');
+        assert.equal(nocLab, undefined);
+        assert.equal(nocDom.hours, 1.03);
+        assert.equal(nocDom.tipoLabel, `${HE_TIPO_CANONICO.HE_NOCTURNA_DOM} — sin compensatorio`);
+        assert.ok(nocDom.startMs != null && nocDom.endMs != null);
+        const fields = msRangeToExcelHoraFields(nocDom.startMs, nocDom.endMs);
+        assert.equal(fields.horaInicial, '20:45');
+        assert.equal(fields.horaFinal, '21:46');
+    });
+
+    it('AUT-592: extra nocturna de martes sigue hábil', () => {
+        const dep = { toUtcMsFromDateAndTime, festivosSet: new Set() };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            fechaInicio: '2026-07-07',
+            fechaFin: '2026-07-07',
+            horaInicio: '20:45',
+            horaFin: '21:47',
+            horasDiurnas: 0,
+            horasNocturnas: 1.03,
+            horasRecargoDomingoDiurnas: 0,
+            horasRecargoDomingoNocturnas: 0,
+            horasRecargoDomingo: 0,
+            horasRecargoNocturno: 0,
+            heDomingoObservacion: ''
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        const nocLab = slices.find((s) => s.sliceKey === 'nocturna_laboral');
+        const nocDom = slices.find((s) => s.sliceKey === 'nocturna_dominical');
+        assert.ok(nocLab);
+        assert.equal(nocDom, undefined);
+        assert.equal(nocLab.tipoLabel, HE_TIPO_CANONICO.HE_NOCTURNA);
+        assert.equal(nocLab.hours, 1.03);
+    });
+
+    it('AUT-592: cruce 22:59→07:15 con tope lleno parte domingo dominical y lunes hábil', () => {
+        const dep = { toUtcMsFromDateAndTime, festivosSet: new Set() };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            fechaInicio: '2026-07-05',
+            fechaFin: '2026-07-06',
+            horaInicio: '22:59',
+            horaFin: '07:15',
+            horasDiurnas: 1.25,
+            horasNocturnas: 7.02,
+            horasRecargoDomingoDiurnas: 0,
+            horasRecargoDomingoNocturnas: 0,
+            horasRecargoDomingo: 0,
+            horasRecargoNocturno: 0,
+            heDomingoObservacion: '[HE_DOMINGO_COMP] modo=dinero; trabajado=2026-07-05'
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        const nocDom = slices.find((s) => s.sliceKey === 'nocturna_dominical');
+        const nocLab = slices.find((s) => s.sliceKey === 'nocturna_laboral');
+        const diLab = slices.find((s) => s.sliceKey === 'diurna_laboral');
+        const diDom = slices.find((s) => s.sliceKey === 'diurna_dominical');
+        assert.ok(nocDom, 'cola del domingo = extra nocturna dominical');
+        assert.ok(nocLab, 'lunes madrugada = extra nocturna hábil');
+        assert.ok(diLab, 'lunes mañana = extra diurna hábil');
+        assert.equal(diDom, undefined);
+        assert.ok(Math.abs(nocDom.hours + nocLab.hours - 7.02) < 0.05);
+        assert.equal(diLab.hours, 1.25);
+        assert.equal(nocDom.tipoLabel, `${HE_TIPO_CANONICO.HE_NOCTURNA_DOM} — sin compensatorio`);
+        assert.equal(nocLab.tipoLabel, HE_TIPO_CANONICO.HE_NOCTURNA);
+        const rDom = msRangeToExcelHoraFields(nocDom.startMs, nocDom.endMs);
+        assert.equal(rDom.fechaInicio, '2026-07-05');
+        assert.equal(rDom.horaInicial, '22:59');
+    });
 });
