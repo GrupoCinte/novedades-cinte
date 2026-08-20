@@ -129,10 +129,23 @@ test('prorrateTarifaPorDias usa denominador del mes', () => {
     assert.equal(feb.tarifaProrrateada, Math.round(3_000_000 / 28));
 });
 
-test('colaboradorVisibleEnMesSql: activos o inactivos con salida en mes M', () => {
+test('colaboradorVisibleEnMesSql: activos o inactivos con fecha_termino en mes M', () => {
     const sql = colaboradorVisibleEnMesSql('c', 2, 3);
     assert.match(sql, /c\.activo IS NOT FALSE/);
-    assert.match(sql, /COALESCE\(c\.fecha_termino, c\.fecha_baja_efectiva\)/);
+    assert.match(sql, /c\.fecha_termino IS NOT NULL/);
+    assert.doesNotMatch(sql, /fecha_baja_efectiva/);
+    assert.doesNotMatch(sql, /COALESCE/);
     assert.match(sql, /\$2::integer/);
     assert.match(sql, /\$3::integer/);
+});
+
+test('salida 1 jul cobra 1 día aunque se pase fecha_baja_efectiva 24 jul', () => {
+    const d = computeDiasFacturablesMes({
+        year: 2026,
+        month: 7,
+        fechaTermino: '2026-07-01',
+        fechaBajaEfectiva: '2026-07-24'
+    });
+    assert.equal(d.diasFacturables, 1);
+    assert.equal(d.daysInMonth, 31);
 });

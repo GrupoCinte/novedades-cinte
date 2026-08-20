@@ -31,7 +31,7 @@ const VALID_SOURCES = new Set(['dynamo_stream_zoho', 'n8n_webhook', 'manual']);
 const WHITELIST_BY_TIPO = {
     integracion: null,
     modificacion_id: null,
-    salida: ['fecha_termino', 'fecha_notificacion_termino', 'termino', 'fecha_baja_efectiva', 'activo'],
+    salida: ['fecha_termino', 'fecha_notificacion_termino', 'termino', 'activo'],
     extension: ['fecha_termino', 'duracion_servicio', 'venta_total', 'costo_empresa'],
     cancelacion_ingreso: ['onboarding_status', 'fecha_ingreso', 'codigo'],
     cancelacion_salida: ['fecha_termino', 'fecha_notificacion_termino', 'termino', 'activo']

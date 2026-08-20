@@ -57,8 +57,16 @@ function origenLabel(row) {
     return null;
 }
 
-function recalcMontoPreview(row, tarifa, horasBaseMes, cantidadHoras, hoursMode) {
-    return computeMontoNovedadPreview(row, { tarifa, horasBaseMes, cantidadHoras, hoursMode });
+function recalcMontoPreview(row, tarifa, horasBaseMes, cantidadHoras, hoursMode, year, month, festivosSet) {
+    return computeMontoNovedadPreview(row, {
+        tarifa,
+        horasBaseMes,
+        cantidadHoras,
+        hoursMode,
+        year,
+        month,
+        festivosSet
+    });
 }
 
 function resolveCantidadHorasNovedad(row, id, { draftCantidadHorasNovedad, horasBaseMes }) {
@@ -127,7 +135,10 @@ export default function ConciliacionesNovedadesAprobadasPanel({
     onTarifaChange = null,
     onValorHoraChange = null,
     onCantidadHorasNovedadChange = null,
-    onMontoChange = null
+    onMontoChange = null,
+    year = null,
+    month = null,
+    festivosSet = null
 }) {
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     const ledgerMode = tarifaCliente != null;
@@ -166,7 +177,10 @@ export default function ConciliacionesNovedadesAprobadasPanel({
                 displayTarifa,
                 horasBase,
                 cantidadHorasRow,
-                showHorasCol
+                showHorasCol,
+                year,
+                month,
+                festivosSet
             );
             if (recalc !== row.montoCop || cantidadHorasRow != null) {
                 return {
@@ -184,7 +198,10 @@ export default function ConciliacionesNovedadesAprobadasPanel({
         draftCantidadHorasNovedad,
         displayTarifa,
         horasBase,
-        showHorasCol
+        showHorasCol,
+        year,
+        month,
+        festivosSet
     ]);
 
     const ledgerTotal = useMemo(() => {

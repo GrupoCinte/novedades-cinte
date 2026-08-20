@@ -20,6 +20,12 @@ describe('onboardingListSort', () => {
         assert.match(sql, /c\.nombre DESC NULLS LAST/);
     });
 
+    it('sort legado fecha_baja_efectiva ordena por fecha_termino', () => {
+        const sql = buildPersonalOrderBy('fecha_baja_efectiva', 'desc');
+        assert.match(sql, /c\.fecha_termino DESC NULLS LAST/);
+        assert.doesNotMatch(sql, /fecha_baja_efectiva/);
+    });
+
     it('rechaza sort no whitelisted en personal', () => {
         assert.equal(isAllowedPersonalSort('DROP TABLE'), false);
         assert.equal(isAllowedPersonalSort('nombre'), true);

@@ -282,7 +282,6 @@ const COLABORADOR_RESUMEN_SELECT_SQL = `SELECT
             c.descriptivo_puesto_sig,
             c.fecha_ingreso,
             c.fecha_termino,
-            c.fecha_baja_efectiva,
             c.activo,
             c.tipo_contrato, 
             c.comercial, 
@@ -348,7 +347,6 @@ function buildConciliacionResumenRowsFromColaboradores(colRows, ctx) {
 
         const fIngreso = isoDate(c.fecha_ingreso);
         const fTermino = isoDate(c.fecha_termino);
-        const fBaja = isoDate(c.fecha_baja_efectiva);
         const tramos = historialMap.get(cedDigits) || [];
         const prorrateo = resolveTarifaBaseMes({
             tarifaMaestro: tarifaCatalogo,
@@ -356,7 +354,6 @@ function buildConciliacionResumenRowsFromColaboradores(colRows, ctx) {
             month: factM,
             fechaIngreso: fIngreso,
             fechaTermino: fTermino,
-            fechaBajaEfectiva: fBaja,
             billingMode: options.billingMode,
             baseHours: options.baseHours,
             tramos,
@@ -434,7 +431,6 @@ function buildConciliacionResumenRowsFromColaboradores(colRows, ctx) {
             horasFacturables: prorrateo.horasFacturables,
             tramosTarifa: prorrateo.tramosAplicados,
             fechaTermino: fTermino,
-            fechaBajaEfectiva: fBaja,
             activoColaborador: c.activo,
             activo: c.activo === false ? false : c.activo !== false ? true : null,
             moneda: c.moneda != null ? String(c.moneda) : '',
@@ -772,7 +768,7 @@ async function fetchConciliacionNovedadRowsForCierre(deps, scope, clienteCanon, 
     }
 
     const qTarifa = await pool.query(
-        `SELECT c.tarifa_cliente, c.fecha_ingreso, c.fecha_termino, c.fecha_baja_efectiva, c.activo
+        `SELECT c.tarifa_cliente, c.fecha_ingreso, c.fecha_termino, c.activo
          FROM colaboradores c
          WHERE lower(btrim(COALESCE(c.cliente, ''))) = lower(btrim($1::text))
            AND regexp_replace(COALESCE(c.cedula, ''), '\\D', '', 'g') = $2
@@ -794,7 +790,6 @@ async function fetchConciliacionNovedadRowsForCierre(deps, scope, clienteCanon, 
         month: factM,
         fechaIngreso: isoDate(colRow.fecha_ingreso),
         fechaTermino: isoDate(colRow.fecha_termino),
-        fechaBajaEfectiva: isoDate(colRow.fecha_baja_efectiva),
         billingMode: options.billingMode,
         baseHours: options.baseHours,
         tramos,

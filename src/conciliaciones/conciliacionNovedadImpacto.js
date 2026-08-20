@@ -6,6 +6,10 @@ const {
     countBusinessDaysInclusive,
     horasPorDiaLaboral
 } = require('./conciliacionTarifaProrrateo');
+const {
+    resolveHorasLaborablesMes,
+    factYearMonthFromOptions
+} = require('./conciliacionJornadaReforma');
 
 const {
     getCantidadMedidaKind,
@@ -242,11 +246,21 @@ function computeNovedadImpactoMonto(tarifaCliente, novedadRow, options = {}) {
 
     if (impacto === 'suma') {
         const canon = resolveCanonicalNovedadTipo(tipo);
-        if (isHoursBillingMode(options) && canon === 'Hora Extra') {
-            const horasBaseMes = resolveHorasBaseMes(options);
+        if (canon === 'Hora Extra') {
             const horas = getHorasEfectivasNovedad(tipo, novedadRow, ctx);
             if (horas > 0) {
-                return buildImpactoHorasMode(tarifa, horas, horasBaseMes, 'suma');
+                if (isHoursBillingMode(options)) {
+                    return buildImpactoHorasMode(tarifa, horas, resolveHorasBaseMes(options), 'suma');
+                }
+                const { year, month } = factYearMonthFromOptions(options);
+                const horasMes = resolveHorasLaborablesMes({
+                    year,
+                    month,
+                    festivosSet: options.festivosSet ?? null
+                });
+                if (horasMes > 0) {
+                    return buildImpactoHorasMode(tarifa, horas, horasMes, 'suma');
+                }
             }
         }
         const monto = roundCop(ctx.montoCop);
@@ -369,5 +383,6 @@ module.exports = {
     computeFacturaLedgerTotal,
     computeMontoCopFromCantidadHoras,
     computeMontoCopFromValorHoraMedida,
-    novedadRowToContext
+    novedadRowToContext,
+    resolveHorasLaborablesMes
 };

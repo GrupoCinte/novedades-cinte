@@ -142,7 +142,10 @@ export default function ConciliacionesFacturacionModal({
                             tarifa,
                             horasBaseMes: horasBase,
                             cantidadHoras: horas,
-                            hoursMode: true
+                            hoursMode: true,
+                            year: revisionAnio,
+                            month: revisionMes,
+                            festivosSet
                         })
                     );
                 } else {
@@ -151,7 +154,7 @@ export default function ConciliacionesFacturacionModal({
             }
             return { montos, chNov };
         },
-        [novedadesItems, horasBase, showValorHoraCol]
+        [novedadesItems, horasBase, showValorHoraCol, revisionAnio, revisionMes, festivosSet]
     );
 
     const resetEditDraft = useCallback(() => {
@@ -215,12 +218,15 @@ export default function ConciliacionesFacturacionModal({
                         tarifa: draftTarifa,
                         horasBaseMes: horasBase,
                         cantidadHoras: horas,
-                        hoursMode: showValorHoraCol
+                        hoursMode: showValorHoraCol,
+                        year: revisionAnio,
+                        month: revisionMes,
+                        festivosSet
                     })
                 )
             }));
         },
-        [novedadesItems, horasBase, showValorHoraCol, draftTarifa]
+        [novedadesItems, horasBase, showValorHoraCol, draftTarifa, revisionAnio, revisionMes, festivosSet]
     );
 
     useEffect(() => {
@@ -431,7 +437,7 @@ export default function ConciliacionesFacturacionModal({
                                 <div>
                                     <span className={`block font-semibold ${dash.modalMuted}`}>Fecha salida</span>
                                     <span className={`font-body font-medium ${textMain}`}>
-                                        {colaborador.fechaTermino || colaborador.fechaBajaEfectiva || tarifaDetalle?.fechaTermino || '—'}
+                                        {colaborador.fechaTermino || tarifaDetalle?.fechaTermino || '—'}
                                     </span>
                                 </div>
                                 {(colaborador.prorrateoAplicado || tarifaDetalle?.prorrateoAplicado) ? (
@@ -574,6 +580,9 @@ export default function ConciliacionesFacturacionModal({
                                 baseHours={baseHours}
                                 horasBaseMes={horasBaseMes}
                                 tarifaValorHora={tarifaValorHora}
+                                year={revisionAnio}
+                                month={revisionMes}
+                                festivosSet={festivosSet}
                                 editMode={editMode}
                                 draftTarifa={draftTarifa}
                                 draftValorHora={draftValorHora}

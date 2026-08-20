@@ -844,6 +844,61 @@ export function horasPorDiaLaboral(baseHours) {
     return bh > 0 ? bh / DIAS_HABILES_NOMINAL_MES : 0;
 }
 
+const JORNADA_SEMANAL_TRANSICIONES = [
+    { desde: '2026-07-15', horas: 42 },
+    { desde: '2025-07-15', horas: 44 },
+    { desde: '2024-07-15', horas: 46 },
+    { desde: '2023-07-15', horas: 47 }
+];
+const JORNADA_SEMANAL_DEFAULT = 48;
+
+function lastDayOfMonthYmd(year, month) {
+    const y = Number(year);
+    const m = Number(month);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return '';
+    const dim = new Date(y, m, 0).getDate();
+    return `${y}-${String(m).padStart(2, '0')}-${String(dim).padStart(2, '0')}`;
+}
+
+export function resolveJornadaSemanalHoras(ymd) {
+    const key = String(ymd || '').trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return JORNADA_SEMANAL_DEFAULT;
+    for (const t of JORNADA_SEMANAL_TRANSICIONES) {
+        if (key >= t.desde) return t.horas;
+    }
+    return JORNADA_SEMANAL_DEFAULT;
+}
+
+export function countBusinessDaysInMonth(year, month, festivosSet = null) {
+    const y = Number(year);
+    const m = Number(month);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return 0;
+    const daysInMonth = new Date(y, m, 0).getDate();
+    let count = 0;
+    for (let d = 1; d <= daysInMonth; d += 1) {
+        const ymd = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const dow = new Date(`${ymd}T12:00:00`).getDay();
+        if (dow === 0 || dow === 6) continue;
+        if (festivosSet && typeof festivosSet.has === 'function' && festivosSet.has(ymd)) continue;
+        count += 1;
+    }
+    return count;
+}
+
+/** Horas laborables del mes (Ley 2101): días hábiles × (jornada semanal / 5). */
+export function resolveHorasLaborablesMes({ year, month, festivosSet = null } = {}) {
+    const y = Number(year);
+    const m = Number(month);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return 0;
+    const jornada = resolveJornadaSemanalHoras(lastDayOfMonthYmd(y, m));
+    const horasDia = jornada / 5;
+    return Math.round(countBusinessDaysInMonth(y, m, festivosSet) * horasDia * 100) / 100;
+}
+
+function isHoraExtraTipo(tipo) {
+    return String(tipo || '').trim() === 'Hora Extra';
+}
+
 /**
  * Normaliza una cantidad de horas ingresada por el usuario admitiendo decimales
  * con punto o coma (ej. "4.5" o "4,5"). Devuelve un número >= 0 redondeado a 2
@@ -943,8 +998,22 @@ export function computeMontoNovedadDiasFromValorHora(valorHora, dias, horasBaseM
  * Recalcula monto de novedad en edición según medida.
  * Modo HOURS: valorHora × cantidadHoras (días × 9 h laborales).
  */
-export function computeMontoNovedadPreview(row, { tarifa, horasBaseMes, cantidadHoras, hoursMode = false } = {}) {
+export function computeMontoNovedadPreview(
+    row,
+    { tarifa, horasBaseMes, cantidadHoras, hoursMode = false, year, month, festivosSet = null } = {}
+) {
     const esCalculado = row?.montoOrigen === 'calculado' || row?.montoCalculado;
+    const tipo = row?.tipoNovedad || row?.tipo_novedad;
+    if (!hoursMode && isHoraExtraTipo(tipo)) {
+        const horasMes = resolveHorasLaborablesMes({ year, month, festivosSet });
+        const horas =
+            cantidadHoras != null && cantidadHoras !== ''
+                ? Number(cantidadHoras) || 0
+                : Number(row?.cantidadHoras ?? row?.cantidad) || 0;
+        if (horasMes > 0 && horas > 0) {
+            return Math.round((Number(tarifa) || 0) / horasMes * horas);
+        }
+    }
     if (!hoursMode) {
         if (!esCalculado && row?.medida !== 'hours') {
             return Number(row?.montoMaestro ?? row?.montoCop) || 0;
@@ -953,7 +1022,6 @@ export function computeMontoNovedadPreview(row, { tarifa, horasBaseMes, cantidad
         return Number(row?.montoMaestro ?? row?.montoCop) || 0;
     }
     const t = Number(tarifa) || 0;
-    const vh = computeValorHoraCop(t, horasBaseMes);
     const horas =
         cantidadHoras != null && cantidadHoras !== ''
             ? Number(cantidadHoras) || 0

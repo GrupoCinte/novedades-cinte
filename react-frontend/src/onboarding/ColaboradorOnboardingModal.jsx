@@ -432,11 +432,14 @@ function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
             setError('Selecciona un motivo de baja.');
             return;
         }
+        if (!fecha) {
+            setError('Indica la fecha de término.');
+            return;
+        }
         setSaving(true);
         setError('');
         try {
-            const body = { motivo_baja: motivo };
-            if (fecha) body.fecha_termino = fecha;
+            const body = { motivo_baja: motivo, fecha_termino: fecha };
             if (observaciones.trim()) body.observaciones = observaciones.trim();
             const r = await onboardingApi.marcarBaja(token, cedNorm, body);
             if (typeof onConfirmed === 'function') onConfirmed(r?.item || null);
@@ -460,7 +463,7 @@ function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
             </button>
             <button
                 type="button"
-                disabled={saving || !motivo}
+                disabled={saving || !motivo || !fecha}
                 onClick={handleConfirm}
                 className="rounded-xl border border-red-500/65 bg-transparent px-4 py-2 text-sm font-semibold text-[var(--error)] transition hover:bg-[rgba(255,107,107,0.1)] disabled:opacity-50"
             >
@@ -503,7 +506,7 @@ function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
                     </select>
                 </div>
                 <div>
-                    <label className={labelCls}>Fecha de baja</label>
+                    <label className={labelCls}>Fecha de término *</label>
                     <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className={inputCls} disabled={saving} />
                 </div>
                 <div>

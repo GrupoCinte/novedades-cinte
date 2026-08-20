@@ -126,7 +126,6 @@ function buildTarifaMesFromContext(ctx, tarifaMaestro, tramos, billingOpts) {
         month: ctx.month,
         fechaIngreso: ctx.fechaIngreso,
         fechaTermino: ctx.fechaTermino,
-        fechaBajaEfectiva: ctx.fechaBajaEfectiva,
         billingMode: billingOpts.billingMode,
         baseHours: billingOpts.baseHours,
         tramos: tramos && tramos.length ? tramos : null

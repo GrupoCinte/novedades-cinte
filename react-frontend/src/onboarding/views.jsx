@@ -302,7 +302,6 @@ export function PersonalView({
                   label: 'Motivo baja',
                   render: (r) => <MotivoBajaBadge value={r.motivo_baja} isLight={isLight} />
               },
-              { key: 'fecha_baja_efectiva', label: 'F. baja', render: (r) => fmtFecha(r.fecha_baja_efectiva) },
               { key: 'tiempo_permanencia_meses', label: 'Permanencia (m)' }
           ]
         : isPersonalActivo
@@ -359,11 +358,6 @@ export function PersonalView({
                               label: 'Motivo baja',
                               render: (r) => <MotivoBajaBadge value={r.motivo_baja} isLight={isLight} />
                           },
-                          {
-                              key: 'fecha_baja_efectiva',
-                              label: 'F. baja',
-                              render: (r) => fmtFecha(r.fecha_baja_efectiva)
-                          },
                           { key: 'tiempo_permanencia_meses', label: 'Permanencia (m)' }
                       ]
                     : [])
@@ -385,7 +379,7 @@ export function PersonalView({
         [Boolean(filters.motivo_baja), filters.motivo_baja ? `Motivo: ${filters.motivo_baja.length > 16 ? `${filters.motivo_baja.slice(0, 14)}…` : filters.motivo_baja}` : ''],
         [Boolean(filters.tipo_personal_extra), filters.tipo_personal_extra ? `Tipo: ${filters.tipo_personal_extra}` : ''],
         [Boolean(filters.fecha_ingreso_desde || filters.fecha_ingreso_hasta), 'Rango ingreso'],
-        [Boolean(filters.fecha_baja_desde || filters.fecha_baja_hasta), 'Rango baja']
+        [Boolean(filters.fecha_baja_desde || filters.fecha_baja_hasta), 'Rango término']
     ];
     const chipLabel = buildChipLabel(chipPairs);
 
@@ -677,11 +671,11 @@ export function PersonalView({
                                     </select>
                                 </div>
                                 <div className="flex flex-col gap-1.5">
-                                    <span className={labelCls}>Rango fecha de baja</span>
+                                    <span className={labelCls}>Rango fecha de término</span>
                                     <div className="flex items-center gap-2">
-                                        <input {...nativeCalendarOnlyInputProps} type="date" value={draft.fecha_baja_desde || ''} onChange={(e) => setDraft((s) => ({ ...s, fecha_baja_desde: e.target.value }))} className={`${fieldCls} min-w-0 flex-1`} aria-label="Fecha de baja: desde" />
+                                        <input {...nativeCalendarOnlyInputProps} type="date" value={draft.fecha_baja_desde || ''} onChange={(e) => setDraft((s) => ({ ...s, fecha_baja_desde: e.target.value }))} className={`${fieldCls} min-w-0 flex-1`} aria-label="Fecha de término: desde" />
                                         <span className={`${isLight ? 'text-slate-500' : 'text-slate-400'} shrink-0 text-xs`}>a</span>
-                                        <input {...nativeCalendarOnlyInputProps} type="date" value={draft.fecha_baja_hasta || ''} onChange={(e) => setDraft((s) => ({ ...s, fecha_baja_hasta: e.target.value }))} className={`${fieldCls} min-w-0 flex-1`} aria-label="Fecha de baja: hasta" />
+                                        <input {...nativeCalendarOnlyInputProps} type="date" value={draft.fecha_baja_hasta || ''} onChange={(e) => setDraft((s) => ({ ...s, fecha_baja_hasta: e.target.value }))} className={`${fieldCls} min-w-0 flex-1`} aria-label="Fecha de término: hasta" />
                                     </div>
                                 </div>
                             </>
