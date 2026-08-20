@@ -313,15 +313,20 @@ function resolveTarifaBaseMes({
     };
 }
 
-/** SQL: incluir activos o inactivos con salida en el mes de facturación. */
+/** SQL: incluir activos o inactivos cuyo servicio se cruza con el mes de facturación. */
 function colaboradorVisibleEnMesSql(alias, yearParamIdx, monthParamIdx) {
     const p = alias ? `${alias}.` : '';
+    const y = `$${yearParamIdx}`;
+    const m = `$${monthParamIdx}`;
     return `(
         ${p}activo IS NOT FALSE
         OR (
             ${p}fecha_termino IS NOT NULL
-            AND EXTRACT(YEAR FROM ${p}fecha_termino::date) = $${yearParamIdx}::integer
-            AND EXTRACT(MONTH FROM ${p}fecha_termino::date) = $${monthParamIdx}::integer
+            AND ${p}fecha_termino::date >= make_date(${y}, ${m}, 1)
+            AND (
+                ${p}fecha_ingreso IS NULL
+                OR ${p}fecha_ingreso::date <= (make_date(${y}, ${m}, 1) + INTERVAL '1 month - 1 day')::date
+            )
         )
     )`;
 }

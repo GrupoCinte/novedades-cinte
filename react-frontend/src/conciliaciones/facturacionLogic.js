@@ -1400,14 +1400,14 @@ export function enrichRowsClienteWorkspace(rows, cedulasEnServicios) {
     });
 }
 
-/** Consultores inactivos (salida en mes M) sin asociación a servicio. */
+/** Consultores inactivos (servicio se cruza con mes M) sin asociación a servicio. */
 export function countSinServicioSalidaMes(rows) {
     return (Array.isArray(rows) ? rows : []).filter((r) => r.salidaMes && r.sinServicioAsignado).length;
 }
 
 /**
- * Retiros del mes M del cliente que no están en la grilla principal del servicio.
- * `allRows` ya viene filtrado por colaboradorVisibleEnMesSql (inactivos solo si salida en M).
+ * Inactivos que trabajaron el mes M del cliente y no están en la grilla principal del servicio.
+ * `allRows` ya viene filtrado por colaboradorVisibleEnMesSql (inactivos si su servicio se cruza con M).
  * @param {object[]} allRows
  * @param {string[]} cedulasServicio
  */

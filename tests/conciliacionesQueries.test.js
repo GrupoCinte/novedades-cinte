@@ -997,10 +997,16 @@ test('applyConciliacionFacturacionRevision: rol nomina ya no puede rechazar', as
 
 function matchesColaboradorVisibleEnMes(col, year, month) {
     if (col.activo !== false) return true;
-    const salida = col.fecha_termino;
-    if (!salida) return false;
-    const d = new Date(`${String(salida).slice(0, 10)}T12:00:00`);
-    return d.getFullYear() === year && d.getMonth() + 1 === month;
+    const termino = col.fecha_termino;
+    if (!termino) return false;
+    const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+    const monthEndDate = new Date(year, month, 0);
+    const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(monthEndDate.getDate()).padStart(2, '0')}`;
+    const salida = String(termino).slice(0, 10);
+    if (salida < monthStart) return false;
+    const ingreso = col.fecha_ingreso ? String(col.fecha_ingreso).slice(0, 10) : '';
+    if (ingreso && ingreso > monthEnd) return false;
+    return true;
 }
 
 function buildVisibleMesPool(colaboradores) {
@@ -1023,7 +1029,7 @@ function buildVisibleMesPool(colaboradores) {
     };
 }
 
-test('getConciliacionResumenPorClienteMes: inactivo salida junio visible junio no julio', async () => {
+test('getConciliacionResumenPorClienteMes: inactivo por solape (término ago visible en julio; jun no)', async () => {
     const colaboradores = [
         {
             cedula: '111',
@@ -1058,6 +1064,15 @@ test('getConciliacionResumenPorClienteMes: inactivo salida junio visible junio n
             cliente: 'Cliente X',
             tarifa_cliente: '4000',
             moneda: 'COP'
+        },
+        {
+            cedula: '555',
+            nombre: 'Salida Ago',
+            activo: false,
+            fecha_termino: '2026-08-04',
+            cliente: 'Cliente X',
+            tarifa_cliente: '5000',
+            moneda: 'COP'
         }
     ];
     const deps = {
@@ -1070,11 +1085,14 @@ test('getConciliacionResumenPorClienteMes: inactivo salida junio visible junio n
     const jun = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 6);
     assert.deepEqual(
         jun.rows.map((r) => r.cedula).sort(),
-        ['111', '222']
+        ['111', '222', '555']
     );
 
     const jul = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 7);
-    assert.deepEqual(jul.rows.map((r) => r.cedula), ['111']);
+    assert.deepEqual(
+        jul.rows.map((r) => r.cedula).sort(),
+        ['111', '555']
+    );
 });
 
 test('getConciliacionResumenPorClienteMes: activo sin servicio visible en cualquier mes', async () => {
