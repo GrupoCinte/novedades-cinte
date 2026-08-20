@@ -2,7 +2,6 @@
 
 const { parseHeDomingoCompFromObservacion } = require('./heDomingoCompensacion');
 const {
-    splitHoursByBogotaDay,
     bogotaDateKeyFromMs,
     bogotaMidnightUtcMsFromYmd,
     isDiaRecargoDominicalBogotaYmd
@@ -69,6 +68,93 @@ function iterateDayPortions(startMs, endMs, fn) {
         if (e > s) fn(dayKey, s, e);
         cursor = e;
     }
+}
+
+const HE_CLOCK_SLICE_KEYS = new Set([
+    'diurna_laboral',
+    'diurna_dominical',
+    'nocturna_laboral',
+    'nocturna_dominical'
+]);
+
+/**
+ * Parte [s, e) en diurna/nocturna (06:00–19:00 Bogotá) del día que empieza en dayStart.
+ * @param {number} s
+ * @param {number} e
+ * @param {number} dayStart
+ * @param {(kind: 'diurna'|'nocturna', a: number, b: number) => void} fn
+ */
+function forEachDiurnaNocturnaInDayWindow(s, e, dayStart, fn) {
+    if (e <= s) return;
+    const b6 = dayStart + 6 * HOUR_MS;
+    const b19 = dayStart + 19 * HOUR_MS;
+    const d1 = dayStart + DAY_MS;
+    const windows = [
+        [dayStart, b6, 'nocturna'],
+        [b6, b19, 'diurna'],
+        [b19, d1, 'nocturna']
+    ];
+    for (const [t0, t1, kind] of windows) {
+        const a = Math.max(s, t0);
+        const b = Math.min(e, t1);
+        if (b <= a) continue;
+        fn(kind, a, b);
+    }
+}
+
+/**
+ * Horas diurna/nocturna del intervalo crudo que caen en domingo o festivo (sin tope de recargo).
+ * @param {number} startMs
+ * @param {number} endMs
+ * @param {Set<string>} [festivosSet]
+ * @returns {{ diurnaSun: number, nocturnaSun: number }}
+ */
+function calendarDiurnaNocturnaSundayHours(startMs, endMs, festivosSet) {
+    const out = { diurnaSun: 0, nocturnaSun: 0 };
+    iterateDayPortions(startMs, endMs, (dayKey, s, e) => {
+        if (!isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) return;
+        const dayStart = bogotaMidnightUtcMsFromYmd(dayKey);
+        if (dayStart == null) return;
+        forEachDiurnaNocturnaInDayWindow(s, e, dayStart, (kind, a, b) => {
+            const h = (b - a) / HOUR_MS;
+            if (kind === 'diurna') out.diurnaSun += h;
+            else out.nocturnaSun += h;
+        });
+    });
+    return out;
+}
+
+/**
+ * Franjas diurna/nocturna del intervalo crudo, laboral vs dominical por calendario.
+ * Fallback cuando no hay segmentos HE (vuelto en fila sin recargo).
+ * @param {number} startMs
+ * @param {number} endMs
+ * @param {Set<string>} [festivosSet]
+ * @returns {Map<string, Array<{ startMs: number, endMs: number, hours: number }>>}
+ */
+function collectCalendarTimedRangesBySliceKey(startMs, endMs, festivosSet) {
+    /** @type {Map<string, Array<{ startMs: number, endMs: number, hours: number }>>} */
+    const map = new Map();
+    iterateDayPortions(startMs, endMs, (dayKey, s, e) => {
+        const dayStart = bogotaMidnightUtcMsFromYmd(dayKey);
+        if (dayStart == null) return;
+        const onRecargoDay = isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet);
+        forEachDiurnaNocturnaInDayWindow(s, e, dayStart, (kind, a, b) => {
+            const hours = (b - a) / HOUR_MS;
+            if (hours <= EPS_H) return;
+            const sliceKey =
+                kind === 'diurna'
+                    ? onRecargoDay
+                        ? 'diurna_dominical'
+                        : 'diurna_laboral'
+                    : onRecargoDay
+                      ? 'nocturna_dominical'
+                      : 'nocturna_laboral';
+            if (!map.has(sliceKey)) map.set(sliceKey, []);
+            map.get(sliceKey).push({ startMs: a, endMs: b, hours });
+        });
+    });
+    return map;
 }
 
 /**
@@ -186,8 +272,16 @@ function enrichSlicesWithTimeRanges(it, slices, dep) {
     if (startMs == null || endMs == null || !Number.isFinite(endMs - startMs) || endMs <= startMs) return;
 
     const timedByKey = collectTimedRangesBySliceKey(startMs, endMs, dep?.festivosSet);
+    let calendarByKey = null;
     for (const slice of slices) {
-        const range = pickTimeRangeForSlice(slice.sliceKey, timedByKey, Number(slice.hours || 0));
+        const hours = Number(slice.hours || 0);
+        let range = pickTimeRangeForSlice(slice.sliceKey, timedByKey, hours);
+        if (!range && HE_CLOCK_SLICE_KEYS.has(slice.sliceKey)) {
+            if (!calendarByKey) {
+                calendarByKey = collectCalendarTimedRangesBySliceKey(startMs, endMs, dep?.festivosSet);
+            }
+            range = pickTimeRangeForSlice(slice.sliceKey, calendarByKey, hours);
+        }
         if (range) {
             slice.startMs = range.startMs;
             slice.endMs = range.endMs;
@@ -196,7 +290,8 @@ function enrichSlicesWithTimeRanges(it, slices, dep) {
 }
 
 /**
- * Horas de HE (exceso tras recargo) en tramos diurno/nocturno que caen en domingo o festivo Bogotá.
+ * Horas diurna/nocturna del intervalo crudo que caen en domingo o festivo Bogotá.
+ * No reaplica el tope de recargo: horas_diurnas/nocturnas ya son el vuelto persistido.
  * @param {{ fechaInicio?: string, fechaFin?: string, horaInicio?: string, horaFin?: string }} it
  * @param {{ toUtcMsFromDateAndTime: (d: unknown, t: unknown) => number|null, festivosSet?: Set<string> }} dep
  * @returns {{ diurnaSun: number, nocturnaSun: number }}
@@ -216,25 +311,7 @@ function heDiurnaNocturnaSundayHoursBogota(it, dep) {
     if (startMs == null || endMs == null || !Number.isFinite(endMs - startMs) || endMs <= startMs) {
         return { diurnaSun: 0, nocturnaSun: 0 };
     }
-    const festivosSet = dep?.festivosSet;
-    const { diurna, nocturna } = collectHeDiurnaNocturnaSegmentsBogota(startMs, endMs, festivosSet);
-    let diurnaSun = 0;
-    let nocturnaSun = 0;
-    for (const seg of diurna) {
-        for (const [dayKey, h] of splitHoursByBogotaDay(seg.startMs, seg.endMs)) {
-            if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet) && Number.isFinite(h) && h > 0) {
-                diurnaSun += h;
-            }
-        }
-    }
-    for (const seg of nocturna) {
-        for (const [dayKey, h] of splitHoursByBogotaDay(seg.startMs, seg.endMs)) {
-            if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet) && Number.isFinite(h) && h > 0) {
-                nocturnaSun += h;
-            }
-        }
-    }
-    return { diurnaSun, nocturnaSun };
+    return calendarDiurnaNocturnaSundayHours(startMs, endMs, dep?.festivosSet);
 }
 
 /**
