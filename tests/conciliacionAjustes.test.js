@@ -37,13 +37,13 @@ test('incapacidad calculada recalcula con tarifa override (días hábiles)', () 
         tarifaOverride: null,
         montosNovedadOverride: {}
     }, { factAnio: 2026, factMes: 5 });
-    assert.equal(sinAdj.montoCop, Math.round(3_000_000 / 31));
+    assert.equal(sinAdj.montoCop, Math.round(3_000_000 / 30));
 
     const conTarifa = resolveNovedadMontoConAjuste(3_000_000, row, {
         tarifaOverride: 3_600_000,
         montosNovedadOverride: {}
     }, { factAnio: 2026, factMes: 5 });
-    assert.equal(conTarifa.montoCop, Math.round(3_600_000 / 31));
+    assert.equal(conTarifa.montoCop, Math.round(3_600_000 / 30));
 });
 
 test('override de monto fijo no recalcula al cambiar tarifa', () => {

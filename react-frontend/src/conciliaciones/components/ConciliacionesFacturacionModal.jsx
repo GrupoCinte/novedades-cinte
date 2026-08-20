@@ -447,7 +447,7 @@ export default function ConciliacionesFacturacionModal({
                                             {formatCop(tarifaDetalle?.tarifaProrrateada ?? colaborador.tarifaProrrateada ?? tarifaCliente)}
                                             {' · '}
                                             {tarifaDetalle?.diasFacturables ?? colaborador.diasFacturables}/
-                                            {tarifaDetalle?.diasMes ?? colaborador.diasMes} días cal.
+                                            {tarifaDetalle?.diasMes ?? colaborador.diasMes} días del mes
                                             {(tarifaDetalle?.diasHabilesFacturables ??
                                                 colaborador.diasHabilesFacturables) != null
                                                 ? ` · ${tarifaDetalle?.diasHabilesFacturables ?? colaborador.diasHabilesFacturables} hábiles`

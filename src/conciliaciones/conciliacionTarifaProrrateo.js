@@ -1,6 +1,7 @@
 'use strict';
 
 const { countCalendarDaysInclusive } = require('../novedadCantidadFormat');
+const { diasCalendarioMes, mesComercialBounds } = require('./conciliacionDiasBaseMes');
 
 function isoDate(value) {
     if (!value) return '';
@@ -10,22 +11,11 @@ function isoDate(value) {
 }
 
 function daysInCalendarMonth(year, month) {
-    const y = Number(year);
-    const m = Number(month);
-    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return 30;
-    return new Date(y, m, 0).getDate();
+    return diasCalendarioMes(year, month);
 }
 
 function monthBounds(year, month) {
-    const y = Number(year);
-    const m = Number(month);
-    const dim = daysInCalendarMonth(y, m);
-    const mm = String(m).padStart(2, '0');
-    return {
-        periodStart: `${y}-${mm}-01`,
-        periodEnd: `${y}-${mm}-${String(dim).padStart(2, '0')}`,
-        daysInMonth: dim
-    };
+    return mesComercialBounds(year, month);
 }
 
 function resolveFechaSalida(fechaTermino) {

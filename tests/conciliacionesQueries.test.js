@@ -74,7 +74,7 @@ test('getConciliacionResumenPorClienteMes agrega solo novedades visibles y calcu
     const deps = { pool, normalizeCedula, canRoleViewType };
     const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
     const { rows, totales } = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 5);
-    const diasMes = 31;
+    const diasMes = 30;
     const deduccionDia = Math.round(5000 / diasMes);
     const deduccionEsperada = deduccionDia * 2;
     assert.equal(rows.length, 1);

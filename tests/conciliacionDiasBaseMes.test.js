@@ -4,14 +4,25 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const {
     countBusinessDaysInMonth,
-    resolveDiasBaseMes
+    resolveDiasBaseMes,
+    diasComercialMes,
+    clipRangoAMesComercial
 } = require('../src/conciliaciones/conciliacionDiasBaseMes');
 
 describe('conciliacionDiasBaseMes', () => {
-    it('CALENDAR_DAYS devuelve días del mes calendario', () => {
-        const out = resolveDiasBaseMes({ billingMode: 'CALENDAR_DAYS', year: 2026, month: 2 });
-        assert.equal(out.diasBaseMes, 28);
-        assert.equal(out.diasBaseLabel, 'Días calendario del mes');
+    it('CALENDAR_DAYS usa mes comercial (febrero 28, julio 30)', () => {
+        const feb = resolveDiasBaseMes({ billingMode: 'CALENDAR_DAYS', year: 2026, month: 2 });
+        assert.equal(feb.diasBaseMes, 28);
+        assert.equal(feb.diasBaseLabel, 'Días del mes');
+        const jul = resolveDiasBaseMes({ billingMode: 'CALENDAR_DAYS', year: 2026, month: 7 });
+        assert.equal(jul.diasBaseMes, 30);
+        assert.equal(diasComercialMes(2026, 7), 30);
+        assert.equal(diasComercialMes(2026, 4), 30);
+    });
+
+    it('clip vacaciones 1-31 jul queda en 1-30', () => {
+        const c = clipRangoAMesComercial('2026-07-01', '2026-07-31', 2026, 7);
+        assert.deepEqual(c, { start: '2026-07-01', end: '2026-07-30' });
     });
 
     it('countBusinessDaysInMonth excluye sáb/dom y festivo', () => {
