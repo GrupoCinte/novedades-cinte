@@ -88,7 +88,7 @@ test('getConciliacionResumenPorClienteMes agrega solo novedades visibles y calcu
     assert.equal(totales.conNovedad, 1);
 });
 
-test('getConciliacionResumenPorClienteMes EXPIRED_MONTH consulta novedades del mes anterior', async () => {
+test('getConciliacionResumenPorClienteMes EXPIRED_MONTH consulta novedades del mismo mes', async () => {
     let novRange = null;
     let factMes = null;
     const pool = {
@@ -106,8 +106,8 @@ test('getConciliacionResumenPorClienteMes EXPIRED_MONTH consulta novedades del m
                         modalidad: null,
                         hora_inicio: null,
                         hora_fin: null,
-                        fecha_inicio: '2026-05-12',
-                        fecha_fin: '2026-05-12'
+                        fecha_inicio: '2026-06-12',
+                        fecha_fin: '2026-06-12'
                     }]
                 };
             }
@@ -134,7 +134,7 @@ test('getConciliacionResumenPorClienteMes EXPIRED_MONTH consulta novedades del m
     const { rows } = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 6, {
         billingType: 'EXPIRED_MONTH'
     });
-    assert.deepEqual(novRange, ['2026-05-01', '2026-05-31']);
+    assert.deepEqual(novRange, ['2026-06-01', '2026-06-30']);
     assert.deepEqual(factMes, [2026, 6]);
     assert.equal(rows[0].novedadesCount, 1);
     assert.equal(rows[0].novedadesSumaCop, 100);
@@ -902,7 +902,7 @@ test('getConciliacionResumenPorClienteMes APROBADO_ANALISTA solo cuenta consumid
     assert.equal(rows[0].estado, 'APROBADO_ANALISTA');
 });
 
-test('getConciliacionResumenPorClienteMes julio PENDIENTE incluye novedad junio no consumida', async () => {
+test('getConciliacionResumenPorClienteMes julio PENDIENTE no incluye novedad junio aprobada en junio', async () => {
     const backlogJun = {
         id: 'cccc3333-3333-3333-3333-333333333333',
         cedula: '12345678',
@@ -945,12 +945,11 @@ test('getConciliacionResumenPorClienteMes julio PENDIENTE incluye novedad junio 
     };
     const deps = { pool, normalizeCedula, canRoleViewType };
     const scope = { role: 'super_admin', canViewAllAreas: true, areas: [] };
-    // Mes vencido: facturación julio lee bucket de novedades de junio.
     const { rows } = await getConciliacionResumenPorClienteMes(deps, scope, 'Cliente X', 2026, 7, {
         billingType: 'EXPIRED_MONTH'
     });
     assert.equal(rows.length, 1);
-    assert.equal(rows[0].novedadesCount, 1);
+    assert.equal(rows[0].novedadesCount, 0);
     assert.equal(rows[0].estado, 'PENDIENTE');
 });
 

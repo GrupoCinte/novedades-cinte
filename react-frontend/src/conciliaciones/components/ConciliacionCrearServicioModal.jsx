@@ -57,7 +57,9 @@ export default function ConciliacionCrearServicioModal({
                 setClosingDay(servicio.closingDay !== undefined ? String(servicio.closingDay) : '');
                 setBillingMode(servicio.billingMode || 'HOURS');
                 setBaseHours(servicio.baseHours !== undefined && servicio.baseHours !== null ? String(servicio.baseHours) : '');
-                setBillingType(servicio.billingType || 'EXPIRED_MONTH');
+                setBillingType(
+                    servicio.billingType === 'CURRENT_MONTH' ? 'EXPIRED_MONTH' : servicio.billingType || 'EXPIRED_MONTH'
+                );
                 setLideresAsociados(savedLideres);
                 setLideresAllMode(!savedLideres.length);
             } else {
@@ -388,7 +390,6 @@ export default function ConciliacionCrearServicioModal({
                                         onChange={(e) => setBillingType(e.target.value)}
                                         className={`rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2F7BB8] ${inputBg}`}
                                     >
-                                        <option value="CURRENT_MONTH">Mes corriente</option>
                                         <option value="EXPIRED_MONTH">Mes vencido</option>
                                         <option value="ADVANCE_MONTH">Mes anticipado</option>
                                     </select>

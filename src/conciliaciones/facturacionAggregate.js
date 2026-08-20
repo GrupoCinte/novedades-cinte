@@ -254,14 +254,11 @@ function shiftCalendarMonth(year, month, delta) {
 
 /**
  * Mes calendario de novedades según tipo de facturación del servicio.
- * EXPIRED_MONTH (mes vencido): facturación julio → novedades junio.
- * CURRENT_MONTH / ADVANCE_MONTH: mismo mes calendario que la facturación.
+ * EXPIRED_MONTH (Mes vencido) y CURRENT_MONTH (alias legado): mismo mes que la facturación
+ * (julio → novedades julio + tardías aprobadas en julio).
+ * ADVANCE_MONTH: mismo mes calendario; el ajuste del mes anterior lo resuelve el flujo de anticipo.
  */
-function resolveNovedadesBucket(facturacionYear, facturacionMonth, billingType) {
-    const type = String(billingType || '').trim().toUpperCase();
-    if (type === 'EXPIRED_MONTH') {
-        return shiftCalendarMonth(facturacionYear, facturacionMonth, -1);
-    }
+function resolveNovedadesBucket(facturacionYear, facturacionMonth, _billingType) {
     return { year: Number(facturacionYear), month: Number(facturacionMonth) };
 }
 

@@ -27,7 +27,7 @@ function billingTypeLabel(val) {
         case 'EXPIRED_MONTH':
             return 'Mes vencido';
         case 'CURRENT_MONTH':
-            return 'Mes corriente';
+            return 'Mes vencido';
         case 'ADVANCE_MONTH':
             return 'Mes anticipado';
         default:

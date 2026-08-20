@@ -398,7 +398,6 @@ export default function ConciliacionesServiciosPage({ token }) {
                                     onChange={(e) => setFTipoFacturacion(e.target.value)}
                                 >
                                     <option value="TODOS">Todos los tipos</option>
-                                    <option value="CURRENT_MONTH">Mes corriente</option>
                                     <option value="EXPIRED_MONTH">Mes vencido</option>
                                     <option value="ADVANCE_MONTH">Mes anticipado</option>
                                 </select>
