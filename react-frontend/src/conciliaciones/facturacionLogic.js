@@ -869,22 +869,6 @@ export function resolveJornadaSemanalHoras(ymd) {
     return JORNADA_SEMANAL_DEFAULT;
 }
 
-export function countBusinessDaysInMonth(year, month, festivosSet = null) {
-    const y = Number(year);
-    const m = Number(month);
-    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return 0;
-    const daysInMonth = new Date(y, m, 0).getDate();
-    let count = 0;
-    for (let d = 1; d <= daysInMonth; d += 1) {
-        const ymd = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const dow = new Date(`${ymd}T12:00:00`).getDay();
-        if (dow === 0 || dow === 6) continue;
-        if (festivosSet && typeof festivosSet.has === 'function' && festivosSet.has(ymd)) continue;
-        count += 1;
-    }
-    return count;
-}
-
 /** Horas laborables del mes (Ley 2101): días hábiles × (jornada semanal / 5). */
 export function resolveHorasLaborablesMes({ year, month, festivosSet = null } = {}) {
     const y = Number(year);
