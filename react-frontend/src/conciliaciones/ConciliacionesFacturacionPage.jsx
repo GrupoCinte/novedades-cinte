@@ -1377,8 +1377,8 @@ export default function ConciliacionesFacturacionPage({ token, auth }) {
                             >
                                 <p className={`text-sm font-semibold ${headingAccent}`}>Salidas</p>
                                 <p className={`mt-0.5 text-xs ${labelMuted}`}>
-                                    Consultores con baja efectiva en {monthLabel} del cliente, fuera de la asociación
-                                    de este servicio.
+                                    Consultores inactivos que sí trabajaron {monthLabel} del cliente, fuera de la
+                                    asociación de este servicio.
                                 </p>
                             </div>
                             <div className={isLight ? 'bg-slate-50' : 'bg-[#0f172a]/50'}>
