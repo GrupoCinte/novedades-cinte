@@ -10,6 +10,11 @@ const {
     resolveHorasLaborablesMes,
     factYearMonthFromOptions
 } = require('./conciliacionJornadaReforma');
+const {
+    DIAS_MES_FACTURACION,
+    diasComercialMes,
+    clipRangoAMesComercial
+} = require('./conciliacionDiasBaseMes');
 
 const {
     getCantidadMedidaKind,
@@ -18,7 +23,6 @@ const {
     resolveCanonicalNovedadTipo,
     getNovedadRule
 } = require('../novedadCantidadFormat');
-const DIAS_MES_FACTURACION = 30;
 const HORAS_MES_LABORALES = 176;
 /** @deprecated Usar horasPorDiaLaboral(baseHours) — mantiene compatibilidad con baseHours 180. */
 const HORAS_LABOR_DIA = 9;
@@ -124,32 +128,52 @@ function isIncapacidadTipo(tipoNovedad) {
     return resolveCanonicalNovedadTipo(tipoNovedad) === 'Incapacidad';
 }
 
-function getDiasConciliacion(tipoNovedad, ctx, options = {}) {
-    const festivosSet = options.festivosSet ?? null;
-    if (isSuspension(tipoNovedad)) {
-        const fi = ctx.fechaInicio;
-        const ff = ctx.fechaFin || fi;
-        if (!fi || !ff) return 0;
-        return countCalendarDaysInclusive(fi, ff);
-    }
+function clipFechasNovedadMes(ctx, options = {}) {
+    const { year, month } = factYearMonthFromOptions(options);
     const fi = ctx.fechaInicio;
     const ff = ctx.fechaFin || fi;
+    if (!fi) return { fi: '', ff: '' };
+    const clipped = clipRangoAMesComercial(fi, ff, year, month);
+    if (!clipped) return { fi: '', ff: '' };
+    return { fi: clipped.start, ff: clipped.end };
+}
+
+function capDiasComercial(dias, options = {}) {
+    const n = Number(dias) || 0;
+    if (n <= 0) return 0;
+    const { year, month } = factYearMonthFromOptions(options);
+    if (!year || !month) return Math.min(n, DIAS_MES_FACTURACION);
+    return Math.min(n, diasComercialMes(year, month));
+}
+
+function getDiasConciliacion(tipoNovedad, ctx, options = {}) {
+    const festivosSet = options.festivosSet ?? null;
+    const { fi, ff } = clipFechasNovedadMes(ctx, options);
+    if (isSuspension(tipoNovedad)) {
+        if (!fi || !ff) return 0;
+        return capDiasComercial(countCalendarDaysInclusive(fi, ff), options);
+    }
     if (isIncapacidadTipo(tipoNovedad) && fi && ff) {
-        return countBusinessDaysInclusive(fi, ff, festivosSet);
+        return capDiasComercial(countBusinessDaysInclusive(fi, ff, festivosSet), options);
     }
     const n = Number(ctx.cantidadHoras);
-    if (n > 0) return n;
+    if (n > 0) return capDiasComercial(n, options);
     if (fi && ff) {
         const rule = getNovedadRule(tipoNovedad);
-        if (rule.autoCalendarDays) return countCalendarDaysInclusive(fi, ff);
-        return countBusinessDaysInclusive(fi, ff, festivosSet);
+        if (rule.autoCalendarDays) {
+            return capDiasComercial(countCalendarDaysInclusive(fi, ff), options);
+        }
+        return capDiasComercial(countBusinessDaysInclusive(fi, ff, festivosSet), options);
     }
-    return getDiasEfectivosNovedad(
-        tipoNovedad,
-        ctx.cantidadHoras,
-        ctx.fechaInicio,
-        ctx.fechaFin,
-        ctx
+    return capDiasComercial(
+        getDiasEfectivosNovedad(
+            tipoNovedad,
+            ctx.cantidadHoras,
+            ctx.fechaInicio,
+            ctx.fechaFin,
+            ctx
+        ),
+        options
     );
 }
 
@@ -167,11 +191,8 @@ function montoPorDias(tarifaCliente, dias, options = {}) {
 function resolveDiasDenominadorMes(options = {}) {
     const custom = Number(options.diasDenominadorMes);
     if (Number.isFinite(custom) && custom > 0) return custom;
-    const y = Number(options.factAnio ?? options.factYear ?? options.anio);
-    const m = Number(options.factMes ?? options.factMonth ?? options.mes);
-    if (Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12) {
-        return new Date(y, m, 0).getDate();
-    }
+    const { year, month } = factYearMonthFromOptions(options);
+    if (year && month) return diasComercialMes(year, month);
     return DIAS_MES_FACTURACION;
 }
 

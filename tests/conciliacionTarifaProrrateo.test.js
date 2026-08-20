@@ -150,5 +150,57 @@ test('salida 1 jul cobra 1 día aunque se pase fecha_baja_efectiva 24 jul', () =
         fechaBajaEfectiva: '2026-07-24'
     });
     assert.equal(d.diasFacturables, 1);
-    assert.equal(d.daysInMonth, 31);
+    assert.equal(d.daysInMonth, 30);
+});
+
+test('julio comercial: mes lleno 30/30', () => {
+    const d = computeDiasFacturablesMes({ year: 2026, month: 7 });
+    assert.equal(d.diasFacturables, 30);
+    assert.equal(d.daysInMonth, 30);
+    assert.equal(d.periodEnd, '2026-07-30');
+    assert.equal(d.prorrateoAplicado, false);
+});
+
+test('julio comercial: término 11 → 11/30', () => {
+    const d = computeDiasFacturablesMes({
+        year: 2026,
+        month: 7,
+        fechaTermino: '2026-07-11'
+    });
+    assert.equal(d.diasFacturables, 11);
+    assert.equal(d.daysInMonth, 30);
+    const r = resolveTarifaBaseMes({
+        tarifaMaestro: 4_000_000,
+        year: 2026,
+        month: 7,
+        fechaTermino: '2026-07-11'
+    });
+    assert.equal(r.tarifaBase, Math.round((4_000_000 / 30) * 11));
+});
+
+test('julio comercial: ingreso 2 → 29/30', () => {
+    const d = computeDiasFacturablesMes({
+        year: 2026,
+        month: 7,
+        fechaIngreso: '2026-07-02'
+    });
+    assert.equal(d.diasFacturables, 29);
+    assert.equal(d.daysInMonth, 30);
+});
+
+test('julio comercial: término 31 cobra mes lleno 30/30', () => {
+    const d = computeDiasFacturablesMes({
+        year: 2026,
+        month: 7,
+        fechaTermino: '2026-07-31'
+    });
+    assert.equal(d.diasFacturables, 30);
+    assert.equal(d.daysInMonth, 30);
+    assert.equal(d.prorrateoAplicado, false);
+});
+
+test('febrero comercial sigue 28', () => {
+    const d = computeDiasFacturablesMes({ year: 2026, month: 2 });
+    assert.equal(d.diasFacturables, 28);
+    assert.equal(d.daysInMonth, 28);
 });

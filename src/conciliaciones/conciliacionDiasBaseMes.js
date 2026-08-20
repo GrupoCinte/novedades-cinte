@@ -2,11 +2,55 @@
 
 const DIAS_MES_FACTURACION = 30;
 
+function diasCalendarioMes(year, month) {
+    const y = Number(year);
+    const m = Number(month);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return DIAS_MES_FACTURACION;
+    return new Date(y, m, 0).getDate();
+}
+
+/** Días del mes para cobro: tope 30. Febrero sigue 28/29. */
+function diasComercialMes(year, month) {
+    return Math.min(diasCalendarioMes(year, month), DIAS_MES_FACTURACION);
+}
+
+function ultimoDiaComercialMes(year, month) {
+    return diasComercialMes(year, month);
+}
+
+function mesComercialBounds(year, month) {
+    const y = Number(year);
+    const m = Number(month);
+    const last = ultimoDiaComercialMes(y, m);
+    const mm = String(m).padStart(2, '0');
+    return {
+        periodStart: `${y}-${mm}-01`,
+        periodEnd: `${y}-${mm}-${String(last).padStart(2, '0')}`,
+        daysInMonth: last
+    };
+}
+
+function clipRangoAMesComercial(fechaInicio, fechaFin, year, month) {
+    const fi = fechaInicio ? String(fechaInicio).slice(0, 10) : '';
+    if (!fi) return null;
+    const ff = fechaFin ? String(fechaFin).slice(0, 10) : fi;
+    const y = Number(year);
+    const m = Number(month);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+        return { start: fi, end: ff };
+    }
+    const { periodStart, periodEnd } = mesComercialBounds(y, m);
+    const start = fi > periodStart ? fi : periodStart;
+    const end = ff < periodEnd ? ff : periodEnd;
+    if (start > end) return null;
+    return { start, end };
+}
+
 function countBusinessDaysInMonth(year, month, festivosSet) {
     const y = Number(year);
     const m = Number(month);
     if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return 0;
-    const daysInMonth = new Date(y, m, 0).getDate();
+    const daysInMonth = diasCalendarioMes(y, m);
     let count = 0;
     for (let d = 1; d <= daysInMonth; d += 1) {
         const ymd = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -24,16 +68,10 @@ function countBusinessDaysInMonth(year, month, festivosSet) {
  */
 function resolveDiasBaseMes({ billingMode, year, month, festivosSet = null }) {
     const mode = String(billingMode || '').trim().toUpperCase();
-    const y = Number(year);
-    const m = Number(month);
-    const calendarDaysInMonth =
-        Number.isFinite(y) && Number.isFinite(m) && m >= 1 && m <= 12
-            ? new Date(y, m, 0).getDate()
-            : DIAS_MES_FACTURACION;
     if (mode === 'CALENDAR_DAYS') {
         return {
-            diasBaseMes: calendarDaysInMonth,
-            diasBaseLabel: 'Días calendario del mes',
+            diasBaseMes: diasComercialMes(year, month),
+            diasBaseLabel: 'Días del mes',
             festivosAplicados: false
         };
     }
@@ -50,6 +88,11 @@ function resolveDiasBaseMes({ billingMode, year, month, festivosSet = null }) {
 
 module.exports = {
     DIAS_MES_FACTURACION,
+    diasCalendarioMes,
+    diasComercialMes,
+    ultimoDiaComercialMes,
+    mesComercialBounds,
+    clipRangoAMesComercial,
     countBusinessDaysInMonth,
     resolveDiasBaseMes
 };

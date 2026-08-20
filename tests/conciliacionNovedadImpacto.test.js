@@ -130,7 +130,24 @@ test('incapacidad un día hábil resta tarifa/días_del_mes × 1', () => {
     );
     assert.equal(r.medida, 'days');
     assert.equal(r.cantidad, 1);
-    assert.equal(r.montoCop, Math.round(3_000_000 / 31));
+    assert.equal(r.montoCop, Math.round(3_000_000 / 30));
+});
+
+test('vacaciones 1-31 jul se recortan a 30 días comerciales', () => {
+    const r = computeNovedadImpactoMonto(
+        3_000_000,
+        {
+            tipo_novedad: 'Vacaciones en dinero',
+            fecha_inicio: '2026-07-01',
+            fecha_fin: '2026-07-31',
+            cantidad_horas: 31,
+            unidad: 'dias'
+        },
+        { factAnio: 2026, factMes: 7 }
+    );
+    assert.equal(r.medida, 'days');
+    assert.equal(r.cantidad, 30);
+    assert.equal(r.montoCop, 3_000_000);
 });
 
 test('aggregateNovedadesImpacto combina suma y resta', () => {
