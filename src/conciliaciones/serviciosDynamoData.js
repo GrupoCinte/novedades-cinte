@@ -1,6 +1,7 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
 const { buildDynamoLowLevelClientConfig } = require('../contratacion/awsDynamoClientConfig');
+const { sameClienteLabel } = require('../clientes/clienteCanonWrite');
 
 function getDynamoClient() {
     const client = new DynamoDBClient(buildDynamoLowLevelClientConfig());
@@ -115,11 +116,10 @@ function _liderMatchesServicio(liderCatalogo, lideresAsociados) {
 }
 
 function _serviciosMismoCliente(items, clienteCanon) {
-    const canon = String(clienteCanon || '').trim().toLowerCase();
     return (items || []).filter(
         (i) =>
             String(i.entityType || '') === 'SERVICIO' &&
-            String(i.client || '').trim().toLowerCase() === canon
+            sameClienteLabel(i.client, clienteCanon)
     );
 }
 
@@ -179,12 +179,9 @@ async function listServicios(deps, scope) {
     const { Items } = await docClient.send(cmd);
     
     // Filtrar por clientes permitidos y mapear al formato del frontend
-    const lowerAllowed = new Set(allowedClients.map(c => c.toLowerCase()));
-    
-    const filtered = (Items || []).filter(item => {
-        const c = String(item.client || '').toLowerCase();
-        return lowerAllowed.has(c);
-    });
+    const filtered = (Items || []).filter((item) =>
+        allowedClients.some((ac) => sameClienteLabel(item.client, ac))
+    );
 
     // Ordenar por created_at desc (como en PostgreSQL)
     filtered.sort((a, b) => {

@@ -120,7 +120,7 @@ describe('fichaNovedadesService helpers', () => {
         assert.equal(enriched.codigo, '20250322');
         assert.equal(enriched.cedula, '1024598286');
         assert.ok(String(enriched.nombre).toLowerCase().includes('diego'));
-        assert.ok(String(enriched.cliente).toUpperCase().includes('AVAL'));
+        assert.equal(enriched.cliente, 'AVC');
         assert.equal(String(enriched.puesto).toUpperCase(), 'ANALISTA');
         assert.equal(enriched.fecha_termino, '2026-06-12');
     });

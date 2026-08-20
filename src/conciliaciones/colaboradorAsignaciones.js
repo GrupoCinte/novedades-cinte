@@ -1,5 +1,7 @@
 'use strict';
 
+const { resolveClienteOnWrite } = require('../clientes/clienteCanonWrite');
+
 /**
  * Asignaciones simultáneas colaborador ↔ cliente (multi-cliente).
  */
@@ -25,7 +27,7 @@ async function upsertColaboradorAsignacion(pool, {
     activo = true
 }) {
     const ced = normalizeCedula(cedula);
-    const cli = normalizeCliente(cliente);
+    const cli = resolveClienteOnWrite(normalizeCliente(cliente));
     if (!ced || !cli) return null;
     const t = tarifa != null && Number.isFinite(Number(tarifa)) ? Math.round(Number(tarifa)) : 0;
 
