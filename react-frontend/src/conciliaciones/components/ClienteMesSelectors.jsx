@@ -404,7 +404,6 @@ export default function ClienteMesSelectors({
                                     onChange={(e) => onBillingTypeChange(e.target.value)}
                                 >
                                     <option value="">Todos</option>
-                                    <option value="CURRENT_MONTH">Mes corriente</option>
                                     <option value="EXPIRED_MONTH">Mes vencido</option>
                                     <option value="ADVANCE_MONTH">Mes anticipado</option>
                                 </select>

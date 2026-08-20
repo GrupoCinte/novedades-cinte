@@ -334,8 +334,8 @@ async function listNovedadesConsumidasParaCierre(deps, scope, opts) {
 }
 
 /**
- * Novedades ya consumidas cuya fecha efectiva cae en el bucket de novedades del mes de facturación.
- * Cubre mes vencido: vacaciones de junio consumidas al cerrar junio deben verse al facturar julio.
+ * Novedades ya consumidas cuya fecha efectiva cae en el bucket de novedades del mes de facturación
+ * (mismo mes calendario: EXPIRED_MONTH / CURRENT_MONTH legado).
  */
 async function listNovedadesConsumidasEnBucketNov(deps, scope, opts) {
     const { pool, normalizeCedula, canRoleViewType } = deps;

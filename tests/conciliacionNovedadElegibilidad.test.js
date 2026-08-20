@@ -11,7 +11,7 @@ const {
 const normalizeCedula = (v) => String(v || '').replace(/\D/g, '');
 const canRoleViewType = () => true;
 
-test('CURRENT_MONTH julio no arrastra novedades de junio aprobadas en junio', async () => {
+test('EXPIRED_MONTH julio no arrastra novedades de junio aprobadas en junio', async () => {
     const pool = {
         query: async (sql) => {
             if (String(sql).includes('FROM novedades')) {
@@ -45,7 +45,7 @@ test('CURRENT_MONTH julio no arrastra novedades de junio aprobadas en junio', as
         cedulaRaw: '12345678',
         factAnio: 2026,
         factMes: 6,
-        billingType: 'CURRENT_MONTH'
+        billingType: 'EXPIRED_MONTH'
     });
     assert.equal(jun.length, 1);
 
@@ -54,9 +54,9 @@ test('CURRENT_MONTH julio no arrastra novedades de junio aprobadas en junio', as
         cedulaRaw: '12345678',
         factAnio: 2026,
         factMes: 7,
-        billingType: 'CURRENT_MONTH'
+        billingType: 'EXPIRED_MONTH'
     });
-    assert.equal(jul.length, 0, 'mes corriente: junio no debe aparecer en julio');
+    assert.equal(jul.length, 0, 'EXPIRED_MONTH: junio aprobado en junio no debe aparecer en julio');
 });
 
 test('novedad mayo aprobada en junio entra en cierre junio (mes aprobación)', async () => {
@@ -233,7 +233,7 @@ test('listNovedadesForFacturacionByEstado: corte activo solo consumidas, pendien
     assert.equal(String(corteSinSnapshot[0].id), lateRow.id);
 });
 
-test('EXPIRED_MONTH julio muestra vacaciones consumidas en junio vía bucket', async () => {
+test('EXPIRED_MONTH julio no muestra vacaciones de junio consumidas en otro cierre', async () => {
     const {
         listNovedadesForFacturacionByEstado,
         resolveNovedadesRowsParaColaborador
@@ -254,14 +254,12 @@ test('EXPIRED_MONTH julio muestra vacaciones consumidas en junio vía bucket', a
         aprobado_en: new Date('2026-06-12T12:00:00Z')
     };
 
-    let consumoQueryCount = 0;
     const pool = {
-        query: async (sql) => {
+        query: async (sql, params) => {
             const s = String(sql);
             if (s.includes('INNER JOIN novedades nov ON nov.id = cnc.novedad_id')) {
-                consumoQueryCount += 1;
-                if (consumoQueryCount === 1) return { rows: [] };
-                return { rows: [vacJunConsumida] };
+                if (params?.[1] === '2026-06-01') return { rows: [vacJunConsumida] };
+                return { rows: [] };
             }
             if (s.includes('FROM novedades nov')) {
                 return { rows: [] };
@@ -280,8 +278,7 @@ test('EXPIRED_MONTH julio muestra vacaciones consumidas en junio vía bucket', a
     };
 
     const rows = await listNovedadesForFacturacionByEstado(deps, scope, opts, 'PENDIENTE');
-    assert.equal(rows.length, 1);
-    assert.equal(String(rows[0].id), vacJunConsumida.id);
+    assert.equal(rows.length, 0, 'bucket julio no incluye vacaciones de junio ya consumidas');
 
     const merged = resolveNovedadesRowsParaColaborador('PENDIENTE', [], [], [vacJunConsumida]);
     assert.equal(merged.length, 1);
@@ -589,7 +586,7 @@ test('vacaciones manual en historial aparecen en elegibles aunque aprobado_en se
         cedulaRaw: '12345678',
         factAnio: 2026,
         factMes: 6,
-        billingType: 'CURRENT_MONTH'
+        billingType: 'EXPIRED_MONTH'
     });
     assert.equal(rows.length, 1);
     assert.equal(String(rows[0].id), manualId);
@@ -659,7 +656,8 @@ test('EXPIRED_MONTH julio no arrastra novedades de mayo ya aprobadas en mayo', a
         factMes: 6,
         billingType: 'EXPIRED_MONTH'
     });
-    assert.equal(jun.length, 2, 'EXPIRED junio (bucket mayo) solo incapacidades de mayo');
+    assert.equal(jun.length, 1, 'EXPIRED junio (mismo mes) solo el permiso de junio');
+    assert.equal(String(jun[0].id), '374bc1af-7121-4dc4-b85b-1bf80ad63d4b');
 
     const jul = await listNovedadesElegiblesParaCierre(deps, scope, {
         clienteCanon: 'PORVENIR',
@@ -668,11 +666,10 @@ test('EXPIRED_MONTH julio no arrastra novedades de mayo ya aprobadas en mayo', a
         factMes: 7,
         billingType: 'EXPIRED_MONTH'
     });
-    assert.equal(jul.length, 1, 'cierre julio (bucket junio) no debe repetir incapacidades de mayo');
-    assert.equal(String(jul[0].id), '374bc1af-7121-4dc4-b85b-1bf80ad63d4b');
+    assert.equal(jul.length, 0, 'cierre julio no arrastra junio ni mayo ya aprobados');
 });
 
-test('CURRENT_MONTH junio solo novedades con fecha efectiva en junio (Villate)', async () => {
+test('EXPIRED_MONTH junio solo novedades con fecha efectiva en junio (Villate)', async () => {
     const novedadRows = [
         {
             id: 'b277ac2a-3c0a-48a6-8594-bfaebf0d5c16',
@@ -719,7 +716,7 @@ test('CURRENT_MONTH junio solo novedades con fecha efectiva en junio (Villate)',
         cedulaRaw: '1069735318',
         factAnio: 2026,
         factMes: 6,
-        billingType: 'CURRENT_MONTH'
+        billingType: 'EXPIRED_MONTH'
     });
     assert.equal(jun.length, 1);
     assert.equal(String(jun[0].id), '374bc1af-7121-4dc4-b85b-1bf80ad63d4b');

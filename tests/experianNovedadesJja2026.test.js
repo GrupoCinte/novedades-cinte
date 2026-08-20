@@ -148,7 +148,7 @@ test('EXPERIAN jja: listNovedadesElegiblesParaCierre respeta cédula y excluye p
     assert.equal(none.length, 0);
 });
 
-test('EXPERIAN jja: cierre julio (mes corriente) incluye tardías y backlog aprobado en julio, no junio ya cerrado', async () => {
+test('EXPERIAN jja: cierre julio (EXPIRED_MONTH) incluye tardías y backlog aprobado en julio, no junio ya cerrado', async () => {
     const deps = {
         pool: mockPoolWithRows(approvedExperianJjaRows()),
         normalizeCedula,
@@ -158,30 +158,12 @@ test('EXPERIAN jja: cierre julio (mes corriente) incluye tardías y backlog apro
         clienteCanon: EXPERIAN_CLIENTE,
         factAnio: 2026,
         factMes: 7,
-        billingType: 'CURRENT_MONTH'
+        billingType: 'EXPIRED_MONTH'
     });
     const casos = new Set(jul.map((r) => r.caso));
     assert.ok(casos.has('jul-tardia-mayo-aprob-jul'));
     assert.ok(casos.has('ago-backlog-jun-aprob-jul'));
-    assert.equal(casos.has('jun-normal-dias'), false, 'junio aprobado en junio no debe repetirse en julio (mes corriente)');
-});
-
-test('EXPERIAN jja: mes vencido — regla C arrastra junio a facturación julio', async () => {
-    const deps = {
-        pool: mockPoolWithRows(approvedExperianJjaRows()),
-        normalizeCedula,
-        canRoleViewType
-    };
-    const jul = await listNovedadesElegiblesParaCierre(deps, scope, {
-        clienteCanon: EXPERIAN_CLIENTE,
-        factAnio: 2026,
-        factMes: 7,
-        billingType: 'EXPIRED_MONTH',
-        novedadesYear: 2026,
-        novedadesMonth: 6
-    });
-    const casos = new Set(jul.map((r) => r.caso));
-    assert.ok(casos.has('jun-normal-dias'), 'mes vencido: novedades de junio entran en cierre julio');
+    assert.equal(casos.has('jun-normal-dias'), false, 'junio aprobado en junio no debe repetirse en julio');
 });
 
 test('EXPERIAN jja ADVANCE: junio no liquida novedades; julio ajusta backlog jun-aprob-jul', async () => {

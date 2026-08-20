@@ -86,9 +86,10 @@ test('sortColaCierresItems ordena pendientes antes que conciliados', () => {
     assert.equal(items[1].estadoCola, 'CONCILIADA');
 });
 
-test('resolveNovedadesBucket EXPIRED_MONTH retrocede un mes calendario', () => {
-    assert.deepEqual(resolveNovedadesBucket(2026, 6, 'EXPIRED_MONTH'), { year: 2026, month: 5 });
-    assert.deepEqual(resolveNovedadesBucket(2026, 1, 'EXPIRED_MONTH'), { year: 2025, month: 12 });
+test('resolveNovedadesBucket EXPIRED_MONTH usa el mismo mes calendario (alias CURRENT_MONTH)', () => {
+    assert.deepEqual(resolveNovedadesBucket(2026, 6, 'EXPIRED_MONTH'), { year: 2026, month: 6 });
+    assert.deepEqual(resolveNovedadesBucket(2026, 1, 'EXPIRED_MONTH'), { year: 2026, month: 1 });
+    assert.deepEqual(resolveNovedadesBucket(2026, 7, 'EXPIRED_MONTH'), { year: 2026, month: 7 });
     assert.deepEqual(resolveNovedadesBucket(2026, 6, 'CURRENT_MONTH'), { year: 2026, month: 6 });
     assert.deepEqual(resolveNovedadesBucket(2026, 6, 'ADVANCE_MONTH'), { year: 2026, month: 6 });
     assert.deepEqual(resolveNovedadesBucket(2026, 6, ''), { year: 2026, month: 6 });
