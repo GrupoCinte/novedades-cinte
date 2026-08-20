@@ -8,19 +8,14 @@ const {
     deriveEstadoCola,
     resolveNovedadesBucket
 } = require('./facturacionAggregate');
+const { sameClienteLabel } = require('../clientes/clienteCanonWrite');
 
 function normalizeCedulaLocal(value) {
     return String(value || '').replace(/\D/g, '');
 }
 
 function servicioMatchesCliente(serv, clienteCanon) {
-    const a = String(serv?.client || '')
-        .trim()
-        .toLowerCase();
-    const b = String(clienteCanon || '')
-        .trim()
-        .toLowerCase();
-    return a && b && a === b;
+    return sameClienteLabel(serv?.client, clienteCanon);
 }
 
 /** @deprecated Usar isServicioCompletoRevision */

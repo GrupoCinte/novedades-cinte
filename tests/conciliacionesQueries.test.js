@@ -702,6 +702,11 @@ test('mergeConciliacionClientesLists deduplica por fold', () => {
     assert.deepEqual(merged, ['Cliente A', 'Cliente B']);
 });
 
+test('mergeConciliacionClientesLists deduplica alias Zoho contra canónico', () => {
+    const merged = mergeConciliacionClientesLists(['DIRECTV CHILE'], ['DIRECT TV CHILE', 'EXPERIAN CHILE']);
+    assert.deepEqual(merged, ['DIRECTV CHILE', 'EXPERIAN CHILE']);
+});
+
 test('assertClienteConciliacionPermitido: nomina accede a cliente fuera de lista PG', async () => {
     const deps = {
         pool: { query: async () => ({ rows: [] }) },

@@ -23,7 +23,7 @@ Cédula de Ciudadanía: 1024598286
 Fecha de salida Jun 12, 2026`,
         expectCodigo: '20250322',
         expectCedula: '1024598286',
-        expectCliente: 'AVAL VALOR COMPARTIDO - AVC',
+        expectCliente: 'AVC',
         matchBy: 'codigo'
     },
     {

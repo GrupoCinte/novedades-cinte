@@ -12,6 +12,7 @@ const { parseSalarioCop } = require('../shared/n8nFieldNormalizers');
 const { insertTarifaHistorial } = require('../conciliaciones/conciliacionTarifaHistorial');
 const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAsignaciones');
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
+const { resolveClienteOnWrite } = require('../clientes/clienteCanonWrite');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
@@ -201,6 +202,7 @@ function normalizeEditValue(field, value) {
         const n = Number(s);
         if (!Number.isNaN(n)) return n;
     }
+    if (field === 'cliente') return resolveClienteOnWrite(s);
     return s.length > 2000 ? s.slice(0, 2000) : s;
 }
 
@@ -263,7 +265,9 @@ function normalizeExtractorPayload(extractorOutput, tipoNovedad) {
     const out = {};
     for (const [k, v] of Object.entries(flat)) {
         if (v === undefined || v === null || v === '') continue;
-        if (CH_TEXT_KEYS.has(k)) {
+        if (k === 'cliente') {
+            out[k] = resolveClienteOnWrite(v);
+        } else if (CH_TEXT_KEYS.has(k)) {
             out[k] = normalizeChListText(v);
         } else {
             out[k] = v;
@@ -285,7 +289,9 @@ function setNormalizedIfEmpty(out, key, value) {
     if (!out || !key) return;
     if (!isEmptyNormValue(out[key])) return;
     if (isEmptyNormValue(value)) return;
-    if (CH_TEXT_KEYS.has(key)) {
+    if (key === 'cliente') {
+        out[key] = resolveClienteOnWrite(value);
+    } else if (CH_TEXT_KEYS.has(key)) {
         out[key] = normalizeChListText(value);
     } else {
         out[key] = value;
@@ -1086,7 +1092,10 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         }
 
         const tipo = String(row.tipo_novedad || '').trim().toLowerCase();
-        const normalized = row.payload_normalizado || {};
+        const normalized = { ...(row.payload_normalizado || {}) };
+        if (normalized.cliente) {
+            normalized.cliente = resolveClienteOnWrite(normalized.cliente);
+        }
         const patch = buildPatchFromNormalized(row.tipo_novedad, normalized);
         if (Object.keys(patch).length === 0 && tipo !== 'salida') {
             throw Object.assign(new Error('Payload sin campos aplicables'), { status: 400 });
