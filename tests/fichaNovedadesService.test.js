@@ -59,6 +59,71 @@ describe('fichaNovedadesService helpers', () => {
         assert.deepEqual(patch, { fecha_termino: '2026-11-30', codigo: '20269902' });
     });
 
+    it('buildDiff salida y modificacion ocultan cliente y usan término del contrato', () => {
+        const person = {
+            cliente: 'FALABELLA RETAIL',
+            fecha_termino: '2026-12-31',
+            codigo: '20269902',
+            nombre: 'PRUEBA ALAN'
+        };
+        const contrato = { cliente: 'Colsubsidio', fecha_termino: '2026-08-26', es_cabecera: false };
+        const current = currentForExtensionDiff(person, contrato);
+        const salida = buildDiff(
+            current,
+            {
+                cliente: 'COLSUBSIDIO',
+                fecha_termino: '2026-09-20',
+                codigo: '20269912',
+                nombre: 'ALAN RICARDO'
+            },
+            { tipo: 'salida' }
+        );
+        assert.deepEqual(
+            salida.map((d) => d.field),
+            ['fecha_termino']
+        );
+        assert.equal(salida[0].before, '2026-08-26');
+        assert.equal(salida[0].after, '2026-09-20');
+
+        const modi = buildDiff(
+            current,
+            {
+                cliente: 'COLSUBSIDIO',
+                fecha_termino: '2026-11-30',
+                puesto: 'Lead'
+            },
+            { tipo: 'modificacion_id' }
+        );
+        const fields = modi.map((d) => d.field);
+        assert.ok(!fields.includes('cliente'));
+        assert.ok(fields.includes('puesto'));
+        assert.equal(modi.find((d) => d.field === 'fecha_termino').before, '2026-08-26');
+    });
+
+    it('matchColaborador modificacion no exige vigente (puede ser cliente nuevo)', async () => {
+        const person = {
+            cedula: '1031647446',
+            nombre: 'ALAN PRUEBA',
+            cliente: 'FALABELLA RETAIL',
+            codigo: '20269900'
+        };
+        const pool = {
+            query: async (sql) => {
+                if (sql.includes('FROM colaboradores') && sql.includes('cedula = $1')) {
+                    return { rows: [person] };
+                }
+                return { rows: [] };
+            }
+        };
+        const r = await matchColaborador(pool, {
+            cedula: '1031647446',
+            cliente: 'CLIENTE NUEVO',
+            tipo_novedad: 'modificacion_id'
+        });
+        assert.equal(r.row.cedula, '1031647446');
+        assert.equal(r.strategy, 'cedula');
+    });
+
     it('buildDiff extension oculta cliente y usa término del contrato vigente', () => {
         const person = {
             cliente: 'FALABELLA RETAIL',
@@ -502,6 +567,20 @@ function createDiegoMockPool({ active = true } = {}) {
                     ]
                 };
             }
+            if (sql.includes('FROM colaborador_contratos')) {
+                return {
+                    rows: [
+                        {
+                            id: '11111111-1111-4111-8111-111111111111',
+                            cedula: '1024598286',
+                            cliente: 'AVAL VALOR COMPARTIDO - AVC',
+                            vigente: true,
+                            es_cabecera: true,
+                            fecha_termino: null
+                        }
+                    ]
+                };
+            }
             if (sql.includes('INSERT INTO ficha_novedades_staging')) {
                 return {
                     rows: [{ id: '00000000-0000-4000-8000-000000000001', status: params[10] }]
@@ -581,13 +660,13 @@ describe('createFichaNovedadesService.ingestFromDynamo', () => {
 
         assert.equal(r.ok, true);
         assert.equal(r.status, 'pendiente');
-        assert.equal(r.match_strategy, 'codigo');
+        assert.equal(r.match_strategy, 'codigo_contrato');
         assert.equal(r.match.cedula, '1024598286');
         assert.ok(r.diff_count >= 0);
         const insert = queries.find((q) => q.sql.includes('INSERT INTO ficha_novedades_staging'));
         assert.ok(insert);
         assert.equal(insert.params[10], 'pendiente');
-        assert.equal(insert.params[17], 'codigo');
+        assert.equal(insert.params[17], 'codigo_contrato');
     });
 });
 
@@ -600,7 +679,7 @@ describe('createFichaNovedadesService.ingestFromHttp', () => {
 
         assert.equal(r.ok, true);
         assert.equal(r.status, 'pendiente');
-        assert.equal(r.match_strategy, 'codigo');
+        assert.equal(r.match_strategy, 'codigo_contrato');
         assert.equal(r.match.codigo, '20250322');
         assert.ok(Array.isArray(r.diff_preview));
     });
@@ -625,7 +704,7 @@ describe('createFichaNovedadesService.ingestFromHttp', () => {
 
         assert.equal(r.ok, true);
         assert.equal(r.status, 'pendiente');
-        assert.equal(r.match_strategy, 'codigo');
+        assert.equal(r.match_strategy, 'codigo_contrato');
         assert.equal(r.match.cedula, '1024598286');
     });
 });
@@ -829,7 +908,7 @@ function createUpdateNovedadMockPool(rowOverrides = {}) {
                             cliente: 'ACME',
                             vigente: true,
                             es_cabecera: true,
-                            fecha_termino: '2026-06-12'
+                            fecha_termino: '2026-01-01'
                         }
                     ]
                 };
@@ -922,7 +1001,7 @@ describe('createFichaNovedadesService.updateNovedadPayload', () => {
         const svc = createFichaNovedadesService({ pool });
         await assert.rejects(
             () => svc.updateNovedadPayload(NOVEDAD_EDIT_ID, { nombre: 'C' }),
-            (err) => err.status === 400 && /no permitido/i.test(err.message)
+            (err) => err.status === 400 && /no permitido|no editable/i.test(err.message)
         );
     });
 
