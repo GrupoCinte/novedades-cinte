@@ -64,9 +64,12 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
 
     const displayName = createMode ? 'Nuevo colaborador' : form.nombre || 'Ficha del colaborador';
     const contratos = useMemo(() => contratosFromFicha(form, { esBaja }), [form, esBaja]);
+    const contratoSeleccionado = useMemo(
+        () => contratos.find((c) => c.id === selectedContratoId) || contratos.find((c) => c.esCabecera) || contratos[0],
+        [contratos, selectedContratoId]
+    );
     const formVista = useMemo(() => {
-        if (editMode) return form;
-        const sel = contratos.find((c) => c.id === selectedContratoId);
+        const sel = contratoSeleccionado;
         if (!sel || sel.esCabecera) return form;
         return {
             ...form,
@@ -75,7 +78,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             fecha_termino: sel.fechaTermino || form.fecha_termino,
             fecha_ingreso: sel.fechaInicio || form.fecha_ingreso
         };
-    }, [editMode, form, contratos, selectedContratoId]);
+    }, [form, contratoSeleccionado]);
     const estadoColaborador = useMemo(
         () =>
             resolveColaboradorEstado({
@@ -168,8 +171,6 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
 
     const handleEdit = () => {
         if (!perms.canEditFicha) return;
-        const cab = contratos.find((c) => c.esCabecera) || contratos[0];
-        if (cab) setSelectedContratoId(cab.id);
         setEditMode(true);
     };
 
@@ -188,16 +189,16 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
         setSaving(true);
         setError('');
         try {
-            const payload = buildStaffColaboradorPayload(form);
-            payload.nombre = String(form.nombre || '').trim();
-            payload.correo_cinte = form.correo_cinte ? String(form.correo_cinte).trim().toLowerCase() : null;
+            const payload = buildStaffColaboradorPayload(formVista);
+            payload.nombre = String(formVista.nombre || '').trim();
+            payload.correo_cinte = formVista.correo_cinte ? String(formVista.correo_cinte).trim().toLowerCase() : null;
             if (payload.correo_cinte && !/@(?:grupocinte\.com)$/i.test(payload.correo_cinte)) {
                 setError('El correo Cinte debe ser @grupocinte.com');
                 setSaving(false);
                 return;
             }
-            payload.cliente = form.cliente ? String(form.cliente).trim() : null;
-            payload.lider_catalogo = form.lider_catalogo ? String(form.lider_catalogo).trim() : null;
+            payload.cliente = formVista.cliente ? String(formVista.cliente).trim() : null;
+            payload.lider_catalogo = formVista.lider_catalogo ? String(formVista.lider_catalogo).trim() : null;
             if (createMode) {
                 const cedNueva = String(form.cedula || '').replace(/\D+/g, '');
                 if (!cedNueva) {
@@ -215,6 +216,9 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             const mapped = mapRowToStaffForm(r?.item || {});
             setForm(mapped);
             setOriginalForm(mapped);
+            const list = contratosFromFicha(mapped, { esBaja });
+            const keep = list.find((c) => c.id === selectedContratoId) || list.find((c) => c.esCabecera) || list[0];
+            if (keep) setSelectedContratoId(keep.id);
             setEditMode(false);
             if (typeof onSaved === 'function') onSaved(r?.item || null);
         } catch (ex) {
@@ -345,7 +349,36 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                     ) : (
                         <ColaboradorFichaFields
                             value={formVista}
-                            onChange={(patch) => setForm((s) => ({ ...s, ...patch }))}
+                            onChange={(patch) => {
+                                const sel = contratoSeleccionado;
+                                const contractKeys = ['cliente', 'tipo_contrato', 'fecha_termino', 'fecha_ingreso'];
+                                const touchesContract = Object.keys(patch || {}).some((k) => contractKeys.includes(k));
+                                if (sel && !sel.esCabecera && touchesContract && Array.isArray(form.contratos)) {
+                                    const nextContratos = form.contratos.map((c) => {
+                                        if (String(c.id) !== String(sel.id)) return c;
+                                        return {
+                                            ...c,
+                                            cliente: patch.cliente !== undefined ? patch.cliente : c.cliente,
+                                            tipo: patch.tipo_contrato !== undefined ? patch.tipo_contrato : c.tipo,
+                                            tipo_contrato:
+                                                patch.tipo_contrato !== undefined ? patch.tipo_contrato : c.tipo_contrato,
+                                            fechaTermino:
+                                                patch.fecha_termino !== undefined ? patch.fecha_termino : c.fechaTermino,
+                                            fecha_termino:
+                                                patch.fecha_termino !== undefined ? patch.fecha_termino : c.fecha_termino,
+                                            fechaInicio:
+                                                patch.fecha_ingreso !== undefined ? patch.fecha_ingreso : c.fechaInicio,
+                                            fecha_inicio:
+                                                patch.fecha_ingreso !== undefined ? patch.fecha_ingreso : c.fecha_inicio
+                                        };
+                                    });
+                                    const rest = { ...patch };
+                                    for (const k of contractKeys) delete rest[k];
+                                    setForm((s) => ({ ...s, ...rest, contratos: nextContratos }));
+                                    return;
+                                }
+                                setForm((s) => ({ ...s, ...patch }));
+                            }}
                             mode={createMode ? 'create' : 'edit'}
                             readOnly={!editMode}
                             clientes={clientes}
