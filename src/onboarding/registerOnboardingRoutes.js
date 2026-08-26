@@ -40,7 +40,11 @@ const { applyRegistroBajaColaborador } = require('./bajaColaborador');
 const {
     CONTRATOS_VIGENTES_COUNT_SQL,
     attachContratosToItem,
-    syncCabeceraContractFromPerson
+    contratosVigentesCountSql,
+    decideContractAction,
+    filterExtendedForAction,
+    loadPersonContractState,
+    syncPersonContractsFromFicha
 } = require('./colaboradorContratos');
 
 /**
@@ -103,10 +107,11 @@ async function buildScopeFilter(pool, user) {
         return {
             where: '(c.gp_user_id = $G_USER OR LOWER(TRIM(c.cliente)) = ANY($G_CLIENTES))',
             params: [sub, clientes.map((s) => s.toLowerCase())],
-            placeholders: ['$G_USER', '$G_CLIENTES']
+            placeholders: ['$G_USER', '$G_CLIENTES'],
+            clientes
         };
     }
-    return { where: 'TRUE', params: [], placeholders: [] };
+    return { where: 'TRUE', params: [], placeholders: [], clientes: null };
 }
 
 function applyScopePlaceholders(whereTemplate, paramIdxStart, scopeFilter) {
@@ -452,6 +457,13 @@ function registerOnboardingRoutes(deps) {
 
         const orderBy = buildPersonalOrderBy(filters.sort, filters.dir);
 
+        let vigentesSql = CONTRATOS_VIGENTES_COUNT_SQL;
+        if (Array.isArray(scope.clientes) && scope.clientes.length) {
+            params.push(scope.clientes.map((s) => String(s).toLowerCase()));
+            vigentesSql = contratosVigentesCountSql({ clientesParamIndex: p });
+            p += 1;
+        }
+
         params.push(limit, offset);
         const listQ = await pool.query(
             `SELECT
@@ -463,7 +475,7 @@ function registerOnboardingRoutes(deps) {
                 c.motivo_baja, c.termino, c.tiempo_permanencia_meses,
                 c.whatsapp_number, c.onboarding_status, c.onboarding_completed_at,
                 c.created_at, c.updated_at,
-                ${CONTRATOS_VIGENTES_COUNT_SQL} AS contratos_vigentes_count
+                ${vigentesSql} AS contratos_vigentes_count
              FROM colaboradores c
              ${whereSql}
              ORDER BY ${orderBy}
@@ -535,7 +547,9 @@ function registerOnboardingRoutes(deps) {
                 }
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
-            const item = await attachContratosToItem(pool, q.rows[0]);
+            const item = await attachContratosToItem(pool, q.rows[0], {
+                clientesScope: scope.clientes || null
+            });
             return res.json({ ok: true, item });
         } catch (e) {
             console.error('[Onboarding personal GET]', e.message);
@@ -564,11 +578,32 @@ function registerOnboardingRoutes(deps) {
         }
         try {
             const patch = normalizeColabTextPatch(parsed.data);
-            const updated = await updateColaboradorByCedula(cedula, patch);
+            const existed = await loadPersonContractState(pool, cedula);
+            if (!existed) {
+                return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
+            }
+            const contractAction = decideContractAction({
+                exists: true,
+                activo: existed.activo !== false,
+                clienteActual: existed.cliente,
+                clienteNuevo: patch.cliente
+            });
+            await syncPersonContractsFromFicha(pool, {
+                cedula,
+                existed,
+                cliente: patch.cliente || existed.cliente,
+                tipoContrato: patch.tipo_contrato,
+                fechaInicio: patch.fecha_ingreso,
+                fechaTermino: patch.fecha_termino,
+                origen: 'ficha_patch'
+            });
+            const patchToApply = contractAction === 'new_client'
+                ? filterExtendedForAction(patch, 'new_client')
+                : patch;
+            const updated = await updateColaboradorByCedula(cedula, patchToApply);
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
-            await syncCabeceraContractFromPerson(pool, updated);
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
                 actorRole: req.user && req.user.role,
@@ -626,7 +661,15 @@ function registerOnboardingRoutes(deps) {
             // Resto de campos (cliente, líder, extendidos) vía el mismo helper del PATCH.
             const { cedula: _omit, nombre: _n, ...rest } = normalizedCreate;
             const updated = await updateColaboradorByCedula(cedula, rest);
-            await syncCabeceraContractFromPerson(pool, updated || { cedula, ...normalizedCreate });
+            await syncPersonContractsFromFicha(pool, {
+                cedula,
+                existed: null,
+                cliente: normalizedCreate.cliente,
+                tipoContrato: normalizedCreate.tipo_contrato,
+                fechaInicio: normalizedCreate.fecha_ingreso,
+                fechaTermino: normalizedCreate.fecha_termino,
+                origen: 'ficha_alta'
+            });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
                 actorRole: req.user && req.user.role,

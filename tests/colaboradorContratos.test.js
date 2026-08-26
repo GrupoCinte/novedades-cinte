@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
     decideContractAction,
     filterExtendedForAction,
+    filterContratosByClientes,
     sameCliente,
     isoDate
 } = require('../src/onboarding/colaboradorContratos');
@@ -82,6 +83,23 @@ describe('isoDate AUT-313', () => {
         assert.equal(isoDate('2026-11-15'), '2026-11-15');
         assert.equal(isoDate('28 de ener'), null);
         assert.equal(isoDate('31 de dici'), null);
+    });
+});
+
+describe('filterContratosByClientes AUT-313', () => {
+    it('un GP solo ve contratos de sus clientes', () => {
+        const list = [
+            { id: '1', cliente: 'EXPERIAN', vigente: true },
+            { id: '2', cliente: 'DAVIVIENDA', vigente: true }
+        ];
+        const filtered = filterContratosByClientes(list, ['Experian']);
+        assert.equal(filtered.length, 1);
+        assert.equal(filtered[0].cliente, 'EXPERIAN');
+    });
+
+    it('sin scope no recorta', () => {
+        const list = [{ id: '1', cliente: 'EXPERIAN' }, { id: '2', cliente: 'DAVIVIENDA' }];
+        assert.equal(filterContratosByClientes(list, null).length, 2);
     });
 });
 

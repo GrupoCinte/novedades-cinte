@@ -184,9 +184,31 @@ async function listContratosByCedula(db, cedula) {
     return (q.rows || []).map(toApiContrato).filter(Boolean);
 }
 
-async function attachContratosToItem(db, item) {
+function filterContratosByClientes(contratos, clientesScope) {
+    const list = Array.isArray(contratos) ? contratos : [];
+    if (!Array.isArray(clientesScope) || clientesScope.length === 0) return list;
+    const folds = new Set(clientesScope.map((c) => foldForMatch(c)).filter(Boolean));
+    if (!folds.size) return list;
+    return list.filter((c) => folds.has(foldForMatch(c && c.cliente)));
+}
+
+function contratosVigentesCountSql({ clientesParamIndex } = {}) {
+    if (!clientesParamIndex) return CONTRATOS_VIGENTES_COUNT_SQL;
+    return `(
+        SELECT COUNT(*)::int
+        FROM colaborador_contratos cc
+        WHERE cc.cedula = c.cedula
+          AND cc.vigente IS TRUE
+          AND LOWER(TRIM(cc.cliente)) = ANY($${clientesParamIndex}::text[])
+    )`;
+}
+
+async function attachContratosToItem(db, item, { clientesScope } = {}) {
     if (!item || !item.cedula) return item;
-    const contratos = await listContratosByCedula(db, item.cedula);
+    const contratos = filterContratosByClientes(
+        await listContratosByCedula(db, item.cedula),
+        clientesScope
+    );
     item.contratos = contratos;
     item.contratos_vigentes_count = contratos.filter((c) => c.vigente).length;
     return item;
@@ -368,7 +390,10 @@ async function applyContractEvent(db, input = {}) {
     if (action === 'extend') {
         const vigente = cliente ? await findVigenteByCliente(db, cedula, cliente) : null;
         if (vigente) {
-            await updateContratoTermino(db, vigente.id, payload);
+            await updateContratoTermino(db, vigente.id, {
+                fechaTermino: payload.fechaTermino,
+                tipoContrato: payload.tipoContrato
+            });
             if (vigente.es_cabecera) {
                 await updatePersonCabeceraSnapshot(db, cedula, {
                     fechaTermino: payload.fechaTermino,
@@ -379,7 +404,10 @@ async function applyContractEvent(db, input = {}) {
         }
         const cabecera = await findCabecera(db, cedula);
         if (cabecera && (!cliente || sameCliente(cabecera.cliente, cliente))) {
-            await updateContratoTermino(db, cabecera.id, payload);
+            await updateContratoTermino(db, cabecera.id, {
+                fechaTermino: payload.fechaTermino,
+                tipoContrato: payload.tipoContrato
+            });
             return { action: 'extend', contrato: toApiContrato(cabecera) };
         }
         const inserted = await insertContratoSafe(db, {
@@ -395,7 +423,10 @@ async function applyContractEvent(db, input = {}) {
         if (!cliente) return { action: 'identity_only', contrato: null };
         const already = await findVigenteByCliente(db, cedula, cliente);
         if (already) {
-            await updateContratoTermino(db, already.id, payload);
+            await updateContratoTermino(db, already.id, {
+                fechaTermino: payload.fechaTermino,
+                tipoContrato: payload.tipoContrato
+            });
             return { action: 'extend', contrato: toApiContrato(already) };
         }
         const inserted = await insertContratoSafe(db, {
@@ -432,12 +463,18 @@ async function applyContractEvent(db, input = {}) {
     if (!cliente) return { action: 'identity_only', contrato: null };
     const already = await findVigenteByCliente(db, cedula, cliente);
     if (already) {
-        await updateContratoTermino(db, already.id, payload);
+        await updateContratoTermino(db, already.id, {
+            fechaTermino: payload.fechaTermino,
+            tipoContrato: payload.tipoContrato
+        });
         return { action: 'extend', contrato: toApiContrato(already) };
     }
     const cabecera = await findCabecera(db, cedula);
     if (cabecera) {
-        await updateContratoTermino(db, cabecera.id, payload);
+        await updateContratoTermino(db, cabecera.id, {
+            fechaTermino: payload.fechaTermino,
+            tipoContrato: payload.tipoContrato
+        });
         return { action: 'extend', contrato: toApiContrato(cabecera) };
     }
     const inserted = await insertContratoSafe(db, {
@@ -449,51 +486,28 @@ async function applyContractEvent(db, input = {}) {
     return { action, contrato: toApiContrato(inserted) };
 }
 
-/** Tras PATCH/POST de ficha: alinea el contrato cabecera con la fila persona. */
-async function syncCabeceraContractFromPerson(db, person) {
-    const cedula = normalizeCedula(person && person.cedula);
-    if (!cedula) return null;
-    const cliente = trimCliente(person.cliente);
-    const vigente = person.activo !== false && !person.motivo_baja;
-    const q = await db.query(
-        `SELECT id FROM colaborador_contratos
-         WHERE cedula = $1 AND es_cabecera IS TRUE
-         LIMIT 1`,
-        [cedula]
-    );
-    if (q.rows[0]) {
-        await db.query(
-            `UPDATE colaborador_contratos
-             SET cliente = COALESCE(NULLIF($2, ''), cliente),
-                 tipo_contrato = $3,
-                 fecha_inicio = $4::date,
-                 fecha_termino = $5::date,
-                 vigente = $6,
-                 updated_at = NOW()
-             WHERE id = $1::uuid`,
-            [
-                q.rows[0].id,
-                cliente,
-                person.tipo_contrato || null,
-                isoDate(person.fecha_ingreso),
-                isoDate(person.fecha_termino),
-                vigente
-            ]
-        );
-        return q.rows[0].id;
-    }
-    if (!cliente) return null;
-    const inserted = await insertContrato(db, {
+/**
+ * Tras PATCH/POST de ficha: aplica la misma política que promote
+ * (no reescribe cliente/fechas de la cabecera si el cliente cambió).
+ */
+async function syncPersonContractsFromFicha(db, { cedula, existed, cliente, tipoContrato, fechaInicio, fechaTermino, origen = 'ficha' }) {
+    const action = decideContractAction({
+        exists: Boolean(existed),
+        activo: existed ? existed.activo !== false : true,
+        clienteActual: existed && existed.cliente,
+        clienteNuevo: cliente
+    });
+    const allowInicio = action === 'insert_first' || action === 'reingreso';
+    return applyContractEvent(db, {
         cedula,
         cliente,
-        tipoContrato: person.tipo_contrato,
-        fechaInicio: person.fecha_ingreso,
-        fechaTermino: person.fecha_termino,
-        vigente,
-        esCabecera: true,
-        origen: 'ficha'
+        tipoContrato,
+        fechaInicio: allowInicio ? fechaInicio : undefined,
+        fechaTermino,
+        origen,
+        existed,
+        action
     });
-    return inserted && inserted.id;
 }
 
 module.exports = {
@@ -501,6 +515,8 @@ module.exports = {
     CONTRACT_PERSON_KEYS,
     decideContractAction,
     filterExtendedForAction,
+    filterContratosByClientes,
+    contratosVigentesCountSql,
     sameCliente,
     ensureColaboradorContratosTable,
     seedContratosFromColaboradores,
@@ -509,7 +525,7 @@ module.exports = {
     attachContratosToItem,
     historicizeVigentes,
     applyContractEvent,
-    syncCabeceraContractFromPerson,
+    syncPersonContractsFromFicha,
     toApiContrato,
     isoDate
 };
