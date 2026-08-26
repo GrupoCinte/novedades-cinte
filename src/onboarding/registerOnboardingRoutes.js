@@ -582,6 +582,7 @@ function registerOnboardingRoutes(deps) {
             if (!existed) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
+            const estaEnBajas = existed.activo === false;
             const contractAction = decideContractAction({
                 exists: true,
                 activo: existed.activo !== false,
@@ -595,11 +596,18 @@ function registerOnboardingRoutes(deps) {
                 tipoContrato: patch.tipo_contrato,
                 fechaInicio: patch.fecha_ingreso,
                 fechaTermino: patch.fecha_termino,
-                origen: 'ficha_patch'
+                origen: 'ficha_patch',
+                allowReingreso: false
             });
             const patchToApply = contractAction === 'new_client'
                 ? filterExtendedForAction(patch, 'new_client')
-                : patch;
+                : { ...patch };
+            if (estaEnBajas) {
+                delete patchToApply.activo;
+            }
+            if (!String(patchToApply.cliente || '').trim()) {
+                delete patchToApply.cliente;
+            }
             const updated = await updateColaboradorByCedula(cedula, patchToApply);
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });

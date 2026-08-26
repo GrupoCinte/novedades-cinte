@@ -55,6 +55,20 @@ describe('decideContractAction AUT-313', () => {
         );
     });
 
+    it('guardar ficha en Bajas no se trata como reingreso', async () => {
+        const { syncPersonContractsFromFicha } = require('../src/onboarding/colaboradorContratos');
+        const r = await syncPersonContractsFromFicha(
+            { query: async () => ({ rows: [], rowCount: 0 }) },
+            {
+                cedula: '1031647446',
+                existed: { activo: false, cliente: 'SODIMAC' },
+                cliente: 'SODIMAC',
+                allowReingreso: false
+            }
+        );
+        assert.equal(r.action, 'identity_only');
+    });
+
     it('sin cliente nuevo no toca contratos', () => {
         assert.equal(
             decideContractAction({ exists: true, activo: true, clienteActual: 'EXPERIAN' }),

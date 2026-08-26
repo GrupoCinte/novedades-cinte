@@ -38,6 +38,7 @@ export default function ColaboradorFichaFields({
     mode = 'edit',
     readOnly = false,
     clientes = [],
+    lockCliente = false,
     liderOptions = [],
     liderLoading = false,
     onClienteChange,
@@ -66,6 +67,14 @@ export default function ColaboradorFichaFields({
 
     const showMaster = activeTab ? activeTab.masterFields === true : true;
     const showExtendedHeader = sections.length > 0;
+    const clienteSelectOptions = useMemo(() => {
+        const list = (Array.isArray(clientes) ? clientes : []).map((c) => String(c || '').trim()).filter(Boolean);
+        const cur = String(coForm.cliente || '').trim();
+        if (cur && !list.some((c) => c.toLocaleLowerCase('es') === cur.toLocaleLowerCase('es'))) {
+            return [cur, ...list];
+        }
+        return list;
+    }, [clientes, coForm.cliente]);
 
     return (
         <div className="space-y-4">
@@ -105,19 +114,22 @@ export default function ColaboradorFichaFields({
                         </>
                     )}
                     <div>
-                        <label className={`block text-xs ${labelMuted} mb-1`}>Cliente (cabecera)</label>
+                        <label className={`block text-xs ${labelMuted} mb-1`}>
+                            {lockCliente ? 'Cliente' : 'Cliente (cabecera)'}
+                        </label>
                         <select
                             className={`w-full ${field}`}
                             value={coForm.cliente || ''}
                             onChange={(e) => {
                                 const v = e.target.value;
+                                if (lockCliente) return;
                                 set({ cliente: v, lider_catalogo: '' });
                                 if (typeof onClienteChange === 'function') onClienteChange(v);
                             }}
-                            disabled={readOnly}
+                            disabled={readOnly || lockCliente}
                         >
                             <option value="">— Seleccionar —</option>
-                            {clientes.map((c) => (
+                            {clienteSelectOptions.map((c) => (
                                 <option key={c} value={c}>
                                     {c}
                                 </option>

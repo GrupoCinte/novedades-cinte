@@ -13,6 +13,7 @@ import { onboardingApi } from './api.js';
 import { getOnboardingPermissions } from './onboardingAccess.js';
 import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.jsx';
 import ContratoEstante, { contratosFromFicha } from './ContratoEstante.jsx';
+import { matchClienteOption, pickLiderForCliente } from './contratoEstanteMap.js';
 
 async function fetchClientes() {
     try {
@@ -70,15 +71,25 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     );
     const formVista = useMemo(() => {
         const sel = contratoSeleccionado;
-        if (!sel || sel.esCabecera) return form;
+        const clienteVista = matchClienteOption(
+            !sel || sel.esCabecera ? form.cliente : sel.cliente || form.cliente,
+            clientes
+        );
+        const base =
+            !sel || sel.esCabecera
+                ? { ...form, cliente: clienteVista }
+                : {
+                      ...form,
+                      cliente: clienteVista,
+                      tipo_contrato: sel.tipo || form.tipo_contrato,
+                      fecha_termino: sel.fechaTermino || form.fecha_termino,
+                      fecha_ingreso: sel.fechaInicio || form.fecha_ingreso
+                  };
         return {
-            ...form,
-            cliente: sel.cliente || form.cliente,
-            tipo_contrato: sel.tipo || form.tipo_contrato,
-            fecha_termino: sel.fechaTermino || form.fecha_termino,
-            fecha_ingreso: sel.fechaInicio || form.fecha_ingreso
+            ...base,
+            lider_catalogo: pickLiderForCliente(form.lider_catalogo, liderOptions, { loading: liderLoading })
         };
-    }, [form, contratoSeleccionado]);
+    }, [form, contratoSeleccionado, clientes, liderOptions, liderLoading]);
     const estadoColaborador = useMemo(
         () =>
             resolveColaboradorEstado({
@@ -93,16 +104,6 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
         : [estadoColaborador.label, form.cedula || cedula || '—', form.cliente || null, form.correo_cinte || null]
               .filter(Boolean)
               .join(' · ');
-
-    const handleLiderFetch = useCallback(async (cliente) => {
-        setLiderLoading(true);
-        try {
-            const items = await fetchLideres(cliente);
-            setLiderOptions(items);
-        } finally {
-            setLiderLoading(false);
-        }
-    }, []);
 
     const load = useCallback(async () => {
         if (createMode) {
@@ -133,11 +134,6 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             const cab = list.find((c) => c.esCabecera) || list[0];
             setSelectedContratoId(cab?.id || 'cabecera');
             setClientes(cats);
-            if (mapped.cliente) {
-                await handleLiderFetch(mapped.cliente);
-            } else {
-                setLiderOptions([]);
-            }
         } catch (e) {
             const status = e?.response?.status;
             const msg = e?.response?.data?.error || e.message;
@@ -147,11 +143,34 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
         } finally {
             setLoading(false);
         }
-    }, [cedula, token, handleLiderFetch, createMode]);
+    }, [cedula, token, createMode]);
 
     useEffect(() => {
         load();
     }, [load]);
+
+    useEffect(() => {
+        const cliente = createMode ? form.cliente : contratoSeleccionado?.cliente || form.cliente;
+        if (!cliente) {
+            setLiderOptions([]);
+            setLiderLoading(false);
+            return undefined;
+        }
+        let alive = true;
+        setLiderLoading(true);
+        setLiderOptions([]);
+        fetchLideres(cliente)
+            .then((items) => {
+                if (!alive) return;
+                setLiderOptions(items);
+            })
+            .finally(() => {
+                if (alive) setLiderLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [createMode, form.cliente, contratoSeleccionado?.cliente]);
 
     useEffect(() => {
         if (createMode || !cedula) return undefined;
@@ -197,8 +216,20 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                 setSaving(false);
                 return;
             }
-            payload.cliente = formVista.cliente ? String(formVista.cliente).trim() : null;
-            payload.lider_catalogo = formVista.lider_catalogo ? String(formVista.lider_catalogo).trim() : null;
+            const clienteSel = String(
+                contratoSeleccionado && !contratoSeleccionado.esCabecera
+                    ? contratoSeleccionado.cliente || formVista.cliente || form.cliente || ''
+                    : formVista.cliente || form.cliente || ''
+            ).trim();
+            payload.cliente = clienteSel || null;
+            const persistLiderCabecera = createMode || !contratoSeleccionado || contratoSeleccionado.esCabecera;
+            payload.lider_catalogo = persistLiderCabecera
+                ? formVista.lider_catalogo
+                    ? String(formVista.lider_catalogo).trim()
+                    : null
+                : form.lider_catalogo
+                  ? String(form.lider_catalogo).trim()
+                  : null;
             if (createMode) {
                 const cedNueva = String(form.cedula || '').replace(/\D+/g, '');
                 if (!cedNueva) {
@@ -351,40 +382,62 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                             value={formVista}
                             onChange={(patch) => {
                                 const sel = contratoSeleccionado;
+                                const nextPatch = { ...(patch || {}) };
+                                if (sel && !sel.esCabecera && nextPatch.lider_catalogo !== undefined) {
+                                    delete nextPatch.lider_catalogo;
+                                }
+                                if (sel && !sel.esCabecera && nextPatch.cliente !== undefined && !String(nextPatch.cliente || '').trim()) {
+                                    delete nextPatch.cliente;
+                                }
                                 const contractKeys = ['cliente', 'tipo_contrato', 'fecha_termino', 'fecha_ingreso'];
-                                const touchesContract = Object.keys(patch || {}).some((k) => contractKeys.includes(k));
+                                const touchesContract = Object.keys(nextPatch).some((k) => contractKeys.includes(k));
                                 if (sel && !sel.esCabecera && touchesContract && Array.isArray(form.contratos)) {
                                     const nextContratos = form.contratos.map((c) => {
                                         if (String(c.id) !== String(sel.id)) return c;
                                         return {
                                             ...c,
-                                            cliente: patch.cliente !== undefined ? patch.cliente : c.cliente,
-                                            tipo: patch.tipo_contrato !== undefined ? patch.tipo_contrato : c.tipo,
+                                            cliente: nextPatch.cliente !== undefined ? nextPatch.cliente : c.cliente,
+                                            tipo: nextPatch.tipo_contrato !== undefined ? nextPatch.tipo_contrato : c.tipo,
                                             tipo_contrato:
-                                                patch.tipo_contrato !== undefined ? patch.tipo_contrato : c.tipo_contrato,
+                                                nextPatch.tipo_contrato !== undefined
+                                                    ? nextPatch.tipo_contrato
+                                                    : c.tipo_contrato,
                                             fechaTermino:
-                                                patch.fecha_termino !== undefined ? patch.fecha_termino : c.fechaTermino,
+                                                nextPatch.fecha_termino !== undefined
+                                                    ? nextPatch.fecha_termino
+                                                    : c.fechaTermino,
                                             fecha_termino:
-                                                patch.fecha_termino !== undefined ? patch.fecha_termino : c.fecha_termino,
+                                                nextPatch.fecha_termino !== undefined
+                                                    ? nextPatch.fecha_termino
+                                                    : c.fecha_termino,
                                             fechaInicio:
-                                                patch.fecha_ingreso !== undefined ? patch.fecha_ingreso : c.fechaInicio,
+                                                nextPatch.fecha_ingreso !== undefined
+                                                    ? nextPatch.fecha_ingreso
+                                                    : c.fechaInicio,
                                             fecha_inicio:
-                                                patch.fecha_ingreso !== undefined ? patch.fecha_ingreso : c.fecha_inicio
+                                                nextPatch.fecha_ingreso !== undefined
+                                                    ? nextPatch.fecha_ingreso
+                                                    : c.fecha_inicio
                                         };
                                     });
-                                    const rest = { ...patch };
+                                    const rest = { ...nextPatch };
                                     for (const k of contractKeys) delete rest[k];
+                                    if (Object.keys(rest).length === 0) {
+                                        setForm((s) => ({ ...s, contratos: nextContratos }));
+                                        return;
+                                    }
                                     setForm((s) => ({ ...s, ...rest, contratos: nextContratos }));
                                     return;
                                 }
-                                setForm((s) => ({ ...s, ...patch }));
+                                if (Object.keys(nextPatch).length === 0) return;
+                                setForm((s) => ({ ...s, ...nextPatch }));
                             }}
                             mode={createMode ? 'create' : 'edit'}
                             readOnly={!editMode}
+                            lockCliente={Boolean(contratoSeleccionado && !contratoSeleccionado.esCabecera)}
                             clientes={clientes}
                             liderOptions={liderOptions}
                             liderLoading={liderLoading}
-                            onClienteChange={handleLiderFetch}
                             activeTabId={activeTab}
                             hideIdentityFields={!createMode}
                         />

@@ -14,7 +14,14 @@ const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAs
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { resolveClienteOnWrite } = require('../clientes/clienteCanonWrite');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
-const { applyContractEvent, reopenContrato } = require('./colaboradorContratos');
+const {
+    applyContractEvent,
+    reopenContrato,
+    findVigenteByClienteLoose,
+    listVigentesByCedulas,
+    sameCliente,
+    isoDate
+} = require('./colaboradorContratos');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
@@ -33,12 +40,15 @@ const WHITELIST_BY_TIPO = {
     integracion: null,
     modificacion_id: null,
     salida: ['fecha_termino', 'fecha_notificacion_termino', 'termino', 'activo'],
-    extension: ['fecha_termino', 'duracion_servicio', 'venta_total', 'costo_empresa'],
+    extension: ['fecha_termino', 'fecha_notificacion_termino', 'duracion_servicio', 'venta_total', 'costo_empresa', 'codigo'],
     cancelacion_ingreso: ['onboarding_status', 'fecha_ingreso', 'codigo'],
     cancelacion_salida: ['fecha_termino', 'fecha_notificacion_termino', 'termino', 'activo']
 };
 
 const CORE_PATCH_KEYS = new Set(['nombre', 'cliente', 'puesto', 'activo', 'correo_cinte', 'lider_catalogo', 'gp_user_id']);
+
+/** Diff/apply de extensión: fechas y código si cambian. Cliente es contexto, no cambio. */
+const EXTENSION_DIFF_FIELDS = new Set(WHITELIST_BY_TIPO.extension);
 
 function normalizeCedula(value) {
     if (value == null) return '';
@@ -152,7 +162,27 @@ function valuesEqualForDiff(field, before, after) {
  * @param {Record<string, unknown>} proposed
  * @returns {Array<{ field: string, before: unknown, after: unknown }>}
  */
-function buildDiff(currentRow, proposed) {
+function currentForExtensionDiff(person, contrato) {
+    if (!person) return {};
+    if (!contrato) return person;
+    return {
+        ...person,
+        fecha_termino: isoDate(contrato.fecha_termino) || person.fecha_termino,
+        fecha_ingreso: isoDate(contrato.fecha_inicio) || person.fecha_ingreso,
+        tipo_contrato: contrato.tipo_contrato || person.tipo_contrato
+    };
+}
+
+function pickContratoVigente(contratos, cliente) {
+    const list = Array.isArray(contratos) ? contratos : [];
+    const cli = trimOrNull(cliente);
+    if (!cli) return null;
+    return list.find((c) => sameCliente(c.cliente, cli)) || null;
+}
+
+function buildDiff(currentRow, proposed, opts = {}) {
+    const tipo = String(opts.tipo || '').trim().toLowerCase();
+    const allow = tipo === 'extension' ? EXTENSION_DIFF_FIELDS : null;
     const diff = [];
     const keys = new Set([
         ...Object.keys(proposed || {}),
@@ -161,6 +191,7 @@ function buildDiff(currentRow, proposed) {
     ]);
     for (const field of keys) {
         if (field.startsWith('_')) continue;
+        if (allow && !allow.has(field)) continue;
         const after = proposed && proposed[field] !== undefined ? proposed[field] : undefined;
         if (after === undefined) continue;
         const before = currentRow ? currentRow[field] : null;
@@ -541,7 +572,7 @@ async function matchColaborador(pool, hints = {}, options = {}) {
              LIMIT 1`,
             [codigo]
         );
-        if (q.rows[0]) return { row: q.rows[0], strategy: 'codigo' };
+        if (q.rows[0]) return confirmExtensionContrato(pool, q.rows[0], 'codigo', tipo, cliente);
     }
 
     if (cedula) {
@@ -552,7 +583,7 @@ async function matchColaborador(pool, hints = {}, options = {}) {
              LIMIT 1`,
             [cedula]
         );
-        if (q.rows[0]) return { row: q.rows[0], strategy: 'cedula' };
+        if (q.rows[0]) return confirmExtensionContrato(pool, q.rows[0], 'cedula', tipo, cliente);
     }
 
     if (nombreFold && clienteFold) {
@@ -565,7 +596,7 @@ async function matchColaborador(pool, hints = {}, options = {}) {
              LIMIT 1`,
             [nombreFold, clienteFold]
         );
-        if (q.rows[0]) return { row: q.rows[0], strategy: 'nombre_cliente' };
+        if (q.rows[0]) return confirmExtensionContrato(pool, q.rows[0], 'nombre_cliente', tipo, cliente);
     }
 
     if (nombreFold) {
@@ -577,15 +608,29 @@ async function matchColaborador(pool, hints = {}, options = {}) {
              LIMIT 2`,
             [nombreFold]
         );
-        if (q.rows.length === 1) return { row: q.rows[0], strategy: 'nombre' };
+        if (q.rows.length === 1) {
+            return confirmExtensionContrato(pool, q.rows[0], 'nombre', tipo, cliente);
+        }
         if (q.rows.length > 1 && clienteFold) {
             const byCli = q.rows.find((r) => foldPersonName(r.cliente) === clienteFold);
-            if (byCli) return { row: byCli, strategy: 'nombre_cliente' };
+            if (byCli) return confirmExtensionContrato(pool, byCli, 'nombre_cliente', tipo, cliente);
         }
-        if (q.rows[0]) return { row: q.rows[0], strategy: 'nombre' };
+        if (q.rows[0]) return confirmExtensionContrato(pool, q.rows[0], 'nombre', tipo, cliente);
     }
 
     return { row: null, strategy: null };
+}
+
+async function confirmExtensionContrato(pool, person, strategy, tipo, clienteHint) {
+    if (!person) return { row: null, strategy: null };
+    if (String(tipo || '').trim().toLowerCase() !== 'extension') {
+        return { row: person, strategy };
+    }
+    const cli = trimOrNull(clienteHint);
+    if (!cli) return { row: person, strategy };
+    const contrato = await findVigenteByClienteLoose(pool, person.cedula, cli);
+    if (!contrato) return { row: null, strategy: null };
+    return { row: person, strategy: `${strategy}_contrato` };
 }
 
 async function loadColaboradorFull(pool, cedula) {
@@ -788,7 +833,17 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             status = 'sin_match';
         } else {
             const current = await loadColaboradorFull(pool, matchRow.cedula);
-            diffJson = buildDiff(current || {}, normalized);
+            const contrato =
+                mapped.tipo_novedad === 'extension'
+                    ? await findVigenteByClienteLoose(
+                          pool,
+                          matchRow.cedula,
+                          normalized.cliente || mapped.cliente_asunto || mapped.cliente_plano
+                      )
+                    : null;
+            diffJson = buildDiff(currentForExtensionDiff(current || {}, contrato), normalized, {
+                tipo: mapped.tipo_novedad
+            });
             colaboradorSnap = matchRow.nombre;
             if (diffJson.length === 0 && MVP_TIPOS.has(mapped.tipo_novedad)) {
                 status = 'pendiente';
@@ -924,13 +979,22 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         if (!isHistoricoList && items.length > 0) {
             const cedulas = items.map((r) => r.colaborador_cedula_match).filter(Boolean);
             const colabMap = await loadColaboradoresFullByCedulas(pool, cedulas);
+            const vigentesMap = await listVigentesByCedulas(pool, cedulas);
             const persistJobs = [];
             items = items.map((row) => {
                 const { normalized } = rebuildNormalizedFromStagingRow(row);
                 let diffJson = [];
                 const ced = normalizeCedula(row.colaborador_cedula_match);
                 if (ced && colabMap.has(ced)) {
-                    diffJson = buildDiff(colabMap.get(ced), normalized);
+                    const contrato =
+                        row.tipo_novedad === 'extension'
+                            ? pickContratoVigente(vigentesMap.get(ced), normalized.cliente)
+                            : null;
+                    diffJson = buildDiff(
+                        currentForExtensionDiff(colabMap.get(ced), contrato),
+                        normalized,
+                        { tipo: row.tipo_novedad }
+                    );
                 }
                 persistJobs.push({
                     id: row.id,
@@ -1012,7 +1076,13 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         if (row.colaborador_cedula_match) {
             const current = await loadColaboradorFull(pool, row.colaborador_cedula_match);
             if (current) {
-                diffJson = buildDiff(current, normalized);
+                const contrato =
+                    row.tipo_novedad === 'extension'
+                        ? await findVigenteByClienteLoose(pool, current.cedula, normalized.cliente)
+                        : null;
+                diffJson = buildDiff(currentForExtensionDiff(current, contrato), normalized, {
+                    tipo: row.tipo_novedad
+                });
             }
         }
         row.diff_json = diffJson;
@@ -1147,6 +1217,20 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
         const tiposContrato = tipo === 'integracion' || tipo === 'modificacion_id' || tipo === 'extension';
         if (tiposContrato) {
+            if (tipo === 'extension') {
+                if (!clienteFicha) {
+                    throw Object.assign(
+                        new Error('Extensión sin cliente: no se puede actualizar el contrato'),
+                        { status: 400 }
+                    );
+                }
+                const vigenteExt = await findVigenteByClienteLoose(pool, cedula, clienteFicha);
+                if (!vigenteExt) {
+                    throw Object.assign(new Error('No hay contrato vigente para ese cliente'), {
+                        status: 400
+                    });
+                }
+            }
             const contract = await applyContractEvent(pool, {
                 cedula,
                 cliente: clienteNuevo || clienteActual,
@@ -1154,7 +1238,8 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 fechaInicio: normalized.fecha_ingreso || patch.fecha_ingreso,
                 fechaTermino: normalized.fecha_termino || patch.fecha_termino,
                 origen: `novedad_${tipo}`,
-                existed: current
+                existed: current,
+                ...(tipo === 'extension' ? { action: 'extend' } : {})
             });
             if (contract.action === 'new_client') {
                 delete patch.cliente;
@@ -1169,6 +1254,19 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 delete patch.lider_catalogo;
                 delete patch.cliente_proyecto;
                 delete patch.fecha_termino;
+            }
+            if (tipo === 'extension') {
+                delete patch.cliente;
+                const esCabecera = contract.contrato?.es_cabecera === true;
+                if (!esCabecera) {
+                    delete patch.fecha_ingreso;
+                    delete patch.fecha_termino;
+                    delete patch.fecha_notificacion_termino;
+                    delete patch.tipo_contrato;
+                    delete patch.duracion_servicio;
+                    delete patch.venta_total;
+                    delete patch.costo_empresa;
+                }
             }
             if (contract.action === 'reingreso') {
                 patch.activo = true;
@@ -1266,7 +1364,13 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         if (!colab) throw Object.assign(new Error('Colaborador no encontrado'), { status: 404 });
 
         const normalized = row.payload_normalizado || {};
-        const diffJson = buildDiff(colab, normalized);
+        const contratoLink =
+            row.tipo_novedad === 'extension'
+                ? await findVigenteByClienteLoose(pool, cedula, normalized.cliente)
+                : null;
+        const diffJson = buildDiff(currentForExtensionDiff(colab, contratoLink), normalized, {
+            tipo: row.tipo_novedad
+        });
 
         await pool.query(
             `UPDATE ficha_novedades_staging
@@ -1344,7 +1448,13 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         const colab = await loadColaboradorFull(pool, cedula);
         if (!colab) throw Object.assign(new Error('Colaborador no encontrado'), { status: 404 });
 
-        const diffJson = buildDiff(colab, normalized);
+        const contratoEdit =
+            row.tipo_novedad === 'extension'
+                ? await findVigenteByClienteLoose(pool, cedula, normalized.cliente)
+                : null;
+        const diffJson = buildDiff(currentForExtensionDiff(colab, contratoEdit), normalized, {
+            tipo: row.tipo_novedad
+        });
         const reviewedBy = trimOrNull(reviewer.sub || reviewer.email || reviewer.displayName, 320);
 
         await pool.query(
@@ -1534,6 +1644,8 @@ module.exports = {
     isZohoNovedadItem,
     isTipoEligibleForBuzon,
     buildDiff,
+    currentForExtensionDiff,
+    EXTENSION_DIFF_FIELDS,
     getAllowedFieldsForTipo,
     buildPatchFromNormalized,
     normalizeExtractorPayload,

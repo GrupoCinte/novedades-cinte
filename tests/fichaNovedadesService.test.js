@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
     isZohoNovedadItem,
     buildDiff,
+    currentForExtensionDiff,
     getAllowedFieldsForTipo,
     buildPatchFromNormalized,
     createFichaNovedadesService,
@@ -43,6 +44,128 @@ describe('fichaNovedadesService helpers', () => {
         });
         assert.deepEqual(patch, { fecha_termino: '2026-12-31' });
         assert.deepEqual(getAllowedFieldsForTipo('integracion'), null);
+    });
+
+    it('whitelist extension incluye codigo y no aplica cliente', () => {
+        const allowed = getAllowedFieldsForTipo('extension');
+        assert.ok(allowed.includes('codigo'));
+        assert.ok(allowed.includes('fecha_notificacion_termino'));
+        const patch = buildPatchFromNormalized('extension', {
+            cliente: 'COLSUBSIDIO',
+            fecha_termino: '2026-11-30',
+            codigo: '20269902',
+            puesto: 'NO'
+        });
+        assert.deepEqual(patch, { fecha_termino: '2026-11-30', codigo: '20269902' });
+    });
+
+    it('buildDiff extension oculta cliente y usa término del contrato vigente', () => {
+        const person = {
+            cliente: 'FALABELLA RETAIL',
+            fecha_termino: '2026-09-02',
+            codigo: '20250322'
+        };
+        const contrato = { cliente: 'Colsubsidio', fecha_termino: '2026-08-26', es_cabecera: false };
+        const current = currentForExtensionDiff(person, contrato);
+        const diff = buildDiff(
+            current,
+            {
+                cliente: 'COLSUBSIDIO',
+                fecha_termino: '2026-11-30',
+                codigo: '20250322',
+                puesto: 'Analista'
+            },
+            { tipo: 'extension' }
+        );
+        const fields = diff.map((d) => d.field);
+        assert.ok(!fields.includes('cliente'));
+        assert.ok(!fields.includes('puesto'));
+        assert.ok(!fields.includes('codigo'));
+        const termino = diff.find((d) => d.field === 'fecha_termino');
+        assert.ok(termino);
+        assert.equal(termino.before, '2026-08-26');
+        assert.equal(termino.after, '2026-11-30');
+    });
+
+    it('matchColaborador extension exige contrato vigente de ese cliente', async () => {
+        const person = {
+            cedula: '1031647446',
+            nombre: 'ALAN PRUEBA',
+            cliente: 'FALABELLA RETAIL',
+            codigo: '20269900'
+        };
+        const poolHit = {
+            query: async (sql, params) => {
+                if (sql.includes('FROM colaboradores') && sql.includes('cedula = $1')) {
+                    return { rows: [person] };
+                }
+                if (sql.includes('FROM colaborador_contratos') && sql.includes('lower(btrim(cliente))')) {
+                    assert.equal(params[0], '1031647446');
+                    return {
+                        rows: [
+                            {
+                                id: 'd56c604f-0000-4000-8000-000000000002',
+                                cedula: '1031647446',
+                                cliente: 'Colsubsidio',
+                                fecha_termino: '2026-08-26',
+                                vigente: true,
+                                es_cabecera: false
+                            }
+                        ]
+                    };
+                }
+                return { rows: [] };
+            }
+        };
+        const hit = await matchColaborador(poolHit, {
+            cedula: '1031647446',
+            cliente: 'COLSUBSIDIO',
+            tipo_novedad: 'extension'
+        });
+        assert.equal(hit.row.cedula, '1031647446');
+        assert.equal(hit.strategy, 'cedula_contrato');
+
+        const poolMiss = {
+            query: async (sql) => {
+                if (sql.includes('FROM colaboradores') && sql.includes('cedula = $1')) {
+                    return { rows: [person] };
+                }
+                return { rows: [] };
+            }
+        };
+        const miss = await matchColaborador(poolMiss, {
+            cedula: '1031647446',
+            cliente: 'CLIENTE SIN VIGENTE',
+            tipo_novedad: 'extension'
+        });
+        assert.equal(miss.row, null);
+        assert.equal(miss.strategy, null);
+    });
+
+    it('matchColaborador extension sin cliente no exige consulta de contratos', async () => {
+        const queries = [];
+        const pool = {
+            query: async (sql) => {
+                queries.push(sql);
+                if (sql.includes('TRIM(codigo) = $1')) {
+                    return {
+                        rows: [
+                            {
+                                cedula: '1024598286',
+                                nombre: 'DIEGO',
+                                cliente: 'AVAL',
+                                codigo: '20250322'
+                            }
+                        ]
+                    };
+                }
+                return { rows: [] };
+            }
+        };
+        const r = await matchColaborador(pool, { codigo: '20250322', tipo_novedad: 'extension' });
+        assert.equal(r.row.codigo, '20250322');
+        assert.equal(r.strategy, 'codigo');
+        assert.ok(!queries.some((sql) => sql.includes('colaborador_contratos')));
     });
 
     it('matchColaborador filtra activo=true en extension/modificacion', async () => {
@@ -547,6 +670,9 @@ describe('createFichaNovedadesService.listNovedades scope', () => {
                         rows: [{ cedula: '1024598286', puesto: 'Analista', cliente: 'ACME', nombre: 'TEST' }]
                     };
                 }
+                if (sql.includes('FROM colaborador_contratos')) {
+                    return { rows: [] };
+                }
                 if (sql.includes('UPDATE ficha_novedades_staging')) {
                     return { rows: [] };
                 }
@@ -637,7 +763,7 @@ function createUpdateNovedadMockPool(rowOverrides = {}) {
         status: 'pendiente',
         tipo_novedad: 'salida',
         colaborador_cedula_match: EDIT_CEDULA,
-        payload_normalizado: { fecha_termino: '2026-06-12' },
+        payload_normalizado: { fecha_termino: '2026-06-12', cliente: 'ACME' },
         diff_json: [{ field: 'fecha_termino', before: null, after: '2026-06-12' }],
         ...rowOverrides
     };
@@ -684,11 +810,35 @@ function createUpdateNovedadMockPool(rowOverrides = {}) {
                         {
                             cedula: EDIT_CEDULA,
                             nombre: 'TEST USER',
+                            cliente: 'ACME',
                             fecha_termino: null,
                             activo: true
                         }
                     ]
                 };
+            }
+            if (sql.includes('cat_motivo_baja')) {
+                return { rows: [{ motivo: 'Termino de Servicio' }] };
+            }
+            if (sql.includes('FROM colaborador_contratos') && sql.includes('SELECT')) {
+                return {
+                    rows: [
+                        {
+                            id: '11111111-1111-4111-8111-111111111111',
+                            cedula: EDIT_CEDULA,
+                            cliente: 'ACME',
+                            vigente: true,
+                            es_cabecera: true,
+                            fecha_termino: '2026-06-12'
+                        }
+                    ]
+                };
+            }
+            if (sql.includes('UPDATE colaborador_contratos')) {
+                return { rowCount: 1, rows: [] };
+            }
+            if (sql.includes('UPDATE colaboradores')) {
+                return { rows: [{ cedula: EDIT_CEDULA, activo: false }] };
             }
             if (sql.includes('UPDATE ficha_novedades_staging') && sql.includes('payload_normalizado')) {
                 storedRow = {

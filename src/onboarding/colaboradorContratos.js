@@ -241,6 +241,37 @@ async function findVigenteByCliente(db, cedula, cliente) {
     return q.rows[0] || null;
 }
 
+/** Vigente por cliente usando fold (Colsubsidio ≈ COLSUBSIDIO). */
+async function findVigenteByClienteLoose(db, cedula, cliente) {
+    const ced = normalizeCedula(cedula);
+    const cli = trimCliente(cliente);
+    if (!ced || !cli) return null;
+    const exact = await findVigenteByCliente(db, ced, cli);
+    if (exact) return exact;
+    const vigentes = await listVigentes(db, ced);
+    return vigentes.find((c) => sameCliente(c.cliente, cli)) || null;
+}
+
+async function listVigentesByCedulas(db, cedulas) {
+    const unique = [...new Set((cedulas || []).map(normalizeCedula).filter(Boolean))];
+    const map = new Map();
+    if (!unique.length) return map;
+    const q = await db.query(
+        `SELECT id, cedula, cliente, tipo_contrato, fecha_inicio, fecha_termino,
+                vigente, es_cabecera, origen
+         FROM colaborador_contratos
+         WHERE cedula = ANY($1::text[])
+           AND vigente IS TRUE`,
+        [unique]
+    );
+    for (const row of q.rows || []) {
+        const list = map.get(row.cedula) || [];
+        list.push(row);
+        map.set(row.cedula, list);
+    }
+    return map;
+}
+
 async function historicizeVigentes(db, cedula, { keepCabecera = false } = {}) {
     const ced = normalizeCedula(cedula);
     if (!ced) return 0;
@@ -695,13 +726,26 @@ async function applyContractEvent(db, input = {}) {
  * Tras PATCH/POST de ficha: aplica la misma política que promote
  * (no reescribe cliente/fechas de la cabecera si el cliente cambió).
  */
-async function syncPersonContractsFromFicha(db, { cedula, existed, cliente, tipoContrato, fechaInicio, fechaTermino, origen = 'ficha' }) {
-    const action = decideContractAction({
+async function syncPersonContractsFromFicha(db, {
+    cedula,
+    existed,
+    cliente,
+    tipoContrato,
+    fechaInicio,
+    fechaTermino,
+    origen = 'ficha',
+    allowReingreso = true
+}) {
+    let action = decideContractAction({
         exists: Boolean(existed),
         activo: existed ? existed.activo !== false : true,
         clienteActual: existed && existed.cliente,
         clienteNuevo: cliente
     });
+    // Editar/guardar ficha en Bajas no es reingreso. El reingreso entra por integración/novedad.
+    if (action === 'reingreso' && allowReingreso === false) {
+        action = 'identity_only';
+    }
     const allowInicio = action === 'insert_first' || action === 'reingreso';
     return applyContractEvent(db, {
         cedula,
@@ -727,6 +771,9 @@ module.exports = {
     seedContratosFromColaboradores,
     loadPersonContractState,
     listContratosByCedula,
+    findVigenteByCliente,
+    findVigenteByClienteLoose,
+    listVigentesByCedulas,
     attachContratosToItem,
     historicizeVigentes,
     closeContrato,
