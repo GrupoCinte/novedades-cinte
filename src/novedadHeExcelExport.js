@@ -390,16 +390,132 @@ function hasLegacyRecargoSolo(it) {
     return r > 0 && rdd === 0 && rdn === 0;
 }
 
+function sumPortionHours(portions) {
+    return portions.reduce((acc, p) => acc + Number(p.hours || 0), 0);
+}
+
+function mergePortionRange(portions) {
+    if (!portions.length) return null;
+    let startMs = portions[0].startMs;
+    let endMs = portions[0].endMs;
+    for (const p of portions) {
+        if (p.startMs < startMs) startMs = p.startMs;
+        if (p.endMs > endMs) endMs = p.endMs;
+    }
+    return { startMs, endMs };
+}
+
 /**
- * Vuelto de malla tras tope de recargo dom/fest (persistido en horas_recargo_nocturno).
- * @param {object} it
- * @returns {boolean}
+ * Porciones de horas_recargo_nocturno: hábil vs domingo/festivo (vuelto post-tope).
+ * @param {number} startMs
+ * @param {number} endMs
+ * @param {Set<string>} [festivosSet]
  */
-function isRecargoNocturnoVueltoTrasTopeDomFest(it) {
-    const rn = Number(it?.horasRecargoNocturno || 0);
-    const rdd = Number(it?.horasRecargoDomingoDiurnas || 0);
-    const rdn = Number(it?.horasRecargoDomingoNocturnas || 0);
-    return rn > EPS_H && (rdd > EPS_H || rdn > EPS_H);
+function classifyRnTimedPortions(startMs, endMs, festivosSet) {
+    const timed = collectTimedRangesBySliceKey(startMs, endMs, festivosSet);
+    const list = timed.get('recargo_nocturno_ordinario') || [];
+    /** @type {Array<{ startMs: number, endMs: number, hours: number }>} */
+    const weekday = [];
+    /** @type {Array<{ startMs: number, endMs: number, hours: number }>} */
+    const festivo = [];
+    for (const p of list) {
+        const dayKey = bogotaDateKeyFromMs(p.startMs);
+        if (isDiaRecargoDominicalBogotaYmd(dayKey, festivosSet)) festivo.push(p);
+        else weekday.push(p);
+    }
+    return { weekday, festivo };
+}
+
+/**
+ * @param {HeExcelSlice[]} out
+ * @param {{ sliceKey: string, hours: number, columnKey: string, obs: string, range?: { startMs: number, endMs: number }|null }} args
+ */
+function pushRnExportSlice(out, args) {
+    const hours = Number(args.hours || 0);
+    if (hours <= EPS_H) return;
+    /** @type {HeExcelSlice} */
+    const slice = {
+        sliceKey: args.sliceKey,
+        tipoLabel: formatHeTipoFromSliceKey(args.sliceKey, args.obs),
+        hours,
+        columnKey: args.columnKey
+    };
+    if (args.range) {
+        slice.startMs = args.range.startMs;
+        slice.endMs = args.range.endMs;
+    }
+    out.push(slice);
+}
+
+/**
+ * AUT-307: no tipificar toda la columna rn como HE. Noche hábil = Recargo nocturno;
+ * solo el tramo en domingo/festivo (vuelto tras tope) = HE Nocturna Dominical.
+ * @param {HeExcelSlice[]} out
+ * @param {object} it
+ * @param {{ sliceKey: string, columnKey: string, getter: (it: object) => number }} spec
+ * @param {string} obs
+ * @param {{ toUtcMsFromDateAndTime?: (d: unknown, t: unknown) => number|null, festivosSet?: Set<string> }} dep
+ */
+function appendRecargoNocturnoOrdinarioSlices(out, it, spec, obs, dep) {
+    const rn = spec.getter(it);
+    if (rn <= EPS_H) return;
+
+    const fallback = () => {
+        pushRnExportSlice(out, {
+            sliceKey: 'recargo_nocturno_ordinario',
+            hours: rn,
+            columnKey: spec.columnKey,
+            obs
+        });
+    };
+
+    const toUtc = dep?.toUtcMsFromDateAndTime;
+    const fi = String(it?.fechaInicio || '').trim().slice(0, 10);
+    const ff = String(it?.fechaFin || '').trim().slice(0, 10);
+    const hi = String(it?.horaInicio || '').trim();
+    const hf = String(it?.horaFin || '').trim();
+    if (
+        typeof toUtc !== 'function' ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(fi) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(ff) ||
+        !hi ||
+        !hf
+    ) {
+        fallback();
+        return;
+    }
+
+    const startMs = toUtc(fi, hi);
+    const endMs = toUtc(ff, hf);
+    if (startMs == null || endMs == null || !Number.isFinite(endMs - startMs) || endMs <= startMs) {
+        fallback();
+        return;
+    }
+
+    const { weekday, festivo } = classifyRnTimedPortions(startMs, endMs, dep?.festivosSet);
+    const wH = sumPortionHours(weekday);
+    const fH = sumPortionHours(festivo);
+    const timedTotal = wH + fH;
+    if (timedTotal <= EPS_H) {
+        fallback();
+        return;
+    }
+
+    const scale = rn / timedTotal;
+    pushRnExportSlice(out, {
+        sliceKey: 'recargo_nocturno_ordinario',
+        hours: Number((wH * scale).toFixed(2)),
+        columnKey: spec.columnKey,
+        obs,
+        range: mergePortionRange(weekday)
+    });
+    pushRnExportSlice(out, {
+        sliceKey: 'nocturna_dominical',
+        hours: Number((fH * scale).toFixed(2)),
+        columnKey: spec.columnKey,
+        obs,
+        range: mergePortionRange(festivo)
+    });
 }
 
 /**
@@ -461,14 +577,8 @@ function buildHoraExtraExportSlices(it, dep) {
             out.push(...buildHeLaboralDomingoSlices('nocturna', h, nocturnaSun, spec.columnKey, obs));
             continue;
         }
-        if (spec.sliceKey === 'recargo_nocturno_ordinario' && isRecargoNocturnoVueltoTrasTopeDomFest(it)) {
-            // Export: vuelto post-tope → HE Nocturna Dominical (QA); horario vía segmentos HE nocturnos.
-            out.push({
-                sliceKey: 'nocturna_dominical',
-                tipoLabel: formatHeTipoFromSliceKey('nocturna_dominical', obs),
-                hours: h,
-                columnKey: spec.columnKey
-            });
+        if (spec.sliceKey === 'recargo_nocturno_ordinario') {
+            appendRecargoNocturnoOrdinarioSlices(out, it, spec, obs, dep || {});
             continue;
         }
         out.push({
