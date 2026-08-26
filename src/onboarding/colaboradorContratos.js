@@ -257,6 +257,211 @@ async function historicizeVigentes(db, cedula, { keepCabecera = false } = {}) {
     return q.rowCount || 0;
 }
 
+async function listVigentes(db, cedula) {
+    const q = await db.query(
+        `SELECT id, cedula, cliente, tipo_contrato, fecha_inicio, fecha_termino,
+                vigente, es_cabecera, origen
+         FROM colaborador_contratos
+         WHERE cedula = $1
+           AND vigente IS TRUE
+         ORDER BY es_cabecera DESC, fecha_inicio DESC NULLS LAST, created_at DESC`,
+        [cedula]
+    );
+    return q.rows || [];
+}
+
+async function findLatestHistoricoByCliente(db, cedula, cliente) {
+    const q = await db.query(
+        `SELECT id, cedula, cliente, tipo_contrato, fecha_inicio, fecha_termino,
+                vigente, es_cabecera, origen
+         FROM colaborador_contratos
+         WHERE cedula = $1
+           AND vigente IS FALSE
+           AND lower(btrim(cliente)) = lower(btrim($2))
+         ORDER BY updated_at DESC NULLS LAST, created_at DESC
+         LIMIT 1`,
+        [cedula, cliente]
+    );
+    return q.rows[0] || null;
+}
+
+async function markPersonBajaSnapshot(db, cedula, { motivo, fechaTermino, termino }) {
+    const q = await db.query(
+        `UPDATE colaboradores SET
+            activo = FALSE,
+            motivo_baja = $1,
+            termino = COALESCE($2, termino),
+            fecha_termino = $3::date,
+            tiempo_permanencia_meses = CASE
+                WHEN fecha_ingreso IS NOT NULL
+                THEN ROUND(
+                    EXTRACT(EPOCH FROM (
+                        $3::date::timestamp - fecha_ingreso::timestamp
+                    )) / (60*60*24*30.4375), 2)
+                ELSE tiempo_permanencia_meses
+            END,
+            updated_at = NOW()
+         WHERE cedula = $4
+         RETURNING cedula, activo, motivo_baja, fecha_termino`,
+        [motivo, termino || null, isoDate(fechaTermino), cedula]
+    );
+    return q.rows[0] || null;
+}
+
+async function promoteCabeceraFromVigentes(db, cedula) {
+    const vigentes = await listVigentes(db, cedula);
+    if (!vigentes.length) {
+        await db.query(
+            `UPDATE colaborador_contratos
+             SET es_cabecera = FALSE, updated_at = NOW()
+             WHERE cedula = $1 AND es_cabecera IS TRUE`,
+            [cedula]
+        );
+        return null;
+    }
+    const next = vigentes.find((c) => c.es_cabecera) || vigentes[0];
+    await db.query(
+        `UPDATE colaborador_contratos
+         SET es_cabecera = (id = $2::uuid), updated_at = NOW()
+         WHERE cedula = $1`,
+        [cedula, next.id]
+    );
+    await updatePersonCabeceraSnapshot(db, cedula, {
+        cliente: next.cliente,
+        tipoContrato: next.tipo_contrato,
+        fechaInicio: next.fecha_inicio,
+        fechaTermino: next.fecha_termino,
+        reactivate: true
+    });
+    return next;
+}
+
+/**
+ * Recalcula activo de la persona: sigue activa si queda ≥1 vigente.
+ * El último contrato cerrado sí manda a Bajas.
+ */
+async function syncPersonActivoFromContratos(db, cedula, { motivo, fechaTermino, termino } = {}) {
+    const vigentes = await listVigentes(db, cedula);
+    if (!vigentes.length) {
+        const row = await markPersonBajaSnapshot(db, cedula, { motivo, fechaTermino, termino });
+        return { personActivo: false, vigentesRestantes: 0, person: row };
+    }
+    const cab = await promoteCabeceraFromVigentes(db, cedula);
+    return {
+        personActivo: true,
+        vigentesRestantes: vigentes.length,
+        person: {
+            cedula,
+            activo: true,
+            motivo_baja: null,
+            fecha_termino: cab ? isoDate(cab.fecha_termino) : null
+        }
+    };
+}
+
+function resolveCloseTarget(vigentes, { cliente, contratoId }) {
+    const id = contratoId ? String(contratoId) : '';
+    if (id) {
+        return vigentes.find((c) => String(c.id) === id) || null;
+    }
+    const cli = trimCliente(cliente);
+    if (cli) {
+        return vigentes.find((c) => sameCliente(c.cliente, cli)) || null;
+    }
+    if (vigentes.length === 1) return vigentes[0];
+    if (vigentes.length > 1) {
+        throw Object.assign(new Error('Indique el cliente del contrato a cerrar'), { status: 400 });
+    }
+    return null;
+}
+
+/**
+ * Cierra UN contrato vigente (llave = cliente). La persona solo pasa a Bajas
+ * si no le queda otro vigente.
+ */
+async function closeContrato(db, input = {}) {
+    const cedula = normalizeCedula(input.cedula);
+    if (!cedula) throw Object.assign(new Error('Cédula inválida'), { status: 400 });
+    const fechaTermino = isoDate(input.fechaTermino || input.fecha_termino);
+    const motivo = input.motivo || input.motivo_baja || null;
+    const termino = input.termino || null;
+    const vigentes = await listVigentes(db, cedula);
+    const target = resolveCloseTarget(vigentes, {
+        cliente: input.cliente,
+        contratoId: input.contratoId || input.contrato_id
+    });
+
+    if (!target) {
+        if (trimCliente(input.cliente) || input.contratoId || input.contrato_id) {
+            throw Object.assign(new Error('No hay contrato vigente para ese cliente'), { status: 404 });
+        }
+        const row = await markPersonBajaSnapshot(db, cedula, { motivo, fechaTermino, termino });
+        if (!row) throw Object.assign(new Error('Colaborador no encontrado'), { status: 404 });
+        return {
+            action: 'person_baja',
+            contrato: null,
+            personActivo: false,
+            vigentesRestantes: 0,
+            person: row
+        };
+    }
+
+    await db.query(
+        `UPDATE colaborador_contratos
+         SET vigente = FALSE,
+             es_cabecera = FALSE,
+             fecha_termino = COALESCE($2::date, fecha_termino),
+             updated_at = NOW()
+         WHERE id = $1::uuid`,
+        [target.id, fechaTermino]
+    );
+    const sync = await syncPersonActivoFromContratos(db, cedula, { motivo, fechaTermino, termino });
+    return {
+        action: 'close_contrato',
+        contrato: toApiContrato({ ...target, vigente: false, es_cabecera: false, fecha_termino: fechaTermino || target.fecha_termino }),
+        ...sync
+    };
+}
+
+/**
+ * Revierte una salida: reabre el último contrato histórico de ese cliente.
+ * Si ya hay vigente de ese cliente, no abre otro.
+ */
+async function reopenContrato(db, input = {}) {
+    const cedula = normalizeCedula(input.cedula);
+    const cliente = trimCliente(input.cliente);
+    if (!cedula) throw Object.assign(new Error('Cédula inválida'), { status: 400 });
+    if (!cliente) throw Object.assign(new Error('La ficha debe traer el cliente a reabrir'), { status: 400 });
+
+    const already = await findVigenteByCliente(db, cedula, cliente);
+    if (already) {
+        const sync = await syncPersonActivoFromContratos(db, cedula);
+        return {
+            action: 'noop_already_vigente',
+            contrato: toApiContrato(already),
+            ...sync
+        };
+    }
+
+    const hist = await findLatestHistoricoByCliente(db, cedula, cliente);
+    if (!hist) {
+        throw Object.assign(new Error('No hay una salida previa de ese cliente para revertir'), { status: 404 });
+    }
+
+    await db.query(
+        `UPDATE colaborador_contratos
+         SET vigente = TRUE, updated_at = NOW()
+         WHERE id = $1::uuid`,
+        [hist.id]
+    );
+    const sync = await syncPersonActivoFromContratos(db, cedula);
+    return {
+        action: 'reopen_contrato',
+        contrato: toApiContrato({ ...hist, vigente: true }),
+        ...sync
+    };
+}
+
 async function insertContratoSafe(db, input) {
     try {
         return await insertContrato(db, input);
@@ -524,6 +729,9 @@ module.exports = {
     listContratosByCedula,
     attachContratosToItem,
     historicizeVigentes,
+    closeContrato,
+    reopenContrato,
+    resolveCloseTarget,
     applyContractEvent,
     syncPersonContractsFromFicha,
     toApiContrato,

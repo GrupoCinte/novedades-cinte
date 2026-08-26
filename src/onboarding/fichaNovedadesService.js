@@ -14,7 +14,7 @@ const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAs
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { resolveClienteOnWrite } = require('../clientes/clienteCanonWrite');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
-const { applyContractEvent } = require('./colaboradorContratos');
+const { applyContractEvent, reopenContrato } = require('./colaboradorContratos');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
@@ -1098,7 +1098,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             normalized.cliente = resolveClienteOnWrite(normalized.cliente);
         }
         const patch = buildPatchFromNormalized(row.tipo_novedad, normalized);
-        if (Object.keys(patch).length === 0 && tipo !== 'salida') {
+        if (Object.keys(patch).length === 0 && tipo !== 'salida' && tipo !== 'cancelacion_salida') {
             throw Object.assign(new Error('Payload sin campos aplicables'), { status: 400 });
         }
         if (tipo === 'salida' && !patch.fecha_termino && !normalized.fecha_termino) {
@@ -1106,12 +1106,31 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         }
 
         const current = await loadColaboradorFull(pool, cedula);
+        const clienteFicha = trimOrNull(normalized.cliente);
 
         if (tipo === 'salida') {
+            if (!clienteFicha) {
+                throw Object.assign(new Error('Salida sin cliente: no se puede cerrar el contrato'), { status: 400 });
+            }
             await applyRegistroBajaColaborador(pool, cedula, {
                 fecha_termino: patch.fecha_termino || normalized.fecha_termino,
-                termino: patch.termino || normalized.termino
+                termino: patch.termino || normalized.termino,
+                cliente: clienteFicha
             });
+            delete patch.fecha_termino;
+            delete patch.fecha_notificacion_termino;
+            delete patch.termino;
+            delete patch.fecha_baja_efectiva;
+            delete patch.activo;
+        }
+
+        if (tipo === 'cancelacion_salida') {
+            if (!clienteFicha) {
+                throw Object.assign(new Error('Cancelación de salida sin cliente: no se puede reabrir el contrato'), {
+                    status: 400
+                });
+            }
+            await reopenContrato(pool, { cedula, cliente: clienteFicha });
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
             delete patch.termino;

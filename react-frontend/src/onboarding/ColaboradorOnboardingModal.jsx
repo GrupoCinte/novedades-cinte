@@ -237,7 +237,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     const handleBajaConfirmada = (item) => {
         setBajaOpen(false);
         if (typeof onSaved === 'function') onSaved(item || null);
-        if (typeof onClose === 'function') onClose();
+        if (item && item.activo === false && typeof onClose === 'function') onClose();
     };
 
     const subTabsBarCls = isLight
@@ -266,7 +266,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                     onClick={() => setBajaOpen(true)}
                     className="inline-flex items-center justify-center rounded-lg bg-rose-500/90 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-rose-500 sm:px-4 sm:py-2 sm:text-sm"
                 >
-                    Baja
+                    Cerrar contrato
                 </button>
             ) : null}
         </>
@@ -413,6 +413,9 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                     auth={auth}
                     cedula={String(form.cedula || cedula || '').replace(/\D+/g, '')}
                     nombre={form.nombre}
+                    cliente={contratoSeleccionado?.cliente || formVista.cliente || form.cliente}
+                    contratoId={contratoSeleccionado?.id}
+                    vigentesCount={contratos.filter((c) => c.vigente !== false).length}
                     onClose={() => setBajaOpen(false)}
                     onConfirmed={handleBajaConfirmada}
                 />
@@ -421,7 +424,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     );
 }
 
-function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
+function BajaModal({ auth, cedula, nombre, cliente, contratoId, vigentesCount, onClose, onConfirmed }) {
     const { labelMuted, isLight } = useModuleTheme();
     const T = buildMonitorGlassModalTheme(isLight);
     const token = auth?.token || '';
@@ -470,6 +473,8 @@ function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
         try {
             const body = { motivo_baja: motivo, fecha_termino: fecha };
             if (observaciones.trim()) body.observaciones = observaciones.trim();
+            if (cliente) body.cliente = String(cliente).trim();
+            if (contratoId && /^[0-9a-f-]{36}$/i.test(String(contratoId))) body.contrato_id = contratoId;
             const r = await onboardingApi.marcarBaja(token, cedNorm, body);
             if (typeof onConfirmed === 'function') onConfirmed(r?.item || null);
         } catch (ex) {
@@ -508,14 +513,18 @@ function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
             disableBackdropClose={saving}
             zClass="z-[170]"
             size="md"
-            title="Tramitar baja"
+            title={cliente ? `Cerrar contrato · ${cliente}` : 'Cerrar contrato'}
             subtitle={`${cedula}${nombre ? ` · ${nombre}` : ''}`}
             avatarLetter={nombre || cedula}
             footer={footer}
             bodyClassName="px-6 pb-2 pt-2"
         >
             <p className={`mb-4 text-sm leading-relaxed ${T.textMuted}`}>
-                Registra el motivo legal de la baja. La ficha pasará a estado inactivo.
+                {cliente
+                    ? vigentesCount > 1
+                        ? `Se cierra solo el contrato de ${cliente}. Los demás siguen vigentes y la persona permanece en Activos.`
+                        : `Este es el último contrato vigente. Al confirmar, ${nombre || 'la persona'} pasa a Bajas.`
+                    : 'Se cierra el contrato seleccionado. Si queda otro vigente, la persona sigue en Activos.'}
             </p>
             {error ? (
                 <div className="mb-4 rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">

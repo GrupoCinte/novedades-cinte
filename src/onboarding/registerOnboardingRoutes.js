@@ -697,7 +697,9 @@ function registerOnboardingRoutes(deps) {
         motivo_baja: z.string().min(2).max(200),
         termino: z.string().max(500).optional().nullable(),
         fecha_termino: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        observaciones: z.string().max(2000).optional().nullable()
+        observaciones: z.string().max(2000).optional().nullable(),
+        cliente: z.string().max(500).optional().nullable(),
+        contrato_id: z.string().uuid().optional().nullable()
     });
 
     app.patch('/api/onboarding/personal/:cedula/baja', ...writeGuard, async (req, res) => {
@@ -713,7 +715,9 @@ function registerOnboardingRoutes(deps) {
             const item = await applyRegistroBajaColaborador(pool, cedula, {
                 motivo_baja: parsed.data.motivo_baja,
                 fecha_termino: parsed.data.fecha_termino,
-                termino: parsed.data.termino
+                termino: parsed.data.termino,
+                cliente: parsed.data.cliente,
+                contrato_id: parsed.data.contrato_id
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
