@@ -8,7 +8,8 @@ const {
 } = require('./heDomingoBogota');
 const {
     collectHeDiurnaNocturnaSegmentsBogota,
-    collectRecargoDomingoDiurnaNocturnaSegmentsBogota
+    collectRecargoDomingoDiurnaNocturnaSegmentsBogota,
+    resolveRecargoDomingoMaxHorasForDayKey
 } = require('./heBogotaSplit');
 const {
     HE_TIPO_CANONICO,
@@ -501,20 +502,48 @@ function appendRecargoNocturnoOrdinarioSlices(out, it, spec, obs, dep) {
         return;
     }
 
-    const scale = rn / timedTotal;
+    // Asignar rn al calendario: primero noche hábil, el resto al domingo/festivo.
+    // No escalar al intervalo completo: si la malla ya guardó rdn, esas horas no van en rn.
+    const weekdayHours = Number(Math.min(rn, wH).toFixed(2));
     pushRnExportSlice(out, {
         sliceKey: 'recargo_nocturno_ordinario',
-        hours: Number((wH * scale).toFixed(2)),
+        hours: weekdayHours,
         columnKey: spec.columnKey,
         obs,
         range: mergePortionRange(weekday)
     });
+
+    // AUT-308: horas en domingo/festivo dentro del tope = recargo, no HE.
+    // El cruce sábado→domingo mete la madrugada en rn; si no llenó 7 h, es recargo dominical.
+    const festivoH = Number(Math.max(0, rn - weekdayHours).toFixed(2));
+    const alreadyRecargo =
+        Number(it?.horasRecargoDomingoDiurnas || 0) + Number(it?.horasRecargoDomingoNocturnas || 0);
+    const festivoDayKey = festivo.length ? bogotaDateKeyFromMs(festivo[0].startMs) : '';
+    const cap = festivoDayKey ? resolveRecargoDomingoMaxHorasForDayKey(festivoDayKey) : 0;
+    const remainingCap = Math.max(0, cap - alreadyRecargo);
+    const asRecargo = Math.min(festivoH, remainingCap);
+    const asHe = Number((festivoH - asRecargo).toFixed(2));
+    const festivoRange = mergePortionRange(festivo);
+    let recargoRange = festivoRange;
+    let heRange = festivoRange;
+    if (asRecargo > EPS_H && asHe > EPS_H && festivoRange) {
+        const recEnd = festivoRange.startMs + Math.round(asRecargo * HOUR_MS);
+        recargoRange = { startMs: festivoRange.startMs, endMs: recEnd };
+        heRange = { startMs: recEnd, endMs: festivoRange.endMs };
+    }
     pushRnExportSlice(out, {
-        sliceKey: 'nocturna_dominical',
-        hours: Number((fH * scale).toFixed(2)),
+        sliceKey: 'recargo_nocturno',
+        hours: Number(asRecargo.toFixed(2)),
         columnKey: spec.columnKey,
         obs,
-        range: mergePortionRange(festivo)
+        range: recargoRange
+    });
+    pushRnExportSlice(out, {
+        sliceKey: 'nocturna_dominical',
+        hours: asHe,
+        columnKey: spec.columnKey,
+        obs,
+        range: heRange
     });
 }
 
