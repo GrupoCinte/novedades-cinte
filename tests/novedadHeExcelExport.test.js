@@ -426,10 +426,74 @@ describe('novedadHeExcelExport', () => {
         };
         const slices = buildHoraExtraExportSlices(it, dep);
         const rn = slices.find((s) => s.columnKey === 'horasRecargoNocturno');
+        const heFromRn = slices.filter(
+            (s) => s.columnKey === 'horasRecargoNocturno' && s.sliceKey === 'nocturna_dominical'
+        );
         assert.equal(rn.sliceKey, 'recargo_nocturno_ordinario');
         assert.equal(rn.tipoLabel, HE_TIPO_CANONICO.REC_NOCTURNO);
+        assert.equal(rn.hours, 2);
+        assert.equal(heFromRn.length, 0);
         const fields = msRangeToExcelHoraFields(rn.startMs, rn.endMs);
         assert.equal(fields.fechaInicio, '2026-08-08');
+    });
+
+    it('AUT-308: sábado→domingo 22:00–06:00 con rn=8 es recargo + recargo, no HE', () => {
+        const dep = { toUtcMsFromDateAndTime, festivosSet: new Set() };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            fechaInicio: '2026-08-22',
+            fechaFin: '2026-08-23',
+            horaInicio: '22:00',
+            horaFin: '06:00',
+            horasDiurnas: 0,
+            horasNocturnas: 0,
+            horasRecargoDomingoDiurnas: 0,
+            horasRecargoDomingoNocturnas: 0,
+            horasRecargoDomingo: 0,
+            horasRecargoNocturno: 8,
+            heDomingoObservacion: ''
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        const rnHabil = slices.find((s) => s.sliceKey === 'recargo_nocturno_ordinario');
+        const recDom = slices.find((s) => s.sliceKey === 'recargo_nocturno');
+        const heDom = slices.find((s) => s.sliceKey === 'nocturna_dominical');
+        assert.ok(rnHabil);
+        assert.ok(recDom);
+        assert.equal(heDom, undefined);
+        assert.equal(rnHabil.hours, 2);
+        assert.equal(rnHabil.tipoLabel, HE_TIPO_CANONICO.REC_NOCTURNO);
+        assert.equal(recDom.hours, 6);
+        assert.equal(recDom.tipoLabel, `${HE_TIPO_CANONICO.REC_DOM_NOCTURNO} — sin compensatorio`);
+        const rHabil = msRangeToExcelHoraFields(rnHabil.startMs, rnHabil.endMs);
+        const rDom = msRangeToExcelHoraFields(recDom.startMs, recDom.endMs);
+        assert.equal(rHabil.fechaInicio, '2026-08-22');
+        assert.equal(rHabil.horaInicial, '22:00');
+        assert.equal(rDom.fechaInicio, '2026-08-23');
+        assert.equal(rDom.horaInicial, '00:00');
+    });
+
+    it('AUT-308: domingo 8 h con tope lleno deja el vuelto como HE', () => {
+        const dep = { toUtcMsFromDateAndTime, festivosSet: new Set() };
+        const it = {
+            tipoNovedad: 'Hora Extra',
+            fechaInicio: '2026-08-23',
+            fechaFin: '2026-08-23',
+            horaInicio: '14:00',
+            horaFin: '22:00',
+            horasDiurnas: 0,
+            horasNocturnas: 0,
+            horasRecargoDomingoDiurnas: 0,
+            horasRecargoDomingoNocturnas: 7,
+            horasRecargoDomingo: 7,
+            horasRecargoNocturno: 1,
+            heDomingoObservacion: ''
+        };
+        const slices = buildHoraExtraExportSlices(it, dep);
+        const vuelto = slices.find((s) => s.columnKey === 'horasRecargoNocturno');
+        assert.ok(vuelto);
+        assert.equal(vuelto.sliceKey, 'nocturna_dominical');
+        assert.equal(vuelto.hours, 1);
+        assert.equal(vuelto.tipoLabel, `${HE_TIPO_CANONICO.HE_NOCTURNA_DOM} — sin compensatorio`);
     });
 
     it('AUT-592: vuelto domingo en fila sin recargo → HE Nocturna Dominical', () => {
