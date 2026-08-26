@@ -37,6 +37,11 @@ const {
 } = require('./onboardingListSort');
 const { normalizeColabTextPatch } = require('./chTextNormalize');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
+const {
+    CONTRATOS_VIGENTES_COUNT_SQL,
+    attachContratosToItem,
+    syncCabeceraContractFromPerson
+} = require('./colaboradorContratos');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -457,7 +462,8 @@ function registerOnboardingRoutes(deps) {
                 c.fecha_ingreso, c.fecha_termino, c.fecha_baja_efectiva,
                 c.motivo_baja, c.termino, c.tiempo_permanencia_meses,
                 c.whatsapp_number, c.onboarding_status, c.onboarding_completed_at,
-                c.created_at, c.updated_at
+                c.created_at, c.updated_at,
+                ${CONTRATOS_VIGENTES_COUNT_SQL} AS contratos_vigentes_count
              FROM colaboradores c
              ${whereSql}
              ORDER BY ${orderBy}
@@ -529,7 +535,8 @@ function registerOnboardingRoutes(deps) {
                 }
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
-            return res.json({ ok: true, item: q.rows[0] });
+            const item = await attachContratosToItem(pool, q.rows[0]);
+            return res.json({ ok: true, item });
         } catch (e) {
             console.error('[Onboarding personal GET]', e.message);
             return res.status(500).json({ ok: false, error: e.message });
@@ -561,6 +568,7 @@ function registerOnboardingRoutes(deps) {
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
+            await syncCabeceraContractFromPerson(pool, updated);
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
                 actorRole: req.user && req.user.role,
@@ -569,7 +577,7 @@ function registerOnboardingRoutes(deps) {
                 entityId: null,
                 metadata: { cedula, patch }
             });
-            return res.json({ ok: true, item: updated });
+            return res.json({ ok: true, item: await attachContratosToItem(pool, updated) });
         } catch (e) {
             console.error('[Onboarding personal PATCH]', e.message);
             const status = Number.isInteger(e?.status) ? e.status : 500;
@@ -618,6 +626,7 @@ function registerOnboardingRoutes(deps) {
             // Resto de campos (cliente, líder, extendidos) vía el mismo helper del PATCH.
             const { cedula: _omit, nombre: _n, ...rest } = normalizedCreate;
             const updated = await updateColaboradorByCedula(cedula, rest);
+            await syncCabeceraContractFromPerson(pool, updated || { cedula, ...normalizedCreate });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
                 actorRole: req.user && req.user.role,
@@ -626,7 +635,10 @@ function registerOnboardingRoutes(deps) {
                 entityId: null,
                 metadata: { cedula }
             });
-            return res.status(201).json({ ok: true, item: updated });
+            return res.status(201).json({
+                ok: true,
+                item: await attachContratosToItem(pool, updated || { cedula })
+            });
         } catch (e) {
             console.error('[Onboarding personal POST]', e.message);
             const status = String(e?.code) === '23505' ? 409 : (Number.isInteger(e?.status) ? e.status : 500);

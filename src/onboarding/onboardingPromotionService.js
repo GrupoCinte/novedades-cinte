@@ -10,8 +10,8 @@
  *
  * Reglas de upsert (no machaca lo editado por CH):
  *   - `COALESCE(EXCLUDED.X, colaboradores.X)` → solo escribe si llega valor nuevo.
- *   - `COALESCE(colaboradores.X, EXCLUDED.X)` para campos que solo deben fijarse la primera vez
- *     (salario, fecha_ingreso).
+ *   - Cliente/puesto/fechas de contrato no se pisan si la persona ya está activa en otro cliente.
+ *   - Reingreso (activo=false): reactiva, limpia baja y abre contrato nuevo (AUT-313).
  *
  * No depende de DynamoDB: recibe un payload normalizado. El mapper `mapDynamoItemForPromotion`
  * convierte un item Dynamo crudo a payload normalizado.
@@ -26,6 +26,12 @@ const {
 const { applyLegacyEmergencyParse } = require('../contratacion/extractorToFichaMap');
 const { normalizeChListText, normalizeColabTextPatch } = require('./chTextNormalize');
 const { resolveClienteOnWrite, loadClientesCanonico } = require('../clientes/clienteCanonWrite');
+const {
+    decideContractAction,
+    filterExtendedForAction,
+    loadPersonContractState,
+    applyContractEvent
+} = require('./colaboradorContratos');
 
 const EXT_SQL_TYPE_BY_KEY = Object.fromEntries(
     (COLABORADORES_EXTENDED_COLUMNS || []).map((c) => [c.key, String(c.sqlType || 'TEXT').toUpperCase()])
@@ -538,9 +544,6 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
         /** n8n/Dynamo es fuente de verdad para fecha_ingreso en promoción automática. */
         const fechaFromN8n = source === 'dynamo_stream' || source === 'n8n_webhook' || source === 'manual';
         const insertFechaSql = fechaFromN8n ? '$17::date' : 'COALESCE($17::date, CURRENT_DATE)';
-        const updateFechaSql = fechaFromN8n
-            ? 'fecha_ingreso = COALESCE(EXCLUDED.fecha_ingreso, colaboradores.fecha_ingreso)'
-            : 'fecha_ingreso = COALESCE(colaboradores.fecha_ingreso, EXCLUDED.fecha_ingreso)';
 
         const q = await client.query(
             `INSERT INTO colaboradores (
@@ -568,18 +571,64 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 correo_cinte = COALESCE(EXCLUDED.correo_cinte, colaboradores.correo_cinte),
                 celular_personal = COALESCE(EXCLUDED.celular_personal, colaboradores.celular_personal),
                 direccion_domicilio = COALESCE(EXCLUDED.direccion_domicilio, colaboradores.direccion_domicilio),
-                puesto = COALESCE(EXCLUDED.puesto, colaboradores.puesto),
-                empleador = COALESCE(EXCLUDED.empleador, colaboradores.empleador),
-                sueldo_nomina = COALESCE(colaboradores.sueldo_nomina, EXCLUDED.sueldo_nomina),
-                ${updateFechaSql},
-                cliente = COALESCE(EXCLUDED.cliente, colaboradores.cliente),
+                puesto = CASE
+                    WHEN colaboradores.activo IS FALSE THEN COALESCE(EXCLUDED.puesto, colaboradores.puesto)
+                    WHEN EXCLUDED.cliente IS NOT NULL
+                         AND lower(btrim(COALESCE(EXCLUDED.cliente, '')))
+                             IS DISTINCT FROM lower(btrim(COALESCE(colaboradores.cliente, '')))
+                    THEN colaboradores.puesto
+                    ELSE COALESCE(EXCLUDED.puesto, colaboradores.puesto)
+                END,
+                empleador = CASE
+                    WHEN colaboradores.activo IS FALSE THEN COALESCE(EXCLUDED.empleador, colaboradores.empleador)
+                    WHEN EXCLUDED.cliente IS NOT NULL
+                         AND lower(btrim(COALESCE(EXCLUDED.cliente, '')))
+                             IS DISTINCT FROM lower(btrim(COALESCE(colaboradores.cliente, '')))
+                    THEN colaboradores.empleador
+                    ELSE COALESCE(EXCLUDED.empleador, colaboradores.empleador)
+                END,
+                sueldo_nomina = CASE
+                    WHEN colaboradores.activo IS FALSE THEN COALESCE(EXCLUDED.sueldo_nomina, colaboradores.sueldo_nomina)
+                    WHEN EXCLUDED.cliente IS NOT NULL
+                         AND lower(btrim(COALESCE(EXCLUDED.cliente, '')))
+                             IS DISTINCT FROM lower(btrim(COALESCE(colaboradores.cliente, '')))
+                    THEN colaboradores.sueldo_nomina
+                    ELSE COALESCE(colaboradores.sueldo_nomina, EXCLUDED.sueldo_nomina)
+                END,
+                fecha_ingreso = CASE
+                    WHEN colaboradores.activo IS FALSE THEN COALESCE(EXCLUDED.fecha_ingreso, colaboradores.fecha_ingreso)
+                    WHEN EXCLUDED.cliente IS NOT NULL
+                         AND lower(btrim(COALESCE(EXCLUDED.cliente, '')))
+                             IS DISTINCT FROM lower(btrim(COALESCE(colaboradores.cliente, '')))
+                    THEN colaboradores.fecha_ingreso
+                    ELSE colaboradores.fecha_ingreso
+                END,
+                /* Cliente cabecera no cambia si ya hay persona activa con otro cliente (AUT-313). */
+                cliente = CASE
+                    WHEN colaboradores.activo IS FALSE THEN COALESCE(EXCLUDED.cliente, colaboradores.cliente)
+                    ELSE colaboradores.cliente
+                END,
                 whatsapp_number = COALESCE(EXCLUDED.whatsapp_number, colaboradores.whatsapp_number),
                 dynamo_external_id = COALESCE(EXCLUDED.dynamo_external_id, colaboradores.dynamo_external_id),
                 onboarding_status = COALESCE(EXCLUDED.onboarding_status, colaboradores.onboarding_status),
                 onboarding_completed_at = COALESCE(colaboradores.onboarding_completed_at, EXCLUDED.onboarding_completed_at),
                 tipo_personal = COALESCE(EXCLUDED.tipo_personal, colaboradores.tipo_personal),
-                /* activo se mantiene si el colaborador ya existe; no se reactiva automáticamente */
-                activo = colaboradores.activo,
+                activo = CASE
+                    WHEN colaboradores.activo IS FALSE THEN TRUE
+                    ELSE colaboradores.activo
+                END,
+                motivo_baja = CASE
+                    WHEN colaboradores.activo IS FALSE THEN NULL
+                    ELSE colaboradores.motivo_baja
+                END,
+                fecha_baja_efectiva = CASE
+                    WHEN colaboradores.activo IS FALSE THEN NULL
+                    ELSE colaboradores.fecha_baja_efectiva
+                END,
+                termino = CASE
+                    WHEN colaboradores.activo IS FALSE THEN NULL
+                    ELSE colaboradores.termino
+                END,
                 updated_at = NOW()
             RETURNING cedula`,
             [
@@ -714,24 +763,47 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 const canonList = await loadClientesCanonico(client);
                 normalizedValidated.cliente = resolveClienteOnWrite(normalizedValidated.cliente, canonList);
             }
+            const prevPerson = await loadPersonContractState(client, normalizedValidated.cedula);
+            const contractAction = decideContractAction({
+                exists: Boolean(prevPerson),
+                activo: prevPerson ? prevPerson.activo !== false : true,
+                clienteActual: prevPerson && prevPerson.cliente,
+                clienteNuevo: normalizedValidated.cliente
+            });
+
             const cedulaInsertada = await upsertColaborador(client, normalizedValidated, {
                 source,
                 tipoPersonal: meta.tipoPersonal
             });
 
-            const extPayload = normalizeColabTextPatch({
+            await applyContractEvent(client, {
                 cedula: cedulaInsertada,
-                ...sanitizeExtendedPayloadForDb(
-                    normalizedValidated.extended && typeof normalizedValidated.extended === 'object'
-                        ? normalizedValidated.extended
-                        : {}
-                ),
-                email_personal: normalizedValidated.email_personal,
-                codigo: normalizedValidated.codigo,
-                tipo_contrato: normalizedValidated.tipo_contrato,
-                esquema_contrato: normalizedValidated.esquema_contrato
+                cliente: normalizedValidated.cliente,
+                tipoContrato: normalizedValidated.tipo_contrato,
+                fechaInicio: normalizedValidated.fecha_ingreso,
+                fechaTermino: normalizedValidated.fecha_termino
+                    || (normalizedValidated.extended && normalizedValidated.extended.fecha_termino),
+                origen: `promote_${source}`,
+                existed: prevPerson,
+                action: contractAction
             });
-            if (validated.fecha_ingreso) {
+
+            const extPayload = filterExtendedForAction(
+                normalizeColabTextPatch({
+                    cedula: cedulaInsertada,
+                    ...sanitizeExtendedPayloadForDb(
+                        normalizedValidated.extended && typeof normalizedValidated.extended === 'object'
+                            ? normalizedValidated.extended
+                            : {}
+                    ),
+                    email_personal: normalizedValidated.email_personal,
+                    codigo: normalizedValidated.codigo,
+                    tipo_contrato: normalizedValidated.tipo_contrato,
+                    esquema_contrato: normalizedValidated.esquema_contrato
+                }),
+                contractAction
+            );
+            if (validated.fecha_ingreso && contractAction !== 'new_client') {
                 extPayload.fecha_ingreso = validated.fecha_ingreso;
             }
             const updatable = buildExtendedUpdate(extPayload, cedulaInsertada);

@@ -1,8 +1,26 @@
+function mapContratoApi(c, { esBaja = false } = {}) {
+    const id = String(c?.id || c?.contrato_id || '').trim();
+    if (!id) return null;
+    const vigenteApi = c.vigente !== false;
+    return {
+        id,
+        cliente: String(c.cliente || 'Sin cliente').trim() || 'Sin cliente',
+        tipo: String(c.tipo || c.tipo_contrato || '').trim(),
+        fechaInicio: String(c.fechaInicio || c.fecha_inicio || '').slice(0, 10),
+        fechaTermino: String(c.fechaTermino || c.fecha_termino || '').slice(0, 10),
+        vigente: vigenteApi && !esBaja,
+        esCabecera: Boolean(c.esCabecera ?? c.es_cabecera)
+    };
+}
+
 /**
- * Mapeo ficha → pastillas del estante (AUT-312).
- * Día uno: un contrato cabecera. AUT-313 agregará N filas reales.
+ * Mapeo ficha → pastillas del estante.
+ * AUT-313: usa `contratos` reales si vienen de la API; si no, la cabecera de la fila.
  */
 export function contratosFromFicha(form, { esBaja = false } = {}) {
+    if (Array.isArray(form?.contratos) && form.contratos.length) {
+        return form.contratos.map((c) => mapContratoApi(c, { esBaja })).filter(Boolean);
+    }
     const cliente = String(form?.cliente || form?.cliente_proyecto || '').trim();
     const tipo = String(form?.tipo_contrato || '').trim();
     const termino = String(form?.fecha_termino || '').slice(0, 10);
@@ -11,6 +29,7 @@ export function contratosFromFicha(form, { esBaja = false } = {}) {
             id: 'cabecera',
             cliente: cliente || 'Sin cliente',
             tipo,
+            fechaInicio: String(form?.fecha_ingreso || '').slice(0, 10),
             fechaTermino: termino,
             vigente: !esBaja,
             esCabecera: true

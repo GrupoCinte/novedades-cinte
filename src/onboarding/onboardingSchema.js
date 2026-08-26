@@ -69,6 +69,8 @@ async function ensureOnboardingSchema({ pool, logger } = {}) {
     await ensureColaboradorCapacitacionesTable({ pool, logger });
     await ensurePersonasExternasHeadhuntingTable({ pool, logger });
     await ensureDynamoStreamCheckpointTable({ pool, logger });
+    const { ensureColaboradorContratosTable } = require('./colaboradorContratos');
+    await ensureColaboradorContratosTable(pool, logger);
 
     logInfo(logger, 'Esquema onboarding listo (idempotente).');
 }

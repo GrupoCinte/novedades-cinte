@@ -33,4 +33,36 @@ describe('contratosFromFicha AUT-312', () => {
         assert.equal(contratosVigentesExtra({ contratos_vigentes_count: 3 }), 2);
         assert.equal(contratosVigentesExtra({ contratos_vigentes: 1 }), 0);
     });
+
+    it('pinta N pastillas reales si la ficha trae contratos', async () => {
+        const { contratosFromFicha, contratosVigentesExtra } = await import(
+            '../react-frontend/src/onboarding/contratoEstanteMap.js'
+        );
+        const form = {
+            cliente: 'EXPERIAN',
+            contratos: [
+                {
+                    id: 'c1',
+                    cliente: 'EXPERIAN',
+                    tipo: 'Fijo',
+                    fecha_termino: '2026-11-15',
+                    vigente: true,
+                    es_cabecera: true
+                },
+                {
+                    id: 'c2',
+                    cliente: 'DAVIVIENDA',
+                    tipo: 'Obra',
+                    fecha_termino: '2027-01-01',
+                    vigente: true,
+                    es_cabecera: false
+                }
+            ]
+        };
+        const list = contratosFromFicha(form);
+        assert.equal(list.length, 2);
+        assert.equal(list[1].cliente, 'DAVIVIENDA');
+        assert.equal(list[1].esCabecera, false);
+        assert.equal(contratosVigentesExtra({ contratos_vigentes_count: 2 }), 1);
+    });
 });

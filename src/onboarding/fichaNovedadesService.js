@@ -14,6 +14,7 @@ const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAs
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { resolveClienteOnWrite } = require('../clientes/clienteCanonWrite');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
+const { applyContractEvent } = require('./colaboradorContratos');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
@@ -1124,6 +1125,36 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             clienteNuevo &&
             clienteActual &&
             foldForMatch(clienteNuevo) !== foldForMatch(clienteActual);
+
+        const tiposContrato = tipo === 'integracion' || tipo === 'modificacion_id' || tipo === 'extension';
+        if (tiposContrato) {
+            const contract = await applyContractEvent(pool, {
+                cedula,
+                cliente: clienteNuevo || clienteActual,
+                tipoContrato: normalized.tipo_contrato || patch.tipo_contrato,
+                fechaInicio: normalized.fecha_ingreso || patch.fecha_ingreso,
+                fechaTermino: normalized.fecha_termino || patch.fecha_termino,
+                origen: `novedad_${tipo}`,
+                existed: current
+            });
+            if (contract.action === 'new_client') {
+                delete patch.cliente;
+                delete patch.fecha_ingreso;
+                delete patch.tipo_contrato;
+                delete patch.esquema_contrato;
+                delete patch.puesto;
+                delete patch.empleador;
+                delete patch.sueldo_nomina;
+                delete patch.tarifa_cliente;
+                delete patch.costo_empresa;
+                delete patch.lider_catalogo;
+                delete patch.cliente_proyecto;
+                delete patch.fecha_termino;
+            }
+            if (contract.action === 'reingreso') {
+                patch.activo = true;
+            }
+        }
 
         if (esClienteDistinto && (tipo === 'modificacion_id' || tipo === 'integracion')) {
             await upsertColaboradorAsignacion(pool, {

@@ -64,6 +64,18 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
 
     const displayName = createMode ? 'Nuevo colaborador' : form.nombre || 'Ficha del colaborador';
     const contratos = useMemo(() => contratosFromFicha(form, { esBaja }), [form, esBaja]);
+    const formVista = useMemo(() => {
+        if (editMode) return form;
+        const sel = contratos.find((c) => c.id === selectedContratoId);
+        if (!sel || sel.esCabecera) return form;
+        return {
+            ...form,
+            cliente: sel.cliente || form.cliente,
+            tipo_contrato: sel.tipo || form.tipo_contrato,
+            fecha_termino: sel.fechaTermino || form.fecha_termino,
+            fecha_ingreso: sel.fechaInicio || form.fecha_ingreso
+        };
+    }, [editMode, form, contratos, selectedContratoId]);
     const estadoColaborador = useMemo(
         () =>
             resolveColaboradorEstado({
@@ -112,6 +124,11 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             const mapped = mapRowToStaffForm(item);
             setForm(mapped);
             setOriginalForm(mapped);
+            const list = contratosFromFicha(mapped, {
+                esBaja: item.activo === false || Boolean(item.motivo_baja)
+            });
+            const cab = list.find((c) => c.esCabecera) || list[0];
+            setSelectedContratoId(cab?.id || 'cabecera');
             setClientes(cats);
             if (mapped.cliente) {
                 await handleLiderFetch(mapped.cliente);
@@ -151,6 +168,8 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
 
     const handleEdit = () => {
         if (!perms.canEditFicha) return;
+        const cab = contratos.find((c) => c.esCabecera) || contratos[0];
+        if (cab) setSelectedContratoId(cab.id);
         setEditMode(true);
     };
 
@@ -325,7 +344,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                         </div>
                     ) : (
                         <ColaboradorFichaFields
-                            value={form}
+                            value={formVista}
                             onChange={(patch) => setForm((s) => ({ ...s, ...patch }))}
                             mode={createMode ? 'create' : 'edit'}
                             readOnly={!editMode}

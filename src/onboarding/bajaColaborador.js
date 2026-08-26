@@ -86,6 +86,8 @@ async function applyRegistroBajaColaborador(pool, cedulaRaw, opts = {}) {
         [motivo, opts.termino || null, fechaTermino, cedula]
     );
     if (!q.rows[0]) throw Object.assign(new Error('Colaborador no encontrado'), { status: 404 });
+    const { historicizeVigentes } = require('./colaboradorContratos');
+    await historicizeVigentes(pool, cedula, { keepCabecera: true });
     return q.rows[0];
 }
 
