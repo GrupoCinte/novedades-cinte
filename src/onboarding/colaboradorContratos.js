@@ -412,8 +412,8 @@ async function closeContrato(db, input = {}) {
              es_cabecera = FALSE,
              fecha_termino = COALESCE($2::date, fecha_termino),
              updated_at = NOW()
-         WHERE id = $1::uuid`,
-        [target.id, fechaTermino]
+         WHERE id = $1::uuid AND cedula = $3`,
+        [target.id, fechaTermino, cedula]
     );
     const sync = await syncPersonActivoFromContratos(db, cedula, { motivo, fechaTermino, termino });
     return {
@@ -451,8 +451,8 @@ async function reopenContrato(db, input = {}) {
     await db.query(
         `UPDATE colaborador_contratos
          SET vigente = TRUE, updated_at = NOW()
-         WHERE id = $1::uuid`,
-        [hist.id]
+         WHERE id = $1::uuid AND cedula = $2`,
+        [hist.id, cedula]
     );
     const sync = await syncPersonActivoFromContratos(db, cedula);
     return {
