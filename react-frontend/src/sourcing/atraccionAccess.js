@@ -12,6 +12,7 @@ const POLICY_PANELS_BY_ROLE = {
     gp: ['gestion', 'onboarding'],
     nomina: ['dashboard', 'calendar', 'gestion', 'onboarding', 'conciliaciones'],
     analista_conciliaciones: ['conciliaciones'],
+    atraccion_talento: ['atraccion', 'reubicaciones'],
     consultor: []
 };
 
