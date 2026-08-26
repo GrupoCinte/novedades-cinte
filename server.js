@@ -749,7 +749,8 @@ const {
     decideMasivoConciliacionEmailAccion,
     finalizeConciliacionEmailAccion,
     getConciliacionEmailPlantillaCorreoLiderForScope,
-    upsertConciliacionEmailPlantillaCorreoLiderForScope
+    upsertConciliacionEmailPlantillaCorreoLiderForScope,
+    ensureReubicacionesHU02
 } = createDataLayer({
     pool,
     fs,
@@ -1069,6 +1070,7 @@ startServer({
     ensureColaboradoresTable,
     ensureColaboradoresDirectoryColumns,
     ensureReubicacionesPipelineTable,
+    ensureReubicacionesHU02,
     ensureMallaTurnosCeldaTable,
     ensureMallaTurnoAsignacionTable,
     ensureMallaTurnoAprobacionTable,

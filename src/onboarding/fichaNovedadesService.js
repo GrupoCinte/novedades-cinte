@@ -14,6 +14,7 @@ const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAs
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { resolveClienteOnWrite } = require('../clientes/clienteCanonWrite');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
+const { sincronizarConPipeline } = require('../reubicaciones/reubicacionesSyncService');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
@@ -1156,6 +1157,24 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
         if (Object.keys(patch).length > 0) {
             await applyPatchToColaborador(cedula, patch);
+        }
+
+        // HU-02: Sincronizar extensiones y salidas
+        if (tipo === 'extension' || tipo === 'salida') {
+            try {
+                await sincronizarConPipeline({
+                    cedula: cedula,
+                    tipo_novedad: tipo,
+                    normalized: row.payload_normalizado || {},
+                    patch: patch,
+                    staging_id: id,
+                    external_id: row.external_id,
+                    pool: pool,
+                    notifyService: require('../notifications/emailNotificationsPublisher')
+                });
+            } catch (error) {
+                log.error({ error: error.message, id, cedula }, 'Error al sincronizar con pipeline');
+            }
         }
 
         const reviewedBy = trimOrNull(reviewer.sub || reviewer.email || reviewer.displayName, 320);
