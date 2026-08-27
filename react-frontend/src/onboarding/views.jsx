@@ -18,11 +18,18 @@ import { getOnboardingPermissions } from './onboardingAccess.js';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import SortableGestionDataTable from './SortableGestionDataTable.jsx';
 import { PERSONAL_DEFAULT_SORT, toggleSort } from './onboardingSortDefaults.js';
-import OnboardingFiltersBar, { buildChipLabel } from './OnboardingFiltersBar.jsx';
+import OnboardingFiltersBar from './OnboardingFiltersBar.jsx';
 import OnboardingFiltersDrawer, {
     drawerFieldCls,
     drawerLabelCls
 } from './OnboardingFiltersDrawer.jsx';
+import FilterMultiSelect from './FilterMultiSelect.jsx';
+import {
+    asFilterList,
+    buildPersonalFilterChips,
+    removeChipFromFilters,
+    serializeFilterParam
+} from './chListFilters.js';
 import ColaboradorOnboardingModal from './ColaboradorOnboardingModal.jsx';
 import { ContratosExtraBadge } from './ContratoEstante.jsx';
 import { contratosVigentesExtra } from './contratoEstanteMap.js';
@@ -254,7 +261,8 @@ export function PersonalView({
         for (const [k, v] of Object.entries(filters)) {
             if (hideEmpleadorFilter && k === 'empleador') continue;
             if (isMaestro && (k === 'pais' || k === 'modalidad_trabajo')) continue;
-            if (v !== undefined && v !== '' && v !== null) p[k] = v;
+            const serialized = Array.isArray(v) ? serializeFilterParam(v) : v;
+            if (serialized !== undefined && serialized !== '' && serialized !== null) p[k] = serialized;
         }
         return p;
     }, [pageSize, page, sort, tipoPersonal, activo, search, filters, hideEmpleadorFilter, isMaestro]);
@@ -356,24 +364,21 @@ export function PersonalView({
                     : [])
             ];
 
-    const chipPairs = [
-        [Boolean(search), search ? `Búsqueda: ${search.length > 18 ? `${search.slice(0, 16)}…` : search}` : ''],
-        [Boolean(filters.cliente), filters.cliente ? `Cliente: ${String(filters.cliente).length > 16 ? `${String(filters.cliente).slice(0, 14)}…` : filters.cliente}` : ''],
-        [Boolean(filters.pais) && !isMaestro, filters.pais ? `País: ${filters.pais}` : ''],
-        [Boolean(filters.empleador) && !hideEmpleadorFilter && !isMaestro, filters.empleador ? `Empleador: ${filters.empleador}` : ''],
-        [Boolean(filters.puesto), filters.puesto ? `Puesto: ${filters.puesto}` : ''],
-        [Boolean(filters.sexo), filters.sexo ? `Sexo: ${filters.sexo}` : ''],
-        [Boolean(filters.tipo_contrato), filters.tipo_contrato ? `Contrato: ${filters.tipo_contrato}` : ''],
-        [Boolean(filters.profesion), filters.profesion ? `Profesión: ${String(filters.profesion).length > 16 ? `${String(filters.profesion).slice(0, 14)}…` : filters.profesion}` : ''],
-        [Boolean(filters.tipo_identificacion), filters.tipo_identificacion ? `ID: ${filters.tipo_identificacion}` : ''],
-        [Boolean(filters.departamento), filters.departamento ? `Depto: ${filters.departamento}` : ''],
-        [Boolean(filters.ciudad), filters.ciudad ? `Ciudad: ${filters.ciudad}` : ''],
-        [Boolean(filters.modalidad_trabajo) && !isMaestro, filters.modalidad_trabajo ? `Modalidad: ${filters.modalidad_trabajo}` : ''],
-        [Boolean(filters.motivo_baja), filters.motivo_baja ? `Motivo: ${filters.motivo_baja.length > 16 ? `${filters.motivo_baja.slice(0, 14)}…` : filters.motivo_baja}` : ''],
-        [Boolean(filters.fecha_ingreso_desde || filters.fecha_ingreso_hasta), 'Rango ingreso'],
-        [Boolean(filters.fecha_baja_desde || filters.fecha_baja_hasta), 'Rango término']
-    ];
-    const chipLabel = buildChipLabel(chipPairs);
+    const appliedChips = useMemo(
+        () =>
+            buildPersonalFilterChips(filters, {
+                hidePais: isMaestro,
+                hideEmpleador: hideEmpleadorFilter || isMaestro,
+                hidePuesto: false,
+                hideModalidad: isMaestro
+            }),
+        [filters, isMaestro, hideEmpleadorFilter]
+    );
+
+    const removeChip = (chip) => {
+        setFilters((cur) => removeChipFromFilters(cur, chip));
+        setPage(0);
+    };
 
     const openPanel = () => {
         setDraft({ ...filters });
@@ -404,9 +409,19 @@ export function PersonalView({
 
     return (
         <div className="flex flex-col gap-4">
-            <div className={G.filterBar}>
+            <div
+                className={
+                    isLight
+                        ? 'sticky top-0 z-20 -mx-4 px-4 py-2 sm:-mx-6 sm:px-6 bg-slate-100/95 backdrop-blur-sm'
+                        : 'sticky top-0 z-20 -mx-4 px-4 py-2 sm:-mx-6 sm:px-6 bg-[#04141E]/95 backdrop-blur-sm'
+                }
+            >
                 <OnboardingFiltersBar
-                    chipLabel={chipLabel}
+                    compact
+                    chips={appliedChips.map((chip) => ({
+                        ...chip,
+                        onRemove: () => removeChip(chip)
+                    }))}
                     panelOpen={panelOpen}
                     onToggle={() => (panelOpen ? setPanelOpen(false) : openPanel())}
                     search={search}
@@ -499,123 +514,87 @@ export function PersonalView({
                 isLight={isLight}
             >
                 <div className="flex flex-col gap-1.5">
-                    <label className={labelCls} htmlFor="pv-cliente">Cliente</label>
-                    <select
-                        id="pv-cliente"
-                        value={draft.cliente || ''}
-                        onChange={(e) => setDraft((s) => ({ ...s, cliente: e.target.value }))}
-                        className={fieldCls}
-                    >
-                        <option value="">Todos los clientes</option>
-                        {clientes.map((c) => (
-                            <option key={c} value={c}>{c}</option>
-                        ))}
-                    </select>
+                    <span className={labelCls} id="pv-cliente">Cliente</span>
+                    <FilterMultiSelect
+                        id="pv-cliente-list"
+                        options={clientes}
+                        value={draft.cliente}
+                        onChange={(v) => setDraft((s) => ({ ...s, cliente: v }))}
+                        isLight={isLight}
+                    />
                 </div>
 
                 {isMaestro ? (
                     <>
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-sexo">Sexo</label>
-                            <select
-                                id="pv-sexo"
-                                value={draft.sexo || ''}
-                                onChange={(e) => setDraft((s) => ({ ...s, sexo: e.target.value }))}
-                                className={fieldCls}
-                            >
-                                <option value="">Todos</option>
-                                {catSexo.map((v) => (
-                                    <option key={v} value={v}>{v}</option>
-                                ))}
-                            </select>
+                            <span className={labelCls} id="pv-sexo">Sexo</span>
+                            <FilterMultiSelect
+                                id="pv-sexo-list"
+                                options={catSexo}
+                                value={draft.sexo}
+                                onChange={(v) => setDraft((s) => ({ ...s, sexo: v }))}
+                                isLight={isLight}
+                            />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-tipo-contrato">Tipo de contrato</label>
-                            <select
-                                id="pv-tipo-contrato"
-                                value={draft.tipo_contrato || ''}
-                                onChange={(e) => setDraft((s) => ({ ...s, tipo_contrato: e.target.value }))}
-                                className={fieldCls}
-                            >
-                                <option value="">Todos</option>
-                                {catTipoContrato.map((v) => (
-                                    <option key={v} value={v}>{v}</option>
-                                ))}
-                            </select>
+                            <span className={labelCls} id="pv-tipo-contrato">Tipo de contrato</span>
+                            <FilterMultiSelect
+                                id="pv-tipo-contrato-list"
+                                options={catTipoContrato}
+                                value={draft.tipo_contrato}
+                                onChange={(v) => setDraft((s) => ({ ...s, tipo_contrato: v }))}
+                                isLight={isLight}
+                            />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-profesion">Profesión</label>
-                            <select
-                                id="pv-profesion"
-                                value={draft.profesion || ''}
-                                onChange={(e) => setDraft((s) => ({ ...s, profesion: e.target.value }))}
-                                className={fieldCls}
-                            >
-                                <option value="">Todas</option>
-                                {catProfesion.map((v) => (
-                                    <option key={v} value={v}>{v}</option>
-                                ))}
-                            </select>
+                            <span className={labelCls} id="pv-profesion">Profesión</span>
+                            <FilterMultiSelect
+                                id="pv-profesion-list"
+                                options={catProfesion}
+                                value={draft.profesion}
+                                onChange={(v) => setDraft((s) => ({ ...s, profesion: v }))}
+                                isLight={isLight}
+                            />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-tipo-id">Tipo de identificación</label>
-                            <select
-                                id="pv-tipo-id"
-                                value={draft.tipo_identificacion || ''}
-                                onChange={(e) => setDraft((s) => ({ ...s, tipo_identificacion: e.target.value }))}
-                                className={fieldCls}
-                            >
-                                <option value="">Todos</option>
-                                {catTipoId.map((v) => (
-                                    <option key={v} value={v}>{v}</option>
-                                ))}
-                            </select>
+                            <span className={labelCls} id="pv-tipo-id">Tipo de identificación</span>
+                            <FilterMultiSelect
+                                id="pv-tipo-id-list"
+                                options={catTipoId}
+                                value={draft.tipo_identificacion}
+                                onChange={(v) => setDraft((s) => ({ ...s, tipo_identificacion: v }))}
+                                isLight={isLight}
+                            />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-departamento">Departamento</label>
-                            <select
-                                id="pv-departamento"
-                                value={draft.departamento || ''}
-                                onChange={(e) => setDraft((s) => ({ ...s, departamento: e.target.value }))}
-                                className={fieldCls}
-                            >
-                                <option value="">Todos</option>
-                                {catDepartamento.map((v) => (
-                                    <option key={v} value={v}>{v}</option>
-                                ))}
-                            </select>
+                            <span className={labelCls} id="pv-departamento">Departamento</span>
+                            <FilterMultiSelect
+                                id="pv-departamento-list"
+                                options={catDepartamento}
+                                value={draft.departamento}
+                                onChange={(v) => setDraft((s) => ({ ...s, departamento: v }))}
+                                isLight={isLight}
+                            />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-ciudad">Ciudad</label>
-                            <select
-                                id="pv-ciudad"
-                                value={draft.ciudad || ''}
-                                onChange={(e) => setDraft((s) => ({ ...s, ciudad: e.target.value }))}
-                                className={fieldCls}
-                            >
-                                <option value="">Todas</option>
-                                {catCiudad.map((v) => (
-                                    <option key={v} value={v}>{v}</option>
-                                ))}
-                            </select>
+                            <span className={labelCls} id="pv-ciudad">Ciudad</span>
+                            <FilterMultiSelect
+                                id="pv-ciudad-list"
+                                options={catCiudad}
+                                value={draft.ciudad}
+                                onChange={(v) => setDraft((s) => ({ ...s, ciudad: v }))}
+                                isLight={isLight}
+                            />
                         </div>
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-puesto">Puesto</label>
-                            <select
-                                id="pv-puesto"
-                                value={draft.puesto || ''}
-                                onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))}
-                                className={fieldCls}
-                            >
-                                <option value="">Todos los puestos</option>
-                                {puestos.map((p) => {
-                                    const label = String(p.puesto || p).trim();
-                                    if (!label) return null;
-                                    return (
-                                        <option key={label} value={label}>{label}</option>
-                                    );
-                                })}
-                            </select>
+                            <span className={labelCls} id="pv-puesto">Puesto</span>
+                            <FilterMultiSelect
+                                id="pv-puesto-list"
+                                options={puestos}
+                                value={draft.puesto}
+                                onChange={(v) => setDraft((s) => ({ ...s, puesto: v }))}
+                                isLight={isLight}
+                            />
                         </div>
                         <div className="flex flex-col gap-1.5">
                             <span className={labelCls}>Rango fecha de ingreso</span>
@@ -628,18 +607,14 @@ export function PersonalView({
                         {isBajas ? (
                             <>
                                 <div className="flex flex-col gap-1.5">
-                                    <label className={labelCls} htmlFor="pv-motivo">Motivo de baja</label>
-                                    <select
-                                        id="pv-motivo"
-                                        value={draft.motivo_baja || ''}
-                                        onChange={(e) => setDraft((s) => ({ ...s, motivo_baja: e.target.value }))}
-                                        className={fieldCls}
-                                    >
-                                        <option value="">Todos los motivos</option>
-                                        {motivosBaja.map((m) => (
-                                            <option key={m.motivo || m.id} value={m.motivo}>{m.motivo}</option>
-                                        ))}
-                                    </select>
+                                    <span className={labelCls} id="pv-motivo">Motivo de baja</span>
+                                    <FilterMultiSelect
+                                        id="pv-motivo-list"
+                                        options={motivosBaja}
+                                        value={draft.motivo_baja}
+                                        onChange={(v) => setDraft((s) => ({ ...s, motivo_baja: v }))}
+                                        isLight={isLight}
+                                    />
                                 </div>
                                 <div className="flex flex-col gap-1.5">
                                     <span className={labelCls}>Rango fecha de término</span>
@@ -655,6 +630,16 @@ export function PersonalView({
                 ) : (
                     <>
                         <div className="flex flex-col gap-1.5">
+                            <span className={labelCls} id="pv-tipo-contrato">Tipo de contrato</span>
+                            <FilterMultiSelect
+                                id="pv-tipo-contrato-list"
+                                options={catTipoContrato}
+                                value={draft.tipo_contrato}
+                                onChange={(v) => setDraft((s) => ({ ...s, tipo_contrato: v }))}
+                                isLight={isLight}
+                            />
+                        </div>
+                        <div className="flex flex-col gap-1.5">
                             <label className={labelCls} htmlFor="pv-pais">País</label>
                             <input id="pv-pais" type="text" value={draft.pais || ''} onChange={(e) => setDraft((s) => ({ ...s, pais: e.target.value }))} className={fieldCls} placeholder="Colombia, México…" />
                         </div>
@@ -665,22 +650,14 @@ export function PersonalView({
                         </div>
                         ) : null}
                         <div className="flex flex-col gap-1.5">
-                            <label className={labelCls} htmlFor="pv-puesto">Puesto</label>
-                            <select
-                                id="pv-puesto"
-                                value={draft.puesto || ''}
-                                onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))}
-                                className={fieldCls}
-                            >
-                                <option value="">Todos los puestos</option>
-                                {puestos.map((p) => {
-                                    const label = String(p.puesto || p).trim();
-                                    if (!label) return null;
-                                    return (
-                                        <option key={label} value={label}>{label}</option>
-                                    );
-                                })}
-                            </select>
+                            <span className={labelCls} id="pv-puesto">Puesto</span>
+                            <FilterMultiSelect
+                                id="pv-puesto-list"
+                                options={puestos}
+                                value={draft.puesto}
+                                onChange={(v) => setDraft((s) => ({ ...s, puesto: v }))}
+                                isLight={isLight}
+                            />
                         </div>
                         <div className="flex flex-col gap-1.5">
                             <label className={labelCls} htmlFor="pv-modalidad">Modalidad de trabajo</label>
