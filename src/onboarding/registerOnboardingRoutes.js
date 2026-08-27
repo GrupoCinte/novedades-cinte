@@ -61,6 +61,12 @@ const {
 } = require('./contratoVencimientoService');
 const { gpScopePorVencer, tokenEquals } = require('./contratoVencimiento');
 const { FICHA_NACIO_SQL } = require('./contratoDashboardCiclo');
+const {
+    optionalStringList,
+    optionalEnumList,
+    applyLowerInFilter,
+    applyExactInFilter
+} = require('./personalListFilters');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -308,20 +314,20 @@ function registerOnboardingRoutes(deps) {
      * Listados de personal (consultores activos, staff, sena, bajas, etc).
      * ========================================================================= */
     const personalQuerySchema = z.object({
-        tipo_personal: z.enum(['consultor', 'staff', 'sena', 'alianza']).optional(),
+        tipo_personal: optionalEnumList(['consultor', 'staff', 'sena', 'alianza']),
         activo: z.enum(['true', 'false', 'all']).optional(),
-        pais: z.string().max(80).optional(),
-        cliente: z.string().max(500).optional(),
-        empleador: z.string().max(200).optional(),
-        puesto: z.string().max(200).optional(),
-        modalidad_trabajo: z.string().max(120).optional(),
-        sexo: z.string().max(80).optional(),
-        tipo_contrato: z.string().max(200).optional(),
-        profesion: z.string().max(400).optional(),
-        tipo_identificacion: z.string().max(200).optional(),
-        departamento: z.string().max(200).optional(),
-        ciudad: z.string().max(200).optional(),
-        motivo_baja: z.string().max(200).optional(),
+        pais: optionalStringList(80),
+        cliente: optionalStringList(500),
+        empleador: optionalStringList(200),
+        puesto: optionalStringList(200),
+        modalidad_trabajo: optionalStringList(120),
+        sexo: optionalStringList(80),
+        tipo_contrato: optionalStringList(200),
+        profesion: optionalStringList(400),
+        tipo_identificacion: optionalStringList(200),
+        departamento: optionalStringList(200),
+        ciudad: optionalStringList(200),
+        motivo_baja: optionalStringList(200),
         fecha_ingreso_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         fecha_ingreso_hasta: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         fecha_baja_desde: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -354,63 +360,24 @@ function registerOnboardingRoutes(deps) {
         const params = [];
         let p = 1;
 
-        if (filters.tipo_personal) {
-            params.push(filters.tipo_personal);
-            where.push(`c.tipo_personal = $${p++}`);
-        }
+        p = applyExactInFilter('c.tipo_personal', filters.tipo_personal, params, where, p);
         if (filters.activo === 'true') {
             where.push(`c.activo = TRUE`);
         } else if (filters.activo === 'false') {
             where.push(`c.activo = FALSE`);
         }
-        if (filters.pais) {
-            params.push(String(filters.pais).trim());
-            where.push(`LOWER(TRIM(c.pais)) = LOWER($${p++})`);
-        }
-        if (filters.cliente) {
-            params.push(String(filters.cliente).trim());
-            where.push(`LOWER(TRIM(c.cliente)) = LOWER($${p++})`);
-        }
-        if (filters.empleador) {
-            params.push(String(filters.empleador).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.empleador, ''))) = LOWER($${p++})`);
-        }
-        if (filters.puesto) {
-            params.push(String(filters.puesto).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.puesto, ''))) = LOWER($${p++})`);
-        }
-        if (filters.modalidad_trabajo) {
-            params.push(String(filters.modalidad_trabajo).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.modalidad_trabajo, ''))) = LOWER($${p++})`);
-        }
-        if (filters.sexo) {
-            params.push(String(filters.sexo).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.sexo, ''))) = LOWER($${p++})`);
-        }
-        if (filters.tipo_contrato) {
-            params.push(String(filters.tipo_contrato).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.tipo_contrato, ''))) = LOWER($${p++})`);
-        }
-        if (filters.profesion) {
-            params.push(String(filters.profesion).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.profesion, ''))) = LOWER($${p++})`);
-        }
-        if (filters.tipo_identificacion) {
-            params.push(String(filters.tipo_identificacion).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.tipo_identificacion, ''))) = LOWER($${p++})`);
-        }
-        if (filters.departamento) {
-            params.push(String(filters.departamento).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.departamento, ''))) = LOWER($${p++})`);
-        }
-        if (filters.ciudad) {
-            params.push(String(filters.ciudad).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.ciudad, ''))) = LOWER($${p++})`);
-        }
-        if (filters.motivo_baja) {
-            params.push(String(filters.motivo_baja).trim());
-            where.push(`LOWER(TRIM(COALESCE(c.motivo_baja, ''))) = LOWER($${p++})`);
-        }
+        p = applyLowerInFilter('c.pais', filters.pais, params, where, p);
+        p = applyLowerInFilter('c.cliente', filters.cliente, params, where, p);
+        p = applyLowerInFilter('c.empleador', filters.empleador, params, where, p);
+        p = applyLowerInFilter('c.puesto', filters.puesto, params, where, p);
+        p = applyLowerInFilter('c.modalidad_trabajo', filters.modalidad_trabajo, params, where, p);
+        p = applyLowerInFilter('c.sexo', filters.sexo, params, where, p);
+        p = applyLowerInFilter('c.tipo_contrato', filters.tipo_contrato, params, where, p);
+        p = applyLowerInFilter('c.profesion', filters.profesion, params, where, p);
+        p = applyLowerInFilter('c.tipo_identificacion', filters.tipo_identificacion, params, where, p);
+        p = applyLowerInFilter('c.departamento', filters.departamento, params, where, p);
+        p = applyLowerInFilter('c.ciudad', filters.ciudad, params, where, p);
+        p = applyLowerInFilter('c.motivo_baja', filters.motivo_baja, params, where, p);
         if (filters.fecha_ingreso_desde) {
             params.push(filters.fecha_ingreso_desde);
             where.push(`c.fecha_ingreso >= $${p++}::date`);
