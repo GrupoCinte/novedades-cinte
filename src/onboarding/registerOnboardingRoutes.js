@@ -38,6 +38,7 @@ const {
     isAllowedExtranjerosSort
 } = require('./onboardingListSort');
 const { normalizeColabTextPatch } = require('./chTextNormalize');
+const { inferTipoPersonal } = require('./tipoPersonalInfer');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
 const { applyCancelarColaborador } = require('./cancelarColaborador');
 const {
@@ -709,9 +710,29 @@ function registerOnboardingRoutes(deps) {
             if (!String(patchToApply.cliente || '').trim()) {
                 delete patchToApply.cliente;
             }
+            const tipoTrasCinte = inferTipoPersonal({
+                tipo_personal: patchToApply.tipo_personal || existed.tipo_personal,
+                cliente: patchToApply.cliente || existed.cliente,
+                tipo_contrato: patchToApply.tipo_contrato || existed.tipo_contrato,
+                puesto: patchToApply.puesto || existed.puesto,
+                subtipo_sena: patchToApply.subtipo_sena || existed.subtipo_sena
+            });
+            if (tipoTrasCinte && tipoTrasCinte !== existed.tipo_personal) {
+                await pool.query(
+                    `UPDATE colaboradores
+                     SET tipo_personal = $2, updated_at = NOW()
+                     WHERE cedula = $1 AND tipo_personal IS DISTINCT FROM $2`,
+                    [cedula, tipoTrasCinte]
+                );
+            }
             const updated = await updateColaboradorByCedula(cedula, patchToApply);
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
+            }
+            if (tipoTrasCinte) updated.tipo_personal = tipoTrasCinte;
+            const onlyKeys = Object.keys(patchToApply);
+            if (tipoTrasCinte && tipoTrasCinte !== existed.tipo_personal) {
+                onlyKeys.push('tipo_personal');
             }
             await recordFichaDiff(pool, {
                 cedula,
@@ -719,7 +740,7 @@ function registerOnboardingRoutes(deps) {
                 after: updated,
                 actor,
                 origen: 'ficha_patch',
-                onlyKeys: Object.keys(patchToApply)
+                onlyKeys
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -769,7 +790,7 @@ function registerOnboardingRoutes(deps) {
                 return res.status(409).json({ ok: false, error: 'Ya existe un colaborador con esa cédula.' });
             }
             const normalizedCreate = normalizeColabTextPatch(parsed.data);
-            const tipoPersonal = normalizedCreate.tipo_personal || 'consultor';
+            const tipoPersonal = inferTipoPersonal(normalizedCreate);
             await pool.query(
                 `INSERT INTO colaboradores (cedula, nombre, activo, tipo_personal, created_at, updated_at)
                  VALUES ($1, $2, TRUE, $3, NOW(), NOW())`,

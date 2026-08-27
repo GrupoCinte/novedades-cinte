@@ -76,6 +76,10 @@ migrations/
 # Matriz RBAC versionada (excepción a *.md)
 !docs/RBAC_MATRIX.md
 
+# Pase AUT-321: consultores con cabecera CINTE → staff (QA/prod con autorización)
+!docs/runbooks/
+!docs/runbooks/aut-321-cinte-consultores-a-staff.md
+
 # Bitácora local de cambios: no versionar ni subir a GitHub
 docs/HISTORIAL-CAMBIOS.md
 
