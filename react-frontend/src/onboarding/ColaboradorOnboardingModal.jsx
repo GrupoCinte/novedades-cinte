@@ -75,6 +75,8 @@ export default function ColaboradorOnboardingModal({
     const [editMode, setEditMode] = useState(createMode);
     const [esBaja, setEsBaja] = useState(false);
     const [bajaOpen, setBajaOpen] = useState(false);
+    const [canceladoOpen, setCanceladoOpen] = useState(false);
+    const [esCancelado, setEsCancelado] = useState(false);
     const [saving, setSaving] = useState(false);
     const [clientes, setClientes] = useState([]);
     const [liderOptions, setLiderOptions] = useState([]);
@@ -148,6 +150,7 @@ export default function ColaboradorOnboardingModal({
             const [ficha, cats] = await Promise.all([onboardingApi.getPersonal(token, ced), fetchClientes()]);
             const item = ficha?.item || {};
             setEsBaja(item.activo === false || Boolean(item.motivo_baja));
+            setEsCancelado(item.cancelado === true);
             const mapped = mapRowToStaffForm(item);
             setForm(mapped);
             setOriginalForm(mapped);
@@ -302,6 +305,12 @@ export default function ColaboradorOnboardingModal({
         if (item && item.activo === false && typeof onClose === 'function') onClose();
     };
 
+    const handleCanceladoConfirmado = (item) => {
+        setCanceladoOpen(false);
+        if (typeof onSaved === 'function') onSaved(item || null);
+        if (typeof onClose === 'function') onClose();
+    };
+
     const subTabsBarCls = isLight
         ? 'flex shrink-0 flex-nowrap items-stretch gap-x-1 overflow-x-auto border-b border-slate-200/80 px-1'
         : 'flex shrink-0 flex-nowrap items-stretch gap-x-1 overflow-x-auto border-b border-white/10 px-1';
@@ -322,14 +331,23 @@ export default function ColaboradorOnboardingModal({
                     Editar
                 </button>
             ) : null}
-            {!loading && !error && !createMode && editMode && perms.canTramitarBaja && form.cedula && !esBaja ? (
-                <button
-                    type="button"
-                    onClick={() => setBajaOpen(true)}
-                    className="inline-flex items-center justify-center rounded-lg bg-rose-500/90 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-rose-500 sm:px-4 sm:py-2 sm:text-sm"
-                >
-                    Cerrar contrato
-                </button>
+            {!loading && !error && !createMode && editMode && perms.canTramitarBaja && form.cedula && !esBaja && !esCancelado ? (
+                <>
+                    <button
+                        type="button"
+                        onClick={() => setCanceladoOpen(true)}
+                        className="inline-flex items-center justify-center rounded-lg border border-amber-500/70 bg-transparent px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm transition-all hover:bg-amber-500/10 dark:text-amber-200 sm:px-4 sm:py-2 sm:text-sm"
+                    >
+                        Cancelados
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setBajaOpen(true)}
+                        className="inline-flex items-center justify-center rounded-lg bg-rose-500/90 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-rose-500 sm:px-4 sm:py-2 sm:text-sm"
+                    >
+                        Cerrar contrato
+                    </button>
+                </>
             ) : null}
         </>
     );
@@ -521,6 +539,15 @@ export default function ColaboradorOnboardingModal({
                     onConfirmed={handleBajaConfirmada}
                 />
             ) : null}
+            {canceladoOpen ? (
+                <CanceladoModal
+                    auth={auth}
+                    cedula={String(form.cedula || cedula || '').replace(/\D+/g, '')}
+                    nombre={form.nombre}
+                    onClose={() => setCanceladoOpen(false)}
+                    onConfirmed={handleCanceladoConfirmado}
+                />
+            ) : null}
         </>
     );
 }
@@ -659,6 +686,93 @@ function BajaModal({ auth, cedula, nombre, cliente, contratoId, vigentesCount, o
                         disabled={saving}
                     />
                 </div>
+            </div>
+        </MonitorGlassModalShell>
+    );
+}
+
+function CanceladoModal({ auth, cedula, nombre, onClose, onConfirmed }) {
+    const { labelMuted, isLight } = useModuleTheme();
+    const T = buildMonitorGlassModalTheme(isLight);
+    const token = auth?.token || '';
+    const [observaciones, setObservaciones] = useState('');
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleConfirm = async () => {
+        if (saving) return;
+        const cedNorm = String(cedula || '').replace(/\D+/g, '');
+        if (!cedNorm) {
+            setError('No se pudo identificar la cédula. Cierra y vuelve a abrir la ficha.');
+            return;
+        }
+        setSaving(true);
+        setError('');
+        try {
+            const body = {};
+            if (observaciones.trim()) body.observaciones = observaciones.trim();
+            const r = await onboardingApi.marcarCancelado(token, cedNorm, body);
+            if (typeof onConfirmed === 'function') onConfirmed(r?.item || null);
+        } catch (ex) {
+            const msg = ex?.response?.data?.error || ex.message;
+            setError(msg || 'Error al pasar a Cancelaciones.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const inputCls = isLight
+        ? 'field-control w-full px-3 py-2 text-sm'
+        : 'field-control w-full px-3 py-2 text-sm';
+    const labelCls = `mb-1 block text-[11px] font-bold uppercase tracking-wider ${labelMuted}`;
+
+    const footer = (
+        <>
+            <button type="button" disabled={saving} onClick={onClose} className={T.cancelBtnCls}>
+                Volver
+            </button>
+            <button
+                type="button"
+                disabled={saving}
+                onClick={handleConfirm}
+                className="rounded-xl border border-amber-500/70 bg-transparent px-4 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-500/10 disabled:opacity-50 dark:text-amber-200"
+            >
+                {saving ? 'Procesando…' : 'Pasar a Cancelaciones'}
+            </button>
+        </>
+    );
+
+    return (
+        <MonitorGlassModalShell
+            open
+            onClose={onClose}
+            disableBackdropClose={saving}
+            zClass="z-[170]"
+            size="md"
+            title="Cancelados"
+            subtitle={`${cedula}${nombre ? ` · ${nombre}` : ''}`}
+            avatarLetter={nombre || cedula}
+            footer={footer}
+            bodyClassName="px-6 pb-2 pt-2"
+        >
+            <p className={`mb-4 text-sm leading-relaxed ${T.textMuted}`}>
+                Esto no corrió. {nombre || 'La persona'} sale de Activos y va a Cancelaciones. No pasa a Bajas.
+            </p>
+            {error ? (
+                <div className="mb-4 rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">
+                    {error}
+                </div>
+            ) : null}
+            <div>
+                <label className={labelCls}>Observación</label>
+                <textarea
+                    value={observaciones}
+                    onChange={(e) => setObservaciones(e.target.value)}
+                    rows={3}
+                    className={`${inputCls} min-h-[80px] resize-y`}
+                    placeholder="Por qué no corrió (opcional)…"
+                    disabled={saving}
+                />
             </div>
         </MonitorGlassModalShell>
     );

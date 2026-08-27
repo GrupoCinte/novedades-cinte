@@ -1,15 +1,16 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import useMonitorData from '../contratacion/hooks/useMonitorData.js';
 import { userHasContratacionPanel } from '../contratacion/contratacionAccess.js';
 import SortableGestionDataTable from './SortableGestionDataTable.jsx';
 import { buildGestionTableDash } from '../gestionTableDashTheme.js';
 import { CANCELACIONES_DEFAULT_SORT, toggleSort } from './onboardingSortDefaults.js';
 import { fmtFecha } from './views.jsx';
-import { isMonitorCancellation, mapCancellationRow } from './cancelacionesFilter.js';
+import { isMonitorCancellation, mapCancellationRow, mapManualCanceladoRow } from './cancelacionesFilter.js';
 import { compareCancellationRows } from './cancelacionesSort.js';
 import { buildMonitorGlassModalTheme, monitorGlassModalSizeCls } from '../shared/modals/monitorGlassModalTheme.js';
+import { onboardingApi } from './api.js';
 
-const SORT_KEYS = ['cedula', 'nombre', 'cliente', 'puesto', 'status', 'fecha_inicio', 'fecha_evento'];
+const SORT_KEYS = ['cedula', 'nombre', 'cliente', 'puesto', 'status', 'origen', 'fecha_inicio', 'fecha_evento'];
 
 function ObservacionCell({ text, isLight }) {
     const value = String(text || '').trim();
@@ -51,6 +52,10 @@ function DetalleCancelacionModal({ row, isLight, onClose }) {
                             <dd>{row.status || '—'}</dd>
                         </div>
                         <div>
+                            <dt className="text-xs font-bold uppercase opacity-60">Origen</dt>
+                            <dd>{row.origen === 'manual' ? 'Cancelado a mano' : 'Proceso de ingreso'}</dd>
+                        </div>
+                        <div>
                             <dt className="text-xs font-bold uppercase opacity-60">F. eliminación / rechazo</dt>
                             <dd>{fmtFecha(row.fecha_evento)}</dd>
                         </div>
@@ -75,15 +80,44 @@ export default function CancelacionesView({ auth, isLight }) {
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(50);
     const [detalleRow, setDetalleRow] = useState(null);
+    const [manualItems, setManualItems] = useState([]);
+    const [manualLoading, setManualLoading] = useState(true);
+    const [manualError, setManualError] = useState('');
+
+    useEffect(() => {
+        let alive = true;
+        setManualLoading(true);
+        setManualError('');
+        onboardingApi
+            .listCancelados(auth?.token || '', { limit: 2000, offset: 0 })
+            .then((r) => {
+                if (!alive) return;
+                setManualItems(Array.isArray(r?.items) ? r.items : []);
+            })
+            .catch((e) => {
+                if (!alive) return;
+                setManualError(e?.response?.data?.error || e.message || 'No se pudieron cargar los cancelados.');
+            })
+            .finally(() => {
+                if (alive) setManualLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [auth?.token]);
 
     const rows = useMemo(() => {
-        const mapped = executions.filter(isMonitorCancellation).map(mapCancellationRow);
+        const monitorRows = canMonitor
+            ? executions.filter(isMonitorCancellation).map(mapCancellationRow)
+            : [];
+        const manualRows = manualItems.map(mapManualCanceladoRow);
+        const mapped = [...manualRows, ...monitorRows];
         return [...mapped].sort((a, b) => {
             const cmp = compareCancellationRows(a, b, sort.key, sort.dir);
             if (cmp !== 0) return cmp;
             return compareCancellationRows(a, b, 'fecha_evento', 'asc');
         });
-    }, [executions, sort]);
+    }, [canMonitor, executions, manualItems, sort]);
 
     const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
     const safePage = Math.min(page, totalPages - 1);
@@ -100,6 +134,11 @@ export default function CancelacionesView({ auth, isLight }) {
         { key: 'cliente', label: 'Cliente' },
         { key: 'puesto', label: 'Puesto' },
         { key: 'status', label: 'Status' },
+        {
+            key: 'origen',
+            label: 'Origen',
+            render: (r) => (r.origen === 'manual' ? 'Cancelado a mano' : 'Proceso de ingreso')
+        },
         { key: 'fecha_inicio', label: 'F. inicio proceso', render: (r) => fmtFecha(r.fecha_inicio) },
         { key: 'fecha_evento', label: 'F. eliminación / rechazo', render: (r) => fmtFecha(r.fecha_evento) },
         {
@@ -111,21 +150,14 @@ export default function CancelacionesView({ auth, isLight }) {
         }
     ];
 
-    if (!canMonitor) {
-        return (
-            <div className="flex flex-col gap-4">
-                <p className={G.mutedSm}>
-                    Necesitas acceso al panel Contratación (monitor n8n) para consultar candidatos rechazados o eliminados.
-                </p>
-            </div>
-        );
-    }
+    const combinedError = manualError || (canMonitor ? error : '');
+    const combinedLoading = manualLoading || (canMonitor && loading);
 
     return (
         <div className="flex flex-col gap-4">
-            {error ? (
+            {combinedError ? (
                 <div className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                    {error}
+                    {combinedError}
                 </div>
             ) : null}
 
@@ -138,7 +170,7 @@ export default function CancelacionesView({ auth, isLight }) {
                 sortableKeys={SORT_KEYS}
                 // Clave estable por ejecución: cédula/CARGANDO se repiten y rompían el reorden visual (AUT-545).
                 rowKey={(r) => r.executionId || `${r.cedula || 'x'}-${r.fecha_evento || ''}-${r._eventMs || 0}`}
-                emptyText={loading ? 'Cargando…' : 'Sin cancelaciones o eliminaciones en el monitor.'}
+                emptyText={combinedLoading ? 'Cargando…' : 'Sin cancelaciones.'}
                 onRowClick={setDetalleRow}
             />
 
