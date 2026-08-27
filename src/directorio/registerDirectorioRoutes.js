@@ -7,7 +7,9 @@ const { normalizeRoleOrNull } = require('../rbac');
 const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSemaforo');
 const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
 const { resolveActorUserIdForSession } = require('../resolveActorUserId');
-const { reubicacionesGuard } = require('../reubicaciones/reubicacionesAuthService');
+const { reubicacionesGuard, canRegisterObservacion, canDecideAptitud } = require('../reubicaciones/reubicacionesAuthService');
+const { registrarObservacion, obtenerUltimaObservacion, obtenerHistorialObservaciones } = require('../reubicaciones/reubicacionesObservacionesService');
+const { registrarDecision, obtenerUltimaDecision, obtenerHistorialDecisiones } = require('../reubicaciones/reubicacionesDecisionesService');
 
 function directorioGuard() {
     return (req, res, next) => {
@@ -1296,6 +1298,59 @@ function registerDirectorioRoutes(deps) {
         } catch (e) {
             console.error('DELETE directorio reubicaciones-pipeline:', e);
             return res.status(500).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
+        }
+    });
+
+    app.get('/api/directorio/reubicaciones-pipeline/:id/aptitud-context', ...readGuard, reubicacionesGuard, async (req, res) => {
+        try {
+            const pipelineId = req.params.id;
+            const pool = req.app.locals.pool;
+            const observacion = await obtenerUltimaObservacion({ pipelineId, pool });
+            const decision = await obtenerUltimaDecision({ pipelineId, pool });
+            const historialObs = await obtenerHistorialObservaciones({ pipelineId, pool });
+            const historialDec = await obtenerHistorialDecisiones({ pipelineId, pool });
+            return res.json({ ok: true, observacion, decision, historialObs, historialDec });
+        } catch (e) {
+            console.error('GET aptitud-context:', e);
+            return res.status(500).json({ ok: false, error: 'Error al obtener contexto de aptitud' });
+        }
+    });
+
+    app.post('/api/directorio/reubicaciones-pipeline/:id/observacion', ...writeGuard, reubicacionesGuard, async (req, res) => {
+        try {
+            if (!canRegisterObservacion(req)) {
+                return res.status(403).json({ ok: false, error: 'No tienes permiso para registrar observaciones' });
+            }
+            const pipelineId = req.params.id;
+            const pool = req.app.locals.pool;
+            const { observacion, expectedVersion } = req.body;
+            const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
+            const actor = { user_id: req.user?.sub, role: req.user?.role, nombre: req.user?.full_name };
+            
+            const result = await registrarObservacion({ pipelineId, observacion, expectedVersion, actor, pool, idempotencyKey });
+            return res.status(result.status).json(result.body);
+        } catch (e) {
+            console.error('POST observacion:', e);
+            return res.status(500).json({ ok: false, error: 'Error interno al guardar observacion' });
+        }
+    });
+
+    app.post('/api/directorio/reubicaciones-pipeline/:id/decision', ...writeGuard, reubicacionesGuard, async (req, res) => {
+        try {
+            if (!canDecideAptitud(req)) {
+                return res.status(403).json({ ok: false, error: 'No tienes permiso para decidir aptitud' });
+            }
+            const pipelineId = req.params.id;
+            const pool = req.app.locals.pool;
+            const { decision, justificacion } = req.body;
+            const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
+            const actor = { user_id: req.user?.sub, role: req.user?.role, nombre: req.user?.full_name };
+            
+            const result = await registrarDecision({ pipelineId, decision, justificacion, decididoPor: actor, pool, idempotencyKey });
+            return res.status(result.status).json(result.body);
+        } catch (e) {
+            console.error('POST decision:', e);
+            return res.status(500).json({ ok: false, error: 'Error interno al guardar decisión' });
         }
     });
 

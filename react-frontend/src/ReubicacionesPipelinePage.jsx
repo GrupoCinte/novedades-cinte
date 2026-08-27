@@ -11,6 +11,7 @@ import {
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
 import { canEditReubicaciones } from './reubicacionesAccess.js';
+import { ReubicacionesDetalleModal } from './ReubicacionesDetalleModal.jsx';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -654,69 +655,21 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
             ) : null}
 
             {editOpen && editRow ? (
-                <div className={modalShell}>
-                    <div
-                        className={`relative w-full max-w-lg rounded-2xl border p-6 shadow-xl ${
-                            isLight ? 'border-slate-200 bg-white' : 'border-[var(--border)] bg-[var(--surface)]'
-                        }`}
-                    >
-                        <h2 className={`text-lg font-heading font-bold mb-4 ${headingAccent}`}>
-                            {canEdit ? 'Editar seguimiento' : 'Detalle de reubicación'}
-                        </h2>
-                        <p className={`text-xs ${labelMuted} mb-3`}>
-                            Cédula {editForm.cedula} · {editRow.consultor || 'Consultor'}
-                        </p>
-                        <form onSubmit={submitEdit} className="space-y-3">
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
-                                <input
-                                    {...nativeCalendarOnlyInputProps}
-                                    type="date"
-                                    className={`w-full ${field}`}
-                                    value={editForm.fecha_fin}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, fecha_fin: e.target.value }))}
-                                    required
-                                    disabled={!canEdit}
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Cliente destino</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={editForm.cliente_destino}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, cliente_destino: e.target.value }))}
-                                    disabled={!canEdit}
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Causal</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={editForm.causal}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, causal: e.target.value }))}
-                                    disabled={!canEdit}
-                                />
-                            </div>
-                            <div className="flex justify-end gap-2 pt-2">
-                                <button
-                                    type="button"
-                                    className={dash.compactBtn}
-                                    onClick={() => {
-                                        setEditOpen(false);
-                                        setEditRow(null);
-                                    }}
-                                >
-                                    {canEdit ? 'Cancelar' : 'Cerrar'}
-                                </button>
-                                {canEdit && (
-                                    <button type="submit" disabled={editSaving} className={toolbarBtn}>
-                                        {editSaving ? 'Guardando…' : 'Guardar'}
-                                    </button>
-                                )}
-                            </div>
-                        </form>
-                    </div>
-                </div>
+                <ReubicacionesDetalleModal
+                    isOpen={editOpen}
+                    onClose={() => {
+                        setEditOpen(false);
+                        setEditRow(null);
+                    }}
+                    row={editRow}
+                    token={token}
+                    auth={auth}
+                    editForm={editForm}
+                    setEditForm={setEditForm}
+                    submitEdit={submitEdit}
+                    canEdit={canEdit}
+                    editSaving={editSaving}
+                />
             ) : null}
 
             {confirmDeleteRow ? (
