@@ -43,11 +43,16 @@ export function maestroTipoPersonal(viewId) {
     return 'consultor';
 }
 
-/** Columnas de Activos y de Bajas (misma lectura). */
+/** Columnas base de Activos (y de Bajas, más extras). */
 export function maestroGridColumnKeys() {
     return ['cedula', 'nombre', 'cliente', 'fecha_ingreso', 'fecha_termino', 'tipo_contrato', 'puesto'];
 }
 
+/** Bajas: Permanencia calculada y Motivo. Tipo no: ya va por menú. */
+export function maestroBajasExtraColumnKeys() {
+    return ['motivo_baja', 'tiempo_permanencia_meses'];
+}
+
 export function maestroBajasExcludedColumnKeys() {
-    return ['tipo_personal', 'fecha_baja_efectiva', 'tiempo_permanencia_meses', 'motivo_baja'];
+    return ['tipo_personal', 'fecha_baja_efectiva'];
 }

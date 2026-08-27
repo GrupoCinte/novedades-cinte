@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     canonicalizeChView,
     maestroBajasExcludedColumnKeys,
+    maestroBajasExtraColumnKeys,
     maestroGridColumnKeys,
     maestroTipoPersonal,
     resolveChMaestroNav,
@@ -36,15 +37,19 @@ describe('chMaestroNav AUT-314', () => {
         assert.equal(maestroTipoPersonal('sena'), 'sena');
     });
 
-    it('Bajas se lee como Activos: puesto y fechas; sin tipo, fecha de baja ni permanencia', () => {
+    it('Bajas suma Permanencia y Motivo; no vuelve Tipo ni fecha de baja', () => {
         const cols = maestroGridColumnKeys();
+        const extras = maestroBajasExtraColumnKeys();
         const hidden = maestroBajasExcludedColumnKeys();
         assert.ok(cols.includes('puesto'));
         assert.ok(cols.includes('fecha_ingreso'));
         assert.ok(cols.includes('fecha_termino'));
         assert.ok(cols.includes('tipo_contrato'));
+        assert.ok(extras.includes('tiempo_permanencia_meses'));
+        assert.ok(extras.includes('motivo_baja'));
         for (const key of hidden) {
             assert.equal(cols.includes(key), false);
+            assert.equal(extras.includes(key), false);
         }
     });
 });

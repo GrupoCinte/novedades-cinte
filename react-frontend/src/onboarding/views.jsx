@@ -317,7 +317,17 @@ export function PersonalView({
                     key: 'puesto',
                     label: 'Puesto',
                     render: (r) => chUpper(r.puesto)
-                }
+                },
+                ...(isBajas
+                    ? [
+                          {
+                              key: 'motivo_baja',
+                              label: 'Motivo baja',
+                              render: (r) => <MotivoBajaBadge value={r.motivo_baja} isLight={isLight} />
+                          },
+                          { key: 'tiempo_permanencia_meses', label: 'Permanencia (m)' }
+                      ]
+                    : [])
             ]
         : [
                 { key: 'cedula', label: 'Cédula' },
