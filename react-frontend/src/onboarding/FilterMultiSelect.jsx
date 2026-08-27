@@ -20,7 +20,7 @@ function normalizeOptions(options) {
 /**
  * Desplegable con selección múltiple. Cerrado parece un select; abierto muestra checkboxes.
  * Vacío = todos.
- * Patrón portal: docs/patron-filtros-desplegable-multiple.md (AUT-316).
+ * Patrón portal: react-frontend/src/shared/filters/README.md (AUT-316).
  */
 export default function FilterMultiSelect({
     id,
