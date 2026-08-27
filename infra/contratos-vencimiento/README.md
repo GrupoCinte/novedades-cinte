@@ -22,11 +22,12 @@ Pipeline diario desacoplado del portal Node y de `email-transactions` / `seguimi
 - `API_BASE_URL` + `CONTRATOS_VENCIMIENTO_TOKEN` (propio; no reutilizar el de actas)
 - `SES_FROM_EMAIL`
 - `AS_OF_DATE` opcional, solo fuera de production
+- `TEST_RECIPIENT_EMAIL` opcional: si está, el digest va solo a ese correo (pruebas)
 
 El portal no registra cron. La pastilla y la lista **Por vencer** viven en Capital Humano (ventana 30/15/5).
 
 ## Deploy (cuando se autorice)
 
 ```powershell
-node infra/contratos-vencimiento/deploy.js
+node --use-system-ca infra/contratos-vencimiento/deploy.js
 ```

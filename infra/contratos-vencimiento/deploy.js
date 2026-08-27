@@ -62,10 +62,14 @@ function zipLambda() {
     if (!fs.existsSync(path.join(srcDir, 'node_modules', '@aws-sdk'))) {
         execSync('npm install --omit=dev', { cwd: srcDir, stdio: 'inherit' });
     }
-    execSync(
-        `robocopy "${path.join(srcDir, 'node_modules')}" "${path.join(work, 'node_modules')}" /E /NFL /NDL /NJH /NJS /nc /ns /np`,
-        { stdio: 'ignore', shell: true }
-    );
+    try {
+        execSync(
+            `robocopy "${path.join(srcDir, 'node_modules')}" "${path.join(work, 'node_modules')}" /E /NFL /NDL /NJH /NJS /nc /ns /np`,
+            { stdio: 'ignore', shell: true }
+        );
+    } catch (e) {
+        if (Number(e.status) >= 8) throw e;
+    }
     fs.copyFileSync(path.join(srcDir, 'package.json'), path.join(work, 'package.json'));
     fs.rmSync(outZip, { force: true });
     execSync(
@@ -74,6 +78,16 @@ function zipLambda() {
     );
     if (!fs.existsSync(outZip)) throw new Error(`zip missing: ${outZip}`);
     return outZip;
+}
+
+async function waitLambdaIdle(lambda, name) {
+    for (let i = 0; i < 36; i += 1) {
+        const g = await lambda.send(new GetFunctionCommand({ FunctionName: name }));
+        const st = g.Configuration?.LastUpdateStatus || 'Successful';
+        if (st === 'Successful' || st === 'Failed') return st;
+        await new Promise((r) => setTimeout(r, 5000));
+    }
+    throw new Error(`Lambda ${name} sigue actualizándose`);
 }
 
 async function main() {
@@ -126,6 +140,11 @@ async function main() {
         );
         await new Promise((r) => setTimeout(r, 8000));
     }
+    const fromDomain = from.includes('@') ? from.split('@').pop() : '';
+    const sesIdentities = [`arn:aws:ses:${region}:${accountId}:identity/${from}`];
+    if (fromDomain && fromDomain !== from) {
+        sesIdentities.push(`arn:aws:ses:${region}:${accountId}:identity/${fromDomain}`);
+    }
     await iam.send(
         new PutRolePolicyCommand({
             RoleName: ROLE_NAME,
@@ -136,7 +155,7 @@ async function main() {
                     {
                         Effect: 'Allow',
                         Action: ['ses:SendEmail', 'ses:SendRawEmail'],
-                        Resource: [`arn:aws:ses:${region}:${accountId}:identity/${from}`]
+                        Resource: sesIdentities
                     }
                 ]
             })
@@ -152,10 +171,11 @@ async function main() {
     };
     let fnArn;
     try {
-        await lambda.send(new GetFunctionCommand({ FunctionName: FN_NAME }));
+        await waitLambdaIdle(lambda, FN_NAME);
         await lambda.send(
             new UpdateFunctionCodeCommand({ FunctionName: FN_NAME, ZipFile: fs.readFileSync(zipPath) })
         );
+        await waitLambdaIdle(lambda, FN_NAME);
         const upd = await lambda.send(
             new UpdateFunctionConfigurationCommand({
                 FunctionName: FN_NAME,
@@ -165,6 +185,7 @@ async function main() {
             })
         );
         fnArn = upd.FunctionArn;
+        await waitLambdaIdle(lambda, FN_NAME);
     } catch (e) {
         if (e.name !== 'ResourceNotFoundException') throw e;
         const created = await lambda.send(
@@ -204,7 +225,7 @@ async function main() {
                 new CreateRoleCommand({
                     RoleName: schedulerRoleName,
                     AssumeRolePolicyDocument: assumeSched,
-                    Description: 'AUT-319 EventBridge → contratos-vencimiento'
+                    Description: 'AUT-319 EventBridge to contratos-vencimiento'
                 })
             )
         ).Role.Arn;

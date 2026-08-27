@@ -578,6 +578,7 @@ function registerOnboardingRoutes(deps) {
             res.json({ ok: true, items, recipients });
         } catch (error) {
             const status = Number(error.statusCode) || 500;
+            if (status >= 500) console.error('[Onboarding elegibles-vencimiento]', error.message);
             res.status(status).json({
                 ok: false,
                 error: status === 400 ? error.message : 'Error interno'
@@ -595,6 +596,7 @@ function registerOnboardingRoutes(deps) {
             res.json({ ok: true, ...result });
         } catch (error) {
             const status = Number(error.statusCode) || 500;
+            if (status >= 500) console.error('[Onboarding marcar-vencimiento]', error.message);
             res.status(status).json({
                 ok: false,
                 error: status === 400 ? error.message : 'Error interno'

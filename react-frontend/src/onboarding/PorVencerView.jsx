@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { onboardingApi } from './api.js';
 import OnboardingListView from './OnboardingListView.jsx';
 import ColaboradorOnboardingModal from './ColaboradorOnboardingModal.jsx';
@@ -16,9 +16,29 @@ function chUpper(value) {
     return s ? s.toLocaleUpperCase('es-CO') : '';
 }
 
-export default function PorVencerView({ auth, isLight }) {
+export async function fetchPorVencerCount(token) {
+    try {
+        const data = await onboardingApi.listPorVencer(token, { limit: 1 });
+        return Number(data?.total) || 0;
+    } catch {
+        return 0;
+    }
+}
+
+export default function PorVencerView({ auth, isLight, onCount }) {
     const token = auth?.token || '';
     const [selected, setSelected] = useState(null);
+
+    useEffect(() => {
+        if (typeof onCount !== 'function') return undefined;
+        let alive = true;
+        fetchPorVencerCount(token).then((n) => {
+            if (alive) onCount(n);
+        });
+        return () => {
+            alive = false;
+        };
+    }, [token, onCount]);
 
     return (
         <>

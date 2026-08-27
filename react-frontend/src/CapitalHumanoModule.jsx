@@ -29,7 +29,7 @@ import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import OnboardingListView from './onboarding/OnboardingListView.jsx';
 import CancelacionesView from './onboarding/CancelacionesView.jsx';
-import PorVencerView from './onboarding/PorVencerView.jsx';
+import PorVencerView, { fetchPorVencerCount } from './onboarding/PorVencerView.jsx';
 import FichaNovedadesView, { fetchFichaNovedadesPendingCount } from './onboarding/FichaNovedadesView.jsx';
 import { EXTRANJEROS_DEFAULT_SORT, LICENCIAS_DEFAULT_SORT } from './onboarding/onboardingSortDefaults.js';
 import {
@@ -93,6 +93,22 @@ function deriveScope(viewId) {
     return viewId.startsWith('monitor-') ? 'contratacion' : 'onboarding';
 }
 
+function NavCountBadge({ count }) {
+    const n = Number(count) || 0;
+    if (n <= 0) return null;
+    return (
+        <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+            {n}
+        </span>
+    );
+}
+
+function navItemCount(id, zohoPendingCount, porVencerCount) {
+    if (id === 'novedades-zoho') return zohoPendingCount;
+    if (id === 'por-vencer') return porVencerCount;
+    return 0;
+}
+
 function firstViewForUser(auth) {
     const canOnboarding = userHasOnboardingPanel(auth);
     const canMonitor = userHasContratacionPanel(auth);
@@ -126,6 +142,7 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
     // Ingresos reales mensuales (Postgres, fecha_ingreso) para el card del Dashboard General.
     const [monitorIngresos, setMonitorIngresos] = useState(null);
     const [zohoPendingCount, setZohoPendingCount] = useState(0);
+    const [porVencerCount, setPorVencerCount] = useState(0);
     useEffect(() => {
         if (!canOnboarding) return undefined;
         let alive = true;
@@ -137,6 +154,9 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
             .catch(() => {});
         fetchFichaNovedadesPendingCount(auth?.token || '').then((n) => {
             if (alive) setZohoPendingCount(n);
+        });
+        fetchPorVencerCount(auth?.token || '').then((n) => {
+            if (alive) setPorVencerCount(n);
         });
         return () => {
             alive = false;
@@ -223,7 +243,7 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                     />
                 );
             case 'por-vencer':
-                return <PorVencerView auth={auth} isLight={isLight} />;
+                return <PorVencerView auth={auth} isLight={isLight} onCount={setPorVencerCount} />;
             case 'bajas':
                 return <PersonalView auth={auth} activo="false" isLight={isLight} />;
             case 'sena':
@@ -447,11 +467,7 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                                     <Icon size={17} />
                                     <span className="flex flex-1 items-center justify-between gap-2">
                                         <span>{label}</span>
-                                        {id === 'novedades-zoho' && zohoPendingCount > 0 ? (
-                                            <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                                                {zohoPendingCount}
-                                            </span>
-                                        ) : null}
+                                        <NavCountBadge count={navItemCount(id, zohoPendingCount, porVencerCount)} />
                                     </span>
                                 </button>
                             ))}
@@ -521,11 +537,7 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                                     {sidebarOpen ? (
                                         <span className="flex flex-1 items-center justify-between gap-2 truncate">
                                             <span className="truncate">{label}</span>
-                                            {id === 'novedades-zoho' && zohoPendingCount > 0 ? (
-                                                <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                                                    {zohoPendingCount}
-                                                </span>
-                                            ) : null}
+                                            <NavCountBadge count={navItemCount(id, zohoPendingCount, porVencerCount)} />
                                         </span>
                                     ) : null}
                                 </button>

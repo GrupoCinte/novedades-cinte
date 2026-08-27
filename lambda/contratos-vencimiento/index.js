@@ -39,9 +39,12 @@ async function processKind({ base, token, ses, from, kind, asOfDate }) {
     const q = new URLSearchParams({ kind, asOfDate });
     const data = await fetchJson(`${base}/api/onboarding/internal/elegibles-vencimiento?${q}`, token);
     const items = Array.isArray(data.items) ? data.items : [];
-    const recipients = (Array.isArray(data.recipients) ? data.recipients : [])
-        .map((r) => String(r?.email || r || '').trim().toLowerCase())
-        .filter((e) => e.includes('@'));
+    const testTo = String(process.env.TEST_RECIPIENT_EMAIL || '').trim().toLowerCase();
+    const recipients = testTo.includes('@')
+        ? [testTo]
+        : (Array.isArray(data.recipients) ? data.recipients : [])
+            .map((r) => String(r?.email || r || '').trim().toLowerCase())
+            .filter((e) => e.includes('@'));
     if (items.length === 0) return { kind, skipped: true, reason: 'empty' };
     if (recipients.length === 0) return { kind, skipped: true, reason: 'no_recipients', count: items.length };
 
