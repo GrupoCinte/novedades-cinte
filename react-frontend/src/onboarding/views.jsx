@@ -157,9 +157,11 @@ export function PersonalView({
     const [catDepartamento, setCatDepartamento] = useState([]);
     const [catCiudad, setCatCiudad] = useState([]);
     const token = auth?.token || '';
+    const isProximos = endpointKey === 'listProximos';
     const isBajas = activo === 'false';
-    const hideEmpleadorFilter = tipoPersonal === 'consultor' && activo === 'true' && !endpointKey;
-    const isPersonalActivoEarly = tipoPersonal === 'consultor' && activo === 'true' && !endpointKey;
+    const isMaestro = ['consultor', 'staff', 'sena'].includes(String(tipoPersonal || '')) && !isProximos;
+    const isMaestroActivos = isMaestro && !isBajas;
+    const hideEmpleadorFilter = tipoPersonal === 'consultor' && isMaestroActivos;
     const perms = useMemo(() => getOnboardingPermissions(auth), [auth]);
     const canCrear = perms.canEditFicha && !isBajas;
 
@@ -180,7 +182,7 @@ export function PersonalView({
     }, []);
 
     useEffect(() => {
-        if (isBajas) return undefined;
+        if (!isMaestro && !isProximos) return undefined;
         let alive = true;
         onboardingApi
             .catalogoPuestos(token)
@@ -191,12 +193,12 @@ export function PersonalView({
         return () => {
             alive = false;
         };
-    }, [isBajas, token]);
+    }, [isMaestro, isProximos, token]);
 
     useEffect(() => {
         // Sesión por cookie HttpOnly: auth.token suele ir vacío; axios ya manda credentials.
-        // Catálogos DISTINCT para Personal Activo y Bajas (mismos filtros demográficos).
-        if (!isPersonalActivoEarly && !isBajas) return undefined;
+        // Catálogos DISTINCT para Consultores / Staff / SENA (Activos y Bajas).
+        if (!isMaestro) return undefined;
         let alive = true;
         const load = async () => {
             try {
@@ -223,7 +225,7 @@ export function PersonalView({
         return () => {
             alive = false;
         };
-    }, [isPersonalActivoEarly, isBajas, token]);
+    }, [isMaestro, token]);
 
     useEffect(() => {
         if (!isBajas) return undefined;
@@ -239,9 +241,6 @@ export function PersonalView({
         };
     }, [isBajas, token]);
 
-    const isProximos = endpointKey === 'listProximos';
-    const isPersonalActivo = isPersonalActivoEarly;
-
     const params = useMemo(() => {
         const p = {
             limit: pageSize,
@@ -254,12 +253,11 @@ export function PersonalView({
         if (search) p.q = search;
         for (const [k, v] of Object.entries(filters)) {
             if (hideEmpleadorFilter && k === 'empleador') continue;
-            if ((isPersonalActivoEarly || isBajas) && (k === 'pais' || k === 'modalidad_trabajo')) continue;
-            if (isBajas && k === 'puesto') continue;
+            if (isMaestro && (k === 'pais' || k === 'modalidad_trabajo')) continue;
             if (v !== undefined && v !== '' && v !== null) p[k] = v;
         }
         return p;
-    }, [pageSize, page, sort, tipoPersonal, activo, search, filters, hideEmpleadorFilter, isPersonalActivoEarly, isBajas]);
+    }, [pageSize, page, sort, tipoPersonal, activo, search, filters, hideEmpleadorFilter, isMaestro]);
 
     const handleSort = useCallback((columnKey) => {
         setSort((cur) => toggleSort(cur, columnKey));
@@ -272,12 +270,12 @@ export function PersonalView({
         try {
             const endpoint = endpointKey
                 ? endpointKey
+                : isBajas
+                ? 'listBajas'
                 : tipoPersonal === 'sena'
                 ? 'listSena'
                 : tipoPersonal === 'staff'
                 ? 'listStaff'
-                : activo === 'false'
-                ? 'listBajas'
                 : 'listPersonal';
             const r = await onboardingApi[endpoint](token, params);
             setRows(r.items || []);
@@ -287,7 +285,7 @@ export function PersonalView({
         } finally {
             setLoading(false);
         }
-    }, [token, tipoPersonal, activo, params, endpointKey]);
+    }, [token, tipoPersonal, activo, params, endpointKey, isBajas]);
 
     useEffect(() => {
         load();
@@ -299,26 +297,10 @@ export function PersonalView({
         return <TipoPersonalBadge value={r.tipo_personal} isLight={isLight} />;
     };
 
-    const columns = isBajas
+    const columns = isMaestro
         ? [
-              { key: 'cedula', label: 'Cédula' },
-              { key: 'nombre', label: 'Nombre', render: (r) => renderNombreConContratos(r, isLight, true) },
-              { key: 'cliente', label: 'Cliente', render: (r) => chUpper(r.cliente) },
-              { key: 'fecha_ingreso', label: 'F. inicio', render: (r) => fmtFecha(r.fecha_ingreso) },
-              { key: 'fecha_termino', label: 'F. término', render: (r) => fmtFecha(r.fecha_termino) },
-              { key: 'tipo_contrato', label: 'Tipo contrato' },
-              { key: 'tipo_personal', label: 'Tipo', render: renderTipoPersonal },
-              {
-                  key: 'motivo_baja',
-                  label: 'Motivo baja',
-                  render: (r) => <MotivoBajaBadge value={r.motivo_baja} isLight={isLight} />
-              },
-              { key: 'tiempo_permanencia_meses', label: 'Permanencia (m)' }
-          ]
-        : isPersonalActivo
-          ? [
                 { key: 'cedula', label: 'Cédula' },
-                { key: 'nombre', label: 'Nombre', render: (r) => renderNombreConContratos(r, isLight, false) },
+                { key: 'nombre', label: 'Nombre', render: (r) => renderNombreConContratos(r, isLight, isBajas) },
                 { key: 'cliente', label: 'Cliente', render: (r) => chUpper(r.cliente) },
                 { key: 'fecha_ingreso', label: 'F. inicio', render: (r) => fmtFecha(r.fecha_ingreso) },
                 { key: 'fecha_termino', label: 'F. término', render: (r) => fmtFecha(r.fecha_termino) },
@@ -329,7 +311,7 @@ export function PersonalView({
                     render: (r) => chUpper(r.puesto)
                 }
             ]
-          : [
+        : [
                 { key: 'cedula', label: 'Cédula' },
                 { key: 'nombre', label: 'Nombre', render: (r) => renderNombreConContratos(r, isLight, false) },
                 { key: 'tipo_personal', label: 'Tipo', render: renderTipoPersonal },
@@ -377,18 +359,17 @@ export function PersonalView({
     const chipPairs = [
         [Boolean(search), search ? `Búsqueda: ${search.length > 18 ? `${search.slice(0, 16)}…` : search}` : ''],
         [Boolean(filters.cliente), filters.cliente ? `Cliente: ${String(filters.cliente).length > 16 ? `${String(filters.cliente).slice(0, 14)}…` : filters.cliente}` : ''],
-        [Boolean(filters.pais) && !isPersonalActivo && !isBajas, filters.pais ? `País: ${filters.pais}` : ''],
-        [Boolean(filters.empleador) && !hideEmpleadorFilter && !isBajas, filters.empleador ? `Empleador: ${filters.empleador}` : ''],
-        [Boolean(filters.puesto) && !isBajas, filters.puesto ? `Puesto: ${filters.puesto}` : ''],
+        [Boolean(filters.pais) && !isMaestro, filters.pais ? `País: ${filters.pais}` : ''],
+        [Boolean(filters.empleador) && !hideEmpleadorFilter && !isMaestro, filters.empleador ? `Empleador: ${filters.empleador}` : ''],
+        [Boolean(filters.puesto), filters.puesto ? `Puesto: ${filters.puesto}` : ''],
         [Boolean(filters.sexo), filters.sexo ? `Sexo: ${filters.sexo}` : ''],
         [Boolean(filters.tipo_contrato), filters.tipo_contrato ? `Contrato: ${filters.tipo_contrato}` : ''],
         [Boolean(filters.profesion), filters.profesion ? `Profesión: ${String(filters.profesion).length > 16 ? `${String(filters.profesion).slice(0, 14)}…` : filters.profesion}` : ''],
         [Boolean(filters.tipo_identificacion), filters.tipo_identificacion ? `ID: ${filters.tipo_identificacion}` : ''],
         [Boolean(filters.departamento), filters.departamento ? `Depto: ${filters.departamento}` : ''],
         [Boolean(filters.ciudad), filters.ciudad ? `Ciudad: ${filters.ciudad}` : ''],
-        [Boolean(filters.modalidad_trabajo) && !isPersonalActivo && !isBajas, filters.modalidad_trabajo ? `Modalidad: ${filters.modalidad_trabajo}` : ''],
+        [Boolean(filters.modalidad_trabajo) && !isMaestro, filters.modalidad_trabajo ? `Modalidad: ${filters.modalidad_trabajo}` : ''],
         [Boolean(filters.motivo_baja), filters.motivo_baja ? `Motivo: ${filters.motivo_baja.length > 16 ? `${filters.motivo_baja.slice(0, 14)}…` : filters.motivo_baja}` : ''],
-        [Boolean(filters.tipo_personal_extra), filters.tipo_personal_extra ? `Tipo: ${filters.tipo_personal_extra}` : ''],
         [Boolean(filters.fecha_ingreso_desde || filters.fecha_ingreso_hasta), 'Rango ingreso'],
         [Boolean(filters.fecha_baja_desde || filters.fecha_baja_hasta), 'Rango término']
     ];
@@ -400,18 +381,13 @@ export function PersonalView({
     };
     const applyDraft = () => {
         const next = { ...draft };
-        if (isBajas && next.tipo_personal_extra) {
-            next.tipo_personal = next.tipo_personal_extra;
-        } else {
-            delete next.tipo_personal;
-        }
+        delete next.tipo_personal;
         delete next.tipo_personal_extra;
-        if (isPersonalActivo || isBajas) {
+        if (isMaestro) {
             delete next.pais;
             delete next.modalidad_trabajo;
             delete next.empleador;
         }
-        if (isBajas) delete next.puesto;
         setFilters(next);
         setPage(0);
         setPanelOpen(false);
@@ -537,7 +513,7 @@ export function PersonalView({
                     </select>
                 </div>
 
-                {isBajas || isPersonalActivo ? (
+                {isMaestro ? (
                     <>
                         <div className="flex flex-col gap-1.5">
                             <label className={labelCls} htmlFor="pv-sexo">Sexo</label>
@@ -623,26 +599,24 @@ export function PersonalView({
                                 ))}
                             </select>
                         </div>
-                        {isPersonalActivo ? (
-                            <div className="flex flex-col gap-1.5">
-                                <label className={labelCls} htmlFor="pv-puesto">Puesto</label>
-                                <select
-                                    id="pv-puesto"
-                                    value={draft.puesto || ''}
-                                    onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))}
-                                    className={fieldCls}
-                                >
-                                    <option value="">Todos los puestos</option>
-                                    {puestos.map((p) => {
-                                        const label = String(p.puesto || p).trim();
-                                        if (!label) return null;
-                                        return (
-                                            <option key={label} value={label}>{label}</option>
-                                        );
-                                    })}
-                                </select>
-                            </div>
-                        ) : null}
+                        <div className="flex flex-col gap-1.5">
+                            <label className={labelCls} htmlFor="pv-puesto">Puesto</label>
+                            <select
+                                id="pv-puesto"
+                                value={draft.puesto || ''}
+                                onChange={(e) => setDraft((s) => ({ ...s, puesto: e.target.value }))}
+                                className={fieldCls}
+                            >
+                                <option value="">Todos los puestos</option>
+                                {puestos.map((p) => {
+                                    const label = String(p.puesto || p).trim();
+                                    if (!label) return null;
+                                    return (
+                                        <option key={label} value={label}>{label}</option>
+                                    );
+                                })}
+                            </select>
+                        </div>
                         <div className="flex flex-col gap-1.5">
                             <span className={labelCls}>Rango fecha de ingreso</span>
                             <div className="flex items-center gap-2">
@@ -664,20 +638,6 @@ export function PersonalView({
                                         <option value="">Todos los motivos</option>
                                         {motivosBaja.map((m) => (
                                             <option key={m.motivo || m.id} value={m.motivo}>{m.motivo}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div className="flex flex-col gap-1.5">
-                                    <label className={labelCls} htmlFor="pv-tipoextra">Tipo personal</label>
-                                    <select
-                                        id="pv-tipoextra"
-                                        value={draft.tipo_personal_extra || ''}
-                                        onChange={(e) => setDraft((s) => ({ ...s, tipo_personal_extra: e.target.value }))}
-                                        className={fieldCls}
-                                    >
-                                        <option value="">Todos</option>
-                                        {TIPO_PERSONAL_OPTIONS.map((t) => (
-                                            <option key={t.value} value={t.value}>{t.label}</option>
                                         ))}
                                     </select>
                                 </div>

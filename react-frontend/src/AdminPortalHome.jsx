@@ -184,7 +184,7 @@ export default function AdminPortalHome({ auth, onLogout }) {
             out.push({
                 key: 'capitalHumano',
                 title: 'Capital Humano',
-                description: 'Monitor n8n, personal, bajas, SENA, staff, licencias, calculadora y reportes.',
+                description: 'Monitor n8n, consultores, staff, SENA, licencias, calculadora y reportes.',
                 path: '/admin/capital-humano',
                 Icon: Users
             });

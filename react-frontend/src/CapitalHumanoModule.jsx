@@ -7,7 +7,6 @@ import {
     Menu,
     X,
     Users,
-    UserMinus,
     GraduationCap,
     Briefcase,
     Baby,
@@ -45,13 +44,19 @@ import {
     VencimientoDocBadge
 } from './onboarding/onboardingBadges.jsx';
 import { ContratacionDashboard } from './ContratacionModule.jsx';
+import {
+    canonicalizeChView,
+    isMaestroNavView,
+    maestroTipoPersonal,
+    resolveMaestroTab
+} from './onboarding/chMaestroNav.js';
 
 export { userHasOnboardingPanel } from './onboarding/onboardingAccess.js';
 
 /* ---------------------------------------------------------------------------
  * Navegación: dos grupos con encabezado
  *  - Monitor n8n  -> ContratacionDashboard (active / history / metrics)
- *  - Onboarding maestro -> Vistas Personal/Bajas/SENA/.../Rotación
+ *  - Onboarding maestro -> Consultores/Staff/SENA (Activos|Bajas), Próximos, Licencias…
  * ------------------------------------------------------------------------- */
 
 const NAV_GROUPS = [
@@ -69,10 +74,9 @@ const NAV_GROUPS = [
         label: 'Onboarding maestro',
         scope: 'onboarding',
         items: [
-            { id: 'personal', label: 'Personal Activo', icon: Users },
+            { id: 'consultores', label: 'Consultores', icon: Users },
             { id: 'proximos', label: 'Próximos a ingresar', icon: CalendarPlus },
             { id: 'por-vencer', label: 'Por vencer', icon: CalendarClock },
-            { id: 'bajas', label: 'Bajas', icon: UserMinus },
             { id: 'sena', label: 'SENA', icon: GraduationCap },
             { id: 'staff', label: 'Staff', icon: Briefcase },
             { id: 'licencias', label: 'Licencias', icon: Baby },
@@ -84,10 +88,12 @@ const NAV_GROUPS = [
     }
 ];
 
-/** Vistas válidas por scope. Las que llegan en ?v= se validan contra esta lista. */
-const VIEW_IDS = new Set(
-    NAV_GROUPS.flatMap((g) => g.items.map((it) => it.id))
-);
+/** Vistas válidas por scope. Incluye alias viejos `personal` y `bajas`. */
+const VIEW_IDS = new Set([
+    ...NAV_GROUPS.flatMap((g) => g.items.map((it) => it.id)),
+    'personal',
+    'bajas'
+]);
 
 function deriveScope(viewId) {
     return viewId.startsWith('monitor-') ? 'contratacion' : 'onboarding';
@@ -112,9 +118,47 @@ function navItemCount(id, zohoPendingCount, porVencerCount) {
 function firstViewForUser(auth) {
     const canOnboarding = userHasOnboardingPanel(auth);
     const canMonitor = userHasContratacionPanel(auth);
-    if (canOnboarding) return 'personal';
+    if (canOnboarding) return 'consultores';
     if (canMonitor) return 'monitor-active';
-    return 'personal';
+    return 'consultores';
+}
+
+function MaestroActivosBajasTabs({ isLight, tab, onTab, children }) {
+    const activeCls = isLight
+        ? 'rounded-t-lg border-b-2 border-[#2F7BB8] px-4 py-2 text-sm font-semibold text-[#2F7BB8]'
+        : 'rounded-t-lg border-b-2 border-[#65BCF7] px-4 py-2 text-sm font-semibold text-[#65BCF7]';
+    const inactiveCls = isLight
+        ? 'rounded-t-lg border-b-2 border-transparent px-4 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100'
+        : 'rounded-t-lg border-b-2 border-transparent px-4 py-2 text-sm font-medium text-slate-400 hover:bg-slate-800/60 hover:text-slate-200';
+    return (
+        <div className="flex flex-col gap-4">
+            <div
+                className={`flex flex-wrap gap-1 border-b ${isLight ? 'border-slate-200' : 'border-slate-700/60'}`}
+                role="tablist"
+                aria-label="Activos o Bajas"
+            >
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === 'activos'}
+                    className={tab === 'activos' ? activeCls : inactiveCls}
+                    onClick={() => onTab('activos')}
+                >
+                    Activos
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === 'bajas'}
+                    className={tab === 'bajas' ? activeCls : inactiveCls}
+                    onClick={() => onTab('bajas')}
+                >
+                    Bajas
+                </button>
+            </div>
+            {children}
+        </div>
+    );
 }
 
 export default function CapitalHumanoModule({ auth, onLogout }) {
@@ -171,25 +215,39 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
     const initialView = useMemo(() => {
         const q = String(searchParams.get('v') || '').trim();
         if (VIEW_IDS.has(q)) {
-            const scope = deriveScope(q);
+            const resolved = canonicalizeChView(q);
+            const scope = deriveScope(resolved);
             if (scope === 'contratacion' && !canMonitor) return firstViewForUser(auth);
             if (scope === 'onboarding' && !canOnboarding) return firstViewForUser(auth);
-            return q;
+            return resolved;
         }
         return firstViewForUser(auth);
     }, [searchParams, canMonitor, canOnboarding, auth]);
 
     const [navView, setNavView] = useState(initialView);
+    const [maestroTab, setMaestroTab] = useState(() =>
+        resolveMaestroTab(searchParams.get('v'), searchParams.get('tab'))
+    );
 
-    /** Mantener `?v=` sincronizado con la vista activa, sin sumar entradas al history. */
+    /** Mantener `?v=` y `?tab=` sincronizados, sin sumar entradas al history. */
     useEffect(() => {
-        const current = searchParams.get('v');
-        if (current !== navView) {
-            const next = new URLSearchParams(searchParams);
+        const next = new URLSearchParams(searchParams);
+        let changed = false;
+        if (next.get('v') !== navView) {
             next.set('v', navView);
-            setSearchParams(next, { replace: true });
+            changed = true;
         }
-    }, [navView, searchParams, setSearchParams]);
+        if (isMaestroNavView(navView)) {
+            if (next.get('tab') !== maestroTab) {
+                next.set('tab', maestroTab);
+                changed = true;
+            }
+        } else if (next.has('tab')) {
+            next.delete('tab');
+            changed = true;
+        }
+        if (changed) setSearchParams(next, { replace: true });
+    }, [navView, maestroTab, searchParams, setSearchParams]);
 
     if (!canOnboarding && !canMonitor) {
         return (
@@ -201,7 +259,9 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
 
     const handleNav = (id) => {
         if (!VIEW_IDS.has(id)) return;
-        setNavView(id);
+        const nextView = canonicalizeChView(id);
+        setNavView(nextView);
+        if (isMaestroNavView(nextView)) setMaestroTab('activos');
         setMobileMenuOpen(false);
     };
 
@@ -230,14 +290,23 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
             );
         }
         switch (navView) {
-            case 'personal':
+            case 'consultores':
+            case 'sena':
+            case 'staff':
                 return (
-                    <PersonalView
-                        auth={auth}
-                        tipoPersonal="consultor"
-                        activo="true"
+                    <MaestroActivosBajasTabs
                         isLight={isLight}
-                    />
+                        tab={maestroTab}
+                        onTab={setMaestroTab}
+                    >
+                        <PersonalView
+                            key={`${navView}-${maestroTab}`}
+                            auth={auth}
+                            tipoPersonal={maestroTipoPersonal(navView)}
+                            activo={maestroTab === 'bajas' ? 'false' : 'true'}
+                            isLight={isLight}
+                        />
+                    </MaestroActivosBajasTabs>
                 );
             case 'proximos':
                 return (
@@ -250,12 +319,6 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                 );
             case 'por-vencer':
                 return <PorVencerView auth={auth} isLight={isLight} onCount={setPorVencerCount} />;
-            case 'bajas':
-                return <PersonalView auth={auth} activo="false" isLight={isLight} />;
-            case 'sena':
-                return <PersonalView auth={auth} tipoPersonal="sena" isLight={isLight} />;
-            case 'staff':
-                return <PersonalView auth={auth} tipoPersonal="staff" isLight={isLight} />;
             case 'licencias':
                 return (
                     <OnboardingListView
