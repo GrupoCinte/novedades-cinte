@@ -512,6 +512,7 @@ export function PersonalView({
                 onClear={clearAll}
                 onApply={applyDraft}
                 isLight={isLight}
+                title="Filtros"
             >
                 <div className="flex flex-col gap-1.5">
                     <span className={labelCls} id="pv-cliente">Cliente</span>
