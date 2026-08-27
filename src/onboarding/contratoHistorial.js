@@ -41,7 +41,8 @@ const SKIP_FICHA_KEYS = new Set([
     'fecha_ingreso',
     'fecha_termino',
     'fecha_inicio',
-    'vigente'
+    'vigente',
+    'tipo_personal'
 ]);
 
 const FIELD_BY_KEY = new Map([
@@ -167,10 +168,21 @@ function actorFromUser(user, { fallbackNombre = 'Sistema' } = {}) {
     };
 }
 
-function diffFichaSnapshots(before, after) {
+function keysForFichaDiff(prev, next, onlyKeys) {
+    if (Array.isArray(onlyKeys) && onlyKeys.length) {
+        return onlyKeys.filter((key) => !SKIP_FICHA_KEYS.has(key) && !String(key).startsWith('_'));
+    }
+    const prevKeys = Object.keys(prev);
+    const nextKeys = Object.keys(next);
+    if (!prevKeys.length) return nextKeys;
+    if (!nextKeys.length) return prevKeys;
+    return nextKeys.filter((key) => Object.prototype.hasOwnProperty.call(prev, key));
+}
+
+function diffFichaSnapshots(before, after, { onlyKeys } = {}) {
     const prev = before && typeof before === 'object' ? before : {};
     const next = after && typeof after === 'object' ? after : {};
-    const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+    const keys = keysForFichaDiff(prev, next, onlyKeys);
     const rows = [];
     for (const key of keys) {
         if (SKIP_FICHA_KEYS.has(key)) continue;
@@ -350,10 +362,10 @@ async function findCabeceraId(db, cedula) {
     return q.rows[0] ? String(q.rows[0].id) : null;
 }
 
-async function recordFichaDiff(db, { cedula, before, after, actor, origen, contratoId } = {}) {
+async function recordFichaDiff(db, { cedula, before, after, actor, origen, contratoId, onlyKeys } = {}) {
     const ced = String(cedula || '').replace(/\D/g, '');
     if (!ced) return [];
-    const diffs = diffFichaSnapshots(before, after);
+    const diffs = diffFichaSnapshots(before, after, { onlyKeys });
     if (!diffs.length) return [];
     const rows = diffs.map((d) => ({
         contratoId: contratoId || null,

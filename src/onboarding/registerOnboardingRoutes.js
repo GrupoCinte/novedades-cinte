@@ -621,7 +621,8 @@ function registerOnboardingRoutes(deps) {
                 before: existed,
                 after: updated,
                 actor,
-                origen: 'ficha_patch'
+                origen: 'ficha_patch',
+                onlyKeys: Object.keys(patchToApply)
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -696,7 +697,8 @@ function registerOnboardingRoutes(deps) {
                 before: {},
                 after: updated,
                 actor,
-                origen: 'ficha_alta'
+                origen: 'ficha_alta',
+                onlyKeys: Object.keys(normalizedCreate)
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -755,7 +757,8 @@ function registerOnboardingRoutes(deps) {
                 before: beforeBaja.rows[0] || {},
                 after: afterBaja.rows[0] || {},
                 actor: actorFromUser(req.user),
-                origen: 'baja'
+                origen: 'baja',
+                onlyKeys: ['motivo_baja', 'activo', 'termino']
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -881,7 +884,8 @@ function registerOnboardingRoutes(deps) {
                     costo_empresa: q.rows[0].costo_empresa
                 },
                 actor: actorFromUser(req.user),
-                origen: 'calculadora'
+                origen: 'calculadora',
+                onlyKeys: ['tarifa_cliente', 'costo_empresa']
             });
             await writeAudit(pool, {
                 actorUserId: userId,

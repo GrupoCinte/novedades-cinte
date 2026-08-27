@@ -70,6 +70,24 @@ describe('diffFichaSnapshots AUT-317', () => {
         assert.equal(by.eps, undefined);
     });
 
+    it('no inventa Quitó Tipo de personal si el SELECT de después no trae esa columna', () => {
+        const rows = diffFichaSnapshots(
+            { nombre: 'Ana', tipo_personal: 'consultor', eps: 'SURA' },
+            { nombre: 'Ana', eps: 'SURA' }
+        );
+        assert.equal(rows.length, 0);
+    });
+
+    it('solo compara las claves que el analista mandó a guardar', () => {
+        const rows = diffFichaSnapshots(
+            { nombre: 'Ana', eps: 'SURA', celular_personal: '300' },
+            { nombre: 'Ana', eps: 'NUEVA', celular_personal: '' },
+            { onlyKeys: ['eps'] }
+        );
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].campo, 'eps');
+    });
+
     it('no registra edad automática ni timestamps', () => {
         const rows = diffFichaSnapshots(
             { edad: 30, updated_at: 'a', eps: 'SURA' },
