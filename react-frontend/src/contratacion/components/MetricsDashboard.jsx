@@ -55,7 +55,14 @@ function buildMonthlyGrowth(executions) {
         .map(({ month, firmas }) => ({ month, firmas }));
 }
 
-export default function MetricsDashboard({ metrics, loading, executions = [], ingresosByMonth = null }) {
+export default function MetricsDashboard({
+    metrics,
+    loading,
+    executions = [],
+    ingresosByMonth = null,
+    ingresosMes = null,
+    cicloFichaIngreso = null
+}) {
     const { isLight } = useModuleTheme();
     const stageCounts = useMemo(() => buildStageCounts(executions), [executions]);
     // Ingresos reales: si llega `ingresosByMonth` (Postgres, fecha_ingreso) se usa eso;
@@ -141,9 +148,23 @@ export default function MetricsDashboard({ metrics, loading, executions = [], in
 
     return (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5 font-body">
-            <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
+            <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
                 <MetricTile isLight={isLight} glassPanel={glassPanel} title="Tiempo prom. pipeline" value={metrics.averageTime} subtitle="Pipeline automático" />
                 <MetricTile isLight={isLight} glassPanel={glassPanel} title="Espera de Firma" value={metrics.avgWaitTime} subtitle="Friccion del candidato" />
+                <MetricTile
+                    isLight={isLight}
+                    glassPanel={glassPanel}
+                    title="Ingresos del mes"
+                    value={ingresosMes != null ? String(ingresosMes) : '—'}
+                    subtitle="Fecha de ingreso, mes actual"
+                />
+                <MetricTile
+                    isLight={isLight}
+                    glassPanel={glassPanel}
+                    title="Ficha → ingreso"
+                    value={cicloFichaIngreso != null ? `${cicloFichaIngreso} días` : '—'}
+                    subtitle="Desde que nació la ficha"
+                />
             </section>
 
             {/* ── Fila 2: Donut etapas + Ingresos mensuales ── */}

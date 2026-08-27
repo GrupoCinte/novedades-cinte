@@ -57,6 +57,7 @@ const {
     isAllowedPorVencerSort
 } = require('./contratoVencimientoService');
 const { gpScopePorVencer, tokenEquals } = require('./contratoVencimiento');
+const { FICHA_NACIO_SQL } = require('./contratoDashboardCiclo');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -1488,6 +1489,8 @@ function registerOnboardingRoutes(deps) {
      *  - headcount_by_tipo: activos agrupados por tipo_personal
      *  - activos_vs_bajas: conteo activos vs bajas
      *  - ingresos_by_month: ingresos por mes (rango opcional desde/hasta o últimos 12 meses)
+     *  - ingresos_mes: ingresos del mes actual Bogotá
+     *  - ciclo_ficha_ingreso: días promedio desde que nació la ficha hasta fecha_ingreso
      * Respeta el scope GP igual que el reporte de rotación.
      * ========================================================================= */
     const graficasQuerySchema = z.object({
@@ -1535,6 +1538,8 @@ function registerOnboardingRoutes(deps) {
                     headcount_by_tipo: [],
                     activos_vs_bajas: { activos: 0, bajas: 0 },
                     ingresos_by_month: [],
+                    ingresos_mes: { mes: null, cuenta: 0 },
+                    ciclo_ficha_ingreso: { promedio_dias: null, n: 0 },
                     irp: {
                         bajas_periodo: 0,
                         headcount_inicio: 0,
@@ -1586,6 +1591,39 @@ function registerOnboardingRoutes(deps) {
                 ingParams
             );
 
+            const mesParams = [...ingresoBase.params];
+            let mesWhere = ingresoBase.whereSql;
+            mesWhere = mesWhere
+                ? `${mesWhere} AND to_char(c.fecha_ingreso, 'YYYY-MM') = to_char((timezone('America/Bogota', now()))::date, 'YYYY-MM')`
+                : `WHERE to_char(c.fecha_ingreso, 'YYYY-MM') = to_char((timezone('America/Bogota', now()))::date, 'YYYY-MM')`;
+            const mesQ = await pool.query(
+                `SELECT to_char((timezone('America/Bogota', now()))::date, 'YYYY-MM') AS mes,
+                        COUNT(*)::int AS cuenta
+                 FROM colaboradores c ${mesWhere}`,
+                mesParams
+            );
+
+            const cicloParams = [...ingresoBase.params];
+            let cicloWhere = ingresoBase.whereSql;
+            if (desde || hasta) {
+                const extra = [];
+                if (desde) { cicloParams.push(desde); extra.push(`c.fecha_ingreso >= $${cicloParams.length}::date`); }
+                if (hasta) { cicloParams.push(hasta); extra.push(`c.fecha_ingreso <= $${cicloParams.length}::date`); }
+                cicloWhere = cicloWhere
+                    ? `${cicloWhere} AND ${extra.join(' AND ')}`
+                    : `WHERE ${extra.join(' AND ')}`;
+            }
+            const nacio = `(${FICHA_NACIO_SQL.trim()})`;
+            cicloWhere = cicloWhere
+                ? `${cicloWhere} AND ${nacio} IS NOT NULL AND c.fecha_ingreso >= ${nacio}`
+                : `WHERE ${nacio} IS NOT NULL AND c.fecha_ingreso >= ${nacio}`;
+            const cicloQ = await pool.query(
+                `SELECT ROUND(AVG((c.fecha_ingreso - ${nacio}))::numeric, 1) AS promedio_dias,
+                        COUNT(*)::int AS n
+                 FROM colaboradores c ${cicloWhere}`,
+                cicloParams
+            );
+
             // IRP = bajas del periodo / promedio de empleados (inicio,fin) x 100.
             // Periodo: desde/hasta si vienen; si no, últimos 12 meses hasta hoy.
             const irpParams = [...irpBase.params];
@@ -1625,6 +1663,16 @@ function registerOnboardingRoutes(deps) {
                     ? { activos: Number(avbQ.rows[0].activos), bajas: Number(avbQ.rows[0].bajas) }
                     : { activos: 0, bajas: 0 },
                 ingresos_by_month: ingresosQ.rows,
+                ingresos_mes: {
+                    mes: mesQ.rows[0]?.mes || null,
+                    cuenta: Number(mesQ.rows[0]?.cuenta) || 0
+                },
+                ciclo_ficha_ingreso: {
+                    promedio_dias: cicloQ.rows[0]?.promedio_dias != null
+                        ? Number(cicloQ.rows[0].promedio_dias)
+                        : null,
+                    n: Number(cicloQ.rows[0]?.n) || 0
+                },
                 irp: {
                     bajas_periodo: bajasPeriodo,
                     headcount_inicio: headInicio,

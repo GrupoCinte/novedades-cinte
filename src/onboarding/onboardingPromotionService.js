@@ -30,7 +30,8 @@ const {
     decideContractAction,
     filterExtendedForAction,
     loadPersonContractState,
-    applyContractEvent
+    applyContractEvent,
+    fillCabeceraFechaTerminoFromPersona
 } = require('./colaboradorContratos');
 
 const EXT_SQL_TYPE_BY_KEY = Object.fromEntries(
@@ -814,6 +815,7 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                     [cedulaInsertada, ...updatable.values]
                 );
             }
+            await fillCabeceraFechaTerminoFromPersona(client, cedulaInsertada);
 
             await markStaging(client, stagingId, { status: 'aplicado', cedula: cedulaInsertada });
             await client.query('COMMIT');

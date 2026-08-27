@@ -141,6 +141,8 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
 
     // Ingresos reales mensuales (Postgres, fecha_ingreso) para el card del Dashboard General.
     const [monitorIngresos, setMonitorIngresos] = useState(null);
+    const [monitorIngresosMes, setMonitorIngresosMes] = useState(null);
+    const [monitorCicloFicha, setMonitorCicloFicha] = useState(null);
     const [zohoPendingCount, setZohoPendingCount] = useState(0);
     const [porVencerCount, setPorVencerCount] = useState(0);
     useEffect(() => {
@@ -150,6 +152,8 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
             .reporteGraficas(auth?.token || '', {})
             .then((r) => {
                 if (alive && Array.isArray(r?.ingresos_by_month)) setMonitorIngresos(r.ingresos_by_month);
+                if (alive) setMonitorIngresosMes(Number(r?.ingresos_mes?.cuenta) || 0);
+                if (alive) setMonitorCicloFicha(r?.ciclo_ficha_ingreso?.promedio_dias ?? null);
             })
             .catch(() => {});
         fetchFichaNovedadesPendingCount(auth?.token || '').then((n) => {
@@ -219,6 +223,8 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                     onNavigate={(v) => setNavView(`monitor-${v}`)}
                     isLight={isLight}
                     ingresosByMonth={monitorIngresos}
+                    ingresosMes={monitorIngresosMes}
+                    cicloFichaIngreso={monitorCicloFicha}
                     metricsExtra={canOnboarding ? <OnboardingAnalyticsPanel auth={auth} isLight={isLight} /> : null}
                 />
             );

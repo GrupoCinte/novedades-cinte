@@ -168,6 +168,7 @@ async function ensureColaboradorContratosTable(pool, logger) {
             WHERE vigente IS TRUE
         `);
         await seedContratosFromColaboradores(pool);
+        await fillCabeceraFechaTerminoFromPersona(pool);
         await pool.query(`
             ALTER TABLE colaborador_contratos
             ADD COLUMN IF NOT EXISTS esquema_contrato TEXT NULL,
@@ -233,6 +234,27 @@ async function seedContratosFromColaboradores(pool) {
             SELECT 1 FROM colaborador_contratos x WHERE x.cedula = c.cedula
           )
     `);
+}
+
+/** AUT-320: el Excel deja fecha_termino en la persona; la copia a cabecera vigente si el contrato no la tiene. */
+async function fillCabeceraFechaTerminoFromPersona(db, cedula) {
+    const ced = cedula ? normalizeCedula(cedula) : '';
+    const params = ced ? [ced] : [];
+    const cedFilter = ced ? 'AND cc.cedula = $1' : '';
+    const q = await db.query(
+        `UPDATE colaborador_contratos cc
+         SET fecha_termino = c.fecha_termino,
+             updated_at = NOW()
+         FROM colaboradores c
+         WHERE cc.cedula = c.cedula
+           AND cc.es_cabecera IS TRUE
+           AND cc.vigente IS TRUE
+           AND cc.fecha_termino IS NULL
+           AND c.fecha_termino IS NOT NULL
+           ${cedFilter}`,
+        params
+    );
+    return q.rowCount || 0;
 }
 
 async function loadPersonContractState(db, cedula) {
@@ -1085,6 +1107,7 @@ module.exports = {
     sameCliente,
     ensureColaboradorContratosTable,
     seedContratosFromColaboradores,
+    fillCabeceraFechaTerminoFromPersona,
     loadPersonContractState,
     listContratosByCedula,
     findVigenteByCliente,
