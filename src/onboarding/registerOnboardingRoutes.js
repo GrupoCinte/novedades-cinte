@@ -46,6 +46,7 @@ const {
     loadPersonContractState,
     syncPersonContractsFromFicha
 } = require('./colaboradorContratos');
+const { actorFromUser, recordFichaDiff } = require('./contratoHistorial');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -578,7 +579,8 @@ function registerOnboardingRoutes(deps) {
         }
         try {
             const patch = normalizeColabTextPatch(parsed.data);
-            const existed = await loadPersonContractState(pool, cedula);
+            const beforeQ = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            const existed = beforeQ.rows[0] || await loadPersonContractState(pool, cedula);
             if (!existed) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
@@ -589,6 +591,7 @@ function registerOnboardingRoutes(deps) {
                 clienteActual: existed.cliente,
                 clienteNuevo: patch.cliente
             });
+            const actor = actorFromUser(req.user);
             await syncPersonContractsFromFicha(pool, {
                 cedula,
                 existed,
@@ -597,7 +600,8 @@ function registerOnboardingRoutes(deps) {
                 fechaInicio: patch.fecha_ingreso,
                 fechaTermino: patch.fecha_termino,
                 origen: 'ficha_patch',
-                allowReingreso: false
+                allowReingreso: false,
+                actor
             });
             const patchToApply = contractAction === 'new_client'
                 ? filterExtendedForAction(patch, 'new_client')
@@ -612,6 +616,14 @@ function registerOnboardingRoutes(deps) {
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
+            await recordFichaDiff(pool, {
+                cedula,
+                before: existed,
+                after: updated,
+                actor,
+                origen: 'ficha_patch',
+                onlyKeys: Object.keys(patchToApply)
+            });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
                 actorRole: req.user && req.user.role,
@@ -669,6 +681,7 @@ function registerOnboardingRoutes(deps) {
             // Resto de campos (cliente, líder, extendidos) vía el mismo helper del PATCH.
             const { cedula: _omit, nombre: _n, ...rest } = normalizedCreate;
             const updated = await updateColaboradorByCedula(cedula, rest);
+            const actor = actorFromUser(req.user);
             await syncPersonContractsFromFicha(pool, {
                 cedula,
                 existed: null,
@@ -676,7 +689,16 @@ function registerOnboardingRoutes(deps) {
                 tipoContrato: normalizedCreate.tipo_contrato,
                 fechaInicio: normalizedCreate.fecha_ingreso,
                 fechaTermino: normalizedCreate.fecha_termino,
-                origen: 'ficha_alta'
+                origen: 'ficha_alta',
+                actor
+            });
+            await recordFichaDiff(pool, {
+                cedula,
+                before: {},
+                after: updated,
+                actor,
+                origen: 'ficha_alta',
+                onlyKeys: Object.keys(normalizedCreate)
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -720,12 +742,23 @@ function registerOnboardingRoutes(deps) {
             return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
         }
         try {
+            const beforeBaja = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
             const item = await applyRegistroBajaColaborador(pool, cedula, {
                 motivo_baja: parsed.data.motivo_baja,
                 fecha_termino: parsed.data.fecha_termino,
                 termino: parsed.data.termino,
                 cliente: parsed.data.cliente,
-                contrato_id: parsed.data.contrato_id
+                contrato_id: parsed.data.contrato_id,
+                actor: actorFromUser(req.user)
+            });
+            const afterBaja = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            await recordFichaDiff(pool, {
+                cedula,
+                before: beforeBaja.rows[0] || {},
+                after: afterBaja.rows[0] || {},
+                actor: actorFromUser(req.user),
+                origen: 'baja',
+                onlyKeys: ['motivo_baja', 'activo', 'termino']
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -783,7 +816,11 @@ function registerOnboardingRoutes(deps) {
         }
         try {
             // Verifica que la cedula exista
-            const exists = await pool.query(`SELECT 1 FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            const exists = await pool.query(
+                `SELECT esquema_contrato, tarifa_cliente, costo_empresa
+                 FROM colaboradores WHERE cedula = $1 LIMIT 1`,
+                [cedula]
+            );
             if (exists.rows.length === 0) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
@@ -838,6 +875,18 @@ function registerOnboardingRoutes(deps) {
                 ]
             );
 
+            await recordFichaDiff(pool, {
+                cedula,
+                before: exists.rows[0],
+                after: {
+                    ...exists.rows[0],
+                    tarifa_cliente: q.rows[0].tarifa_cliente,
+                    costo_empresa: q.rows[0].costo_empresa
+                },
+                actor: actorFromUser(req.user),
+                origen: 'calculadora',
+                onlyKeys: ['tarifa_cliente', 'costo_empresa']
+            });
             await writeAudit(pool, {
                 actorUserId: userId,
                 actorRole: req.user && req.user.role,

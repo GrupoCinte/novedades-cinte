@@ -91,6 +91,91 @@ describe('contratosFromFicha AUT-312', () => {
         assert.equal(pickLiderForCliente('Diego Castro', []), '');
     });
 
+    it('lee el historial del contrato seleccionado (AUT-317)', async () => {
+        const { historialForContrato } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
+        const form = {
+            contratos: [
+                { id: 'c1', historial: [{ id: 'h1', campo: 'cliente' }] },
+                { id: 'c2', historial: [] }
+            ]
+        };
+        assert.equal(historialForContrato(form, 'c1').length, 1);
+        assert.equal(historialForContrato(form, 'c2').length, 0);
+        assert.equal(historialForContrato({}, 'c1').length, 0);
+    });
+
+    it('el pie de Zoho dice desde ficha Zoho y quién aprobó (AUT-317)', async () => {
+        const { historialActorLine } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
+        assert.equal(
+            historialActorLine({
+                origen: 'ficha_zoho',
+                actorNombre: 'Luis Correa',
+                actorEmail: 'lcorrea@grupocinte.com'
+            }),
+            'Desde ficha Zoho · Aprobado por Luis Correa · lcorrea@grupocinte.com'
+        );
+        assert.equal(
+            historialActorLine({ actorNombre: 'Luis', actorEmail: 'luis@grupocinte.com' }),
+            'Luis · luis@grupocinte.com'
+        );
+    });
+
+    it('agrupa varios cambios del mismo Guardar en un bloque (AUT-317)', async () => {
+        const { groupHistorialBloques } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
+        const bloques = groupHistorialBloques([
+            {
+                id: '1',
+                loteId: 'lote-a',
+                campo: 'eps',
+                campoLabel: 'EPS',
+                valorAntes: 'SURA',
+                valorDespues: 'NUEVA',
+                actorNombre: 'Luis',
+                createdAt: '2026-08-26T22:30:00.000Z'
+            },
+            {
+                id: '2',
+                loteId: 'lote-a',
+                campo: 'celular_personal',
+                campoLabel: 'Celular',
+                valorAntes: '300',
+                valorDespues: '',
+                actorNombre: 'Luis',
+                createdAt: '2026-08-26T22:30:00.010Z'
+            },
+            {
+                id: '3',
+                loteId: 'lote-b',
+                campo: 'nombre',
+                campoLabel: 'Nombre',
+                valorAntes: 'Ana',
+                valorDespues: 'Ana María',
+                actorNombre: 'Luis',
+                createdAt: '2026-08-26T22:31:00.000Z'
+            }
+        ]);
+        assert.equal(bloques.length, 2);
+        assert.equal(bloques[0].cambios.length, 2);
+        assert.equal(bloques[1].cambios.length, 1);
+    });
+
+    it('lee el historial completo de la ficha (AUT-317)', async () => {
+        const { historialForFicha } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
+        assert.equal(
+            historialForFicha({ historial: [{ id: 'h1' }, { id: 'h2' }] }).length,
+            2
+        );
+        assert.equal(
+            historialForFicha({
+                contratos: [
+                    { id: 'c1', historial: [{ id: 'a' }] },
+                    { id: 'c2', historial: [{ id: 'b' }] }
+                ]
+            }).length,
+            2
+        );
+    });
+
     it('el select de cliente no pierde la pastilla si el catálogo usa otra capitalización', async () => {
         const { matchClienteOption, clienteOptionsWithCurrent } = await import(
             '../react-frontend/src/onboarding/contratoEstanteMap.js'

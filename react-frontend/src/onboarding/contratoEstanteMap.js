@@ -82,6 +82,74 @@ export function contratosFromFicha(form, { esBaja = false } = {}) {
     ];
 }
 
+export function historialForContrato(form, contratoId) {
+    const list = Array.isArray(form?.contratos) ? form.contratos : [];
+    const hit = list.find((c) => String(c.id) === String(contratoId));
+    return Array.isArray(hit?.historial) ? hit.historial : [];
+}
+
+export function historialForFicha(form) {
+    if (Array.isArray(form?.historial) && form.historial.length) return form.historial;
+    const list = Array.isArray(form?.contratos) ? form.contratos : [];
+    return list.flatMap((c) => (Array.isArray(c.historial) ? c.historial : []));
+}
+
+function loteKeyForEntry(entry) {
+    if (entry?.loteId) return `lote:${entry.loteId}`;
+    const ts = String(entry?.createdAt || '').slice(0, 19);
+    const actor = String(entry?.actorEmail || entry?.actorNombre || '');
+    const origen = String(entry?.origen || '');
+    return `fb:${actor}:${origen}:${ts}`;
+}
+
+/** Un Guardar (o un lote) se muestra como un solo bloque, no como filas sueltas. */
+export function groupHistorialBloques(items) {
+    const list = Array.isArray(items) ? items : [];
+    const order = [];
+    const byKey = new Map();
+    for (const entry of list) {
+        if (!entry) continue;
+        const key = loteKeyForEntry(entry);
+        let bloque = byKey.get(key);
+        if (!bloque) {
+            bloque = {
+                id: key,
+                createdAt: entry.createdAt || null,
+                actorNombre: entry.actorNombre || 'Sistema',
+                actorEmail: entry.actorEmail || null,
+                origen: entry.origen || null,
+                cambios: []
+            };
+            byKey.set(key, bloque);
+            order.push(bloque);
+        }
+        bloque.cambios.push(entry);
+        if (entry.createdAt && (!bloque.createdAt || String(entry.createdAt) > String(bloque.createdAt))) {
+            bloque.createdAt = entry.createdAt;
+        }
+    }
+    return order;
+}
+
+function esOrigenFichaZoho(origen) {
+    const o = String(origen || '');
+    return o === 'ficha_zoho' || o.startsWith('novedad_');
+}
+
+/** Pie del bloque: quién guardó, o de dónde vino la ficha Zoho y quién la aprobó. */
+export function historialActorLine(bloque) {
+    if (!bloque) return '—';
+    const origen = bloque.origen || bloque.cambios?.[0]?.origen;
+    const nombre = String(bloque.actorNombre || '').trim();
+    const email = String(bloque.actorEmail || '').trim();
+    const who = [nombre && nombre !== 'Sistema' ? nombre : null, email].filter(Boolean).join(' · ');
+    if (esOrigenFichaZoho(origen)) {
+        return who ? `Desde ficha Zoho · Aprobado por ${who}` : 'Desde ficha Zoho';
+    }
+    if (nombre && email) return `${nombre} · ${email}`;
+    return nombre || email || '—';
+}
+
 function toPositiveInt(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return null;

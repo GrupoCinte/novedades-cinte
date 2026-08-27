@@ -9,11 +9,18 @@ import {
     buildStaffColaboradorPayload,
     CO_TABS
 } from '../constants/colaboradoresConsultorFields.js';
+
+const HISTORIAL_TAB = {
+    id: 'historial',
+    title: 'Historial de la ficha',
+    shortTitle: 'Historial'
+};
 import { onboardingApi } from './api.js';
 import { getOnboardingPermissions } from './onboardingAccess.js';
 import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.jsx';
 import ContratoEstante, { contratosFromFicha } from './ContratoEstante.jsx';
-import { matchClienteOption, pickLiderForCliente } from './contratoEstanteMap.js';
+import ContratoHistorialPanel from './ContratoHistorialPanel.jsx';
+import { historialForFicha, matchClienteOption, pickLiderForCliente } from './contratoEstanteMap.js';
 
 async function fetchClientes() {
     try {
@@ -63,6 +70,8 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     const [selectedContratoId, setSelectedContratoId] = useState('cabecera');
     const [zohoHistorial, setZohoHistorial] = useState([]);
 
+    const fichaTabs = createMode ? CO_TABS : [...CO_TABS, HISTORIAL_TAB];
+    const onHistorialTab = activeTab === HISTORIAL_TAB.id;
     const displayName = createMode ? 'Nuevo colaborador' : form.nombre || 'Ficha del colaborador';
     const contratos = useMemo(() => contratosFromFicha(form, { esBaja }), [form, esBaja]);
     const contratoSeleccionado = useMemo(
@@ -346,7 +355,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                 ) : null}
                 {!loading && !error ? (
                     <div role="tablist" aria-label="Secciones de la ficha" className={subTabsBarCls}>
-                        {CO_TABS.map((tab) => {
+                        {fichaTabs.map((tab) => {
                             const isActive = tab.id === activeTab;
                             const label = tab.shortTitle || tab.title;
                             return (
@@ -376,6 +385,29 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                     ) : error ? (
                         <div className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">
                             {error}
+                        </div>
+                    ) : onHistorialTab ? (
+                        <div className="space-y-6 pb-2">
+                            <ContratoHistorialPanel
+                                items={historialForFicha(form)}
+                                isLight={isLight}
+                            />
+                            {zohoHistorial.length > 0 ? (
+                                <div className={`rounded-xl border p-4 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700/50 bg-[#0f172a]/50'}`}>
+                                    <p className={`mb-2 text-xs font-bold uppercase tracking-wider ${labelMuted}`}>
+                                        Historial novedades Zoho
+                                    </p>
+                                    <ul className="flex flex-col gap-2 text-sm">
+                                        {zohoHistorial.map((h) => (
+                                            <li key={h.id} className="flex flex-wrap items-center gap-2">
+                                                <span className="font-medium">{h.tipo_novedad}</span>
+                                                <span className={labelMuted}>{h.status}</span>
+                                                <span className={labelMuted}>{h.subject || h.id_registro}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ) : null}
                         </div>
                     ) : (
                         <ColaboradorFichaFields
@@ -442,22 +474,6 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                             hideIdentityFields={!createMode}
                         />
                     )}
-                    {!loading && !error && !createMode && zohoHistorial.length > 0 ? (
-                        <div className={`mt-6 rounded-xl border p-4 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/[0.02]'}`}>
-                            <p className={`mb-2 text-xs font-bold uppercase tracking-widest ${labelMuted}`}>
-                                Historial novedades Zoho
-                            </p>
-                            <ul className="flex flex-col gap-2 text-sm">
-                                {zohoHistorial.map((h) => (
-                                    <li key={h.id} className="flex flex-wrap items-center gap-2">
-                                        <span className="font-medium">{h.tipo_novedad}</span>
-                                        <span className={labelMuted}>{h.status}</span>
-                                        <span className={labelMuted}>{h.subject || h.id_registro}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ) : null}
                 </form>
             </MonitorGlassModalShell>
 
