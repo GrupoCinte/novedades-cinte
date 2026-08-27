@@ -1,5 +1,7 @@
 'use strict';
 
+const { closeContrato } = require('./colaboradorContratos');
+
 /** Motivo por defecto al registrar baja vía ficha Zoho salida (catálogo onboarding). */
 const DEFAULT_MOTIVO_BAJA_SALIDA_ZOHO = 'Termino de Servicio';
 
@@ -38,10 +40,11 @@ async function resolveMotivoBajaSalida(pool, terminoRaw) {
 }
 
 /**
- * Registra baja en maestro (misma semántica que PATCH /api/onboarding/personal/:cedula/baja).
+ * Cierra el contrato del cliente (manual o salida Zoho). La persona solo
+ * queda inactiva si no le queda otro vigente.
  * @param {import('pg').Pool} pool
  * @param {string} cedulaRaw
- * @param {{ motivo_baja?: string, fecha_termino?: string|null, termino?: string|null }} opts
+ * @param {{ motivo_baja?: string, fecha_termino?: string|null, termino?: string|null, cliente?: string|null, contrato_id?: string|null }} opts
  */
 async function applyRegistroBajaColaborador(pool, cedulaRaw, opts = {}) {
     const cedula = String(cedulaRaw || '').replace(/\D/g, '');
@@ -66,27 +69,27 @@ async function applyRegistroBajaColaborador(pool, cedulaRaw, opts = {}) {
     if (!fechaTermino) {
         throw Object.assign(new Error('fecha_termino es obligatoria'), { status: 400 });
     }
-    const q = await pool.query(
-        `UPDATE colaboradores SET
-            activo = FALSE,
-            motivo_baja = $1,
-            termino = COALESCE($2, termino),
-            fecha_termino = $3::date,
-            tiempo_permanencia_meses = CASE
-                WHEN fecha_ingreso IS NOT NULL
-                THEN ROUND(
-                    EXTRACT(EPOCH FROM (
-                        $3::date::timestamp - fecha_ingreso::timestamp
-                    )) / (60*60*24*30.4375), 2)
-                ELSE tiempo_permanencia_meses
-            END,
-            updated_at = NOW()
-         WHERE cedula = $4
-         RETURNING cedula, activo, motivo_baja, fecha_termino`,
-        [motivo, opts.termino || null, fechaTermino, cedula]
-    );
-    if (!q.rows[0]) throw Object.assign(new Error('Colaborador no encontrado'), { status: 404 });
-    return q.rows[0];
+
+    const closed = await closeContrato(pool, {
+        cedula,
+        cliente: opts.cliente,
+        contratoId: opts.contrato_id || opts.contratoId,
+        fechaTermino,
+        motivo,
+        termino: opts.termino || null,
+        actor: opts.actor || null,
+        origen: opts.origen || 'baja'
+    });
+    const person = closed.person || {};
+    return {
+        cedula,
+        activo: closed.personActivo === true,
+        motivo_baja: closed.personActivo ? null : person.motivo_baja || motivo,
+        fecha_termino: person.fecha_termino || fechaTermino,
+        contrato: closed.contrato,
+        vigentes_restantes: closed.vigentesRestantes,
+        action: closed.action
+    };
 }
 
 module.exports = {

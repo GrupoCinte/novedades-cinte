@@ -24,6 +24,8 @@ import OnboardingFiltersDrawer, {
     drawerLabelCls
 } from './OnboardingFiltersDrawer.jsx';
 import ColaboradorOnboardingModal from './ColaboradorOnboardingModal.jsx';
+import { ContratosExtraBadge } from './ContratoEstante.jsx';
+import { contratosVigentesExtra } from './contratoEstanteMap.js';
 import { nativeCalendarOnlyInputProps } from '../nativeCalendarOnlyInputProps.js';
 import {
     TipoPersonalBadge,
@@ -87,6 +89,15 @@ export function fmtMoney(v) {
 
 function chUpper(value) {
     return String(value || '').toUpperCase();
+}
+
+function renderNombreConContratos(r, isLight, esBaja) {
+    return (
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{chUpper(r.nombre)}</span>
+            <ContratosExtraBadge extra={contratosVigentesExtra(r, { esBaja })} isLight={isLight} />
+        </span>
+    );
 }
 
 /** Para reusar fuera (filtros de Bajas). */
@@ -291,7 +302,7 @@ export function PersonalView({
     const columns = isBajas
         ? [
               { key: 'cedula', label: 'Cédula' },
-              { key: 'nombre', label: 'Nombre', render: (r) => chUpper(r.nombre) },
+              { key: 'nombre', label: 'Nombre', render: (r) => renderNombreConContratos(r, isLight, true) },
               { key: 'cliente', label: 'Cliente', render: (r) => chUpper(r.cliente) },
               { key: 'fecha_ingreso', label: 'F. inicio', render: (r) => fmtFecha(r.fecha_ingreso) },
               { key: 'fecha_termino', label: 'F. término', render: (r) => fmtFecha(r.fecha_termino) },
@@ -307,7 +318,7 @@ export function PersonalView({
         : isPersonalActivo
           ? [
                 { key: 'cedula', label: 'Cédula' },
-                { key: 'nombre', label: 'Nombre', render: (r) => chUpper(r.nombre) },
+                { key: 'nombre', label: 'Nombre', render: (r) => renderNombreConContratos(r, isLight, false) },
                 { key: 'cliente', label: 'Cliente', render: (r) => chUpper(r.cliente) },
                 { key: 'fecha_ingreso', label: 'F. inicio', render: (r) => fmtFecha(r.fecha_ingreso) },
                 { key: 'fecha_termino', label: 'F. término', render: (r) => fmtFecha(r.fecha_termino) },
@@ -320,7 +331,7 @@ export function PersonalView({
             ]
           : [
                 { key: 'cedula', label: 'Cédula' },
-                { key: 'nombre', label: 'Nombre', render: (r) => chUpper(r.nombre) },
+                { key: 'nombre', label: 'Nombre', render: (r) => renderNombreConContratos(r, isLight, false) },
                 { key: 'tipo_personal', label: 'Tipo', render: renderTipoPersonal },
                 { key: 'cliente', label: 'Cliente', render: (r) => chUpper(r.cliente) },
                 { key: 'puesto', label: 'Puesto', render: (r) => chUpper(r.puesto) },
@@ -1047,6 +1058,9 @@ export function OnboardingAnalyticsPanel({ auth, isLight }) {
     const totalActivos = activosVsBajas[0]?.value || 0;
     const totalBajas = activosVsBajas[1]?.value || 0;
     const totalIngresos = ingresosData.reduce((acc, r) => acc + r.cuenta, 0);
+    const ingresosMes = Number(graficas?.ingresos_mes?.cuenta) || 0;
+    const cicloProm = graficas?.ciclo_ficha_ingreso?.promedio_dias;
+    const cicloLabel = cicloProm != null ? `${cicloProm} días` : '—';
 
     const irp = graficas?.irp || null;
     const irpValor = irp && irp.irp != null ? irp.irp : null;
@@ -1107,11 +1121,13 @@ export function OnboardingAnalyticsPanel({ auth, isLight }) {
             </div>
 
             {/* KPIs */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 {[
                     ['Personal activo', totalActivos],
                     ['Bajas', totalBajas],
-                    ['Ingresos (periodo)', totalIngresos]
+                    ['Ingresos (periodo)', totalIngresos],
+                    ['Ingresos del mes', ingresosMes],
+                    ['Ficha → ingreso', cicloLabel]
                 ].map(([label, val]) => (
                     <div key={label} className={`${G.card} px-4 py-3`}>
                         <p className={`text-[10px] uppercase tracking-widest ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{label}</p>

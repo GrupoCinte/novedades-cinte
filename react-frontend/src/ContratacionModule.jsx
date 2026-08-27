@@ -22,7 +22,16 @@ import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 
 export { userHasContratacionPanel } from './contratacion/contratacionAccess';
 
-export function ContratacionDashboard({ auth, currentView, onNavigate, isLight, metricsExtra = null, ingresosByMonth = null }) {
+export function ContratacionDashboard({
+    auth,
+    currentView,
+    onNavigate,
+    isLight,
+    metricsExtra = null,
+    ingresosByMonth = null,
+    ingresosMes = null,
+    cicloFichaIngreso = null
+}) {
     const { canEliminarCandidato, canFinalizarCandidato } = useMemo(
         () => getContratacionPermissions(auth),
         [auth]
@@ -58,7 +67,14 @@ export function ContratacionDashboard({ auth, currentView, onNavigate, isLight, 
                         )}
                         {currentView === 'metrics' && (
                             <div className="flex flex-col gap-6">
-                                <MetricsDashboard metrics={data.metrics} loading={data.loading} executions={data.activeExecutions} ingresosByMonth={ingresosByMonth} />
+                                <MetricsDashboard
+                                    metrics={data.metrics}
+                                    loading={data.loading}
+                                    executions={data.activeExecutions}
+                                    ingresosByMonth={ingresosByMonth}
+                                    ingresosMes={ingresosMes}
+                                    cicloFichaIngreso={cicloFichaIngreso}
+                                />
                                 {metricsExtra}
                             </div>
                         )}

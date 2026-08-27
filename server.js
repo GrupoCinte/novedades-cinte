@@ -1015,7 +1015,8 @@ registerOnboardingRoutes({
     adminActionLimiter,
     catalogLimiter,
     normalizeCedula,
-    updateColaboradorByCedula
+    updateColaboradorByCedula,
+    listEmailsInGroups
 });
 
 registerActividadesRoutes({

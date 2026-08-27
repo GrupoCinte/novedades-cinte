@@ -24,7 +24,7 @@ const RAW_FIELDS = [
     ['costo_empresa', 'Costo empresa', 'money'],
     ['tarifa_cliente', 'Tarifa (cliente)', 'money'],
     ['utilidad', 'Utilidad', 'money'],
-    ['rt_aprox', 'RT / aprox.', 'money'],
+    ['rt_aprox', 'Rentabilidad', 'money'],
     ['periodicidad_pago', 'Periodicidad de pago', 'text'],
     ['moneda', 'Moneda', 'text'],
     ['sueldo_nomina', 'Sueldo nómina', 'money'],
@@ -217,11 +217,11 @@ export const CO_CONSULTOR_SECTIONS = [
     {
         title: 'Costos y remuneración',
         keys: [
-            'costo_empresa',
+            'sueldo_nomina',
             'tarifa_cliente',
+            'costo_empresa',
             'utilidad',
             'rt_aprox',
-            'sueldo_nomina',
             'ingreso_basico_letras',
             'ingreso_flexible',
             'recargos_nocturnos',
@@ -448,6 +448,29 @@ export function mapRowToStaffForm(row) {
             out[m.key] = String(v);
         }
     }
+    if (Array.isArray(row.contratos)) {
+        const moneyKeys = new Set([
+            'sueldo_nomina',
+            'tarifa_cliente',
+            'honorarios',
+            'costo_licencias_teams_correo',
+            'costo_equipo_computo',
+            'auxilios_no_prestacionales',
+            'otros_ingresos'
+        ]);
+        out.contratos = row.contratos.map((c) => {
+            if (!c || typeof c !== 'object') return c;
+            const next = { ...c };
+            for (const key of moneyKeys) {
+                if (next[key] == null || next[key] === '') continue;
+                const num = typeof next[key] === 'number' ? next[key] : Number(next[key]);
+                if (Number.isFinite(num)) next[key] = formatMoneyAmountOnly(num, out.montos_divisa[key] || 'COP');
+            }
+            return next;
+        });
+    }
+    if (Array.isArray(row.historial)) out.historial = row.historial;
+    if (row.contratos_vigentes_count != null) out.contratos_vigentes_count = row.contratos_vigentes_count;
     return out;
 }
 

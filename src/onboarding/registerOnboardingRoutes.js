@@ -37,6 +37,27 @@ const {
 } = require('./onboardingListSort');
 const { normalizeColabTextPatch } = require('./chTextNormalize');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
+const {
+    CONTRATOS_VIGENTES_COUNT_SQL,
+    attachContratosToItem,
+    contratosVigentesCountSql,
+    decideContractAction,
+    filterExtendedForAction,
+    loadPersonContractState,
+    persistContratoEconomia,
+    shouldWriteEconomiaToPerson,
+    stripComputedEconomia,
+    stripEconomiaFromPersonPatch,
+    syncPersonContractsFromFicha
+} = require('./colaboradorContratos');
+const { actorFromUser, recordFichaDiff } = require('./contratoHistorial');
+const { computeContratoEconomia } = require('./contratoCostoCalc');
+const {
+    createContratoVencimientoService,
+    isAllowedPorVencerSort
+} = require('./contratoVencimientoService');
+const { gpScopePorVencer, tokenEquals } = require('./contratoVencimiento');
+const { FICHA_NACIO_SQL } = require('./contratoDashboardCiclo');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -98,10 +119,11 @@ async function buildScopeFilter(pool, user) {
         return {
             where: '(c.gp_user_id = $G_USER OR LOWER(TRIM(c.cliente)) = ANY($G_CLIENTES))',
             params: [sub, clientes.map((s) => s.toLowerCase())],
-            placeholders: ['$G_USER', '$G_CLIENTES']
+            placeholders: ['$G_USER', '$G_CLIENTES'],
+            clientes
         };
     }
-    return { where: 'TRUE', params: [], placeholders: [] };
+    return { where: 'TRUE', params: [], placeholders: [], clientes: null };
 }
 
 function applyScopePlaceholders(whereTemplate, paramIdxStart, scopeFilter) {
@@ -141,7 +163,8 @@ function registerOnboardingRoutes(deps) {
         adminActionLimiter,
         catalogLimiter,
         normalizeCedula,
-        updateColaboradorByCedula
+        updateColaboradorByCedula,
+        listEmailsInGroups
     } = deps;
 
     if (!app || !pool || !verificarToken || !allowPanel) {
@@ -150,6 +173,7 @@ function registerOnboardingRoutes(deps) {
 
     const promotion = createOnboardingPromotionService({ pool });
     const fichaNovedades = createFichaNovedadesService({ pool, updateColaboradorByCedula });
+    const vencimiento = createContratoVencimientoService({ pool, listEmailsInGroups });
 
     /** Lecturas (panel onboarding). */
     const readGuard = [verificarToken, allowPanel('onboarding')];
@@ -193,6 +217,7 @@ function registerOnboardingRoutes(deps) {
         lider_catalogo: z.string().max(500).optional().nullable(),
         gp_user_id: z.string().uuid().optional().nullable(),
         activo: z.boolean().optional(),
+        contrato_id: z.string().uuid().optional().nullable(),
         ...colabExtendedShape
     });
     /** Alta de colaborador: cédula y nombre obligatorios; resto opcional (mismo shape extendido). */
@@ -447,6 +472,13 @@ function registerOnboardingRoutes(deps) {
 
         const orderBy = buildPersonalOrderBy(filters.sort, filters.dir);
 
+        let vigentesSql = CONTRATOS_VIGENTES_COUNT_SQL;
+        if (Array.isArray(scope.clientes) && scope.clientes.length) {
+            params.push(scope.clientes.map((s) => String(s).toLowerCase()));
+            vigentesSql = contratosVigentesCountSql({ clientesParamIndex: p });
+            p += 1;
+        }
+
         params.push(limit, offset);
         const listQ = await pool.query(
             `SELECT
@@ -457,7 +489,8 @@ function registerOnboardingRoutes(deps) {
                 c.fecha_ingreso, c.fecha_termino, c.fecha_baja_efectiva,
                 c.motivo_baja, c.termino, c.tiempo_permanencia_meses,
                 c.whatsapp_number, c.onboarding_status, c.onboarding_completed_at,
-                c.created_at, c.updated_at
+                c.created_at, c.updated_at,
+                ${vigentesSql} AS contratos_vigentes_count
              FROM colaboradores c
              ${whereSql}
              ORDER BY ${orderBy}
@@ -485,6 +518,92 @@ function registerOnboardingRoutes(deps) {
     app.get('/api/onboarding/proximos', ...readGuard, (req, res) =>
         listColaboradoresOnboarding(req, res, { activo: 'true', _fecha_ingreso_futura: true })
     );
+
+    const porVencerQuerySchema = z.object({
+        kind: z.enum(['T30', 'T15', 'T5']).optional(),
+        cliente: z.string().max(500).optional(),
+        q: z.string().max(200).optional(),
+        sort: z.string().max(80).optional(),
+        dir: z.enum(['asc', 'desc']).optional(),
+        limit: z.coerce.number().int().min(1).max(2000).optional(),
+        offset: z.coerce.number().int().min(0).optional()
+    });
+
+    app.get('/api/onboarding/por-vencer', ...readGuard, async (req, res) => {
+        const parsed = porVencerQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        if (!isAllowedPorVencerSort(parsed.data.sort)) {
+            return res.status(400).json({ ok: false, error: 'sort no permitido' });
+        }
+        try {
+            const scope = await buildScopeFilter(pool, req.user);
+            const gpScope = gpScopePorVencer(scope);
+            if (gpScope.sql === 'FALSE') {
+                return res.json({ ok: true, items: [], total: 0, limit: parsed.data.limit || 50, offset: parsed.data.offset || 0 });
+            }
+            const result = await vencimiento.listPorVencer({
+                kind: parsed.data.kind,
+                q: parsed.data.q,
+                cliente: parsed.data.cliente,
+                sort: parsed.data.sort,
+                dir: parsed.data.dir,
+                limit: parsed.data.limit || 50,
+                offset: parsed.data.offset || 0,
+                scopeSql: gpScope.sql,
+                scopeParams: gpScope.params
+            });
+            return res.json({ ok: true, ...result });
+        } catch (e) {
+            console.error('[Onboarding por-vencer]', e.message);
+            return res.status(500).json({ ok: false, error: 'Error interno' });
+        }
+    });
+
+    function allowInternalVencimiento(req, res, next) {
+        const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+        const expected = String(process.env.CONTRATOS_VENCIMIENTO_TOKEN || '').trim();
+        if (tokenEquals(token, expected)) return next();
+        return verificarToken(req, res, () => allowRoles(['super_admin', 'admin_ch'])(req, res, next));
+    }
+
+    app.get('/api/onboarding/internal/elegibles-vencimiento', allowInternalVencimiento, async (req, res) => {
+        try {
+            const kind = String(req.query.kind || '').toUpperCase();
+            const items = await vencimiento.listElegiblesExactos({
+                kind,
+                asOfDate: req.query.asOfDate || undefined
+            });
+            const recipients = await vencimiento.resolveChRecipients();
+            res.json({ ok: true, items, recipients });
+        } catch (error) {
+            const status = Number(error.statusCode) || 500;
+            if (status >= 500) console.error('[Onboarding elegibles-vencimiento]', error.message);
+            res.status(status).json({
+                ok: false,
+                error: status === 400 ? error.message : 'Error interno'
+            });
+        }
+    });
+
+    app.post('/api/onboarding/internal/marcar-vencimiento', allowInternalVencimiento, async (req, res) => {
+        try {
+            const result = await vencimiento.marcarEnviados({
+                kind: req.body?.kind,
+                contratoIds: req.body?.contratoIds,
+                asOfDate: req.body?.asOfDate
+            });
+            res.json({ ok: true, ...result });
+        } catch (error) {
+            const status = Number(error.statusCode) || 500;
+            if (status >= 500) console.error('[Onboarding marcar-vencimiento]', error.message);
+            res.status(status).json({
+                ok: false,
+                error: status === 400 ? error.message : 'Error interno'
+            });
+        }
+    });
 
     /* =========================================================================
      * Ficha completa de colaborador (modal de edición manual).
@@ -529,7 +648,10 @@ function registerOnboardingRoutes(deps) {
                 }
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
-            return res.json({ ok: true, item: q.rows[0] });
+            const item = await attachContratosToItem(pool, q.rows[0], {
+                clientesScope: scope.clientes || null
+            });
+            return res.json({ ok: true, item });
         } catch (e) {
             console.error('[Onboarding personal GET]', e.message);
             return res.status(500).json({ ok: false, error: e.message });
@@ -556,11 +678,70 @@ function registerOnboardingRoutes(deps) {
             });
         }
         try {
-            const patch = normalizeColabTextPatch(parsed.data);
-            const updated = await updateColaboradorByCedula(cedula, patch);
+            const patch = stripComputedEconomia(normalizeColabTextPatch(parsed.data));
+            const contratoId = parsed.data.contrato_id || null;
+            const beforeQ = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            const existed = beforeQ.rows[0] || await loadPersonContractState(pool, cedula);
+            if (!existed) {
+                return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
+            }
+            const estaEnBajas = existed.activo === false;
+            const contractAction = decideContractAction({
+                exists: true,
+                activo: existed.activo !== false,
+                clienteActual: existed.cliente,
+                clienteNuevo: patch.cliente
+            });
+            const actor = actorFromUser(req.user);
+            await syncPersonContractsFromFicha(pool, {
+                cedula,
+                existed,
+                cliente: patch.cliente || existed.cliente,
+                tipoContrato: patch.tipo_contrato,
+                fechaInicio: patch.fecha_ingreso,
+                fechaTermino: patch.fecha_termino,
+                origen: 'ficha_patch',
+                allowReingreso: false,
+                actor
+            });
+            const economia = await persistContratoEconomia(pool, {
+                cedula,
+                contratoId,
+                patch,
+                actor,
+                origen: 'ficha_patch'
+            });
+            let patchToApply = contractAction === 'new_client'
+                ? filterExtendedForAction(patch, 'new_client')
+                : { ...patch };
+            if (!shouldWriteEconomiaToPerson({
+                editingOther: economia.editingOther,
+                contractAction
+            })) {
+                patchToApply = stripEconomiaFromPersonPatch(patchToApply);
+            } else {
+                patchToApply.costo_empresa = economia.calc.costo_empresa;
+                patchToApply.utilidad = economia.calc.utilidad;
+                patchToApply.rt_aprox = economia.calc.rt_aprox;
+            }
+            if (estaEnBajas) {
+                delete patchToApply.activo;
+            }
+            if (!String(patchToApply.cliente || '').trim()) {
+                delete patchToApply.cliente;
+            }
+            const updated = await updateColaboradorByCedula(cedula, patchToApply);
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
+            await recordFichaDiff(pool, {
+                cedula,
+                before: existed,
+                after: updated,
+                actor,
+                origen: 'ficha_patch',
+                onlyKeys: Object.keys(patchToApply)
+            });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
                 actorRole: req.user && req.user.role,
@@ -569,7 +750,7 @@ function registerOnboardingRoutes(deps) {
                 entityId: null,
                 metadata: { cedula, patch }
             });
-            return res.json({ ok: true, item: updated });
+            return res.json({ ok: true, item: await attachContratosToItem(pool, updated) });
         } catch (e) {
             console.error('[Onboarding personal PATCH]', e.message);
             const status = Number.isInteger(e?.status) ? e.status : 500;
@@ -616,8 +797,40 @@ function registerOnboardingRoutes(deps) {
                 [cedula, normalizedCreate.nombre, tipoPersonal]
             );
             // Resto de campos (cliente, líder, extendidos) vía el mismo helper del PATCH.
-            const { cedula: _omit, nombre: _n, ...rest } = normalizedCreate;
-            const updated = await updateColaboradorByCedula(cedula, rest);
+            const { cedula: _omit, nombre: _n, ...rest } = stripComputedEconomia(normalizedCreate);
+            const calcAlta = computeContratoEconomia(rest);
+            const updated = await updateColaboradorByCedula(cedula, {
+                ...rest,
+                costo_empresa: calcAlta.costo_empresa,
+                utilidad: calcAlta.utilidad,
+                rt_aprox: calcAlta.rt_aprox
+            });
+            const actor = actorFromUser(req.user);
+            await syncPersonContractsFromFicha(pool, {
+                cedula,
+                existed: null,
+                cliente: normalizedCreate.cliente,
+                tipoContrato: normalizedCreate.tipo_contrato,
+                fechaInicio: normalizedCreate.fecha_ingreso,
+                fechaTermino: normalizedCreate.fecha_termino,
+                origen: 'ficha_alta',
+                actor
+            });
+            await persistContratoEconomia(pool, {
+                cedula,
+                contratoId: null,
+                patch: rest,
+                actor,
+                origen: 'ficha_alta'
+            });
+            await recordFichaDiff(pool, {
+                cedula,
+                before: {},
+                after: updated,
+                actor,
+                origen: 'ficha_alta',
+                onlyKeys: Object.keys(normalizedCreate)
+            });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
                 actorRole: req.user && req.user.role,
@@ -626,7 +839,10 @@ function registerOnboardingRoutes(deps) {
                 entityId: null,
                 metadata: { cedula }
             });
-            return res.status(201).json({ ok: true, item: updated });
+            return res.status(201).json({
+                ok: true,
+                item: await attachContratosToItem(pool, updated || { cedula })
+            });
         } catch (e) {
             console.error('[Onboarding personal POST]', e.message);
             const status = String(e?.code) === '23505' ? 409 : (Number.isInteger(e?.status) ? e.status : 500);
@@ -642,7 +858,9 @@ function registerOnboardingRoutes(deps) {
         motivo_baja: z.string().min(2).max(200),
         termino: z.string().max(500).optional().nullable(),
         fecha_termino: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-        observaciones: z.string().max(2000).optional().nullable()
+        observaciones: z.string().max(2000).optional().nullable(),
+        cliente: z.string().max(500).optional().nullable(),
+        contrato_id: z.string().uuid().optional().nullable()
     });
 
     app.patch('/api/onboarding/personal/:cedula/baja', ...writeGuard, async (req, res) => {
@@ -655,10 +873,23 @@ function registerOnboardingRoutes(deps) {
             return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
         }
         try {
+            const beforeBaja = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
             const item = await applyRegistroBajaColaborador(pool, cedula, {
                 motivo_baja: parsed.data.motivo_baja,
                 fecha_termino: parsed.data.fecha_termino,
-                termino: parsed.data.termino
+                termino: parsed.data.termino,
+                cliente: parsed.data.cliente,
+                contrato_id: parsed.data.contrato_id,
+                actor: actorFromUser(req.user)
+            });
+            const afterBaja = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            await recordFichaDiff(pool, {
+                cedula,
+                before: beforeBaja.rows[0] || {},
+                after: afterBaja.rows[0] || {},
+                actor: actorFromUser(req.user),
+                origen: 'baja',
+                onlyKeys: ['motivo_baja', 'activo', 'termino']
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -716,7 +947,11 @@ function registerOnboardingRoutes(deps) {
         }
         try {
             // Verifica que la cedula exista
-            const exists = await pool.query(`SELECT 1 FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            const exists = await pool.query(
+                `SELECT esquema_contrato, tarifa_cliente, costo_empresa
+                 FROM colaboradores WHERE cedula = $1 LIMIT 1`,
+                [cedula]
+            );
             if (exists.rows.length === 0) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
@@ -771,6 +1006,18 @@ function registerOnboardingRoutes(deps) {
                 ]
             );
 
+            await recordFichaDiff(pool, {
+                cedula,
+                before: exists.rows[0],
+                after: {
+                    ...exists.rows[0],
+                    tarifa_cliente: q.rows[0].tarifa_cliente,
+                    costo_empresa: q.rows[0].costo_empresa
+                },
+                actor: actorFromUser(req.user),
+                origen: 'calculadora',
+                onlyKeys: ['tarifa_cliente', 'costo_empresa']
+            });
             await writeAudit(pool, {
                 actorUserId: userId,
                 actorRole: req.user && req.user.role,
@@ -1242,6 +1489,8 @@ function registerOnboardingRoutes(deps) {
      *  - headcount_by_tipo: activos agrupados por tipo_personal
      *  - activos_vs_bajas: conteo activos vs bajas
      *  - ingresos_by_month: ingresos por mes (rango opcional desde/hasta o últimos 12 meses)
+     *  - ingresos_mes: ingresos del mes actual Bogotá
+     *  - ciclo_ficha_ingreso: días promedio desde que nació la ficha hasta fecha_ingreso
      * Respeta el scope GP igual que el reporte de rotación.
      * ========================================================================= */
     const graficasQuerySchema = z.object({
@@ -1289,6 +1538,8 @@ function registerOnboardingRoutes(deps) {
                     headcount_by_tipo: [],
                     activos_vs_bajas: { activos: 0, bajas: 0 },
                     ingresos_by_month: [],
+                    ingresos_mes: { mes: null, cuenta: 0 },
+                    ciclo_ficha_ingreso: { promedio_dias: null, n: 0 },
                     irp: {
                         bajas_periodo: 0,
                         headcount_inicio: 0,
@@ -1340,6 +1591,39 @@ function registerOnboardingRoutes(deps) {
                 ingParams
             );
 
+            const mesParams = [...ingresoBase.params];
+            let mesWhere = ingresoBase.whereSql;
+            mesWhere = mesWhere
+                ? `${mesWhere} AND to_char(c.fecha_ingreso, 'YYYY-MM') = to_char((timezone('America/Bogota', now()))::date, 'YYYY-MM')`
+                : `WHERE to_char(c.fecha_ingreso, 'YYYY-MM') = to_char((timezone('America/Bogota', now()))::date, 'YYYY-MM')`;
+            const mesQ = await pool.query(
+                `SELECT to_char((timezone('America/Bogota', now()))::date, 'YYYY-MM') AS mes,
+                        COUNT(*)::int AS cuenta
+                 FROM colaboradores c ${mesWhere}`,
+                mesParams
+            );
+
+            const cicloParams = [...ingresoBase.params];
+            let cicloWhere = ingresoBase.whereSql;
+            if (desde || hasta) {
+                const extra = [];
+                if (desde) { cicloParams.push(desde); extra.push(`c.fecha_ingreso >= $${cicloParams.length}::date`); }
+                if (hasta) { cicloParams.push(hasta); extra.push(`c.fecha_ingreso <= $${cicloParams.length}::date`); }
+                cicloWhere = cicloWhere
+                    ? `${cicloWhere} AND ${extra.join(' AND ')}`
+                    : `WHERE ${extra.join(' AND ')}`;
+            }
+            const nacio = `(${FICHA_NACIO_SQL.trim()})`;
+            cicloWhere = cicloWhere
+                ? `${cicloWhere} AND ${nacio} IS NOT NULL AND c.fecha_ingreso >= ${nacio}`
+                : `WHERE ${nacio} IS NOT NULL AND c.fecha_ingreso >= ${nacio}`;
+            const cicloQ = await pool.query(
+                `SELECT ROUND(AVG((c.fecha_ingreso - ${nacio}))::numeric, 1) AS promedio_dias,
+                        COUNT(*)::int AS n
+                 FROM colaboradores c ${cicloWhere}`,
+                cicloParams
+            );
+
             // IRP = bajas del periodo / promedio de empleados (inicio,fin) x 100.
             // Periodo: desde/hasta si vienen; si no, últimos 12 meses hasta hoy.
             const irpParams = [...irpBase.params];
@@ -1379,6 +1663,16 @@ function registerOnboardingRoutes(deps) {
                     ? { activos: Number(avbQ.rows[0].activos), bajas: Number(avbQ.rows[0].bajas) }
                     : { activos: 0, bajas: 0 },
                 ingresos_by_month: ingresosQ.rows,
+                ingresos_mes: {
+                    mes: mesQ.rows[0]?.mes || null,
+                    cuenta: Number(mesQ.rows[0]?.cuenta) || 0
+                },
+                ciclo_ficha_ingreso: {
+                    promedio_dias: cicloQ.rows[0]?.promedio_dias != null
+                        ? Number(cicloQ.rows[0].promedio_dias)
+                        : null,
+                    n: Number(cicloQ.rows[0]?.n) || 0
+                },
                 irp: {
                     bajas_periodo: bajasPeriodo,
                     headcount_inicio: headInicio,

@@ -9,9 +9,24 @@ import {
     buildStaffColaboradorPayload,
     CO_TABS
 } from '../constants/colaboradoresConsultorFields.js';
+
+const HISTORIAL_TAB = {
+    id: 'historial',
+    title: 'Historial de la ficha',
+    shortTitle: 'Historial'
+};
 import { onboardingApi } from './api.js';
 import { getOnboardingPermissions } from './onboardingAccess.js';
 import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.jsx';
+import ContratoEstante, { contratosFromFicha } from './ContratoEstante.jsx';
+import ContratoHistorialPanel from './ContratoHistorialPanel.jsx';
+import {
+    ECONOMIA_CONTRATO_KEYS,
+    historialForFicha,
+    matchClienteOption,
+    overlayContratoEconomia,
+    pickLiderForCliente
+} from './contratoEstanteMap.js';
 
 async function fetchClientes() {
     try {
@@ -39,7 +54,14 @@ async function fetchLideres(cliente) {
     }
 }
 
-export default function ColaboradorOnboardingModal({ auth, cedula, createMode = false, onClose, onSaved }) {
+export default function ColaboradorOnboardingModal({
+    auth,
+    cedula,
+    createMode = false,
+    initialContratoId = null,
+    onClose,
+    onSaved
+}) {
     const mt = useModuleTheme();
     const { labelMuted, isLight } = mt;
     const T = buildMonitorGlassModalTheme(isLight);
@@ -58,13 +80,39 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     const [liderOptions, setLiderOptions] = useState([]);
     const [liderLoading, setLiderLoading] = useState(false);
     const [activeTab, setActiveTab] = useState(CO_TABS[0]?.id || 'general');
+    const [selectedContratoId, setSelectedContratoId] = useState('cabecera');
     const [zohoHistorial, setZohoHistorial] = useState([]);
 
+    const fichaTabs = createMode ? CO_TABS : [...CO_TABS, HISTORIAL_TAB];
+    const onHistorialTab = activeTab === HISTORIAL_TAB.id;
     const displayName = createMode ? 'Nuevo colaborador' : form.nombre || 'Ficha del colaborador';
-    const displaySubtitle = createMode
-        ? 'Alta manual de ficha'
-        : `${form.cedula || cedula || '—'}${form.cliente ? ` · ${form.cliente}` : ''}`;
-
+    const contratos = useMemo(() => contratosFromFicha(form, { esBaja }), [form, esBaja]);
+    const contratoSeleccionado = useMemo(
+        () => contratos.find((c) => c.id === selectedContratoId) || contratos.find((c) => c.esCabecera) || contratos[0],
+        [contratos, selectedContratoId]
+    );
+    const formVista = useMemo(() => {
+        const sel = contratoSeleccionado;
+        const clienteVista = matchClienteOption(
+            !sel || sel.esCabecera ? form.cliente : sel.cliente || form.cliente,
+            clientes
+        );
+        const base =
+            !sel || sel.esCabecera
+                ? { ...form, cliente: clienteVista }
+                : {
+                      ...form,
+                      cliente: clienteVista,
+                      tipo_contrato: sel.tipo || form.tipo_contrato,
+                      fecha_termino: sel.fechaTermino || form.fecha_termino,
+                      fecha_ingreso: sel.fechaInicio || form.fecha_ingreso
+                  };
+        return {
+            ...base,
+            ...overlayContratoEconomia(form, sel),
+            lider_catalogo: pickLiderForCliente(form.lider_catalogo, liderOptions, { loading: liderLoading })
+        };
+    }, [form, contratoSeleccionado, clientes, liderOptions, liderLoading]);
     const estadoColaborador = useMemo(
         () =>
             resolveColaboradorEstado({
@@ -74,16 +122,11 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             }),
         [esBaja, form.motivo_baja, form.fecha_ingreso]
     );
-
-    const handleLiderFetch = useCallback(async (cliente) => {
-        setLiderLoading(true);
-        try {
-            const items = await fetchLideres(cliente);
-            setLiderOptions(items);
-        } finally {
-            setLiderLoading(false);
-        }
-    }, []);
+    const displaySubtitle = createMode
+        ? 'Alta manual de ficha'
+        : [estadoColaborador.label, form.cedula || cedula || '—', form.cliente || null, form.correo_cinte || null]
+              .filter(Boolean)
+              .join(' · ');
 
     const load = useCallback(async () => {
         if (createMode) {
@@ -108,12 +151,13 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             const mapped = mapRowToStaffForm(item);
             setForm(mapped);
             setOriginalForm(mapped);
+            const list = contratosFromFicha(mapped, {
+                esBaja: item.activo === false || Boolean(item.motivo_baja)
+            });
+            const wanted = String(initialContratoId || '').trim();
+            const pick = (wanted && list.find((c) => c.id === wanted)) || list.find((c) => c.esCabecera) || list[0];
+            setSelectedContratoId(pick?.id || 'cabecera');
             setClientes(cats);
-            if (mapped.cliente) {
-                await handleLiderFetch(mapped.cliente);
-            } else {
-                setLiderOptions([]);
-            }
         } catch (e) {
             const status = e?.response?.status;
             const msg = e?.response?.data?.error || e.message;
@@ -123,11 +167,34 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
         } finally {
             setLoading(false);
         }
-    }, [cedula, token, handleLiderFetch, createMode]);
+    }, [cedula, token, createMode, initialContratoId]);
 
     useEffect(() => {
         load();
     }, [load]);
+
+    useEffect(() => {
+        const cliente = createMode ? form.cliente : contratoSeleccionado?.cliente || form.cliente;
+        if (!cliente) {
+            setLiderOptions([]);
+            setLiderLoading(false);
+            return undefined;
+        }
+        let alive = true;
+        setLiderLoading(true);
+        setLiderOptions([]);
+        fetchLideres(cliente)
+            .then((items) => {
+                if (!alive) return;
+                setLiderOptions(items);
+            })
+            .finally(() => {
+                if (alive) setLiderLoading(false);
+            });
+        return () => {
+            alive = false;
+        };
+    }, [createMode, form.cliente, contratoSeleccionado?.cliente]);
 
     useEffect(() => {
         if (createMode || !cedula) return undefined;
@@ -165,16 +232,35 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
         setSaving(true);
         setError('');
         try {
-            const payload = buildStaffColaboradorPayload(form);
-            payload.nombre = String(form.nombre || '').trim();
-            payload.correo_cinte = form.correo_cinte ? String(form.correo_cinte).trim().toLowerCase() : null;
+            const payload = buildStaffColaboradorPayload(formVista);
+            payload.nombre = String(formVista.nombre || '').trim();
+            payload.correo_cinte = formVista.correo_cinte ? String(formVista.correo_cinte).trim().toLowerCase() : null;
             if (payload.correo_cinte && !/@(?:grupocinte\.com)$/i.test(payload.correo_cinte)) {
                 setError('El correo Cinte debe ser @grupocinte.com');
                 setSaving(false);
                 return;
             }
-            payload.cliente = form.cliente ? String(form.cliente).trim() : null;
-            payload.lider_catalogo = form.lider_catalogo ? String(form.lider_catalogo).trim() : null;
+            const clienteSel = String(
+                contratoSeleccionado && !contratoSeleccionado.esCabecera
+                    ? contratoSeleccionado.cliente || formVista.cliente || form.cliente || ''
+                    : formVista.cliente || form.cliente || ''
+            ).trim();
+            payload.cliente = clienteSel || null;
+            const persistLiderCabecera = createMode || !contratoSeleccionado || contratoSeleccionado.esCabecera;
+            payload.lider_catalogo = persistLiderCabecera
+                ? formVista.lider_catalogo
+                    ? String(formVista.lider_catalogo).trim()
+                    : null
+                : form.lider_catalogo
+                  ? String(form.lider_catalogo).trim()
+                  : null;
+            const contratoUuid = String(contratoSeleccionado?.id || '');
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(contratoUuid)) {
+                payload.contrato_id = contratoUuid;
+            }
+            delete payload.costo_empresa;
+            delete payload.utilidad;
+            delete payload.rt_aprox;
             if (createMode) {
                 const cedNueva = String(form.cedula || '').replace(/\D+/g, '');
                 if (!cedNueva) {
@@ -192,6 +278,9 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             const mapped = mapRowToStaffForm(r?.item || {});
             setForm(mapped);
             setOriginalForm(mapped);
+            const list = contratosFromFicha(mapped, { esBaja });
+            const keep = list.find((c) => c.id === selectedContratoId) || list.find((c) => c.esCabecera) || list[0];
+            if (keep) setSelectedContratoId(keep.id);
             setEditMode(false);
             if (typeof onSaved === 'function') onSaved(r?.item || null);
         } catch (ex) {
@@ -210,20 +299,25 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     const handleBajaConfirmada = (item) => {
         setBajaOpen(false);
         if (typeof onSaved === 'function') onSaved(item || null);
-        if (typeof onClose === 'function') onClose();
+        if (item && item.activo === false && typeof onClose === 'function') onClose();
     };
 
     const subTabsBarCls = isLight
-        ? 'mb-4 flex flex-wrap items-stretch gap-x-1 gap-y-0 border-b border-slate-200/80 px-1'
-        : 'mb-4 flex flex-wrap items-stretch gap-x-1 gap-y-0 border-b border-white/10 px-1';
+        ? 'flex shrink-0 flex-nowrap items-stretch gap-x-1 overflow-x-auto border-b border-slate-200/80 px-1'
+        : 'flex shrink-0 flex-nowrap items-stretch gap-x-1 overflow-x-auto border-b border-white/10 px-1';
 
     const headerActions = (
         <>
+            {!loading && !error && !createMode && form.tipo_personal ? (
+                <span className="hidden sm:inline-flex">
+                    <TipoPersonalBadge value={form.tipo_personal} isLight={isLight} />
+                </span>
+            ) : null}
             {!loading && !error && !editMode && !createMode && perms.canEditFicha ? (
                 <button
                     type="button"
                     onClick={handleEdit}
-                    className="inline-flex items-center justify-center rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#004D87]"
+                    className="inline-flex items-center justify-center rounded-lg bg-[#2F7BB8] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-[#004D87] sm:px-4 sm:py-2 sm:text-sm"
                 >
                     Editar
                 </button>
@@ -232,56 +326,13 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                 <button
                     type="button"
                     onClick={() => setBajaOpen(true)}
-                    className="inline-flex items-center justify-center rounded-lg bg-rose-500/90 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-rose-500"
+                    className="inline-flex items-center justify-center rounded-lg bg-rose-500/90 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-rose-500 sm:px-4 sm:py-2 sm:text-sm"
                 >
-                    Tramitar baja
+                    Cerrar contrato
                 </button>
             ) : null}
         </>
     );
-
-    const hero =
-        !loading && !error && !createMode ? (
-            <>
-                <div className="flex min-w-fit items-center gap-3">
-                    <div className="relative flex h-3.5 w-3.5">
-                        <span
-                            className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${estadoColaborador.ping ? 'animate-ping' : ''}`}
-                            style={{ backgroundColor: estadoColaborador.dot }}
-                        />
-                        <span
-                            className="relative inline-flex h-3.5 w-3.5 rounded-full"
-                            style={{ backgroundColor: estadoColaborador.dot }}
-                        />
-                    </div>
-                    <span
-                        className={`text-[11px] font-bold uppercase tracking-widest ${isLight ? estadoColaborador.textCls.light : estadoColaborador.textCls.dark}`}
-                    >
-                        {estadoColaborador.label}
-                    </span>
-                </div>
-                <div className={`hidden h-6 w-px sm:block ${isLight ? 'bg-slate-300' : 'bg-slate-700'}`} />
-                <div className="flex flex-1 flex-wrap items-center gap-4">
-                    {form.tipo_personal ? <TipoPersonalBadge value={form.tipo_personal} isLight={isLight} /> : null}
-                    {form.puesto ? (
-                        <div className={`flex items-center gap-2 text-sm font-medium ${T.textCls}`}>
-                            <svg className="h-4 w-4 text-[var(--color-cinte-turquesa)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            </svg>
-                            {form.puesto}
-                        </div>
-                    ) : null}
-                    {form.correo_cinte ? (
-                        <div className={`flex items-center gap-2 text-sm ${T.textMuted}`}>
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            </svg>
-                            {form.correo_cinte}
-                        </div>
-                    ) : null}
-                </div>
-            </>
-        ) : null;
 
     const footer =
         editMode && !loading && !error ? (
@@ -309,14 +360,24 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                 title={displayName}
                 subtitle={displaySubtitle}
                 avatarLetter={createMode ? '+' : displayName}
-                hero={hero}
+                compact
                 headerActions={headerActions}
                 footer={footer}
-                bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-6 pt-2"
+                bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-2 sm:px-6"
             >
+                {!loading && !error && !createMode ? (
+                    <div className="mb-2 shrink-0">
+                        <ContratoEstante
+                            contratos={contratos}
+                            selectedId={selectedContratoId}
+                            onSelect={setSelectedContratoId}
+                            isLight={isLight}
+                        />
+                    </div>
+                ) : null}
                 {!loading && !error ? (
                     <div role="tablist" aria-label="Secciones de la ficha" className={subTabsBarCls}>
-                        {CO_TABS.map((tab) => {
+                        {fichaTabs.map((tab) => {
                             const isActive = tab.id === activeTab;
                             const label = tab.shortTitle || tab.title;
                             return (
@@ -327,7 +388,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                                     aria-selected={isActive}
                                     title={tab.title}
                                     onClick={() => setActiveTab(tab.id)}
-                                    className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors sm:px-4 sm:py-3 ${
+                                    className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-2.5 py-2 text-sm font-semibold transition-colors sm:px-4 sm:py-2.5 ${
                                         isActive
                                             ? `border-[#2F7BB8] ${isLight ? 'text-slate-900' : 'text-white'}`
                                             : `border-transparent ${labelMuted}`
@@ -347,35 +408,104 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                         <div className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">
                             {error}
                         </div>
+                    ) : onHistorialTab ? (
+                        <div className="space-y-6 pb-2">
+                            <ContratoHistorialPanel
+                                items={historialForFicha(form)}
+                                isLight={isLight}
+                            />
+                            {zohoHistorial.length > 0 ? (
+                                <div className={`rounded-xl border p-4 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700/50 bg-[#0f172a]/50'}`}>
+                                    <p className={`mb-2 text-xs font-bold uppercase tracking-wider ${labelMuted}`}>
+                                        Historial novedades Zoho
+                                    </p>
+                                    <ul className="flex flex-col gap-2 text-sm">
+                                        {zohoHistorial.map((h) => (
+                                            <li key={h.id} className="flex flex-wrap items-center gap-2">
+                                                <span className="font-medium">{h.tipo_novedad}</span>
+                                                <span className={labelMuted}>{h.status}</span>
+                                                <span className={labelMuted}>{h.subject || h.id_registro}</span>
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            ) : null}
+                        </div>
                     ) : (
                         <ColaboradorFichaFields
-                            value={form}
-                            onChange={(patch) => setForm((s) => ({ ...s, ...patch }))}
+                            value={formVista}
+                            onChange={(patch) => {
+                                const sel = contratoSeleccionado;
+                                const nextPatch = { ...(patch || {}) };
+                                if (sel && !sel.esCabecera && nextPatch.lider_catalogo !== undefined) {
+                                    delete nextPatch.lider_catalogo;
+                                }
+                                if (sel && !sel.esCabecera && nextPatch.cliente !== undefined && !String(nextPatch.cliente || '').trim()) {
+                                    delete nextPatch.cliente;
+                                }
+                                const contractKeys = [
+                                    'cliente',
+                                    'tipo_contrato',
+                                    'fecha_termino',
+                                    'fecha_ingreso',
+                                    ...ECONOMIA_CONTRATO_KEYS
+                                ];
+                                const touchesContract = Object.keys(nextPatch).some((k) => contractKeys.includes(k));
+                                if (sel && !sel.esCabecera && touchesContract && Array.isArray(form.contratos)) {
+                                    const nextContratos = form.contratos.map((c) => {
+                                        if (String(c.id) !== String(sel.id)) return c;
+                                        const next = {
+                                            ...c,
+                                            cliente: nextPatch.cliente !== undefined ? nextPatch.cliente : c.cliente,
+                                            tipo: nextPatch.tipo_contrato !== undefined ? nextPatch.tipo_contrato : c.tipo,
+                                            tipo_contrato:
+                                                nextPatch.tipo_contrato !== undefined
+                                                    ? nextPatch.tipo_contrato
+                                                    : c.tipo_contrato,
+                                            fechaTermino:
+                                                nextPatch.fecha_termino !== undefined
+                                                    ? nextPatch.fecha_termino
+                                                    : c.fechaTermino,
+                                            fecha_termino:
+                                                nextPatch.fecha_termino !== undefined
+                                                    ? nextPatch.fecha_termino
+                                                    : c.fecha_termino,
+                                            fechaInicio:
+                                                nextPatch.fecha_ingreso !== undefined
+                                                    ? nextPatch.fecha_ingreso
+                                                    : c.fechaInicio,
+                                            fecha_inicio:
+                                                nextPatch.fecha_ingreso !== undefined
+                                                    ? nextPatch.fecha_ingreso
+                                                    : c.fecha_inicio
+                                        };
+                                        for (const key of ECONOMIA_CONTRATO_KEYS) {
+                                            if (nextPatch[key] !== undefined) next[key] = nextPatch[key];
+                                        }
+                                        return next;
+                                    });
+                                    const rest = { ...nextPatch };
+                                    for (const k of contractKeys) delete rest[k];
+                                    if (Object.keys(rest).length === 0) {
+                                        setForm((s) => ({ ...s, contratos: nextContratos }));
+                                        return;
+                                    }
+                                    setForm((s) => ({ ...s, ...rest, contratos: nextContratos }));
+                                    return;
+                                }
+                                if (Object.keys(nextPatch).length === 0) return;
+                                setForm((s) => ({ ...s, ...nextPatch }));
+                            }}
                             mode={createMode ? 'create' : 'edit'}
                             readOnly={!editMode}
+                            lockCliente={Boolean(contratoSeleccionado && !contratoSeleccionado.esCabecera)}
                             clientes={clientes}
                             liderOptions={liderOptions}
                             liderLoading={liderLoading}
-                            onClienteChange={handleLiderFetch}
                             activeTabId={activeTab}
+                            hideIdentityFields={!createMode}
                         />
                     )}
-                    {!loading && !error && !createMode && zohoHistorial.length > 0 ? (
-                        <div className={`mt-6 rounded-xl border p-4 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/[0.02]'}`}>
-                            <p className={`mb-2 text-xs font-bold uppercase tracking-widest ${labelMuted}`}>
-                                Historial novedades Zoho
-                            </p>
-                            <ul className="flex flex-col gap-2 text-sm">
-                                {zohoHistorial.map((h) => (
-                                    <li key={h.id} className="flex flex-wrap items-center gap-2">
-                                        <span className="font-medium">{h.tipo_novedad}</span>
-                                        <span className={labelMuted}>{h.status}</span>
-                                        <span className={labelMuted}>{h.subject || h.id_registro}</span>
-                                    </li>
-                                ))}
-                            </ul>
-                        </div>
-                    ) : null}
                 </form>
             </MonitorGlassModalShell>
 
@@ -384,6 +514,9 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                     auth={auth}
                     cedula={String(form.cedula || cedula || '').replace(/\D+/g, '')}
                     nombre={form.nombre}
+                    cliente={contratoSeleccionado?.cliente || formVista.cliente || form.cliente}
+                    contratoId={contratoSeleccionado?.id}
+                    vigentesCount={contratos.filter((c) => c.vigente !== false).length}
                     onClose={() => setBajaOpen(false)}
                     onConfirmed={handleBajaConfirmada}
                 />
@@ -392,7 +525,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     );
 }
 
-function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
+function BajaModal({ auth, cedula, nombre, cliente, contratoId, vigentesCount, onClose, onConfirmed }) {
     const { labelMuted, isLight } = useModuleTheme();
     const T = buildMonitorGlassModalTheme(isLight);
     const token = auth?.token || '';
@@ -441,6 +574,8 @@ function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
         try {
             const body = { motivo_baja: motivo, fecha_termino: fecha };
             if (observaciones.trim()) body.observaciones = observaciones.trim();
+            if (cliente) body.cliente = String(cliente).trim();
+            if (contratoId && /^[0-9a-f-]{36}$/i.test(String(contratoId))) body.contrato_id = contratoId;
             const r = await onboardingApi.marcarBaja(token, cedNorm, body);
             if (typeof onConfirmed === 'function') onConfirmed(r?.item || null);
         } catch (ex) {
@@ -479,14 +614,18 @@ function BajaModal({ auth, cedula, nombre, onClose, onConfirmed }) {
             disableBackdropClose={saving}
             zClass="z-[170]"
             size="md"
-            title="Tramitar baja"
+            title={cliente ? `Cerrar contrato · ${cliente}` : 'Cerrar contrato'}
             subtitle={`${cedula}${nombre ? ` · ${nombre}` : ''}`}
             avatarLetter={nombre || cedula}
             footer={footer}
             bodyClassName="px-6 pb-2 pt-2"
         >
             <p className={`mb-4 text-sm leading-relaxed ${T.textMuted}`}>
-                Registra el motivo legal de la baja. La ficha pasará a estado inactivo.
+                {cliente
+                    ? vigentesCount > 1
+                        ? `Se cierra solo el contrato de ${cliente}. Los demás siguen vigentes y la persona permanece en Activos.`
+                        : `Este es el último contrato vigente. Al confirmar, ${nombre || 'la persona'} pasa a Bajas.`
+                    : 'Se cierra el contrato seleccionado. Si queda otro vigente, la persona sigue en Activos.'}
             </p>
             {error ? (
                 <div className="mb-4 rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-600 dark:text-rose-300">

@@ -1,0 +1,10 @@
+{
+  "name": "contratos-vencimiento",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AUT-319 digest T30/T15/T5 de contratos por vencer",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-ses": "^3.758.0"
+  }
+}

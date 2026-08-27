@@ -165,6 +165,8 @@ async function startServer(deps) {
      * Idempotente: si la BD no es owner se loguea WARN y se sigue.
      */
     await safeInit(() => ensureOnboardingSchema({ pool, logger }), null, 'onboarding_schema');
+    const { ensureContratoVencimientoColumns } = require('./onboarding/contratoVencimientoService');
+    await safeInit(() => ensureContratoVencimientoColumns(pool, logger), null, 'contrato_vencimiento_columns');
     await safeInit(() => ensureSourcingSchema({ pool, logger }), null, 'sourcing_schema');
 
     const server = app.listen(PORT, () => {

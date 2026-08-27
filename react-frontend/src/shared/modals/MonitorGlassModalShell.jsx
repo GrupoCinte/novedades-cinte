@@ -18,6 +18,7 @@ export default function MonitorGlassModalShell({
     hero,
     headerActions,
     footer,
+    compact = false,
     bodyClassName = 'p-6 overflow-y-auto custom-scrollbar flex-1 relative bg-transparent',
     children
 }) {
@@ -34,7 +35,7 @@ export default function MonitorGlassModalShell({
 
     return (
         <AnimatePresence>
-            <div className={`fixed inset-0 ${zClass} flex items-center justify-center p-4 sm:p-6 font-body`}>
+            <div className={`fixed inset-0 ${zClass} flex items-center justify-center ${compact ? 'p-2 sm:p-4' : 'p-4 sm:p-6'} font-body`}>
                 <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -51,16 +52,16 @@ export default function MonitorGlassModalShell({
                     className={`relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl ${monitorGlassModalSizeCls(size)} ${T.modalCls}`}
                     onClick={(e) => e.stopPropagation()}
                 >
-                    <div className={`flex items-start justify-between px-6 py-5 ${T.headerCls}`}>
-                        <div className="flex min-w-0 flex-1 items-center gap-4">
+                    <div className={`flex items-start justify-between ${compact ? 'px-4 py-2.5' : 'px-6 py-5'} ${T.headerCls}`}>
+                        <div className={`flex min-w-0 flex-1 items-center ${compact ? 'gap-2.5' : 'gap-4'}`}>
                             {letter ? (
-                                <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--color-cinte-primary)] to-[var(--color-cinte-turquesa)] text-white shadow-lg">
-                                    <span className="text-2xl font-bold">{letter}</span>
+                                <div className={`flex shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--color-cinte-primary)] to-[var(--color-cinte-turquesa)] text-white shadow-lg ${compact ? 'h-9 w-9' : 'h-14 w-14'}`}>
+                                    <span className={`font-bold ${compact ? 'text-base' : 'text-2xl'}`}>{letter}</span>
                                 </div>
                             ) : null}
                             <div className="min-w-0">
                                 {title ? (
-                                    <h2 className={`truncate text-xl font-bold tracking-tight sm:text-2xl ${T.textCls} font-heading`}>
+                                    <h2 className={`truncate font-bold tracking-tight font-heading ${T.textCls} ${compact ? 'text-base sm:text-lg' : 'text-xl sm:text-2xl'}`}>
                                         {title}
                                     </h2>
                                 ) : null}
