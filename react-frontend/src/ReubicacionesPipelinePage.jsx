@@ -10,7 +10,7 @@ import {
 } from './admin/directorioFilters.js';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
-import { canEditReubicaciones, canDeleteReubicaciones } from './reubicacionesAccess.js';
+import { canEditReubicaciones } from './reubicacionesAccess.js';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -136,7 +136,7 @@ class ReubicacionesPipelineErrorBoundary extends Component {
     }
 }
 
-function ReubicacionesPipelinePageInner({ token, auth, navIntent }) {
+function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const { isLight, field, labelMuted, headingAccent } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     

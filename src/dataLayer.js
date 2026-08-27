@@ -3062,8 +3062,6 @@ function createDataLayer(deps) {
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
         ensureColaboradoresExtendedColumns,
-        ensureReubicacionesPipelineTable,
-        ensureReubicacionesHU02,
         ensureMallaTurnosCeldaTable,
         ensureMallaTurnoAsignacionTable,
         ensureMallaTurnoAprobacionTable,
