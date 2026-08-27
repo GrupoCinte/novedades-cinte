@@ -22,6 +22,7 @@ const {
     sameCliente,
     isoDate
 } = require('./colaboradorContratos');
+const { actorFromUser } = require('./contratoHistorial');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
@@ -1177,6 +1178,8 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
     async function approveNovedad(id, reviewer = {}, options = {}) {
         const closeSiblings = options.closeSiblings === true;
+        const actor = actorFromUser(reviewer);
+        const origenZoho = 'ficha_zoho';
         const row = await getNovedadById(id);
         if (!row) throw Object.assign(new Error('Novedad no encontrada'), { status: 404 });
         if (!['pendiente', 'sin_match'].includes(row.status)) {
@@ -1210,7 +1213,9 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             await applyRegistroBajaColaborador(pool, cedula, {
                 fecha_termino: patch.fecha_termino || normalized.fecha_termino,
                 termino: patch.termino || normalized.termino,
-                cliente: clienteFicha
+                cliente: clienteFicha,
+                actor,
+                origen: origenZoho
             });
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
@@ -1225,7 +1230,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                     status: 400
                 });
             }
-            await reopenContrato(pool, { cedula, cliente: clienteFicha });
+            await reopenContrato(pool, { cedula, cliente: clienteFicha, actor, origen: origenZoho });
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
             delete patch.termino;
@@ -1262,7 +1267,8 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 tipoContrato: normalized.tipo_contrato || patch.tipo_contrato,
                 fechaInicio: normalized.fecha_ingreso || patch.fecha_ingreso,
                 fechaTermino: normalized.fecha_termino || patch.fecha_termino,
-                origen: `novedad_${tipo}`,
+                origen: origenZoho,
+                actor,
                 existed: current,
                 ...(tipo === 'extension' ? { action: 'extend' } : {})
             });

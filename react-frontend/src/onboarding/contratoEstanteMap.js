@@ -117,6 +117,7 @@ export function groupHistorialBloques(items) {
                 createdAt: entry.createdAt || null,
                 actorNombre: entry.actorNombre || 'Sistema',
                 actorEmail: entry.actorEmail || null,
+                origen: entry.origen || null,
                 cambios: []
             };
             byKey.set(key, bloque);
@@ -128,6 +129,25 @@ export function groupHistorialBloques(items) {
         }
     }
     return order;
+}
+
+function esOrigenFichaZoho(origen) {
+    const o = String(origen || '');
+    return o === 'ficha_zoho' || o.startsWith('novedad_');
+}
+
+/** Pie del bloque: quién guardó, o de dónde vino la ficha Zoho y quién la aprobó. */
+export function historialActorLine(bloque) {
+    if (!bloque) return '—';
+    const origen = bloque.origen || bloque.cambios?.[0]?.origen;
+    const nombre = String(bloque.actorNombre || '').trim();
+    const email = String(bloque.actorEmail || '').trim();
+    const who = [nombre && nombre !== 'Sistema' ? nombre : null, email].filter(Boolean).join(' · ');
+    if (esOrigenFichaZoho(origen)) {
+        return who ? `Desde ficha Zoho · Aprobado por ${who}` : 'Desde ficha Zoho';
+    }
+    if (nombre && email) return `${nombre} · ${email}`;
+    return nombre || email || '—';
 }
 
 function toPositiveInt(value) {

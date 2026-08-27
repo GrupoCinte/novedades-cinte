@@ -104,6 +104,22 @@ describe('contratosFromFicha AUT-312', () => {
         assert.equal(historialForContrato({}, 'c1').length, 0);
     });
 
+    it('el pie de Zoho dice desde ficha Zoho y quién aprobó (AUT-317)', async () => {
+        const { historialActorLine } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
+        assert.equal(
+            historialActorLine({
+                origen: 'ficha_zoho',
+                actorNombre: 'Luis Correa',
+                actorEmail: 'lcorrea@grupocinte.com'
+            }),
+            'Desde ficha Zoho · Aprobado por Luis Correa · lcorrea@grupocinte.com'
+        );
+        assert.equal(
+            historialActorLine({ actorNombre: 'Luis', actorEmail: 'luis@grupocinte.com' }),
+            'Luis · luis@grupocinte.com'
+        );
+    });
+
     it('agrupa varios cambios del mismo Guardar en un bloque (AUT-317)', async () => {
         const { groupHistorialBloques } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
         const bloques = groupHistorialBloques([

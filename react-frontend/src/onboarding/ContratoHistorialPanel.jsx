@@ -1,5 +1,5 @@
 import { Clock } from 'lucide-react';
-import { groupHistorialBloques } from './contratoEstanteMap.js';
+import { groupHistorialBloques, historialActorLine } from './contratoEstanteMap.js';
 
 function formatFecha(value) {
     if (!value) return '—';
@@ -98,8 +98,7 @@ export default function ContratoHistorialPanel({ items = [], isLight = false }) 
                                     ))}
                                 </ul>
                                 <p className={`mt-1.5 ${muted}`}>
-                                    <span className="font-medium text-inherit">{bloque.actorNombre || '—'}</span>
-                                    {bloque.actorEmail ? <> · {bloque.actorEmail}</> : null}
+                                    <span className="font-medium text-inherit">{historialActorLine(bloque)}</span>
                                 </p>
                             </li>
                         ))}
