@@ -54,7 +54,14 @@ async function fetchLideres(cliente) {
     }
 }
 
-export default function ColaboradorOnboardingModal({ auth, cedula, createMode = false, onClose, onSaved }) {
+export default function ColaboradorOnboardingModal({
+    auth,
+    cedula,
+    createMode = false,
+    initialContratoId = null,
+    onClose,
+    onSaved
+}) {
     const mt = useModuleTheme();
     const { labelMuted, isLight } = mt;
     const T = buildMonitorGlassModalTheme(isLight);
@@ -147,8 +154,9 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             const list = contratosFromFicha(mapped, {
                 esBaja: item.activo === false || Boolean(item.motivo_baja)
             });
-            const cab = list.find((c) => c.esCabecera) || list[0];
-            setSelectedContratoId(cab?.id || 'cabecera');
+            const wanted = String(initialContratoId || '').trim();
+            const pick = (wanted && list.find((c) => c.id === wanted)) || list.find((c) => c.esCabecera) || list[0];
+            setSelectedContratoId(pick?.id || 'cabecera');
             setClientes(cats);
         } catch (e) {
             const status = e?.response?.status;
@@ -159,7 +167,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
         } finally {
             setLoading(false);
         }
-    }, [cedula, token, createMode]);
+    }, [cedula, token, createMode, initialContratoId]);
 
     useEffect(() => {
         load();

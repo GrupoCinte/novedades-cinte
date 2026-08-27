@@ -224,3 +224,25 @@ function fmtPlain(v) {
     const s = String(v);
     return s.length >= 10 ? s.slice(0, 10) : s;
 }
+
+const ALERTA_VENCIMIENTO = {
+    T5: ['border-rose-400 bg-rose-50 text-rose-900', 'border-rose-400/40 bg-rose-500/15 text-rose-100'],
+    T15: ['border-orange-400 bg-orange-50 text-orange-950', 'border-orange-400/40 bg-orange-500/15 text-orange-100'],
+    T30: ['border-amber-400 bg-amber-50 text-amber-950', 'border-amber-400/40 bg-amber-500/15 text-amber-100']
+};
+
+export function AlertaVencimientoBadge({ kind, dias, isLight }) {
+    const pair = ALERTA_VENCIMIENTO[kind];
+    if (!pair) return null;
+    const n = Number(dias);
+    const text = Number.isFinite(n)
+        ? n === 1
+            ? '1 día'
+            : `${n} días`
+        : kind === 'T5'
+          ? '5 días'
+          : kind === 'T15'
+            ? '15 días'
+            : '30 días';
+    return <span className={pill(pair[0], pair[1], isLight)}>{text}</span>;
+}

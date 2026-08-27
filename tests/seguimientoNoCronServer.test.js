@@ -11,5 +11,6 @@ describe('AUT-286 anti-cron en server.js', () => {
         assert.equal(/node-cron|cron\.schedule/i.test(src), false);
         assert.equal(/reminder_t5|T-5|T5.*setInterval|setInterval.*seguimiento/i.test(src), false);
         assert.equal(/seguimiento.*setInterval|setInterval.*vencimiento/i.test(src), false);
+        assert.equal(/contratos-vencimiento|por-vencer.*setInterval|setInterval.*por-vencer/i.test(src), false);
     });
 });
