@@ -12,6 +12,7 @@ import {
 import { onboardingApi } from './api.js';
 import { getOnboardingPermissions } from './onboardingAccess.js';
 import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.jsx';
+import ContratoEstante, { contratosFromFicha } from './ContratoEstante.jsx';
 
 async function fetchClientes() {
     try {
@@ -58,13 +59,11 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     const [liderOptions, setLiderOptions] = useState([]);
     const [liderLoading, setLiderLoading] = useState(false);
     const [activeTab, setActiveTab] = useState(CO_TABS[0]?.id || 'general');
+    const [selectedContratoId, setSelectedContratoId] = useState('cabecera');
     const [zohoHistorial, setZohoHistorial] = useState([]);
 
     const displayName = createMode ? 'Nuevo colaborador' : form.nombre || 'Ficha del colaborador';
-    const displaySubtitle = createMode
-        ? 'Alta manual de ficha'
-        : `${form.cedula || cedula || '—'}${form.cliente ? ` · ${form.cliente}` : ''}`;
-
+    const contratos = useMemo(() => contratosFromFicha(form, { esBaja }), [form, esBaja]);
     const estadoColaborador = useMemo(
         () =>
             resolveColaboradorEstado({
@@ -74,6 +73,11 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
             }),
         [esBaja, form.motivo_baja, form.fecha_ingreso]
     );
+    const displaySubtitle = createMode
+        ? 'Alta manual de ficha'
+        : [estadoColaborador.label, form.cedula || cedula || '—', form.cliente || null, form.correo_cinte || null]
+              .filter(Boolean)
+              .join(' · ');
 
     const handleLiderFetch = useCallback(async (cliente) => {
         setLiderLoading(true);
@@ -214,16 +218,21 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
     };
 
     const subTabsBarCls = isLight
-        ? 'mb-4 flex flex-wrap items-stretch gap-x-1 gap-y-0 border-b border-slate-200/80 px-1'
-        : 'mb-4 flex flex-wrap items-stretch gap-x-1 gap-y-0 border-b border-white/10 px-1';
+        ? 'flex shrink-0 flex-nowrap items-stretch gap-x-1 overflow-x-auto border-b border-slate-200/80 px-1'
+        : 'flex shrink-0 flex-nowrap items-stretch gap-x-1 overflow-x-auto border-b border-white/10 px-1';
 
     const headerActions = (
         <>
+            {!loading && !error && !createMode && form.tipo_personal ? (
+                <span className="hidden sm:inline-flex">
+                    <TipoPersonalBadge value={form.tipo_personal} isLight={isLight} />
+                </span>
+            ) : null}
             {!loading && !error && !editMode && !createMode && perms.canEditFicha ? (
                 <button
                     type="button"
                     onClick={handleEdit}
-                    className="inline-flex items-center justify-center rounded-lg bg-[#2F7BB8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-[#004D87]"
+                    className="inline-flex items-center justify-center rounded-lg bg-[#2F7BB8] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-[#004D87] sm:px-4 sm:py-2 sm:text-sm"
                 >
                     Editar
                 </button>
@@ -232,56 +241,13 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                 <button
                     type="button"
                     onClick={() => setBajaOpen(true)}
-                    className="inline-flex items-center justify-center rounded-lg bg-rose-500/90 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:bg-rose-500"
+                    className="inline-flex items-center justify-center rounded-lg bg-rose-500/90 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-all hover:bg-rose-500 sm:px-4 sm:py-2 sm:text-sm"
                 >
-                    Tramitar baja
+                    Baja
                 </button>
             ) : null}
         </>
     );
-
-    const hero =
-        !loading && !error && !createMode ? (
-            <>
-                <div className="flex min-w-fit items-center gap-3">
-                    <div className="relative flex h-3.5 w-3.5">
-                        <span
-                            className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${estadoColaborador.ping ? 'animate-ping' : ''}`}
-                            style={{ backgroundColor: estadoColaborador.dot }}
-                        />
-                        <span
-                            className="relative inline-flex h-3.5 w-3.5 rounded-full"
-                            style={{ backgroundColor: estadoColaborador.dot }}
-                        />
-                    </div>
-                    <span
-                        className={`text-[11px] font-bold uppercase tracking-widest ${isLight ? estadoColaborador.textCls.light : estadoColaborador.textCls.dark}`}
-                    >
-                        {estadoColaborador.label}
-                    </span>
-                </div>
-                <div className={`hidden h-6 w-px sm:block ${isLight ? 'bg-slate-300' : 'bg-slate-700'}`} />
-                <div className="flex flex-1 flex-wrap items-center gap-4">
-                    {form.tipo_personal ? <TipoPersonalBadge value={form.tipo_personal} isLight={isLight} /> : null}
-                    {form.puesto ? (
-                        <div className={`flex items-center gap-2 text-sm font-medium ${T.textCls}`}>
-                            <svg className="h-4 w-4 text-[var(--color-cinte-turquesa)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            </svg>
-                            {form.puesto}
-                        </div>
-                    ) : null}
-                    {form.correo_cinte ? (
-                        <div className={`flex items-center gap-2 text-sm ${T.textMuted}`}>
-                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            </svg>
-                            {form.correo_cinte}
-                        </div>
-                    ) : null}
-                </div>
-            </>
-        ) : null;
 
     const footer =
         editMode && !loading && !error ? (
@@ -309,11 +275,21 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                 title={displayName}
                 subtitle={displaySubtitle}
                 avatarLetter={createMode ? '+' : displayName}
-                hero={hero}
+                compact
                 headerActions={headerActions}
                 footer={footer}
-                bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-6 pt-2"
+                bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-2 sm:px-6"
             >
+                {!loading && !error && !createMode ? (
+                    <div className="mb-2 shrink-0">
+                        <ContratoEstante
+                            contratos={contratos}
+                            selectedId={selectedContratoId}
+                            onSelect={setSelectedContratoId}
+                            isLight={isLight}
+                        />
+                    </div>
+                ) : null}
                 {!loading && !error ? (
                     <div role="tablist" aria-label="Secciones de la ficha" className={subTabsBarCls}>
                         {CO_TABS.map((tab) => {
@@ -327,7 +303,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                                     aria-selected={isActive}
                                     title={tab.title}
                                     onClick={() => setActiveTab(tab.id)}
-                                    className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors sm:px-4 sm:py-3 ${
+                                    className={`-mb-px shrink-0 whitespace-nowrap border-b-2 px-2.5 py-2 text-sm font-semibold transition-colors sm:px-4 sm:py-2.5 ${
                                         isActive
                                             ? `border-[#2F7BB8] ${isLight ? 'text-slate-900' : 'text-white'}`
                                             : `border-transparent ${labelMuted}`
@@ -358,6 +334,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                             liderLoading={liderLoading}
                             onClienteChange={handleLiderFetch}
                             activeTabId={activeTab}
+                            hideIdentityFields={!createMode}
                         />
                     )}
                     {!loading && !error && !createMode && zohoHistorial.length > 0 ? (

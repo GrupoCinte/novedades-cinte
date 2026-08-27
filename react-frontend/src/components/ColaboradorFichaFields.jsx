@@ -41,7 +41,9 @@ export default function ColaboradorFichaFields({
     liderOptions = [],
     liderLoading = false,
     onClienteChange,
-    activeTabId
+    activeTabId,
+    /** AUT-312: cédula/nombre/correo ya van en el header; no repetir en vista/edición. */
+    hideIdentityFields = false
 }) {
     const mt = useModuleTheme();
     const { field, labelMuted } = mt;
@@ -68,7 +70,9 @@ export default function ColaboradorFichaFields({
     return (
         <div className="space-y-4">
             {showMaster ? (
-                <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                    {hideIdentityFields ? null : (
+                        <>
                     <div>
                         <label className={`block text-xs ${labelMuted} mb-1`}>Cédula (solo dígitos)</label>
                         <input
@@ -79,7 +83,7 @@ export default function ColaboradorFichaFields({
                             required={mode === 'create' && !readOnly}
                         />
                     </div>
-                    <div>
+                    <div className="sm:col-span-2">
                         <label className={`block text-xs ${labelMuted} mb-1`}>Nombres y Apellidos</label>
                         <input
                             className={`w-full ${field}`}
@@ -89,7 +93,7 @@ export default function ColaboradorFichaFields({
                             required={!readOnly}
                         />
                     </div>
-                    <div>
+                    <div className="sm:col-span-2">
                         <label className={`block text-xs ${labelMuted} mb-1`}>Correo Cinte</label>
                         <input
                             className={`w-full ${field}`}
@@ -98,8 +102,10 @@ export default function ColaboradorFichaFields({
                             disabled={readOnly}
                         />
                     </div>
+                        </>
+                    )}
                     <div>
-                        <label className={`block text-xs ${labelMuted} mb-1`}>Cliente</label>
+                        <label className={`block text-xs ${labelMuted} mb-1`}>Cliente (cabecera)</label>
                         <select
                             className={`w-full ${field}`}
                             value={coForm.cliente || ''}
@@ -140,10 +146,10 @@ export default function ColaboradorFichaFields({
                             ))}
                         </select>
                     </div>
-                    <p className={`text-xs ${labelMuted}`}>
+                    <p className={`text-xs ${labelMuted} sm:col-span-2`}>
                         El GP se toma automáticamente del par cliente–líder en el catálogo (si está definido).
                     </p>
-                </>
+                </div>
             ) : null}
 
             <div
