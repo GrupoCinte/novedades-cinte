@@ -64,6 +64,32 @@ Este es un mensaje automático del sistema de Reubicaciones.
     }
 }
 
+async function checkDuplicateEvent(client, external_id) {
+    const checkEvent = await client.query(
+        `SELECT source_event_id FROM reubicaciones_source_events WHERE source_event_id = $1 FOR UPDATE`,
+        [external_id]
+    );
+    return checkEvent.rows.length > 0;
+}
+
+async function getGpUserInfo(client, cedula) {
+    const col = await client.query(
+        `SELECT cedula, nombre, cliente, lider_catalogo FROM colaboradores WHERE cedula = $1`,
+        [cedula]
+    );
+    if (col.rows.length === 0) return { existe: false };
+    const { cliente, lider_catalogo: lider } = col.rows[0];
+    let gp_user_id = null;
+    if (cliente && lider) {
+        const liderResult = await client.query(
+            `SELECT gp_user_id FROM clientes_lideres WHERE cliente = $1 AND lider = $2 AND activo = TRUE LIMIT 1`,
+            [cliente, lider]
+        );
+        gp_user_id = liderResult.rows[0]?.gp_user_id || null;
+    }
+    return { existe: true, gp_user_id };
+}
+
 async function sincronizarConPipeline({
     cedula,
     tipo_novedad,
@@ -93,35 +119,14 @@ async function sincronizarConPipeline({
         
         // Pero lo más limpio, de acuerdo a nuestra definición de source_events:
         // Buscamos si existe:
-        const checkEvent = await client.query(
-            `SELECT source_event_id FROM reubicaciones_source_events WHERE source_event_id = $1 FOR UPDATE`,
-            [external_id]
-        );
-        
-        if (checkEvent.rows.length > 0) {
+        if (await checkDuplicateEvent(client, external_id)) {
             // Evento duplicado exacto, ignorar
             await client.query('ROLLBACK');
             return { ok: true, idempotent: true, message: 'Evento ya sincronizado' };
         }
 
         // Obtener GP y cliente
-        const col = await client.query(
-            `SELECT cedula, nombre, cliente, lider_catalogo FROM colaboradores WHERE cedula = $1`,
-            [ced]
-        );
-        const colaboradorExiste = col.rows.length > 0;
-        const nombre = col.rows[0]?.nombre || null;
-        const cliente_actual = colaboradorExiste ? col.rows[0].cliente : null;
-        const lider = colaboradorExiste ? col.rows[0].lider_catalogo : null;
-        
-        let gp_user_id = null;
-        if (cliente_actual && lider) {
-            const liderResult = await client.query(
-                `SELECT gp_user_id FROM clientes_lideres WHERE cliente = $1 AND lider = $2 AND activo = TRUE LIMIT 1`,
-                [cliente_actual, lider]
-            );
-            gp_user_id = liderResult.rows[0]?.gp_user_id || null;
-        }
+        const { existe: colaboradorExiste, gp_user_id } = await getGpUserInfo(client, ced);
 
         const { fecha_fin, cliente_destino, causal } = computeFields(normalized, patch);
         

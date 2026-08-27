@@ -141,7 +141,6 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) {
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     
     const canEdit = useMemo(() => canEditReubicaciones(auth), [auth]);
-    const canDelete = useMemo(() => canDeleteReubicaciones(auth), [auth]);
     
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
