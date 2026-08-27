@@ -94,6 +94,42 @@ export function historialForFicha(form) {
     return list.flatMap((c) => (Array.isArray(c.historial) ? c.historial : []));
 }
 
+function loteKeyForEntry(entry) {
+    if (entry?.loteId) return `lote:${entry.loteId}`;
+    const ts = String(entry?.createdAt || '').slice(0, 19);
+    const actor = String(entry?.actorEmail || entry?.actorNombre || '');
+    const origen = String(entry?.origen || '');
+    return `fb:${actor}:${origen}:${ts}`;
+}
+
+/** Un Guardar (o un lote) se muestra como un solo bloque, no como filas sueltas. */
+export function groupHistorialBloques(items) {
+    const list = Array.isArray(items) ? items : [];
+    const order = [];
+    const byKey = new Map();
+    for (const entry of list) {
+        if (!entry) continue;
+        const key = loteKeyForEntry(entry);
+        let bloque = byKey.get(key);
+        if (!bloque) {
+            bloque = {
+                id: key,
+                createdAt: entry.createdAt || null,
+                actorNombre: entry.actorNombre || 'Sistema',
+                actorEmail: entry.actorEmail || null,
+                cambios: []
+            };
+            byKey.set(key, bloque);
+            order.push(bloque);
+        }
+        bloque.cambios.push(entry);
+        if (entry.createdAt && (!bloque.createdAt || String(entry.createdAt) > String(bloque.createdAt))) {
+            bloque.createdAt = entry.createdAt;
+        }
+    }
+    return order;
+}
+
 function toPositiveInt(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return null;

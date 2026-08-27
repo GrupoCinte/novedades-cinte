@@ -1,5 +1,6 @@
 'use strict';
 
+const { randomUUID } = require('crypto');
 const { COLABORADORES_EXTENDED_COLUMNS } = require('../colaboradores/colaboradoresExtendedColumns');
 
 const HISTORIAL_FIELDS = [
@@ -232,6 +233,7 @@ function toApiHistorial(row) {
         actorNombre: row.actor_nombre || row.actorNombre || 'Sistema',
         actorEmail: row.actor_email || row.actorEmail || null,
         origen: row.origen || null,
+        loteId: row.lote_id || row.loteId || null,
         createdAt: row.created_at || row.createdAt || null
     };
 }
@@ -266,6 +268,14 @@ async function ensureColaboradorContratoHistorialTable(pool, logger) {
             ALTER TABLE colaborador_contrato_historial
             ALTER COLUMN contrato_id DROP NOT NULL
         `);
+        await pool.query(`
+            ALTER TABLE colaborador_contrato_historial
+            ADD COLUMN IF NOT EXISTS lote_id UUID
+        `);
+        await pool.query(`
+            CREATE INDEX IF NOT EXISTS idx_colab_contrato_hist_lote
+            ON colaborador_contrato_historial (lote_id)
+        `);
     } catch (error) {
         if (String(error?.code || '') === '42501') {
             if (logger && typeof logger.warn === 'function') {
@@ -279,6 +289,7 @@ async function ensureColaboradorContratoHistorialTable(pool, logger) {
 
 async function insertHistorialRows(db, rows) {
     const list = Array.isArray(rows) ? rows : [];
+    const loteId = randomUUID();
     const inClientTx = typeof db.release === 'function';
     for (const row of list) {
         if (inClientTx) {
@@ -288,8 +299,8 @@ async function insertHistorialRows(db, rows) {
             await db.query(
                 `INSERT INTO colaborador_contrato_historial (
                     contrato_id, cedula, campo, valor_antes, valor_despues,
-                    actor_user_id, actor_nombre, actor_email, actor_role, origen
-                 ) VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7, $8, $9, $10)`,
+                    actor_user_id, actor_nombre, actor_email, actor_role, origen, lote_id
+                 ) VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7, $8, $9, $10, $11::uuid)`,
                 [
                     row.contratoId || null,
                     row.cedula,
@@ -300,7 +311,8 @@ async function insertHistorialRows(db, rows) {
                     (row.actor && row.actor.nombre) || 'Sistema',
                     (row.actor && row.actor.email) || null,
                     (row.actor && row.actor.role) || null,
-                    row.origen || null
+                    row.origen || null,
+                    loteId
                 ]
             );
             if (inClientTx) {
@@ -396,7 +408,7 @@ async function listHistorialByCedula(db, cedula) {
     try {
         const q = await db.query(
             `SELECT id, contrato_id, cedula, campo, valor_antes, valor_despues,
-                    actor_user_id, actor_nombre, actor_email, actor_role, origen, created_at
+                    actor_user_id, actor_nombre, actor_email, actor_role, origen, lote_id, created_at
              FROM colaborador_contrato_historial
              WHERE cedula = $1
              ORDER BY created_at DESC, id DESC`,

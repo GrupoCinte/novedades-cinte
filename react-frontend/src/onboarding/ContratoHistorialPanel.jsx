@@ -1,4 +1,5 @@
 import { Clock } from 'lucide-react';
+import { groupHistorialBloques } from './contratoEstanteMap.js';
 
 function formatFecha(value) {
     if (!value) return '—';
@@ -36,42 +37,61 @@ function formatValor(campo, value) {
     return String(value);
 }
 
+function tituloBloque(bloque) {
+    const n = bloque.cambios.length;
+    if (n === 1) {
+        const entry = bloque.cambios[0];
+        return `${accionLabel(entry.valorAntes, entry.valorDespues)} ${entry.campoLabel || entry.campo}`;
+    }
+    return `Guardó ${n} cambios`;
+}
+
 export default function ContratoHistorialPanel({ items = [], isLight = false }) {
-    const list = Array.isArray(items) ? items : [];
+    const bloques = groupHistorialBloques(items);
     const box = isLight ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/[0.02]';
     const muted = isLight ? 'text-slate-500' : 'text-slate-400';
     const textMain = isLight ? 'text-slate-800' : 'text-slate-200';
     const rowBox = isLight ? 'border-slate-200 bg-white' : 'border-slate-600/40 bg-slate-900/40';
+    const lineBox = isLight ? 'border-slate-100' : 'border-white/5';
 
     return (
         <div className={`rounded-xl border p-4 ${box}`}>
             <p className={`mb-2 text-xs font-bold uppercase tracking-widest ${muted}`}>
                 Historial de la ficha
             </p>
-            {list.length === 0 ? (
+            {bloques.length === 0 ? (
                 <p className={`text-sm ${muted}`}>Aún no hay cambios en esta ficha.</p>
             ) : (
                 <ul className="flex max-h-52 flex-col gap-2 overflow-y-auto custom-scrollbar" aria-label="Historial de cambios de la ficha">
-                    {list.map((entry) => (
-                        <li key={entry.id} className={`rounded-lg border px-3 py-2.5 text-xs ${rowBox}`}>
+                    {bloques.map((bloque) => (
+                        <li key={bloque.id} className={`rounded-lg border px-3 py-2.5 text-xs ${rowBox}`}>
                             <div className="flex flex-wrap items-start justify-between gap-2">
-                                <span className={`font-semibold ${textMain}`}>
-                                    {accionLabel(entry.valorAntes, entry.valorDespues)}{' '}
-                                    {entry.campoLabel || entry.campo}
-                                </span>
+                                <span className={`font-semibold ${textMain}`}>{tituloBloque(bloque)}</span>
                                 <span className={`inline-flex items-center gap-1 ${muted}`}>
                                     <Clock size={12} aria-hidden />
-                                    {formatFecha(entry.createdAt)}
+                                    {formatFecha(bloque.createdAt)}
                                 </span>
                             </div>
-                            <p className={`mt-1.5 font-medium ${textMain}`}>
-                                {formatValor(entry.campo, entry.valorAntes)}
-                                {' → '}
-                                {formatValor(entry.campo, entry.valorDespues)}
-                            </p>
+                            <ul className="mt-1.5 flex flex-col gap-1.5">
+                                {bloque.cambios.map((entry, idx) => (
+                                    <li key={entry.id} className={bloque.cambios.length > 1 && idx > 0 ? `border-t pt-1.5 ${lineBox}` : ''}>
+                                        {bloque.cambios.length > 1 ? (
+                                            <p className={`font-medium ${textMain}`}>
+                                                {accionLabel(entry.valorAntes, entry.valorDespues)}{' '}
+                                                {entry.campoLabel || entry.campo}
+                                            </p>
+                                        ) : null}
+                                        <p className={`font-medium ${textMain}`}>
+                                            {formatValor(entry.campo, entry.valorAntes)}
+                                            {' → '}
+                                            {formatValor(entry.campo, entry.valorDespues)}
+                                        </p>
+                                    </li>
+                                ))}
+                            </ul>
                             <p className={`mt-1 ${muted}`}>
-                                <span className="font-medium text-inherit">{entry.actorNombre || '—'}</span>
-                                {entry.actorEmail ? <> · {entry.actorEmail}</> : null}
+                                <span className="font-medium text-inherit">{bloque.actorNombre || '—'}</span>
+                                {bloque.actorEmail ? <> · {bloque.actorEmail}</> : null}
                             </p>
                         </li>
                     ))}

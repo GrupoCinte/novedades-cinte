@@ -131,5 +131,16 @@ describe('toApiHistorial AUT-317', () => {
         assert.equal(api.campoLabel, 'Fecha de término');
         assert.equal(api.valorAntes, '2026-10-01');
         assert.equal(api.actorNombre, 'Luis');
+        assert.equal(api.loteId, null);
+    });
+
+    it('expone loteId cuando el lote viene de un Guardar', () => {
+        const api = toApiHistorial({
+            id: 'a',
+            campo: 'eps',
+            lote_id: 'lote-1',
+            actor_nombre: 'Luis'
+        });
+        assert.equal(api.loteId, 'lote-1');
     });
 });

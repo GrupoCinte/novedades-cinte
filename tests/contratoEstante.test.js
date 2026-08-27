@@ -104,6 +104,45 @@ describe('contratosFromFicha AUT-312', () => {
         assert.equal(historialForContrato({}, 'c1').length, 0);
     });
 
+    it('agrupa varios cambios del mismo Guardar en un bloque (AUT-317)', async () => {
+        const { groupHistorialBloques } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
+        const bloques = groupHistorialBloques([
+            {
+                id: '1',
+                loteId: 'lote-a',
+                campo: 'eps',
+                campoLabel: 'EPS',
+                valorAntes: 'SURA',
+                valorDespues: 'NUEVA',
+                actorNombre: 'Luis',
+                createdAt: '2026-08-26T22:30:00.000Z'
+            },
+            {
+                id: '2',
+                loteId: 'lote-a',
+                campo: 'celular_personal',
+                campoLabel: 'Celular',
+                valorAntes: '300',
+                valorDespues: '',
+                actorNombre: 'Luis',
+                createdAt: '2026-08-26T22:30:00.010Z'
+            },
+            {
+                id: '3',
+                loteId: 'lote-b',
+                campo: 'nombre',
+                campoLabel: 'Nombre',
+                valorAntes: 'Ana',
+                valorDespues: 'Ana María',
+                actorNombre: 'Luis',
+                createdAt: '2026-08-26T22:31:00.000Z'
+            }
+        ]);
+        assert.equal(bloques.length, 2);
+        assert.equal(bloques[0].cambios.length, 2);
+        assert.equal(bloques[1].cambios.length, 1);
+    });
+
     it('lee el historial completo de la ficha (AUT-317)', async () => {
         const { historialForFicha } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
         assert.equal(
