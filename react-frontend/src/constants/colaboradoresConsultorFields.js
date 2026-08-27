@@ -448,6 +448,8 @@ export function mapRowToStaffForm(row) {
             out[m.key] = String(v);
         }
     }
+    if (Array.isArray(row.contratos)) out.contratos = row.contratos;
+    if (row.contratos_vigentes_count != null) out.contratos_vigentes_count = row.contratos_vigentes_count;
     return out;
 }
 
