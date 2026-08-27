@@ -24,3 +24,20 @@ test('toggleSort alterna asc/desc en la misma columna', async () => {
     assert.deepEqual(toggleSort({ key: 'cedula', dir: 'desc' }, 'cedula'), { key: 'cedula', dir: 'asc' });
     assert.deepEqual(toggleSort({ key: 'nombre', dir: 'asc' }, 'cedula'), { key: 'cedula', dir: 'asc' });
 });
+
+test('mapManualCanceladoRow etiqueta origen manual y no inventa baja', async () => {
+    const { mapManualCanceladoRow } = await import('../react-frontend/src/onboarding/cancelacionesFilter.js');
+    const row = mapManualCanceladoRow({
+        cedula: '1030626734',
+        nombre: 'Sharon',
+        cliente: 'CINTE',
+        puesto: 'Analista',
+        fecha_cancelacion: '2026-08-27T14:00:00.000Z',
+        fecha_ingreso: '2026-08-01',
+        obs_cancelacion: 'no corrió'
+    });
+    assert.equal(row.origen, 'manual');
+    assert.equal(row.status, 'Cancelado');
+    assert.equal(row.cedula, '1030626734');
+    assert.equal(row.obs_eliminacion, 'no corrió');
+});

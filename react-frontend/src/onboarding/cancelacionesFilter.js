@@ -61,7 +61,28 @@ export function mapCancellationRow(ex) {
         fecha_inicio: resolveProcessStartIso(ex),
         fecha_evento: resolveCancellationEventIso(ex),
         obs_eliminacion: fd.obs_eliminado || fd.obs_rechazo || '',
+        origen: 'monitor',
         _eventMs: resolveCancellationEventMs(ex)
+    };
+}
+
+/** Cancelado manual desde ficha (Consultores / Staff / SENA). */
+export function mapManualCanceladoRow(item) {
+    const cedula = String(item?.cedula || '').replace(/\D+/g, '');
+    const fecha = item?.fecha_cancelacion ? String(item.fecha_cancelacion).slice(0, 10) : '';
+    const ms = item?.fecha_cancelacion ? new Date(item.fecha_cancelacion).getTime() : 0;
+    return {
+        executionId: `manual-${cedula}`,
+        cedula,
+        nombre: item?.nombre || '',
+        cliente: item?.cliente || '',
+        puesto: item?.puesto || '',
+        status: 'Cancelado',
+        fecha_inicio: item?.fecha_ingreso ? String(item.fecha_ingreso).slice(0, 10) : '',
+        fecha_evento: fecha,
+        obs_eliminacion: item?.obs_cancelacion || '',
+        origen: 'manual',
+        _eventMs: Number.isFinite(ms) ? ms : 0
     };
 }
 

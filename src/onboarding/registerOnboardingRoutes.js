@@ -13,6 +13,8 @@
  * - GET  /api/onboarding/reportes/rotacion
  * - GET  /api/onboarding/staging — auditoría del buzón (solo super_admin).
  * - PATCH /api/onboarding/personal/:cedula/baja — marca baja con motivo legal del catálogo.
+ * - PATCH /api/onboarding/personal/:cedula/cancelar — cancelado manual (no baja).
+ * - GET  /api/onboarding/cancelados — cancelados manuales (no Bajas).
  *
  * RBAC: el panel `onboarding` se controla por `src/rbac.js`. GP queda acotado a sus clientes
  * (`gp_user_id`) en todas las lecturas; admin_ch/team_ch ven todo; nómina solo lectura.
@@ -37,6 +39,7 @@ const {
 } = require('./onboardingListSort');
 const { normalizeColabTextPatch } = require('./chTextNormalize');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
+const { applyCancelarColaborador } = require('./cancelarColaborador');
 const {
     CONTRATOS_VIGENTES_COUNT_SQL,
     attachContratosToItem,
@@ -450,6 +453,11 @@ function registerOnboardingRoutes(deps) {
                 `(c.activo = FALSE OR c.motivo_baja IS NOT NULL)`
             );
         }
+        if (filters._es_cancelado) {
+            where.push(`c.cancelado IS TRUE`);
+        } else {
+            where.push(`c.cancelado IS NOT TRUE`);
+        }
 
         // Scope GP
         const scopeApplied = applyScopePlaceholders(scope.where, p, scope);
@@ -487,7 +495,8 @@ function registerOnboardingRoutes(deps) {
                 c.pais, c.empleador, c.puesto, c.cliente_proyecto,
                 c.tipo_contrato, c.descriptivo_puesto_sig,
                 c.fecha_ingreso, c.fecha_termino, c.fecha_baja_efectiva,
-                c.motivo_baja, c.termino, c.tiempo_permanencia_meses,
+                c.motivo_baja, c.cancelado, c.fecha_cancelacion, c.obs_cancelacion,
+                c.termino, c.tiempo_permanencia_meses,
                 c.whatsapp_number, c.onboarding_status, c.onboarding_completed_at,
                 c.created_at, c.updated_at,
                 ${vigentesSql} AS contratos_vigentes_count
@@ -507,6 +516,9 @@ function registerOnboardingRoutes(deps) {
     );
     app.get('/api/onboarding/bajas', ...readGuard, (req, res) =>
         listColaboradoresOnboarding(req, res, { activo: 'all', _es_baja: true })
+    );
+    app.get('/api/onboarding/cancelados', ...readGuard, (req, res) =>
+        listColaboradoresOnboarding(req, res, { activo: 'all', _es_cancelado: true })
     );
     app.get('/api/onboarding/sena', ...readGuard, (req, res) =>
         listColaboradoresOnboarding(req, res, { tipo_personal: 'sena', _fecha_ingreso_no_futura: true })
@@ -904,6 +916,49 @@ function registerOnboardingRoutes(deps) {
             console.error('[Onboarding baja]', e.message);
             const status = Number.isInteger(e?.status) ? e.status : 500;
             return res.status(status).json({ ok: false, error: e.message || 'Error al marcar baja' });
+        }
+    });
+
+    const cancelarSchema = z.object({
+        observaciones: z.string().max(2000).optional().nullable()
+    });
+
+    app.patch('/api/onboarding/personal/:cedula/cancelar', ...writeGuard, async (req, res) => {
+        const cedula = String(req.params.cedula || '').replace(/\D+/g, '');
+        if (!cedula) {
+            return res.status(400).json({ ok: false, error: 'cedula inválida' });
+        }
+        const parsed = cancelarSchema.safeParse(req.body || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
+        }
+        try {
+            const beforeQ = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            const result = await applyCancelarColaborador(pool, cedula, {
+                observaciones: parsed.data.observaciones
+            });
+            const afterQ = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            await recordFichaDiff(pool, {
+                cedula,
+                before: beforeQ.rows[0] || {},
+                after: afterQ.rows[0] || {},
+                actor: actorFromUser(req.user),
+                origen: 'cancelado',
+                onlyKeys: ['cancelado', 'activo', 'obs_cancelacion']
+            });
+            await writeAudit(pool, {
+                actorUserId: parseUuidActor(req.user && req.user.sub),
+                actorRole: req.user && req.user.role,
+                action: 'colaborador.cancelado',
+                entityType: 'colaborador',
+                entityId: null,
+                metadata: { cedula, observaciones: parsed.data.observaciones || null }
+            });
+            return res.json({ ok: true, item: result.item });
+        } catch (e) {
+            console.error('[Onboarding cancelar]', e.message);
+            const status = Number.isInteger(e?.status) ? e.status : 500;
+            return res.status(status).json({ ok: false, error: e.message || 'Error al cancelar' });
         }
     });
 
@@ -1562,8 +1617,8 @@ function registerOnboardingRoutes(deps) {
 
             const avbQ = await pool.query(
                 `SELECT
-                    COUNT(*) FILTER (WHERE c.activo = TRUE)::int AS activos,
-                    COUNT(*) FILTER (WHERE c.activo = FALSE)::int AS bajas
+                    COUNT(*) FILTER (WHERE c.activo = TRUE AND c.cancelado IS NOT TRUE)::int AS activos,
+                    COUNT(*) FILTER (WHERE c.activo = FALSE AND c.cancelado IS NOT TRUE)::int AS bajas
                  FROM colaboradores c ${avb.whereSql}`,
                 avb.params
             );
