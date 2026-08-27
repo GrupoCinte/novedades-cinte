@@ -1,6 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { asFilterList, summarizeMultiSelect } from './chListFilters.js';
+
+function optionText(o) {
+    return String(o?.value ?? o?.label ?? o?.puesto ?? o?.motivo ?? o?.valor ?? o?.nombre ?? o?.cliente ?? '').trim();
+}
 
 function normalizeOptions(options) {
     if (!Array.isArray(options)) return [];
@@ -10,8 +15,8 @@ function normalizeOptions(options) {
                 const v = String(o).trim();
                 return v ? { value: v, label: v } : null;
             }
-            const value = String(o?.value ?? o?.puesto ?? o?.motivo ?? '').trim();
-            const label = String(o?.label ?? o?.puesto ?? o?.motivo ?? value).trim();
+            const value = optionText(o);
+            const label = String(o?.label ?? o?.puesto ?? o?.motivo ?? o?.valor ?? o?.nombre ?? o?.cliente ?? value).trim();
             return value ? { value, label: label || value } : null;
         })
         .filter(Boolean);
@@ -20,6 +25,7 @@ function normalizeOptions(options) {
 /**
  * Desplegable con selección múltiple. Cerrado parece un select; abierto muestra checkboxes.
  * Vacío = todos.
+ * El menú va a document.body (position:fixed) para no recortarse en el drawer.
  * Patrón portal: react-frontend/src/shared/filters/README.md (AUT-316).
  */
 export default function FilterMultiSelect({
@@ -32,7 +38,9 @@ export default function FilterMultiSelect({
 }) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState('');
+    const [menuPos, setMenuPos] = useState(null);
     const rootRef = useRef(null);
+    const menuRef = useRef(null);
     const selected = new Set(asFilterList(value));
     const items = useMemo(() => normalizeOptions(options), [options]);
     const visible = useMemo(() => {
@@ -41,10 +49,40 @@ export default function FilterMultiSelect({
         return items.filter((opt) => opt.label.toLowerCase().includes(q) || opt.value.toLowerCase().includes(q));
     }, [items, query]);
 
+    useLayoutEffect(() => {
+        if (!open) {
+            setMenuPos(null);
+            return undefined;
+        }
+        const place = () => {
+            const el = rootRef.current;
+            if (!el) return;
+            const r = el.getBoundingClientRect();
+            const menuH = 220;
+            const spaceBelow = window.innerHeight - r.bottom;
+            const openUp = spaceBelow < menuH && r.top > spaceBelow;
+            setMenuPos({
+                left: r.left,
+                width: r.width,
+                top: openUp ? undefined : r.bottom + 4,
+                bottom: openUp ? window.innerHeight - r.top + 4 : undefined
+            });
+        };
+        place();
+        window.addEventListener('resize', place);
+        window.addEventListener('scroll', place, true);
+        return () => {
+            window.removeEventListener('resize', place);
+            window.removeEventListener('scroll', place, true);
+        };
+    }, [open]);
+
     useEffect(() => {
         if (!open) return undefined;
         const onDoc = (e) => {
-            if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
+            const t = e.target;
+            if (rootRef.current?.contains(t) || menuRef.current?.contains(t)) return;
+            setOpen(false);
         };
         const onKey = (e) => {
             if (e.key !== 'Escape') return;
@@ -67,8 +105,8 @@ export default function FilterMultiSelect({
         ? 'flex w-full items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-800 focus:border-sky-400 focus:outline-none'
         : 'flex w-full items-center justify-between gap-2 rounded-md border border-slate-600 bg-slate-900/40 px-3 py-2 text-left text-sm text-slate-200 focus:border-cyan-500 focus:outline-none';
     const menuCls = isLight
-        ? 'absolute z-30 mt-1 w-full rounded-md border border-slate-300 bg-white shadow-lg'
-        : 'absolute z-30 mt-1 w-full rounded-md border border-slate-600 bg-[#1e293b] shadow-lg';
+        ? 'rounded-md border border-slate-300 bg-white shadow-lg'
+        : 'rounded-md border border-slate-600 bg-[#1e293b] shadow-lg';
     const hintCls = isLight ? 'text-slate-500' : 'text-slate-400';
     const rowHover = isLight ? 'hover:bg-slate-50' : 'hover:bg-slate-800/50';
     const textCls = isLight ? 'text-slate-800' : 'text-slate-200';
@@ -85,6 +123,62 @@ export default function FilterMultiSelect({
 
     const summary = summarizeMultiSelect(value, items, 'Todos');
     const showSearch = items.length > 8;
+
+    const menu =
+        open && menuPos && typeof document !== 'undefined'
+            ? createPortal(
+                  <div
+                      id={`${id}-menu`}
+                      ref={menuRef}
+                      className={menuCls}
+                      role="listbox"
+                      aria-multiselectable="true"
+                      style={{
+                          position: 'fixed',
+                          zIndex: 80,
+                          left: menuPos.left,
+                          width: menuPos.width,
+                          top: menuPos.top,
+                          bottom: menuPos.bottom,
+                          maxHeight: 240
+                      }}
+                  >
+                      <p className={`px-2.5 pt-1.5 text-[10px] ${hintCls}`}>{emptyHint}</p>
+                      {showSearch ? (
+                          <div className="px-2 pb-1">
+                              <input
+                                  type="search"
+                                  value={query}
+                                  onChange={(e) => setQuery(e.target.value)}
+                                  placeholder="Buscar…"
+                                  className={searchCls}
+                                  aria-label="Buscar opción"
+                              />
+                          </div>
+                      ) : null}
+                      <div className="max-h-40 overflow-y-auto py-1">
+                          {visible.length === 0 ? (
+                              <p className={`px-2.5 py-2 text-xs ${hintCls}`}>Sin opciones</p>
+                          ) : (
+                              visible.map((opt) => (
+                                  <label
+                                      key={opt.value}
+                                      className={`flex cursor-pointer items-center gap-2 px-2.5 py-1 text-sm ${textCls} ${rowHover}`}
+                                  >
+                                      <input
+                                          type="checkbox"
+                                          checked={selected.has(opt.value)}
+                                          onChange={() => toggle(opt.value)}
+                                      />
+                                      <span className="min-w-0 truncate">{opt.label}</span>
+                                  </label>
+                              ))
+                          )}
+                      </div>
+                  </div>,
+                  document.body
+              )
+            : null;
 
     return (
         <div id={id} ref={rootRef} className="relative">
@@ -103,42 +197,7 @@ export default function FilterMultiSelect({
                     <ChevronDown size={16} className="shrink-0 opacity-70" aria-hidden />
                 )}
             </button>
-            {open ? (
-                <div id={`${id}-menu`} className={menuCls} role="listbox" aria-multiselectable="true">
-                    <p className={`px-2.5 pt-1.5 text-[10px] ${hintCls}`}>{emptyHint}</p>
-                    {showSearch ? (
-                        <div className="px-2 pb-1">
-                            <input
-                                type="search"
-                                value={query}
-                                onChange={(e) => setQuery(e.target.value)}
-                                placeholder="Buscar…"
-                                className={searchCls}
-                                aria-label="Buscar opción"
-                            />
-                        </div>
-                    ) : null}
-                    <div className="max-h-40 overflow-y-auto py-1">
-                        {visible.length === 0 ? (
-                            <p className={`px-2.5 py-2 text-xs ${hintCls}`}>Sin opciones</p>
-                        ) : (
-                            visible.map((opt) => (
-                                <label
-                                    key={opt.value}
-                                    className={`flex cursor-pointer items-center gap-2 px-2.5 py-1 text-sm ${textCls} ${rowHover}`}
-                                >
-                                    <input
-                                        type="checkbox"
-                                        checked={selected.has(opt.value)}
-                                        onChange={() => toggle(opt.value)}
-                                    />
-                                    <span className="min-w-0 truncate">{opt.label}</span>
-                                </label>
-                            ))
-                        )}
-                    </div>
-                </div>
-            ) : null}
+            {menu}
         </div>
     );
 }
