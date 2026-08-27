@@ -83,7 +83,8 @@ export function getTrazabilidadStageKey(status, statusId = null) {
 }
 
 /** Activo = no etapa final; usa la misma semántica que la trazabilidad (incl. statusId desde Dynamo). */
-function isActiveStatus(status, statusId = null) {
+function isActiveStatus(status, statusId = null, extra = null) {
+    if (extra && extra.alreadyActivo) return false;
     return getTrazabilidadStageKey(status, statusId) !== 'finalizado';
 }
 
@@ -216,13 +217,25 @@ export default function useMonitorData(auth) {
                     if (type === 'AUTH_OK') return;
 
                     setExecutions((prev) => {
+                        const already = new Set(
+                            prev.filter((ex) => ex?.alreadyActivo && ex.cedula).map((ex) => String(ex.cedula))
+                        );
+                        const stamp = (row) => {
+                            if (!row) return row;
+                            const ced = row.cedula ? String(row.cedula) : '';
+                            if (ced && already.has(ced)) {
+                                return { ...row, alreadyActivo: true, statusId: 6, cedula: ced };
+                            }
+                            return row;
+                        };
                         let next = [...prev];
                         if (type === 'DELETE' || type === 'REMOVE') {
                             next = next.filter((ex) => ex.executionId !== data.executionId);
                         } else {
-                            const index = next.findIndex((ex) => ex.executionId === data.executionId);
-                            if (index > -1) next[index] = data;
-                            else next.unshift(data);
+                            const stamped = stamp(data);
+                            const index = next.findIndex((ex) => ex.executionId === stamped.executionId);
+                            if (index > -1) next[index] = stamped;
+                            else next.unshift(stamped);
                         }
                         return next;
                     });
@@ -259,14 +272,30 @@ export default function useMonitorData(auth) {
         };
     }, [sessionUserId, bearerToken, fetchExecutions, fetchMonitorConfig]);
 
+    const alreadyActivoCedulas = useMemo(() => {
+        const set = new Set();
+        for (const e of executions) {
+            if (e?.alreadyActivo && e.cedula) set.add(String(e.cedula));
+        }
+        return set;
+    }, [executions]);
+
     const activeExecutions = useMemo(
-        () => executions.filter((e) => isActiveStatus(e.realStatus, e.statusId)),
-        [executions]
+        () =>
+            executions.filter((e) => {
+                if (e?.cedula && alreadyActivoCedulas.has(String(e.cedula))) return false;
+                return isActiveStatus(e.realStatus, e.statusId, e);
+            }),
+        [executions, alreadyActivoCedulas]
     );
 
     const historyExecutions = useMemo(
-        () => executions.filter((e) => !isActiveStatus(e.realStatus, e.statusId)),
-        [executions]
+        () =>
+            executions.filter((e) => {
+                if (e?.cedula && alreadyActivoCedulas.has(String(e.cedula))) return true;
+                return !isActiveStatus(e.realStatus, e.statusId, e);
+            }),
+        [executions, alreadyActivoCedulas]
     );
 
     const metrics = useMemo(() => {

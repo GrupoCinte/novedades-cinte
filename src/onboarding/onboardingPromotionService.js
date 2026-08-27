@@ -33,6 +33,7 @@ const {
     applyContractEvent,
     fillCabeceraFechaTerminoFromPersona
 } = require('./colaboradorContratos');
+const { inferTipoPersonal } = require('./tipoPersonalInfer');
 
 const EXT_SQL_TYPE_BY_KEY = Object.fromEntries(
     (COLABORADORES_EXTENDED_COLUMNS || []).map((c) => [c.key, String(c.sqlType || 'TEXT').toUpperCase()])
@@ -541,7 +542,14 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
      */
     async function upsertColaborador(client, payload, { source, tipoPersonal }) {
         const completedAtSql = payload.status && isTerminalStatus(payload.status) ? 'NOW()' : 'NULL';
-        const tp = tipoPersonal || payload.tipo_personal || 'consultor';
+        const tp = inferTipoPersonal({
+            tipo_personal: tipoPersonal || payload.tipo_personal,
+            cliente: payload.cliente,
+            tipo_contrato: payload.tipo_contrato,
+            puesto: payload.puesto,
+            subtipo_sena: payload.subtipo_sena || (payload.extended && payload.extended.subtipo_sena),
+            area_asignada_sena: payload.area_asignada_sena || (payload.extended && payload.extended.area_asignada_sena)
+        });
         /** n8n/Dynamo es fuente de verdad para fecha_ingreso en promoción automática. */
         const fechaFromN8n = source === 'dynamo_stream' || source === 'n8n_webhook' || source === 'manual';
         const insertFechaSql = fechaFromN8n ? '$17::date' : 'COALESCE($17::date, CURRENT_DATE)';
@@ -860,7 +868,14 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
 
             const nombreVal = normalizeChListText(trimOrNull(extendedPayload.nombre) || 'SIN NOMBRE');
             const activo = opts.activo !== undefined ? Boolean(opts.activo) : true;
-            const tp = opts.tipoPersonal || extendedPayload.tipo_personal || 'consultor';
+            const tp = inferTipoPersonal({
+                tipo_personal: opts.tipoPersonal || extendedPayload.tipo_personal,
+                cliente: extendedPayload.cliente,
+                tipo_contrato: extendedPayload.tipo_contrato,
+                puesto: extendedPayload.puesto,
+                subtipo_sena: extendedPayload.subtipo_sena,
+                area_asignada_sena: extendedPayload.area_asignada_sena
+            });
 
             await client.query(
                 `INSERT INTO colaboradores (cedula, nombre, activo, tipo_personal, created_at, updated_at)

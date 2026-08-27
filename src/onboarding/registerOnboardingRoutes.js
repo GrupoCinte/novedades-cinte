@@ -38,6 +38,7 @@ const {
     isAllowedExtranjerosSort
 } = require('./onboardingListSort');
 const { normalizeColabTextPatch } = require('./chTextNormalize');
+const { inferTipoPersonal } = require('./tipoPersonalInfer');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
 const { applyCancelarColaborador } = require('./cancelarColaborador');
 const {
@@ -769,7 +770,7 @@ function registerOnboardingRoutes(deps) {
                 return res.status(409).json({ ok: false, error: 'Ya existe un colaborador con esa cédula.' });
             }
             const normalizedCreate = normalizeColabTextPatch(parsed.data);
-            const tipoPersonal = normalizedCreate.tipo_personal || 'consultor';
+            const tipoPersonal = inferTipoPersonal(normalizedCreate);
             await pool.query(
                 `INSERT INTO colaboradores (cedula, nombre, activo, tipo_personal, created_at, updated_at)
                  VALUES ($1, $2, TRUE, $3, NOW(), NOW())`,

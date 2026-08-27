@@ -10,6 +10,7 @@ const { finalizarCandidatoSchema } = require('./schemas/finalizarCandidato');
 const { signContratacionWsTicket } = require('./wsTicket');
 const { getOnboardingPromotionService } = require('./initContratacionRealtime');
 const { mapDynamoItemForPromotion } = require('../onboarding/onboardingPromotionService');
+const { annotateEnIngresoCerrado } = require('../onboarding/enIngresoCierre');
 
 function buildKpiBaseline() {
     return {
@@ -36,7 +37,8 @@ function registerContratacionRoutes(deps) {
         contratacionEliminarLimiter,
         contratacionWsTokenLimiter,
         wsSecret,
-        wsTicketTtlSec
+        wsTicketTtlSec,
+        pool
     } = deps;
 
     const tableName = (process.env.DYNAMODB_TABLE_NAME || '').trim();
@@ -60,7 +62,8 @@ function registerContratacionRoutes(deps) {
         try {
             const items = await scanAllItems(docClient, tableName, { maxItems });
             const onboardingItems = items.filter(isOnboardingMonitorItem);
-            const executions = onboardingItems.map(mapDynamoItemToExecution);
+            const mapped = onboardingItems.map(mapDynamoItemToExecution);
+            const executions = await annotateEnIngresoCerrado(pool, mapped);
             return res.json({
                 success: true,
                 count: executions.length,
