@@ -444,7 +444,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                         />
                     )}
                     {!loading && !error && !createMode ? (
-                        <div className="mt-6">
+                        <div className="mt-8 border-t border-dashed border-slate-300/40 pt-5 dark:border-slate-600/40">
                             <ContratoHistorialPanel
                                 items={historialForFicha(form)}
                                 isLight={isLight}
