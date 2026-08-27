@@ -16,6 +16,7 @@ import {
     Radio,
     LineChart,
     CalendarPlus,
+    CalendarClock,
     Ban,
     Mail
 } from 'lucide-react';
@@ -28,6 +29,7 @@ import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import OnboardingListView from './onboarding/OnboardingListView.jsx';
 import CancelacionesView from './onboarding/CancelacionesView.jsx';
+import PorVencerView from './onboarding/PorVencerView.jsx';
 import FichaNovedadesView, { fetchFichaNovedadesPendingCount } from './onboarding/FichaNovedadesView.jsx';
 import { EXTRANJEROS_DEFAULT_SORT, LICENCIAS_DEFAULT_SORT } from './onboarding/onboardingSortDefaults.js';
 import {
@@ -69,6 +71,7 @@ const NAV_GROUPS = [
         items: [
             { id: 'personal', label: 'Personal Activo', icon: Users },
             { id: 'proximos', label: 'Próximos a ingresar', icon: CalendarPlus },
+            { id: 'por-vencer', label: 'Por vencer', icon: CalendarClock },
             { id: 'bajas', label: 'Bajas', icon: UserMinus },
             { id: 'sena', label: 'SENA', icon: GraduationCap },
             { id: 'staff', label: 'Staff', icon: Briefcase },
@@ -219,6 +222,8 @@ export default function CapitalHumanoModule({ auth, onLogout }) {
                         isLight={isLight}
                     />
                 );
+            case 'por-vencer':
+                return <PorVencerView auth={auth} isLight={isLight} />;
             case 'bajas':
                 return <PersonalView auth={auth} activo="false" isLight={isLight} />;
             case 'sena':

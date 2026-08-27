@@ -52,6 +52,10 @@ const {
 } = require('./colaboradorContratos');
 const { actorFromUser, recordFichaDiff } = require('./contratoHistorial');
 const { computeContratoEconomia } = require('./contratoCostoCalc');
+const {
+    createContratoVencimientoService,
+    isAllowedPorVencerSort
+} = require('./contratoVencimientoService');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -157,7 +161,8 @@ function registerOnboardingRoutes(deps) {
         adminActionLimiter,
         catalogLimiter,
         normalizeCedula,
-        updateColaboradorByCedula
+        updateColaboradorByCedula,
+        listEmailsInGroups
     } = deps;
 
     if (!app || !pool || !verificarToken || !allowPanel) {
@@ -166,6 +171,7 @@ function registerOnboardingRoutes(deps) {
 
     const promotion = createOnboardingPromotionService({ pool });
     const fichaNovedades = createFichaNovedadesService({ pool, updateColaboradorByCedula });
+    const vencimiento = createContratoVencimientoService({ pool, listEmailsInGroups });
 
     /** Lecturas (panel onboarding). */
     const readGuard = [verificarToken, allowPanel('onboarding')];
@@ -510,6 +516,87 @@ function registerOnboardingRoutes(deps) {
     app.get('/api/onboarding/proximos', ...readGuard, (req, res) =>
         listColaboradoresOnboarding(req, res, { activo: 'true', _fecha_ingreso_futura: true })
     );
+
+    const porVencerQuerySchema = z.object({
+        kind: z.enum(['T30', 'T15', 'T5']).optional(),
+        cliente: z.string().max(500).optional(),
+        q: z.string().max(200).optional(),
+        sort: z.string().max(80).optional(),
+        dir: z.enum(['asc', 'desc']).optional(),
+        limit: z.coerce.number().int().min(1).max(2000).optional(),
+        offset: z.coerce.number().int().min(0).optional()
+    });
+
+    app.get('/api/onboarding/por-vencer', ...readGuard, async (req, res) => {
+        const parsed = porVencerQuerySchema.safeParse(req.query || {});
+        if (!parsed.success) {
+            return res.status(400).json({ ok: false, error: 'Query inválido', detail: parsed.error.errors });
+        }
+        if (!isAllowedPorVencerSort(parsed.data.sort)) {
+            return res.status(400).json({ ok: false, error: 'sort no permitido' });
+        }
+        try {
+            const scope = await buildScopeFilter(pool, req.user);
+            const scopeWhere = String(scope.where || 'TRUE').replace('c.cliente', 'cc.cliente');
+            const scopeApplied = applyScopePlaceholders(scopeWhere, 4, { ...scope, where: scopeWhere });
+            if (scopeApplied.sql === 'FALSE') {
+                return res.json({ ok: true, items: [], total: 0, limit: parsed.data.limit || 50, offset: parsed.data.offset || 0 });
+            }
+            const result = await vencimiento.listPorVencer({
+                kind: parsed.data.kind,
+                q: parsed.data.q,
+                cliente: parsed.data.cliente,
+                sort: parsed.data.sort,
+                dir: parsed.data.dir,
+                limit: parsed.data.limit || 50,
+                offset: parsed.data.offset || 0,
+                scopeSql: scopeApplied.sql,
+                scopeParams: scope.params
+            });
+            return res.json({ ok: true, ...result });
+        } catch (e) {
+            console.error('[Onboarding por-vencer]', e.message);
+            return res.status(500).json({ ok: false, error: e.message });
+        }
+    });
+
+    function allowInternalVencimiento(req, res, next) {
+        const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+        const expected = String(
+            process.env.CONTRATOS_VENCIMIENTO_TOKEN || process.env.INTERNAL_TOKEN || ''
+        ).trim();
+        if (expected && token && token === expected) return next();
+        return verificarToken(req, res, () => allowRoles(['super_admin', 'admin_ch'])(req, res, next));
+    }
+
+    app.get('/api/onboarding/internal/elegibles-vencimiento', allowInternalVencimiento, async (req, res) => {
+        try {
+            const kind = String(req.query.kind || '').toUpperCase();
+            const items = await vencimiento.listElegiblesExactos({
+                kind,
+                asOfDate: req.query.asOfDate || undefined
+            });
+            const recipients = await vencimiento.resolveChRecipients();
+            res.json({ ok: true, items, recipients });
+        } catch (error) {
+            const status = Number(error.statusCode) || 500;
+            res.status(status).json({ ok: false, error: error.message });
+        }
+    });
+
+    app.post('/api/onboarding/internal/marcar-vencimiento', allowInternalVencimiento, async (req, res) => {
+        try {
+            const result = await vencimiento.marcarEnviados({
+                kind: req.body?.kind,
+                contratoIds: req.body?.contratoIds,
+                asOfDate: req.body?.asOfDate
+            });
+            res.json({ ok: true, ...result });
+        } catch (error) {
+            const status = Number(error.statusCode) || 500;
+            res.status(status).json({ ok: false, error: error.message });
+        }
+    });
 
     /* =========================================================================
      * Ficha completa de colaborador (modal de edición manual).

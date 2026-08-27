@@ -2,6 +2,7 @@
 
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { computeContratoEconomia, parseMoney } = require('./contratoCostoCalc');
+const { ensureContratoVencimientoColumns } = require('./contratoVencimientoService');
 const {
     ensureColaboradorContratoHistorialTable,
     flattenHistorialMap,
@@ -199,6 +200,7 @@ async function ensureColaboradorContratosTable(pool, logger) {
               AND cc.es_cabecera IS TRUE
         `);
         await ensureColaboradorContratoHistorialTable(pool, logger);
+        await ensureContratoVencimientoColumns(pool, logger);
     } catch (error) {
         if (String(error?.code || '') === '42501') {
             if (logger && typeof logger.warn === 'function') {

@@ -64,6 +64,7 @@ async function patch(token, path, body) {
 export const onboardingApi = {
     listPersonal: (token, params) => get(token, '/personal', params),
     listProximos: (token, params) => get(token, '/proximos', params),
+    listPorVencer: (token, params) => get(token, '/por-vencer', params),
     listBajas: (token, params) => get(token, '/bajas', params),
     listSena: (token, params) => get(token, '/sena', params),
     listStaff: (token, params) => get(token, '/staff', params),
