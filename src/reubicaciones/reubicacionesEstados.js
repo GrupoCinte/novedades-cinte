@@ -25,7 +25,7 @@ function calcularEstado({ fecha_fin, novedad = null, fecha_actual = new Date() }
     const hoy = new Date(fecha_actual);
     
     // Si la fecha es inválida, no se puede calcular pendiente o proceso, dejamos En Proceso por defecto
-    if (isNaN(fin.getTime()) || isNaN(hoy.getTime())) {
+    if (Number.isNaN(fin.getTime()) || Number.isNaN(hoy.getTime())) {
         return { estado: ESTADOS.EN_PROCESO, motivo: null };
     }
     

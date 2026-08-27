@@ -38,7 +38,7 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (err) => {
     try {
         logger.error({
-            err: { message: err && err.message, stack: err && err.stack, name: err && err.name }
+            err: { message: err?.message, stack: err?.stack, name: err?.name }
         }, '[uncaughtException] Excepción no capturada');
     } catch {
         // logger no debe romper el handler
@@ -48,8 +48,8 @@ process.on('uncaughtException', (err) => {
     }
 });
 const xlsx = require('xlsx');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const helmet = require('helmet');
 const cors = require('cors');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
@@ -172,7 +172,7 @@ try {
     if (host.startsWith('www.')) {
         const nakedHost = host.replace(/^www\./, '');
         allowedCorsOrigins.add(`${parsedFrontend.protocol}//${nakedHost}`);
-    } else if (host && host.includes('.')) {
+    } else if (host?.includes('.')) {
         allowedCorsOrigins.add(`${parsedFrontend.protocol}//www.${host}`);
     }
 } catch {
@@ -543,8 +543,8 @@ const pool = new Pool({
 pool.on('error', (err, client) => {
     try {
         logger.error({
-            err: { message: err && err.message, stack: err && err.stack, code: err && err.code },
-            clientPid: client && client.processID
+            err: { message: err?.message, stack: err?.stack, code: err?.code },
+            clientPid: client?.processID
         }, '[pg.pool] Error en cliente idle del pool');
     } catch {
         // ignorar fallos del logger
