@@ -88,6 +88,12 @@ export function historialForContrato(form, contratoId) {
     return Array.isArray(hit?.historial) ? hit.historial : [];
 }
 
+export function historialForFicha(form) {
+    if (Array.isArray(form?.historial) && form.historial.length) return form.historial;
+    const list = Array.isArray(form?.contratos) ? form.contratos : [];
+    return list.flatMap((c) => (Array.isArray(c.historial) ? c.historial : []));
+}
+
 function toPositiveInt(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return null;

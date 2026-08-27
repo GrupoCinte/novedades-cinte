@@ -1,5 +1,7 @@
 'use strict';
 
+const { COLABORADORES_EXTENDED_COLUMNS } = require('../colaboradores/colaboradoresExtendedColumns');
+
 const HISTORIAL_FIELDS = [
     { key: 'cliente', label: 'Cliente' },
     { key: 'tipo_contrato', label: 'Tipo de contrato' },
@@ -11,7 +13,59 @@ const HISTORIAL_FIELDS = [
     { key: 'vigente', label: 'Estado del contrato' }
 ];
 
-const FIELD_BY_KEY = new Map(HISTORIAL_FIELDS.map((f) => [f.key, f]));
+const BASE_FICHA_LABELS = {
+    nombre: 'Nombre',
+    correo_cinte: 'Correo Cinte',
+    cliente: 'Cliente',
+    lider_catalogo: 'Líder',
+    activo: 'Activo',
+    tipo_personal: 'Tipo de personal',
+    motivo_baja: 'Motivo de baja',
+    termino: 'Término',
+    gp_user_id: 'GP asignado'
+};
+
+const SKIP_FICHA_KEYS = new Set([
+    'cedula',
+    'id',
+    'created_at',
+    'updated_at',
+    'edad',
+    'tiempo_permanencia_meses',
+    'contratos',
+    'historial',
+    'contratos_vigentes_count',
+    'contratos_vigentes',
+    'cliente',
+    'tipo_contrato',
+    'fecha_ingreso',
+    'fecha_termino',
+    'fecha_inicio',
+    'vigente'
+]);
+
+const FIELD_BY_KEY = new Map([
+    ...HISTORIAL_FIELDS.map((f) => [f.key, f]),
+    ...COLABORADORES_EXTENDED_COLUMNS.map((c) => [c.key, { key: c.key, label: c.label, sqlType: c.sqlType }]),
+    ...Object.entries(BASE_FICHA_LABELS).map(([key, label]) => [key, { key, label }])
+]);
+
+const DATE_KEYS = new Set([
+    'fecha_inicio',
+    'fecha_termino',
+    ...COLABORADORES_EXTENDED_COLUMNS.filter((c) => c.sqlType === 'DATE').map((c) => c.key)
+]);
+const MONEY_KEYS = new Set(
+    COLABORADORES_EXTENDED_COLUMNS.filter((c) => String(c.sqlType).startsWith('NUMERIC')).map((c) => c.key)
+);
+const BOOL_KEYS = new Set([
+    'activo',
+    'vigente',
+    ...COLABORADORES_EXTENDED_COLUMNS.filter((c) => c.sqlType === 'BOOLEAN').map((c) => c.key)
+]);
+const JSON_KEYS = new Set(
+    COLABORADORES_EXTENDED_COLUMNS.filter((c) => c.sqlType === 'JSONB').map((c) => c.key)
+);
 
 function asUuid(value) {
     const s = String(value || '').trim();
@@ -43,10 +97,30 @@ function normalizeEstado(value) {
     return String(value).trim();
 }
 
+function normalizeJson(value) {
+    if (value == null || value === '') return '';
+    if (typeof value === 'string') {
+        try {
+            return JSON.stringify(JSON.parse(value));
+        } catch {
+            return value.trim();
+        }
+    }
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+}
+
 function normalizeHistorialValue(campo, value) {
     if (campo === 'vigente') return normalizeEstado(value);
-    if (campo === 'fecha_inicio' || campo === 'fecha_termino') return isoDate(value);
-    if (campo === 'tarifa_cliente' || campo === 'costo_empresa') return normalizeMoney(value);
+    if (BOOL_KEYS.has(campo)) {
+        if (value === true || value === 'true' || value === '1') return 'Sí';
+        if (value === false || value === 'false' || value === '0') return 'No';
+        if (value == null || value === '') return '';
+        return String(value).trim();
+    }
+    if (DATE_KEYS.has(campo) || campo === 'fecha_inicio' || campo === 'fecha_termino') return isoDate(value);
+    if (MONEY_KEYS.has(campo) || campo === 'tarifa_cliente' || campo === 'costo_empresa') return normalizeMoney(value);
+    if (JSON_KEYS.has(campo)) return normalizeJson(value);
     if (value == null) return '';
     return String(value).trim();
 }
@@ -91,6 +165,28 @@ function actorFromUser(user, { fallbackNombre = 'Sistema' } = {}) {
         email: email || null,
         role: user.role ? String(user.role) : null
     };
+}
+
+function diffFichaSnapshots(before, after) {
+    const prev = before && typeof before === 'object' ? before : {};
+    const next = after && typeof after === 'object' ? after : {};
+    const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+    const rows = [];
+    for (const key of keys) {
+        if (SKIP_FICHA_KEYS.has(key)) continue;
+        if (key.startsWith('_')) continue;
+        const valorAntes = normalizeHistorialValue(key, prev[key]);
+        const valorDespues = normalizeHistorialValue(key, next[key]);
+        if (valorAntes === valorDespues) continue;
+        rows.push({
+            campo: key,
+            campoLabel: labelForCampo(key),
+            valorAntes,
+            valorDespues
+        });
+    }
+    rows.sort((a, b) => a.campoLabel.localeCompare(b.campoLabel, 'es'));
+    return rows;
 }
 
 function diffContractSnapshots(before, after) {
@@ -154,6 +250,10 @@ async function ensureColaboradorContratoHistorialTable(pool, logger) {
             CREATE INDEX IF NOT EXISTS idx_colab_contrato_hist_cedula
             ON colaborador_contrato_historial (cedula, created_at DESC)
         `);
+        await pool.query(`
+            ALTER TABLE colaborador_contrato_historial
+            ALTER COLUMN contrato_id DROP NOT NULL
+        `);
     } catch (error) {
         if (String(error?.code || '') === '42501') {
             if (logger && typeof logger.warn === 'function') {
@@ -179,7 +279,7 @@ async function insertHistorialRows(db, rows) {
                     actor_user_id, actor_nombre, actor_email, actor_role, origen
                  ) VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7, $8, $9, $10)`,
                 [
-                    row.contratoId,
+                    row.contratoId || null,
                     row.cedula,
                     row.campo,
                     row.valorAntes || null,
@@ -250,26 +350,31 @@ async function findCabeceraId(db, cedula) {
     return q.rows[0] ? String(q.rows[0].id) : null;
 }
 
-async function recordCabeceraMoneyDiff(db, { cedula, before, after, actor, origen } = {}) {
+async function recordFichaDiff(db, { cedula, before, after, actor, origen, contratoId } = {}) {
     const ced = String(cedula || '').replace(/\D/g, '');
     if (!ced) return [];
-    const diffs = diffContractSnapshots(moneySnapshotFromPerson(before), moneySnapshotFromPerson(after));
+    const diffs = diffFichaSnapshots(before, after);
     if (!diffs.length) return [];
+    const rows = diffs.map((d) => ({
+        contratoId: contratoId || null,
+        cedula: ced,
+        campo: d.campo,
+        valorAntes: d.valorAntes,
+        valorDespues: d.valorDespues,
+        actor: actor || actorFromUser(null),
+        origen: origen || 'ficha'
+    }));
     try {
-        const contratoId = await findCabeceraId(db, ced);
-        if (!contratoId) return [];
-        return recordContratoDiff(db, {
-            contratoId,
-            cedula: ced,
-            before: moneySnapshotFromPerson(before),
-            after: moneySnapshotFromPerson(after),
-            actor,
-            origen
-        });
+        await insertHistorialRows(db, rows);
     } catch (error) {
-        console.warn('[Onboarding] historial de tarifa/costo omitido:', error.message);
+        console.warn('[Onboarding] historial de ficha omitido:', error.message);
         return [];
     }
+    return diffs;
+}
+
+async function recordCabeceraMoneyDiff(db, { cedula, before, after, actor, origen } = {}) {
+    return recordFichaDiff(db, { cedula, before, after, actor, origen });
 }
 
 async function listHistorialByCedula(db, cedula) {
@@ -286,7 +391,7 @@ async function listHistorialByCedula(db, cedula) {
             [ced]
         );
         for (const row of q.rows || []) {
-            const key = String(row.contrato_id);
+            const key = row.contrato_id ? String(row.contrato_id) : '';
             const list = map.get(key) || [];
             const item = toApiHistorial(row);
             if (item) list.push(item);
@@ -298,17 +403,27 @@ async function listHistorialByCedula(db, cedula) {
     return map;
 }
 
+function flattenHistorialMap(map) {
+    const all = [];
+    for (const list of map.values()) all.push(...list);
+    all.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return all;
+}
+
 module.exports = {
     HISTORIAL_FIELDS,
     actorFromUser,
     diffContractSnapshots,
+    diffFichaSnapshots,
     ensureColaboradorContratoHistorialTable,
+    flattenHistorialMap,
     labelForCampo,
     listHistorialByCedula,
     moneySnapshotFromPerson,
     normalizeHistorialValue,
     recordCabeceraMoneyDiff,
     recordContratoDiff,
+    recordFichaDiff,
     snapshotFromContratoRow,
     toApiHistorial
 };

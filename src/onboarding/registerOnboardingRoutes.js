@@ -46,7 +46,7 @@ const {
     loadPersonContractState,
     syncPersonContractsFromFicha
 } = require('./colaboradorContratos');
-const { actorFromUser, recordCabeceraMoneyDiff } = require('./contratoHistorial');
+const { actorFromUser, recordFichaDiff } = require('./contratoHistorial');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -579,7 +579,8 @@ function registerOnboardingRoutes(deps) {
         }
         try {
             const patch = normalizeColabTextPatch(parsed.data);
-            const existed = await loadPersonContractState(pool, cedula);
+            const beforeQ = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            const existed = beforeQ.rows[0] || await loadPersonContractState(pool, cedula);
             if (!existed) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
@@ -615,7 +616,7 @@ function registerOnboardingRoutes(deps) {
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
             }
-            await recordCabeceraMoneyDiff(pool, {
+            await recordFichaDiff(pool, {
                 cedula,
                 before: existed,
                 after: updated,
@@ -690,7 +691,7 @@ function registerOnboardingRoutes(deps) {
                 origen: 'ficha_alta',
                 actor
             });
-            await recordCabeceraMoneyDiff(pool, {
+            await recordFichaDiff(pool, {
                 cedula,
                 before: {},
                 after: updated,
@@ -739,6 +740,7 @@ function registerOnboardingRoutes(deps) {
             return res.status(400).json({ ok: false, error: 'Payload inválido', detail: parsed.error.errors });
         }
         try {
+            const beforeBaja = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
             const item = await applyRegistroBajaColaborador(pool, cedula, {
                 motivo_baja: parsed.data.motivo_baja,
                 fecha_termino: parsed.data.fecha_termino,
@@ -746,6 +748,14 @@ function registerOnboardingRoutes(deps) {
                 cliente: parsed.data.cliente,
                 contrato_id: parsed.data.contrato_id,
                 actor: actorFromUser(req.user)
+            });
+            const afterBaja = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
+            await recordFichaDiff(pool, {
+                cedula,
+                before: beforeBaja.rows[0] || {},
+                after: afterBaja.rows[0] || {},
+                actor: actorFromUser(req.user),
+                origen: 'baja'
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
@@ -862,11 +872,11 @@ function registerOnboardingRoutes(deps) {
                 ]
             );
 
-            await recordCabeceraMoneyDiff(pool, {
+            await recordFichaDiff(pool, {
                 cedula,
                 before: exists.rows[0],
                 after: {
-                    esquema_contrato: exists.rows[0].esquema_contrato,
+                    ...exists.rows[0],
                     tarifa_cliente: q.rows[0].tarifa_cliente,
                     costo_empresa: q.rows[0].costo_empresa
                 },

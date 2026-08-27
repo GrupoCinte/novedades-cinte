@@ -104,6 +104,23 @@ describe('contratosFromFicha AUT-312', () => {
         assert.equal(historialForContrato({}, 'c1').length, 0);
     });
 
+    it('lee el historial completo de la ficha (AUT-317)', async () => {
+        const { historialForFicha } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
+        assert.equal(
+            historialForFicha({ historial: [{ id: 'h1' }, { id: 'h2' }] }).length,
+            2
+        );
+        assert.equal(
+            historialForFicha({
+                contratos: [
+                    { id: 'c1', historial: [{ id: 'a' }] },
+                    { id: 'c2', historial: [{ id: 'b' }] }
+                ]
+            }).length,
+            2
+        );
+    });
+
     it('el select de cliente no pierde la pastilla si el catálogo usa otra capitalización', async () => {
         const { matchClienteOption, clienteOptionsWithCurrent } = await import(
             '../react-frontend/src/onboarding/contratoEstanteMap.js'

@@ -3,6 +3,7 @@
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const {
     ensureColaboradorContratoHistorialTable,
+    flattenHistorialMap,
     listHistorialByCedula,
     recordContratoDiff,
     snapshotFromContratoRow
@@ -222,6 +223,7 @@ async function attachContratosToItem(db, item, { clientesScope } = {}) {
         ...c,
         historial: historialByContrato.get(String(c.id)) || []
     }));
+    item.historial = flattenHistorialMap(historialByContrato);
     item.contratos_vigentes_count = item.contratos.filter((c) => c.vigente).length;
     return item;
 }

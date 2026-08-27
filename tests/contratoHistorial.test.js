@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
     actorFromUser,
     diffContractSnapshots,
+    diffFichaSnapshots,
     normalizeHistorialValue,
     toApiHistorial
 } = require('../src/onboarding/contratoHistorial');
@@ -53,6 +54,28 @@ describe('diffContractSnapshots AUT-317', () => {
         assert.equal(rows.find((r) => r.campo === 'cliente').valorDespues, 'EXPERIAN');
         assert.equal(rows.find((r) => r.campo === 'vigente').valorDespues, 'Vigente');
         assert.equal(rows.find((r) => r.campo === 'tipo_contrato').campoLabel, 'Tipo de contrato');
+    });
+});
+
+describe('diffFichaSnapshots AUT-317', () => {
+    it('registra cualquier campo que el analista cambie, agregue o quite', () => {
+        const rows = diffFichaSnapshots(
+            { nombre: 'Ana', eps: 'SURA', celular_personal: '300111' },
+            { nombre: 'Ana María', eps: 'SURA', celular_personal: '' }
+        );
+        const by = Object.fromEntries(rows.map((r) => [r.campo, r]));
+        assert.equal(by.nombre.valorDespues, 'Ana María');
+        assert.equal(by.celular_personal.valorAntes, '300111');
+        assert.equal(by.celular_personal.valorDespues, '');
+        assert.equal(by.eps, undefined);
+    });
+
+    it('no registra edad automática ni timestamps', () => {
+        const rows = diffFichaSnapshots(
+            { edad: 30, updated_at: 'a', eps: 'SURA' },
+            { edad: 31, updated_at: 'b', eps: 'SURA' }
+        );
+        assert.equal(rows.length, 0);
     });
 });
 

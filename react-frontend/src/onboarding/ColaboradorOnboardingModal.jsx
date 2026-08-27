@@ -14,7 +14,7 @@ import { getOnboardingPermissions } from './onboardingAccess.js';
 import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.jsx';
 import ContratoEstante, { contratosFromFicha } from './ContratoEstante.jsx';
 import ContratoHistorialPanel from './ContratoHistorialPanel.jsx';
-import { historialForContrato, matchClienteOption, pickLiderForCliente } from './contratoEstanteMap.js';
+import { historialForFicha, matchClienteOption, pickLiderForCliente } from './contratoEstanteMap.js';
 
 async function fetchClientes() {
     try {
@@ -443,12 +443,11 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                             hideIdentityFields={!createMode}
                         />
                     )}
-                    {!loading && !error && !createMode && contratoSeleccionado ? (
+                    {!loading && !error && !createMode ? (
                         <div className="mt-6">
                             <ContratoHistorialPanel
-                                items={historialForContrato(form, contratoSeleccionado.id)}
+                                items={historialForFicha(form)}
                                 isLight={isLight}
-                                contratoLabel={contratoSeleccionado.cliente}
                             />
                         </div>
                     ) : null}

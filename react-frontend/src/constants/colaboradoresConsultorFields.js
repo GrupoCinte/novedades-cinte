@@ -449,6 +449,7 @@ export function mapRowToStaffForm(row) {
         }
     }
     if (Array.isArray(row.contratos)) out.contratos = row.contratos;
+    if (Array.isArray(row.historial)) out.historial = row.historial;
     if (row.contratos_vigentes_count != null) out.contratos_vigentes_count = row.contratos_vigentes_count;
     return out;
 }

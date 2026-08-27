@@ -13,6 +13,14 @@ function formatFecha(value) {
     });
 }
 
+function accionLabel(antes, despues) {
+    const vacioAntes = antes == null || antes === '';
+    const vacioDespues = despues == null || despues === '';
+    if (vacioAntes && !vacioDespues) return 'Agregó';
+    if (!vacioAntes && vacioDespues) return 'Quitó';
+    return 'Cambió';
+}
+
 function formatValor(campo, value) {
     if (value == null || value === '') return '—';
     if (campo === 'tarifa_cliente' || campo === 'costo_empresa') {
@@ -28,7 +36,7 @@ function formatValor(campo, value) {
     return String(value);
 }
 
-export default function ContratoHistorialPanel({ items = [], isLight = false, contratoLabel = '' }) {
+export default function ContratoHistorialPanel({ items = [], isLight = false }) {
     const list = Array.isArray(items) ? items : [];
     const box = isLight ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/[0.02]';
     const muted = isLight ? 'text-slate-500' : 'text-slate-400';
@@ -38,16 +46,17 @@ export default function ContratoHistorialPanel({ items = [], isLight = false, co
     return (
         <div className={`rounded-xl border p-4 ${box}`}>
             <p className={`mb-2 text-xs font-bold uppercase tracking-widest ${muted}`}>
-                Historial del contrato{contratoLabel ? ` · ${contratoLabel}` : ''}
+                Historial de la ficha
             </p>
             {list.length === 0 ? (
-                <p className={`text-sm ${muted}`}>Aún no hay cambios en este contrato.</p>
+                <p className={`text-sm ${muted}`}>Aún no hay cambios en esta ficha.</p>
             ) : (
-                <ul className="flex max-h-52 flex-col gap-2 overflow-y-auto custom-scrollbar" aria-label="Historial de cambios del contrato">
+                <ul className="flex max-h-52 flex-col gap-2 overflow-y-auto custom-scrollbar" aria-label="Historial de cambios de la ficha">
                     {list.map((entry) => (
                         <li key={entry.id} className={`rounded-lg border px-3 py-2.5 text-xs ${rowBox}`}>
                             <div className="flex flex-wrap items-start justify-between gap-2">
                                 <span className={`font-semibold ${textMain}`}>
+                                    {accionLabel(entry.valorAntes, entry.valorDespues)}{' '}
                                     {entry.campoLabel || entry.campo}
                                 </span>
                                 <span className={`inline-flex items-center gap-1 ${muted}`}>
