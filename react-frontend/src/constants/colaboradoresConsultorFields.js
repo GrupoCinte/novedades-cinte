@@ -24,7 +24,7 @@ const RAW_FIELDS = [
     ['costo_empresa', 'Costo empresa', 'money'],
     ['tarifa_cliente', 'Tarifa (cliente)', 'money'],
     ['utilidad', 'Utilidad', 'money'],
-    ['rt_aprox', 'RT / aprox.', 'money'],
+    ['rt_aprox', 'Rentabilidad', 'money'],
     ['periodicidad_pago', 'Periodicidad de pago', 'text'],
     ['moneda', 'Moneda', 'text'],
     ['sueldo_nomina', 'Sueldo nómina', 'money'],
@@ -217,11 +217,11 @@ export const CO_CONSULTOR_SECTIONS = [
     {
         title: 'Costos y remuneración',
         keys: [
-            'costo_empresa',
+            'sueldo_nomina',
             'tarifa_cliente',
+            'costo_empresa',
             'utilidad',
             'rt_aprox',
-            'sueldo_nomina',
             'ingreso_basico_letras',
             'ingreso_flexible',
             'recargos_nocturnos',

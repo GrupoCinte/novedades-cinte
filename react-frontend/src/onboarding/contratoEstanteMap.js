@@ -2,6 +2,25 @@ function foldCliente(value) {
     return String(value || '').trim().toLocaleLowerCase('es');
 }
 
+export const ECONOMIA_CONTRATO_KEYS = [
+    'esquema_contrato',
+    'sueldo_nomina',
+    'tarifa_cliente',
+    'honorarios',
+    'costo_licencias_teams_correo',
+    'costo_equipo_computo',
+    'auxilios_no_prestacionales',
+    'otros_ingresos'
+];
+
+function pickEconomiaFromContrato(c) {
+    const out = {};
+    for (const key of ECONOMIA_CONTRATO_KEYS) {
+        if (c[key] != null && c[key] !== '') out[key] = c[key];
+    }
+    return out;
+}
+
 function mapContratoApi(c, { esBaja = false } = {}) {
     const id = String(c?.id || c?.contrato_id || '').trim();
     if (!id) return null;
@@ -13,8 +32,21 @@ function mapContratoApi(c, { esBaja = false } = {}) {
         fechaInicio: String(c.fechaInicio || c.fecha_inicio || '').slice(0, 10),
         fechaTermino: String(c.fechaTermino || c.fecha_termino || '').slice(0, 10),
         vigente: vigenteApi && !esBaja,
-        esCabecera: Boolean(c.esCabecera ?? c.es_cabecera)
+        esCabecera: Boolean(c.esCabecera ?? c.es_cabecera),
+        ...pickEconomiaFromContrato(c || {})
     };
+}
+
+/** Inputs de plata de la pastilla; si es cabecera o no trae valor, usa la ficha. */
+export function overlayContratoEconomia(form, contrato) {
+    const base = form && typeof form === 'object' ? form : {};
+    const useSel = Boolean(contrato && !contrato.esCabecera);
+    const out = {};
+    for (const key of ECONOMIA_CONTRATO_KEYS) {
+        const fromSel = useSel ? contrato[key] : undefined;
+        out[key] = fromSel != null && fromSel !== '' ? fromSel : base[key] ?? '';
+    }
+    return out;
 }
 
 /** Alinea el cliente de la pastilla con la opción exacta del catálogo para que el select no quede en blanco. */

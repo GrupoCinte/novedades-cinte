@@ -1,6 +1,7 @@
 'use strict';
 
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
+const { computeContratoEconomia, parseMoney } = require('./contratoCostoCalc');
 const {
     ensureColaboradorContratoHistorialTable,
     flattenHistorialMap,
@@ -31,8 +32,27 @@ const CONTRACT_PERSON_KEYS = [
     'tarifa_cliente',
     'costo_empresa',
     'utilidad',
+    'rt_aprox',
+    'honorarios',
     'empleador',
     'lider_catalogo'
+];
+
+const CONTRATOS_SELECT_SQL = `id, cedula, cliente, tipo_contrato, fecha_inicio, fecha_termino,
+                vigente, es_cabecera, origen,
+                esquema_contrato, sueldo_nomina, tarifa_cliente, costo_empresa, utilidad, rt_aprox,
+                honorarios, costo_licencias_teams_correo, costo_equipo_computo,
+                auxilios_no_prestacionales, otros_ingresos`;
+
+const ECONOMIA_INPUT_KEYS = [
+    'esquema_contrato',
+    'sueldo_nomina',
+    'tarifa_cliente',
+    'honorarios',
+    'costo_licencias_teams_correo',
+    'costo_equipo_computo',
+    'auxilios_no_prestacionales',
+    'otros_ingresos'
 ];
 
 function normalizeCedula(value) {
@@ -94,7 +114,20 @@ function toApiContrato(row) {
         vigente: row.vigente !== false,
         esCabecera: row.es_cabecera === true,
         es_cabecera: row.es_cabecera === true,
-        origen: row.origen || null
+        origen: row.origen || null,
+        esquema_contrato: row.esquema_contrato != null ? String(row.esquema_contrato) : '',
+        sueldo_nomina: row.sueldo_nomina != null ? Number(row.sueldo_nomina) : null,
+        tarifa_cliente: row.tarifa_cliente != null ? Number(row.tarifa_cliente) : null,
+        costo_empresa: row.costo_empresa != null ? Number(row.costo_empresa) : null,
+        utilidad: row.utilidad != null ? Number(row.utilidad) : null,
+        rt_aprox: row.rt_aprox != null ? Number(row.rt_aprox) : null,
+        honorarios: row.honorarios != null ? String(row.honorarios) : '',
+        costo_licencias_teams_correo:
+            row.costo_licencias_teams_correo != null ? Number(row.costo_licencias_teams_correo) : null,
+        costo_equipo_computo: row.costo_equipo_computo != null ? Number(row.costo_equipo_computo) : null,
+        auxilios_no_prestacionales:
+            row.auxilios_no_prestacionales != null ? String(row.auxilios_no_prestacionales) : '',
+        otros_ingresos: row.otros_ingresos != null ? String(row.otros_ingresos) : ''
     };
 }
 
@@ -130,6 +163,37 @@ async function ensureColaboradorContratosTable(pool, logger) {
             WHERE vigente IS TRUE
         `);
         await seedContratosFromColaboradores(pool);
+        await pool.query(`
+            ALTER TABLE colaborador_contratos
+            ADD COLUMN IF NOT EXISTS esquema_contrato TEXT NULL,
+            ADD COLUMN IF NOT EXISTS sueldo_nomina NUMERIC(18,2) NULL,
+            ADD COLUMN IF NOT EXISTS tarifa_cliente NUMERIC(18,2) NULL,
+            ADD COLUMN IF NOT EXISTS costo_empresa NUMERIC(18,2) NULL,
+            ADD COLUMN IF NOT EXISTS utilidad NUMERIC(18,2) NULL,
+            ADD COLUMN IF NOT EXISTS rt_aprox NUMERIC(10,4) NULL,
+            ADD COLUMN IF NOT EXISTS honorarios TEXT NULL,
+            ADD COLUMN IF NOT EXISTS costo_licencias_teams_correo NUMERIC(18,2) NULL,
+            ADD COLUMN IF NOT EXISTS costo_equipo_computo NUMERIC(18,2) NULL,
+            ADD COLUMN IF NOT EXISTS auxilios_no_prestacionales TEXT NULL,
+            ADD COLUMN IF NOT EXISTS otros_ingresos TEXT NULL
+        `);
+        await pool.query(`
+            UPDATE colaborador_contratos cc
+            SET esquema_contrato = COALESCE(cc.esquema_contrato, NULLIF(btrim(c.esquema_contrato), '')),
+                sueldo_nomina = COALESCE(cc.sueldo_nomina, c.sueldo_nomina),
+                tarifa_cliente = COALESCE(cc.tarifa_cliente, c.tarifa_cliente),
+                costo_empresa = COALESCE(cc.costo_empresa, c.costo_empresa),
+                utilidad = COALESCE(cc.utilidad, c.utilidad),
+                rt_aprox = COALESCE(cc.rt_aprox, c.rt_aprox),
+                honorarios = COALESCE(cc.honorarios, c.honorarios),
+                costo_licencias_teams_correo = COALESCE(cc.costo_licencias_teams_correo, c.costo_licencias_teams_correo),
+                costo_equipo_computo = COALESCE(cc.costo_equipo_computo, c.costo_equipo_computo),
+                auxilios_no_prestacionales = COALESCE(cc.auxilios_no_prestacionales, c.auxilios_no_prestacionales),
+                otros_ingresos = COALESCE(cc.otros_ingresos, c.otros_ingresos)
+            FROM colaboradores c
+            WHERE cc.cedula = c.cedula
+              AND cc.es_cabecera IS TRUE
+        `);
         await ensureColaboradorContratoHistorialTable(pool, logger);
     } catch (error) {
         if (String(error?.code || '') === '42501') {
@@ -183,8 +247,7 @@ async function listContratosByCedula(db, cedula) {
     const ced = normalizeCedula(cedula);
     if (!ced) return [];
     const q = await db.query(
-        `SELECT id, cedula, cliente, tipo_contrato, fecha_inicio, fecha_termino,
-                vigente, es_cabecera, origen
+        `SELECT ${CONTRATOS_SELECT_SQL}
          FROM colaborador_contratos
          WHERE cedula = $1
          ORDER BY es_cabecera DESC, vigente DESC, fecha_inicio DESC NULLS LAST, created_at DESC`,
@@ -866,11 +929,142 @@ async function syncPersonContractsFromFicha(db, {
     });
 }
 
+function mergeEconomiaSource(row, patch) {
+    const out = { ...(row || {}) };
+    const src = patch && typeof patch === 'object' ? patch : {};
+    for (const key of ECONOMIA_INPUT_KEYS) {
+        if (src[key] !== undefined) out[key] = src[key];
+    }
+    if (src.tipo_contrato !== undefined) out.tipo_contrato = src.tipo_contrato;
+    return out;
+}
+
+function stripComputedEconomia(payload) {
+    if (!payload || typeof payload !== 'object') return {};
+    const out = { ...payload };
+    delete out.costo_empresa;
+    delete out.utilidad;
+    delete out.rt_aprox;
+    delete out.contrato_id;
+    return out;
+}
+
+function stripEconomiaFromPersonPatch(payload) {
+    const out = stripComputedEconomia(payload);
+    for (const key of ECONOMIA_INPUT_KEYS) delete out[key];
+    return out;
+}
+
+async function loadContratoRowForEconomia(db, cedula, contratoId) {
+    const ced = normalizeCedula(cedula);
+    if (contratoId) {
+        const q = await db.query(
+            `SELECT * FROM colaborador_contratos WHERE id = $1::uuid AND cedula = $2 LIMIT 1`,
+            [contratoId, ced]
+        );
+        if (q.rows[0]) return q.rows[0];
+    }
+    const cab = await db.query(
+        `SELECT * FROM colaborador_contratos WHERE cedula = $1 AND es_cabecera IS TRUE LIMIT 1`,
+        [ced]
+    );
+    return cab.rows[0] || null;
+}
+
+async function persistContratoEconomia(db, {
+    cedula,
+    contratoId,
+    patch,
+    actor,
+    origen
+}) {
+    const row = await loadContratoRowForEconomia(db, cedula, contratoId);
+    if (!row) {
+        const calc = computeContratoEconomia(mergeEconomiaSource({}, patch));
+        return { editingOther: false, calc, contratoId: null };
+    }
+    const source = mergeEconomiaSource(row, patch);
+    const calc = computeContratoEconomia(source);
+    const next = {
+        esquema_contrato: source.esquema_contrato != null ? String(source.esquema_contrato) : null,
+        sueldo_nomina: source.sueldo_nomina != null && source.sueldo_nomina !== ''
+            ? parseMoney(source.sueldo_nomina)
+            : null,
+        tarifa_cliente: source.tarifa_cliente != null && source.tarifa_cliente !== ''
+            ? parseMoney(source.tarifa_cliente)
+            : null,
+        honorarios: source.honorarios != null ? String(source.honorarios) : null,
+        costo_licencias_teams_correo:
+            source.costo_licencias_teams_correo != null && source.costo_licencias_teams_correo !== ''
+                ? parseMoney(source.costo_licencias_teams_correo)
+                : null,
+        costo_equipo_computo:
+            source.costo_equipo_computo != null && source.costo_equipo_computo !== ''
+                ? parseMoney(source.costo_equipo_computo)
+                : null,
+        auxilios_no_prestacionales:
+            source.auxilios_no_prestacionales != null ? String(source.auxilios_no_prestacionales) : null,
+        otros_ingresos: source.otros_ingresos != null ? String(source.otros_ingresos) : null,
+        costo_empresa: calc.costo_empresa,
+        utilidad: calc.utilidad,
+        rt_aprox: calc.rt_aprox
+    };
+    await db.query(
+        `UPDATE colaborador_contratos SET
+            esquema_contrato = $2,
+            sueldo_nomina = $3,
+            tarifa_cliente = $4,
+            honorarios = $5,
+            costo_licencias_teams_correo = $6,
+            costo_equipo_computo = $7,
+            auxilios_no_prestacionales = $8,
+            otros_ingresos = $9,
+            costo_empresa = $10,
+            utilidad = $11,
+            rt_aprox = $12,
+            updated_at = NOW()
+         WHERE id = $1::uuid AND cedula = $13`,
+        [
+            row.id,
+            next.esquema_contrato,
+            next.sueldo_nomina,
+            next.tarifa_cliente,
+            next.honorarios,
+            next.costo_licencias_teams_correo,
+            next.costo_equipo_computo,
+            next.auxilios_no_prestacionales,
+            next.otros_ingresos,
+            next.costo_empresa,
+            next.utilidad,
+            next.rt_aprox,
+            normalizeCedula(cedula)
+        ]
+    );
+    await recordContratoDiff(db, {
+        contratoId: row.id,
+        cedula: normalizeCedula(cedula),
+        before: snapshotFromContratoRow(row),
+        after: snapshotFromContratoRow({ ...row, ...next }),
+        actor,
+        origen: origen || 'ficha_patch'
+    });
+    return {
+        editingOther: row.es_cabecera !== true,
+        calc,
+        contratoId: row.id
+    };
+}
+
 module.exports = {
     CONTRATOS_VIGENTES_COUNT_SQL,
     CONTRACT_PERSON_KEYS,
+    ECONOMIA_INPUT_KEYS,
     decideContractAction,
     filterExtendedForAction,
+    mergeEconomiaSource,
+    stripComputedEconomia,
+    stripEconomiaFromPersonPatch,
+    persistContratoEconomia,
     filterContratosByClientes,
     contratosVigentesCountSql,
     sameCliente,

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const {
     decideContractAction,
     filterExtendedForAction,
+    stripEconomiaFromPersonPatch,
     filterContratosByClientes,
     sameCliente,
     isoDate,
@@ -92,6 +93,23 @@ describe('filterExtendedForAction AUT-313', () => {
     it('en extensión deja pasar el payload', () => {
         const filtered = filterExtendedForAction({ fecha_termino: '2026-12-01', eps: 'SURA' }, 'extend');
         assert.equal(filtered.fecha_termino, '2026-12-01');
+    });
+
+    it('otra pastilla no escribe plata en la cabecera (AUT-318)', () => {
+        const filtered = stripEconomiaFromPersonPatch({
+            eps: 'SURA',
+            sueldo_nomina: 3_000_000,
+            tarifa_cliente: 4_000_000,
+            costo_empresa: 1,
+            utilidad: 2,
+            rt_aprox: 0.1,
+            honorarios: '1000'
+        });
+        assert.equal(filtered.eps, 'SURA');
+        assert.equal(filtered.sueldo_nomina, undefined);
+        assert.equal(filtered.tarifa_cliente, undefined);
+        assert.equal(filtered.costo_empresa, undefined);
+        assert.equal(filtered.honorarios, undefined);
     });
 });
 

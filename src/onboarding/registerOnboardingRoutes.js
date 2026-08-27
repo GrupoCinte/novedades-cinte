@@ -44,9 +44,13 @@ const {
     decideContractAction,
     filterExtendedForAction,
     loadPersonContractState,
+    persistContratoEconomia,
+    stripComputedEconomia,
+    stripEconomiaFromPersonPatch,
     syncPersonContractsFromFicha
 } = require('./colaboradorContratos');
 const { actorFromUser, recordFichaDiff } = require('./contratoHistorial');
+const { computeContratoEconomia } = require('./contratoCostoCalc');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -204,6 +208,7 @@ function registerOnboardingRoutes(deps) {
         lider_catalogo: z.string().max(500).optional().nullable(),
         gp_user_id: z.string().uuid().optional().nullable(),
         activo: z.boolean().optional(),
+        contrato_id: z.string().uuid().optional().nullable(),
         ...colabExtendedShape
     });
     /** Alta de colaborador: cédula y nombre obligatorios; resto opcional (mismo shape extendido). */
@@ -578,7 +583,8 @@ function registerOnboardingRoutes(deps) {
             });
         }
         try {
-            const patch = normalizeColabTextPatch(parsed.data);
+            const patch = stripComputedEconomia(normalizeColabTextPatch(parsed.data));
+            const contratoId = parsed.data.contrato_id || null;
             const beforeQ = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
             const existed = beforeQ.rows[0] || await loadPersonContractState(pool, cedula);
             if (!existed) {
@@ -603,9 +609,23 @@ function registerOnboardingRoutes(deps) {
                 allowReingreso: false,
                 actor
             });
-            const patchToApply = contractAction === 'new_client'
+            const economia = await persistContratoEconomia(pool, {
+                cedula,
+                contratoId,
+                patch,
+                actor,
+                origen: 'ficha_patch'
+            });
+            let patchToApply = contractAction === 'new_client'
                 ? filterExtendedForAction(patch, 'new_client')
                 : { ...patch };
+            if (economia.editingOther) {
+                patchToApply = stripEconomiaFromPersonPatch(patchToApply);
+            } else {
+                patchToApply.costo_empresa = economia.calc.costo_empresa;
+                patchToApply.utilidad = economia.calc.utilidad;
+                patchToApply.rt_aprox = economia.calc.rt_aprox;
+            }
             if (estaEnBajas) {
                 delete patchToApply.activo;
             }
@@ -679,8 +699,14 @@ function registerOnboardingRoutes(deps) {
                 [cedula, normalizedCreate.nombre, tipoPersonal]
             );
             // Resto de campos (cliente, líder, extendidos) vía el mismo helper del PATCH.
-            const { cedula: _omit, nombre: _n, ...rest } = normalizedCreate;
-            const updated = await updateColaboradorByCedula(cedula, rest);
+            const { cedula: _omit, nombre: _n, ...rest } = stripComputedEconomia(normalizedCreate);
+            const calcAlta = computeContratoEconomia(rest);
+            const updated = await updateColaboradorByCedula(cedula, {
+                ...rest,
+                costo_empresa: calcAlta.costo_empresa,
+                utilidad: calcAlta.utilidad,
+                rt_aprox: calcAlta.rt_aprox
+            });
             const actor = actorFromUser(req.user);
             await syncPersonContractsFromFicha(pool, {
                 cedula,
@@ -691,6 +717,13 @@ function registerOnboardingRoutes(deps) {
                 fechaTermino: normalizedCreate.fecha_termino,
                 origen: 'ficha_alta',
                 actor
+            });
+            await persistContratoEconomia(pool, {
+                cedula,
+                contratoId: null,
+                patch: rest,
+                actor,
+                origen: 'ficha_alta'
             });
             await recordFichaDiff(pool, {
                 cedula,
