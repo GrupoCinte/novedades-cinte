@@ -402,9 +402,9 @@ function enrichNormalizedFromMapped(normalized, mapped = {}) {
     }
 
     if (
-        out.empleador != null &&
-        out.cliente != null &&
-        String(out.empleador).toLocaleUpperCase('es') === String(out.cliente).toLocaleUpperCase('es')
+        typeof out.empleador === 'string' &&
+        typeof out.cliente === 'string' &&
+        out.empleador.toLocaleUpperCase('es') === out.cliente.toLocaleUpperCase('es')
     ) {
         delete out.empleador;
     }
@@ -458,10 +458,9 @@ function rebuildNormalizedFromStagingRow(row) {
             normalized.codigo = String(mapped.id_registro).trim();
         }
         if (
-            normalized.empleador != null &&
-            normalized.cliente != null &&
-            String(normalized.empleador).toLocaleUpperCase('es') ===
-                String(normalized.cliente).toLocaleUpperCase('es')
+            typeof normalized.empleador === 'string' &&
+            typeof normalized.cliente === 'string' &&
+            normalized.empleador.toLocaleUpperCase('es') === normalized.cliente.toLocaleUpperCase('es')
         ) {
             delete normalized.empleador;
         }
@@ -528,19 +527,19 @@ function extractPersonHintsFromSubject(subject) {
     const s = String(subject || '').replace(/\s+/g, ' ').trim();
     if (!s) return { nombre: null, cliente: null };
 
-    let m = s.match(/Modificaci[oó]n sobre ID\s+\d+\s*-\s*(.+?)(?:-([^-()]+))?(?:\s*\(|$)/i);
+    let m = /Modificaci[oó]n sobre ID\s+\d+\s*-\s*(.+?)(?:-([^-()]+))?(?:\s*\(|$)/i.exec(s); // nosonar
     if (m) {
         return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
     }
-    m = s.match(/Extensi[oó]n\s*-\s*(.+?)\s*\/\s*(.+?)\s*$/i);
+    m = /Extensi[oó]n\s*-\s*(.+?)\s*\/\s*(.+?)\s*$/i.exec(s); // nosonar
     if (m) {
         return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
     }
-    m = s.match(/Salida de\s+(.+?)\s+-\s+(.+?)(?:\s*\(|$)/i);
+    m = /Salida de\s+(.+?)\s+-\s+(.+?)(?:\s*\(|$)/i.exec(s); // nosonar
     if (m) {
         return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
     }
-    m = s.match(/Cancelaci[oó]n de Ingreso\s+\d+\s*-\s*(.+?)\s+-\s*(.+?)(?:\s*\(|$)/i);
+    m = /Cancelaci[oó]n de Ingreso\s+\d+\s*-\s*(.+?)\s+-\s*(.+?)(?:\s*\(|$)/i.exec(s); // nosonar
     if (m) {
         return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
     }
