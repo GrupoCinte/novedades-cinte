@@ -1058,6 +1058,9 @@ export function OnboardingAnalyticsPanel({ auth, isLight }) {
     const totalActivos = activosVsBajas[0]?.value || 0;
     const totalBajas = activosVsBajas[1]?.value || 0;
     const totalIngresos = ingresosData.reduce((acc, r) => acc + r.cuenta, 0);
+    const ingresosMes = Number(graficas?.ingresos_mes?.cuenta) || 0;
+    const cicloProm = graficas?.ciclo_ficha_ingreso?.promedio_dias;
+    const cicloLabel = cicloProm != null ? `${cicloProm} días` : '—';
 
     const irp = graficas?.irp || null;
     const irpValor = irp && irp.irp != null ? irp.irp : null;
@@ -1118,11 +1121,13 @@ export function OnboardingAnalyticsPanel({ auth, isLight }) {
             </div>
 
             {/* KPIs */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 {[
                     ['Personal activo', totalActivos],
                     ['Bajas', totalBajas],
-                    ['Ingresos (periodo)', totalIngresos]
+                    ['Ingresos (periodo)', totalIngresos],
+                    ['Ingresos del mes', ingresosMes],
+                    ['Ficha → ingreso', cicloLabel]
                 ].map(([label, val]) => (
                     <div key={label} className={`${G.card} px-4 py-3`}>
                         <p className={`text-[10px] uppercase tracking-widest ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{label}</p>

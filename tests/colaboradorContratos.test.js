@@ -11,7 +11,8 @@ const {
     isoDate,
     resolveCloseTarget,
     closeContrato,
-    reopenContrato
+    reopenContrato,
+    fillCabeceraFechaTerminoFromPersona
 } = require('../src/onboarding/colaboradorContratos');
 
 describe('decideContractAction AUT-313', () => {
@@ -304,5 +305,20 @@ describe('reopenContrato AUT-313', () => {
         const r = await reopenContrato(db, { cedula: '1', cliente: 'Colsubsidio' });
         assert.equal(r.action, 'noop_already_vigente');
         assert.equal(r.personActivo, true);
+    });
+});
+
+describe('fillCabeceraFechaTerminoFromPersona AUT-320', () => {
+    it('copia término de la persona a cabecera solo si el contrato no la tiene', async () => {
+        const seen = [];
+        const db = mockPool((sql, params) => {
+            seen.push({ sql, params });
+            return { rows: [], rowCount: 1 };
+        });
+        const n = await fillCabeceraFechaTerminoFromPersona(db, '1.234.567');
+        assert.equal(n, 1);
+        assert.match(seen[0].sql, /cc\.fecha_termino IS NULL/);
+        assert.match(seen[0].sql, /c\.fecha_termino IS NOT NULL/);
+        assert.deepEqual(seen[0].params, ['1234567']);
     });
 });
