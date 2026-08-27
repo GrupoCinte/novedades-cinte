@@ -45,6 +45,7 @@ const {
     filterExtendedForAction,
     loadPersonContractState,
     persistContratoEconomia,
+    shouldWriteEconomiaToPerson,
     stripComputedEconomia,
     stripEconomiaFromPersonPatch,
     syncPersonContractsFromFicha
@@ -619,7 +620,10 @@ function registerOnboardingRoutes(deps) {
             let patchToApply = contractAction === 'new_client'
                 ? filterExtendedForAction(patch, 'new_client')
                 : { ...patch };
-            if (economia.editingOther) {
+            if (!shouldWriteEconomiaToPerson({
+                editingOther: economia.editingOther,
+                contractAction
+            })) {
                 patchToApply = stripEconomiaFromPersonPatch(patchToApply);
             } else {
                 patchToApply.costo_empresa = economia.calc.costo_empresa;

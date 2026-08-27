@@ -34,6 +34,10 @@ const CONTRACT_PERSON_KEYS = [
     'utilidad',
     'rt_aprox',
     'honorarios',
+    'costo_licencias_teams_correo',
+    'costo_equipo_computo',
+    'auxilios_no_prestacionales',
+    'otros_ingresos',
     'empleador',
     'lider_catalogo'
 ];
@@ -962,13 +966,17 @@ async function loadContratoRowForEconomia(db, cedula, contratoId) {
             `SELECT * FROM colaborador_contratos WHERE id = $1::uuid AND cedula = $2 LIMIT 1`,
             [contratoId, ced]
         );
-        if (q.rows[0]) return q.rows[0];
+        return q.rows[0] || null;
     }
     const cab = await db.query(
         `SELECT * FROM colaborador_contratos WHERE cedula = $1 AND es_cabecera IS TRUE LIMIT 1`,
         [ced]
     );
     return cab.rows[0] || null;
+}
+
+function shouldWriteEconomiaToPerson({ editingOther, contractAction } = {}) {
+    return editingOther !== true && contractAction !== 'new_client';
 }
 
 async function persistContratoEconomia(db, {
@@ -979,6 +987,9 @@ async function persistContratoEconomia(db, {
     origen
 }) {
     const row = await loadContratoRowForEconomia(db, cedula, contratoId);
+    if (contratoId && !row) {
+        throw Object.assign(new Error('Contrato no encontrado'), { status: 404 });
+    }
     if (!row) {
         const calc = computeContratoEconomia(mergeEconomiaSource({}, patch));
         return { editingOther: false, calc, contratoId: null };
@@ -1065,6 +1076,8 @@ module.exports = {
     stripComputedEconomia,
     stripEconomiaFromPersonPatch,
     persistContratoEconomia,
+    loadContratoRowForEconomia,
+    shouldWriteEconomiaToPerson,
     filterContratosByClientes,
     contratosVigentesCountSql,
     sameCliente,
