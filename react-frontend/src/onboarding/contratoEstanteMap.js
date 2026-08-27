@@ -16,7 +16,7 @@ export const ECONOMIA_CONTRATO_KEYS = [
 function pickEconomiaFromContrato(c) {
     const out = {};
     for (const key of ECONOMIA_CONTRATO_KEYS) {
-        if (c[key] != null && c[key] !== '') out[key] = c[key];
+        if (c[key] !== undefined) out[key] = c[key] == null ? '' : c[key];
     }
     return out;
 }
@@ -37,14 +37,17 @@ function mapContratoApi(c, { esBaja = false } = {}) {
     };
 }
 
-/** Inputs de plata de la pastilla; si es cabecera o no trae valor, usa la ficha. */
+/** Inputs de plata de la pastilla. Vacío es vacío: no se rellena con la otra. */
 export function overlayContratoEconomia(form, contrato) {
     const base = form && typeof form === 'object' ? form : {};
     const useSel = Boolean(contrato && !contrato.esCabecera);
     const out = {};
     for (const key of ECONOMIA_CONTRATO_KEYS) {
-        const fromSel = useSel ? contrato[key] : undefined;
-        out[key] = fromSel != null && fromSel !== '' ? fromSel : base[key] ?? '';
+        if (useSel && Object.prototype.hasOwnProperty.call(contrato, key)) {
+            out[key] = contrato[key] == null ? '' : contrato[key];
+            continue;
+        }
+        out[key] = base[key] ?? '';
     }
     return out;
 }

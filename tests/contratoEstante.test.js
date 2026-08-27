@@ -217,6 +217,38 @@ describe('contratosFromFicha AUT-312', () => {
         assert.equal(fromOther.esquema_contrato, 'OPS');
     });
 
+    it('si borro sueldo o tarifa en la otra pastilla no reaparecen los de la cabecera (AUT-318)', async () => {
+        const { overlayContratoEconomia, contratosFromFicha } = await import(
+            '../react-frontend/src/onboarding/contratoEstanteMap.js'
+        );
+        const form = {
+            sueldo_nomina: '1.000.000',
+            tarifa_cliente: '2.000.000',
+            contratos: [
+                {
+                    id: 'c1',
+                    cliente: 'EXPERIAN',
+                    es_cabecera: true,
+                    vigente: true,
+                    sueldo_nomina: 1_000_000,
+                    tarifa_cliente: 2_000_000
+                },
+                {
+                    id: 'c2',
+                    cliente: 'DAVIVIENDA',
+                    es_cabecera: false,
+                    vigente: true,
+                    sueldo_nomina: '',
+                    tarifa_cliente: ''
+                }
+            ]
+        };
+        const other = contratosFromFicha(form).find((c) => !c.esCabecera);
+        const vista = overlayContratoEconomia(form, other);
+        assert.equal(vista.sueldo_nomina, '');
+        assert.equal(vista.tarifa_cliente, '');
+    });
+
     it('el select de cliente no pierde la pastilla si el catálogo usa otra capitalización', async () => {
         const { matchClienteOption, clienteOptionsWithCurrent } = await import(
             '../react-frontend/src/onboarding/contratoEstanteMap.js'
