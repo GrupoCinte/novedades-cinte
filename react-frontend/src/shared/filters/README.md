@@ -38,3 +38,17 @@ Este archivo es la fuente versionada del patrón (`*.md` suelto en `docs/` no se
 4. Chips: un ítem por valor; quitar uno no borra los demás.
 
 Referencia viva: Capital Humano → Personal Activo / Staff / SENA / Bajas → Filtros.
+
+## Pendiente en Capital Humano (no ahora)
+
+Miguel (cierre AUT-316): **después** se replica el mismo patrón en el resto de listados del módulo. No entra en AUT-317 ni en las HUs de ficha/contratos.
+
+Aún con la barra vieja:
+
+- Próximos a ingresar
+- En ingreso
+- Licencias
+- Extranjeros
+- Novedades Zoho
+- Cancelaciones / eliminaciones
+
