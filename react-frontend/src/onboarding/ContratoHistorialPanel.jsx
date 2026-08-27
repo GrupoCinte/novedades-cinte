@@ -24,7 +24,11 @@ function accionLabel(antes, despues) {
 
 function formatValor(campo, value) {
     if (value == null || value === '') return '—';
-    if (campo === 'tarifa_cliente' || campo === 'costo_empresa') {
+    if (campo === 'rt_aprox') {
+        const n = Number(value);
+        if (Number.isFinite(n)) return `${(n * 100).toFixed(2)} %`;
+    }
+    if (campo === 'tarifa_cliente' || campo === 'costo_empresa' || campo === 'utilidad' || campo === 'sueldo_nomina') {
         const n = Number(value);
         if (Number.isFinite(n)) {
             return new Intl.NumberFormat('es-CO', {

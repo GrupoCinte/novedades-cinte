@@ -11,6 +11,7 @@ import {
 } from '../multiCurrencyMoney.js';
 import { nativeCalendarOnlyInputProps } from '../nativeCalendarOnlyInputProps.js';
 import { useModuleTheme } from '../moduleTheme.js';
+import { computeContratoEconomia, formatRentabilidadPct } from '../onboarding/contratoCostoCalc.js';
 
 /**
  * Componente presentacional puro con el formulario completo de ficha de colaborador
@@ -30,7 +31,13 @@ import { useModuleTheme } from '../moduleTheme.js';
  *    Si no se pasa (o no encuentra la tab), se mantiene el render completo en columna.
  */
 /** Campos derivados (concat Excel); no editables si hay desglose de emergencia. */
-const COMPUTED_READONLY_KEYS = new Set(['primer_contacto_familiar', 'segundo_contacto_familiar']);
+const COMPUTED_READONLY_KEYS = new Set([
+    'primer_contacto_familiar',
+    'segundo_contacto_familiar',
+    'costo_empresa',
+    'utilidad',
+    'rt_aprox'
+]);
 
 export default function ColaboradorFichaFields({
     value,
@@ -53,6 +60,20 @@ export default function ColaboradorFichaFields({
     const set = (patch) => {
         if (typeof onChange === 'function') onChange(patch);
     };
+    const economia = useMemo(
+        () => computeContratoEconomia(coForm),
+        [
+            coForm.sueldo_nomina,
+            coForm.tarifa_cliente,
+            coForm.esquema_contrato,
+            coForm.tipo_contrato,
+            coForm.honorarios,
+            coForm.costo_licencias_teams_correo,
+            coForm.costo_equipo_computo,
+            coForm.auxilios_no_prestacionales,
+            coForm.otros_ingresos
+        ]
+    );
 
     const activeTab = useMemo(
         () => (activeTabId ? CO_TABS.find((t) => t.id === activeTabId) || null : null),
@@ -183,9 +204,29 @@ export default function ColaboradorFichaFields({
                             {sec.keys.map((key) => {
                                 const meta = getFieldMeta(key);
                                 if (!meta) return null;
-                                const val = coForm[key] ?? '';
+                                const computedVal =
+                                    key === 'costo_empresa'
+                                        ? economia.costo_empresa
+                                        : key === 'utilidad'
+                                          ? economia.utilidad
+                                          : key === 'rt_aprox'
+                                            ? economia.rt_aprox
+                                            : undefined;
+                                const val =
+                                    key === 'rt_aprox'
+                                        ? formatRentabilidadPct(computedVal)
+                                        : computedVal !== undefined
+                                          ? computedVal != null
+                                              ? formatMoneyAmountOnly(
+                                                    computedVal,
+                                                    coForm.montos_divisa?.[key] || 'COP'
+                                                )
+                                              : ''
+                                          : coForm[key] ?? '';
                                 const cellWide = meta.kind === 'textarea' ? 'sm:col-span-2' : '';
                                 const fieldDisabled = readOnly || COMPUTED_READONLY_KEYS.has(key);
+                                const computedHint =
+                                    key === 'costo_empresa' || key === 'utilidad' || key === 'rt_aprox';
                                 let control;
                                 if (meta.kind === 'bool') {
                                     control = (
@@ -209,6 +250,16 @@ export default function ColaboradorFichaFields({
                                             value={val}
                                             onChange={(e) => set({ [key]: e.target.value })}
                                             disabled={fieldDisabled}
+                                        />
+                                    );
+                                } else if (key === 'rt_aprox') {
+                                    control = (
+                                        <input
+                                            type="text"
+                                            className={`w-full ${field}`}
+                                            value={val}
+                                            readOnly
+                                            disabled
                                         />
                                     );
                                 } else if (meta.kind === 'money') {
@@ -309,6 +360,7 @@ export default function ColaboradorFichaFields({
                                     <div key={key} className={cellWide}>
                                         <label className={`block text-xs ${labelMuted} mb-1`}>
                                             {meta.label}
+                                            {computedHint ? ' (calculado)' : ''}
                                         </label>
                                         {control}
                                     </div>

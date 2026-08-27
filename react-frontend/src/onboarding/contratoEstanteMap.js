@@ -1,5 +1,46 @@
+const ECONOMIA_MONEY_KEYS = new Set([
+    'sueldo_nomina',
+    'tarifa_cliente',
+    'honorarios',
+    'costo_licencias_teams_correo',
+    'costo_equipo_computo',
+    'auxilios_no_prestacionales',
+    'otros_ingresos'
+]);
+
+function displayEconomiaValue(key, value) {
+    if (value == null || value === '') return '';
+    if (!ECONOMIA_MONEY_KEYS.has(key)) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return new Intl.NumberFormat('es-CO', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2
+        }).format(value);
+    }
+    return value;
+}
+
 function foldCliente(value) {
     return String(value || '').trim().toLocaleLowerCase('es');
+}
+
+export const ECONOMIA_CONTRATO_KEYS = [
+    'esquema_contrato',
+    'sueldo_nomina',
+    'tarifa_cliente',
+    'honorarios',
+    'costo_licencias_teams_correo',
+    'costo_equipo_computo',
+    'auxilios_no_prestacionales',
+    'otros_ingresos'
+];
+
+function pickEconomiaFromContrato(c) {
+    const out = {};
+    for (const key of ECONOMIA_CONTRATO_KEYS) {
+        if (c[key] !== undefined) out[key] = c[key] == null ? '' : c[key];
+    }
+    return out;
 }
 
 function mapContratoApi(c, { esBaja = false } = {}) {
@@ -13,8 +54,24 @@ function mapContratoApi(c, { esBaja = false } = {}) {
         fechaInicio: String(c.fechaInicio || c.fecha_inicio || '').slice(0, 10),
         fechaTermino: String(c.fechaTermino || c.fecha_termino || '').slice(0, 10),
         vigente: vigenteApi && !esBaja,
-        esCabecera: Boolean(c.esCabecera ?? c.es_cabecera)
+        esCabecera: Boolean(c.esCabecera ?? c.es_cabecera),
+        ...pickEconomiaFromContrato(c || {})
     };
+}
+
+/** Inputs de plata de la pastilla. Vacío es vacío: no se rellena con la otra. */
+export function overlayContratoEconomia(form, contrato) {
+    const base = form && typeof form === 'object' ? form : {};
+    const useSel = Boolean(contrato && !contrato.esCabecera);
+    const out = {};
+    for (const key of ECONOMIA_CONTRATO_KEYS) {
+        if (useSel && Object.prototype.hasOwnProperty.call(contrato, key)) {
+            out[key] = displayEconomiaValue(key, contrato[key]);
+            continue;
+        }
+        out[key] = displayEconomiaValue(key, base[key]);
+    }
+    return out;
 }
 
 /** Alinea el cliente de la pastilla con la opción exacta del catálogo para que el select no quede en blanco. */

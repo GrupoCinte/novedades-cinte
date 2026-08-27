@@ -3,6 +3,9 @@ const assert = require('node:assert/strict');
 const {
     decideContractAction,
     filterExtendedForAction,
+    stripEconomiaFromPersonPatch,
+    persistContratoEconomia,
+    shouldWriteEconomiaToPerson,
     filterContratosByClientes,
     sameCliente,
     isoDate,
@@ -92,6 +95,68 @@ describe('filterExtendedForAction AUT-313', () => {
     it('en extensión deja pasar el payload', () => {
         const filtered = filterExtendedForAction({ fecha_termino: '2026-12-01', eps: 'SURA' }, 'extend');
         assert.equal(filtered.fecha_termino, '2026-12-01');
+    });
+
+    it('otra pastilla no escribe plata en la cabecera (AUT-318)', () => {
+        const filtered = stripEconomiaFromPersonPatch({
+            eps: 'SURA',
+            sueldo_nomina: 3_000_000,
+            tarifa_cliente: 4_000_000,
+            costo_empresa: 1,
+            utilidad: 2,
+            rt_aprox: 0.1,
+            honorarios: '1000'
+        });
+        assert.equal(filtered.eps, 'SURA');
+        assert.equal(filtered.sueldo_nomina, undefined);
+        assert.equal(filtered.tarifa_cliente, undefined);
+        assert.equal(filtered.costo_empresa, undefined);
+        assert.equal(filtered.honorarios, undefined);
+    });
+
+    it('cliente nuevo no deja extras de OPS en la persona (AUT-318)', () => {
+        const filtered = filterExtendedForAction(
+            {
+                eps: 'SURA',
+                costo_licencias_teams_correo: 50_000,
+                costo_equipo_computo: 80_000,
+                auxilios_no_prestacionales: '20',
+                otros_ingresos: '10'
+            },
+            'new_client'
+        );
+        assert.equal(filtered.eps, 'SURA');
+        assert.equal(filtered.costo_licencias_teams_correo, undefined);
+        assert.equal(filtered.costo_equipo_computo, undefined);
+        assert.equal(filtered.auxilios_no_prestacionales, undefined);
+        assert.equal(filtered.otros_ingresos, undefined);
+    });
+});
+
+describe('economía de ficha AUT-318', () => {
+    it('cliente nuevo o pastilla ajena no escriben plata en la persona', () => {
+        assert.equal(shouldWriteEconomiaToPerson({ editingOther: true, contractAction: 'extend' }), false);
+        assert.equal(shouldWriteEconomiaToPerson({ editingOther: false, contractAction: 'new_client' }), false);
+        assert.equal(shouldWriteEconomiaToPerson({ editingOther: false, contractAction: 'extend' }), true);
+    });
+
+    it('contrato_id inválido no cae a la cabecera', async () => {
+        const db = mockPool(async (sql) => {
+            if (/SELECT \* FROM colaborador_contratos WHERE id/i.test(sql)) {
+                return { rows: [] };
+            }
+            throw new Error(`query inesperada: ${sql}`);
+        });
+        await assert.rejects(
+            () => persistContratoEconomia(db, {
+                cedula: '79406590',
+                contratoId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                patch: { sueldo_nomina: 9_999_999, tarifa_cliente: 1 }
+            }),
+            (err) => err.status === 404 && /contrato/i.test(err.message)
+        );
+        assert.equal(db.calls.some((c) => /UPDATE colaborador_contratos/i.test(c.sql)), false);
+        assert.equal(db.calls.some((c) => /es_cabecera IS TRUE/i.test(c.sql)), false);
     });
 });
 

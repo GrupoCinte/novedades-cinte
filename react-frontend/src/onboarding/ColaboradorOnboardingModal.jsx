@@ -20,7 +20,13 @@ import { getOnboardingPermissions } from './onboardingAccess.js';
 import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.jsx';
 import ContratoEstante, { contratosFromFicha } from './ContratoEstante.jsx';
 import ContratoHistorialPanel from './ContratoHistorialPanel.jsx';
-import { historialForFicha, matchClienteOption, pickLiderForCliente } from './contratoEstanteMap.js';
+import {
+    ECONOMIA_CONTRATO_KEYS,
+    historialForFicha,
+    matchClienteOption,
+    overlayContratoEconomia,
+    pickLiderForCliente
+} from './contratoEstanteMap.js';
 
 async function fetchClientes() {
     try {
@@ -96,6 +102,7 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                   };
         return {
             ...base,
+            ...overlayContratoEconomia(form, sel),
             lider_catalogo: pickLiderForCliente(form.lider_catalogo, liderOptions, { loading: liderLoading })
         };
     }, [form, contratoSeleccionado, clientes, liderOptions, liderLoading]);
@@ -239,6 +246,13 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                 : form.lider_catalogo
                   ? String(form.lider_catalogo).trim()
                   : null;
+            const contratoUuid = String(contratoSeleccionado?.id || '');
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(contratoUuid)) {
+                payload.contrato_id = contratoUuid;
+            }
+            delete payload.costo_empresa;
+            delete payload.utilidad;
+            delete payload.rt_aprox;
             if (createMode) {
                 const cedNueva = String(form.cedula || '').replace(/\D+/g, '');
                 if (!cedNueva) {
@@ -421,12 +435,18 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                                 if (sel && !sel.esCabecera && nextPatch.cliente !== undefined && !String(nextPatch.cliente || '').trim()) {
                                     delete nextPatch.cliente;
                                 }
-                                const contractKeys = ['cliente', 'tipo_contrato', 'fecha_termino', 'fecha_ingreso'];
+                                const contractKeys = [
+                                    'cliente',
+                                    'tipo_contrato',
+                                    'fecha_termino',
+                                    'fecha_ingreso',
+                                    ...ECONOMIA_CONTRATO_KEYS
+                                ];
                                 const touchesContract = Object.keys(nextPatch).some((k) => contractKeys.includes(k));
                                 if (sel && !sel.esCabecera && touchesContract && Array.isArray(form.contratos)) {
                                     const nextContratos = form.contratos.map((c) => {
                                         if (String(c.id) !== String(sel.id)) return c;
-                                        return {
+                                        const next = {
                                             ...c,
                                             cliente: nextPatch.cliente !== undefined ? nextPatch.cliente : c.cliente,
                                             tipo: nextPatch.tipo_contrato !== undefined ? nextPatch.tipo_contrato : c.tipo,
@@ -451,6 +471,10 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                                                     ? nextPatch.fecha_ingreso
                                                     : c.fecha_inicio
                                         };
+                                        for (const key of ECONOMIA_CONTRATO_KEYS) {
+                                            if (nextPatch[key] !== undefined) next[key] = nextPatch[key];
+                                        }
+                                        return next;
                                     });
                                     const rest = { ...nextPatch };
                                     for (const k of contractKeys) delete rest[k];

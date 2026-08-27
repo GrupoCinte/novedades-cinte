@@ -10,7 +10,10 @@ const HISTORIAL_FIELDS = [
     { key: 'fecha_termino', label: 'Fecha de término' },
     { key: 'esquema_contrato', label: 'Esquema' },
     { key: 'tarifa_cliente', label: 'Tarifa' },
+    { key: 'sueldo_nomina', label: 'Sueldo nómina' },
     { key: 'costo_empresa', label: 'Costo empresa' },
+    { key: 'utilidad', label: 'Utilidad' },
+    { key: 'rt_aprox', label: 'Rentabilidad' },
     { key: 'vigente', label: 'Estado del contrato' }
 ];
 
@@ -141,7 +144,10 @@ function snapshotFromContratoRow(row) {
         fecha_termino: row.fecha_termino != null ? row.fecha_termino : row.fechaTermino,
         esquema_contrato: row.esquema_contrato,
         tarifa_cliente: row.tarifa_cliente,
+        sueldo_nomina: row.sueldo_nomina,
         costo_empresa: row.costo_empresa,
+        utilidad: row.utilidad,
+        rt_aprox: row.rt_aprox,
         vigente: row.vigente
     };
 }

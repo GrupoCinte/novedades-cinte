@@ -176,6 +176,79 @@ describe('contratosFromFicha AUT-312', () => {
         );
     });
 
+    it('la pastilla no cabecera pisa sueldo y tarifa sin mezclar la cabecera (AUT-318)', async () => {
+        const { overlayContratoEconomia, contratosFromFicha } = await import(
+            '../react-frontend/src/onboarding/contratoEstanteMap.js'
+        );
+        const form = {
+            cliente: 'EXPERIAN',
+            sueldo_nomina: '1.000.000',
+            tarifa_cliente: '2.000.000',
+            esquema_contrato: 'Nómina',
+            contratos: [
+                {
+                    id: 'c1',
+                    cliente: 'EXPERIAN',
+                    es_cabecera: true,
+                    vigente: true,
+                    sueldo_nomina: 1_000_000,
+                    tarifa_cliente: 2_000_000
+                },
+                {
+                    id: 'c2',
+                    cliente: 'DAVIVIENDA',
+                    es_cabecera: false,
+                    vigente: true,
+                    sueldo_nomina: 3_000_000,
+                    tarifa_cliente: 4_000_000,
+                    esquema_contrato: 'OPS'
+                }
+            ]
+        };
+        const list = contratosFromFicha(form);
+        const cab = list.find((c) => c.esCabecera);
+        const other = list.find((c) => !c.esCabecera);
+        const fromCab = overlayContratoEconomia(form, cab);
+        const fromOther = overlayContratoEconomia(form, other);
+        assert.equal(fromCab.sueldo_nomina, '1.000.000');
+        assert.equal(fromCab.tarifa_cliente, '2.000.000');
+        assert.equal(fromOther.sueldo_nomina, '3.000.000');
+        assert.equal(fromOther.tarifa_cliente, '4.000.000');
+        assert.equal(fromOther.esquema_contrato, 'OPS');
+    });
+
+    it('si borro sueldo o tarifa en la otra pastilla no reaparecen los de la cabecera (AUT-318)', async () => {
+        const { overlayContratoEconomia, contratosFromFicha } = await import(
+            '../react-frontend/src/onboarding/contratoEstanteMap.js'
+        );
+        const form = {
+            sueldo_nomina: '1.000.000',
+            tarifa_cliente: '2.000.000',
+            contratos: [
+                {
+                    id: 'c1',
+                    cliente: 'EXPERIAN',
+                    es_cabecera: true,
+                    vigente: true,
+                    sueldo_nomina: 1_000_000,
+                    tarifa_cliente: 2_000_000
+                },
+                {
+                    id: 'c2',
+                    cliente: 'DAVIVIENDA',
+                    es_cabecera: false,
+                    vigente: true,
+                    sueldo_nomina: '',
+                    tarifa_cliente: ''
+                }
+            ]
+        };
+        const other = contratosFromFicha(form).find((c) => !c.esCabecera);
+        const vista = overlayContratoEconomia(form, other);
+        assert.equal(vista.sueldo_nomina, '');
+        assert.equal(vista.tarifa_cliente, '');
+    });
+
     it('el select de cliente no pierde la pastilla si el catálogo usa otra capitalización', async () => {
         const { matchClienteOption, clienteOptionsWithCurrent } = await import(
             '../react-frontend/src/onboarding/contratoEstanteMap.js'
