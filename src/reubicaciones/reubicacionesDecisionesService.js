@@ -22,7 +22,7 @@ async function registrarDecision({ pipelineId, decision, justificacion, decidido
 
         // Verificar existencia del caso y bloquearlo para evitar concurrencia en la misma decisión
         const caseExists = await client.query(
-            'SELECT id, cedula, consultor_id FROM reubicaciones_pipeline WHERE id = $1 FOR UPDATE',
+            'SELECT id, cedula, cedula AS consultor_id FROM reubicaciones_pipeline WHERE id = $1 FOR UPDATE',
             [pipelineId]
         );
         if (caseExists.rows.length === 0) {
@@ -91,17 +91,19 @@ async function registrarDecision({ pipelineId, decision, justificacion, decidido
                 descripcion,
                 before_data,
                 after_data,
+                origen,
                 fecha
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
             [
                 pipelineId,
                 consultorId,
                 'decision_aptitud',
                 decididoPor.nombre || 'Usuario',
                 decididoPor.role,
-                `Decisión: ${decision}`,
+                `Decisión registrada: ${decision}`,
                 decisionAnterior ? JSON.stringify({ decision: decisionAnterior }) : null,
-                JSON.stringify({ decision, justificacion: justificacion.trim() })
+                JSON.stringify({ decision, justificacion: justificacion || null }),
+                'backend'
             ]
         );
 

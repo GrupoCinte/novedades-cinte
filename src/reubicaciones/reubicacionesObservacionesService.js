@@ -22,7 +22,7 @@ async function registrarObservacion({ pipelineId, observacion, expectedVersion, 
 
         // Verificar si el caso existe y bloquearlo
         const caseExists = await client.query(
-            'SELECT id, consultor_id FROM reubicaciones_pipeline WHERE id = $1 FOR UPDATE',
+            'SELECT id, cedula AS consultor_id FROM reubicaciones_pipeline WHERE id = $1 FOR UPDATE',
             [pipelineId]
         );
         if (caseExists.rows.length === 0) {
@@ -103,8 +103,9 @@ async function registrarObservacion({ pipelineId, observacion, expectedVersion, 
                 descripcion,
                 before_data,
                 after_data,
+                origen,
                 fecha
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())`,
             [
                 pipelineId,
                 consultorId,
@@ -113,7 +114,8 @@ async function registrarObservacion({ pipelineId, observacion, expectedVersion, 
                 actor.role,
                 `Registro de observación (v${nextVersion})`,
                 observacionAnterior ? JSON.stringify({ observacion: observacionAnterior }) : null,
-                JSON.stringify({ observacion: observacion.trim() })
+                JSON.stringify({ observacion: observacion.trim() }),
+                'backend'
             ]
         );
 
