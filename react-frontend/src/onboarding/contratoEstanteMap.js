@@ -82,6 +82,12 @@ export function contratosFromFicha(form, { esBaja = false } = {}) {
     ];
 }
 
+export function historialForContrato(form, contratoId) {
+    const list = Array.isArray(form?.contratos) ? form.contratos : [];
+    const hit = list.find((c) => String(c.id) === String(contratoId));
+    return Array.isArray(hit?.historial) ? hit.historial : [];
+}
+
 function toPositiveInt(value) {
     const n = Number(value);
     if (!Number.isFinite(n)) return null;

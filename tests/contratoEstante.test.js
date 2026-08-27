@@ -91,6 +91,19 @@ describe('contratosFromFicha AUT-312', () => {
         assert.equal(pickLiderForCliente('Diego Castro', []), '');
     });
 
+    it('lee el historial del contrato seleccionado (AUT-317)', async () => {
+        const { historialForContrato } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
+        const form = {
+            contratos: [
+                { id: 'c1', historial: [{ id: 'h1', campo: 'cliente' }] },
+                { id: 'c2', historial: [] }
+            ]
+        };
+        assert.equal(historialForContrato(form, 'c1').length, 1);
+        assert.equal(historialForContrato(form, 'c2').length, 0);
+        assert.equal(historialForContrato({}, 'c1').length, 0);
+    });
+
     it('el select de cliente no pierde la pastilla si el catálogo usa otra capitalización', async () => {
         const { matchClienteOption, clienteOptionsWithCurrent } = await import(
             '../react-frontend/src/onboarding/contratoEstanteMap.js'

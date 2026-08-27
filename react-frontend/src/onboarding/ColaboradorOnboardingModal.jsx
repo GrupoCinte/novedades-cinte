@@ -13,7 +13,8 @@ import { onboardingApi } from './api.js';
 import { getOnboardingPermissions } from './onboardingAccess.js';
 import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.jsx';
 import ContratoEstante, { contratosFromFicha } from './ContratoEstante.jsx';
-import { matchClienteOption, pickLiderForCliente } from './contratoEstanteMap.js';
+import ContratoHistorialPanel from './ContratoHistorialPanel.jsx';
+import { historialForContrato, matchClienteOption, pickLiderForCliente } from './contratoEstanteMap.js';
 
 async function fetchClientes() {
     try {
@@ -442,6 +443,15 @@ export default function ColaboradorOnboardingModal({ auth, cedula, createMode = 
                             hideIdentityFields={!createMode}
                         />
                     )}
+                    {!loading && !error && !createMode && contratoSeleccionado ? (
+                        <div className="mt-6">
+                            <ContratoHistorialPanel
+                                items={historialForContrato(form, contratoSeleccionado.id)}
+                                isLight={isLight}
+                                contratoLabel={contratoSeleccionado.cliente}
+                            />
+                        </div>
+                    ) : null}
                     {!loading && !error && !createMode && zohoHistorial.length > 0 ? (
                         <div className={`mt-6 rounded-xl border p-4 ${isLight ? 'border-slate-200 bg-slate-50' : 'border-white/10 bg-white/[0.02]'}`}>
                             <p className={`mb-2 text-xs font-bold uppercase tracking-widest ${labelMuted}`}>

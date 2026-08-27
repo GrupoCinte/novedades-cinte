@@ -76,7 +76,9 @@ async function applyRegistroBajaColaborador(pool, cedulaRaw, opts = {}) {
         contratoId: opts.contrato_id || opts.contratoId,
         fechaTermino,
         motivo,
-        termino: opts.termino || null
+        termino: opts.termino || null,
+        actor: opts.actor || null,
+        origen: opts.origen || 'baja'
     });
     const person = closed.person || {};
     return {
