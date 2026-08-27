@@ -4,7 +4,8 @@ import {
     asFilterList,
     serializeFilterParam,
     removeChipFromFilters,
-    buildPersonalFilterChips
+    buildPersonalFilterChips,
+    summarizeMultiSelect
 } from '../react-frontend/src/onboarding/chListFilters.js';
 
 describe('chListFilters AUT-316', () => {
@@ -36,5 +37,15 @@ describe('chListFilters AUT-316', () => {
     it('asFilterList tolera string suelto', () => {
         assert.deepEqual(asFilterList('OPS'), ['OPS']);
         assert.deepEqual(asFilterList(null), []);
+    });
+
+    it('el disparador resume Todos, un valor o primero +N', () => {
+        const items = [
+            { value: 'Falabella', label: 'Falabella' },
+            { value: 'Bancolombia', label: 'Bancolombia' }
+        ];
+        assert.equal(summarizeMultiSelect([], items), 'Todos');
+        assert.equal(summarizeMultiSelect(['Falabella'], items), 'Falabella');
+        assert.equal(summarizeMultiSelect(['Falabella', 'Bancolombia'], items), 'Falabella +1');
     });
 });

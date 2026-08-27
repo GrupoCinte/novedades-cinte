@@ -30,6 +30,18 @@ export function serializeFilterParam(value) {
     return list.join(',');
 }
 
+/** Texto del disparador del desplegable: Todos / un valor / primero +N. */
+export function summarizeMultiSelect(value, items = [], emptyLabel = 'Todos') {
+    const selected = asFilterList(value);
+    if (!selected.length) return emptyLabel;
+    const labelOf = (v) => {
+        const hit = items.find((i) => String(i?.value ?? i) === v);
+        return String(hit?.label ?? hit?.value ?? v);
+    };
+    if (selected.length === 1) return labelOf(selected[0]);
+    return `${labelOf(selected[0])} +${selected.length - 1}`;
+}
+
 export function removeChipFromFilters(filters, chip) {
     const next = { ...(filters || {}) };
     if (Array.isArray(chip?.keys)) {
