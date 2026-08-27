@@ -2,8 +2,8 @@
  * AUT-319: digest diario de contratos por vencer (T30 → T15 → T5).
  * Independiente de seguimiento-reminders y de email-transactions.
  *
- * Env: API_BASE_URL, CONTRATOS_VENCIMIENTO_TOKEN | INTERNAL_TOKEN,
- *      SES_FROM_EMAIL, AWS_REGION, AS_OF_DATE (opcional YYYY-MM-DD)
+ * Env: API_BASE_URL, CONTRATOS_VENCIMIENTO_TOKEN,
+ *      SES_FROM_EMAIL, AWS_REGION, AS_OF_DATE (solo fuera de production)
  */
 'use strict';
 
@@ -71,14 +71,14 @@ async function processKind({ base, token, ses, from, kind, asOfDate }) {
 
 exports.handler = async () => {
     const base = String(process.env.API_BASE_URL || '').replace(/\/$/, '');
-    const token = String(
-        process.env.CONTRATOS_VENCIMIENTO_TOKEN || process.env.INTERNAL_TOKEN || ''
-    ).trim();
+    const token = String(process.env.CONTRATOS_VENCIMIENTO_TOKEN || '').trim();
     const from = String(process.env.SES_FROM_EMAIL || '').trim();
-    if (!base || !token) throw new Error('API_BASE_URL y token interno requeridos');
+    if (!base || !token) throw new Error('API_BASE_URL y CONTRATOS_VENCIMIENTO_TOKEN requeridos');
     if (!from) throw new Error('SES_FROM_EMAIL requerido');
 
-    const asOfDate = String(process.env.AS_OF_DATE || todayBogota()).slice(0, 10);
+    const asOfOverride =
+        process.env.NODE_ENV !== 'production' ? String(process.env.AS_OF_DATE || '').slice(0, 10) : '';
+    const asOfDate = /^\d{4}-\d{2}-\d{2}$/.test(asOfOverride) ? asOfOverride : todayBogota();
     const ses = new SESClient({ region: process.env.AWS_REGION || 'us-east-1' });
     const results = [];
     for (const kind of KINDS) {

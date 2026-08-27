@@ -7,7 +7,7 @@ const {
     daysUntil,
     isoDay,
     parseKind,
-    todayBogota,
+    resolveAsOfDate,
     ventanaRango
 } = require('./contratoVencimiento');
 
@@ -67,7 +67,7 @@ function createContratoVencimientoService({ pool, listEmailsInGroups } = {}) {
         scopeSql,
         scopeParams = []
     } = {}) {
-        const asOf = isoDay(asOfDate) || todayBogota();
+        const asOf = resolveAsOfDate(asOfDate);
         const rango = ventanaRango(kind);
         const where = [
             'cc.vigente IS TRUE',
@@ -154,7 +154,7 @@ function createContratoVencimientoService({ pool, listEmailsInGroups } = {}) {
             err.statusCode = 400;
             throw err;
         }
-        const asOf = isoDay(asOfDate) || todayBogota();
+        const asOf = resolveAsOfDate(asOfDate);
         const dias = BANDA_DIAS[k];
         const flagCol = FLAG_COL[k];
         const { rows } = await pool.query(
@@ -217,7 +217,7 @@ function createContratoVencimientoService({ pool, listEmailsInGroups } = {}) {
             .map((id) => String(id || '').trim())
             .filter((id) => /^[0-9a-f-]{36}$/i.test(id));
         if (ids.length === 0) return { updated: 0 };
-        const asOf = isoDay(asOfDate) || todayBogota();
+        const asOf = resolveAsOfDate(asOfDate);
         const flagCol = FLAG_COL[k];
         const dias = BANDA_DIAS[k];
         const q = await pool.query(

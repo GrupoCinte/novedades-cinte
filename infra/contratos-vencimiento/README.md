@@ -19,9 +19,9 @@ Pipeline diario desacoplado del portal Node y de `email-transactions` / `seguimi
 
 ## Variables
 
-- `API_BASE_URL` + `CONTRATOS_VENCIMIENTO_TOKEN` (o `INTERNAL_TOKEN`)
+- `API_BASE_URL` + `CONTRATOS_VENCIMIENTO_TOKEN` (propio; no reutilizar el de actas)
 - `SES_FROM_EMAIL`
-- `AS_OF_DATE` opcional (pruebas)
+- `AS_OF_DATE` opcional, solo fuera de production
 
 El portal no registra cron. La pastilla y la lista **Por vencer** viven en Capital Humano (ventana 30/15/5).
 

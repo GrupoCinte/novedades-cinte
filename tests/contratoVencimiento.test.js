@@ -4,7 +4,11 @@ const {
     bandaExacta,
     bandaVentana,
     daysUntil,
+    gpScopePorVencer,
+    resolveAsOfDate,
     tipoAplicaAlerta,
+    todayBogota,
+    tokenEquals,
     ventanaRango
 } = require('../src/onboarding/contratoVencimiento');
 
@@ -52,5 +56,33 @@ describe('contratoVencimiento AUT-319', () => {
         assert.deepEqual(ventanaRango('T15'), { min: 6, max: 15 });
         assert.deepEqual(ventanaRango('T30'), { min: 16, max: 30 });
         assert.deepEqual(ventanaRango(null), { min: 0, max: 30 });
+    });
+
+    it('GP en Por vencer solo ve contratos de sus clientes', () => {
+        const scoped = gpScopePorVencer({
+            where: '(c.gp_user_id = $G_USER OR LOWER(TRIM(c.cliente)) = ANY($G_CLIENTES))',
+            clientes: ['EXPERIAN']
+        });
+        assert.equal(scoped.sql.includes('gp_user_id'), false);
+        assert.equal(scoped.sql.includes('cc.cliente'), true);
+        assert.deepEqual(scoped.params[0], ['experian']);
+        assert.deepEqual(gpScopePorVencer({ where: 'FALSE' }), { sql: 'FALSE', params: [] });
+    });
+
+    it('token interno compara en tiempo constante y no acepta vacío', () => {
+        assert.equal(tokenEquals('abc', 'abc'), true);
+        assert.equal(tokenEquals('abc', 'abd'), false);
+        assert.equal(tokenEquals('abc', 'ab'), false);
+        assert.equal(tokenEquals('', 'abc'), false);
+    });
+
+    it('asOfDate forzado no aplica en production', () => {
+        const prev = process.env.NODE_ENV;
+        process.env.NODE_ENV = 'production';
+        assert.equal(resolveAsOfDate('2026-01-01'), todayBogota());
+        process.env.NODE_ENV = prev;
+        if (process.env.NODE_ENV !== 'production') {
+            assert.equal(resolveAsOfDate('2026-01-01'), '2026-01-01');
+        }
     });
 });

@@ -3,7 +3,6 @@
  * Uso: node infra/contratos-vencimiento/deploy.js
  * Env: AWS_*, API_BASE_URL, CONTRATOS_VENCIMIENTO_TOKEN, SES_FROM_EMAIL
  */
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -81,7 +80,7 @@ async function main() {
     loadEnv();
     const region = process.env.AWS_REGION || REGION;
     const apiBase = String(process.env.API_BASE_URL || '').replace(/\/$/, '');
-    const token = String(process.env.CONTRATOS_VENCIMIENTO_TOKEN || process.env.INTERNAL_TOKEN || '').trim();
+    const token = String(process.env.CONTRATOS_VENCIMIENTO_TOKEN || '').trim();
     const from = String(process.env.SES_FROM_EMAIL || '').trim();
     if (!apiBase) throw new Error('API_BASE_URL requerido');
     if (!token) throw new Error('CONTRATOS_VENCIMIENTO_TOKEN requerido');
@@ -133,7 +132,13 @@ async function main() {
             PolicyName: `${PREFIX}-ses`,
             PolicyDocument: JSON.stringify({
                 Version: '2012-10-17',
-                Statement: [{ Effect: 'Allow', Action: ['ses:SendEmail', 'ses:SendRawEmail'], Resource: '*' }]
+                Statement: [
+                    {
+                        Effect: 'Allow',
+                        Action: ['ses:SendEmail', 'ses:SendRawEmail'],
+                        Resource: [`arn:aws:ses:${region}:${accountId}:identity/${from}`]
+                    }
+                ]
             })
         })
     );

@@ -56,6 +56,7 @@ const {
     createContratoVencimientoService,
     isAllowedPorVencerSort
 } = require('./contratoVencimientoService');
+const { gpScopePorVencer, tokenEquals } = require('./contratoVencimiento');
 
 /**
  * Audit helper alineado con el módulo Directorio. No rompe si la tabla no existe.
@@ -537,9 +538,8 @@ function registerOnboardingRoutes(deps) {
         }
         try {
             const scope = await buildScopeFilter(pool, req.user);
-            const scopeWhere = String(scope.where || 'TRUE').replace('c.cliente', 'cc.cliente');
-            const scopeApplied = applyScopePlaceholders(scopeWhere, 4, { ...scope, where: scopeWhere });
-            if (scopeApplied.sql === 'FALSE') {
+            const gpScope = gpScopePorVencer(scope);
+            if (gpScope.sql === 'FALSE') {
                 return res.json({ ok: true, items: [], total: 0, limit: parsed.data.limit || 50, offset: parsed.data.offset || 0 });
             }
             const result = await vencimiento.listPorVencer({
@@ -550,22 +550,20 @@ function registerOnboardingRoutes(deps) {
                 dir: parsed.data.dir,
                 limit: parsed.data.limit || 50,
                 offset: parsed.data.offset || 0,
-                scopeSql: scopeApplied.sql,
-                scopeParams: scope.params
+                scopeSql: gpScope.sql,
+                scopeParams: gpScope.params
             });
             return res.json({ ok: true, ...result });
         } catch (e) {
             console.error('[Onboarding por-vencer]', e.message);
-            return res.status(500).json({ ok: false, error: e.message });
+            return res.status(500).json({ ok: false, error: 'Error interno' });
         }
     });
 
     function allowInternalVencimiento(req, res, next) {
         const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-        const expected = String(
-            process.env.CONTRATOS_VENCIMIENTO_TOKEN || process.env.INTERNAL_TOKEN || ''
-        ).trim();
-        if (expected && token && token === expected) return next();
+        const expected = String(process.env.CONTRATOS_VENCIMIENTO_TOKEN || '').trim();
+        if (tokenEquals(token, expected)) return next();
         return verificarToken(req, res, () => allowRoles(['super_admin', 'admin_ch'])(req, res, next));
     }
 
@@ -580,7 +578,10 @@ function registerOnboardingRoutes(deps) {
             res.json({ ok: true, items, recipients });
         } catch (error) {
             const status = Number(error.statusCode) || 500;
-            res.status(status).json({ ok: false, error: error.message });
+            res.status(status).json({
+                ok: false,
+                error: status === 400 ? error.message : 'Error interno'
+            });
         }
     });
 
@@ -594,7 +595,10 @@ function registerOnboardingRoutes(deps) {
             res.json({ ok: true, ...result });
         } catch (error) {
             const status = Number(error.statusCode) || 500;
-            res.status(status).json({ ok: false, error: error.message });
+            res.status(status).json({
+                ok: false,
+                error: status === 400 ? error.message : 'Error interno'
+            });
         }
     });
 
