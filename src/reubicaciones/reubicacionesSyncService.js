@@ -167,7 +167,7 @@ async function sincronizarConPipeline({
                     causal || null, 
                     estado, 
                     motivo, 
-                    tipo_novedad.toUpperCase(),
+                    (tipo_novedad || '').toUpperCase(),
                     external_id
                 ]
             );
@@ -199,7 +199,7 @@ async function sincronizarConPipeline({
                     causal || null, 
                     estado, 
                     motivo, 
-                    tipo_novedad.toUpperCase(),
+                    (tipo_novedad || '').toUpperCase(),
                     external_id,
                     pipeline_id
                 ]
@@ -234,7 +234,7 @@ async function sincronizarConPipeline({
             }
         }
 
-        return { ok: true, pipeline_id, cedula: ced, estado, motivo, es_extension: esCasoExtension, tipo_ficha: tipo_novedad.toUpperCase() };
+        return { ok: true, pipeline_id, cedula: ced, estado, motivo, es_extension: esCasoExtension, tipo_ficha: (tipo_novedad || '').toUpperCase() };
     } catch (e) {
         await client.query('ROLLBACK');
         throw e;

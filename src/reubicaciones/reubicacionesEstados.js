@@ -24,6 +24,11 @@ function calcularEstado({ fecha_fin, novedad = null, fecha_actual = new Date() }
     const fin = new Date(fecha_fin);
     const hoy = new Date(fecha_actual);
     
+    // Si la fecha es inválida, no se puede calcular pendiente o proceso, dejamos En Proceso por defecto
+    if (isNaN(fin.getTime()) || isNaN(hoy.getTime())) {
+        return { estado: ESTADOS.EN_PROCESO, motivo: null };
+    }
+    
     // Normalizar horas para comparar solo fechas
     fin.setHours(0, 0, 0, 0);
     hoy.setHours(0, 0, 0, 0);
