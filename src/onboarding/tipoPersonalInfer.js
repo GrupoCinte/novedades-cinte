@@ -46,18 +46,24 @@ function isSenaSignal(payload = {}) {
 }
 
 /**
- * Tipo de personal al crear/promover.
- * Explícito gana. Si no hay tipo: SENA por señales, Staff si el cliente es CINTE, si no consultor.
+ * Tipo de personal al crear/promover o al corregir cabecera.
+ * SENA se queda SENA. Cliente cabecera CINTE es Staff y gana sobre consultor ya guardado.
  */
 function inferTipoPersonal(payload = {}) {
     const explicit = isExplicitTipo(payload.tipo_personal);
-    if (explicit) return explicit;
-    if (isSenaSignal(payload)) return 'sena';
+    if (explicit === 'sena' || isSenaSignal(payload)) return 'sena';
     if (isClienteCinte(payload.cliente)) return 'staff';
+    if (explicit) return explicit;
     const rawTipo = foldForMatch(payload.tipo_personal);
     if (rawTipo.includes('staff')) return 'staff';
     return 'consultor';
 }
+
+/** Predicado SQL alineado a `isClienteCinte` (cabecera, no “algo Cinte” de un tercero). */
+const CLIENTE_CINTE_SQL = `(
+    lower(btrim(cliente)) IN ('cinte', 'grupo cinte', 'grupocinte')
+    OR lower(btrim(cliente)) ~* '^cinte([[:space:]]+(sas|s\\\\.?a\\\\.?s\\\\.?|sa|ltda|s\\\\.a\\\\.))?$'
+)`;
 
 function extractCedulaFromRecord(data) {
     if (!data || typeof data !== 'object') return '';
@@ -75,5 +81,6 @@ module.exports = {
     isClienteCinte,
     isSenaSignal,
     extractCedulaFromRecord,
-    digitsOnly
+    digitsOnly,
+    CLIENTE_CINTE_SQL
 };

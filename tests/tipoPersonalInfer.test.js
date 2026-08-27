@@ -7,10 +7,10 @@ const {
 } = require('../src/onboarding/tipoPersonalInfer');
 
 describe('inferTipoPersonal', () => {
-    it('respeta tipo explícito', () => {
-        assert.equal(inferTipoPersonal({ tipo_personal: 'consultor', cliente: 'CINTE' }), 'consultor');
+    it('CINTE gana sobre consultor ya guardado; SENA se queda', () => {
+        assert.equal(inferTipoPersonal({ tipo_personal: 'consultor', cliente: 'CINTE' }), 'staff');
         assert.equal(inferTipoPersonal({ tipo_personal: 'staff', cliente: 'PORVENIR' }), 'staff');
-        assert.equal(inferTipoPersonal({ tipo_personal: 'sena' }), 'sena');
+        assert.equal(inferTipoPersonal({ tipo_personal: 'sena', cliente: 'CINTE' }), 'sena');
     });
 
     it('Staff CINTE va a staff si no hay tipo', () => {

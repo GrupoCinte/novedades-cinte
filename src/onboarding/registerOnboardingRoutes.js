@@ -710,9 +710,29 @@ function registerOnboardingRoutes(deps) {
             if (!String(patchToApply.cliente || '').trim()) {
                 delete patchToApply.cliente;
             }
+            const tipoTrasCinte = inferTipoPersonal({
+                tipo_personal: patchToApply.tipo_personal || existed.tipo_personal,
+                cliente: patchToApply.cliente || existed.cliente,
+                tipo_contrato: patchToApply.tipo_contrato || existed.tipo_contrato,
+                puesto: patchToApply.puesto || existed.puesto,
+                subtipo_sena: patchToApply.subtipo_sena || existed.subtipo_sena
+            });
+            if (tipoTrasCinte && tipoTrasCinte !== existed.tipo_personal) {
+                await pool.query(
+                    `UPDATE colaboradores
+                     SET tipo_personal = $2, updated_at = NOW()
+                     WHERE cedula = $1 AND tipo_personal IS DISTINCT FROM $2`,
+                    [cedula, tipoTrasCinte]
+                );
+            }
             const updated = await updateColaboradorByCedula(cedula, patchToApply);
             if (!updated) {
                 return res.status(404).json({ ok: false, error: 'colaborador no encontrado' });
+            }
+            if (tipoTrasCinte) updated.tipo_personal = tipoTrasCinte;
+            const onlyKeys = Object.keys(patchToApply);
+            if (tipoTrasCinte && tipoTrasCinte !== existed.tipo_personal) {
+                onlyKeys.push('tipo_personal');
             }
             await recordFichaDiff(pool, {
                 cedula,
@@ -720,7 +740,7 @@ function registerOnboardingRoutes(deps) {
                 after: updated,
                 actor,
                 origen: 'ficha_patch',
-                onlyKeys: Object.keys(patchToApply)
+                onlyKeys
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),
