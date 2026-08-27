@@ -7,6 +7,13 @@ const {
 } = require('../src/onboarding/contratoCostoCalc');
 
 describe('contratoCostoCalc AUT-318', () => {
+    it('parsea 11.000.000 como once millones, no como 11', () => {
+        const { parseMoney } = require('../src/onboarding/contratoCostoCalc');
+        assert.equal(parseMoney('11.000.000'), 11_000_000);
+        assert.equal(parseMoney('11000000'), 11_000_000);
+        assert.equal(parseMoney('20.000.000'), 20_000_000);
+    });
+
     it('nómina: costo es sueldo ×1.3936, no solo el 39.36 %', () => {
         assert.equal(costoEmpresaNomina(1_000_000), 1_393_600);
         assert.equal(costoEmpresaNomina(1_000_000), 1_000_000 * FACTOR_NOMINA);

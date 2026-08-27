@@ -10,6 +10,9 @@ export function parseMoney(value) {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
     const cleaned = String(value).trim().replace(/[$\s]/g, '');
     if (!cleaned) return 0;
+    if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(cleaned)) {
+        return Number(cleaned.replace(/\./g, '').replace(',', '.')) || 0;
+    }
     if (cleaned.includes(',') && cleaned.includes('.')) {
         if (cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')) {
             return Number(cleaned.replace(/\./g, '').replace(',', '.')) || 0;

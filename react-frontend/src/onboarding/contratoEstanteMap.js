@@ -1,3 +1,25 @@
+const ECONOMIA_MONEY_KEYS = new Set([
+    'sueldo_nomina',
+    'tarifa_cliente',
+    'honorarios',
+    'costo_licencias_teams_correo',
+    'costo_equipo_computo',
+    'auxilios_no_prestacionales',
+    'otros_ingresos'
+]);
+
+function displayEconomiaValue(key, value) {
+    if (value == null || value === '') return '';
+    if (!ECONOMIA_MONEY_KEYS.has(key)) return value;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return new Intl.NumberFormat('es-CO', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2
+        }).format(value);
+    }
+    return value;
+}
+
 function foldCliente(value) {
     return String(value || '').trim().toLocaleLowerCase('es');
 }
@@ -44,10 +66,10 @@ export function overlayContratoEconomia(form, contrato) {
     const out = {};
     for (const key of ECONOMIA_CONTRATO_KEYS) {
         if (useSel && Object.prototype.hasOwnProperty.call(contrato, key)) {
-            out[key] = contrato[key] == null ? '' : contrato[key];
+            out[key] = displayEconomiaValue(key, contrato[key]);
             continue;
         }
-        out[key] = base[key] ?? '';
+        out[key] = displayEconomiaValue(key, base[key]);
     }
     return out;
 }

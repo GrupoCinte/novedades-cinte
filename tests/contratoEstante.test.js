@@ -212,8 +212,8 @@ describe('contratosFromFicha AUT-312', () => {
         const fromOther = overlayContratoEconomia(form, other);
         assert.equal(fromCab.sueldo_nomina, '1.000.000');
         assert.equal(fromCab.tarifa_cliente, '2.000.000');
-        assert.equal(fromOther.sueldo_nomina, 3_000_000);
-        assert.equal(fromOther.tarifa_cliente, 4_000_000);
+        assert.equal(fromOther.sueldo_nomina, '3.000.000');
+        assert.equal(fromOther.tarifa_cliente, '4.000.000');
         assert.equal(fromOther.esquema_contrato, 'OPS');
     });
 

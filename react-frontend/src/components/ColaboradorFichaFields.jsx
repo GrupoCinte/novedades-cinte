@@ -60,7 +60,20 @@ export default function ColaboradorFichaFields({
     const set = (patch) => {
         if (typeof onChange === 'function') onChange(patch);
     };
-    const economia = useMemo(() => computeContratoEconomia(coForm), [coForm]);
+    const economia = useMemo(
+        () => computeContratoEconomia(coForm),
+        [
+            coForm.sueldo_nomina,
+            coForm.tarifa_cliente,
+            coForm.esquema_contrato,
+            coForm.tipo_contrato,
+            coForm.honorarios,
+            coForm.costo_licencias_teams_correo,
+            coForm.costo_equipo_computo,
+            coForm.auxilios_no_prestacionales,
+            coForm.otros_ingresos
+        ]
+    );
 
     const activeTab = useMemo(
         () => (activeTabId ? CO_TABS.find((t) => t.id === activeTabId) || null : null),
