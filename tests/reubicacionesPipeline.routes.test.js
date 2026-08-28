@@ -128,15 +128,19 @@ function buildApp(role, pool) {
             cantidadHoras: 8,
             label: '22:00–06:00 (8 h)'
         }),
+        listAssignedClientesForGpUserId: async () => [],
+        resolveGpInternalUserIdForScope: async () => 'mock-gp-id',
         upsertMallaNocturnoConfig: async () => ({})
     });
     return app;
 }
 
-test('GET /api/directorio/reubicaciones-pipeline 403 para rol gp', async () => {
+test('GET /api/directorio/reubicaciones-pipeline 200 para rol gp (sin alcance)', async () => {
     const app = buildApp('gp', buildPoolListNoSearch());
     const res = await request(app).get('/api/directorio/reubicaciones-pipeline');
-    assert.equal(res.status, 403);
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.equal(res.body.items.length, 0);
 });
 
 test('GET /api/directorio/reubicaciones-pipeline 200 super_admin con contrato', async () => {

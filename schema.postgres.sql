@@ -540,3 +540,27 @@ CREATE TABLE IF NOT EXISTS seguimiento_historial (
 );
 
 CREATE INDEX IF NOT EXISTS idx_seguimiento_historial_acta ON seguimiento_historial(acta_id);
+
+-- ========= Reubicaciones =========
+CREATE TABLE IF NOT EXISTS reubicaciones_pipeline (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cedula VARCHAR(20) NOT NULL UNIQUE,
+    fecha_fin DATE NOT NULL,
+    cliente_destino TEXT,
+    causal TEXT,
+    estado TEXT,
+    tipo_ficha TEXT,
+    motivo_novedad TEXT,
+    ultimo_evento_id TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS reubicaciones_source_events (
+    source_event_id TEXT PRIMARY KEY,
+    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) ON DELETE CASCADE,
+    tipo_evento TEXT NOT NULL,
+    fecha_anterior DATE NULL,
+    fecha_nueva DATE NOT NULL,
+    processed_at TIMESTAMPTZ DEFAULT NOW()
+);

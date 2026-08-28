@@ -10,6 +10,7 @@ import {
 } from './admin/directorioFilters.js';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
+import { canEditReubicaciones } from './reubicacionesAccess.js';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -135,9 +136,12 @@ class ReubicacionesPipelineErrorBoundary extends Component {
     }
 }
 
-function ReubicacionesPipelinePageInner({ token, navIntent }) {
+function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const { isLight, field, labelMuted, headingAccent } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
+    
+    const canEdit = useMemo(() => canEditReubicaciones(auth), [auth]);
+    
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
     const [items, setItems] = useState([]);
@@ -416,14 +420,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                 panelId="reubicaciones-filtros-panel"
                 dash={dash}
             >
-                <button type="button" onClick={() => setCreateOpen(true)} className={dash.toolbarBtn}>
-                    <span className="inline-flex items-center gap-2">
-                        <Plus size={16} /> Nuevo registro
-                    </span>
-                </button>
-                <button type="button" onClick={load} className={dash.compactBtn}>
-                    Refrescar
-                </button>
+
             </ModuleFiltersToolbar>
 
             <div className={`${dash.cardFlex} min-h-0 flex-1`}>
@@ -442,25 +439,24 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                     <Th colKey="dias_restantes" label="Días rest." align="right" />
                                     <Th colKey="semaforo" label="Semáforo" />
                                     <Th colKey="tarifa" label="Tarifa actual" />
-                                    <th className="p-4 pr-6 font-semibold whitespace-nowrap">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody className={dash.tbody}>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={11} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                        <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
                                             Cargando…
                                         </td>
                                     </tr>
                                 ) : items.length === 0 ? (
                                     <tr>
-                                        <td colSpan={11} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                        <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
                                             Sin registros. Cree uno con «Nuevo registro» (la cédula debe existir en Consultores).
                                         </td>
                                     </tr>
                                 ) : (
                                     items.map((row) => (
-                                        <tr key={row.id} className={dash.trHover}>
+                                        <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => openEdit(row)}>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
                                             <td className={dash.tdName}>{row.consultor || '—'}</td>
                                             <td className={dash.tdCell}>{row.tipo_contrato || '—'}</td>
@@ -480,24 +476,6 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                             </td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
                                                 {formatTarifaDisplay(row)}
-                                            </td>
-                                            <td className="p-4 pr-6 whitespace-nowrap">
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        className={`inline-flex items-center gap-1 ${headingAccent} hover:underline`}
-                                                        onClick={() => openEdit(row)}
-                                                    >
-                                                        <Pencil size={14} /> Editar
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="inline-flex items-center gap-1 text-red-400 hover:text-red-300 hover:underline"
-                                                        onClick={() => setConfirmDeleteRow(row)}
-                                                    >
-                                                        <Trash2 size={14} /> Eliminar
-                                                    </button>
-                                                </div>
                                             </td>
                                         </tr>
                                     ))
@@ -682,7 +660,9 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                             isLight ? 'border-slate-200 bg-white' : 'border-[var(--border)] bg-[var(--surface)]'
                         }`}
                     >
-                        <h2 className={`text-lg font-heading font-bold mb-4 ${headingAccent}`}>Editar seguimiento</h2>
+                        <h2 className={`text-lg font-heading font-bold mb-4 ${headingAccent}`}>
+                            {canEdit ? 'Editar seguimiento' : 'Detalle de reubicación'}
+                        </h2>
                         <p className={`text-xs ${labelMuted} mb-3`}>
                             Cédula {editForm.cedula} · {editRow.consultor || 'Consultor'}
                         </p>
@@ -696,6 +676,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                     value={editForm.fecha_fin}
                                     onChange={(e) => setEditForm((f) => ({ ...f, fecha_fin: e.target.value }))}
                                     required
+                                    disabled={!canEdit}
                                 />
                             </div>
                             <div>
@@ -704,6 +685,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                     className={`w-full ${field}`}
                                     value={editForm.cliente_destino}
                                     onChange={(e) => setEditForm((f) => ({ ...f, cliente_destino: e.target.value }))}
+                                    disabled={!canEdit}
                                 />
                             </div>
                             <div>
@@ -712,6 +694,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                     className={`w-full ${field}`}
                                     value={editForm.causal}
                                     onChange={(e) => setEditForm((f) => ({ ...f, causal: e.target.value }))}
+                                    disabled={!canEdit}
                                 />
                             </div>
                             <div className="flex justify-end gap-2 pt-2">
@@ -723,11 +706,13 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                         setEditRow(null);
                                     }}
                                 >
-                                    Cancelar
+                                    {canEdit ? 'Cancelar' : 'Cerrar'}
                                 </button>
-                                <button type="submit" disabled={editSaving} className={toolbarBtn}>
-                                    {editSaving ? 'Guardando…' : 'Guardar'}
-                                </button>
+                                {canEdit && (
+                                    <button type="submit" disabled={editSaving} className={toolbarBtn}>
+                                        {editSaving ? 'Guardando…' : 'Guardar'}
+                                    </button>
+                                )}
                             </div>
                         </form>
                     </div>
