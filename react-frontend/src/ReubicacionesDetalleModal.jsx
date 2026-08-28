@@ -17,16 +17,16 @@ function FormInformacionPipeline({ isLight, field, labelMuted, editForm, setEdit
             <h3 className={`text-sm font-semibold mb-2 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>Información de Pipeline</h3>
             <form onSubmit={submitEdit} className="space-y-3">
                 <div>
-                    <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
-                    <input {...nativeCalendarOnlyInputProps} type="date" className={`w-full ${field}`} value={editForm.fecha_fin} onChange={(e) => setEditForm((f) => ({ ...f, fecha_fin: e.target.value }))} required disabled={!canEdit} />
+                    <label htmlFor="fecha_fin" className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
+                    <input id="fecha_fin" {...nativeCalendarOnlyInputProps} type="date" className={`w-full ${field}`} value={editForm.fecha_fin} onChange={(e) => setEditForm((f) => ({ ...f, fecha_fin: e.target.value }))} required disabled={!canEdit} />
                 </div>
                 <div>
-                    <label className={`block text-xs ${labelMuted} mb-1`}>Cliente destino</label>
-                    <input className={`w-full ${field}`} value={editForm.cliente_destino} onChange={(e) => setEditForm((f) => ({ ...f, cliente_destino: e.target.value }))} disabled={!canEdit} />
+                    <label htmlFor="cliente_destino" className={`block text-xs ${labelMuted} mb-1`}>Cliente destino</label>
+                    <input id="cliente_destino" className={`w-full ${field}`} value={editForm.cliente_destino} onChange={(e) => setEditForm((f) => ({ ...f, cliente_destino: e.target.value }))} disabled={!canEdit} />
                 </div>
                 <div>
-                    <label className={`block text-xs ${labelMuted} mb-1`}>Causal</label>
-                    <input className={`w-full ${field}`} value={editForm.causal} onChange={(e) => setEditForm((f) => ({ ...f, causal: e.target.value }))} disabled={!canEdit} />
+                    <label htmlFor="causal" className={`block text-xs ${labelMuted} mb-1`}>Causal</label>
+                    <input id="causal" className={`w-full ${field}`} value={editForm.causal} onChange={(e) => setEditForm((f) => ({ ...f, causal: e.target.value }))} disabled={!canEdit} />
                 </div>
                 {canEdit && (
                     <div className="flex justify-end pt-2">
@@ -89,14 +89,51 @@ function PanelObservacionCH({ isLight, field, observacionActual, historialObs, p
 
 // Subcomponente de Decisión GP
 function PanelDecisionGP({ isLight, field, decisionActual, historialDec, puedeDecidir, decision, setDecision, justificacion, setJustificacion, handleGuardarDecision, loading, setError }) {
+    
+    // Variables calculadas para reducir complejidad condicional y ternarios anidados
+    const isApto = decisionActual?.decision === 'APTO';
+    const bgClass = isApto 
+        ? (isLight ? 'bg-green-50 border-green-200' : 'bg-green-900/20 border-green-800')
+        : (isLight ? 'bg-red-50 border-red-200' : 'bg-red-900/20 border-red-800');
+    
+    const iconColorClass = isApto 
+        ? (isLight ? 'text-green-600' : 'text-green-400') 
+        : (isLight ? 'text-red-600' : 'text-red-400');
+
+    const textColorClass = isApto 
+        ? (isLight ? 'text-green-700' : 'text-green-400') 
+        : (isLight ? 'text-red-700' : 'text-red-400');
+        
+    const renderHistoryItem = (item) => {
+        const itemIsApto = item.decision === 'APTO';
+        const itemBg = itemIsApto 
+            ? (isLight ? 'bg-green-50/50 border-green-200' : 'bg-green-900/20 border-green-800')
+            : (isLight ? 'bg-red-50/50 border-red-200' : 'bg-red-900/20 border-red-800');
+            
+        const itemBadgeClass = itemIsApto
+            ? (isLight ? 'bg-green-600 text-white' : 'bg-green-700 text-white')
+            : (isLight ? 'bg-red-600 text-white' : 'bg-red-700 text-white');
+
+        return (
+            <div key={item.id} className={`mt-2 p-2 rounded border ${itemBg}`}>
+                <div className="flex items-center gap-2 mb-1">
+                    <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider ${itemBadgeClass}`}>{item.decision}</span>
+                    <span className={`font-medium text-xs ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{item.actor_nombre}</span>
+                    <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>· {new Date(item.fecha).toLocaleString()}</span>
+                </div>
+                <p className={`text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{item.justificacion}</p>
+            </div>
+        );
+    };
+
     return (
         <div className={`border-t pt-4 ${isLight ? 'border-slate-200' : 'border-slate-700'}`}>
             <h3 className={`text-sm font-semibold mb-2 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>Decisión de Aptitud</h3>
             {decisionActual ? (
-                <div className={`p-3 rounded-lg border ${decisionActual.decision === 'APTO' ? (isLight ? 'bg-green-50 border-green-200' : 'bg-green-900/20 border-green-800') : (isLight ? 'bg-red-50 border-red-200' : 'bg-red-900/20 border-red-800')}`}>
+                <div className={`p-3 rounded-lg border ${bgClass}`}>
                     <div className="flex items-center gap-2">
-                        {decisionActual.decision === 'APTO' ? <CheckCircle size={16} className={isLight ? 'text-green-600' : 'text-green-400'} /> : <XCircle size={16} className={isLight ? 'text-red-600' : 'text-red-400'} />}
-                        <span className={`font-semibold ${decisionActual.decision === 'APTO' ? (isLight ? 'text-green-700' : 'text-green-400') : (isLight ? 'text-red-700' : 'text-red-400')}`}>{decisionActual.decision}</span>
+                        {isApto ? <CheckCircle size={16} className={iconColorClass} /> : <XCircle size={16} className={iconColorClass} />}
+                        <span className={`font-semibold ${textColorClass}`}>{decisionActual.decision}</span>
                         <span className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>· {decisionActual.actor_nombre}</span>
                         <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>· {new Date(decisionActual.fecha).toLocaleString()}</span>
                     </div>
@@ -104,16 +141,7 @@ function PanelDecisionGP({ isLight, field, decisionActual, historialDec, puedeDe
                     {historialDec.length > 1 && (
                         <details className="mt-2 text-xs">
                             <summary className="text-blue-600 cursor-pointer font-medium hover:underline">Ver historial ({historialDec.length - 1} versiones anteriores)</summary>
-                            {historialDec.slice(1).map((item) => (
-                                <div key={item.id} className={`mt-2 p-2 rounded border ${item.decision === 'APTO' ? (isLight ? 'bg-green-50/50 border-green-200' : 'bg-green-900/20 border-green-800') : (isLight ? 'bg-red-50/50 border-red-200' : 'bg-red-900/20 border-red-800')}`}>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider ${item.decision === 'APTO' ? (isLight ? 'bg-green-600 text-white' : 'bg-green-700 text-white') : (isLight ? 'bg-red-600 text-white' : 'bg-red-700 text-white')}`}>{item.decision}</span>
-                                        <span className={`font-medium text-xs ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{item.actor_nombre}</span>
-                                        <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>· {new Date(item.fecha).toLocaleString()}</span>
-                                    </div>
-                                    <p className={`text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{item.justificacion}</p>
-                                </div>
-                            ))}
+                            {historialDec.slice(1).map(renderHistoryItem)}
                         </details>
                     )}
                 </div>
@@ -220,7 +248,7 @@ export function ReubicacionesDetalleModal({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} />
+            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }} />
             <div className={`relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl border p-6 shadow-xl ${isLight ? 'border-slate-200 bg-white' : 'border-[var(--border)] bg-[var(--surface)]'}`}>
                 <h2 className={`text-lg font-heading font-bold mb-4 ${headingAccent}`}>Detalle y Seguimiento de Reubicación</h2>
                 <p className={`text-xs ${labelMuted} mb-4`}>Cédula {row.cedula} · {row.consultor || 'Consultor'}</p>

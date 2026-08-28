@@ -12,7 +12,9 @@ async function lockPipeline(client, pipelineId) {
         [pipelineId]
     );
     if (res.rows.length === 0) {
-        throw { status: 404, message: 'Caso no encontrado' };
+        const err = new Error('Caso no encontrado');
+        err.status = 404;
+        throw err;
     }
     return res.rows[0].consultor_id || null;
 }
@@ -35,7 +37,9 @@ async function checkIdempotency(client, table, idempotencyKey, isSamePayloadFn) 
         if (isSamePayloadFn(existing)) {
             return existing;
         }
-        throw { status: 409, message: 'Idempotency-Key ya usada con un payload diferente' };
+        const err = new Error('Idempotency-Key ya usada con un payload diferente');
+        err.status = 409;
+        throw err;
     }
     return null;
 }
