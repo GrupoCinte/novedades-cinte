@@ -655,6 +655,74 @@ function createDataLayer(deps) {
         }
     }
 
+    /** HU-02: Migración transaccional e idempotencia de reubicaciones */
+    async function ensureReubicacionesHU02() {
+        try {
+            // Alterar pipeline de manera segura para que coexista con HU-01
+            await pool.query(`
+                ALTER TABLE reubicaciones_pipeline 
+                ADD COLUMN IF NOT EXISTS estado TEXT,
+                ADD COLUMN IF NOT EXISTS tipo_ficha TEXT,
+                ADD COLUMN IF NOT EXISTS motivo_novedad TEXT,
+                ADD COLUMN IF NOT EXISTS ultimo_evento_id TEXT
+            `);
+            
+            // Tabla obligatoria para CA-04 y CA-05
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS reubicaciones_source_events (
+                    source_event_id TEXT PRIMARY KEY,
+                    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id),
+                    tipo_evento TEXT NOT NULL,
+                    fecha_anterior DATE NULL,
+                    fecha_nueva DATE NOT NULL,
+                    processed_at TIMESTAMPTZ DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS reubicaciones_observaciones (
+                    id UUID PRIMARY KEY,
+                    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id),
+                    version INT NOT NULL,
+                    observacion TEXT NOT NULL,
+                    actor_user_id UUID REFERENCES users(id),
+                    actor_role TEXT,
+                    fecha TIMESTAMPTZ DEFAULT NOW(),
+                    idempotency_key TEXT UNIQUE,
+                    UNIQUE(pipeline_id, version)
+                );
+
+                CREATE TABLE IF NOT EXISTS reubicaciones_decisiones (
+                    id UUID PRIMARY KEY,
+                    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id),
+                    decision TEXT NOT NULL,
+                    justificacion TEXT,
+                    actor_user_id UUID REFERENCES users(id),
+                    actor_role TEXT,
+                    fecha TIMESTAMPTZ DEFAULT NOW(),
+                    idempotency_key TEXT UNIQUE
+                );
+
+                CREATE TABLE IF NOT EXISTS reubicaciones_historial (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    caso_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id),
+                    consultor_id UUID REFERENCES colaboradores(id),
+                    tipo TEXT NOT NULL,
+                    actor_nombre TEXT,
+                    actor_rol TEXT,
+                    descripcion TEXT,
+                    before_data JSONB,
+                    after_data JSONB,
+                    fecha TIMESTAMPTZ DEFAULT NOW()
+                );
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Reubicaciones] Permisos insuficientes para migración HU-02.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** Malla de turnos por día y franja (FK a colaboradores). */
     async function ensureMallaTurnosCeldaTable() {
         try {
@@ -2232,8 +2300,21 @@ function createDataLayer(deps) {
             );
             if (q.rows[0]?.id) return q.rows[0].id;
         }
-        const id = String(scope.gpUserId || '').trim();
-        return id || null;
+        const sub = String(scope.gpUserId || '').trim();
+        if (sub) {
+            const qSub = await pool.query(
+                `SELECT id::text AS id
+                 FROM users
+                 WHERE role = 'gp'::user_role
+                   AND cognito_sub = $1
+                 ORDER BY is_active DESC NULLS LAST, updated_at DESC NULLS LAST
+                 LIMIT 1`,
+                [sub]
+            );
+            if (qSub.rows[0]?.id) return qSub.rows[0].id;
+            return sub;
+        }
+        return null;
     }
 
     /**
@@ -3010,12 +3091,13 @@ function createDataLayer(deps) {
         ensureNovedadesObservacionesColumn,
         ensureNovedadesObservacionesRechazoColumn,
         ensureNovedadesDuplicadoPendienteIndex,
+        ensureReubicacionesPipelineTable,
+        ensureReubicacionesHU02,
         findPendingNovedadDuplicate,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
         ensureColaboradoresExtendedColumns,
-        ensureReubicacionesPipelineTable,
         ensureMallaTurnosCeldaTable,
         ensureMallaTurnoAsignacionTable,
         ensureMallaTurnoAprobacionTable,

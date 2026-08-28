@@ -7,6 +7,9 @@ const { normalizeRoleOrNull } = require('../rbac');
 const { semaforoFromDiasRestantes } = require('../reubicaciones/reubicacionesSemaforo');
 const { aprobarMallaTurnosMes } = require('../mallaTurnoHeExport');
 const { resolveActorUserIdForSession } = require('../resolveActorUserId');
+const { reubicacionesGuard, canRegisterObservacion, canDecideAptitud } = require('../reubicaciones/reubicacionesAuthService');
+const { registrarObservacion, obtenerUltimaObservacion, obtenerHistorialObservaciones } = require('../reubicaciones/reubicacionesObservacionesService');
+const { registrarDecision, obtenerUltimaDecision, obtenerHistorialDecisiones } = require('../reubicaciones/reubicacionesDecisionesService');
 
 function directorioGuard() {
     return (req, res, next) => {
@@ -112,6 +115,17 @@ function registerDirectorioRoutes(deps) {
     /** AUT-576: rutas mallas (GP sin panel directorio). */
     const mallasReadGuard = [verificarToken, mallasRoleGuard()];
     const mallasWriteGuard = [verificarToken, mallasRoleGuard(), adminActionLimiter];
+    
+    const reubicacionesWriteRoleGuard = (req, res, next) => {
+        const role = normalizeRoleOrNull(req.user?.role) || req.user?.role;
+        if (role === 'atraccion_talento') {
+            return res.status(403).json({ ok: false, error: 'Atracción de Talento tiene acceso de solo lectura.' });
+        }
+        next();
+    };
+
+    const reubReadGuard = [verificarToken, reubicacionesGuard];
+    const reubWriteGuard = [verificarToken, reubicacionesGuard, reubicacionesWriteRoleGuard, adminActionLimiter];
     
     const colaboradoresRoleGuard = () => {
         return (req, res, next) => {
@@ -990,7 +1004,7 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.get('/api/directorio/reubicaciones-pipeline', ...readGuard, async (req, res) => {
+    app.get('/api/directorio/reubicaciones-pipeline', ...reubReadGuard, async (req, res) => {
         try {
             const parsed = reubicacionesPipelineListSchema.safeParse(req.query);
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Parámetros inválidos' });
@@ -1021,6 +1035,20 @@ function registerDirectorioRoutes(deps) {
 
             const whereParts = [];
             const whereParams = [];
+
+            const role = normalizeRoleOrNull(req.user?.role);
+            if (role === 'gp') {
+                const gpEmail = String(req.user?.email || '').trim().toLowerCase();
+                const gpUserId = parseUuidActor(req.user?.sub);
+                const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
+                const assigned = await listAssignedClientesForGpUserId(gpId);
+                if (assigned.length === 0) {
+                    return res.json({ ok: true, items: [], total: 0, limit, offset });
+                }
+                const placeholders = assigned.map((_, i) => `$${whereParams.length + 1 + i}`);
+                whereParts.push(`c.cliente IN (${placeholders.join(', ')})`);
+                whereParams.push(...assigned);
+            }
 
             const search = textOrNull(d.q);
             if (search) {
@@ -1098,12 +1126,16 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.post('/api/directorio/reubicaciones-pipeline', ...writeGuard, async (req, res) => {
+    app.post('/api/directorio/reubicaciones-pipeline', ...reubWriteGuard, async (req, res) => {
         try {
             const parsed = reubicacionesPipelineCreateSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const cedula = normalizeCedula(parsed.data.cedula);
             if (!cedula) return res.status(400).json({ ok: false, error: 'Cédula inválida' });
+            const cedCheck = await pool.query('SELECT cliente FROM colaboradores WHERE cedula = $1', [cedula]);
+            if (cedCheck.rows.length) {
+                await assertGpClienteAsignado(req, cedCheck.rows[0].cliente);
+            }
             const clienteDestino = textOrNull(parsed.data.cliente_destino);
             const causal = textOrNull(parsed.data.causal);
             let row;
@@ -1167,12 +1199,16 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.patch('/api/directorio/reubicaciones-pipeline/:id', ...writeGuard, async (req, res) => {
+    app.patch('/api/directorio/reubicaciones-pipeline/:id', ...reubWriteGuard, async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
                 return res.status(400).json({ ok: false, error: 'Id inválido' });
             }
+            const q = await pool.query(`SELECT c.cliente FROM reubicaciones_pipeline rp INNER JOIN colaboradores c ON c.cedula = rp.cedula WHERE rp.id = $1::uuid`, [id]);
+            if (!q.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+            await assertGpClienteAsignado(req, q.rows[0].cliente);
+
             const parsed = reubicacionesPipelinePatchSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const d = parsed.data;
@@ -1238,12 +1274,16 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
-    app.delete('/api/directorio/reubicaciones-pipeline/:id', ...writeGuard, async (req, res) => {
+    app.delete('/api/directorio/reubicaciones-pipeline/:id', ...reubWriteGuard, async (req, res) => {
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
                 return res.status(400).json({ ok: false, error: 'Id inválido' });
             }
+            const q = await pool.query(`SELECT c.cliente FROM reubicaciones_pipeline rp INNER JOIN colaboradores c ON c.cedula = rp.cedula WHERE rp.id = $1::uuid`, [id]);
+            if (!q.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+            await assertGpClienteAsignado(req, q.rows[0].cliente);
+
             const del = await pool.query(`DELETE FROM reubicaciones_pipeline WHERE id = $1::uuid RETURNING id`, [id]);
             if (!del.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
             await writeAudit(pool, {
@@ -1258,6 +1298,58 @@ function registerDirectorioRoutes(deps) {
         } catch (e) {
             console.error('DELETE directorio reubicaciones-pipeline:', e);
             return res.status(500).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
+        }
+    });
+
+    app.get('/api/directorio/reubicaciones-pipeline/:id/aptitud-context', ...reubReadGuard, async (req, res) => {
+        try {
+            const pipelineId = req.params.id;
+            const observacion = await obtenerUltimaObservacion({ pipelineId, pool });
+            const decision = await obtenerUltimaDecision({ pipelineId, pool });
+            const historialObs = await obtenerHistorialObservaciones({ pipelineId, pool });
+            const historialDec = await obtenerHistorialDecisiones({ pipelineId, pool });
+            return res.json({ ok: true, observacion, decision, historialObs, historialDec });
+        } catch (e) {
+            console.error('GET aptitud-context:', e);
+            return res.status(500).json({ ok: false, error: 'Error al obtener contexto de aptitud' });
+        }
+    });
+
+    app.post('/api/directorio/reubicaciones-pipeline/:id/observacion', ...reubWriteGuard, async (req, res) => {
+        try {
+            if (!canRegisterObservacion(req)) {
+                return res.status(403).json({ ok: false, error: 'No tienes permiso para registrar observaciones' });
+            }
+            const pipelineId = req.params.id;
+            const { observacion, expectedVersion } = req.body;
+            const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
+            const reqUser = req.user || {};
+            const actor = { user_id: parseUuidActor(reqUser.sub), role: reqUser.role, nombre: reqUser.full_name };
+            
+            const result = await registrarObservacion({ pipelineId, observacion, expectedVersion, actor, pool, idempotencyKey });
+            return res.status(result.status).json(result.body);
+        } catch (e) {
+            console.error('POST observacion:', e);
+            return res.status(500).json({ ok: false, error: 'Error interno al guardar observacion' });
+        }
+    });
+
+    app.post('/api/directorio/reubicaciones-pipeline/:id/decision', ...reubWriteGuard, async (req, res) => {
+        try {
+            if (!canDecideAptitud(req)) {
+                return res.status(403).json({ ok: false, error: 'No tienes permiso para decidir aptitud' });
+            }
+            const pipelineId = req.params.id;
+            const { decision, justificacion } = req.body;
+            const idempotencyKey = req.headers['idempotency-key'] || req.headers['x-idempotency-key'];
+            const reqUser = req.user || {};
+            const actor = { user_id: parseUuidActor(reqUser.sub), role: reqUser.role, nombre: reqUser.full_name };
+            
+            const result = await registrarDecision({ pipelineId, decision, justificacion, decididoPor: actor, pool, idempotencyKey });
+            return res.status(result.status).json(result.body);
+        } catch (e) {
+            console.error('POST decision:', e);
+            return res.status(500).json({ ok: false, error: 'Error interno al guardar decisión' });
         }
     });
 
