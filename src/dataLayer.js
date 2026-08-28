@@ -692,7 +692,7 @@ function createDataLayer(deps) {
 
                 CREATE TABLE IF NOT EXISTS reubicaciones_decisiones (
                     id UUID PRIMARY KEY,
-                    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id),
+                    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) UNIQUE,
                     decision TEXT NOT NULL,
                     justificacion TEXT,
                     actor_user_id UUID REFERENCES users(id),

@@ -42,7 +42,15 @@ async function registrarDecision({ pipelineId, decision, justificacion, decidido
         const result = await client.query(
             `INSERT INTO reubicaciones_decisiones 
              (id, pipeline_id, decision, justificacion, actor_user_id, actor_role, idempotency_key, fecha)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP) RETURNING *`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+             ON CONFLICT (pipeline_id) DO UPDATE SET
+                decision = EXCLUDED.decision,
+                justificacion = EXCLUDED.justificacion,
+                actor_user_id = EXCLUDED.actor_user_id,
+                actor_role = EXCLUDED.actor_role,
+                idempotency_key = EXCLUDED.idempotency_key,
+                fecha = CURRENT_TIMESTAMP
+             RETURNING *`,
             [uuidv4(), pipelineId, decision, justificacion.trim(), decididoPor.user_id, decididoPor.role, idempotencyKey]
         );
 
@@ -92,25 +100,7 @@ async function obtenerUltimaDecision({ pipelineId, pool }) {
     }
 }
 
-async function obtenerHistorialDecisiones({ pipelineId, pool }) {
-    try {
-        const result = await pool.query(
-            `SELECT d.*, u.email, u.full_name as actor_nombre
-             FROM reubicaciones_decisiones d
-             LEFT JOIN users u ON d.actor_user_id = u.id
-             WHERE d.pipeline_id = $1
-             ORDER BY d.fecha DESC`,
-            [pipelineId]
-        );
-        return result.rows || [];
-    } catch (error) {
-        console.error('Error en obtenerHistorialDecisiones:', error);
-        return [];
-    }
-}
-
 module.exports = {
     registrarDecision,
-    obtenerUltimaDecision,
-    obtenerHistorialDecisiones
+    obtenerUltimaDecision
 };

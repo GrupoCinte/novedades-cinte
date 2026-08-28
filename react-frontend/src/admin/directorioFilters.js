@@ -19,12 +19,12 @@ export function buildConsultoresChipLabel({ activo, tipoContrato, pageSize }) {
     return parts.join(' · ');
 }
 
-export function buildReubicacionesChipLabel({ q, fechaFinDesde, fechaFinHasta, semaforo, pageSize }) {
+export function buildReubicacionesChipLabel({ q, fechaFinDesde, fechaFinHasta, estado, pageSize }) {
     const n = countActiveFilters([
         [q, String(q || '').trim()],
         [fechaFinDesde, String(fechaFinDesde || '').trim()],
         [fechaFinHasta, String(fechaFinHasta || '').trim()],
-        [semaforo, String(semaforo || '').trim()]
+        [estado, String(estado || '').trim()]
     ]);
     if (n === 0) return `Todos · ${pageSize} filas`;
     return `${n} filtro${n === 1 ? '' : 's'} · ${pageSize} filas`;
@@ -45,7 +45,7 @@ export const REUBICACIONES_FILTER_DEFAULTS = {
     q: '',
     fechaFinDesde: '',
     fechaFinHasta: '',
-    semaforo: '',
+    estado: '',
     pageSize: 20
 };
 export const MALLAS_FILTER_DEFAULTS = { cliente: '' };

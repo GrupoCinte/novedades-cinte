@@ -337,7 +337,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 reset: false,
                 fechaFinDesde: action.fechaFinDesde ?? '',
                 fechaFinHasta: action.fechaFinHasta ?? '',
-                semaforo: action.semaforo ?? ''
+                estado: action.estado ?? ''
             }));
             setMainView('reubicaciones');
             setMobileMenuOpen(false);

@@ -1,20 +1,29 @@
 import { CheckCircle, XCircle } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import MonitorGlassModalShell from './shared/modals/MonitorGlassModalShell.jsx';
 import { useModuleTheme } from './moduleTheme.js';
-import { buildGestionTableDash } from './gestionTableDashTheme.js';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 import { canRegisterObservacion, canDecideAptitud } from './reubicacionesAccess';
+import { formatMoneyAmountOnly } from './multiCurrencyMoney.js';
 
 function getCsrfToken() {
     const match = /cinteXsrf=([^;]+)/.exec(document.cookie);
     return match ? match[1] : '';
 }
 
+function formatMontoDisplay(val, currencyCode = 'COP') {
+    if (val == null || val === '') return '—';
+    const num = Number(val);
+    if (!Number.isFinite(num)) return '—';
+    const ccy = currencyCode || 'COP';
+    return `$ ${formatMoneyAmountOnly(num, ccy)}`;
+}
+
 // Subcomponente de Formulario Principal
 function FormInformacionPipeline({ isLight, field, labelMuted, editForm, setEditForm, submitEdit, canEdit, editSaving }) {
     return (
-        <div className={`space-y-4 border-b md:border-b-0 md:border-r pb-4 md:pb-0 md:pr-4 ${isLight ? 'border-slate-200' : 'border-slate-700'}`}>
-            <h3 className={`text-sm font-semibold mb-2 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>Información de Pipeline</h3>
+        <div className={`space-y-4`}>
+            <h3 className={`text-sm font-semibold mb-2 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>Edición de Información</h3>
             <form onSubmit={submitEdit} className="space-y-3">
                 <div>
                     <label htmlFor="fecha_fin" className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
@@ -40,124 +49,174 @@ function FormInformacionPipeline({ isLight, field, labelMuted, editForm, setEdit
     );
 }
 
-// Subcomponente de Observación CH
+// Subcomponente de Observación CH (Adoptando el diseño de HU-07)
 function PanelObservacionCH({ isLight, field, observacionActual, historialObs, puedeEscribirObs, observacion, setObservacion, handleGuardarObservacion, loading, setError }) {
     const [mostrarHistorialObs, setMostrarHistorialObs] = useState(false);
+    const subtleTextClass = isLight ? 'text-slate-600' : 'text-slate-400';
+    const textCapitalizedClass = 'capitalize';
 
     return (
-        <div>
-            <h3 className={`text-sm font-semibold mb-2 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>Observación de Capital Humano</h3>
+        <div className={`border-t border-slate-200/70 dark:border-slate-700 pt-3`}>
+            <h3 className={`text-sm font-semibold mb-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Observación de Capital Humano</h3>
             {observacionActual ? (
-                <div className={`p-3 rounded-lg border ${isLight ? 'bg-blue-50 border-blue-200' : 'bg-blue-900/20 border-blue-800'}`}>
-                    <div className={`flex items-center gap-2 text-xs ${isLight ? 'text-blue-600' : 'text-blue-300'}`}>
-                        <span className="font-semibold">v{observacionActual.version}</span><span>·</span>
-                        <span>{observacionActual.actor_nombre || 'Usuario'}</span><span>·</span>
-                        <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>{new Date(observacionActual.fecha).toLocaleString()}</span>
+                <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/60'}`}>
+                    <div className={`flex items-center gap-2 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                        <span className="font-semibold">v{observacionActual.version}</span>
+                        <span>·</span>
+                        <span>{observacionActual.actor_nombre || 'Usuario'}</span>
+                        <span className={isLight ? 'text-slate-500' : 'text-blue-400'}>({observacionActual.actor_role})</span>
+                        <span>·</span>
+                        <span>{new Date(observacionActual.fecha).toLocaleString('es-CO')}</span>
                     </div>
-                    <p className={`text-sm mt-1 whitespace-pre-wrap ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{observacionActual.observacion}</p>
-                    {historialObs.length > 1 && (
-                        <button type="button" onClick={() => setMostrarHistorialObs(!mostrarHistorialObs)} className="text-xs text-blue-600 hover:underline mt-1">
+                    <p className={`text-sm mt-1 whitespace-pre-wrap ${isLight ? 'text-slate-700' : 'text-slate-300'} ${textCapitalizedClass}`}>
+                        {observacionActual.observacion}
+                    </p>
+                    {historialObs && historialObs.length > 1 && (
+                        <button
+                            onClick={() => setMostrarHistorialObs(!mostrarHistorialObs)}
+                            className={`text-xs mt-1 hover:underline ${isLight ? 'text-slate-600' : 'text-sky-300'}`}
+                        >
                             {mostrarHistorialObs ? 'Ocultar historial' : `Ver historial (${historialObs.length} versiones)`}
                         </button>
                     )}
                     {mostrarHistorialObs && historialObs.slice(1).map((item) => (
-                        <div key={item.id} className={`mt-2 p-2 rounded text-xs ${isLight ? 'bg-blue-100/50 text-slate-600' : 'bg-blue-800/20 text-slate-300'}`}>
-                            <div className="flex items-center gap-2">
-                                <span className={`font-semibold ${isLight ? 'text-blue-500' : 'text-blue-400'}`}>v{item.version}</span><span>·</span>
-                                <span className={isLight ? 'text-slate-700' : 'text-slate-200'}>{item.actor_nombre}</span><span>·</span>
-                                <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>{new Date(item.fecha).toLocaleString()}</span>
+                        <div
+                            key={item.id}
+                            className={`mt-2 rounded p-2 text-xs ${isLight ? 'bg-slate-100 text-slate-700 border border-slate-200' : 'bg-slate-800/80 text-slate-200 border border-slate-700'}`}
+                        >
+                            <div className={`flex items-center gap-2 ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                                <span className="font-semibold">v{item.version}</span>
+                                <span>·</span>
+                                <span>{item.actor_nombre || 'Usuario'}</span>
+                                <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>({item.actor_role})</span>
+                                <span>·</span>
+                                <span>{new Date(item.fecha).toLocaleString('es-CO')}</span>
                             </div>
-                            <p className="mt-0.5">{item.observacion}</p>
+                            <p className={`mt-0.5 ${isLight ? 'text-slate-700' : 'text-slate-200'} ${textCapitalizedClass}`}>{item.observacion}</p>
                         </div>
                     ))}
                 </div>
             ) : (
-                <p className="text-xs text-gray-500">Sin observación registrada.</p>
+                <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+                    <p className={`text-sm ${subtleTextClass}`}>Sin evaluación</p>
+                </div>
             )}
             
             {puedeEscribirObs && (
-                <div className="mt-3">
-                    <textarea value={observacion} onChange={(e) => { setObservacion(e.target.value); setError(''); }} placeholder="Nueva observación (CH)..." className={`w-full min-h-[60px] ${field}`} />
-                    <button type="button" onClick={handleGuardarObservacion} disabled={loading} className="mt-2 px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
-                        {loading ? 'Guardando...' : 'Guardar Observación'}
-                    </button>
+                <div className="mt-3 space-y-2">
+                    <label className={`text-xs font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>Nueva observación</label>
+                    <textarea value={observacion} onChange={(e) => { if (e.target.value.length <= 1000) { setObservacion(e.target.value); setError(''); } }} placeholder="Escribe aquí tu observación..." className={`w-full min-h-[80px] resize-y ${field}`} disabled={loading} />
+                    <div className="flex justify-end">
+                        <button type="button" onClick={handleGuardarObservacion} disabled={loading || !observacion.trim()} className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                            {loading ? 'Guardando...' : 'Guardar Observación'}
+                        </button>
+                    </div>
                 </div>
+            )}
+            {!puedeEscribirObs && (
+                <p className="text-xs text-gray-400 mt-1">Solo CH puede registrar observaciones</p>
             )}
         </div>
     );
 }
 
-// Subcomponente de Decisión GP
-function PanelDecisionGP({ isLight, field, decisionActual, historialDec, puedeDecidir, decision, setDecision, justificacion, setJustificacion, handleGuardarDecision, loading, setError }) {
-    
-    // Variables calculadas para reducir complejidad condicional y ternarios anidados
-    const isApto = decisionActual?.decision === 'APTO';
-    const bgClass = isApto 
-        ? (isLight ? 'bg-green-50 border-green-200' : 'bg-green-900/20 border-green-800')
-        : (isLight ? 'bg-red-50 border-red-200' : 'bg-red-900/20 border-red-800');
-    
-    const iconColorClass = isApto 
-        ? (isLight ? 'text-green-600' : 'text-green-400') 
-        : (isLight ? 'text-red-600' : 'text-red-400');
-
-    const textColorClass = isApto 
-        ? (isLight ? 'text-green-700' : 'text-green-400') 
-        : (isLight ? 'text-red-700' : 'text-red-400');
-        
-    const renderHistoryItem = (item) => {
-        const itemIsApto = item.decision === 'APTO';
-        const itemBg = itemIsApto 
-            ? (isLight ? 'bg-green-50/50 border-green-200' : 'bg-green-900/20 border-green-800')
-            : (isLight ? 'bg-red-50/50 border-red-200' : 'bg-red-900/20 border-red-800');
-            
-        const itemBadgeClass = itemIsApto
-            ? (isLight ? 'bg-green-600 text-white' : 'bg-green-700 text-white')
-            : (isLight ? 'bg-red-600 text-white' : 'bg-red-700 text-white');
-
-        return (
-            <div key={item.id} className={`mt-2 p-2 rounded border ${itemBg}`}>
-                <div className="flex items-center gap-2 mb-1">
-                    <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wider ${itemBadgeClass}`}>{item.decision}</span>
-                    <span className={`font-medium text-xs ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>{item.actor_nombre}</span>
-                    <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>· {new Date(item.fecha).toLocaleString()}</span>
-                </div>
-                <p className={`text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>{item.justificacion}</p>
-            </div>
-        );
-    };
+// Subcomponente de Decisión GP (Adoptando el diseño de HU-07)
+function PanelDecisionGP({ isLight, field, decisionActual, puedeDecidir, decision, setDecision, justificacion, setJustificacion, handleGuardarDecision, loading, setError }) {
+    const subtleTextClass = isLight ? 'text-slate-600' : 'text-slate-400';
 
     return (
-        <div className={`border-t pt-4 ${isLight ? 'border-slate-200' : 'border-slate-700'}`}>
-            <h3 className={`text-sm font-semibold mb-2 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>Decisión de Aptitud</h3>
+        <div className={`border-t border-slate-200/70 dark:border-slate-700 pt-3`}>
+            <h3 className={`text-sm font-semibold mb-2 ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>Decisión de aptitud</h3>
             {decisionActual ? (
-                <div className={`p-3 rounded-lg border ${bgClass}`}>
+                <div className={`mt-2 rounded-lg p-3 ${
+                    decisionActual.decision === 'APTO'
+                        ? isLight ? 'bg-emerald-50/90 border border-emerald-200 text-emerald-800' : 'bg-emerald-950/35 border border-emerald-800/50 text-emerald-200'
+                        : isLight ? 'bg-rose-50/90 border border-rose-200 text-rose-800' : 'bg-rose-950/35 border border-rose-800/50 text-rose-200'
+                }`}>
                     <div className="flex items-center gap-2">
-                        {isApto ? <CheckCircle size={16} className={iconColorClass} /> : <XCircle size={16} className={iconColorClass} />}
-                        <span className={`font-semibold ${textColorClass}`}>{decisionActual.decision}</span>
-                        <span className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>· {decisionActual.actor_nombre}</span>
-                        <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>· {new Date(decisionActual.fecha).toLocaleString()}</span>
+                        {decisionActual.decision === 'APTO' ? (
+                            <CheckCircle size={16} className={isLight ? 'text-emerald-600' : 'text-emerald-400'} />
+                        ) : (
+                            <XCircle size={16} className={isLight ? 'text-rose-600' : 'text-rose-400'} />
+                        )}
+                        <span className={`font-semibold ${
+                            decisionActual.decision === 'APTO'
+                                ? isLight ? 'text-emerald-700' : 'text-emerald-300'
+                                : isLight ? 'text-rose-700' : 'text-rose-300'
+                        }`}>
+                            {decisionActual.decision}
+                        </span>
+                        <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
+                            por {decisionActual.actor_nombre || decisionActual.decidido_por_nombre || 'Usuario'}
+                        </span>
+                        <span className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-400'}`}>
+                            {new Date(decisionActual.fecha).toLocaleString('es-CO')}
+                        </span>
                     </div>
-                    <p className={`text-sm mt-1 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}><span className={`font-medium ${isLight ? 'text-slate-800' : 'text-slate-100'}`}>Justificación:</span> {decisionActual.justificacion}</p>
-                    {historialDec.length > 1 && (
-                        <details className="mt-2 text-xs">
-                            <summary className="text-blue-600 cursor-pointer font-medium hover:underline">Ver historial ({historialDec.length - 1} versiones anteriores)</summary>
-                            {historialDec.slice(1).map(renderHistoryItem)}
-                        </details>
-                    )}
+                    <p className={`text-sm mt-1 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
+                        <span className="font-medium">Justificación:</span> {decisionActual.justificacion}
+                    </p>
                 </div>
             ) : (
-                <p className="text-xs text-gray-500">Sin decisión tomada.</p>
+                <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
+                    <p className={`text-sm ${subtleTextClass}`}>Sin decisión tomada</p>
+                </div>
             )}
 
             {puedeDecidir && (
-                <div className="mt-3">
-                    <div className="flex gap-2 mb-2">
-                        <button type="button" onClick={() => { setDecision('APTO'); setError(''); }} className={`flex-1 p-2 rounded-lg border text-sm flex justify-center gap-1 items-center transition-colors font-medium ${decision === 'APTO' ? 'border-green-600 bg-green-600 text-white shadow-sm' : 'border-slate-300 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:border-slate-400'}`}><CheckCircle size={16} className={decision === 'APTO' ? 'text-white' : 'text-green-600'} /> Apto</button>
-                        <button type="button" onClick={() => { setDecision('NO_APTO'); setError(''); }} className={`flex-1 p-2 rounded-lg border text-sm flex justify-center gap-1 items-center transition-colors font-medium ${decision === 'NO_APTO' ? 'border-red-600 bg-red-600 text-white shadow-sm' : 'border-slate-300 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:border-slate-400'}`}><XCircle size={16} className={decision === 'NO_APTO' ? 'text-white' : 'text-red-600'} /> No Apto</button>
+                <div className="mt-3 space-y-3">
+                    <div className="flex gap-4">
+                        <button
+                            type="button"
+                            onClick={() => { setDecision('APTO'); setError(''); }}
+                            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                                decision === 'APTO'
+                                    ? isLight ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-emerald-600/60 bg-emerald-900/30 text-emerald-300'
+                                    : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-700/50'
+                            }`}
+                            disabled={loading}
+                        >
+                            <CheckCircle size={16} className={decision === 'APTO' ? 'text-emerald-600' : 'text-slate-400'} />
+                            <span>Apto</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setDecision('NO_APTO'); setError(''); }}
+                            className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                                decision === 'NO_APTO'
+                                    ? isLight ? 'border-rose-400 bg-rose-100 text-rose-800 shadow-sm' : 'border-rose-600/60 bg-rose-900/30 text-rose-300'
+                                    : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-rose-300' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-rose-700/50'
+                            }`}
+                            disabled={loading}
+                        >
+                            <XCircle size={16} className={decision === 'NO_APTO' ? 'text-rose-600' : 'text-slate-400'} />
+                            <span>No apto</span>
+                        </button>
                     </div>
-                    <textarea value={justificacion} onChange={(e) => { setJustificacion(e.target.value); setError(''); }} placeholder="Justificación de la decisión..." className={`w-full min-h-[60px] ${field}`} />
-                    <button type="button" onClick={handleGuardarDecision} disabled={loading} className="mt-2 px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">Guardar Decisión</button>
+                    <div>
+                        <label className={`text-xs font-medium ${subtleTextClass}`}>Justificación <span className="text-red-500">*</span></label>
+                        <textarea
+                            value={justificacion}
+                            onChange={(e) => { if (e.target.value.length <= 500) { setJustificacion(e.target.value); setError(''); } }}
+                            placeholder="Explica los motivos de tu decisión..."
+                            className={`w-full min-h-[60px] resize-y ${field}`}
+                            disabled={loading}
+                        />
+                    </div>
+                    <div className="flex justify-end">
+                        <button
+                            type="button"
+                            onClick={handleGuardarDecision}
+                            disabled={loading || !decision || !justificacion.trim()}
+                            className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {loading ? 'Guardando...' : 'Guardar decisión'}
+                        </button>
+                    </div>
                 </div>
+            )}
+            {!puedeDecidir && (
+                <p className="text-xs text-gray-400 mt-1">Solo GP puede tomar decisiones de aptitud</p>
             )}
         </div>
     );
@@ -168,8 +227,7 @@ export function ReubicacionesDetalleModal({
     isOpen, onClose, row, token, auth, 
     editForm, setEditForm, submitEdit, canEdit, editSaving 
 }) {
-    const { isLight, field, labelMuted, headingAccent } = useModuleTheme();
-    const dash = buildGestionTableDash(Boolean(isLight));
+    const { isLight, field, labelMuted } = useModuleTheme();
 
     const [observacion, setObservacion] = useState('');
     const [observacionActual, setObservacionActual] = useState(null);
@@ -178,7 +236,6 @@ export function ReubicacionesDetalleModal({
     const [decision, setDecision] = useState('');
     const [justificacion, setJustificacion] = useState('');
     const [decisionActual, setDecisionActual] = useState(null);
-    const [historialDec, setHistorialDec] = useState([]);
     
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -189,6 +246,13 @@ export function ReubicacionesDetalleModal({
 
     const puedeEscribirObs = canRegisterObservacion(auth);
     const puedeDecidir = canDecideAptitud(auth);
+
+    const infoCardClass = isLight
+        ? 'rounded-lg p-2.5 shadow-none bg-transparent'
+        : 'rounded-lg p-2.5 shadow-none bg-transparent';
+    const infoLabelClass = isLight ? 'text-xs font-medium text-slate-500' : 'text-xs font-medium text-slate-400';
+    const infoValueClass = isLight ? 'mt-0.5 font-semibold text-slate-700' : 'mt-0.5 font-semibold text-slate-200';
+    const textCapitalizedClass = 'capitalize';
 
     useEffect(() => {
         if (isOpen && row?.id) cargarContextoAptitud();
@@ -202,7 +266,6 @@ export function ReubicacionesDetalleModal({
                 setObservacionActual(data.observacion || null);
                 setHistorialObs(data.historialObs || []);
                 setDecisionActual(data.decision || null);
-                setHistorialDec(data.historialDec || []);
             }
         } catch (e) {
             console.error('Error cargando contexto aptitud:', e);
@@ -247,44 +310,104 @@ export function ReubicacionesDetalleModal({
     if (!isOpen || !row) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={onClose} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onClose(); }} />
-            <div className={`relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl border p-6 shadow-xl ${isLight ? 'border-slate-200 bg-white' : 'border-[var(--border)] bg-[var(--surface)]'}`}>
-                <h2 className={`text-lg font-heading font-bold mb-4 ${headingAccent}`}>Detalle y Seguimiento de Reubicación</h2>
-                <p className={`text-xs ${labelMuted} mb-4`}>Cédula {row.cedula} · {row.consultor || 'Consultor'}</p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <FormInformacionPipeline isLight={isLight} field={field} labelMuted={labelMuted} editForm={editForm} setEditForm={setEditForm} submitEdit={submitEdit} canEdit={canEdit} editSaving={editSaving} />
-
-                    <div className="space-y-6">
-                        <div>
-                            <h3 className={`text-sm font-semibold mb-2 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>Evaluación de Desempeño</h3>
-                            <div className={`p-3 rounded-lg border ${isLight ? 'border-slate-200 bg-slate-50' : 'border-slate-700 bg-slate-800/50'}`}>
-                                <p className={`text-sm italic ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>Sin evaluación</p>
-                            </div>
+        <MonitorGlassModalShell
+            open={isOpen}
+            onClose={onClose}
+            title="Detalle de reubicación"
+            subtitle={`Cédula ${row.cedula} · ${row.consultor || 'Consultor'}`}
+            avatarLetter={row.consultor?.[0] || row.cedula?.[0] || 'R'}
+            bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-6 pt-2"
+        >
+            {/* CONTENIDO CON SCROLL PROPIO */}
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto custom-scrollbar pr-1">
+                <div className="space-y-4 font-body">
+                    {/* INFO DEL CASO (GRID HU-07) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        <div className={infoCardClass}>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Cédula</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cedula}</p>
                         </div>
+                        <div className={infoCardClass}>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Consultor</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.consultor || '—'}</p>
+                        </div>
+                        <div className={infoCardClass}>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Cliente actual</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cliente_actual || '—'}</p>
+                        </div>
+                        <div className={infoCardClass}>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Cliente destino</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cliente_destino || '—'}</p>
+                        </div>
+                        <div className={infoCardClass}>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Salario</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{formatMontoDisplay(row.salario, row.moneda_salario || row.moneda || row.montos_divisa?.salario)}</p>
+                        </div>
+                        <div className={infoCardClass}>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Tipo ficha</p>
+                            <p className={`${infoValueClass} uppercase font-bold text-sky-600 dark:text-sky-400`}>{row.tipo_ficha || '—'}</p>
+                        </div>
+                        <div className={infoCardClass}>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Fecha de fin</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{String(row.fecha_fin || '').slice(0, 10) || '—'}</p>
+                        </div>
+                        <div className={infoCardClass}>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Días restantes</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.dias_restantes != null ? row.dias_restantes : '—'}</p>
+                        </div>
+                        <div className={`${infoCardClass} sm:col-span-2`}>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Estado</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.estado || row.semaforo || '—'}</p>
+                            {(String(row.estado || '').startsWith('Con novedad') || row.motivo) && (
+                                <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">
+                                    <strong>Razón:</strong> {row.motivo || 'Faltan datos o inconsistencia en la ficha'}
+                                </p>
+                            )}
+                        </div>
+                    </div>
 
-                        <PanelObservacionCH 
-                            isLight={isLight} field={field} 
-                            observacionActual={observacionActual} historialObs={historialObs} 
-                            puedeEscribirObs={puedeEscribirObs} observacion={observacion} 
-                            setObservacion={setObservacion} handleGuardarObservacion={handleGuardarObservacion} 
-                            loading={loading} setError={setError} 
-                        />
-                        <PanelDecisionGP 
-                            isLight={isLight} field={field} 
-                            decisionActual={decisionActual} historialDec={historialDec} 
-                            puedeDecidir={puedeDecidir} decision={decision} setDecision={setDecision} 
-                            justificacion={justificacion} setJustificacion={setJustificacion} 
-                            handleGuardarDecision={handleGuardarDecision} loading={loading} setError={setError} 
+                    {/* EDICIÓN DE PIPELINE INLINE (Nuestro aporte de HU-05) */}
+                    <div className={`border-t border-slate-200/70 dark:border-slate-700 pt-3`}>
+                        <FormInformacionPipeline 
+                            isLight={isLight} field={field} labelMuted={labelMuted} 
+                            editForm={editForm} setEditForm={setEditForm} 
+                            submitEdit={submitEdit} canEdit={canEdit} editSaving={editSaving} 
                         />
                     </div>
+
+                    {/* OBSERVACION DE CH */}
+                    <PanelObservacionCH 
+                        isLight={isLight} field={field} 
+                        observacionActual={observacionActual} historialObs={historialObs} 
+                        puedeEscribirObs={puedeEscribirObs} observacion={observacion} 
+                        setObservacion={setObservacion} handleGuardarObservacion={handleGuardarObservacion} 
+                        loading={loading} setError={setError} 
+                    />
+
+                    {/* DECISION DE GP */}
+                    <PanelDecisionGP 
+                        isLight={isLight} field={field} 
+                        decisionActual={decisionActual} 
+                        puedeDecidir={puedeDecidir} decision={decision} setDecision={setDecision} 
+                        justificacion={justificacion} setJustificacion={setJustificacion} 
+                        handleGuardarDecision={handleGuardarDecision} loading={loading} setError={setError} 
+                    />
                 </div>
 
-                {error && <div className="mt-4 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-600">{error}</div>}
-                {success && <div className="mt-4 p-2 bg-green-50 border border-green-200 rounded text-sm text-green-600">{success}</div>}
-                <div className="mt-6 flex justify-end"><button type="button" className={dash.compactBtn} onClick={onClose}>Cerrar</button></div>
+                {/* MENSAJES DE ERROR / SUCCESS */}
+                <div className="mt-4">
+                    {error && (
+                        <div className={`rounded-lg p-3 text-sm ${isLight ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-rose-950/40 text-rose-300 border border-rose-900/50'}`}>
+                            {error}
+                        </div>
+                    )}
+                    {success && (
+                        <div className={`rounded-lg p-3 text-sm ${isLight ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-emerald-950/40 text-emerald-300 border border-emerald-900/50'}`}>
+                            {success}
+                        </div>
+                    )}
+                </div>
             </div>
-        </div>
+        </MonitorGlassModalShell>
     );
 }
