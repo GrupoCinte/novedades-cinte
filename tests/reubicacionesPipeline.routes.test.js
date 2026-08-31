@@ -177,7 +177,7 @@ test('GET /api/directorio/reubicaciones-pipeline 200 super_admin con contrato', 
     // dias_transcurridos será 0 porque estamos en domingo
     assert.equal(it.dias_transcurridos, 0);
     assert.equal(it.semaforo, undefined);
-    assert.equal(it.dias_restantes, undefined);
+    assert.equal(it.dias_restantes, null);
 });
 
 test('POST /api/directorio/reubicaciones-pipeline 201 super_admin', async () => {
@@ -197,4 +197,14 @@ test('POST /api/directorio/reubicaciones-pipeline 201 super_admin', async () => 
     assert.equal(res.body.item.cedula, '9876543210');
     assert.equal(res.body.item.estado, 'Pendiente');
     assert.equal(res.body.item.dias_transcurridos, 0);
+});
+
+test('GET historial técnico de cambios de fecha para un caso existente', async () => {
+    const app = buildApp('super_admin', buildPoolListNoSearch());
+    const res = await request(app)
+        .get('/api/directorio/reubicaciones-pipeline/11111111-1111-4111-8111-111111111111/eventos-origen');
+
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+    assert.deepEqual(res.body.items, []);
 });

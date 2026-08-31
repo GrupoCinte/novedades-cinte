@@ -1199,24 +1199,27 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         if (Object.keys(patch).length === 0 && tipo !== 'salida' && tipo !== 'cancelacion_salida') {
             throw Object.assign(new Error('Payload sin campos aplicables'), { status: 400 });
         }
-        if (tipo === 'salida' && !patch.fecha_termino && !normalized.fecha_termino) {
-            throw Object.assign(new Error('Salida sin fecha_termino'), { status: 400 });
-        }
+        // CA-05: Permitir que pase sin fecha_termino para que Reubicaciones la marque como "Con Novedad"
+        // if (tipo === 'salida' && !patch.fecha_termino && !normalized.fecha_termino) {
+        //     throw Object.assign(new Error('Salida sin fecha_termino'), { status: 400 });
+        // }
 
         const current = await loadColaboradorFull(pool, cedula);
         const clienteFicha = trimOrNull(normalized.cliente);
 
         if (tipo === 'salida') {
-            if (!clienteFicha) {
-                throw Object.assign(new Error('Salida sin cliente: no se puede cerrar el contrato'), { status: 400 });
+            const hasFecha = patch.fecha_termino || normalized.fecha_termino;
+            // CA-05: Si falta el cliente o la fecha, no intentamos cerrar el contrato aún.
+            // Se cerrará cuando resuelvan la novedad en Reubicaciones.
+            if (clienteFicha && hasFecha) {
+                await applyRegistroBajaColaborador(pool, cedula, {
+                    fecha_termino: patch.fecha_termino || normalized.fecha_termino,
+                    termino: patch.termino || normalized.termino,
+                    cliente: clienteFicha,
+                    actor,
+                    origen: origenZoho
+                });
             }
-            await applyRegistroBajaColaborador(pool, cedula, {
-                fecha_termino: patch.fecha_termino || normalized.fecha_termino,
-                termino: patch.termino || normalized.termino,
-                cliente: clienteFicha,
-                actor,
-                origen: origenZoho
-            });
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
             delete patch.termino;

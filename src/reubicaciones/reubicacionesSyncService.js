@@ -130,12 +130,16 @@ async function sincronizarConPipeline({
 
         const { fecha_fin, cliente_destino, causal } = computeFields(normalized, patch);
         
-        // CA-06: Datos incompletos
+        // CA-06 / CA-05: Datos incompletos
+        let faltantes = [];
+        if (!fecha_fin) faltantes.push('Fecha de término');
+        if (tipo_novedad === 'salida' && !causal) faltantes.push('Causal de salida');
+        
         let motivoNovedadForzada = null;
-        if (!fecha_fin) {
-            motivoNovedadForzada = 'Falta fecha_termino en webhook';
-        } else if (!colaboradorExiste) {
+        if (!colaboradorExiste) {
             motivoNovedadForzada = 'Colaborador no encontrado en base de datos';
+        } else if (faltantes.length > 0) {
+            motivoNovedadForzada = `Faltan datos obligatorios: ${faltantes.join(', ')}`;
         }
 
         const { estado, motivo } = calcularEstado({ 

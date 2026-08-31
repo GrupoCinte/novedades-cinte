@@ -711,9 +711,12 @@ function createDataLayer(deps) {
                     descripcion TEXT,
                     before_data JSONB,
                     after_data JSONB,
+                    origen TEXT,
                     fecha TIMESTAMPTZ DEFAULT NOW()
                 );
             `);
+            // Backfill para ambientes existentes que ya tienen la tabla sin la columna origen
+            await pool.query('ALTER TABLE reubicaciones_historial ADD COLUMN IF NOT EXISTS origen TEXT');
         } catch (error) {
             if (String(error?.code || '') === '42501') {
                 console.warn('[Reubicaciones] Permisos insuficientes para migración HU-02.');

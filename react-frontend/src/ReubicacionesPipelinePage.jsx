@@ -58,7 +58,7 @@ export function EstadoBadge({ estado, dias_transcurridos, isLight }) {
         );
     }
     if (s === 'En proceso') {
-        const diaStr = (dias_transcurridos != null && dias_transcurridos > 0) ? ` · día ${dias_transcurridos}` : '';
+        const diaStr = (dias_transcurridos != null && dias_transcurridos >= 0) ? ` · día ${dias_transcurridos}` : '';
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
@@ -158,6 +158,9 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const [editRow, setEditRow] = useState(null);
     const [editForm, setEditForm] = useState(emptyForm);
     const [editSaving, setEditSaving] = useState(false);
+
+    const [detailOpen, setDetailOpen] = useState(false);
+    const [detailRow, setDetailRow] = useState(null);
 
     const [confirmDeleteRow, setConfirmDeleteRow] = useState(null);
 
@@ -318,6 +321,11 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         }
     };
 
+    const openDetail = (row) => {
+        setDetailRow(row);
+        setDetailOpen(true);
+    };
+
     const openEdit = (row) => {
         setEditRow(row);
         setEditForm({
@@ -445,7 +453,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                                     </tr>
                                 ) : (
                                     items.map((row) => (
-                                        <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => openEdit(row)}>
+                                        <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => openDetail(row)}>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
                                             <td className={dash.tdName}>{row.consultor || '—'}</td>
                                             <td className={dash.tdCell}>{row.tipo_contrato || '—'}</td>
@@ -639,20 +647,68 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
             ) : null}
 
             {editOpen && editRow ? (
+                <div className={modalShell}>
+                    <div className={`relative w-full max-w-lg rounded-2xl border p-6 shadow-xl ${isLight ? 'border-slate-200 bg-white' : 'border-[var(--border)] bg-[var(--surface)]'}`}>
+                        <h2 className={`text-lg font-heading font-bold mb-4 ${headingAccent}`}>Editar seguimiento</h2>
+                        <form onSubmit={submitEdit} className="space-y-3">
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
+                                <input
+                                    {...nativeCalendarOnlyInputProps}
+                                    type="date"
+                                    className={`w-full ${field}`}
+                                    value={editForm.fecha_fin}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, fecha_fin: e.target.value }))}
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Cliente destino</label>
+                                <input
+                                    className={`w-full ${field}`}
+                                    value={editForm.cliente_destino}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, cliente_destino: e.target.value }))}
+                                />
+                            </div>
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Causal</label>
+                                <input
+                                    className={`w-full ${field}`}
+                                    value={editForm.causal}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, causal: e.target.value }))}
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button type="button" className={dash.compactBtn} onClick={() => { setEditOpen(false); setEditRow(null); }}>
+                                    Cancelar
+                                </button>
+                                <button type="submit" disabled={editSaving} className={toolbarBtn}>
+                                    {editSaving ? 'Guardando…' : 'Guardar'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            ) : null}
+
+            {detailOpen && detailRow ? (
                 <ReubicacionesDetalleModal
-                    isOpen={editOpen}
+                    isOpen={detailOpen}
                     onClose={() => {
-                        setEditOpen(false);
-                        setEditRow(null);
+                        setDetailOpen(false);
+                        setDetailRow(null);
                     }}
-                    row={editRow}
+                    row={detailRow}
                     token={token}
                     auth={auth}
-                    editForm={editForm}
-                    setEditForm={setEditForm}
-                    submitEdit={submitEdit}
-                    canEdit={canEdit}
-                    editSaving={editSaving}
+                    onEdit={(row) => {
+                        setDetailOpen(false);
+                        openEdit(row);
+                    }}
+                    onDelete={(row) => {
+                        setDetailOpen(false);
+                        setConfirmDeleteRow(row);
+                    }}
                 />
             ) : null}
 

@@ -435,6 +435,10 @@ function registerDirectorioRoutes(deps) {
             consultor: row.consultor,
             tipo_contrato: row.tipo_contrato,
             cliente_actual: row.cliente_actual,
+            puesto: row.puesto,
+            salario: row.salario != null ? Number(row.salario) : null,
+            auxilios: row.auxilios != null ? Number(row.auxilios) : null,
+            tipo_ficha: row.tipo_ficha,
             tarifa_cliente: row.tarifa_cliente != null ? Number(row.tarifa_cliente) : null,
             montos_divisa: row.montos_divisa ?? null,
             created_at: row.created_at,
@@ -1016,11 +1020,15 @@ function registerDirectorioRoutes(deps) {
                     rp.cliente_destino,
                     rp.causal,
                     rp.motivo_novedad,
+                    rp.tipo_ficha,
                     rp.created_at,
                     rp.updated_at,
                     c.nombre AS consultor,
                     c.tipo_contrato,
                     c.cliente AS cliente_actual,
+                    c.perfil_cargo AS puesto,
+                    c.sueldo_nomina AS salario,
+                    c.otros_ingresos AS auxilios,
                     c.tarifa_cliente,
                     c.montos_divisa
                 FROM reubicaciones_pipeline rp
@@ -1134,14 +1142,18 @@ function registerDirectorioRoutes(deps) {
                     fecha_actual: hoy 
                 });
                 let dias_transcurridos = 0;
+                let dias_restantes = null;
                 if (estado === ESTADOS.EN_PROCESO) {
                     dias_transcurridos = diasHabilesTranscurridos(base.fecha_fin, hoy, festivosSet);
+                } else if (estado === ESTADOS.PENDIENTE) {
+                    dias_restantes = diasHabilesTranscurridos(hoy, base.fecha_fin, festivosSet);
                 }
                 return {
                     ...base,
                     estado,
                     motivo,
-                    dias_transcurridos
+                    dias_transcurridos,
+                    dias_restantes
                 };
             });
 
@@ -1251,13 +1263,20 @@ function registerDirectorioRoutes(deps) {
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
                 return res.status(400).json({ ok: false, error: 'Id inválido' });
             }
-            const q = await pool.query(`SELECT c.cliente FROM reubicaciones_pipeline rp INNER JOIN colaboradores c ON c.cedula = rp.cedula WHERE rp.id = $1::uuid`, [id]);
+            const q = await pool.query(
+                `SELECT c.cliente, rp.fecha_fin, rp.causal, rp.tipo_ficha, rp.motivo_novedad
+                 FROM reubicaciones_pipeline rp
+                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 WHERE rp.id = $1::uuid`,
+                [id]
+            );
             if (!q.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
             await assertGpClienteAsignado(req, q.rows[0].cliente);
 
             const parsed = reubicacionesPipelinePatchSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const d = parsed.data;
+            const current = q.rows[0];
             const sets = [];
             const vals = [];
             let n = 1;
@@ -1274,6 +1293,17 @@ function registerDirectorioRoutes(deps) {
             if (d.causal !== undefined) {
                 sets.push(`causal = $${n}`);
                 vals.push(textOrNull(d.causal));
+                n += 1;
+            }
+            const fechaFinEfectiva = d.fecha_fin !== undefined ? d.fecha_fin : current.fecha_fin;
+            const causalEfectiva = d.causal !== undefined ? textOrNull(d.causal) : current.causal;
+            const esSalida = String(current.tipo_ficha || '').toUpperCase() === 'SALIDA';
+            const motivoEsDatosFaltantes = String(current.motivo_novedad || '').startsWith('Faltan datos obligatorios:');
+            if (motivoEsDatosFaltantes && fechaFinEfectiva && (!esSalida || causalEfectiva)) {
+                const estadoRecalculado = calcularEstado({ fecha_fin: fechaFinEfectiva }).estado;
+                sets.push('motivo_novedad = NULL');
+                sets.push(`estado = $${n}`);
+                vals.push(estadoRecalculado);
                 n += 1;
             }
             if (sets.length === 0) return res.status(400).json({ ok: false, error: 'Sin cambios' });
@@ -1353,10 +1383,33 @@ function registerDirectorioRoutes(deps) {
             const observacion = await obtenerUltimaObservacion({ pipelineId, pool });
             const decision = await obtenerUltimaDecision({ pipelineId, pool });
             const historialObs = await obtenerHistorialObservaciones({ pipelineId, pool });
-            return res.json({ ok: true, observacion, decision, historialObs });
+            const historialDec = await obtenerHistorialDecisiones({ pipelineId, pool });
+            return res.json({ ok: true, observacion, decision, historialObs, historialDec });
         } catch (e) {
             console.error('GET aptitud-context:', e);
             return res.status(500).json({ ok: false, error: 'Error al obtener contexto de aptitud' });
+        }
+    });
+
+    // Historial técnico de eventos que modificaron la fecha de salida desde Zoho.
+    // Cada evento conserva la fecha anterior y la nueva, sin crear un segundo caso.
+    app.get('/api/directorio/reubicaciones-pipeline/:id/eventos-origen', ...reubReadGuard, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(pipelineId)) {
+                return res.status(400).json({ ok: false, error: 'Id inválido' });
+            }
+            const result = await pool.query(
+                `SELECT source_event_id, tipo_evento, fecha_anterior, fecha_nueva, processed_at
+                 FROM reubicaciones_source_events
+                 WHERE pipeline_id = $1::uuid
+                 ORDER BY processed_at DESC`,
+                [pipelineId]
+            );
+            return res.json({ ok: true, items: result.rows || [] });
+        } catch (e) {
+            console.error('GET eventos-origen:', e);
+            return res.status(500).json({ ok: false, error: 'Error al obtener el historial de cambios de fecha' });
         }
     });
 
