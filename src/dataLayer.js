@@ -2232,8 +2232,21 @@ function createDataLayer(deps) {
             );
             if (q.rows[0]?.id) return q.rows[0].id;
         }
-        const id = String(scope.gpUserId || '').trim();
-        return id || null;
+        const sub = String(scope.gpUserId || '').trim();
+        if (sub) {
+            const qSub = await pool.query(
+                `SELECT id::text AS id
+                 FROM users
+                 WHERE role = 'gp'::user_role
+                   AND cognito_sub = $1
+                 ORDER BY is_active DESC NULLS LAST, updated_at DESC NULLS LAST
+                 LIMIT 1`,
+                [sub]
+            );
+            if (qSub.rows[0]?.id) return qSub.rows[0].id;
+            return sub;
+        }
+        return null;
     }
 
     /**
