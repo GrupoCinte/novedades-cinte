@@ -676,7 +676,43 @@ function createDataLayer(deps) {
                     fecha_anterior DATE NULL,
                     fecha_nueva DATE NOT NULL,
                     processed_at TIMESTAMPTZ DEFAULT NOW()
-                )
+                );
+
+                CREATE TABLE IF NOT EXISTS reubicaciones_observaciones (
+                    id UUID PRIMARY KEY,
+                    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id),
+                    version INT NOT NULL,
+                    observacion TEXT NOT NULL,
+                    actor_user_id UUID REFERENCES users(id),
+                    actor_role TEXT,
+                    fecha TIMESTAMPTZ DEFAULT NOW(),
+                    idempotency_key TEXT UNIQUE,
+                    UNIQUE(pipeline_id, version)
+                );
+
+                CREATE TABLE IF NOT EXISTS reubicaciones_decisiones (
+                    id UUID PRIMARY KEY,
+                    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id),
+                    decision TEXT NOT NULL,
+                    justificacion TEXT,
+                    actor_user_id UUID REFERENCES users(id),
+                    actor_role TEXT,
+                    fecha TIMESTAMPTZ DEFAULT NOW(),
+                    idempotency_key TEXT UNIQUE
+                );
+
+                CREATE TABLE IF NOT EXISTS reubicaciones_historial (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    caso_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id),
+                    consultor_id UUID REFERENCES colaboradores(id),
+                    tipo TEXT NOT NULL,
+                    actor_nombre TEXT,
+                    actor_rol TEXT,
+                    descripcion TEXT,
+                    before_data JSONB,
+                    after_data JSONB,
+                    fecha TIMESTAMPTZ DEFAULT NOW()
+                );
             `);
         } catch (error) {
             if (String(error?.code || '') === '42501') {

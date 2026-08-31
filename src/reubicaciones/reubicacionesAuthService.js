@@ -17,8 +17,20 @@ function reubicacionesGuard(req, res, next) {
     next();
 }
 
+function canRegisterObservacion(req) {
+    const role = getReubicacionesRole(req);
+    return ['super_admin', 'admin_ch', 'team_ch'].includes(role);
+}
+
+function canDecideAptitud(req) {
+    const role = getReubicacionesRole(req);
+    return ['super_admin', 'gp'].includes(role);
+}
+
 module.exports = {
     getReubicacionesRole,
     userHasReubicacionesAccess,
-    reubicacionesGuard
+    reubicacionesGuard,
+    canRegisterObservacion,
+    canDecideAptitud
 };

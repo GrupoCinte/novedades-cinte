@@ -22,3 +22,13 @@ export function canDeleteReubicaciones(auth) {
     const role = getReubicacionesRole(auth);
     return ['super_admin', 'admin_ch'].includes(role);
 }
+
+export function canRegisterObservacion(auth) {
+    const role = getReubicacionesRole(auth);
+    return ['super_admin', 'admin_ch', 'team_ch'].includes(role);
+}
+
+export function canDecideAptitud(auth) {
+    const role = getReubicacionesRole(auth);
+    return ['super_admin', 'gp'].includes(role);
+}
