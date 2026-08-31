@@ -43,51 +43,41 @@ function formatTarifaDisplay(row) {
     return `${formatMoneyAmountOnly(num, ccy)}\u00A0${currencyNarrowSymbol(ccy)}`;
 }
 
-/** API devuelve Verde | Amarillo | Rojo | Vencido — etiquetas e iconos para UI. */
-function SemaforoBadge({ code, isLight }) {
-    const s = String(code || '');
-    if (s === 'Verde') {
+/** Componente visual para estado de reubicaciones HU-05 */
+export function EstadoBadge({ estado, dias_transcurridos, isLight }) {
+    const s = String(estado || '');
+    if (s === 'Pendiente') {
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
                     isLight ? 'bg-emerald-100 text-emerald-900' : 'bg-emerald-900/45 text-emerald-100'
                 }`}
             >
-                Proyectado
+                Pendiente
             </span>
         );
     }
-    if (s === 'Amarillo') {
+    if (s === 'En proceso') {
+        const diaStr = (dias_transcurridos != null && dias_transcurridos >= 0) ? ` · día ${dias_transcurridos}` : '';
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
                     isLight ? 'bg-amber-100 text-amber-950' : 'bg-amber-900/45 text-amber-100'
                 }`}
             >
-                En riesgo
+                {`En proceso${diaStr}`}
                 <AlertTriangle className={isLight ? 'h-3 w-3 shrink-0 text-amber-700' : 'h-3 w-3 shrink-0 text-amber-200'} aria-hidden />
             </span>
         );
     }
-    if (s === 'Rojo') {
+    if (s === 'Con novedad') {
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
                     isLight ? 'bg-red-200/95 text-red-950' : 'bg-red-950/50 text-red-100'
                 }`}
             >
-                Urgente
-            </span>
-        );
-    }
-    if (s === 'Vencido') {
-        return (
-            <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    isLight ? 'bg-red-700 text-white' : 'bg-red-700 text-white'
-                }`}
-            >
-                Vencido
+                Con novedad
                 <AlertTriangle className="h-3 w-3 shrink-0 text-red-100" aria-hidden />
             </span>
         );
@@ -99,15 +89,15 @@ function SemaforoBadge({ code, isLight }) {
     );
 }
 
-const SEMAFORO_CODES = ['Verde', 'Amarillo', 'Rojo', 'Vencido'];
-const SEMAFORO_LABELS = { Verde: 'Proyectado', Amarillo: 'En riesgo', Rojo: 'Urgente', Vencido: 'Vencido' };
+const ESTADO_CODES = ['Pendiente', 'En proceso', 'Con novedad'];
+const ESTADO_LABELS = { 'Pendiente': 'Pendiente', 'En proceso': 'En proceso', 'Con novedad': 'Con novedad' };
 
 function emptyForm() {
     return { cedula: '', fecha_fin: '', cliente_destino: '', causal: '' };
 }
 
 /**
- * @typedef {{ seq: number, reset?: boolean, fechaFinDesde?: string, fechaFinHasta?: string, semaforo?: string }} PipelineNavIntent
+ * @typedef {{ seq: number, reset?: boolean, fechaFinDesde?: string, fechaFinHasta?: string, estado?: string }} PipelineNavIntent
  */
 
 export default function ReubicacionesPipelinePage(props) {
@@ -156,8 +146,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
 
     const [fechaFinDesde, setFechaFinDesde] = useState('');
     const [fechaFinHasta, setFechaFinHasta] = useState('');
-    /** '' = todos; valor API: Verde | Amarillo | Rojo | Vencido */
-    const [semaforoFiltro, setSemaforoFiltro] = useState('');
+    const [estadoFiltro, setEstadoFiltro] = useState('');
 
     const [sort, setSort] = useState({ key: null, dir: 'asc' });
 
@@ -169,6 +158,9 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const [editRow, setEditRow] = useState(null);
     const [editForm, setEditForm] = useState(emptyForm);
     const [editSaving, setEditSaving] = useState(false);
+
+    const [detailOpen, setDetailOpen] = useState(false);
+    const [detailRow, setDetailRow] = useState(null);
 
     const [confirmDeleteRow, setConfirmDeleteRow] = useState(null);
 
@@ -218,10 +210,10 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                 q: appliedQ,
                 fechaFinDesde,
                 fechaFinHasta,
-                semaforo: semaforoFiltro,
+                estado: estadoFiltro,
                 pageSize
             }),
-        [appliedQ, fechaFinDesde, fechaFinHasta, semaforoFiltro, pageSize]
+        [appliedQ, fechaFinDesde, fechaFinHasta, estadoFiltro, pageSize]
     );
 
     const clearFilters = useCallback(() => {
@@ -229,7 +221,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         setAppliedQ(REUBICACIONES_FILTER_DEFAULTS.q);
         setFechaFinDesde(REUBICACIONES_FILTER_DEFAULTS.fechaFinDesde);
         setFechaFinHasta(REUBICACIONES_FILTER_DEFAULTS.fechaFinHasta);
-        setSemaforoFiltro(REUBICACIONES_FILTER_DEFAULTS.semaforo);
+        setEstadoFiltro(REUBICACIONES_FILTER_DEFAULTS.estado);
         setPageSize(REUBICACIONES_FILTER_DEFAULTS.pageSize);
         setPage(1);
     }, []);
@@ -251,7 +243,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
             if (qq) u.set('q', qq);
             if (fechaFinDesde) u.set('fecha_fin_desde', fechaFinDesde);
             if (fechaFinHasta) u.set('fecha_fin_hasta', fechaFinHasta);
-            if (semaforoFiltro) u.set('semaforo', semaforoFiltro);
+            if (estadoFiltro) u.set('estado', estadoFiltro);
             if (sort.key) {
                 u.set('sort', sort.key);
                 u.set('dir', sort.dir);
@@ -271,7 +263,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         } finally {
             setLoading(false);
         }
-    }, [token, pageSize, offset, appliedQ, fechaFinDesde, fechaFinHasta, semaforoFiltro, sort]);
+    }, [token, pageSize, offset, appliedQ, fechaFinDesde, fechaFinHasta, estadoFiltro, sort]);
 
     useEffect(() => {
         load();
@@ -284,7 +276,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         if (navIntent?.reset) {
             setFechaFinDesde('');
             setFechaFinHasta('');
-            setSemaforoFiltro('');
+            setEstadoFiltro('');
             setAppliedQ('');
             setQ('');
             setPage(1);
@@ -292,7 +284,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         }
         setFechaFinDesde(navIntent?.fechaFinDesde != null ? String(navIntent.fechaFinDesde) : '');
         setFechaFinHasta(navIntent?.fechaFinHasta != null ? String(navIntent.fechaFinHasta) : '');
-        setSemaforoFiltro(navIntent?.semaforo != null ? String(navIntent.semaforo) : '');
+        setEstadoFiltro(navIntent?.estado != null ? String(navIntent.estado) : '');
         setPage(1);
     }, [navIntent?.seq]);
 
@@ -327,6 +319,11 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         } finally {
             setCreateSaving(false);
         }
+    };
+
+    const openDetail = (row) => {
+        setDetailRow(row);
+        setDetailOpen(true);
     };
 
     const openEdit = (row) => {
@@ -435,10 +432,9 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                                     <Th colKey="tipo_contrato" label="Tipo contrato" />
                                     <Th colKey="cliente_actual" label="Cliente actual" />
                                     <Th colKey="cliente_destino" label="Cliente destino" />
-                                    <Th colKey="causal" label="Causal" />
                                     <Th colKey="fecha_fin" label="Fecha fin" />
-                                    <Th colKey="dias_restantes" label="Días rest." align="right" />
-                                    <Th colKey="semaforo" label="Semáforo" />
+                                    <Th colKey="estado" label="Estado" />
+                                    <Th colKey="causal" label="Causal" />
                                     <Th colKey="tarifa" label="Tarifa actual" />
                                 </tr>
                             </thead>
@@ -457,23 +453,20 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                                     </tr>
                                 ) : (
                                     items.map((row) => (
-                                        <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => openEdit(row)}>
+                                        <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => openDetail(row)}>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
                                             <td className={dash.tdName}>{row.consultor || '—'}</td>
                                             <td className={dash.tdCell}>{row.tipo_contrato || '—'}</td>
                                             <td className={dash.tdCell}>{row.cliente_actual || '—'}</td>
                                             <td className={dash.tdCell}>{row.cliente_destino || '—'}</td>
-                                            <td className={dash.tdCell} title={row.causal || ''}>
-                                                {row.causal || '—'}
-                                            </td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
                                                 {String(row.fecha_fin || '').slice(0, 10)}
                                             </td>
-                                            <td className={`${dash.tdMuted} text-right whitespace-nowrap`}>
-                                                {row.dias_restantes != null ? row.dias_restantes : '—'}
-                                            </td>
                                             <td className="p-4 whitespace-nowrap">
-                                                <SemaforoBadge code={row.semaforo} isLight={isLight} />
+                                                <EstadoBadge estado={row.estado} dias_transcurridos={row.dias_transcurridos} isLight={isLight} />
+                                            </td>
+                                            <td className={dash.tdCell} title={row.motivo || row.causal || ''}>
+                                                {row.motivo || row.causal || '—'}
                                             </td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
                                                 {formatTarifaDisplay(row)}
@@ -560,20 +553,19 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                     />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                    <label htmlFor="reubicaciones-drawer-semaforo" className={dash.filtrosDrawerLabel}>
-                        Semáforo
+                    <label htmlFor="reubicaciones-drawer-estado" className={dash.filtrosDrawerLabel}>
+                        Estado
                     </label>
                     <select
-                        id="reubicaciones-drawer-semaforo"
+                        id="reubicaciones-drawer-estado"
                         className={`${field} w-full text-sm`}
-                        value={semaforoFiltro}
-                        onChange={(e) => setSemaforoFiltro(e.target.value)}
+                        value={estadoFiltro}
+                        onChange={(e) => setEstadoFiltro(e.target.value)}
                     >
                         <option value="">Todos</option>
-                        <option value="Amarillo,Rojo,Vencido">En riesgo (amarillo + urgente + vencido)</option>
-                        {SEMAFORO_CODES.map((code) => (
+                        {ESTADO_CODES.map((code) => (
                             <option key={code} value={code}>
-                                {SEMAFORO_LABELS[code]}
+                                {ESTADO_LABELS[code]}
                             </option>
                         ))}
                     </select>
@@ -655,20 +647,68 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
             ) : null}
 
             {editOpen && editRow ? (
+                <div className={modalShell}>
+                    <div className={`relative w-full max-w-lg rounded-2xl border p-6 shadow-xl ${isLight ? 'border-slate-200 bg-white' : 'border-[var(--border)] bg-[var(--surface)]'}`}>
+                        <h2 className={`text-lg font-heading font-bold mb-4 ${headingAccent}`}>Editar seguimiento</h2>
+                        <form onSubmit={submitEdit} className="space-y-3">
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
+                                <input
+                                    {...nativeCalendarOnlyInputProps}
+                                    type="date"
+                                    className={`w-full ${field}`}
+                                    value={editForm.fecha_fin}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, fecha_fin: e.target.value }))}
+                                    required
+                                />
+                            </div>
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Cliente destino</label>
+                                <input
+                                    className={`w-full ${field}`}
+                                    value={editForm.cliente_destino}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, cliente_destino: e.target.value }))}
+                                />
+                            </div>
+                            <div>
+                                <label className={`block text-xs ${labelMuted} mb-1`}>Causal</label>
+                                <input
+                                    className={`w-full ${field}`}
+                                    value={editForm.causal}
+                                    onChange={(e) => setEditForm((f) => ({ ...f, causal: e.target.value }))}
+                                />
+                            </div>
+                            <div className="flex justify-end gap-2 pt-2">
+                                <button type="button" className={dash.compactBtn} onClick={() => { setEditOpen(false); setEditRow(null); }}>
+                                    Cancelar
+                                </button>
+                                <button type="submit" disabled={editSaving} className={toolbarBtn}>
+                                    {editSaving ? 'Guardando…' : 'Guardar'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            ) : null}
+
+            {detailOpen && detailRow ? (
                 <ReubicacionesDetalleModal
-                    isOpen={editOpen}
+                    isOpen={detailOpen}
                     onClose={() => {
-                        setEditOpen(false);
-                        setEditRow(null);
+                        setDetailOpen(false);
+                        setDetailRow(null);
                     }}
-                    row={editRow}
+                    row={detailRow}
                     token={token}
                     auth={auth}
-                    editForm={editForm}
-                    setEditForm={setEditForm}
-                    submitEdit={submitEdit}
-                    canEdit={canEdit}
-                    editSaving={editSaving}
+                    onEdit={(row) => {
+                        setDetailOpen(false);
+                        openEdit(row);
+                    }}
+                    onDelete={(row) => {
+                        setDetailOpen(false);
+                        setConfirmDeleteRow(row);
+                    }}
                 />
             ) : null}
 

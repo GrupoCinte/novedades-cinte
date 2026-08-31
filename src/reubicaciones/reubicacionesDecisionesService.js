@@ -34,15 +34,25 @@ async function registrarDecision({ pipelineId, decision, justificacion, decidido
             return { status: 200, body: { ok: true, data: existing, message: 'Decisión ya registrada (Idempotente)' } };
         }
 
-        // 3. Obtener decisión anterior para historial
-        const prevRes = await client.query('SELECT decision FROM reubicaciones_decisiones WHERE pipeline_id = $1 ORDER BY fecha DESC LIMIT 1', [pipelineId]);
-        const decisionAnterior = prevRes.rows[0]?.decision || null;
+        // 3. La decisión es única e inmutable una vez registrada.
+        const existingDecisionRes = await client.query(
+            'SELECT id FROM reubicaciones_decisiones WHERE pipeline_id = $1 LIMIT 1',
+            [pipelineId]
+        );
+        if (existingDecisionRes.rows.length > 0) {
+            await client.query('ROLLBACK');
+            return {
+                status: 409,
+                body: { ok: false, error: 'Ya existe una decisión de aptitud para este caso y no puede modificarse.' }
+            };
+        }
 
         // 4. Inserción
         const result = await client.query(
             `INSERT INTO reubicaciones_decisiones 
              (id, pipeline_id, decision, justificacion, actor_user_id, actor_role, idempotency_key, fecha)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP) RETURNING *`,
+             VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+             RETURNING *`,
             [uuidv4(), pipelineId, decision, justificacion.trim(), decididoPor.user_id, decididoPor.role, idempotencyKey]
         );
 
@@ -55,7 +65,7 @@ async function registrarDecision({ pipelineId, decision, justificacion, decidido
             tipo: 'decision_aptitud',
             actor: decididoPor,
             descripcion: `Decisión registrada: ${decision}`,
-            beforeData: decisionAnterior ? { decision: decisionAnterior } : null,
+            beforeData: null,
             afterData: { decision, justificacion: justificacion.trim() }
         });
 
@@ -92,10 +102,15 @@ async function obtenerUltimaDecision({ pipelineId, pool }) {
     }
 }
 
+/**
+ * Devuelve todas las decisiones de un pipeline en orden descendente por fecha.
+ * Con la regla de inmutabilidad solo habrá una fila, pero la función se mantiene
+ * para trazabilidad histórica y compatibilidad con el endpoint aptitud-context.
+ */
 async function obtenerHistorialDecisiones({ pipelineId, pool }) {
     try {
         const result = await pool.query(
-            `SELECT d.*, u.email, u.full_name as actor_nombre
+            `SELECT d.*, u.email, u.full_name AS actor_nombre
              FROM reubicaciones_decisiones d
              LEFT JOIN users u ON d.actor_user_id = u.id
              WHERE d.pipeline_id = $1

@@ -59,7 +59,7 @@ test('HU-02 Sincronización Idempotente de Reubicaciones (AUT-293)', async (t) =
         const res = await sincronizarConPipeline({
             cedula: '12345678',
             tipo_novedad: 'salida',
-            normalized: { fecha_termino: '2050-01-01' },
+            normalized: { fecha_termino: '2050-01-01', causal: 'Renuncia voluntaria' },
             external_id: 'evt1',
             pool: mockPool
         });
@@ -82,7 +82,7 @@ test('HU-02 Sincronización Idempotente de Reubicaciones (AUT-293)', async (t) =
         const res = await sincronizarConPipeline({
             cedula: '12345678',
             tipo_novedad: 'salida',
-            normalized: { fecha_termino: hoy },
+            normalized: { fecha_termino: hoy, causal: 'Renuncia voluntaria' },
             external_id: 'evt2',
             pool: mockPool
         });
@@ -121,7 +121,7 @@ test('HU-02 Sincronización Idempotente de Reubicaciones (AUT-293)', async (t) =
         const res = await sincronizarConPipeline({
             cedula: '12345678',
             tipo_novedad: 'salida',
-            normalized: { fecha_termino: '2050-01-01' },
+            normalized: { fecha_termino: '2050-01-01', causal: 'Renuncia voluntaria' },
             external_id: 'evt_dup',
             pool: mockPool
         });
@@ -131,13 +131,13 @@ test('HU-02 Sincronización Idempotente de Reubicaciones (AUT-293)', async (t) =
         assert.ok(rollbackCall);
     });
 
-    await t.test('CA-06: Datos incompletos dejan el caso Con Novedad con el motivo', async () => {
+    await t.test('CA-05: Datos incompletos dejan el caso Con Novedad con el motivo', async () => {
         setupDB({ colabExists: false });
 
         const res = await sincronizarConPipeline({
             cedula: '12345678',
             tipo_novedad: 'salida',
-            normalized: { fecha_termino: '2050-01-01' },
+            normalized: { fecha_termino: '2050-01-01', causal: 'Renuncia voluntaria' },
             external_id: 'evt4',
             pool: mockPool
         });
@@ -146,7 +146,7 @@ test('HU-02 Sincronización Idempotente de Reubicaciones (AUT-293)', async (t) =
         assert.strictEqual(res.motivo, 'Colaborador no encontrado en base de datos');
     });
 
-    await t.test('Gherkin: Ficha sin fecha de termino arroja novedad prioritaria', async () => {
+    await t.test('Ficha sin fecha de término registra la novedad con todos los campos faltantes', async () => {
         setupDB();
 
         const res = await sincronizarConPipeline({
@@ -158,6 +158,33 @@ test('HU-02 Sincronización Idempotente de Reubicaciones (AUT-293)', async (t) =
         });
 
         assert.strictEqual(res.estado, ESTADOS.CON_NOVEDAD);
-        assert.strictEqual(res.motivo, 'Falta fecha_termino en webhook');
+        assert.strictEqual(res.motivo, 'Faltan datos obligatorios: Fecha de término, Causal de salida');
+    });
+
+    await t.test('CA-06: Corrección de fecha actualiza el único caso y conserva el historial técnico', async () => {
+        setupDB({ pipeExists: true });
+
+        const res = await sincronizarConPipeline({
+            cedula: '12345678',
+            tipo_novedad: 'salida',
+            normalized: { fecha_termino: '2050-01-03', causal: 'Renuncia voluntaria' },
+            external_id: 'evt_correccion_fecha',
+            pool: mockPool,
+            notifyService
+        });
+
+        assert.strictEqual(res.ok, true);
+        assert.strictEqual(res.pipeline_id, 'pipe1');
+        assert.strictEqual(res.es_extension, true);
+        assert.strictEqual(mockCalls.some(([sql]) => sql.includes('INSERT INTO reubicaciones_pipeline')), false);
+
+        const updateCall = mockCalls.find(([sql]) => sql.includes('UPDATE reubicaciones_pipeline'));
+        assert.ok(updateCall);
+        assert.strictEqual(updateCall[1][0], '2050-01-03');
+        assert.strictEqual(updateCall[1][7], 'pipe1');
+
+        const sourceEventCall = mockCalls.find(([sql]) => sql.includes('INSERT INTO reubicaciones_source_events'));
+        assert.ok(sourceEventCall);
+        assert.deepStrictEqual(sourceEventCall[1].slice(1, 5), ['pipe1', 'salida', '2020-01-01', '2050-01-03']);
     });
 });

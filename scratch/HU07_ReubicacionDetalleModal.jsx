@@ -1,14 +1,10 @@
-import { Pencil, Trash2, CheckCircle, XCircle } from 'lucide-react';
+﻿import { Pencil, Trash2, CheckCircle, XCircle } from 'lucide-react';
 import MonitorGlassModalShell from './shared/modals/MonitorGlassModalShell.jsx';
 import { useModuleTheme } from './moduleTheme.js';
 import { buildMonitorGlassModalTheme } from './shared/modals/monitorGlassModalTheme.js';
 import { formatMoneyAmountOnly } from './multiCurrencyMoney.js';
 import { useState, useEffect } from 'react';
-import {
-    canDecideAptitud as userCanDecideAptitud,
-    canRegisterObservacion as userCanRegisterObservacion,
-    canEditReubicaciones as userCanModifyReubicacion
-} from './reubicacionesAccess.js';
+import { userCanDecideAptitud, userCanRegisterObservacion, userCanModifyReubicacion } from './reubicaciones/reubicacionesAccess';
 
 function getCsrfToken() {
     const match = document.cookie.match(/cinteXsrf=([^;]+)/);
@@ -16,14 +12,14 @@ function getCsrfToken() {
 }
 
 function formatMontoDisplay(val, currencyCode = 'COP') {
-    if (val == null || val === '') return '—';
+    if (val == null || val === '') return 'ÔÇö';
     const num = Number(val);
-    if (!Number.isFinite(num)) return '—';
+    if (!Number.isFinite(num)) return 'ÔÇö';
     const ccy = currencyCode || 'COP';
     return `$ ${formatMoneyAmountOnly(num, ccy)}`;
 }
 
-export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, onEdit, onDelete }) {
+export function ReubicacionDetalleModal({ isOpen, onClose, row, token, auth, onEdit, onDelete }) {
     const { isLight } = useModuleTheme();
     const T = buildMonitorGlassModalTheme(isLight);
 
@@ -45,8 +41,6 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
     const puedeEscribirObs = userCanRegisterObservacion(auth);
     const puedeDecidir = userCanDecideAptitud(auth);
     const canModify = userCanModifyReubicacion(auth);
-    const decisionBloqueada = Boolean(decisionActual);
-    const decisionSeleccionada = decisionActual?.decision || decision;
 
     const infoCardClass = isLight
         ? 'rounded-lg p-2.5 shadow-none bg-transparent'
@@ -62,34 +56,39 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
     // Cargar datos al abrir el modal
     useEffect(() => {
         if (isOpen && row?.id) {
-            cargarContextoAptitud();
+            cargarObservacion();
+            cargarDecision();
         }
     }, [isOpen, row?.id]);
 
-    const cargarContextoAptitud = async () => {
+    // ============================================
+    // OBSERVACIONES
+    // ============================================
+    const cargarObservacion = async () => {
         try {
-            const res = await fetch(`/api/directorio/reubicaciones-pipeline/${row.id}/aptitud-context`, {
+            const res = await fetch(`/api/directorio/reubicaciones/${row.id}/observacion`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             const data = await res.json();
             if (data.ok) {
-                setObservacionActual(data.observacion || null);
-                setHistorialObs(data.historialObs || []);
-                setDecisionActual(data.decision || null);
-                setHistorialDec(data.historialDec || []);
+                setObservacionActual(data.data?.actual || null);
+                setHistorialObs(data.data?.historial || []);
+                if (data.data?.actual) {
+                    setObservacion(data.data.actual.observacion);
+                }
             }
         } catch (e) {
-            console.error('Error cargando contexto de aptitud:', e);
+            console.error('Error cargando observacion:', e);
         }
     };
 
     const handleGuardarObservacion = async () => {
         if (!observacion.trim()) {
-            setError('La observación no puede estar vacía');
+            setError('La observaci├│n no puede estar vac├¡a');
             return;
         }
         if (observacion.length > 1000) {
-            setError('La observación no puede exceder 1000 caracteres');
+            setError('La observaci├│n no puede exceder 1000 caracteres');
             return;
         }
 
@@ -99,49 +98,59 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
 
         try {
             const csrfToken = getCsrfToken();
-            const res = await fetch(`/api/directorio/reubicaciones-pipeline/${row.id}/observacion`, {
+            const res = await fetch(`/api/directorio/reubicaciones/${row.id}/observacion`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`,
-                    'x-cinte-xsrf': csrfToken,
-                    'Idempotency-Key': crypto.randomUUID()
+                    'x-cinte-xsrf': csrfToken
                 },
-                body: JSON.stringify({
-                    observacion: observacion.trim(),
-                    expectedVersion: observacionActual ? observacionActual.version : 0
-                })
+                body: JSON.stringify({ observacion: observacion.trim() })
             });
             const data = await res.json();
             if (data.ok) {
-                setSuccess('Observación guardada exitosamente');
-                await cargarContextoAptitud();
+                setSuccess('Observaci├│n guardada exitosamente');
+                await cargarObservacion();
                 setObservacion('');
             } else {
-                setError(data.error || 'Error al guardar observación');
+                setError(data.error || 'Error al guardar observaci├│n');
             }
         } catch (e) {
-            setError('Error al guardar observación');
+            setError('Error al guardar observaci├│n');
         } finally {
             setLoading(false);
         }
     };
 
-    const handleGuardarDecision = async () => {
-        if (decisionBloqueada) {
-            setError('La decisión de aptitud ya fue registrada y no puede modificarse.');
-            return;
+    // ============================================
+    // DECISIONES
+    // ============================================
+    const cargarDecision = async () => {
+        try {
+            const res = await fetch(`/api/directorio/reubicaciones/${row.id}/decision`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (data.ok) {
+                setDecisionActual(data.data?.actual || null);
+                setHistorialDec(data.data?.historial || []);
+            }
+        } catch (e) {
+            console.error('Error cargando decision:', e);
         }
+    };
+
+    const handleGuardarDecision = async () => {
         if (!decision) {
-            setError('Debes seleccionar una decisión (APTO o NO APTO)');
+            setError('Debes seleccionar una decisi├│n (APTO o NO APTO)');
             return;
         }
         if (!justificacion.trim()) {
-            setError('La justificación es obligatoria');
+            setError('La justificaci├│n es obligatoria');
             return;
         }
         if (justificacion.length > 500) {
-            setError('La justificación no puede exceder 500 caracteres');
+            setError('La justificaci├│n no puede exceder 500 caracteres');
             return;
         }
 
@@ -151,13 +160,12 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
 
         try {
             const csrfToken = getCsrfToken();
-            const res = await fetch(`/api/directorio/reubicaciones-pipeline/${row.id}/decision`, {
+            const res = await fetch(`/api/directorio/reubicaciones/${row.id}/decision`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`,
-                    'x-cinte-xsrf': csrfToken,
-                    'Idempotency-Key': crypto.randomUUID()
+                    'x-cinte-xsrf': csrfToken
                 },
                 body: JSON.stringify({
                     decision: decision,
@@ -166,15 +174,15 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
             });
             const data = await res.json();
             if (data.ok) {
-                setSuccess('Decisión guardada exitosamente');
-                await cargarContextoAptitud();
+                setSuccess('Decisi├│n guardada exitosamente');
+                await cargarDecision();
                 setDecision('');
                 setJustificacion('');
             } else {
-                setError(data.error || 'Error al guardar decisión');
+                setError(data.error || 'Error al guardar decisi├│n');
             }
         } catch (e) {
-            setError('Error al guardar decisión');
+            setError('Error al guardar decisi├│n');
         } finally {
             setLoading(false);
         }
@@ -221,36 +229,36 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
         <MonitorGlassModalShell
             open={isOpen}
             onClose={onClose}
-            title="Detalle de reubicación"
-            subtitle={`Cédula ${row.cedula} · ${row.consultor || 'Consultor'}`}
+            title="Detalle de reubicaci├│n"
+            subtitle={`C├®dula ${row.cedula} ┬À ${row.consultor || 'Consultor'}`}
             avatarLetter={row.consultor?.[0] || row.cedula?.[0] || 'R'}
             footer={footer}
             bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-6 pt-2"
         >
-            {/* CONTENIDO CON SCROLL PROPIO */}
+            {/* Ô£à CONTENIDO CON SCROLL PROPIO */}
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto custom-scrollbar pr-1">
                 <div className="space-y-4 font-body">
                     {/* INFO DEL CASO */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                         <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Cédula</p>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>C├®dula</p>
                             <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cedula}</p>
                         </div>
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Consultor</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.consultor || '—'}</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.consultor || 'ÔÇö'}</p>
                         </div>
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Cliente actual</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cliente_actual || '—'}</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cliente_actual || 'ÔÇö'}</p>
                         </div>
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Cliente destino</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cliente_destino || '—'}</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cliente_destino || 'ÔÇö'}</p>
                         </div>
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Puesto</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.puesto || '—'}</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.puesto || 'ÔÇö'}</p>
                         </div>
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Salario</p>
@@ -262,22 +270,22 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                         </div>
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Tipo ficha</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.tipo_ficha || '—'}</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.tipo_ficha || 'ÔÇö'}</p>
                         </div>
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Fecha de fin</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.fecha_fin || '—'}</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.fecha_fin || 'ÔÇö'}</p>
                         </div>
                         <div className={infoCardClass}>
-                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Días restantes</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.dias_restantes ?? '—'}</p>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>D├¡as restantes</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.dias_restantes ?? 'ÔÇö'}</p>
                         </div>
                         <div className={`${infoCardClass} sm:col-span-2`}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Estado</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.estado || row.semaforo || '—'}</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.estado || row.semaforo || 'ÔÇö'}</p>
                             {(String(row.estado || '').startsWith('Con novedad') || row.motivo) && (
                                 <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">
-                                    <strong>Razón:</strong> {row.motivo || 'Faltan datos o inconsistencia en la ficha'}
+                                    <strong>Raz├│n:</strong> {row.motivo || 'Faltan datos o inconsistencia en la ficha'}
                                 </p>
                             )}
                         </div>
@@ -288,17 +296,17 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                     {/* ================================================ */}
                     <div className={`border-t border-slate-200/70 dark:border-slate-700 pt-3`}>
                         <h3 className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                            Observación de Capital Humano
+                            Observaci├│n de Capital Humano
                         </h3>
 
                         {observacionActual ? (
                             <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/60'}`}>
                                 <div className={`flex items-center gap-2 text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
                                     <span className="font-semibold">v{observacionActual.version}</span>
-                                    <span>·</span>
+                                    <span>ÔÇó</span>
                                     <span>{observacionActual.actor_nombre || 'Usuario'}</span>
                                     <span className={isLight ? 'text-slate-500' : 'text-blue-400'}>({observacionActual.actor_role})</span>
-                                    <span>·</span>
+                                    <span>ÔÇó</span>
                                     <span>{new Date(observacionActual.fecha).toLocaleString('es-CO')}</span>
                                 </div>
                                 <p className={`text-sm mt-1 whitespace-pre-wrap ${isLight ? 'text-slate-700' : 'text-slate-300'} ${textCapitalizedClass}`}>
@@ -319,10 +327,10 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                     >
                                         <div className={`flex items-center gap-2 ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
                                             <span className="font-semibold">v{item.version}</span>
-                                            <span>·</span>
+                                            <span>ÔÇó</span>
                                             <span>{item.actor_nombre || 'Usuario'}</span>
                                             <span>({item.actor_role})</span>
-                                            <span>·</span>
+                                            <span>ÔÇó</span>
                                             <span>{new Date(item.fecha).toLocaleString('es-CO')}</span>
                                         </div>
                                         <p className={`mt-0.5 ${isLight ? 'text-slate-700' : 'text-slate-200'} ${textCapitalizedClass}`}>{item.observacion}</p>
@@ -331,14 +339,14 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                             </div>
                         ) : (
                             <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
-                                <p className={`text-sm ${subtleTextClass}`}>Sin evaluación</p>
+                                <p className={`text-sm ${subtleTextClass}`}>Sin evaluaci├│n</p>
                             </div>
                         )}
 
                         {puedeEscribirObs && (
                             <div className="mt-3 space-y-2">
                                 <label className={`text-xs font-medium ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                                    Nueva observación
+                                    Nueva observaci├│n
                                 </label>
                                 <textarea
                                     value={observacion}
@@ -348,7 +356,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                             setError('');
                                         }
                                     }}
-                                    placeholder="Escribe aquí tu observación sobre el desempeño del consultor..."
+                                    placeholder="Escribe aqu├¡ tu observaci├│n sobre el desempe├▒o del consultor..."
                                     className={`${fieldClass} min-h-[80px] resize-y`}
                                     disabled={loading}
                                 />
@@ -358,7 +366,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                         disabled={loading || !observacion.trim()}
                                         className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        {loading ? 'Guardando...' : 'Guardar observación'}
+                                        {loading ? 'Guardando...' : 'Guardar observaci├│n'}
                                     </button>
                                 </div>
                             </div>
@@ -373,7 +381,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                     {/* ================================================ */}
                     <div className={`border-t border-slate-200/70 dark:border-slate-700 pt-3`}>
                         <h3 className={`text-sm font-semibold ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                            Decisión de aptitud
+                            Decisi├│n de aptitud
                         </h3>
 
                         {decisionActual ? (
@@ -396,14 +404,14 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                         {decisionActual.decision}
                                     </span>
                                     <span className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-300'}`}>
-                                        por {decisionActual.actor_nombre || 'Usuario'} ({decisionActual.actor_role || decisionActual.actor_rol || '—'})
+                                        por {decisionActual.decidido_por_nombre || 'Usuario'} ({decisionActual.decidido_por_role})
                                     </span>
                                     <span className={`text-xs ${isLight ? 'text-slate-400' : 'text-slate-400'}`}>
                                         {new Date(decisionActual.fecha).toLocaleString('es-CO')}
                                     </span>
                                 </div>
                                 <p className={`text-sm mt-1 ${isLight ? 'text-slate-700' : 'text-slate-200'}`}>
-                                    <span className="font-medium">Justificación:</span> {decisionActual.justificacion}
+                                    <span className="font-medium">Justificaci├│n:</span> {decisionActual.justificacion}
                                 </p>
                                 {historialDec.length > 1 && (
                                     <details className="mt-2">
@@ -422,8 +430,8 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                                             ? isLight ? 'text-emerald-700' : 'text-emerald-300'
                                                             : isLight ? 'text-rose-700' : 'text-rose-300'
                                                     }`}>{item.decision}</span>
-                                                    <span className={isLight ? 'text-slate-600' : 'text-slate-300'}>por {item.actor_nombre || 'Usuario'}</span>
-                                                    <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>({item.actor_role || item.actor_rol || '—'})</span>
+                                                    <span className={isLight ? 'text-slate-600' : 'text-slate-300'}>por {item.decidido_por_nombre || 'Usuario'}</span>
+                                                    <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>({item.decidido_por_role})</span>
                                                     <span className={isLight ? 'text-slate-500' : 'text-slate-400'}>{new Date(item.fecha).toLocaleString('es-CO')}</span>
                                                 </div>
                                                 <p className={isLight ? 'text-slate-700' : 'text-slate-200'}>{item.justificacion}</p>
@@ -434,7 +442,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                             </div>
                         ) : (
                             <div className={`mt-2 rounded-lg p-3 ${isLight ? 'bg-slate-50' : 'bg-slate-800/50'}`}>
-                                <p className={`text-sm ${subtleTextClass}`}>Sin decisión tomada</p>
+                                <p className={`text-sm ${subtleTextClass}`}>Sin decisi├│n tomada</p>
                             </div>
                         )}
 
@@ -442,36 +450,33 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                             <div className="mt-3 space-y-3">
                                 <div className="flex gap-4">
                                     <button
-                                        type="button"
-                                        onClick={() => { if (!decisionBloqueada) { setDecision('APTO'); setError(''); } }}
+                                        onClick={() => { setDecision('APTO'); setError(''); }}
                                         className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                                            decisionSeleccionada === 'APTO'
+                                            decision === 'APTO'
                                                 ? isLight ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-emerald-600/60 bg-emerald-900/30 text-emerald-300'
                                                 : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-700/50'
-                                        } ${decisionBloqueada ? 'cursor-not-allowed opacity-60' : ''}`}
-                                        disabled={loading || decisionBloqueada}
+                                        }`}
+                                        disabled={loading}
                                     >
                                         <CheckCircle size={16} className="mx-auto text-green-600" />
                                         <span className="text-sm font-medium">Apto</span>
                                     </button>
                                     <button
-                                        type="button"
-                                        onClick={() => { if (!decisionBloqueada) { setDecision('NO_APTO'); setError(''); } }}
+                                        onClick={() => { setDecision('NO_APTO'); setError(''); }}
                                         className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                                            decisionSeleccionada === 'NO_APTO'
+                                            decision === 'NO_APTO'
                                                 ? isLight ? 'border-rose-400 bg-rose-100 text-rose-800 shadow-sm' : 'border-rose-600/60 bg-rose-900/30 text-rose-300'
                                                 : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-rose-300' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-rose-700/50'
-                                        } ${decisionBloqueada ? 'cursor-not-allowed opacity-60' : ''}`}
-                                        disabled={loading || decisionBloqueada}
+                                        }`}
+                                        disabled={loading}
                                     >
                                         <XCircle size={16} className="mx-auto text-red-600" />
                                         <span className="text-sm font-medium">No apto</span>
                                     </button>
                                 </div>
-                                {!decisionBloqueada && <>
                                 <div>
                                     <label className={`text-xs font-medium ${subtleTextClass}`}>
-                                        Justificación <span className="text-red-500">*</span>
+                                        Justificaci├│n <span className="text-red-500">*</span>
                                     </label>
                                     <textarea
                                         value={justificacion}
@@ -481,22 +486,20 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                                 setError('');
                                             }
                                         }}
-                                        placeholder="Explica los motivos de tu decisión..."
+                                        placeholder="Explica los motivos de tu decisi├│n..."
                                         className={`${fieldClass} min-h-[60px] resize-y`}
                                         disabled={loading}
                                     />
                                 </div>
                                 <div className="flex justify-end">
                                     <button
-                                        type="button"
                                         onClick={handleGuardarDecision}
                                         disabled={loading || !decision || !justificacion.trim()}
                                         className="px-4 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        {loading ? 'Guardando...' : 'Guardar decisión'}
+                                        {loading ? 'Guardando...' : 'Guardar decisi├│n'}
                                     </button>
                                 </div>
-                                </>}
                             </div>
                         )}
                         {!puedeDecidir && (

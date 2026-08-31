@@ -1,34 +1,32 @@
 /** Códigos API y etiquetas de negocio (alineado con ReubicacionesPipelinePage). */
-export const SEMAFORO_ORDER = ['Verde', 'Amarillo', 'Rojo', 'Vencido'];
+export const ESTADO_ORDER = ['Pendiente', 'En proceso', 'Con novedad'];
 
-export const SEMAFORO_LABEL = {
-    Verde: 'Proyectado',
-    Amarillo: 'En riesgo',
-    Rojo: 'Urgente',
-    Vencido: 'Vencido'
+export const ESTADO_LABEL = {
+    'Pendiente': 'Pendiente',
+    'En proceso': 'En proceso',
+    'Con novedad': 'Con novedad'
 };
 
-/** Colores para gráficos (semántica semáforo). */
-export const SEMAFORO_CHART_COLOR = {
-    Verde: '#10b981',
-    Amarillo: '#f59e0b',
-    Rojo: '#ef4444',
-    Vencido: '#b91c1c'
+/** Colores para gráficos (semántica estado). */
+export const ESTADO_CHART_COLOR = {
+    'Pendiente': '#10b981', // Verde esmeralda (bueno)
+    'En proceso': '#f59e0b', // Ámbar (atención)
+    'Con novedad': '#ef4444' // Rojo (urgente)
 };
 
 /**
  * Series para pie/donut: una entrada por código conocido (valor puede ser 0).
- * @param {Array<{ semaforo?: string }>} items
+ * @param {Array<{ estado?: string }>} items
  */
-export function aggregateSemaforoReubicaciones(items) {
-    const counts = { Verde: 0, Amarillo: 0, Rojo: 0, Vencido: 0 };
+export function aggregateEstadoReubicaciones(items) {
+    const counts = { 'Pendiente': 0, 'En proceso': 0, 'Con novedad': 0 };
     for (const row of Array.isArray(items) ? items : []) {
-        const s = String(row?.semaforo || '');
+        const s = String(row?.estado || '');
         if (Object.prototype.hasOwnProperty.call(counts, s)) counts[s] += 1;
     }
-    return SEMAFORO_ORDER.map((key) => ({
+    return ESTADO_ORDER.map((key) => ({
         key,
-        name: SEMAFORO_LABEL[key],
+        name: ESTADO_LABEL[key],
         value: counts[key]
     }));
 }
@@ -116,8 +114,8 @@ export function topCatalogClientesByActiveCount(clientesResumenRows, n = 12) {
 export function countReubicacionesEnRiesgo(items) {
     let n = 0;
     for (const row of Array.isArray(items) ? items : []) {
-        const s = String(row?.semaforo || '');
-        if (s === 'Amarillo' || s === 'Rojo' || s === 'Vencido') n += 1;
+        const s = String(row?.estado || '');
+        if (s === 'En proceso' || s === 'Con novedad') n += 1;
     }
     return n;
 }

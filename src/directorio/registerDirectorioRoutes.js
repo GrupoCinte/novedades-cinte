@@ -10,6 +10,9 @@ const { resolveActorUserIdForSession } = require('../resolveActorUserId');
 const { reubicacionesGuard, canRegisterObservacion, canDecideAptitud } = require('../reubicaciones/reubicacionesAuthService');
 const { registrarObservacion, obtenerUltimaObservacion, obtenerHistorialObservaciones } = require('../reubicaciones/reubicacionesObservacionesService');
 const { registrarDecision, obtenerUltimaDecision, obtenerHistorialDecisiones } = require('../reubicaciones/reubicacionesDecisionesService');
+const { calcularEstado, ESTADOS } = require('../reubicaciones/reubicacionesEstados');
+const { diasHabilesTranscurridos } = require('../reubicaciones/reubicacionesCalendario');
+const { getFestivosSet } = require('../festivosService');
 
 function directorioGuard() {
     return (req, res, next) => {
@@ -379,12 +382,12 @@ function registerDirectorioRoutes(deps) {
         offset: z.coerce.number().int().min(0).optional(),
         fecha_fin_desde: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
         fecha_fin_hasta: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
-        semaforo: z.preprocess((val) => {
+        estado: z.preprocess((val) => {
             if (val == null || val === '') return undefined;
             const arr = Array.isArray(val) ? val : String(val).split(',');
             const cleaned = arr.map((s) => String(s).trim()).filter(Boolean);
             return cleaned.length ? cleaned : undefined;
-        }, z.array(z.enum(['Verde', 'Amarillo', 'Rojo', 'Vencido'])).optional()),
+        }, z.array(z.enum(['Pendiente', 'En proceso', 'Con novedad'])).optional()),
         sort: z
             .enum([
                 'cedula',
@@ -394,8 +397,7 @@ function registerDirectorioRoutes(deps) {
                 'cliente_destino',
                 'causal',
                 'fecha_fin',
-                'dias_restantes',
-                'semaforo',
+                'estado',
                 'tarifa'
             ])
             .optional(),
@@ -421,10 +423,6 @@ function registerDirectorioRoutes(deps) {
     }
 
     function normalizePipelineRow(row) {
-        const dias =
-            row.dias_restantes === null || row.dias_restantes === undefined
-                ? null
-                : Number(row.dias_restantes);
         let fechaFin = row.fecha_fin;
         if (fechaFin instanceof Date) fechaFin = fechaFin.toISOString().slice(0, 10);
         else if (typeof fechaFin === 'string') fechaFin = fechaFin.slice(0, 10);
@@ -437,10 +435,12 @@ function registerDirectorioRoutes(deps) {
             consultor: row.consultor,
             tipo_contrato: row.tipo_contrato,
             cliente_actual: row.cliente_actual,
+            puesto: row.puesto,
+            salario: row.salario != null ? Number(row.salario) : null,
+            auxilios: row.auxilios != null ? Number(row.auxilios) : null,
+            tipo_ficha: row.tipo_ficha,
             tarifa_cliente: row.tarifa_cliente != null ? Number(row.tarifa_cliente) : null,
             montos_divisa: row.montos_divisa ?? null,
-            dias_restantes: dias,
-            semaforo: semaforoFromDiasRestantes(dias),
             created_at: row.created_at,
             updated_at: row.updated_at
         };
@@ -1012,9 +1012,6 @@ function registerDirectorioRoutes(deps) {
             const limit = d.limit ?? 50;
             const offset = d.offset ?? 0;
 
-            const diasSql = `(rp.fecha_fin::date - (timezone('America/Bogota', now()))::date)`;
-            const semaforoSql = `(CASE WHEN ${diasSql} < 0 THEN 'Vencido' WHEN ${diasSql} > 30 THEN 'Verde' WHEN ${diasSql} >= 15 THEN 'Amarillo' ELSE 'Rojo' END)`;
-
             const selectFields = `
                 SELECT
                     rp.id,
@@ -1022,14 +1019,18 @@ function registerDirectorioRoutes(deps) {
                     rp.fecha_fin,
                     rp.cliente_destino,
                     rp.causal,
+                    rp.motivo_novedad,
+                    rp.tipo_ficha,
                     rp.created_at,
                     rp.updated_at,
                     c.nombre AS consultor,
                     c.tipo_contrato,
                     c.cliente AS cliente_actual,
+                    c.perfil_cargo AS puesto,
+                    c.sueldo_nomina AS salario,
+                    c.otros_ingresos AS auxilios,
                     c.tarifa_cliente,
-                    c.montos_divisa,
-                    ${diasSql} AS dias_restantes
+                    c.montos_divisa
                 FROM reubicaciones_pipeline rp
                 INNER JOIN colaboradores c ON c.cedula = rp.cedula`;
 
@@ -1072,15 +1073,33 @@ function registerDirectorioRoutes(deps) {
                 whereParts.push(`rp.fecha_fin <= $${whereParams.length + 1}::date`);
                 whereParams.push(fh);
             }
-            if (d.semaforo && d.semaforo.length > 0) {
-                whereParts.push(`${semaforoSql} = ANY($${whereParams.length + 1}::text[])`);
-                whereParams.push(d.semaforo);
+            if (d.estado && d.estado.length > 0) {
+                const estadoConds = [];
+                if (d.estado.includes('Con novedad')) {
+                    estadoConds.push(`COALESCE(rp.motivo_novedad, '') <> ''`);
+                }
+                if (d.estado.includes('Pendiente')) {
+                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin > (timezone('America/Bogota', now()))::date)`);
+                }
+                if (d.estado.includes('En proceso')) {
+                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin <= (timezone('America/Bogota', now()))::date)`);
+                }
+                if (estadoConds.length) {
+                    whereParts.push(`(${estadoConds.join(' OR ')})`);
+                }
             }
 
             const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
             const dir = d.dir === 'desc' ? 'DESC' : 'ASC';
             const sortKey = d.sort;
+            const estadoOrderSql = `
+                CASE
+                    WHEN COALESCE(rp.motivo_novedad, '') <> '' THEN 3
+                    WHEN rp.fecha_fin > (timezone('America/Bogota', now()))::date THEN 1
+                    ELSE 2
+                END
+            `;
             const orderMap = {
                 cedula: `c.cedula ${dir}`,
                 consultor: `c.nombre ${dir} NULLS LAST`,
@@ -1089,8 +1108,7 @@ function registerDirectorioRoutes(deps) {
                 cliente_destino: `rp.cliente_destino ${dir} NULLS LAST`,
                 causal: `rp.causal ${dir} NULLS LAST`,
                 fecha_fin: `rp.fecha_fin ${dir} NULLS LAST`,
-                dias_restantes: `${diasSql} ${dir} NULLS LAST`,
-                semaforo: `${diasSql} ${dir} NULLS LAST`,
+                estado: `${estadoOrderSql} ${dir}, rp.fecha_fin ASC NULLS LAST`,
                 tarifa: `c.tarifa_cliente ${dir} NULLS LAST`
             };
             const orderSql =
@@ -1112,10 +1130,36 @@ function registerDirectorioRoutes(deps) {
             const listParams = [...whereParams, limit, offset];
             const listRes = await pool.query(listSql, listParams);
             const rows = listRes.rows;
+            
+            const festivosSet = await getFestivosSet();
+            const hoy = new Date();
+
+            const mappedRows = rows.map(row => {
+                const base = normalizePipelineRow(row);
+                const { estado, motivo } = calcularEstado({ 
+                    fecha_fin: base.fecha_fin, 
+                    novedad: row.motivo_novedad, 
+                    fecha_actual: hoy 
+                });
+                let dias_transcurridos = 0;
+                let dias_restantes = null;
+                if (estado === ESTADOS.EN_PROCESO) {
+                    dias_transcurridos = diasHabilesTranscurridos(base.fecha_fin, hoy, festivosSet);
+                } else if (estado === ESTADOS.PENDIENTE) {
+                    dias_restantes = diasHabilesTranscurridos(hoy, base.fecha_fin, festivosSet);
+                }
+                return {
+                    ...base,
+                    estado,
+                    motivo,
+                    dias_transcurridos,
+                    dias_restantes
+                };
+            });
 
             return res.json({
                 ok: true,
-                items: rows.map(normalizePipelineRow),
+                items: mappedRows,
                 total,
                 limit,
                 offset
@@ -1169,20 +1213,34 @@ function registerDirectorioRoutes(deps) {
                     rp.fecha_fin,
                     rp.cliente_destino,
                     rp.causal,
+                    rp.motivo_novedad,
                     rp.created_at,
                     rp.updated_at,
                     c.nombre AS consultor,
                     c.tipo_contrato,
                     c.cliente AS cliente_actual,
                     c.tarifa_cliente,
-                    c.montos_divisa,
-                    (rp.fecha_fin::date - (timezone('America/Bogota', now()))::date) AS dias_restantes
+                    c.montos_divisa
                  FROM reubicaciones_pipeline rp
                  INNER JOIN colaboradores c ON c.cedula = rp.cedula
                  WHERE rp.id = $1::uuid`,
                 [row.id]
             );
-            const item = normalizePipelineRow(joined.rows[0]);
+            
+            const festivosSet = await getFestivosSet();
+            const hoy = new Date();
+            const raw = joined.rows[0];
+            const base = normalizePipelineRow(raw);
+            const { estado, motivo } = calcularEstado({ 
+                fecha_fin: base.fecha_fin, 
+                novedad: raw.motivo_novedad, 
+                fecha_actual: hoy 
+            });
+            let dias_transcurridos = 0;
+            if (estado === ESTADOS.EN_PROCESO) {
+                dias_transcurridos = diasHabilesTranscurridos(base.fecha_fin, hoy, festivosSet);
+            }
+            const item = { ...base, estado, motivo, dias_transcurridos };
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user?.sub),
                 actorRole: normalizeRoleOrNull(req.user?.role),
@@ -1205,13 +1263,20 @@ function registerDirectorioRoutes(deps) {
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
                 return res.status(400).json({ ok: false, error: 'Id inválido' });
             }
-            const q = await pool.query(`SELECT c.cliente FROM reubicaciones_pipeline rp INNER JOIN colaboradores c ON c.cedula = rp.cedula WHERE rp.id = $1::uuid`, [id]);
+            const q = await pool.query(
+                `SELECT c.cliente, rp.fecha_fin, rp.causal, rp.tipo_ficha, rp.motivo_novedad
+                 FROM reubicaciones_pipeline rp
+                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 WHERE rp.id = $1::uuid`,
+                [id]
+            );
             if (!q.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
             await assertGpClienteAsignado(req, q.rows[0].cliente);
 
             const parsed = reubicacionesPipelinePatchSchema.safeParse(req.body || {});
             if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
             const d = parsed.data;
+            const current = q.rows[0];
             const sets = [];
             const vals = [];
             let n = 1;
@@ -1228,6 +1293,17 @@ function registerDirectorioRoutes(deps) {
             if (d.causal !== undefined) {
                 sets.push(`causal = $${n}`);
                 vals.push(textOrNull(d.causal));
+                n += 1;
+            }
+            const fechaFinEfectiva = d.fecha_fin !== undefined ? d.fecha_fin : current.fecha_fin;
+            const causalEfectiva = d.causal !== undefined ? textOrNull(d.causal) : current.causal;
+            const esSalida = String(current.tipo_ficha || '').toUpperCase() === 'SALIDA';
+            const motivoEsDatosFaltantes = String(current.motivo_novedad || '').startsWith('Faltan datos obligatorios:');
+            if (motivoEsDatosFaltantes && fechaFinEfectiva && (!esSalida || causalEfectiva)) {
+                const estadoRecalculado = calcularEstado({ fecha_fin: fechaFinEfectiva }).estado;
+                sets.push('motivo_novedad = NULL');
+                sets.push(`estado = $${n}`);
+                vals.push(estadoRecalculado);
                 n += 1;
             }
             if (sets.length === 0) return res.status(400).json({ ok: false, error: 'Sin cambios' });
@@ -1312,6 +1388,28 @@ function registerDirectorioRoutes(deps) {
         } catch (e) {
             console.error('GET aptitud-context:', e);
             return res.status(500).json({ ok: false, error: 'Error al obtener contexto de aptitud' });
+        }
+    });
+
+    // Historial técnico de eventos que modificaron la fecha de salida desde Zoho.
+    // Cada evento conserva la fecha anterior y la nueva, sin crear un segundo caso.
+    app.get('/api/directorio/reubicaciones-pipeline/:id/eventos-origen', ...reubReadGuard, async (req, res) => {
+        try {
+            const pipelineId = String(req.params.id || '').trim();
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(pipelineId)) {
+                return res.status(400).json({ ok: false, error: 'Id inválido' });
+            }
+            const result = await pool.query(
+                `SELECT source_event_id, tipo_evento, fecha_anterior, fecha_nueva, processed_at
+                 FROM reubicaciones_source_events
+                 WHERE pipeline_id = $1::uuid
+                 ORDER BY processed_at DESC`,
+                [pipelineId]
+            );
+            return res.json({ ok: true, items: result.rows || [] });
+        } catch (e) {
+            console.error('GET eventos-origen:', e);
+            return res.status(500).json({ ok: false, error: 'Error al obtener el historial de cambios de fecha' });
         }
     });
 
