@@ -222,21 +222,15 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         const v = searchParams.get('v');
         if (!v) return;
 
-        let nextView = null;
-
-        if (v === 'monitoreo' && canAccessMonitoreo) {
-            nextView = 'monitoreo';
-        } else if (v === 'seguimiento' && canAccessSeguimiento) {
-            nextView = 'seguimiento';
-        } else if (v === 'dashboard') {
-            nextView = 'dashboardAdmin';
-        } else if (v === 'reubicaciones') {
-            nextView = 'reubicaciones';
-        } else if (v === 'mallas-turnos') {
-            nextView = 'mallasTurnos';
-        } else if (v === 'catalogo-ti' && showTiCatalogSubmod) {
-            nextView = 'catalogoTi';
-        }
+        const viewMap = {
+            monitoreo: canAccessMonitoreo ? 'monitoreo' : null,
+            seguimiento: canAccessSeguimiento ? 'seguimiento' : null,
+            dashboard: 'dashboardAdmin',
+            reubicaciones: 'reubicaciones',
+            'mallas-turnos': 'mallasTurnos',
+            'catalogo-ti': showTiCatalogSubmod ? 'catalogoTi' : null
+        };
+        const nextView = viewMap[v];
 
         if (nextView) {
             if (isRestrictedView && !restrictedAllowedViews.includes(nextView)) {

@@ -655,6 +655,38 @@ function createDataLayer(deps) {
         }
     }
 
+    /** HU-02: Migración transaccional e idempotencia de reubicaciones */
+    async function ensureReubicacionesHU02() {
+        try {
+            // Alterar pipeline de manera segura para que coexista con HU-01
+            await pool.query(`
+                ALTER TABLE reubicaciones_pipeline 
+                ADD COLUMN IF NOT EXISTS estado TEXT,
+                ADD COLUMN IF NOT EXISTS tipo_ficha TEXT,
+                ADD COLUMN IF NOT EXISTS motivo_novedad TEXT,
+                ADD COLUMN IF NOT EXISTS ultimo_evento_id TEXT
+            `);
+            
+            // Tabla obligatoria para CA-04 y CA-05
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS reubicaciones_source_events (
+                    source_event_id TEXT PRIMARY KEY,
+                    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id),
+                    tipo_evento TEXT NOT NULL,
+                    fecha_anterior DATE NULL,
+                    fecha_nueva DATE NOT NULL,
+                    processed_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            `);
+        } catch (error) {
+            if (String(error?.code || '') === '42501') {
+                console.warn('[Reubicaciones] Permisos insuficientes para migración HU-02.');
+                return;
+            }
+            throw error;
+        }
+    }
+
     /** Malla de turnos por día y franja (FK a colaboradores). */
     async function ensureMallaTurnosCeldaTable() {
         try {
@@ -3023,12 +3055,13 @@ function createDataLayer(deps) {
         ensureNovedadesObservacionesColumn,
         ensureNovedadesObservacionesRechazoColumn,
         ensureNovedadesDuplicadoPendienteIndex,
+        ensureReubicacionesPipelineTable,
+        ensureReubicacionesHU02,
         findPendingNovedadDuplicate,
         migrateClientesLideresFromExcelIfNeeded,
         ensureColaboradoresTable,
         ensureColaboradoresDirectoryColumns,
         ensureColaboradoresExtendedColumns,
-        ensureReubicacionesPipelineTable,
         ensureMallaTurnosCeldaTable,
         ensureMallaTurnoAsignacionTable,
         ensureMallaTurnoAprobacionTable,
