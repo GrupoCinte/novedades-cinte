@@ -249,16 +249,20 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                             <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.cliente_destino || '—'}</p>
                         </div>
                         <div className={infoCardClass}>
+                            <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Causal</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.causal || '—'}</p>
+                        </div>
+                        <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Puesto</p>
                             <p className={`${infoValueClass} ${textCapitalizedClass}`}>{row.puesto || '—'}</p>
                         </div>
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Salario</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{formatMontoDisplay(row.salario, row.moneda_salario || row.moneda)}</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{formatMontoDisplay(row.salario, 'COP')}</p>
                         </div>
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Auxilios</p>
-                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{formatMontoDisplay(row.auxilios, row.moneda_auxilios || row.moneda)}</p>
+                            <p className={`${infoValueClass} ${textCapitalizedClass}`}>{formatMontoDisplay(row.auxilios, 'COP')}</p>
                         </div>
                         <div className={infoCardClass}>
                             <p className={`${infoLabelClass} ${textCapitalizedClass}`}>Tipo ficha</p>
