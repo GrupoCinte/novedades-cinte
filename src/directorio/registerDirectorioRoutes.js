@@ -426,6 +426,14 @@ function registerDirectorioRoutes(deps) {
         let fechaFin = row.fecha_fin;
         if (fechaFin instanceof Date) fechaFin = fechaFin.toISOString().slice(0, 10);
         else if (typeof fechaFin === 'string') fechaFin = fechaFin.slice(0, 10);
+
+        let monedaSalario = undefined;
+        let monedaAuxilios = undefined;
+        if (row.montos_divisa && typeof row.montos_divisa === 'object') {
+            if (row.montos_divisa.sueldo_nomina) monedaSalario = row.montos_divisa.sueldo_nomina;
+            if (row.montos_divisa.otros_ingresos) monedaAuxilios = row.montos_divisa.otros_ingresos;
+        }
+
         return {
             id: row.id,
             cedula: row.cedula,
@@ -437,7 +445,9 @@ function registerDirectorioRoutes(deps) {
             cliente_actual: row.cliente_actual,
             puesto: row.puesto,
             salario: row.salario != null ? Number(row.salario) : null,
+            moneda_salario: monedaSalario,
             auxilios: row.auxilios != null ? Number(row.auxilios) : null,
+            moneda_auxilios: monedaAuxilios,
             tipo_ficha: row.tipo_ficha,
             tarifa_cliente: row.tarifa_cliente != null ? Number(row.tarifa_cliente) : null,
             montos_divisa: row.montos_divisa ?? null,
