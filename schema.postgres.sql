@@ -544,7 +544,7 @@ CREATE INDEX IF NOT EXISTS idx_seguimiento_historial_acta ON seguimiento_histori
 -- ========= Reubicaciones =========
 CREATE TABLE IF NOT EXISTS reubicaciones_pipeline (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cedula VARCHAR(20) NOT NULL UNIQUE,
+    cedula VARCHAR(20) NOT NULL UNIQUE REFERENCES colaboradores(cedula) ON DELETE CASCADE,
     fecha_fin DATE NOT NULL,
     cliente_destino TEXT,
     causal TEXT,
@@ -563,4 +563,42 @@ CREATE TABLE IF NOT EXISTS reubicaciones_source_events (
     fecha_anterior DATE NULL,
     fecha_nueva DATE NOT NULL,
     processed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS reubicaciones_observaciones (
+    id UUID PRIMARY KEY,
+    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) ON DELETE CASCADE,
+    version INT NOT NULL,
+    observacion TEXT NOT NULL,
+    actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    actor_role TEXT,
+    fecha TIMESTAMPTZ DEFAULT NOW(),
+    idempotency_key TEXT UNIQUE,
+    UNIQUE(pipeline_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS reubicaciones_decisiones (
+    id UUID PRIMARY KEY,
+    pipeline_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) UNIQUE ON DELETE CASCADE,
+    decision TEXT NOT NULL,
+    justificacion TEXT,
+    actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    actor_role TEXT,
+    fecha TIMESTAMPTZ DEFAULT NOW(),
+    idempotency_key TEXT UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS reubicaciones_historial (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    caso_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) ON DELETE CASCADE,
+    consultor_id TEXT REFERENCES colaboradores(cedula) ON DELETE SET NULL,
+    tipo TEXT NOT NULL,
+    actor_nombre TEXT,
+    actor_rol TEXT,
+    descripcion TEXT,
+    before_data JSONB,
+    after_data JSONB,
+    origen TEXT,
+    source_event_id TEXT,
+    fecha TIMESTAMPTZ DEFAULT NOW()
 );
