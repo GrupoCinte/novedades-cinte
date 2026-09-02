@@ -229,6 +229,7 @@ function DiffModal({ item, groupFichas = null, auth, isLight, readOnly = false, 
     const [editMode, setEditMode] = useState(false);
     const [draftEdits, setDraftEdits] = useState({});
     const [confirmApprove, setConfirmApprove] = useState(false);
+    const [applyFields, setApplyFields] = useState(() => new Set());
 
     useEffect(() => {
         setLocalItem(item);
@@ -271,6 +272,31 @@ function DiffModal({ item, groupFichas = null, auth, isLight, readOnly = false, 
             return [];
         }
     }, [localItem]);
+
+    const diffFieldKey = diff.map((row) => row.field).join('|');
+    useEffect(() => {
+        setApplyFields(new Set(diff.map((row) => row.field)));
+    }, [localItem?.id, diffFieldKey]);
+
+    const selectedCount = useMemo(
+        () => diff.filter((row) => applyFields.has(row.field)).length,
+        [diff, applyFields]
+    );
+    const allSelected = diff.length > 0 && selectedCount === diff.length;
+
+    const toggleApplyField = (field) => {
+        setApplyFields((prev) => {
+            const next = new Set(prev);
+            if (next.has(field)) next.delete(field);
+            else next.add(field);
+            return next;
+        });
+    };
+
+    const toggleApplyAll = () => {
+        if (allSelected) setApplyFields(new Set());
+        else setApplyFields(new Set(diff.map((row) => row.field)));
+    };
 
     const hasUnsavedEdits = useMemo(() => {
         if (!editMode) return false;
@@ -368,7 +394,12 @@ function DiffModal({ item, groupFichas = null, auth, isLight, readOnly = false, 
     };
 
     const doApprove = (closeSiblings) =>
-        run(() => onboardingApi.aprobarFichaNovedad(token, localItem.id, { close_siblings: closeSiblings }));
+        run(() =>
+            onboardingApi.aprobarFichaNovedad(token, localItem.id, {
+                close_siblings: closeSiblings,
+                apply_fields: diff.filter((row) => applyFields.has(row.field)).map((row) => row.field)
+            })
+        );
 
     const onApproveClick = () => {
         if (siblingPendingCount > 0) {
@@ -485,7 +516,14 @@ function DiffModal({ item, groupFichas = null, auth, isLight, readOnly = false, 
                     ) : null}
 
                     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                        <p className={`text-xs font-bold uppercase tracking-widest ${G.textMuted}`}>Cambios propuestos</p>
+                        <p className={`text-xs font-bold uppercase tracking-widest ${G.textMuted}`}>
+                            Cambios propuestos
+                            {diff.length > 0 && !readOnly && localItem?.status === 'pendiente' ? (
+                                <span className="ml-2 font-semibold normal-case tracking-normal">
+                                    · aplicar {selectedCount} de {diff.length}
+                                </span>
+                            ) : null}
+                        </p>
                         {canEdit && !editMode ? (
                             <button
                                 type="button"
@@ -508,6 +546,20 @@ function DiffModal({ item, groupFichas = null, auth, isLight, readOnly = false, 
                             <table className="min-w-full text-left text-xs">
                                 <thead className={isLight ? 'bg-slate-100' : 'bg-white/5'}>
                                     <tr>
+                                        {!readOnly && localItem?.status === 'pendiente' && !editMode ? (
+                                            <th className="w-10 px-3 py-2 font-semibold">
+                                                <label className="inline-flex items-center gap-1">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={allSelected}
+                                                        onChange={toggleApplyAll}
+                                                        disabled={busy}
+                                                        aria-label="Marcar o desmarcar todos los campos"
+                                                    />
+                                                    <span className="sr-only">Aplicar</span>
+                                                </label>
+                                            </th>
+                                        ) : null}
                                         <th className="px-3 py-2 font-semibold">Campo</th>
                                         <th className="px-3 py-2 font-semibold">Actual</th>
                                         <th className="px-3 py-2 font-semibold">Propuesto</th>
@@ -516,6 +568,17 @@ function DiffModal({ item, groupFichas = null, auth, isLight, readOnly = false, 
                                 <tbody>
                                     {diff.map((row) => (
                                         <tr key={row.field} className="border-t border-white/5">
+                                            {!readOnly && localItem?.status === 'pendiente' && !editMode ? (
+                                                <td className="px-3 py-2 align-middle">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={applyFields.has(row.field)}
+                                                        onChange={() => toggleApplyField(row.field)}
+                                                        disabled={busy}
+                                                        aria-label={`Aplicar ${fieldLabel(row.field)}`}
+                                                    />
+                                                </td>
+                                            ) : null}
                                             <td className="px-3 py-2">
                                                 <span className="block font-mono text-[10px] text-slate-400">{row.field}</span>
                                                 <span className="font-medium">{fieldLabel(row.field)}</span>
@@ -604,7 +667,7 @@ function DiffModal({ item, groupFichas = null, auth, isLight, readOnly = false, 
                                     </button>
                                     <button
                                         type="button"
-                                        disabled={busy || decisionBlocked}
+                                        disabled={busy || decisionBlocked || selectedCount === 0}
                                         onClick={onApproveClick}
                                         className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                                     >

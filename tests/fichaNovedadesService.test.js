@@ -1083,3 +1083,46 @@ describe('createFichaNovedadesService.approveNovedad tras edición', () => {
         assert.equal(getSibling(siblingId).status, 'pendiente');
     });
 });
+
+describe('AUT-338 apply_fields al aprobar ficha Zoho', () => {
+    it('solo escribe los campos marcados', async () => {
+        const { pool } = createUpdateNovedadMockPool({
+            tipo_novedad: 'modificacion_id',
+            payload_normalizado: {
+                puesto: 'Lead',
+                tarifa_cliente: 20000000,
+                cliente: 'ACME'
+            }
+        });
+        let appliedPatch = null;
+        const svc = createFichaNovedadesService({
+            pool,
+            updateColaboradorByCedula: async (cedula, patch) => {
+                appliedPatch = { cedula, patch };
+                return { cedula };
+            }
+        });
+
+        const result = await svc.approveNovedad(NOVEDAD_EDIT_ID, { email: 'reviewer@test.com' }, {
+            applyFields: ['puesto']
+        });
+
+        assert.equal(result.ok, true);
+        assert.ok(appliedPatch);
+        assert.equal(appliedPatch.patch.puesto, 'Lead');
+        assert.equal(appliedPatch.patch.tarifa_cliente, undefined);
+        assert.equal(appliedPatch.patch.cliente, undefined);
+    });
+
+    it('sin ningún campo marcado no aprueba', async () => {
+        const { pool } = createUpdateNovedadMockPool();
+        const svc = createFichaNovedadesService({
+            pool,
+            updateColaboradorByCedula: async (cedula) => ({ cedula })
+        });
+        await assert.rejects(
+            () => svc.approveNovedad(NOVEDAD_EDIT_ID, { email: 'reviewer@test.com' }, { applyFields: [] }),
+            (err) => err.status === 400
+        );
+    });
+});
