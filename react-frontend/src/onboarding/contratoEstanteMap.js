@@ -193,6 +193,56 @@ function esOrigenFichaZoho(origen) {
     return o === 'ficha_zoho' || o.startsWith('novedad_');
 }
 
+function historialAccionLabel(antes, despues) {
+    const vacioAntes = antes == null || antes === '';
+    const vacioDespues = despues == null || despues === '';
+    if (vacioAntes && !vacioDespues) return 'Agregó';
+    if (!vacioAntes && vacioDespues) return 'Quitó';
+    return 'Cambió';
+}
+
+function valorCampo(cambios, campo) {
+    return (Array.isArray(cambios) ? cambios : []).find((c) => c && c.campo === campo) || null;
+}
+
+/** Título del bloque: ciclo de vida (baja, activación, prórroga) o Agregó/Cambió/Quitó. */
+export function historialBloqueTitulo(bloque) {
+    const cambios = Array.isArray(bloque?.cambios) ? bloque.cambios : [];
+    const origen = String(bloque?.origen || cambios[0]?.origen || '');
+    const activo = valorCampo(cambios, 'activo');
+    const vigente = valorCampo(cambios, 'vigente');
+
+    if (activo && (activo.valorDespues === 'No' || activo.valorDespues === 'false')) {
+        return origen === 'cancelado' ? 'Pasó a Cancelados' : 'Pasó a Bajas';
+    }
+    if (activo && (activo.valorDespues === 'Sí' || activo.valorDespues === 'true')) {
+        return origen === 'reingreso' ? 'Reingreso — activó a la persona' : 'Activó a la persona';
+    }
+    if (vigente && vigente.valorDespues === 'Cerrado') {
+        return 'Cerró contrato';
+    }
+    if (vigente && vigente.valorDespues === 'Vigente' && !vigente.valorAntes) {
+        return 'Activó contrato';
+    }
+    if (vigente && vigente.valorDespues === 'Vigente') {
+        return 'Reabrió contrato';
+    }
+    if (origen === 'extend') return 'Prórroga del contrato';
+    if (origen === 'historicize') return 'Cerró contratos anteriores';
+    if (origen === 'ficha_alta') return 'Alta de ficha';
+    if (origen === 'calculadora') return 'Ajuste de calculadora';
+
+    const n = cambios.length;
+    if (n === 1) {
+        const entry = cambios[0];
+        return `${historialAccionLabel(entry.valorAntes, entry.valorDespues)} ${entry.campoLabel || entry.campo}`;
+    }
+    if (n > 1 && (origen === 'ficha_zoho' || origen.startsWith('novedad_'))) {
+        return `Desde ficha Zoho · ${n} cambios`;
+    }
+    return n > 1 ? `Guardó ${n} cambios` : 'Cambio en la ficha';
+}
+
 /** Pie del bloque: quién guardó, o de dónde vino la ficha Zoho y quién la aprobó. */
 export function historialActorLine(bloque) {
     if (!bloque) return '—';

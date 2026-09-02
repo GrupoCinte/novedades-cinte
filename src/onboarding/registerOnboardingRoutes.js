@@ -734,7 +734,7 @@ function registerOnboardingRoutes(deps) {
             if (tipoTrasCinte && tipoTrasCinte !== existed.tipo_personal) {
                 onlyKeys.push('tipo_personal');
             }
-            await recordFichaDiff(pool, {
+            const historial = await recordFichaDiff(pool, {
                 cedula,
                 before: existed,
                 after: updated,
@@ -750,7 +750,11 @@ function registerOnboardingRoutes(deps) {
                 entityId: null,
                 metadata: { cedula, patch }
             });
-            return res.json({ ok: true, item: await attachContratosToItem(pool, updated) });
+            return res.json({
+                ok: true,
+                item: await attachContratosToItem(pool, updated),
+                historial_omitido: historial.omitted === true
+            });
         } catch (e) {
             console.error('[Onboarding personal PATCH]', e.message);
             const status = Number.isInteger(e?.status) ? e.status : 500;

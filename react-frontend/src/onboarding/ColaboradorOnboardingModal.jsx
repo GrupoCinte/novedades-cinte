@@ -285,6 +285,10 @@ export default function ColaboradorOnboardingModal({
             const keep = list.find((c) => c.id === selectedContratoId) || list.find((c) => c.esCabecera) || list[0];
             if (keep) setSelectedContratoId(keep.id);
             setEditMode(false);
+            setActiveTab(HISTORIAL_TAB.id);
+            if (r?.historial_omitido) {
+                setError('Los cambios se guardaron, pero el historial no quedó registrado. Avise a soporte.');
+            }
             if (typeof onSaved === 'function') onSaved(r?.item || null);
         } catch (ex) {
             const status = ex?.response?.status;

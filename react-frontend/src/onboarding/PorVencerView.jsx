@@ -88,7 +88,7 @@ export default function PorVencerView({ auth, isLight, onCount }) {
                     cedula={selected.cedula}
                     initialContratoId={selected.contratoId}
                     onClose={() => setSelected(null)}
-                    onSaved={() => setSelected(null)}
+                    onSaved={() => {}}
                 />
             ) : null}
         </>

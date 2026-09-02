@@ -88,6 +88,26 @@ describe('diffFichaSnapshots AUT-317', () => {
         assert.equal(rows[0].campo, 'eps');
     });
 
+    it('baja y reingreso sí comparan activo y motivo', () => {
+        const baja = diffFichaSnapshots(
+            { activo: true, motivo_baja: null, termino: null },
+            { activo: false, motivo_baja: 'Termino de Servicio', termino: 'Fin de obra' },
+            { onlyKeys: ['motivo_baja', 'activo', 'termino'] }
+        );
+        const by = Object.fromEntries(baja.map((r) => [r.campo, r]));
+        assert.equal(by.activo.valorAntes, 'Sí');
+        assert.equal(by.activo.valorDespues, 'No');
+        assert.equal(by.motivo_baja.valorDespues, 'Termino de Servicio');
+
+        const alta = diffFichaSnapshots(
+            { activo: false, motivo_baja: 'Termino de Servicio', termino: 'Fin' },
+            { activo: true, motivo_baja: '', termino: '' },
+            { onlyKeys: ['activo', 'motivo_baja', 'termino'] }
+        );
+        assert.equal(alta.find((r) => r.campo === 'activo').valorDespues, 'Sí');
+        assert.equal(alta.find((r) => r.campo === 'motivo_baja').valorDespues, '');
+    });
+
     it('no registra edad automática ni timestamps', () => {
         const rows = diffFichaSnapshots(
             { edad: 30, updated_at: 'a', eps: 'SURA' },
