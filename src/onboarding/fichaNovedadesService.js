@@ -108,11 +108,14 @@ function parseApplyFields(raw) {
     return expanded;
 }
 
+/** Cliente identifica el contrato; no sale en el comparativo (salida/extensión/modificación). */
+const APPLY_CONTEXT_KEYS = new Set(['cliente']);
+
 function filterPayloadByApplyFields(payload, applyFields) {
     if (!applyFields || !payload || typeof payload !== 'object') return payload;
     const out = {};
     for (const [key, val] of Object.entries(payload)) {
-        if (applyFields.has(key)) out[key] = val;
+        if (applyFields.has(key) || APPLY_CONTEXT_KEYS.has(key)) out[key] = val;
     }
     return out;
 }
@@ -1263,6 +1266,9 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             normalized = filterPayloadByApplyFields(normalized, applyFields);
         }
         const patch = buildPatchFromNormalized(row.tipo_novedad, normalized);
+        if (applyFields && !applyFields.has('cliente')) {
+            delete patch.cliente;
+        }
         if (Object.keys(patch).length === 0 && tipo !== 'salida' && tipo !== 'cancelacion_salida') {
             throw Object.assign(new Error('Payload sin campos aplicables'), { status: 400 });
         }
@@ -1271,7 +1277,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         }
 
         const current = await loadColaboradorFull(pool, cedula);
-        const clienteFicha = trimOrNull(normalized.cliente);
+        const clienteFicha = trimOrNull(normalized.cliente) || trimOrNull(current?.cliente);
 
         if (tipo === 'salida') {
             if (!clienteFicha) {
@@ -1401,7 +1407,8 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             }
         }
 
-        if (esClienteDistinto && (tipo === 'modificacion_id' || tipo === 'integracion')) {
+        const applyClienteChange = !applyFields || applyFields.has('cliente');
+        if (esClienteDistinto && applyClienteChange && (tipo === 'modificacion_id' || tipo === 'integracion')) {
             await upsertColaboradorAsignacion(pool, {
                 cedula,
                 cliente: clienteNuevo,

@@ -1125,4 +1125,17 @@ describe('AUT-338 apply_fields al aprobar ficha Zoho', () => {
             (err) => err.status === 400
         );
     });
+
+    it('salida con checks de fechas conserva el cliente del contrato', async () => {
+        const { pool } = createUpdateNovedadMockPool();
+        const svc = createFichaNovedadesService({
+            pool,
+            updateColaboradorByCedula: async (cedula) => ({ cedula })
+        });
+        const result = await svc.approveNovedad(NOVEDAD_EDIT_ID, { email: 'reviewer@test.com' }, {
+            applyFields: ['fecha_termino', 'fecha_notificacion_termino']
+        });
+        assert.equal(result.ok, true);
+        assert.equal(result.status, 'aplicado');
+    });
 });
