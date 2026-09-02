@@ -308,6 +308,73 @@ describe('reopenContrato AUT-313', () => {
     });
 });
 
+describe('guardar ficha no resucita contrato cerrado AUT-340', () => {
+    const { syncPersonContractsFromFicha } = require('../src/onboarding/colaboradorContratos');
+
+    it('cliente con histórico cerrado no inserta un vigente nuevo al guardar', async () => {
+        const db = mockPool((sql) => {
+            if (sql.includes('vigente IS TRUE') && sql.includes('lower(btrim(cliente))')) {
+                return { rows: [], rowCount: 0 };
+            }
+            if (sql.includes('vigente IS FALSE') && sql.includes('lower(btrim(cliente))')) {
+                return {
+                    rows: [{
+                        id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+                        cedula: '1110563092',
+                        cliente: 'CINTE',
+                        tipo_contrato: 'Indefinido',
+                        vigente: false,
+                        es_cabecera: false
+                    }],
+                    rowCount: 1
+                };
+            }
+            return { rows: [], rowCount: 0 };
+        });
+        const r = await syncPersonContractsFromFicha(db, {
+            cedula: '1110563092',
+            existed: { activo: true, cliente: 'EXPERIAN' },
+            cliente: 'CINTE',
+            allowReingreso: false
+        });
+        assert.equal(r.action, 'identity_only');
+        assert.equal(r.contrato.cliente, 'CINTE');
+        assert.equal(db.calls.some((c) => /INSERT INTO colaborador_contratos/i.test(c.sql)), false);
+    });
+
+    it('cliente realmente nuevo (sin histórico) sí crea contrato vigente', async () => {
+        const db = mockPool((sql) => {
+            if (sql.includes('vigente IS TRUE') && sql.includes('lower(btrim(cliente))')) {
+                return { rows: [], rowCount: 0 };
+            }
+            if (sql.includes('vigente IS FALSE') && sql.includes('lower(btrim(cliente))')) {
+                return { rows: [], rowCount: 0 };
+            }
+            if (/INSERT INTO colaborador_contratos/i.test(sql)) {
+                return {
+                    rows: [{
+                        id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+                        cedula: '1110563092',
+                        cliente: 'GOOGLE',
+                        vigente: true,
+                        es_cabecera: false
+                    }],
+                    rowCount: 1
+                };
+            }
+            return { rows: [], rowCount: 0 };
+        });
+        const r = await syncPersonContractsFromFicha(db, {
+            cedula: '1110563092',
+            existed: { activo: true, cliente: 'EXPERIAN' },
+            cliente: 'GOOGLE',
+            allowReingreso: false
+        });
+        assert.equal(r.action, 'new_client');
+        assert.equal(db.calls.some((c) => /INSERT INTO colaborador_contratos/i.test(c.sql)), true);
+    });
+});
+
 describe('fillCabeceraFechaTerminoFromPersona AUT-320', () => {
     it('copia término de la persona a cabecera solo si el contrato no la tiene', async () => {
         const seen = [];
