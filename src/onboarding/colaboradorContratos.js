@@ -87,15 +87,17 @@ function sameCliente(a, b) {
 
 /**
  * Decide qué hacer con el contrato a partir del estado ANTERIOR de la persona.
- * @returns {'insert_first'|'extend'|'new_client'|'reingreso'|'identity_only'}
+ * Cambiar el cliente en la ficha (sin flag) renombra el vigente.
+ * Un segundo contrato solo si `nuevoContrato === true`.
+ * @returns {'insert_first'|'extend'|'rename_client'|'new_client'|'reingreso'|'identity_only'}
  */
-function decideContractAction({ exists, activo, clienteActual, clienteNuevo }) {
+function decideContractAction({ exists, activo, clienteActual, clienteNuevo, nuevoContrato }) {
     const nuevo = trimCliente(clienteNuevo);
     if (!exists) return nuevo ? 'insert_first' : 'identity_only';
     if (activo === false) return 'reingreso';
     if (!nuevo) return 'identity_only';
     if (sameCliente(clienteActual, nuevo)) return 'extend';
-    return 'new_client';
+    return nuevoContrato === true ? 'new_client' : 'rename_client';
 }
 
 function filterExtendedForAction(payload, action) {
@@ -695,7 +697,7 @@ async function insertContrato(db, {
     return row;
 }
 
-async function updateContratoTermino(db, id, { fechaTermino, tipoContrato, fechaInicio, actor, origen }) {
+async function updateContratoTermino(db, id, { fechaTermino, tipoContrato, fechaInicio, cliente, actor, origen }) {
     const beforeQ = await db.query(
         `SELECT id, cedula, cliente, tipo_contrato, fecha_inicio, fecha_termino,
                 vigente, es_cabecera, origen
@@ -704,14 +706,16 @@ async function updateContratoTermino(db, id, { fechaTermino, tipoContrato, fecha
         [id]
     );
     const before = beforeQ.rows[0] || null;
+    const nextCliente = trimCliente(cliente) || (before && before.cliente) || null;
     await db.query(
         `UPDATE colaborador_contratos
-         SET fecha_termino = COALESCE($2::date, fecha_termino),
-             tipo_contrato = COALESCE($3, tipo_contrato),
-             fecha_inicio = COALESCE($4::date, fecha_inicio),
+         SET cliente = COALESCE($2, cliente),
+             fecha_termino = COALESCE($3::date, fecha_termino),
+             tipo_contrato = COALESCE($4, tipo_contrato),
+             fecha_inicio = COALESCE($5::date, fecha_inicio),
              updated_at = NOW()
          WHERE id = $1::uuid`,
-        [id, isoDate(fechaTermino), tipoContrato || null, isoDate(fechaInicio)]
+        [id, nextCliente, isoDate(fechaTermino), tipoContrato || null, isoDate(fechaInicio)]
     );
     if (before) {
         await recordContratoDiff(db, {
@@ -720,14 +724,18 @@ async function updateContratoTermino(db, id, { fechaTermino, tipoContrato, fecha
             before: snapshotFromContratoRow(before),
             after: {
                 ...snapshotFromContratoRow(before),
+                cliente: nextCliente || before.cliente,
                 fecha_termino: isoDate(fechaTermino) || before.fecha_termino,
                 tipo_contrato: tipoContrato || before.tipo_contrato,
                 fecha_inicio: isoDate(fechaInicio) || before.fecha_inicio
             },
             actor,
-            origen: origen || 'extend'
+            origen: origen || (cliente ? 'rename_client' : 'extend')
         });
     }
+    return before
+        ? { ...before, cliente: nextCliente || before.cliente, tipo_contrato: tipoContrato || before.tipo_contrato }
+        : null;
 }
 
 async function updatePersonCabeceraSnapshot(db, cedula, {
@@ -785,7 +793,8 @@ async function applyContractEvent(db, input = {}) {
         exists: Boolean(existed),
         activo: existed ? existed.activo !== false : true,
         clienteActual: existed && existed.cliente,
-        clienteNuevo: cliente
+        clienteNuevo: cliente,
+        nuevoContrato: input.nuevoContrato === true
     });
 
     const payload = {
@@ -851,6 +860,64 @@ async function applyContractEvent(db, input = {}) {
             actor: payload.actor
         });
         return { action: existed ? 'extend' : 'insert_first', contrato: toApiContrato(inserted) };
+    }
+
+    if (action === 'rename_client') {
+        if (!cliente) return { action: 'identity_only', contrato: null };
+        const already = await findVigenteByCliente(db, cedula, cliente);
+        if (already) {
+            await updateContratoTermino(db, already.id, {
+                fechaTermino: payload.fechaTermino,
+                tipoContrato: payload.tipoContrato,
+                actor: payload.actor,
+                origen: payload.origen
+            });
+            if (already.es_cabecera) {
+                await updatePersonCabeceraSnapshot(db, cedula, {
+                    cliente,
+                    fechaTermino: payload.fechaTermino,
+                    tipoContrato: payload.tipoContrato
+                });
+            }
+            return { action: 'extend', contrato: toApiContrato(already) };
+        }
+        let target = null;
+        if (input.contratoId) {
+            const byId = await loadContratoRowForEconomia(db, cedula, input.contratoId);
+            if (byId && byId.vigente !== false) target = byId;
+        }
+        if (!target && existed && existed.cliente) {
+            target = await findVigenteByCliente(db, cedula, existed.cliente);
+        }
+        if (!target) {
+            target = await findCabecera(db, cedula);
+        }
+        if (!target) {
+            return applyContractEvent(db, { ...input, action: 'insert_first' });
+        }
+        const updated = await updateContratoTermino(db, target.id, {
+            cliente,
+            fechaTermino: payload.fechaTermino,
+            tipoContrato: payload.tipoContrato,
+            actor: payload.actor,
+            origen: payload.origen || 'rename_client'
+        });
+        if (target.es_cabecera) {
+            await updatePersonCabeceraSnapshot(db, cedula, {
+                cliente,
+                fechaTermino: payload.fechaTermino,
+                tipoContrato: payload.tipoContrato
+            });
+        }
+        return {
+            action: 'rename_client',
+            contrato: toApiContrato({
+                ...(updated || target),
+                cliente,
+                tipo_contrato: payload.tipoContrato || target.tipo_contrato,
+                es_cabecera: target.es_cabecera
+            })
+        };
     }
 
     if (action === 'new_client') {
@@ -962,13 +1029,16 @@ async function syncPersonContractsFromFicha(db, {
     fechaTermino,
     origen = 'ficha',
     allowReingreso = true,
+    nuevoContrato = false,
+    contratoId = null,
     actor
 }) {
     let action = decideContractAction({
         exists: Boolean(existed),
         activo: existed ? existed.activo !== false : true,
         clienteActual: existed && existed.cliente,
-        clienteNuevo: cliente
+        clienteNuevo: cliente,
+        nuevoContrato
     });
     // Editar/guardar ficha en Bajas no es reingreso. El reingreso entra por integración/novedad.
     if (action === 'reingreso' && allowReingreso === false) {
@@ -985,7 +1055,8 @@ async function syncPersonContractsFromFicha(db, {
         existed,
         action,
         actor,
-        preventReopenClosed: allowReingreso === false
+        contratoId,
+        preventReopenClosed: allowReingreso === false && action === 'new_client'
     });
 }
 

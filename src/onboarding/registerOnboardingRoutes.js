@@ -228,6 +228,7 @@ function registerOnboardingRoutes(deps) {
         gp_user_id: z.string().uuid().optional().nullable(),
         activo: z.boolean().optional(),
         contrato_id: z.string().uuid().optional().nullable(),
+        nuevo_contrato: z.boolean().optional(),
         ...colabExtendedShape
     });
     /** Alta de colaborador: cédula y nombre obligatorios; resto opcional (mismo shape extendido). */
@@ -660,6 +661,7 @@ function registerOnboardingRoutes(deps) {
         try {
             const patch = stripComputedEconomia(normalizeColabTextPatch(parsed.data));
             const contratoId = parsed.data.contrato_id || null;
+            const nuevoContrato = parsed.data.nuevo_contrato === true;
             const beforeQ = await pool.query(`SELECT * FROM colaboradores WHERE cedula = $1 LIMIT 1`, [cedula]);
             const existed = beforeQ.rows[0] || await loadPersonContractState(pool, cedula);
             if (!existed) {
@@ -670,7 +672,8 @@ function registerOnboardingRoutes(deps) {
                 exists: true,
                 activo: existed.activo !== false,
                 clienteActual: existed.cliente,
-                clienteNuevo: patch.cliente
+                clienteNuevo: patch.cliente,
+                nuevoContrato
             });
             const actor = actorFromUser(req.user);
             await syncPersonContractsFromFicha(pool, {
@@ -682,6 +685,8 @@ function registerOnboardingRoutes(deps) {
                 fechaTermino: patch.fecha_termino,
                 origen: 'ficha_patch',
                 allowReingreso: false,
+                nuevoContrato,
+                contratoId,
                 actor
             });
             const economia = await persistContratoEconomia(pool, {
@@ -711,12 +716,15 @@ function registerOnboardingRoutes(deps) {
                 delete patchToApply.cliente;
             }
             const tipoTrasCinte = inferTipoPersonal({
-                tipo_personal: patchToApply.tipo_personal || existed.tipo_personal,
+                tipo_personal: existed.tipo_personal,
                 cliente: patchToApply.cliente || existed.cliente,
                 tipo_contrato: patchToApply.tipo_contrato || existed.tipo_contrato,
                 puesto: patchToApply.puesto || existed.puesto,
                 subtipo_sena: patchToApply.subtipo_sena || existed.subtipo_sena
             });
+            if (tipoTrasCinte) {
+                patchToApply.tipo_personal = tipoTrasCinte;
+            }
             if (tipoTrasCinte && tipoTrasCinte !== existed.tipo_personal) {
                 await pool.query(
                     `UPDATE colaboradores

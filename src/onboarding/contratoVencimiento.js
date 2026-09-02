@@ -48,14 +48,19 @@ function foldTipo(value) {
         .trim();
 }
 
-/** OPS, fijo u obra/labor. Indefinido no aplica aunque el esquema diga otra cosa. */
+/** OPS, fijo, obra/labor o indefinido (si hay fecha de término en la ventana). */
 function tipoAplicaAlerta(tipo, esquema) {
     const t = foldTipo(tipo);
     const e = foldTipo(esquema);
-    if (t.includes('indefinido')) return false;
-    if (t.includes('fijo') || t.includes('obra') || t.includes('labor')) return true;
+    if (t.includes('indefinido') || t.includes('fijo') || t.includes('obra') || t.includes('labor')) return true;
     if (t.includes('ops') || t.includes('prestacion') || t.includes('honorario')) return true;
-    if (e.includes('ops') || e.includes('prestacion') || e.includes('honorario') || e === 'cuenta propia') {
+    if (
+        e.includes('indefinido') ||
+        e.includes('ops') ||
+        e.includes('prestacion') ||
+        e.includes('honorario') ||
+        e === 'cuenta propia'
+    ) {
         return true;
     }
     return false;
