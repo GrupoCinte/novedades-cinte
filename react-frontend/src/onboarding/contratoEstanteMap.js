@@ -101,18 +101,25 @@ export function pickLiderForCliente(actual, options, { loading = false } = {}) {
     return list[0] || '';
 }
 
-/** Una pastilla por cliente: vigente si existe; si no, el último histórico. */
+/**
+ * Pastillas del estante:
+ * - Persona activa (hay contratos vigentes): una pastilla por cliente vigente.
+ * - Persona en baja total (sin vigentes): una pastilla por contrato/período,
+ *   sin colapsar re-ingresos al mismo cliente, para no ocultar el historial.
+ */
 export function collapseContratosEstante(list) {
     const rows = Array.isArray(list) ? list.filter(Boolean) : [];
     const vigentes = rows.filter((c) => c.vigente);
-    const source = vigentes.length ? vigentes : rows;
-    const seen = new Map();
-    for (const c of source) {
-        const key = foldCliente(c.cliente);
-        if (!key || seen.has(key)) continue;
-        seen.set(key, c);
+    if (vigentes.length) {
+        const seen = new Map();
+        for (const c of vigentes) {
+            const key = foldCliente(c.cliente);
+            if (!key || seen.has(key)) continue;
+            seen.set(key, c);
+        }
+        return [...seen.values()];
     }
-    return [...seen.values()];
+    return rows;
 }
 
 /**
