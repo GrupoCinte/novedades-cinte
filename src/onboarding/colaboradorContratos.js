@@ -798,6 +798,18 @@ async function applyContractEvent(db, input = {}) {
         actor: input.actor || null
     };
 
+    // AUT-340: guardar la ficha no debe "resucitar" un contrato que ya fue
+    // cerrado para ese cliente. Si hay histórico cerrado del mismo cliente y no
+    // hay vigente, se evita insertar un contrato nuevo (el reingreso real entra
+    // por integración/novedad, no por editar la ficha).
+    const preventReopenClosed = input.preventReopenClosed === true;
+    async function guardResurrect() {
+        if (!preventReopenClosed || !cliente) return null;
+        const closed = await findLatestHistoricoByCliente(db, cedula, cliente);
+        if (closed) return { action: 'identity_only', contrato: toApiContrato(closed) };
+        return null;
+    }
+
     if (action === 'identity_only') {
         return { action, contrato: null };
     }
@@ -829,6 +841,8 @@ async function applyContractEvent(db, input = {}) {
             });
             return { action: 'extend', contrato: toApiContrato(cabecera) };
         }
+        const blocked = await guardResurrect();
+        if (blocked) return blocked;
         const inserted = await insertContratoSafe(db, {
             ...payload,
             vigente: true,
@@ -851,6 +865,8 @@ async function applyContractEvent(db, input = {}) {
             });
             return { action: 'extend', contrato: toApiContrato(already) };
         }
+        const blocked = await guardResurrect();
+        if (blocked) return blocked;
         const inserted = await insertContratoSafe(db, {
             ...payload,
             vigente: true,
@@ -921,6 +937,8 @@ async function applyContractEvent(db, input = {}) {
         });
         return { action: 'extend', contrato: toApiContrato(cabecera) };
     }
+    const blockedFirst = await guardResurrect();
+    if (blockedFirst) return blockedFirst;
     const inserted = await insertContratoSafe(db, {
         ...payload,
         vigente: true,
@@ -966,7 +984,8 @@ async function syncPersonContractsFromFicha(db, {
         origen,
         existed,
         action,
-        actor
+        actor,
+        preventReopenClosed: allowReingreso === false
     });
 }
 
