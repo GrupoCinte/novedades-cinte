@@ -1796,7 +1796,8 @@ function registerOnboardingRoutes(deps) {
     });
 
     const fichaNovedadesApproveSchema = z.object({
-        close_siblings: z.boolean().optional()
+        close_siblings: z.boolean().optional(),
+        apply_fields: z.array(z.string().min(1).max(80)).min(1).max(80).optional()
     });
 
     const fichaNovedadesLinkSchema = z.object({
@@ -1932,7 +1933,8 @@ function registerOnboardingRoutes(deps) {
         }
         try {
             const result = await fichaNovedades.approveNovedad(parsed.data.id, req.user || {}, {
-                closeSiblings: bodyParsed.data.close_siblings === true
+                closeSiblings: bodyParsed.data.close_siblings === true,
+                applyFields: bodyParsed.data.apply_fields
             });
             await writeAudit(pool, {
                 actorUserId: parseUuidActor(req.user && req.user.sub),

@@ -72,6 +72,60 @@ function diffAllowlistForTipo(tipo) {
     return null;
 }
 
+/** Campos que disparan evento de contrato (no solo PATCH de ficha). */
+const CONTRACT_EVENT_FIELDS = new Set([
+    'cliente',
+    'tipo_contrato',
+    'fecha_ingreso',
+    'fecha_termino',
+    'fecha_notificacion_termino',
+    'esquema_contrato',
+    'vigente_desde'
+]);
+
+const APPLY_FIELD_ALIASES = {
+    fecha_ingreso: ['vigente_desde'],
+    vigente_desde: ['fecha_ingreso']
+};
+
+function parseApplyFields(raw) {
+    if (raw == null) return null;
+    if (!Array.isArray(raw)) {
+        throw Object.assign(new Error('apply_fields inválido'), { status: 400 });
+    }
+    const keys = [...new Set(raw.map((k) => String(k || '').trim()).filter(Boolean))];
+    if (keys.length === 0) {
+        throw Object.assign(new Error('Marque al menos un campo para aplicar'), { status: 400 });
+    }
+    if (keys.length > 80) {
+        throw Object.assign(new Error('Demasiados campos en apply_fields'), { status: 400 });
+    }
+    const expanded = new Set(keys);
+    for (const key of keys) {
+        const aliases = APPLY_FIELD_ALIASES[key];
+        if (aliases) aliases.forEach((a) => expanded.add(a));
+    }
+    return expanded;
+}
+
+function filterPayloadByApplyFields(payload, applyFields) {
+    if (!applyFields || !payload || typeof payload !== 'object') return payload;
+    const out = {};
+    for (const [key, val] of Object.entries(payload)) {
+        if (applyFields.has(key)) out[key] = val;
+    }
+    return out;
+}
+
+function applyFieldsTouchContract(applyFields, payload) {
+    if (!applyFields) return true;
+    const src = payload && typeof payload === 'object' ? payload : {};
+    for (const key of CONTRACT_EVENT_FIELDS) {
+        if (applyFields.has(key) && src[key] != null && src[key] !== '') return true;
+    }
+    return false;
+}
+
 function normalizeCedula(value) {
     if (value == null) return '';
     return String(value).replace(/\D+/g, '');
@@ -1187,6 +1241,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
     async function approveNovedad(id, reviewer = {}, options = {}) {
         const closeSiblings = options.closeSiblings === true;
+        const applyFields = parseApplyFields(options.applyFields);
         const actor = actorFromUser(reviewer);
         const origenZoho = 'ficha_zoho';
         const row = await getNovedadById(id);
@@ -1200,9 +1255,12 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         }
 
         const tipo = String(row.tipo_novedad || '').trim().toLowerCase();
-        const normalized = { ...(row.payload_normalizado || {}) };
+        let normalized = { ...(row.payload_normalizado || {}) };
         if (normalized.cliente) {
             normalized.cliente = resolveClienteOnWrite(normalized.cliente);
+        }
+        if (applyFields) {
+            normalized = filterPayloadByApplyFields(normalized, applyFields);
         }
         const patch = buildPatchFromNormalized(row.tipo_novedad, normalized);
         if (Object.keys(patch).length === 0 && tipo !== 'salida' && tipo !== 'cancelacion_salida') {
@@ -1273,7 +1331,11 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             foldForMatch(clienteNuevo) !== foldForMatch(clienteActual);
 
         const tiposContrato = tipo === 'integracion' || tipo === 'modificacion_id' || tipo === 'extension';
-        if (tiposContrato) {
+        const runContractEvent = tiposContrato && applyFieldsTouchContract(applyFields, {
+            ...normalized,
+            ...patch
+        });
+        if (runContractEvent) {
             if (tipo === 'extension') {
                 if (!clienteFicha) {
                     throw Object.assign(
@@ -1351,7 +1413,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             if (patch.tarifa_cliente != null) delete patch.tarifa_cliente;
         }
 
-        if (tipo === 'modificacion_id') {
+        if (tipo === 'modificacion_id' && (!applyFields || applyFields.has('tarifa_cliente'))) {
             const vigenteDesde = normalized.vigente_desde || patch.vigente_desde;
             const nuevaTarifa = normalized.tarifa_cliente ?? patch.tarifa_cliente;
             const clienteHist = esClienteDistinto ? clienteNuevo : clienteActual || clienteNuevo;
