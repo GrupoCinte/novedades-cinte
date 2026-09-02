@@ -32,7 +32,7 @@ function buildHtml({ kind, asOfDate, items }) {
         .join('');
     return `<!doctype html>
 <html lang="es"><body style="font-family:Segoe UI,Arial,sans-serif;color:#0f172a;">
-  <p>Capital Humano — contratos OPS, fijo u obra o labor que vencen en <strong>${escapeHtml(label)}</strong> (día exacto ${escapeHtml(asOfDate)}).</p>
+  <p>Capital Humano — contratos OPS, fijo, obra o labor e indefinido que vencen en <strong>${escapeHtml(label)}</strong> (día exacto ${escapeHtml(asOfDate)}).</p>
   <table style="border-collapse:collapse;width:100%;font-size:14px;">
     <thead>
       <tr style="background:#e8f3fb;text-align:left;">

@@ -15,6 +15,7 @@ const HISTORIAL_TAB = {
     title: 'Historial de la ficha',
     shortTitle: 'Historial'
 };
+const DRAFT_CONTRATO_ID = '__nuevo__';
 import { onboardingApi } from './api.js';
 import { getOnboardingPermissions } from './onboardingAccess.js';
 import { TipoPersonalBadge, resolveColaboradorEstado } from './onboardingBadges.jsx';
@@ -83,16 +84,22 @@ export default function ColaboradorOnboardingModal({
     const [liderLoading, setLiderLoading] = useState(false);
     const [activeTab, setActiveTab] = useState(CO_TABS[0]?.id || 'general');
     const [selectedContratoId, setSelectedContratoId] = useState('cabecera');
+    const [draftContrato, setDraftContrato] = useState(null);
     const [zohoHistorial, setZohoHistorial] = useState([]);
 
     const fichaTabs = createMode ? CO_TABS : [...CO_TABS, HISTORIAL_TAB];
     const onHistorialTab = activeTab === HISTORIAL_TAB.id;
     const displayName = createMode ? 'Nuevo colaborador' : form.nombre || 'Ficha del colaborador';
-    const contratos = useMemo(() => contratosFromFicha(form, { esBaja }), [form, esBaja]);
+    const contratos = useMemo(() => {
+        const list = contratosFromFicha(form, { esBaja });
+        if (draftContrato) return [...list, draftContrato];
+        return list;
+    }, [form, esBaja, draftContrato]);
     const contratoSeleccionado = useMemo(
         () => contratos.find((c) => c.id === selectedContratoId) || contratos.find((c) => c.esCabecera) || contratos[0],
         [contratos, selectedContratoId]
     );
+    const esBorradorNuevo = Boolean(draftContrato && contratoSeleccionado?.id === DRAFT_CONTRATO_ID);
     const formVista = useMemo(() => {
         const sel = contratoSeleccionado;
         const clienteVista = matchClienteOption(
@@ -226,7 +233,24 @@ export default function ColaboradorOnboardingModal({
             return;
         }
         setForm(originalForm);
+        setDraftContrato(null);
         setEditMode(false);
+    };
+
+    const handleNuevoContrato = () => {
+        if (!perms.canEditFicha) return;
+        const draft = {
+            id: DRAFT_CONTRATO_ID,
+            cliente: '',
+            tipo: '',
+            tipo_contrato: '',
+            vigente: true,
+            esCabecera: false
+        };
+        setDraftContrato(draft);
+        setSelectedContratoId(DRAFT_CONTRATO_ID);
+        setEditMode(true);
+        setActiveTab(CO_TABS[0]?.id || 'general');
     };
 
     const handleSubmit = async (e) => {
@@ -244,11 +268,21 @@ export default function ColaboradorOnboardingModal({
                 return;
             }
             const clienteSel = String(
-                contratoSeleccionado && !contratoSeleccionado.esCabecera
-                    ? contratoSeleccionado.cliente || formVista.cliente || form.cliente || ''
-                    : formVista.cliente || form.cliente || ''
+                esBorradorNuevo
+                    ? draftContrato.cliente || formVista.cliente || ''
+                    : contratoSeleccionado && !contratoSeleccionado.esCabecera
+                      ? contratoSeleccionado.cliente || formVista.cliente || form.cliente || ''
+                      : formVista.cliente || form.cliente || ''
             ).trim();
             payload.cliente = clienteSel || null;
+            if (esBorradorNuevo) {
+                if (!clienteSel) {
+                    setError('Elige el cliente del contrato nuevo.');
+                    setSaving(false);
+                    return;
+                }
+                payload.nuevo_contrato = true;
+            }
             const persistLiderCabecera = createMode || !contratoSeleccionado || contratoSeleccionado.esCabecera;
             payload.lider_catalogo = persistLiderCabecera
                 ? formVista.lider_catalogo
@@ -257,7 +291,7 @@ export default function ColaboradorOnboardingModal({
                 : form.lider_catalogo
                   ? String(form.lider_catalogo).trim()
                   : null;
-            const contratoUuid = String(contratoSeleccionado?.id || '');
+            const contratoUuid = String(esBorradorNuevo ? '' : contratoSeleccionado?.id || '');
             if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(contratoUuid)) {
                 payload.contrato_id = contratoUuid;
             }
@@ -281,6 +315,7 @@ export default function ColaboradorOnboardingModal({
             const mapped = mapRowToStaffForm(r?.item || {});
             setForm(mapped);
             setOriginalForm(mapped);
+            setDraftContrato(null);
             const list = contratosFromFicha(mapped, { esBaja });
             const keep = list.find((c) => c.id === selectedContratoId) || list.find((c) => c.esCabecera) || list[0];
             if (keep) setSelectedContratoId(keep.id);
@@ -388,13 +423,24 @@ export default function ColaboradorOnboardingModal({
                 bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-2 sm:px-6"
             >
                 {!loading && !error && !createMode ? (
-                    <div className="mb-2 shrink-0">
-                        <ContratoEstante
-                            contratos={contratos}
-                            selectedId={selectedContratoId}
-                            onSelect={setSelectedContratoId}
-                            isLight={isLight}
-                        />
+                    <div className="mb-2 flex shrink-0 items-center gap-2">
+                        <div className="min-w-0 flex-1">
+                            <ContratoEstante
+                                contratos={contratos}
+                                selectedId={selectedContratoId}
+                                onSelect={setSelectedContratoId}
+                                isLight={isLight}
+                            />
+                        </div>
+                        {editMode && perms.canEditFicha && !draftContrato ? (
+                            <button
+                                type="button"
+                                onClick={handleNuevoContrato}
+                                className="inline-flex shrink-0 items-center rounded-full border border-[#2F7BB8]/50 px-3 py-1.5 text-[11px] font-semibold text-[#2F7BB8] hover:bg-[#2F7BB8]/10"
+                            >
+                                + Nuevo contrato
+                            </button>
+                        ) : null}
                     </div>
                 ) : null}
                 {!loading && !error ? (
@@ -459,6 +505,32 @@ export default function ColaboradorOnboardingModal({
                             onChange={(patch) => {
                                 const sel = contratoSeleccionado;
                                 const nextPatch = { ...(patch || {}) };
+                                if (sel && sel.id === DRAFT_CONTRATO_ID) {
+                                    setDraftContrato((d) => ({
+                                        ...(d || { id: DRAFT_CONTRATO_ID, vigente: true, esCabecera: false }),
+                                        cliente: nextPatch.cliente !== undefined ? nextPatch.cliente : d?.cliente,
+                                        tipo: nextPatch.tipo_contrato !== undefined ? nextPatch.tipo_contrato : d?.tipo,
+                                        tipo_contrato:
+                                            nextPatch.tipo_contrato !== undefined
+                                                ? nextPatch.tipo_contrato
+                                                : d?.tipo_contrato,
+                                        fechaTermino:
+                                            nextPatch.fecha_termino !== undefined
+                                                ? nextPatch.fecha_termino
+                                                : d?.fechaTermino,
+                                        fecha_termino:
+                                            nextPatch.fecha_termino !== undefined
+                                                ? nextPatch.fecha_termino
+                                                : d?.fecha_termino
+                                    }));
+                                    const restDraft = { ...nextPatch };
+                                    delete restDraft.cliente;
+                                    delete restDraft.tipo_contrato;
+                                    delete restDraft.fecha_termino;
+                                    delete restDraft.fecha_ingreso;
+                                    if (Object.keys(restDraft).length) setForm((s) => ({ ...s, ...restDraft }));
+                                    return;
+                                }
                                 if (sel && !sel.esCabecera && nextPatch.lider_catalogo !== undefined) {
                                     delete nextPatch.lider_catalogo;
                                 }
@@ -520,7 +592,11 @@ export default function ColaboradorOnboardingModal({
                             }}
                             mode={createMode ? 'create' : 'edit'}
                             readOnly={!editMode}
-                            lockCliente={Boolean(contratoSeleccionado && !contratoSeleccionado.esCabecera)}
+                            lockCliente={Boolean(
+                                contratoSeleccionado &&
+                                    !contratoSeleccionado.esCabecera &&
+                                    contratoSeleccionado.id !== DRAFT_CONTRATO_ID
+                            )}
                             clientes={clientes}
                             liderOptions={liderOptions}
                             liderLoading={liderLoading}

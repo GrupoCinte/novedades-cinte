@@ -46,16 +46,13 @@ function isSenaSignal(payload = {}) {
 }
 
 /**
- * Tipo de personal al crear/promover o al corregir cabecera.
- * SENA se queda SENA. Cliente cabecera CINTE es Staff y gana sobre consultor ya guardado.
+ * Tipo de personal según el cliente cabecera (simétrico):
+ * CINTE → staff; cualquier otro cliente → consultor.
+ * SENA se queda SENA.
  */
 function inferTipoPersonal(payload = {}) {
-    const explicit = isExplicitTipo(payload.tipo_personal);
-    if (explicit === 'sena' || isSenaSignal(payload)) return 'sena';
+    if (isExplicitTipo(payload.tipo_personal) === 'sena' || isSenaSignal(payload)) return 'sena';
     if (isClienteCinte(payload.cliente)) return 'staff';
-    if (explicit) return explicit;
-    const rawTipo = foldForMatch(payload.tipo_personal);
-    if (rawTipo.includes('staff')) return 'staff';
     return 'consultor';
 }
 

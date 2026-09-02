@@ -1365,6 +1365,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 origen: origenZoho,
                 actor,
                 existed: current,
+                nuevoContrato: tipo !== 'extension',
                 ...(tipo === 'extension' ? { action: 'extend' } : {})
             });
             if (contract.action === 'new_client') {

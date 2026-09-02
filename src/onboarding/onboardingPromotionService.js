@@ -777,7 +777,8 @@ function createOnboardingPromotionService({ pool, logger } = {}) {
                 exists: Boolean(prevPerson),
                 activo: prevPerson ? prevPerson.activo !== false : true,
                 clienteActual: prevPerson && prevPerson.cliente,
-                clienteNuevo: normalizedValidated.cliente
+                clienteNuevo: normalizedValidated.cliente,
+                nuevoContrato: true
             });
 
             const cedulaInsertada = await upsertColaborador(client, normalizedValidated, {
