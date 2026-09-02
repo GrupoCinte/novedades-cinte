@@ -8,6 +8,7 @@ const {
     flattenHistorialMap,
     listHistorialByCedula,
     recordContratoDiff,
+    recordFichaDiff,
     snapshotFromContratoRow
 } = require('./contratoHistorial');
 
@@ -882,6 +883,18 @@ async function applyContractEvent(db, input = {}) {
             fechaInicio: payload.fechaInicio,
             fechaTermino: payload.fechaTermino,
             reactivate: true
+        });
+        await recordFichaDiff(db, {
+            cedula,
+            before: {
+                activo: existed ? existed.activo !== false : false,
+                motivo_baja: existed && existed.motivo_baja,
+                termino: existed && existed.termino
+            },
+            after: { activo: true, motivo_baja: '', termino: '' },
+            actor: payload.actor,
+            origen: payload.origen || 'reingreso',
+            onlyKeys: ['activo', 'motivo_baja', 'termino']
         });
         return { action, contrato };
     }

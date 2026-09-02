@@ -22,7 +22,7 @@ const {
     sameCliente,
     isoDate
 } = require('./colaboradorContratos');
-const { actorFromUser } = require('./contratoHistorial');
+const { actorFromUser, recordFichaDiff } = require('./contratoHistorial');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
@@ -669,6 +669,15 @@ async function loadColaboradorFull(pool, cedula) {
     return q.rows[0] || null;
 }
 
+async function loadColaboradorFullSafe(pool, cedula, fallback = null) {
+    try {
+        return (await loadColaboradorFull(pool, cedula)) || fallback;
+    } catch (error) {
+        console.error('[Onboarding] no se pudo releer ficha para historial:', error.message);
+        return fallback;
+    }
+}
+
 /**
  * @param {import('pg').Pool} pool
  * @param {string[]} cedulas
@@ -1217,6 +1226,15 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 actor,
                 origen: origenZoho
             });
+            const afterBaja = await loadColaboradorFullSafe(pool, cedula, current);
+            await recordFichaDiff(pool, {
+                cedula,
+                before: current,
+                after: afterBaja || {},
+                actor,
+                origen: origenZoho,
+                onlyKeys: ['motivo_baja', 'activo', 'termino']
+            });
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
             delete patch.termino;
@@ -1231,6 +1249,15 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 });
             }
             await reopenContrato(pool, { cedula, cliente: clienteFicha, actor, origen: origenZoho });
+            const afterReopen = await loadColaboradorFullSafe(pool, cedula, current);
+            await recordFichaDiff(pool, {
+                cedula,
+                before: current,
+                after: afterReopen || {},
+                actor,
+                origen: origenZoho,
+                onlyKeys: ['activo', 'motivo_baja', 'termino', 'cancelado']
+            });
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
             delete patch.termino;
@@ -1306,7 +1333,9 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 }
             }
             if (contract.action === 'reingreso') {
-                patch.activo = true;
+                delete patch.activo;
+                delete patch.motivo_baja;
+                delete patch.termino;
             }
         }
 
@@ -1340,7 +1369,16 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         }
 
         if (Object.keys(patch).length > 0) {
+            const beforePatch = await loadColaboradorFullSafe(pool, cedula, current);
             await applyPatchToColaborador(cedula, patch);
+            await recordFichaDiff(pool, {
+                cedula,
+                before: beforePatch || current || {},
+                after: { ...(beforePatch || current || {}), ...patch },
+                actor,
+                origen: origenZoho,
+                onlyKeys: Object.keys(patch)
+            });
         }
 
         const reviewedBy = trimOrNull(reviewer.sub || reviewer.email || reviewer.displayName, 320);
