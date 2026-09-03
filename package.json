@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node --use-system-ca server.js",
-    "dev": "node --use-system-ca server.js",
+    "start:secrets": "node --use-system-ca bootstrap.js",
+    "dev": "node --use-system-ca bootstrap.js",
     "dev:watch": "node --use-system-ca --watch server.js",
     "test": "node --test tests/colaboradorContratos.test.js tests/contratoCostoCalc.test.js tests/contratoHistorial.test.js tests/fichaNovedadesService.test.js tests/contratoEstante.test.js tests/contratoVencimiento.test.js tests/contratoVencimientoService.test.js tests/contratoVencimientoEmail.test.js tests/contratoDashboardCiclo.test.js tests/seguimientoNoCronServer.test.js tests/cotizadorStore.test.js tests/cotizador.resolveCargosLista.test.js tests/clienteNombreMatch.test.js tests/rbac.integration.test.js tests/resolveApproverEmailsFromCognito.test.js tests/colaboradorDirectory.test.js tests/loginClaimsSerialization.test.js tests/directorioClienteLiderGpSchema.test.js tests/cotizadorEngine.test.js tests/tiPerfilToCargoRow.test.js tests/taxonomiaDepuradaFinParse.test.js tests/tiCatalogColumnMap.test.js tests/utils.extended.test.js tests/wsTicket.test.js tests/heDomingoBogota.test.js tests/heDomingoCompensacion.test.js tests/heBogotaSplit.test.js tests/heDomingoRecargoGroup.test.js tests/novedadHeExcelExport.test.js tests/auth.unit.test.js tests/entraConsultorAuth.test.js tests/registerRoutes.contract.test.js tests/actividadesConsultorService.test.js tests/actividadesPdf.test.js tests/compensatorioVotacion.test.js tests/novedadesMapper.test.js tests/novedadObservacionesRechazo.test.js tests/infraData.test.js tests/server.unit.test.js tests/novedadAdminRoutes.test.js tests/nominaProcesadoRoutes.test.js tests/reubicacionesSemaforo.test.js tests/reubicacionesPipeline.routes.test.js tests/migratePipelineExcelDate.test.js src/notifications/emailNotificationsPublisher.test.js tests/serverConciliacionesWiring.test.js tests/conciliacionesQueries.test.js tests/conciliacionTarifaProrrateo.test.js tests/conciliacionNovedadImpacto.test.js tests/conciliacionJornadaReforma.test.js tests/bajaColaborador.test.js tests/cancelarColaborador.test.js tests/cancelacionesSort.test.js tests/conciliacionesRoutes.test.js tests/sourcingRoutes.test.js tests/scoreCandidato.test.js tests/scoreLearning.test.js tests/validateIntegrationCookies.test.js tests/zohoRecruitClient.test.js tests/extractorToFichaMap.test.js tests/mapDynamoItemForPromotion.test.js tests/parseFechaInicioSmart.test.js tests/onboardingPromotionService.test.js tests/onboardingListSort.test.js tests/chMaestroNav.test.mjs tests/fichaCatalogos.test.mjs tests/personalListFilters.test.js tests/enIngresoCierre.test.js tests/tipoPersonalInfer.test.js tests/chListFilters.test.mjs tests/chTextNormalize.test.js tests/mallaTurnoHeExport.test.js tests/mallasTurnos.routes.test.js tests/mallaTurnosUpsertMerge.test.js tests/resolveActorUserId.test.js",
     "test:api-smoke": "node --test tests/api.integration.test.js",
@@ -30,6 +31,7 @@
     "@aws-sdk/client-dynamodb-streams": "^3.1006.0",
     "@aws-sdk/client-lambda": "^3.1030.0",
     "@aws-sdk/client-s3": "^3.1006.0",
+    "@aws-sdk/client-secrets-manager": "^3.1124.0",
     "@aws-sdk/lib-dynamodb": "^3.1006.0",
     "@aws-sdk/s3-request-presigner": "^3.1006.0",
     "aws-jwt-verify": "^5.1.1",

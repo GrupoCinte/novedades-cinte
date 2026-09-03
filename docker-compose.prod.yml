@@ -9,27 +9,38 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U cinte_app -d novedades_cinte"]
+      test: [ "CMD-SHELL", "pg_isready -U cinte_app -d novedades_cinte" ]
       interval: 10s
       timeout: 5s
       retries: 10
-    networks: [nc_net]
+    networks: [ nc_net ]
 
   # El backend necesita en .env: DB_*, JWT_SECRET, AWS_REGION y credenciales AWS (o rol IAM).
   # Contratación: DYNAMODB_TABLE_NAME. Conciliaciones servicios: DYNAMODB_TABLE_SERVICIOS,
   # APPSYNC_GRAPHQL_ENDPOINT, APPSYNC_API_KEY (opcional si solo se persiste en Dynamo).
+  # Secrets Manager: en producción con IAM Role, el backend lee los secretos al arrancar
+  # desde AWS Secrets Manager (USE_AWS_SECRETS_MANAGER=true, AWS_SECRET_NAME configurado).
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
     restart: unless-stopped
+    command: [ "node", "--use-system-ca", "bootstrap.js" ]
     env_file: .env
+    environment:
+      # Secrets Manager: activar en producción con IAM Role asignado al contenedor/instancia.
+      # El SDK toma las credenciales automáticamente del Instance Metadata Service (IMDS).
+      # NO definir AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY aquí en producción.
+      USE_AWS_SECRETS_MANAGER: ${USE_AWS_SECRETS_MANAGER:-false}
+      AWS_SECRET_NAME: ${AWS_SECRET_NAME:-cinte/production/secrets}
+      # AWS_ENDPOINT_URL: dejar vacío en producción (solo para LocalStack)
+      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./assets:/app/assets
-    networks: [nc_net]
+    networks: [ nc_net ]
 
   # Worker de scraping Atracción (Playwright). Solo red interna; no publicar 8090 al host.
   sourcing-worker:
@@ -45,7 +56,7 @@ services:
       SOURCING_WORKER_CALLBACK_SECRET: ${SOURCING_WORKER_CALLBACK_SECRET:-local-sourcing-dev}
     volumes:
       - sourcing_ee_profile:/app/.elempleo-profile
-    networks: [nc_net]
+    networks: [ nc_net ]
 
   frontend:
     build:
@@ -55,7 +66,7 @@ services:
         VITE_CONCILIACIONES_ENABLED: ${VITE_CONCILIACIONES_ENABLED:-false}
         VITE_ATRACCION_TALENTO_ENABLED: ${VITE_ATRACCION_TALENTO_ENABLED:-false}
     restart: unless-stopped
-    networks: [nc_net]
+    networks: [ nc_net ]
 
   caddy:
     image: caddy:2
@@ -67,7 +78,7 @@ services:
       - "127.0.0.1:8080:80"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-    networks: [nc_net]
+    networks: [ nc_net ]
 
 networks:
   nc_net:
