@@ -10,6 +10,7 @@ import {
 } from './admin/directorioFilters.js';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
 import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
+import { canEditReubicaciones, canDeleteReubicaciones } from './reubicacionesAccess.js';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -135,9 +136,13 @@ class ReubicacionesPipelineErrorBoundary extends Component {
     }
 }
 
-function ReubicacionesPipelinePageInner({ token, navIntent }) {
+function ReubicacionesPipelinePageInner({ token, auth, navIntent }) {
     const { isLight, field, labelMuted, headingAccent } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
+    
+    const canEdit = useMemo(() => canEditReubicaciones(auth), [auth]);
+    const canDelete = useMemo(() => canDeleteReubicaciones(auth), [auth]);
+    
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
     const [items, setItems] = useState([]);
@@ -416,14 +421,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                 panelId="reubicaciones-filtros-panel"
                 dash={dash}
             >
-                <button type="button" onClick={() => setCreateOpen(true)} className={dash.toolbarBtn}>
-                    <span className="inline-flex items-center gap-2">
-                        <Plus size={16} /> Nuevo registro
-                    </span>
-                </button>
-                <button type="button" onClick={load} className={dash.compactBtn}>
-                    Refrescar
-                </button>
+
             </ModuleFiltersToolbar>
 
             <div className={`${dash.cardFlex} min-h-0 flex-1`}>
@@ -483,20 +481,16 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                                             </td>
                                             <td className="p-4 pr-6 whitespace-nowrap">
                                                 <div className="flex items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        className={`inline-flex items-center gap-1 ${headingAccent} hover:underline`}
-                                                        onClick={() => openEdit(row)}
-                                                    >
-                                                        <Pencil size={14} /> Editar
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="inline-flex items-center gap-1 text-red-400 hover:text-red-300 hover:underline"
-                                                        onClick={() => setConfirmDeleteRow(row)}
-                                                    >
-                                                        <Trash2 size={14} /> Eliminar
-                                                    </button>
+                                                    {canEdit && (
+                                                        <button
+                                                            type="button"
+                                                            className={`inline-flex items-center gap-1 ${headingAccent} hover:underline`}
+                                                            onClick={() => openEdit(row)}
+                                                        >
+                                                            <Pencil size={14} /> Editar
+                                                        </button>
+                                                    )}
+
                                                 </div>
                                             </td>
                                         </tr>

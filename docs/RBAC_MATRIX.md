@@ -129,7 +129,7 @@ Reglas:
 
 Si un usuario pertenece a más de un grupo, el rol efectivo es **uno solo**, elegido por esta prioridad (de mayor a menor):
 
-**Super administrador → CAC → Admin Capital Humano → Equipo Capital Humano → Analista de conciliaciones → GP → Nómina → Comercial → Consultor**
+**Super administrador → CAC → Admin Capital Humano → Equipo Capital Humano → Analista de conciliaciones → GP → Atracción de talento → Nómina → Comercial → Consultor**
 
 **Recomendación operativa:** asignar **un solo grupo** por usuario en Cognito cuando el puesto tenga un solo rol en la plataforma; así no hay ambigüedad. Si hay varios grupos, solo cuenta la prioridad anterior (no se puede elegir otro rol desde la pantalla de login).
 
