@@ -215,18 +215,28 @@ CREATE TABLE IF NOT EXISTS malla_turno_asignacion (
 );
 CREATE INDEX IF NOT EXISTS idx_malla_turno_asignacion_lookup ON malla_turno_asignacion (cliente, fecha, franja);
 
--- ========= Reubicaciones PIPELINE (administración; datos maestros via JOIN colaboradores) =========
+-- ========= Reubicaciones PIPELINE =========
+-- Nota: cedula NO tiene REFERENCES colaboradores porque el flujo de Salidas/Extensiones
+-- puede recibir personas antes de que existan en la tabla colaboradores.
 CREATE TABLE IF NOT EXISTS reubicaciones_pipeline (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cedula              TEXT NOT NULL REFERENCES colaboradores(cedula) ON DELETE CASCADE,
-    fecha_fin           DATE NOT NULL,
+    cedula              VARCHAR(20) NOT NULL UNIQUE,
+    fecha_fin           DATE NULL,
     cliente_destino     TEXT NULL,
     causal              TEXT NULL,
+    estado              TEXT NULL,
+    tipo_ficha          TEXT NULL,
+    motivo_novedad      TEXT NULL,
+    ultimo_evento_id    TEXT NULL,
+    -- Snapshot de datos laborales en el momento de la aprobación (fuente: colaboradores)
+    puesto              VARCHAR(255) NULL,
+    salario             NUMERIC(16,2) NULL,
+    auxilios            NUMERIC(16,2) NULL,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_reubicaciones_pipeline_cedula UNIQUE (cedula)
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_fecha_fin ON reubicaciones_pipeline(fecha_fin);
+CREATE INDEX IF NOT EXISTS idx_reubicaciones_pipeline_estado ON reubicaciones_pipeline(estado);
 
 CREATE INDEX IF NOT EXISTS idx_novedades_area_estado ON novedades(area, estado);
 CREATE INDEX IF NOT EXISTS idx_novedades_tipo ON novedades(tipo_novedad);
@@ -541,20 +551,8 @@ CREATE TABLE IF NOT EXISTS seguimiento_historial (
 
 CREATE INDEX IF NOT EXISTS idx_seguimiento_historial_acta ON seguimiento_historial(acta_id);
 
--- ========= Reubicaciones =========
-CREATE TABLE IF NOT EXISTS reubicaciones_pipeline (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cedula VARCHAR(20) NOT NULL UNIQUE REFERENCES colaboradores(cedula) ON DELETE CASCADE,
-    fecha_fin DATE NOT NULL,
-    cliente_destino TEXT,
-    causal TEXT,
-    estado TEXT,
-    tipo_ficha TEXT,
-    motivo_novedad TEXT,
-    ultimo_evento_id TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- ========= Reubicaciones (tablas auxiliares) =========
+-- reubicaciones_pipeline ya fue definida arriba (línea ~218). Ver esa definición.
 
 CREATE TABLE IF NOT EXISTS reubicaciones_source_events (
     source_event_id TEXT PRIMARY KEY,
@@ -589,19 +587,20 @@ CREATE TABLE IF NOT EXISTS reubicaciones_decisiones (
 );
 
 CREATE TABLE IF NOT EXISTS reubicaciones_historial (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    caso_id UUID NOT NULL,
-    consultor_id TEXT REFERENCES colaboradores(cedula) ON DELETE SET NULL,
-    tipo TEXT NOT NULL,
-    actor_nombre TEXT NOT NULL,
-    actor_rol TEXT NOT NULL,
-    descripcion TEXT NOT NULL,
-    before_data JSONB,
-    after_data JSONB,
-    origen TEXT NOT NULL,
-    source_event_id TEXT NOT NULL,
-    fecha TIMESTAMPTZ DEFAULT NOW(),
-    CONSTRAINT uq_reub_hist_source_event UNIQUE (caso_id, source_event_id)
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    caso_id         UUID NOT NULL,
+    -- consultor_id: FK eliminada intencionalmente para permitir registros de personas
+    -- que aún no existen en colaboradores (flujo Salidas/Extensiones sin contrato vigente).
+    consultor_id    TEXT NULL,
+    tipo            TEXT NOT NULL,
+    actor_nombre    TEXT NULL,
+    actor_rol       TEXT NULL,
+    origen          TEXT NOT NULL,
+    descripcion     TEXT NULL,
+    before_data     JSONB NULL,
+    after_data      JSONB NULL,
+    source_event_id TEXT NULL,
+    fecha           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_reub_historial_caso ON reubicaciones_historial(caso_id, fecha DESC, id DESC);
