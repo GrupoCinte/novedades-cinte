@@ -34,8 +34,6 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
 
             const res = await fetch(url, { headers });
             const data = await res.json();
-            console.log("FETCH HISTORIAL RESP:", data);
-            
             if (data.ok) {
                 if (cursor) {
                     setEventos(prev => [...prev, ...(data.data.historial || [])]);
@@ -105,105 +103,16 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
                 </div>
             ) : (
                 <div className="relative border-l-2 border-slate-200 dark:border-slate-700 ml-3 space-y-4 pb-4">
-                    {eventos.map((evt) => {
-                        const isAutomatic = evt.origen === 'SISTEMA' || evt.origen === 'ZOHO';
-                        const Icon = isAutomatic ? Settings : User;
-                        const iconBg = isLight 
-                            ? (isAutomatic ? 'bg-amber-100 text-amber-600' : 'bg-sky-100 text-sky-600')
-                            : (isAutomatic ? 'bg-amber-900/50 text-amber-400' : 'bg-sky-900/50 text-sky-400');
-                        
-                        const isExpanded = expandedEvents[evt.id];
-                        
-                        return (
-                            <div key={evt.id} className="relative pl-6 transition-all">
-                                <div className={`absolute -left-[13px] top-1 h-6 w-6 rounded-full flex items-center justify-center border-2 ${isLight ? 'border-white' : 'border-slate-900'} ${iconBg}`}>
-                                    <Icon size={12} />
-                                </div>
-                                <div className={`rounded-lg border p-3 ${isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-800/70 border-slate-700'}`}>
-                                    <div className="flex justify-between items-start gap-4">
-                                        <div>
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <span className={`font-semibold text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
-                                                    {evt.tipo_label}
-                                                </span>
-                                            </div>
-                                            <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                                                {isAutomatic ? 'Generado por: ' : 'Actor: '} 
-                                                <span className="font-medium text-slate-700 dark:text-slate-300">{evt.actor}</span> 
-                                                {evt.rol && ` (${evt.rol})`}
-                                            </p>
-                                        </div>
-                                        <div className={`text-xs whitespace-nowrap text-right ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                                            {formatearFechaColombia(evt.fecha)}
-                                        </div>
-                                    </div>
-                                    
-                                    <p className={`text-sm mt-2 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
-                                        {evt.descripcion}
-                                    </p>
-                                    
-                                    {(evt.before || evt.after) && (
-                                        <div className="mt-2">
-                                            <button 
-                                                onClick={() => toggleExpand(evt.id)}
-                                                className={`text-xs flex items-center gap-1 hover:underline ${isLight ? 'text-blue-600' : 'text-blue-400'}`}
-                                            >
-                                                {isExpanded ? <ArrowDown size={12} /> : <ArrowRight size={12} />}
-                                                {isExpanded ? 'Ocultar detalles técnicos' : 'Ver cambios'}
-                                            </button>
-                                            
-                                            {isExpanded && (
-                                                <div className={`mt-2 p-3 rounded-lg text-xs overflow-x-auto grid grid-cols-2 gap-4 ${isLight ? 'bg-slate-50 border border-slate-100 shadow-inner' : 'bg-slate-900/50 border border-slate-800'}`}>
-                                                    <div>
-                                                        <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Valor anterior</div>
-                                                        <div className="flex flex-col gap-2 mt-2">
-                                                            {evt.before ? (
-                                                                typeof evt.before === 'object' ? (
-                                                                    Object.entries(evt.before).map(([k, v]) => (
-                                                                        <div key={k} className="flex flex-col">
-                                                                            <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
-                                                                            <span className="text-rose-600 dark:text-rose-400 whitespace-pre-wrap mt-0.5 break-words">
-                                                                                {typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v))}
-                                                                            </span>
-                                                                        </div>
-                                                                    ))
-                                                                ) : (
-                                                                    <span className="text-rose-600 dark:text-rose-400 break-words">{String(evt.before)}</span>
-                                                                )
-                                                            ) : (
-                                                                <span className="italic text-slate-400">No aplica</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <div>
-                                                        <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Nuevo valor</div>
-                                                        <div className="flex flex-col gap-2 mt-2">
-                                                            {evt.after ? (
-                                                                typeof evt.after === 'object' ? (
-                                                                    Object.entries(evt.after).map(([k, v]) => (
-                                                                        <div key={k} className="flex flex-col">
-                                                                            <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
-                                                                            <span className="text-emerald-600 dark:text-emerald-400 whitespace-pre-wrap mt-0.5 break-words">
-                                                                                {typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v))}
-                                                                            </span>
-                                                                        </div>
-                                                                    ))
-                                                                ) : (
-                                                                    <span className="text-emerald-600 dark:text-emerald-400 break-words">{String(evt.after)}</span>
-                                                                )
-                                                            ) : (
-                                                                <span className="italic text-slate-400">No aplica</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
+                    {eventos.map((evt) => (
+                        <ReubicacionEventItem 
+                            key={evt.id} 
+                            evt={evt} 
+                            isExpanded={expandedEvents[evt.id]} 
+                            toggleExpand={toggleExpand} 
+                            isLight={isLight} 
+                            formatearFechaColombia={formatearFechaColombia} 
+                        />
+                    ))}
                 </div>
             )}
             
@@ -222,6 +131,104 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
                     </button>
                 </div>
             )}
+        </div>
+    );
+}
+
+function ReubicacionEventItem({ evt, isExpanded, toggleExpand, isLight, formatearFechaColombia }) {
+    const isAutomatic = evt.origen === 'SISTEMA' || evt.origen === 'ZOHO';
+    const Icon = isAutomatic ? Settings : User;
+    const iconBg = isLight 
+        ? (isAutomatic ? 'bg-amber-100 text-amber-600' : 'bg-sky-100 text-sky-600')
+        : (isAutomatic ? 'bg-amber-900/50 text-amber-400' : 'bg-sky-900/50 text-sky-400');
+    
+    return (
+        <div className="relative pl-6 transition-all">
+            <div className={`absolute -left-[13px] top-1 h-6 w-6 rounded-full flex items-center justify-center border-2 ${isLight ? 'border-white' : 'border-slate-900'} ${iconBg}`}>
+                <Icon size={12} />
+            </div>
+            <div className={`rounded-lg border p-3 ${isLight ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-800/70 border-slate-700'}`}>
+                <div className="flex justify-between items-start gap-4">
+                    <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`font-semibold text-sm ${isLight ? 'text-slate-800' : 'text-slate-200'}`}>
+                                {evt.tipo_label}
+                            </span>
+                        </div>
+                        <p className={`text-xs mt-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {isAutomatic ? 'Generado por: ' : 'Actor: '} 
+                            <span className="font-medium text-slate-700 dark:text-slate-300">{evt.actor}</span> 
+                            {evt.rol && ` (${evt.rol})`}
+                        </p>
+                    </div>
+                    <div className={`text-xs whitespace-nowrap text-right ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                        {formatearFechaColombia(evt.fecha)}
+                    </div>
+                </div>
+                
+                <p className={`text-sm mt-2 ${isLight ? 'text-slate-700' : 'text-slate-300'}`}>
+                    {evt.descripcion}
+                </p>
+                
+                {(evt.before || evt.after) && (
+                    <div className="mt-2">
+                        <button 
+                            onClick={() => toggleExpand(evt.id)}
+                            className={`text-xs flex items-center gap-1 hover:underline ${isLight ? 'text-blue-600' : 'text-blue-400'}`}
+                        >
+                            {isExpanded ? <ArrowDown size={12} /> : <ArrowRight size={12} />}
+                            {isExpanded ? 'Ocultar detalles técnicos' : 'Ver cambios'}
+                        </button>
+                        
+                        {isExpanded && (
+                            <div className={`mt-2 p-3 rounded-lg text-xs overflow-x-auto grid grid-cols-2 gap-4 ${isLight ? 'bg-slate-50 border border-slate-100 shadow-inner' : 'bg-slate-900/50 border border-slate-800'}`}>
+                                <div>
+                                    <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Valor anterior</div>
+                                    <div className="flex flex-col gap-2 mt-2">
+                                        {evt.before ? (
+                                            typeof evt.before === 'object' ? (
+                                                Object.entries(evt.before).map(([k, v]) => (
+                                                    <div key={k} className="flex flex-col">
+                                                        <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
+                                                        <span className="text-rose-600 dark:text-rose-400 whitespace-pre-wrap mt-0.5 break-words">
+                                                            {typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v))}
+                                                        </span>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <span className="text-rose-600 dark:text-rose-400 break-words">{String(evt.before)}</span>
+                                            )
+                                        ) : (
+                                            <span className="italic text-slate-400">No aplica</span>
+                                        )}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Nuevo valor</div>
+                                    <div className="flex flex-col gap-2 mt-2">
+                                        {evt.after ? (
+                                            typeof evt.after === 'object' ? (
+                                                Object.entries(evt.after).map(([k, v]) => (
+                                                    <div key={k} className="flex flex-col">
+                                                        <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
+                                                        <span className="text-emerald-600 dark:text-emerald-400 whitespace-pre-wrap mt-0.5 break-words">
+                                                            {typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v))}
+                                                        </span>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <span className="text-emerald-600 dark:text-emerald-400 break-words">{String(evt.after)}</span>
+                                            )
+                                        ) : (
+                                            <span className="italic text-slate-400">No aplica</span>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

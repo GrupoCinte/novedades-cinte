@@ -93,38 +93,7 @@ async function registrarEventoHistorial(client, params) {
         await client.query(`RELEASE SAVEPOINT ${savepointName}`);
     } catch (e) {
         if (String(e?.code) === '23505') {
-            // Revertimos la falla del insert para continuar operando en la transacción
-            await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
-            
-            // Consultamos el evento existente
-            const existingRes = await client.query(
-                `SELECT tipo, before_data, after_data FROM reubicaciones_historial WHERE caso_id = $1::uuid AND source_event_id = $2 LIMIT 1`,
-                [caso_id, source_event_id]
-            );
-            if (existingRes.rows.length === 0) {
-                // Raro: conflicto de unicidad pero no se encuentra la fila. Lanzamos error.
-                throw e;
-            }
-            const existing = existingRes.rows[0];
-            
-            // Normalize for comparison
-            const existingBeforeStr = existing.before_data ? JSON.stringify(existing.before_data) : null;
-            const existingAfterStr = existing.after_data ? JSON.stringify(existing.after_data) : null;
-
-            // Comparamos identidad del evento (Idempotencia A vs B)
-            const isSame = (
-                existing.tipo === tipo &&
-                existingBeforeStr === safeBeforeData &&
-                existingAfterStr === safeAfterData
-            );
-
-            if (isSame) {
-                // CASO A: Mismo evento + mismos datos -> Reintento válido, se omite.
-                return { idempotent: true, action: 'ignored' };
-            } else {
-                // CASO B: Mismo evento + datos diferentes -> Conflicto!
-                throw new IdempotencyConflictError(`Conflicto de Idempotencia: El source_event_id ${source_event_id} ya existe con datos diferentes.`);
-            }
+            return await handleIdempotencyConflict(client, savepointName, { caso_id, source_event_id, tipo }, e, safeBeforeData, safeAfterData);
         } else {
             // Otro tipo de error, hacemos rollback y re-lanzamos
             await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
@@ -133,6 +102,36 @@ async function registrarEventoHistorial(client, params) {
     }
     
     return { idempotent: false, action: 'inserted' };
+}
+
+async function handleIdempotencyConflict(client, savepointName, params, error, safeBeforeData, safeAfterData) {
+    // Revertimos la falla del insert para continuar operando en la transacción
+    await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+    
+    // Consultamos el evento existente
+    const existingRes = await client.query(
+        `SELECT tipo, before_data, after_data FROM reubicaciones_historial WHERE caso_id = $1::uuid AND source_event_id = $2 LIMIT 1`,
+        [params.caso_id, params.source_event_id]
+    );
+    if (existingRes.rows.length === 0) {
+        throw error;
+    }
+    const existing = existingRes.rows[0];
+    
+    const existingBeforeStr = existing.before_data ? JSON.stringify(existing.before_data) : null;
+    const existingAfterStr = existing.after_data ? JSON.stringify(existing.after_data) : null;
+
+    const isSame = (
+        existing.tipo === params.tipo &&
+        existingBeforeStr === safeBeforeData &&
+        existingAfterStr === safeAfterData
+    );
+
+    if (isSame) {
+        return { idempotent: true, action: 'ignored' };
+    } else {
+        throw new IdempotencyConflictError(`Conflicto de Idempotencia: El source_event_id ${params.source_event_id} ya existe con datos diferentes.`);
+    }
 }
 
 /**
@@ -163,7 +162,7 @@ function sanitizarDatosHistorial(data) {
 }
 
 function generarHashPayload(payload) {
-    const canonical = JSON.stringify(payload || {}, Object.keys(payload || {}).sort());
+    const canonical = JSON.stringify(payload || {}, Object.keys(payload || {}).sort((left, right) => left.localeCompare(right)));
     return crypto.createHash('sha256').update(canonical).digest('hex').substring(0, 16);
 }
 
