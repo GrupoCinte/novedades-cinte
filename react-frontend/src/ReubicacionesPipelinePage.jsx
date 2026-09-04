@@ -49,7 +49,7 @@ export function EstadoBadge({ estado, dias_transcurridos, isLight }) {
         );
     }
     if (s === 'En proceso') {
-        const diaStr = (dias_transcurridos != null && dias_transcurridos >= 0) ? ` · día ${dias_transcurridos}` : '';
+        const diaStr = (dias_transcurridos != null && dias_transcurridos > 0) ? ` · día ${dias_transcurridos}` : '';
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
