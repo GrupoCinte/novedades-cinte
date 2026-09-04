@@ -293,11 +293,11 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         } finally {
             setLoading(false);
         }
-    }, [token, pageSize, offset, appliedQ, appliedFechaFinDesde, appliedFechaFinHasta, appliedEstadoFiltro, sort, viewMode]);
+    }, [token, pageSize, offset, appliedQ, appliedFechaFinDesde, appliedFechaFinHasta, appliedEstadoFiltro, appliedAptoFiltro, sort, viewMode]);
 
     useEffect(() => {
         if (viewMode === 'reubicados') load();
-    }, [load]);
+    }, [load, viewMode]);
 
     /** Aplicar filtros enviados desde el dashboard (u otro módulo) al cambiar `seq`. */
     useEffect(() => {
