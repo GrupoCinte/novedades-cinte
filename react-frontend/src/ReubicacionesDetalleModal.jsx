@@ -1,7 +1,6 @@
 import { Pencil, CheckCircle, XCircle } from 'lucide-react';
 import MonitorGlassModalShell from './shared/modals/MonitorGlassModalShell.jsx';
 import { useModuleTheme } from './moduleTheme.js';
-import { buildMonitorGlassModalTheme } from './shared/modals/monitorGlassModalTheme.js';
 import { formatMoneyAmountOnly } from './multiCurrencyMoney.js';
 import { useState, useEffect } from 'react';
 import ReubicacionesTimeline from './components/reubicaciones/ReubicacionesTimeline.jsx';
@@ -26,7 +25,6 @@ function formatMontoDisplay(val, currencyCode = 'COP') {
 
 export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, onUpdateInline }) {
     const { isLight } = useModuleTheme();
-    const T = buildMonitorGlassModalTheme(isLight);
 
     // Estados para observaciones y decisiones
     const [observacion, setObservacion] = useState('');

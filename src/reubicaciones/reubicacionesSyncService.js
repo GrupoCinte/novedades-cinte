@@ -215,9 +215,9 @@ async function sincronizarConPipeline({
                      motivo_novedad = $5, 
                      tipo_ficha = $6,
                      ultimo_evento_id = $7,
-                     puesto = COALESCE(puesto, $8),
-                     salario = COALESCE(salario, $9),
-                     auxilios = COALESCE(auxilios, $10),
+                     puesto = COALESCE(puesto, $9),
+                     salario = COALESCE(salario, $10),
+                     auxilios = COALESCE(auxilios, $11),
                      updated_at = NOW() 
                  WHERE id = $8`,
                 [
@@ -231,7 +231,7 @@ async function sincronizarConPipeline({
                     pipeline_id,
                     puesto || null,
                     sueldo_nomina || null,
-                    auxilios_calculado
+                    auxilios_calculado,
                 ]
             );
         }

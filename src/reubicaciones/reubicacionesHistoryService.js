@@ -163,7 +163,7 @@ function sanitizarDatosHistorial(data) {
 }
 
 function generarHashPayload(payload) {
-    const canonical = JSON.stringify(payload || {}, Object.keys(payload || {}).sort());
+    const canonical = JSON.stringify(payload || {}, Object.keys(payload || {}).sort((left, right) => left.localeCompare(right)));
     return crypto.createHash('sha256').update(canonical).digest('hex').substring(0, 16);
 }
 

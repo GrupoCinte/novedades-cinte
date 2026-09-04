@@ -34,8 +34,6 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
 
             const res = await fetch(url, { headers });
             const data = await res.json();
-            console.log("FETCH HISTORIAL RESP:", data);
-            
             if (data.ok) {
                 if (cursor) {
                     setEventos(prev => [...prev, ...(data.data.historial || [])]);
