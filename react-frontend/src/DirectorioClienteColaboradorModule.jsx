@@ -34,10 +34,13 @@ import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js'
 import AdminModuleSidebarFooter from './AdminModuleSidebarFooter.jsx';
 import AdminModuleSidebarUser from './AdminModuleSidebarUser.jsx';
 import { userHasRolesTiCatalogRead } from './rolesTiAccess.js';
-import { userIsGpMallasOnly, userHasSeguimientoAccess } from './mallasAccess.js';
+import { userIsGpMallasOnly, userHasSeguimientoAccess, userHasMallasAccess } from './mallasAccess.js';
 import { userHasMonitoreoAccess } from './monitoreoAccess.js';
+import { userHasDirectorioPanel } from './directorioAccess.js';
+import { userHasReubicacionesAccess } from './reubicacionesAccess.js';
 import RolesTiCatalogPage from './cotizador/RolesTiCatalogPage';
 import ReubicacionesPipelinePage from './ReubicacionesPipelinePage';
+import ReubicacionesHistorialGlobal from './ReubicacionesHistorialGlobal';
 import AdministracionDashboardPage from './AdministracionDashboardPage';
 import MallasTurnosModule from './MallasTurnosModule';
 import MonitoreoActividadesView from './MonitoreoActividadesView.jsx';
@@ -178,6 +181,10 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const currentRoleLabel = String(auth?.user?.role || auth?.claims?.role || 'sin_rol').replace(/_/g, ' ').toUpperCase();
 
     const gpMallasOnly = userIsGpMallasOnly(auth);
+    const hasDirectorio = userHasDirectorioPanel(auth);
+    const canAccessReubicaciones = userHasReubicacionesAccess(auth);
+    const isRestrictedView = gpMallasOnly || !hasDirectorio;
+    
     const canAccessMonitoreo = userHasMonitoreoAccess(auth);
     const canAccessSeguimiento = userHasSeguimientoAccess(auth);
     const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -185,50 +192,54 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     /** Vista principal del sidebar */
-    const [mainView, setMainView] = useState(() => (gpMallasOnly ? 'mallasTurnos' : 'cliente'));
+    const [mainView, setMainView] = useState(() => {
+        if (gpMallasOnly) return 'mallasTurnos';
+        if (!hasDirectorio) return canAccessReubicaciones ? 'reubicaciones' : 'mallasTurnos';
+        return 'cliente';
+    });
 
     useEffect(() => {
         setFiltersPanelOpen(false);
     }, [mainView]);
 
-    const gpAllowedViews = useMemo(() => {
-        const views = ['mallasTurnos'];
+    const restrictedAllowedViews = useMemo(() => {
+        const views = [];
+        if (gpMallasOnly || userHasMallasAccess(auth)) views.push('mallasTurnos');
+        if (canAccessReubicaciones) {
+            views.push('reubicaciones');
+            views.push('reubicaciones_historial');
+        }
         if (canAccessMonitoreo) views.push('monitoreo');
         if (canAccessSeguimiento) views.push('seguimiento');
         return views;
-    }, [canAccessMonitoreo, canAccessSeguimiento]);
+    }, [gpMallasOnly, auth, canAccessReubicaciones, canAccessMonitoreo, canAccessSeguimiento]);
 
     useEffect(() => {
-        if (gpMallasOnly && !gpAllowedViews.includes(mainView)) {
-            setMainView('mallasTurnos');
+        if (isRestrictedView && !restrictedAllowedViews.includes(mainView)) {
+            setMainView(canAccessReubicaciones ? 'reubicaciones' : 'mallasTurnos');
         }
-    }, [gpMallasOnly, gpAllowedViews, mainView]);
+    }, [isRestrictedView, restrictedAllowedViews, mainView, canAccessReubicaciones]);
 
-    const showTiCatalogSubmod = !gpMallasOnly && userHasRolesTiCatalogRead(auth);
+    const showTiCatalogSubmod = hasDirectorio && userHasRolesTiCatalogRead(auth);
 
     useEffect(() => {
         const v = searchParams.get('v');
         if (!v) return;
 
-        let nextView = null;
-
-        if (v === 'monitoreo' && canAccessMonitoreo) {
-            nextView = 'monitoreo';
-        } else if (v === 'seguimiento' && canAccessSeguimiento) {
-            nextView = 'seguimiento';
-        } else if (v === 'dashboard') {
-            nextView = 'dashboardAdmin';
-        } else if (v === 'reubicaciones') {
-            nextView = 'reubicaciones';
-        } else if (v === 'mallas-turnos') {
-            nextView = 'mallasTurnos';
-        } else if (v === 'catalogo-ti' && showTiCatalogSubmod) {
-            nextView = 'catalogoTi';
-        }
+        const viewMap = {
+            monitoreo: canAccessMonitoreo ? 'monitoreo' : null,
+            seguimiento: canAccessSeguimiento ? 'seguimiento' : null,
+            dashboard: 'dashboardAdmin',
+            reubicaciones: 'reubicaciones',
+            'reubicaciones-historial-global': 'reubicaciones_historial',
+            'mallas-turnos': 'mallasTurnos',
+            'catalogo-ti': showTiCatalogSubmod ? 'catalogoTi' : null
+        };
+        const nextView = viewMap[v];
 
         if (nextView) {
-            if (gpMallasOnly && !gpAllowedViews.includes(nextView)) {
-                setMainView('mallasTurnos');
+            if (isRestrictedView && !restrictedAllowedViews.includes(nextView)) {
+                setMainView(canAccessReubicaciones ? 'reubicaciones' : 'mallasTurnos');
             } else {
                 setMainView(nextView);
             }
@@ -238,7 +249,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
         nextParams.delete('v');
         setSearchParams(nextParams, { replace: true });
 
-    }, [searchParams, setSearchParams, showTiCatalogSubmod, gpMallasOnly, gpAllowedViews, canAccessMonitoreo, canAccessSeguimiento]);
+    }, [searchParams, setSearchParams, showTiCatalogSubmod, isRestrictedView, restrictedAllowedViews, canAccessMonitoreo, canAccessSeguimiento, canAccessReubicaciones]);
 
     const [msg, setMsg] = useState(null);
 
@@ -331,7 +342,7 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                 reset: false,
                 fechaFinDesde: action.fechaFinDesde ?? '',
                 fechaFinHasta: action.fechaFinHasta ?? '',
-                semaforo: action.semaforo ?? ''
+                estado: action.estado ?? ''
             }));
             setMainView('reubicaciones');
             setMobileMenuOpen(false);
@@ -1066,17 +1077,19 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     setMobileMenuOpen(false);
                 }}
             />
-            {gpMallasOnly ? (
+            {isRestrictedView ? (
                 <>
-                    <NavBtn
-                        active={mainView === 'mallasTurnos'}
-                        icon={CalendarDays}
-                        label="Mallas de turnos"
-                        onClick={() => {
-                            setMainView('mallasTurnos');
-                            setMobileMenuOpen(false);
-                        }}
-                    />
+                    {restrictedAllowedViews.includes('mallasTurnos') ? (
+                        <NavBtn
+                            active={mainView === 'mallasTurnos'}
+                            icon={CalendarDays}
+                            label="Mallas de turnos"
+                            onClick={() => {
+                                setMainView('mallasTurnos');
+                                setMobileMenuOpen(false);
+                            }}
+                        />
+                    ) : null}
                     {canAccessMonitoreo ? (
                         <NavBtn
                             active={mainView === 'monitoreo'}
@@ -1089,6 +1102,20 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                         />
                     ) : null}
                     {renderSeguimientoNavBtn("Seguimiento")}
+                    {canAccessReubicaciones && (
+                        <>
+                            <NavBtn
+                                active={mainView === 'reubicaciones'}
+                                icon={ArrowRightLeft}
+                                label="Reubicaciones"
+                                onClick={() => {
+                                    setReubicacionesNavIntent((prev) => ({ seq: prev.seq + 1, reset: true }));
+                                    setMainView('reubicaciones');
+                                    setMobileMenuOpen(false);
+                                }}
+                            />
+                        </>
+                    )}
                 </>
             ) : (
                 <>
@@ -1693,7 +1720,11 @@ export default function DirectorioClienteColaboradorModule({ token, auth, onLogo
                     ) : null}
 
                     {mainView === 'reubicaciones' ? (
-                        <ReubicacionesPipelinePage token={token} navIntent={reubicacionesNavIntent} />
+                        <ReubicacionesPipelinePage token={token} auth={auth} navIntent={reubicacionesNavIntent} />
+                    ) : null}
+
+                    {mainView === 'reubicaciones_historial' ? (
+                        <ReubicacionesHistorialGlobal token={token} auth={auth} />
                     ) : null}
 
                     {mainView === 'mallasTurnos' ? (

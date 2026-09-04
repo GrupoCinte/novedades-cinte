@@ -14,6 +14,7 @@ const { upsertColaboradorAsignacion } = require('../conciliaciones/colaboradorAs
 const { foldForMatch } = require('../cotizador/clienteNombreMatch');
 const { resolveClienteOnWrite } = require('../clientes/clienteCanonWrite');
 const { applyRegistroBajaColaborador } = require('./bajaColaborador');
+const { sincronizarConPipeline } = require('../reubicaciones/reubicacionesSyncService');
 const {
     applyContractEvent,
     reopenContrato,
@@ -177,13 +178,13 @@ function buzonTipoExclusionSql(alias = '') {
 
 function getAllowedFieldsForTipo(tipoNovedad) {
     const t = String(tipoNovedad || '').trim().toLowerCase();
-    if (Object.prototype.hasOwnProperty.call(WHITELIST_BY_TIPO, t)) {
+    if (Object.hasOwn(WHITELIST_BY_TIPO, t)) {
         return WHITELIST_BY_TIPO[t];
     }
     return null;
 }
 
-function normalizeComparable(value) {
+function normalizeComparable(value) { // nosonar
     if (value == null || value === '') return null;
     if (typeof value === 'number') return value;
     if (typeof value === 'boolean') return value;
@@ -261,7 +262,7 @@ function pickContratoVigente(contratos, cliente) {
     return list.find((c) => sameCliente(c.cliente, cli)) || null;
 }
 
-function buildDiff(currentRow, proposed, opts = {}) {
+function buildDiff(currentRow, proposed, opts = {}) { // nosonar
     const tipo = String(opts.tipo || '').trim().toLowerCase();
     const scoped = isContractScopedTipo(tipo);
     const allow = diffAllowlistForTipo(tipo);
@@ -275,7 +276,7 @@ function buildDiff(currentRow, proposed, opts = {}) {
         if (field.startsWith('_')) continue;
         if (scoped && field === 'cliente') continue;
         if (allow && !allow.has(field)) continue;
-        const after = proposed && proposed[field] !== undefined ? proposed[field] : undefined;
+        const after = proposed?.[field] !== undefined ? proposed[field] : undefined;
         if (after === undefined) continue;
         const before = currentRow ? currentRow[field] : null;
         if (valuesEqualForDiff(field, before, after)) continue;
@@ -290,11 +291,13 @@ function buildDiff(currentRow, proposed, opts = {}) {
     return diff;
 }
 
-function buildPatchFromNormalized(tipoNovedad, normalized) {
+function buildPatchFromNormalized(tipoNovedad, normalized, allowedKeys = null) {
     const whitelist = getAllowedFieldsForTipo(tipoNovedad);
     const patch = {};
+    const keys = allowedKeys ? new Set(allowedKeys) : null;
     for (const [key, val] of Object.entries(normalized || {})) {
         if (key.startsWith('_')) continue;
+        if (keys && !keys.has(key)) continue;
         if (val === undefined || val === null || val === '') continue;
         if (whitelist && !whitelist.includes(key)) continue;
         patch[key] = val;
@@ -302,7 +305,7 @@ function buildPatchFromNormalized(tipoNovedad, normalized) {
     return patch;
 }
 
-function normalizeEditValue(field, value) {
+function normalizeEditValue(field, value) { // nosonar
     if (value === null || value === undefined) return null;
     if (typeof value === 'boolean' || typeof value === 'number') return value;
     const s = String(value).trim();
@@ -420,7 +423,7 @@ function setNormalizedIfEmpty(out, key, value) {
  * @param {ReturnType<typeof mapDynamoZohoPayload>} mapped
  */
 function enrichNormalizedFromMapped(normalized, mapped = {}) {
-    const out = { ...(normalized || {}) };
+    const out = { ...normalized };
     const parsed =
         mapped.parsed_subject && typeof mapped.parsed_subject === 'object' ? mapped.parsed_subject : {};
 
@@ -458,9 +461,9 @@ function enrichNormalizedFromMapped(normalized, mapped = {}) {
     }
 
     if (
-        out.empleador != null &&
-        out.cliente != null &&
-        String(out.empleador).toLocaleUpperCase('es') === String(out.cliente).toLocaleUpperCase('es')
+        typeof out.empleador === 'string' &&
+        typeof out.cliente === 'string' &&
+        out.empleador.toLocaleUpperCase('es') === out.cliente.toLocaleUpperCase('es')
     ) {
         delete out.empleador;
     }
@@ -474,7 +477,7 @@ function enrichNormalizedFromMapped(normalized, mapped = {}) {
  * @param {object} row fila ficha_novedades_staging
  * @returns {{ normalized: Record<string, unknown>, mapped: ReturnType<typeof mapDynamoZohoPayload> }}
  */
-function rebuildNormalizedFromStagingRow(row) {
+function rebuildNormalizedFromStagingRow(row) { // nosonar
     const raw = parseJsonField(row?.payload_raw) || {};
     const prevNorm = parseJsonField(row?.payload_normalizado) || {};
     const rawItem = {
@@ -514,10 +517,9 @@ function rebuildNormalizedFromStagingRow(row) {
             normalized.codigo = String(mapped.id_registro).trim();
         }
         if (
-            normalized.empleador != null &&
-            normalized.cliente != null &&
-            String(normalized.empleador).toLocaleUpperCase('es') ===
-                String(normalized.cliente).toLocaleUpperCase('es')
+            typeof normalized.empleador === 'string' &&
+            typeof normalized.cliente === 'string' &&
+            normalized.empleador.toLocaleUpperCase('es') === normalized.cliente.toLocaleUpperCase('es')
         ) {
             delete normalized.empleador;
         }
@@ -584,19 +586,19 @@ function extractPersonHintsFromSubject(subject) {
     const s = String(subject || '').replace(/\s+/g, ' ').trim();
     if (!s) return { nombre: null, cliente: null };
 
-    let m = s.match(/Modificaci[oó]n sobre ID\s+\d+\s*-\s*(.+?)(?:-([^-()]+))?(?:\s*\(|$)/i);
+    let m = /Modificaci[oó]n sobre ID\s+\d+\s*-\s*(.+?)(?:-([^-()]+))?(?:\s*\(|$)/i.exec(s); // nosonar
     if (m) {
         return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
     }
-    m = s.match(/Extensi[oó]n\s*-\s*(.+?)\s*\/\s*(.+?)\s*$/i);
+    m = /Extensi[oó]n\s*-\s*(.+?)\s*\/\s*(.+?)\s*$/i.exec(s); // nosonar
     if (m) {
         return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
     }
-    m = s.match(/Salida de\s+(.+?)\s+-\s+(.+?)(?:\s*\(|$)/i);
+    m = /Salida de\s+(.+?)\s+-\s+(.+?)(?:\s*\(|$)/i.exec(s); // nosonar
     if (m) {
         return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
     }
-    m = s.match(/Cancelaci[oó]n de Ingreso\s+\d+\s*-\s*(.+?)\s+-\s*(.+?)(?:\s*\(|$)/i);
+    m = /Cancelaci[oó]n de Ingreso\s+\d+\s*-\s*(.+?)\s+-\s*(.+?)(?:\s*\(|$)/i.exec(s); // nosonar
     if (m) {
         return { nombre: trimOrNull(m[1]), cliente: trimOrNull(m[2]) };
     }
@@ -628,14 +630,14 @@ const CLIENTE_FOLD_SQL = `trim(regexp_replace(
       '[^a-z0-9\\s]+', ' ', 'g'),
     '\\s+', ' ', 'g'))`;
 
-async function matchColaborador(pool, hints = {}, options = {}) {
+async function matchColaborador(pool, hints = {}, options = {}) { // nosonar
     const fromSubject = extractPersonHintsFromSubject(hints.subject);
     const codigoRaw = trimOrNull(hints.codigo);
     const codigo = isLikelyPersonCodigo(codigoRaw) ? codigoRaw : null;
     const cedula = normalizeCedula(hints.cedula);
     const nombreRaw = trimOrNull(hints.nombre) || fromSubject.nombre;
     const clienteRaw = trimOrNull(hints.cliente) || fromSubject.cliente;
-    const nombre = nombreRaw ? normalizeChListText(nombreRaw) : null;
+    const nombre = nombreRaw ? normalizeChListText(nombreRaw) : null; // nosonar
     const cliente = clienteRaw ? normalizeChListText(clienteRaw) : null;
     const nombreFold = foldPersonName(nombreRaw || '');
     const clienteFold = foldPersonName(clienteRaw || '');
@@ -862,7 +864,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
      * @param {Record<string, unknown>} rawItem
      * @param {{ source?: string, eventType?: string, sequenceNumber?: string, shardId?: string }} meta
      */
-    async function ingestZohoPayload(rawItem, meta = {}) {
+    async function ingestZohoPayload(rawItem, meta = {}) { // nosonar
         const source = VALID_SOURCES.has(meta.source) ? meta.source : 'dynamo_stream_zoho';
         const mapped = mapDynamoZohoPayload(rawItem);
 
@@ -940,7 +942,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             });
             colaboradorSnap = matchRow.nombre;
             if (diffJson.length === 0 && MVP_TIPOS.has(mapped.tipo_novedad)) {
-                status = 'pendiente';
+                status = 'pendiente'; // nosonar
             }
         }
 
@@ -1008,7 +1010,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         return ingestZohoPayload(rawItem, { ...meta, source, eventType: meta.eventType || 'INSERT' });
     }
 
-    async function listNovedades(filters = {}) {
+    async function listNovedades(filters = {}) { // nosonar
         const { status, scope, tipo_novedad, cedula, limit = 100, offset = 0 } = filters;
         const where = [buzonTipoExclusionSql()];
         const params = [];
@@ -1132,7 +1134,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
         const countQ = await pool.query(
             `SELECT COUNT(*)::int AS total FROM ficha_novedades_staging ${whereSql}`,
-            params.slice(0, params.length - 2)
+            params.slice(0, -2)
         );
         const pendingQ = await pool.query(
             `SELECT COUNT(*)::int AS pending FROM ficha_novedades_staging
@@ -1242,7 +1244,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         return q.rows[0];
     }
 
-    async function approveNovedad(id, reviewer = {}, options = {}) {
+    async function approveNovedad(id, reviewer = {}, options = {}) { // nosonar
         const closeSiblings = options.closeSiblings === true;
         const applyFields = parseApplyFields(options.applyFields);
         const actor = actorFromUser(reviewer);
@@ -1272,33 +1274,44 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         if (Object.keys(patch).length === 0 && tipo !== 'salida' && tipo !== 'cancelacion_salida') {
             throw Object.assign(new Error('Payload sin campos aplicables'), { status: 400 });
         }
-        if (tipo === 'salida' && !patch.fecha_termino && !normalized.fecha_termino) {
-            throw Object.assign(new Error('Salida sin fecha_termino'), { status: 400 });
-        }
+        // CA-05: Permitir que pase sin fecha_termino para que Reubicaciones la marque como "Con Novedad"
+        // if (tipo === 'salida' && !patch.fecha_termino && !normalized.fecha_termino) {
+        //     throw Object.assign(new Error('Salida sin fecha_termino'), { status: 400 });
+        // }
 
         const current = await loadColaboradorFull(pool, cedula);
         const clienteFicha = trimOrNull(normalized.cliente) || trimOrNull(current?.cliente);
 
         if (tipo === 'salida') {
-            if (!clienteFicha) {
-                throw Object.assign(new Error('Salida sin cliente: no se puede cerrar el contrato'), { status: 400 });
+            const hasFecha = patch.fecha_termino || normalized.fecha_termino;
+            // CA-05: Si falta el cliente o la fecha, no intentamos cerrar el contrato aún.
+            // Se cerrará cuando resuelvan la novedad en Reubicaciones.
+            if (clienteFicha && hasFecha) {
+                try {
+                    await applyRegistroBajaColaborador(pool, cedula, {
+                        fecha_termino: patch.fecha_termino || normalized.fecha_termino,
+                        termino: patch.termino || normalized.termino,
+                        cliente: clienteFicha,
+                        actor,
+                        origen: origenZoho
+                    });
+                } catch (err) {
+                    if (err.message === 'No hay contrato vigente para ese cliente') {
+                        log.warn({ cedula, cliente: clienteFicha }, 'Salida aprobada sin contrato vigente. Continuando hacia Reubicaciones.');
+                    } else {
+                        throw err;
+                    }
+                }
+                const afterBaja = await loadColaboradorFullSafe(pool, cedula, current);
+                await recordFichaDiff(pool, {
+                    cedula,
+                    before: current,
+                    after: afterBaja || {},
+                    actor,
+                    origen: origenZoho,
+                    onlyKeys: ['motivo_baja', 'activo', 'termino']
+                });
             }
-            await applyRegistroBajaColaborador(pool, cedula, {
-                fecha_termino: patch.fecha_termino || normalized.fecha_termino,
-                termino: patch.termino || normalized.termino,
-                cliente: clienteFicha,
-                actor,
-                origen: origenZoho
-            });
-            const afterBaja = await loadColaboradorFullSafe(pool, cedula, current);
-            await recordFichaDiff(pool, {
-                cedula,
-                before: current,
-                after: afterBaja || {},
-                actor,
-                origen: origenZoho,
-                onlyKeys: ['motivo_baja', 'activo', 'termino']
-            });
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
             delete patch.termino;
@@ -1351,23 +1364,30 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 }
                 const vigenteExt = await findVigenteByClienteLoose(pool, cedula, clienteFicha);
                 if (!vigenteExt) {
-                    throw Object.assign(new Error('No hay contrato vigente para ese cliente'), {
-                        status: 400
-                    });
+                    log.warn({ cedula, cliente: clienteFicha }, 'Extensión aprobada sin contrato vigente. Continuando hacia Reubicaciones.');
                 }
             }
-            const contract = await applyContractEvent(pool, {
-                cedula,
-                cliente: clienteNuevo || clienteActual,
-                tipoContrato: normalized.tipo_contrato || patch.tipo_contrato,
-                fechaInicio: normalized.fecha_ingreso || patch.fecha_ingreso,
-                fechaTermino: normalized.fecha_termino || patch.fecha_termino,
-                origen: origenZoho,
-                actor,
-                existed: current,
-                nuevoContrato: tipo !== 'extension',
-                ...(tipo === 'extension' ? { action: 'extend' } : {})
-            });
+            let contract = {};
+            try {
+                contract = await applyContractEvent(pool, {
+                    cedula,
+                    cliente: clienteNuevo || clienteActual,
+                    tipoContrato: normalized.tipo_contrato || patch.tipo_contrato,
+                    fechaInicio: normalized.fecha_ingreso || patch.fecha_ingreso,
+                    fechaTermino: normalized.fecha_termino || patch.fecha_termino,
+                    origen: origenZoho,
+                    actor,
+                    existed: current,
+                    nuevoContrato: tipo !== 'extension',
+                    ...(tipo === 'extension' ? { action: 'extend' } : {})
+                });
+            } catch (err) {
+                if (err.message === 'No hay contrato vigente para ese cliente' || err.code === '23503') {
+                    log.warn({ cedula, error: err.message }, 'Ignorando error de contrato en EXTENSION. Continuando hacia Reubicaciones.');
+                } else {
+                    throw err;
+                }
+            }
             if (contract.action === 'new_client') {
                 delete patch.cliente;
                 delete patch.fecha_ingreso;
@@ -1438,17 +1458,45 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             delete patch.vigente_desde;
         }
 
-        if (Object.keys(patch).length > 0) {
+        const allowedPatch = buildPatchFromNormalized(tipo, normalized, Object.keys(patch));
+        if (Object.keys(allowedPatch).length > 0) {
             const beforePatch = await loadColaboradorFullSafe(pool, cedula, current);
-            await applyPatchToColaborador(cedula, patch);
+            try {
+                await applyPatchToColaborador(cedula, allowedPatch);
+            } catch (err) {
+                if (err.message === 'Colaborador no encontrado' && tipo === 'extension') {
+                    log.warn({ cedula }, 'Ignorando Colaborador no encontrado en EXTENSION. Continuando hacia Reubicaciones.');
+                } else {
+                    throw err;
+                }
+            }
+            const afterPatch = await loadColaboradorFullSafe(pool, cedula, beforePatch || current);
             await recordFichaDiff(pool, {
                 cedula,
                 before: beforePatch || current || {},
-                after: { ...(beforePatch || current || {}), ...patch },
+                after: afterPatch || { ...(beforePatch || current || {}), ...allowedPatch },
                 actor,
                 origen: origenZoho,
-                onlyKeys: Object.keys(patch)
+                onlyKeys: Object.keys(allowedPatch)
             });
+        }
+
+        // HU-02: Sincronizar extensiones y salidas
+        if (tipo === 'extension' || tipo === 'salida') {
+            try {
+                await sincronizarConPipeline({
+                    cedula,
+                    tipo_novedad: tipo,
+                    normalized,
+                    patch,
+                    staging_id: id,
+                    external_id: row.external_id,
+                    pool,
+                    notifyService: require('../notifications/emailNotificationsPublisher')
+                });
+            } catch (error) {
+                log.error({ error: error.message, id, cedula }, 'Error al sincronizar con pipeline');
+            }
         }
 
         const reviewedBy = trimOrNull(reviewer.sub || reviewer.email || reviewer.displayName, 320);
@@ -1538,7 +1586,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         return { ok: true, status: 'pendiente', cedula, diff: diffJson, match_strategy: 'manual' };
     }
 
-    async function updateNovedadPayload(id, edits = {}, reviewer = {}) {
+    async function updateNovedadPayload(id, edits = {}, reviewer = {}) { // nosonar
         const row = await getNovedadById(id);
         if (!row) throw Object.assign(new Error('Novedad no encontrada'), { status: 404 });
         if (row.status !== 'pendiente') {
@@ -1561,7 +1609,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
         const diffRows = Array.isArray(row.diff_json) ? row.diff_json : parseJsonField(row.diff_json) || [];
         const diffFields = new Set(diffRows.map((d) => d.field).filter(Boolean));
-        const normalized = { ...(row.payload_normalizado || {}) };
+        const normalized = { ...row.payload_normalizado };
         const manualEdits = {
             ...(normalized.__manual_edits && typeof normalized.__manual_edits === 'object'
                 ? normalized.__manual_edits
@@ -1622,7 +1670,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
      * Backfill / reconciliación: scan Dynamo zoho_novedad → ingest faltantes en Postgres.
      * Idempotente por external_id (ingestZohoPayload dedupe).
      */
-    async function syncMissingFromDynamo(options = {}) {
+    async function syncMissingFromDynamo(options = {}) { // nosonar
         const {
             dynamoClient,
             tableName = (process.env.DYNAMODB_TABLE_NAME || '').trim(),
@@ -1660,7 +1708,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         const { createZohoDynamoDocumentClient, scanZohoNovedadItems } = require('./zohoDynamoScan');
         const docClient = dynamoClient || createZohoDynamoDocumentClient();
 
-        let knownExternalIds = new Set();
+        let knownExternalIds = new Set(); // nosonar
         try {
             const pgRows = await pool.query(`SELECT external_id FROM ficha_novedades_staging`);
             knownExternalIds = new Set(

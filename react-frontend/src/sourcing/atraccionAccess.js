@@ -12,6 +12,7 @@ const POLICY_PANELS_BY_ROLE = {
     gp: ['gestion', 'onboarding'],
     nomina: ['dashboard', 'calendar', 'gestion', 'onboarding', 'conciliaciones'],
     analista_conciliaciones: ['conciliaciones'],
+    atraccion_talento: ['atraccion', 'reubicaciones'],
     consultor: []
 };
 
@@ -32,14 +33,19 @@ export function resolveRoleFromTokenPayload(payload) {
     const fromDirect = String(payload.role || payload['custom:role'] || '').trim().toLowerCase();
     if (fromDirect && ROLE_PRIORITY.includes(fromDirect)) return fromDirect;
     const groupsClaim = payload['cognito:groups'];
-    const groups = Array.isArray(groupsClaim) ? groupsClaim : groupsClaim ? [groupsClaim] : [];
-    const normalized = groups.map((g) => String(g || '').toLowerCase());
-    return ROLE_PRIORITY.find((role) => normalized.includes(role)) || '';
+    let groups = [];
+    if (Array.isArray(groupsClaim)) {
+        groups = groupsClaim;
+    } else if (groupsClaim) {
+        groups = [groupsClaim];
+    }
+    const normalized = new Set(groups.map((g) => String(g || '').toLowerCase()));
+    return ROLE_PRIORITY.find((role) => normalized.has(role)) || '';
 }
 
 export function getPanelsFromToken(authOrToken) {
     const payload = normalizePayload(authOrToken);
-    const panels = Array.isArray(payload?.panels) ? payload.panels.map((p) => String(p)) : [];
+    const panels = Array.isArray(payload?.panels) ? payload.panels.map(String) : [];
     if (panels.length) return panels;
     const role = resolveRoleFromTokenPayload(payload);
     const fallback = POLICY_PANELS_BY_ROLE[role];

@@ -19,7 +19,7 @@ import {
     RECHARTS_TOOLTIP_CONTENT_STYLE,
     RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT
 } from './contratacion/constants/rechartsTheme.js';
-import { monthCalendarRangeFromYm, SEMAFORO_CHART_COLOR } from './administracionDashboardAggregate.js';
+import { monthCalendarRangeFromYm, ESTADO_CHART_COLOR } from './administracionDashboardAggregate.js';
 import { fetchAdminDashboardMetrics } from './administracionDashboardApi.js';
 
 /** Recharts Bar `onClick` puede exponer el payload en formas distintas según versión. */
@@ -94,13 +94,13 @@ function KpiCard({ label, value, hint, isLight, icon: Icon, onNavigate }) {
     return <div className={`${card} flex gap-3 items-start`}>{inner}</div>;
 }
 
-function SemaforoTooltip({ active, payload, isLight }) {
+function EstadoTooltip({ active, payload, isLight }) {
     if (!active || !payload?.length) return null;
     const row = payload[0]?.payload;
     const name = row?.name ?? '';
     const v = row?.value;
     const key = row?.key;
-    const color = key ? SEMAFORO_CHART_COLOR[key] : '#64748b';
+    const color = key ? ESTADO_CHART_COLOR[key] : '#64748b';
     const style = isLight ? RECHARTS_TOOLTIP_CONTENT_STYLE_LIGHT : RECHARTS_TOOLTIP_CONTENT_STYLE;
     return (
         <div style={style}>
@@ -158,8 +158,8 @@ export default function AdministracionDashboardPage({ token, onDrillDown }) {
         };
     }, [token]);
 
-    const semaforoSeries = metrics?.semaforoSeries || [];
-    const semaforoPieData = useMemo(() => semaforoSeries.filter((d) => d.value > 0), [semaforoSeries]);
+    const estadoSeries = metrics?.estadoSeries || [];
+    const estadoPieData = useMemo(() => estadoSeries.filter((d) => d.value > 0), [estadoSeries]);
 
     const tipoContratoData = metrics?.tipoContratoData || [];
     const topClientesConsultores = metrics?.topClientesConsultores || [];
@@ -235,33 +235,32 @@ export default function AdministracionDashboardPage({ token, onDrillDown }) {
                     icon={AlertTriangle}
                     label="Reubicaciones en riesgo"
                     value={riesgoCount}
-                    hint="En riesgo + urgente + vencido (semáforo)."
+                    hint="En proceso + Con novedad."
                     onNavigate={() =>
                         drill({
                             type: 'reubicaciones',
                             fechaFinDesde: '',
                             fechaFinHasta: '',
-                            semaforo: 'Amarillo,Rojo,Vencido'
+                            estado: 'En proceso,Con novedad'
                         })
                     }
                 />
             </div>
 
-            {/* Fila 1: semáforo + tipo contrato */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <ChartCard
                     isLight={isLight}
-                    title="Reubicaciones por semáforo"
-                    subtitle="Clic en un sector → Reubicaciones filtradas por semáforo."
+                    title="Reubicaciones por estado"
+                    subtitle="Clic en un sector → Reubicaciones filtradas por estado."
                     chartClassName="cursor-pointer"
                 >
-                    {semaforoPieData.length === 0 ? (
+                    {estadoPieData.length === 0 ? (
                         <p className={`text-sm ${labelMuted} py-8 text-center`}>Sin datos en pipeline.</p>
                     ) : (
                         <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                                 <Pie
-                                    data={semaforoPieData}
+                                    data={estadoPieData}
                                     dataKey="value"
                                     nameKey="name"
                                     cx="50%"
@@ -271,21 +270,21 @@ export default function AdministracionDashboardPage({ token, onDrillDown }) {
                                     paddingAngle={2}
                                     cursor="pointer"
                                     onClick={(sliceProps) => {
-                                        const row = sliceProps?.payload ?? semaforoPieData[sliceProps?.index];
+                                        const row = sliceProps?.payload ?? estadoPieData[sliceProps?.index];
                                         if (!row?.key) return;
                                         drill({
                                             type: 'reubicaciones',
                                             fechaFinDesde: '',
                                             fechaFinHasta: '',
-                                            semaforo: row.key
+                                            estado: row.key
                                         });
                                     }}
                                 >
-                                    {semaforoPieData.map((entry) => (
-                                        <Cell key={entry.key} fill={SEMAFORO_CHART_COLOR[entry.key] || '#64748b'} />
+                                    {estadoPieData.map((entry) => (
+                                        <Cell key={entry.key} fill={ESTADO_CHART_COLOR[entry.key] || '#64748b'} />
                                     ))}
                                 </Pie>
-                                <Tooltip content={<SemaforoTooltip isLight={isLight} />} />
+                                <Tooltip content={<EstadoTooltip isLight={isLight} />} />
                                 <Legend
                                     formatter={(value) => (
                                         <span className={isLight ? 'text-slate-700 text-xs' : 'text-slate-200 text-xs'}>
@@ -444,7 +443,7 @@ export default function AdministracionDashboardPage({ token, onDrillDown }) {
                                             type: 'reubicaciones',
                                             fechaFinDesde: desde,
                                             fechaFinHasta: hasta,
-                                            semaforo: ''
+                                            estado: ''
                                         });
                                     }}
                                 >

@@ -21,6 +21,7 @@ let active = {
 let zohoSyncIntervalHandle = null;
 let zohoSyncInFlight = false;
 let promotionSyncIntervalHandle = null;
+let reubicacionesSyncIntervalHandle = null;
 
 function readEnvBool(name, defaultValue = false) {
     const raw = process.env[name];
@@ -185,6 +186,22 @@ function initContratacionRealtime(server, deps = {}) {
                 if (typeof promotionSyncIntervalHandle.unref === 'function') {
                     promotionSyncIntervalHandle.unref();
                 }
+                // HU-02: Recovery Sync para Reubicaciones y HU-05/06 Job 5 días
+                if (!reubicacionesSyncIntervalHandle) {
+                    const { recoverySync } = require('../reubicaciones/reubicacionesSyncService');
+                    const { processVencimiento5Dias } = require('../reubicaciones/reubicacionesJob');
+                    reubicacionesSyncIntervalHandle = setInterval(() => {
+                        Promise.resolve(recoverySync({ pool: deps.pool, notifyService: null })).catch(e => {
+                            logger.error({ error: e.message }, 'Reubicaciones recovery (interval) error');
+                        });
+                        Promise.resolve(processVencimiento5Dias(deps.pool, logger)).catch(e => {
+                            logger.error({ error: e.message }, 'Reubicaciones vencimiento 5 días (interval) error');
+                        });
+                    }, promoteIntervalMs);
+                    if (typeof reubicacionesSyncIntervalHandle.unref === 'function') {
+                        reubicacionesSyncIntervalHandle.unref();
+                    }
+                }
                 logger.info(
                     { promoteIntervalMs, pollerEnabled },
                     'Onboarding reconcile Dynamo→Postgres activo (AUTOPROMOTE)'
@@ -266,6 +283,10 @@ function shutdownContratacionRealtime() {
     if (promotionSyncIntervalHandle) {
         clearInterval(promotionSyncIntervalHandle);
         promotionSyncIntervalHandle = null;
+    }
+    if (reubicacionesSyncIntervalHandle) {
+        clearInterval(reubicacionesSyncIntervalHandle);
+        reubicacionesSyncIntervalHandle = null;
     }
     if (active.streamPoller) {
         try {

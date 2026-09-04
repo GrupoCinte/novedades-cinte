@@ -9,7 +9,9 @@ import {
     REUBICACIONES_FILTER_DEFAULTS
 } from './admin/directorioFilters.js';
 import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js';
-import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
+import { formatMoneyAmountOnly } from './multiCurrencyMoney.js';
+import { ReubicacionesDetalleModal } from './ReubicacionesDetalleModal.jsx';
+import ReubicacionesHistorialGlobal from './ReubicacionesHistorialGlobal.jsx';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -31,61 +33,42 @@ function authHeaders(token) {
     return headers;
 }
 
-function formatTarifaDisplay(row) {
-    const key = 'tarifa_cliente';
-    const n = row.tarifa_cliente;
-    if (n == null || n === '') return '—';
-    const ccy = row.montos_divisa?.[key] || 'COP';
-    const num = Number(n);
-    if (!Number.isFinite(num)) return '—';
-    return `${formatMoneyAmountOnly(num, ccy)}\u00A0${currencyNarrowSymbol(ccy)}`;
-}
 
-/** API devuelve Verde | Amarillo | Rojo | Vencido — etiquetas e iconos para UI. */
-function SemaforoBadge({ code, isLight }) {
-    const s = String(code || '');
-    if (s === 'Verde') {
+/** Componente visual para estado de reubicaciones HU-05 */
+export function EstadoBadge({ estado, dias_transcurridos, isLight }) {
+    const s = String(estado || '');
+    if (s === 'Pendiente') {
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
                     isLight ? 'bg-emerald-100 text-emerald-900' : 'bg-emerald-900/45 text-emerald-100'
                 }`}
             >
-                Proyectado
+                Pendiente
             </span>
         );
     }
-    if (s === 'Amarillo') {
+    if (s === 'En proceso') {
+        const diaStr = (dias_transcurridos != null && dias_transcurridos > 0) ? ` · día ${dias_transcurridos}` : '';
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
                     isLight ? 'bg-amber-100 text-amber-950' : 'bg-amber-900/45 text-amber-100'
                 }`}
             >
-                En riesgo
+                {`En proceso${diaStr}`}
                 <AlertTriangle className={isLight ? 'h-3 w-3 shrink-0 text-amber-700' : 'h-3 w-3 shrink-0 text-amber-200'} aria-hidden />
             </span>
         );
     }
-    if (s === 'Rojo') {
+    if (s === 'Con novedad') {
         return (
             <span
                 className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
                     isLight ? 'bg-red-200/95 text-red-950' : 'bg-red-950/50 text-red-100'
                 }`}
             >
-                Urgente
-            </span>
-        );
-    }
-    if (s === 'Vencido') {
-        return (
-            <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${
-                    isLight ? 'bg-red-700 text-white' : 'bg-red-700 text-white'
-                }`}
-            >
-                Vencido
+                Con novedad
                 <AlertTriangle className="h-3 w-3 shrink-0 text-red-100" aria-hidden />
             </span>
         );
@@ -97,15 +80,15 @@ function SemaforoBadge({ code, isLight }) {
     );
 }
 
-const SEMAFORO_CODES = ['Verde', 'Amarillo', 'Rojo', 'Vencido'];
-const SEMAFORO_LABELS = { Verde: 'Proyectado', Amarillo: 'En riesgo', Rojo: 'Urgente', Vencido: 'Vencido' };
+const ESTADO_CODES = ['Pendiente', 'En proceso', 'Con novedad'];
+const ESTADO_LABELS = { 'Pendiente': 'Pendiente', 'En proceso': 'En proceso', 'Con novedad': 'Con novedad' };
 
 function emptyForm() {
     return { cedula: '', fecha_fin: '', cliente_destino: '', causal: '' };
 }
 
 /**
- * @typedef {{ seq: number, reset?: boolean, fechaFinDesde?: string, fechaFinHasta?: string, semaforo?: string }} PipelineNavIntent
+ * @typedef {{ seq: number, reset?: boolean, fechaFinDesde?: string, fechaFinHasta?: string, estado?: string }} PipelineNavIntent
  */
 
 export default function ReubicacionesPipelinePage(props) {
@@ -135,9 +118,11 @@ class ReubicacionesPipelineErrorBoundary extends Component {
     }
 }
 
-function ReubicacionesPipelinePageInner({ token, navIntent }) {
+function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const { isLight, field, labelMuted, headingAccent } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
+    
+    
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 
     const [items, setItems] = useState([]);
@@ -151,8 +136,29 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
 
     const [fechaFinDesde, setFechaFinDesde] = useState('');
     const [fechaFinHasta, setFechaFinHasta] = useState('');
-    /** '' = todos; valor API: Verde | Amarillo | Rojo | Vencido */
-    const [semaforoFiltro, setSemaforoFiltro] = useState('');
+    const [estadoFiltro, setEstadoFiltro] = useState('');
+    const [viewMode, setViewMode] = useState('reubicados');
+    const [aptoFiltro, setAptoFiltro] = useState('');
+    const [tipoEventoFiltro, setTipoEventoFiltro] = useState('');
+    const [actorFiltro, setActorFiltro] = useState('');
+    const [appliedFechaFinDesde, setAppliedFechaFinDesde] = useState('');
+    const [appliedFechaFinHasta, setAppliedFechaFinHasta] = useState('');
+    const [appliedEstadoFiltro, setAppliedEstadoFiltro] = useState('');
+    const [appliedAptoFiltro, setAppliedAptoFiltro] = useState('');
+    const [appliedTipoEventoFiltro, setAppliedTipoEventoFiltro] = useState('');
+    const [appliedActorFiltro, setAppliedActorFiltro] = useState('');
+    const [tipoFichaFiltro, setTipoFichaFiltro] = useState('');
+    const [appliedTipoFichaFiltro, setAppliedTipoFichaFiltro] = useState('');
+    const [clienteFiltro, setClienteFiltro] = useState('');
+    const [appliedClienteFiltro, setAppliedClienteFiltro] = useState('');
+    const [gpFiltro, setGpFiltro] = useState('');
+    const [appliedGpFiltro, setAppliedGpFiltro] = useState('');
+    const [diasRestantesDesde, setDiasRestantesDesde] = useState('');
+    const [diasRestantesHasta, setDiasRestantesHasta] = useState('');
+    const [appliedDiasRestantesDesde, setAppliedDiasRestantesDesde] = useState('');
+    const [appliedDiasRestantesHasta, setAppliedDiasRestantesHasta] = useState('');
+    const [clienteOptions, setClienteOptions] = useState([]);
+    const [gpOptions, setGpOptions] = useState([]);
 
     const [sort, setSort] = useState({ key: null, dir: 'asc' });
 
@@ -160,12 +166,8 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
     const [createForm, setCreateForm] = useState(emptyForm);
     const [createSaving, setCreateSaving] = useState(false);
 
-    const [editOpen, setEditOpen] = useState(false);
-    const [editRow, setEditRow] = useState(null);
-    const [editForm, setEditForm] = useState(emptyForm);
-    const [editSaving, setEditSaving] = useState(false);
-
-    const [confirmDeleteRow, setConfirmDeleteRow] = useState(null);
+    const [detailOpen, setDetailOpen] = useState(false);
+    const [detailRow, setDetailRow] = useState(null);
 
     const totalPages = Math.max(1, Math.ceil((Number(total) || 0) / pageSize));
     const safePage = Math.min(Math.max(1, page), totalPages);
@@ -211,12 +213,20 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         () =>
             buildReubicacionesChipLabel({
                 q: appliedQ,
-                fechaFinDesde,
-                fechaFinHasta,
-                semaforo: semaforoFiltro,
+                fechaFinDesde: appliedFechaFinDesde,
+                fechaFinHasta: appliedFechaFinHasta,
+                estado: appliedEstadoFiltro,
+                aptoNoApto: appliedAptoFiltro,
+                tipoEvento: appliedTipoEventoFiltro,
+                actor: appliedActorFiltro,
+                tipoFicha: appliedTipoFichaFiltro,
+                cliente: appliedClienteFiltro,
+                gp: appliedGpFiltro,
+                diasRestantesDesde: appliedDiasRestantesDesde,
+                diasRestantesHasta: appliedDiasRestantesHasta,
                 pageSize
             }),
-        [appliedQ, fechaFinDesde, fechaFinHasta, semaforoFiltro, pageSize]
+        [appliedQ, appliedFechaFinDesde, appliedFechaFinHasta, appliedEstadoFiltro, appliedAptoFiltro, appliedTipoEventoFiltro, appliedActorFiltro, appliedTipoFichaFiltro, appliedClienteFiltro, appliedGpFiltro, appliedDiasRestantesDesde, appliedDiasRestantesHasta, pageSize]
     );
 
     const clearFilters = useCallback(() => {
@@ -224,16 +234,70 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         setAppliedQ(REUBICACIONES_FILTER_DEFAULTS.q);
         setFechaFinDesde(REUBICACIONES_FILTER_DEFAULTS.fechaFinDesde);
         setFechaFinHasta(REUBICACIONES_FILTER_DEFAULTS.fechaFinHasta);
-        setSemaforoFiltro(REUBICACIONES_FILTER_DEFAULTS.semaforo);
+        setEstadoFiltro(REUBICACIONES_FILTER_DEFAULTS.estado);
+        setAppliedFechaFinDesde(REUBICACIONES_FILTER_DEFAULTS.fechaFinDesde);
+        setAppliedFechaFinHasta(REUBICACIONES_FILTER_DEFAULTS.fechaFinHasta);
+        setAppliedEstadoFiltro(REUBICACIONES_FILTER_DEFAULTS.estado);
+        setAptoFiltro('');
+        setAppliedAptoFiltro('');
+        setTipoEventoFiltro('');
+        setAppliedTipoEventoFiltro('');
+        setActorFiltro('');
+        setAppliedActorFiltro('');
+        setTipoFichaFiltro('');
+        setAppliedTipoFichaFiltro('');
+        setClienteFiltro('');
+        setAppliedClienteFiltro('');
+        setGpFiltro('');
+        setAppliedGpFiltro('');
+        setDiasRestantesDesde('');
+        setDiasRestantesHasta('');
+        setAppliedDiasRestantesDesde('');
+        setAppliedDiasRestantesHasta('');
         setPageSize(REUBICACIONES_FILTER_DEFAULTS.pageSize);
         setPage(1);
     }, []);
 
     const applyDrawerFilters = useCallback(() => {
         setAppliedQ(q);
+        setAppliedFechaFinDesde(fechaFinDesde);
+        setAppliedFechaFinHasta(fechaFinHasta);
+        setAppliedEstadoFiltro(estadoFiltro);
+        setAppliedAptoFiltro(aptoFiltro);
+        setAppliedTipoEventoFiltro(tipoEventoFiltro);
+        setAppliedActorFiltro(actorFiltro);
+        setAppliedTipoFichaFiltro(tipoFichaFiltro);
+        setAppliedClienteFiltro(clienteFiltro);
+        setAppliedGpFiltro(gpFiltro);
+        setAppliedDiasRestantesDesde(diasRestantesDesde);
+        setAppliedDiasRestantesHasta(diasRestantesHasta);
         setPage(1);
         setFiltersPanelOpen(false);
-    }, [q]);
+    }, [q, fechaFinDesde, fechaFinHasta, estadoFiltro, aptoFiltro, tipoEventoFiltro, actorFiltro, tipoFichaFiltro, clienteFiltro, gpFiltro, diasRestantesDesde, diasRestantesHasta]);
+
+    useEffect(() => {
+        let cancelled = false;
+        const loadFilterOptions = async () => {
+            try {
+                const res = await fetch('/api/directorio/reubicaciones-filtros', {
+                    credentials: 'include',
+                    headers: authHeaders(token)
+                });
+                const json = await res.json().catch(() => ({}));
+                if (!cancelled && res.ok) {
+                    setClienteOptions(Array.isArray(json.items) ? json.items : []);
+                    setGpOptions(Array.isArray(json.gpItems) ? json.gpItems : []);
+                }
+            } catch {
+                if (!cancelled) {
+                    setClienteOptions([]);
+                    setGpOptions([]);
+                }
+            }
+        };
+        loadFilterOptions();
+        return () => { cancelled = true; };
+    }, [token]);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -244,9 +308,15 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
             });
             const qq = String(appliedQ || '').trim();
             if (qq) u.set('q', qq);
-            if (fechaFinDesde) u.set('fecha_fin_desde', fechaFinDesde);
-            if (fechaFinHasta) u.set('fecha_fin_hasta', fechaFinHasta);
-            if (semaforoFiltro) u.set('semaforo', semaforoFiltro);
+            if (appliedFechaFinDesde) u.set('fecha_fin_desde', appliedFechaFinDesde);
+            if (appliedFechaFinHasta) u.set('fecha_fin_hasta', appliedFechaFinHasta);
+            if (appliedEstadoFiltro) u.set('estado', appliedEstadoFiltro);
+            if (appliedAptoFiltro) u.set('apto_no_apto', appliedAptoFiltro);
+            if (appliedTipoFichaFiltro) u.set('tipo_ficha', appliedTipoFichaFiltro);
+            if (appliedClienteFiltro) u.set('cliente', appliedClienteFiltro);
+            if (appliedGpFiltro) u.set('gp', appliedGpFiltro);
+            if (appliedDiasRestantesDesde !== '') u.set('dias_restantes_desde', appliedDiasRestantesDesde);
+            if (appliedDiasRestantesHasta !== '') u.set('dias_restantes_hasta', appliedDiasRestantesHasta);
             if (sort.key) {
                 u.set('sort', sort.key);
                 u.set('dir', sort.dir);
@@ -266,11 +336,11 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         } finally {
             setLoading(false);
         }
-    }, [token, pageSize, offset, appliedQ, fechaFinDesde, fechaFinHasta, semaforoFiltro, sort]);
+    }, [token, pageSize, offset, appliedQ, appliedFechaFinDesde, appliedFechaFinHasta, appliedEstadoFiltro, appliedAptoFiltro, appliedTipoFichaFiltro, appliedClienteFiltro, appliedGpFiltro, appliedDiasRestantesDesde, appliedDiasRestantesHasta, sort, viewMode]);
 
     useEffect(() => {
-        load();
-    }, [load]);
+        if (viewMode === 'reubicados') load();
+    }, [load, viewMode]);
 
     /** Aplicar filtros enviados desde el dashboard (u otro módulo) al cambiar `seq`. */
     useEffect(() => {
@@ -279,7 +349,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         if (navIntent?.reset) {
             setFechaFinDesde('');
             setFechaFinHasta('');
-            setSemaforoFiltro('');
+            setEstadoFiltro('');
             setAppliedQ('');
             setQ('');
             setPage(1);
@@ -287,7 +357,10 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         }
         setFechaFinDesde(navIntent?.fechaFinDesde != null ? String(navIntent.fechaFinDesde) : '');
         setFechaFinHasta(navIntent?.fechaFinHasta != null ? String(navIntent.fechaFinHasta) : '');
-        setSemaforoFiltro(navIntent?.semaforo != null ? String(navIntent.semaforo) : '');
+        setEstadoFiltro(navIntent?.estado != null ? String(navIntent.estado) : '');
+        setAppliedFechaFinDesde(navIntent?.fechaFinDesde != null ? String(navIntent.fechaFinDesde) : '');
+        setAppliedFechaFinHasta(navIntent?.fechaFinHasta != null ? String(navIntent.fechaFinHasta) : '');
+        setAppliedEstadoFiltro(navIntent?.estado != null ? String(navIntent.estado) : '');
         setPage(1);
     }, [navIntent?.seq]);
 
@@ -324,61 +397,9 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
         }
     };
 
-    const openEdit = (row) => {
-        setEditRow(row);
-        setEditForm({
-            cedula: row.cedula,
-            fecha_fin: String(row.fecha_fin || '').slice(0, 10),
-            cliente_destino: row.cliente_destino || '',
-            causal: row.causal || ''
-        });
-        setEditOpen(true);
-    };
-
-    const submitEdit = async (e) => {
-        e.preventDefault();
-        if (!editRow?.id) return;
-        setEditSaving(true);
-        try {
-            const res = await fetch(`/api/directorio/reubicaciones-pipeline/${editRow.id}`, {
-                method: 'PATCH',
-                credentials: 'include',
-                headers: authHeaders(token),
-                body: JSON.stringify({
-                    fecha_fin: editForm.fecha_fin,
-                    cliente_destino: editForm.cliente_destino || null,
-                    causal: editForm.causal || null
-                })
-            });
-            const j = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
-            flash('Cambios guardados.');
-            setEditOpen(false);
-            setEditRow(null);
-            await load();
-        } catch (err) {
-            flash(err.message || 'Error al guardar.', false);
-        } finally {
-            setEditSaving(false);
-        }
-    };
-
-    const deleteRow = async (row) => {
-        if (!row?.id) return;
-        try {
-            const res = await fetch(`/api/directorio/reubicaciones-pipeline/${row.id}`, {
-                method: 'DELETE',
-                credentials: 'include',
-                headers: authHeaders(token)
-            });
-            const j = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(j?.error || `HTTP ${res.status}`);
-            flash('Registro eliminado.');
-            setConfirmDeleteRow(null);
-            await load();
-        } catch (err) {
-            flash(err.message || 'No se pudo eliminar.', false);
-        }
+    const openDetail = (row) => {
+        setDetailRow(row);
+        setDetailOpen(true);
     };
 
     const toolbarBtn =
@@ -416,88 +437,120 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                 panelId="reubicaciones-filtros-panel"
                 dash={dash}
             >
-                <button type="button" onClick={() => setCreateOpen(true)} className={dash.toolbarBtn}>
-                    <span className="inline-flex items-center gap-2">
-                        <Plus size={16} /> Nuevo registro
-                    </span>
-                </button>
-                <button type="button" onClick={load} className={dash.compactBtn}>
-                    Refrescar
-                </button>
+                <div className="flex items-center gap-1 rounded-md border border-slate-200 p-1 dark:border-slate-700">
+                    <button
+                        type="button"
+                        onClick={() => { setViewMode('reubicados'); setPage(1); }}
+                        className={`rounded px-3 py-1.5 text-xs font-semibold ${viewMode === 'reubicados' ? 'bg-[#2F7BB8] text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                    >
+                        Reubicados
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { setViewMode('historico'); setPage(1); }}
+                        className={`rounded px-3 py-1.5 text-xs font-semibold ${viewMode === 'historico' ? 'bg-[#2F7BB8] text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                    >
+                        Histórico
+                    </button>
+                </div>
             </ModuleFiltersToolbar>
 
+            {viewMode === 'historico' ? (
+                <div className={`${dash.cardFlex} min-h-0 flex-1`}>
+                    <ReubicacionesHistorialGlobal
+                        token={token}
+                        auth={auth}
+                        searchQuery={appliedQ}
+                        filterApto={appliedAptoFiltro}
+                        estadoFiltro={appliedEstadoFiltro}
+                        fechaFinDesde={appliedFechaFinDesde}
+                        fechaFinHasta={appliedFechaFinHasta}
+                        tipoEvento={appliedTipoEventoFiltro}
+                        actor={appliedActorFiltro}
+                    />
+                </div>
+            ) : (
             <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                 <div className={dash.tableWrap}>
                     <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
-                        <table className="w-full min-w-[1100px] border-collapse text-left text-sm">
+                        <table className="w-full min-w-[1200px] border-collapse text-left text-sm">
                             <thead>
                                 <tr className={dash.thead}>
                                     <Th colKey="cedula" label="Cédula" />
                                     <Th colKey="consultor" label="Consultor" />
-                                    <Th colKey="tipo_contrato" label="Tipo contrato" />
                                     <Th colKey="cliente_actual" label="Cliente actual" />
                                     <Th colKey="cliente_destino" label="Cliente destino" />
-                                    <Th colKey="causal" label="Causal" />
+                                    <Th colKey="tipo_ficha" label="Tipo ficha" />
                                     <Th colKey="fecha_fin" label="Fecha fin" />
-                                    <Th colKey="dias_restantes" label="Días rest." align="right" />
-                                    <Th colKey="semaforo" label="Semáforo" />
-                                    <Th colKey="tarifa" label="Tarifa actual" />
-                                    <th className="p-4 pr-6 font-semibold whitespace-nowrap">Acciones</th>
+                                    <Th colKey="estado" label="Estado" />
+                                    <Th colKey="puesto" label="Puesto" />
+                                    <Th colKey="salario" label="Salario" />
+                                    <Th colKey="auxilios" label="Auxilios" />
                                 </tr>
                             </thead>
                             <tbody className={dash.tbody}>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={11} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                        <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
                                             Cargando…
                                         </td>
                                     </tr>
                                 ) : items.length === 0 ? (
                                     <tr>
-                                        <td colSpan={11} className={`p-12 text-center font-medium ${dash.muted}`}>
-                                            Sin registros. Cree uno con «Nuevo registro» (la cédula debe existir en Consultores).
+                                        <td colSpan={10} className={`p-12 text-center font-medium ${dash.muted}`}>
+                                            Sin registros en el pipeline de Reubicaciones.
                                         </td>
                                     </tr>
                                 ) : (
                                     items.map((row) => (
                                         <tr key={row.id} className={dash.trHover}>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
-                                            <td className={dash.tdName}>{row.consultor || '—'}</td>
-                                            <td className={dash.tdCell}>{row.tipo_contrato || '—'}</td>
-                                            <td className={dash.tdCell}>{row.cliente_actual || '—'}</td>
-                                            <td className={dash.tdCell}>{row.cliente_destino || '—'}</td>
-                                            <td className={dash.tdCell} title={row.causal || ''}>
-                                                {row.causal || '—'}
+                                            <td className={`${dash.tdName} whitespace-nowrap`}>
+                                                {row.consultor ? (
+                                                    <button
+                                                        type="button"
+                                                        className="cursor-pointer border-0 bg-transparent p-0 text-left font-inherit text-inherit hover:text-[#65BCF7] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#65BCF7]"
+                                                        onClick={() => openDetail(row)}
+                                                        aria-label={`Ver detalle de ${row.consultor}`}
+                                                    >
+                                                        {row.consultor}
+                                                    </button>
+                                                ) : '—'}
+                                            </td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cliente_actual || '—'}</td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cliente_destino || '—'}</td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>
+                                                {(() => {
+                                                    if (!row.tipo_ficha) return '—';
+                                                    let badgeClass = '';
+                                                    if (row.tipo_ficha === 'SALIDA') {
+                                                        badgeClass = isLight ? 'bg-red-100 text-red-800' : 'bg-red-900/40 text-red-200';
+                                                    } else {
+                                                        badgeClass = isLight ? 'bg-blue-100 text-blue-800' : 'bg-blue-900/40 text-blue-200';
+                                                    }
+                                                    return (
+                                                        <span className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${badgeClass}`}>
+                                                            {row.tipo_ficha}
+                                                        </span>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
-                                                {String(row.fecha_fin || '').slice(0, 10)}
-                                            </td>
-                                            <td className={`${dash.tdMuted} text-right whitespace-nowrap`}>
-                                                {row.dias_restantes != null ? row.dias_restantes : '—'}
+                                                {String(row.fecha_fin || '').slice(0, 10) || '—'}
                                             </td>
                                             <td className="p-4 whitespace-nowrap">
-                                                <SemaforoBadge code={row.semaforo} isLight={isLight} />
+                                                <EstadoBadge estado={row.estado} dias_transcurridos={row.dias_transcurridos} isLight={isLight} />
                                             </td>
-                                            <td className={`${dash.tdCell} whitespace-nowrap`}>
-                                                {formatTarifaDisplay(row)}
+                                            <td className={`${dash.tdCell} max-w-[180px] truncate`} title={row.puesto || ''}>
+                                                {row.puesto || '—'}
                                             </td>
-                                            <td className="p-4 pr-6 whitespace-nowrap">
-                                                <div className="flex items-center gap-2">
-                                                    <button
-                                                        type="button"
-                                                        className={`inline-flex items-center gap-1 ${headingAccent} hover:underline`}
-                                                        onClick={() => openEdit(row)}
-                                                    >
-                                                        <Pencil size={14} /> Editar
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        className="inline-flex items-center gap-1 text-red-400 hover:text-red-300 hover:underline"
-                                                        onClick={() => setConfirmDeleteRow(row)}
-                                                    >
-                                                        <Trash2 size={14} /> Eliminar
-                                                    </button>
-                                                </div>
+                                            <td className={`${dash.tdCell} whitespace-nowrap text-right`}>
+                                                {row.salario != null ? `$ ${formatMoneyAmountOnly(Number(row.salario), 'COP')}` : '—'}
+                                            </td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap text-right`}>
+                                                {row.auxilios != null && Number(row.auxilios) > 0
+                                                    ? `$ ${formatMoneyAmountOnly(Number(row.auxilios), 'COP')}`
+                                                    : '—'}
                                             </td>
                                         </tr>
                                     ))
@@ -532,6 +585,7 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                     ) : null}
                 </div>
             </div>
+            )}
 
             <ModuleFiltersDrawer
                 open={filtersPanelOpen}
@@ -581,24 +635,130 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                     />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                    <label htmlFor="reubicaciones-drawer-semaforo" className={dash.filtrosDrawerLabel}>
-                        Semáforo
+                    <label htmlFor="reubicaciones-drawer-estado" className={dash.filtrosDrawerLabel}>
+                        Estado
                     </label>
                     <select
-                        id="reubicaciones-drawer-semaforo"
+                        id="reubicaciones-drawer-estado"
                         className={`${field} w-full text-sm`}
-                        value={semaforoFiltro}
-                        onChange={(e) => setSemaforoFiltro(e.target.value)}
+                        value={estadoFiltro}
+                        onChange={(e) => setEstadoFiltro(e.target.value)}
                     >
                         <option value="">Todos</option>
-                        <option value="Amarillo,Rojo,Vencido">En riesgo (amarillo + urgente + vencido)</option>
-                        {SEMAFORO_CODES.map((code) => (
+                        {ESTADO_CODES.map((code) => (
                             <option key={code} value={code}>
-                                {SEMAFORO_LABELS[code]}
+                                {ESTADO_LABELS[code]}
                             </option>
                         ))}
                     </select>
                 </div>
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-tipo-ficha" className={dash.filtrosDrawerLabel}>
+                        Tipo de ficha
+                    </label>
+                    <select
+                        id="reubicaciones-drawer-tipo-ficha"
+                        className={`${field} w-full text-sm`}
+                        value={tipoFichaFiltro}
+                        onChange={(e) => setTipoFichaFiltro(e.target.value)}
+                    >
+                        <option value="">Todos</option>
+                        <option value="SALIDA">SALIDA</option>
+                        <option value="EXTENSION">EXTENSION</option>
+                    </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-apto" className={dash.filtrosDrawerLabel}>
+                        Decisión
+                    </label>
+                    <select
+                        id="reubicaciones-drawer-apto"
+                        className={`${field} w-full text-sm`}
+                        value={aptoFiltro}
+                        onChange={(e) => setAptoFiltro(e.target.value)}
+                    >
+                        <option value="">Todas</option>
+                        <option value="APTO">APTO</option>
+                        <option value="NO_APTO">NO APTO</option>
+                        <option value="SIN_DECISION">SIN DECISIÓN</option>
+                    </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-cliente" className={dash.filtrosDrawerLabel}>Cliente</label>
+                    <select
+                        id="reubicaciones-drawer-cliente"
+                        className={`${field} w-full text-sm`}
+                        value={clienteFiltro}
+                        onChange={(e) => setClienteFiltro(e.target.value)}
+                    >
+                        <option value="">Todos</option>
+                        {clienteOptions.map((item) => (
+                            <option key={item.cliente} value={item.cliente}>{item.cliente}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-gp" className={dash.filtrosDrawerLabel}>GP</label>
+                    <select
+                        id="reubicaciones-drawer-gp"
+                        className={`${field} w-full text-sm`}
+                        value={gpFiltro}
+                        onChange={(e) => setGpFiltro(e.target.value)}
+                    >
+                        <option value="">Todos</option>
+                        {gpOptions.map((item) => (
+                            <option key={item.id} value={item.id}>{item.full_name || item.email}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-1.5">
+                        <label htmlFor="reubicaciones-drawer-dias-desde" className={dash.filtrosDrawerLabel}>Días restantes desde</label>
+                        <input id="reubicaciones-drawer-dias-desde" type="number" min="0" className={`${field} w-full text-sm`} value={diasRestantesDesde} onChange={(e) => setDiasRestantesDesde(e.target.value)} />
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                        <label htmlFor="reubicaciones-drawer-dias-hasta" className={dash.filtrosDrawerLabel}>Días restantes hasta</label>
+                        <input id="reubicaciones-drawer-dias-hasta" type="number" min="0" className={`${field} w-full text-sm`} value={diasRestantesHasta} onChange={(e) => setDiasRestantesHasta(e.target.value)} />
+                    </div>
+                </div>
+                {viewMode === 'historico' ? (
+                    <>
+                        <div className="flex flex-col gap-1.5">
+                            <label htmlFor="reubicaciones-drawer-tipo-evento" className={dash.filtrosDrawerLabel}>
+                                Tipo de evento
+                            </label>
+                            <select
+                                id="reubicaciones-drawer-tipo-evento"
+                                className={`${field} w-full text-sm`}
+                                value={tipoEventoFiltro}
+                                onChange={(e) => setTipoEventoFiltro(e.target.value)}
+                            >
+                                <option value="">Todos</option>
+                                <option value="ficha_recibida">Ficha recibida</option>
+                                <option value="ficha_actualizada">Ficha actualizada</option>
+                                <option value="cambio_estado">Cambio de estado</option>
+                                <option value="modificacion_manual">Edición manual</option>
+                                <option value="observacion_agregada">Observación</option>
+                                <option value="decision_agregada">Decisión</option>
+                                <option value="reubicacion">Reubicación</option>
+                                <option value="salida">Salida</option>
+                                <option value="transicion_automatica">Transición automática</option>
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label htmlFor="reubicaciones-drawer-actor" className={dash.filtrosDrawerLabel}>
+                                Actor
+                            </label>
+                            <input
+                                id="reubicaciones-drawer-actor"
+                                className={`${field} w-full text-sm`}
+                                value={actorFiltro}
+                                onChange={(e) => setActorFiltro(e.target.value)}
+                                placeholder="Nombre del actor"
+                            />
+                        </div>
+                    </>
+                ) : null}
                 <div className="flex flex-col gap-1.5">
                     <label htmlFor="reubicaciones-drawer-pagesize" className={dash.filtrosDrawerLabel}>
                         Mostrar por página
@@ -675,90 +835,21 @@ function ReubicacionesPipelinePageInner({ token, navIntent }) {
                 </div>
             ) : null}
 
-            {editOpen && editRow ? (
-                <div className={modalShell}>
-                    <div
-                        className={`relative w-full max-w-lg rounded-2xl border p-6 shadow-xl ${
-                            isLight ? 'border-slate-200 bg-white' : 'border-[var(--border)] bg-[var(--surface)]'
-                        }`}
-                    >
-                        <h2 className={`text-lg font-heading font-bold mb-4 ${headingAccent}`}>Editar seguimiento</h2>
-                        <p className={`text-xs ${labelMuted} mb-3`}>
-                            Cédula {editForm.cedula} · {editRow.consultor || 'Consultor'}
-                        </p>
-                        <form onSubmit={submitEdit} className="space-y-3">
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Fecha fin *</label>
-                                <input
-                                    {...nativeCalendarOnlyInputProps}
-                                    type="date"
-                                    className={`w-full ${field}`}
-                                    value={editForm.fecha_fin}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, fecha_fin: e.target.value }))}
-                                    required
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Cliente destino</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={editForm.cliente_destino}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, cliente_destino: e.target.value }))}
-                                />
-                            </div>
-                            <div>
-                                <label className={`block text-xs ${labelMuted} mb-1`}>Causal</label>
-                                <input
-                                    className={`w-full ${field}`}
-                                    value={editForm.causal}
-                                    onChange={(e) => setEditForm((f) => ({ ...f, causal: e.target.value }))}
-                                />
-                            </div>
-                            <div className="flex justify-end gap-2 pt-2">
-                                <button
-                                    type="button"
-                                    className={dash.compactBtn}
-                                    onClick={() => {
-                                        setEditOpen(false);
-                                        setEditRow(null);
-                                    }}
-                                >
-                                    Cancelar
-                                </button>
-                                <button type="submit" disabled={editSaving} className={toolbarBtn}>
-                                    {editSaving ? 'Guardando…' : 'Guardar'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            ) : null}
-
-            {confirmDeleteRow ? (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-                    <div
-                        className="modal-glass-scrim absolute inset-0 transition-opacity"
-                        onClick={() => setConfirmDeleteRow(null)}
-                    />
-                    <div className="modal-glass-sheet font-body relative w-full max-w-md rounded-2xl border border-[var(--border)] p-6 shadow-2xl">
-                        <p className={`text-sm ${isLight ? 'text-slate-700' : 'text-[var(--text)]'}`}>
-                            ¿Eliminar el seguimiento de reubicación para la cédula{' '}
-                            <strong>{confirmDeleteRow.cedula}</strong>?
-                        </p>
-                        <div className="mt-4 flex justify-end gap-2">
-                            <button type="button" className={dash.compactBtn} onClick={() => setConfirmDeleteRow(null)}>
-                                Cancelar
-                            </button>
-                            <button
-                                type="button"
-                                className="px-3 py-2 rounded-md bg-rose-600/90 text-white text-sm font-semibold"
-                                onClick={() => deleteRow(confirmDeleteRow)}
-                            >
-                                Eliminar
-                            </button>
-                        </div>
-                    </div>
-                </div>
+            {detailOpen && detailRow ? (
+                <ReubicacionesDetalleModal
+                    isOpen={detailOpen}
+                    onClose={() => {
+                        setDetailOpen(false);
+                        setDetailRow(null);
+                    }}
+                    row={detailRow}
+                    token={token}
+                    auth={auth}
+                    onUpdateInline={(field, value) => {
+                        setDetailRow(prev => prev ? { ...prev, [field]: value } : prev);
+                        load();
+                    }}
+                />
             ) : null}
         </div>
     );
