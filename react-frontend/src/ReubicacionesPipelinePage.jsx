@@ -819,6 +819,10 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                     row={detailRow}
                     token={token}
                     auth={auth}
+                    onUpdateInline={(field, value) => {
+                        setDetailRow(prev => prev ? { ...prev, [field]: value } : prev);
+                        load();
+                    }}
                     onEdit={(row) => {
                         setDetailOpen(false);
                         openEdit(row);

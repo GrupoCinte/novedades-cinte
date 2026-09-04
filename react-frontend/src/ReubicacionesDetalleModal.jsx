@@ -24,7 +24,7 @@ function formatMontoDisplay(val, currencyCode = 'COP') {
     return `$ ${formatMoneyAmountOnly(num, ccy)}`;
 }
 
-export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, onEdit, onDelete }) {
+export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, onEdit, onDelete, onUpdateInline }) {
     const { isLight } = useModuleTheme();
     const T = buildMonitorGlassModalTheme(isLight);
 
@@ -213,7 +213,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
             if (data.ok) {
                 setSuccess(`Campo ${field} actualizado correctamente`);
                 setRefreshTimeline(prev => prev + 1);
-                if (typeof onEdit === 'function') onEdit(); // call callback to refresh parent table if needed
+                if (typeof onUpdateInline === 'function') onUpdateInline(field, value);
             } else {
                 setError(data.error || 'Error al actualizar');
             }
