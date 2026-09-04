@@ -2,6 +2,26 @@ import React, { useState, useEffect } from 'react';
 import { useModuleTheme } from '../../moduleTheme.js';
 import { Clock, User, Settings, ArrowRight, ArrowDown } from 'lucide-react';
 
+function renderDiffValue(value, isLight, colorClass) {
+    if (value === undefined || value === null) {
+        return <span className="italic text-slate-400">No aplica</span>;
+    }
+    if (typeof value === 'object') {
+        return Object.entries(value).map(([k, v]) => {
+            const displayValue = typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v));
+            return (
+                <div key={k} className="flex flex-col">
+                    <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
+                    <span className={`${colorClass} whitespace-pre-wrap mt-0.5 break-words`}>
+                        {displayValue}
+                    </span>
+                </div>
+            );
+        });
+    }
+    return <span className={`${colorClass} break-words`}>{String(value)}</span>;
+}
+
 export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigger }) {
     const { isLight } = useModuleTheme();
     const [eventos, setEventos] = useState([]);
@@ -108,9 +128,13 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
                     {eventos.map((evt) => {
                         const isAutomatic = evt.origen === 'SISTEMA' || evt.origen === 'ZOHO';
                         const Icon = isAutomatic ? Settings : User;
-                        const iconBg = isLight 
-                            ? (isAutomatic ? 'bg-amber-100 text-amber-600' : 'bg-sky-100 text-sky-600')
-                            : (isAutomatic ? 'bg-amber-900/50 text-amber-400' : 'bg-sky-900/50 text-sky-400');
+                        
+                        let iconBg = '';
+                        if (isLight) {
+                            iconBg = isAutomatic ? 'bg-amber-100 text-amber-600' : 'bg-sky-100 text-sky-600';
+                        } else {
+                            iconBg = isAutomatic ? 'bg-amber-900/50 text-amber-400' : 'bg-sky-900/50 text-sky-400';
+                        }
                         
                         const isExpanded = expandedEvents[evt.id];
                         
@@ -157,43 +181,13 @@ export default function ReubicacionesTimeline({ pipelineId, token, refreshTrigge
                                                     <div>
                                                         <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Valor anterior</div>
                                                         <div className="flex flex-col gap-2 mt-2">
-                                                            {evt.before ? (
-                                                                typeof evt.before === 'object' ? (
-                                                                    Object.entries(evt.before).map(([k, v]) => (
-                                                                        <div key={k} className="flex flex-col">
-                                                                            <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
-                                                                            <span className="text-rose-600 dark:text-rose-400 whitespace-pre-wrap mt-0.5 break-words">
-                                                                                {typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v))}
-                                                                            </span>
-                                                                        </div>
-                                                                    ))
-                                                                ) : (
-                                                                    <span className="text-rose-600 dark:text-rose-400 break-words">{String(evt.before)}</span>
-                                                                )
-                                                            ) : (
-                                                                <span className="italic text-slate-400">No aplica</span>
-                                                            )}
+                                                            {renderDiffValue(evt.before, isLight, 'text-rose-600 dark:text-rose-400')}
                                                         </div>
                                                     </div>
                                                     <div>
                                                         <div className="font-semibold mb-2 text-slate-500 dark:text-slate-400 border-b pb-1 dark:border-slate-700">Nuevo valor</div>
                                                         <div className="flex flex-col gap-2 mt-2">
-                                                            {evt.after ? (
-                                                                typeof evt.after === 'object' ? (
-                                                                    Object.entries(evt.after).map(([k, v]) => (
-                                                                        <div key={k} className="flex flex-col">
-                                                                            <span className={`font-medium capitalize text-[10px] uppercase tracking-wider ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{k.replace(/_/g, ' ')}</span>
-                                                                            <span className="text-emerald-600 dark:text-emerald-400 whitespace-pre-wrap mt-0.5 break-words">
-                                                                                {typeof v === 'object' && v !== null ? JSON.stringify(v) : (v === '' ? '(vacío)' : String(v))}
-                                                                            </span>
-                                                                        </div>
-                                                                    ))
-                                                                ) : (
-                                                                    <span className="text-emerald-600 dark:text-emerald-400 break-words">{String(evt.after)}</span>
-                                                                )
-                                                            ) : (
-                                                                <span className="italic text-slate-400">No aplica</span>
-                                                            )}
+                                                            {renderDiffValue(evt.after, isLight, 'text-emerald-600 dark:text-emerald-400')}
                                                         </div>
                                                     </div>
                                                 </div>

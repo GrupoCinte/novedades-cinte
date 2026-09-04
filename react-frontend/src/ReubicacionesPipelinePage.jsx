@@ -132,7 +132,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const { isLight, field, labelMuted, headingAccent } = useModuleTheme();
     const dash = useMemo(() => buildGestionTableDash(isLight), [isLight]);
     
-    const canEdit = useMemo(() => canEditReubicaciones(auth), [auth]);
+    
     
     const [filtersPanelOpen, setFiltersPanelOpen] = useState(false);
 

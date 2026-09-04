@@ -1,4 +1,4 @@
-import { Pencil, Trash2, CheckCircle, XCircle } from 'lucide-react';
+import { Pencil, CheckCircle, XCircle } from 'lucide-react';
 import MonitorGlassModalShell from './shared/modals/MonitorGlassModalShell.jsx';
 import { useModuleTheme } from './moduleTheme.js';
 import { buildMonitorGlassModalTheme } from './shared/modals/monitorGlassModalTheme.js';
@@ -12,7 +12,7 @@ import {
 } from './reubicacionesAccess.js';
 
 function getCsrfToken() {
-    const match = document.cookie.match(/cinteXsrf=([^;]+)/);
+    const match = /cinteXsrf=([^;]+)/.exec(document.cookie);
     return match ? match[1] : '';
 }
 
@@ -28,16 +28,12 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
     const { isLight } = useModuleTheme();
     const T = buildMonitorGlassModalTheme(isLight);
 
-    // Estados para observaciones y decisiones
     const [observacion, setObservacion] = useState('');
     const [observacionActual, setObservacionActual] = useState(null);
-    const [historialObs, setHistorialObs] = useState([]);
-    const [mostrarHistorialObs, setMostrarHistorialObs] = useState(false);
     
     const [decision, setDecision] = useState('');
     const [justificacion, setJustificacion] = useState('');
     const [decisionActual, setDecisionActual] = useState(null);
-    const [historialDec, setHistorialDec] = useState([]);
     
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -76,9 +72,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
             const data = await res.json();
             if (data.ok) {
                 setObservacionActual(data.observacion || null);
-                setHistorialObs(data.historialObs || []);
                 setDecisionActual(data.decision || null);
-                setHistorialDec(data.historialDec || []);
             }
         } catch (e) {
             console.error('Error cargando contexto de aptitud:', e);
@@ -124,6 +118,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                 setError(data.error || 'Error al guardar observación');
             }
         } catch (e) {
+            console.error('Error al guardar observación:', e);
             setError('Error al guardar observación');
         } finally {
             setLoading(false);
@@ -178,6 +173,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                 setError(data.error || 'Error al guardar decisión');
             }
         } catch (e) {
+            console.error('Error al guardar decisión:', e);
             setError('Error al guardar decisión');
         } finally {
             setLoading(false);
@@ -218,6 +214,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                 setError(data.error || 'Error al actualizar');
             }
         } catch (e) {
+            console.error('Error de conexión:', e);
             setError('Error de conexión');
         } finally {
             setLoading(false);
@@ -225,6 +222,18 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
     };
 
     if (!isOpen || !row) return null;
+
+    const aptoClass = isLight ? 'bg-emerald-50/90 border border-emerald-200 text-emerald-800' : 'bg-emerald-950/35 border border-emerald-800/50 text-emerald-200';
+    const noAptoClass = isLight ? 'bg-rose-50/90 border border-rose-200 text-rose-800' : 'bg-rose-950/35 border border-rose-800/50 text-rose-200';
+    
+    const aptoTextClass = isLight ? 'text-emerald-700' : 'text-emerald-300';
+    const noAptoTextClass = isLight ? 'text-rose-700' : 'text-rose-300';
+
+    const btnAptoActive = isLight ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-emerald-600/60 bg-emerald-900/30 text-emerald-300';
+    const btnAptoInactive = isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-700/50';
+
+    const btnNoAptoActive = isLight ? 'border-rose-400 bg-rose-100 text-rose-800 shadow-sm' : 'border-rose-600/60 bg-rose-900/30 text-rose-300';
+    const btnNoAptoInactive = isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-rose-300' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-rose-700/50';
 
     return (
         <MonitorGlassModalShell
@@ -370,9 +379,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
 
                         {decisionActual ? (
                             <div className={`mt-2 rounded-lg p-3 ${
-                                decisionActual.decision === 'APTO'
-                                    ? isLight ? 'bg-emerald-50/90 border border-emerald-200 text-emerald-800' : 'bg-emerald-950/35 border border-emerald-800/50 text-emerald-200'
-                                    : isLight ? 'bg-rose-50/90 border border-rose-200 text-rose-800' : 'bg-rose-950/35 border border-rose-800/50 text-rose-200'
+                                decisionActual.decision === 'APTO' ? aptoClass : noAptoClass
                             }`}>
                                 <div className="flex items-center gap-2">
                                     {decisionActual.decision === 'APTO' ? (
@@ -381,9 +388,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                         <XCircle size={16} className={isLight ? 'text-rose-600' : 'text-rose-400'} />
                                     )}
                                     <span className={`font-semibold ${
-                                        decisionActual.decision === 'APTO'
-                                            ? isLight ? 'text-emerald-700' : 'text-emerald-300'
-                                            : isLight ? 'text-rose-700' : 'text-rose-300'
+                                        decisionActual.decision === 'APTO' ? aptoTextClass : noAptoTextClass
                                     }`}>
                                         {decisionActual.decision}
                                     </span>
@@ -411,9 +416,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                         type="button"
                                         onClick={() => { if (!decisionBloqueada) { setDecision('APTO'); setError(''); } }}
                                         className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                                            decisionSeleccionada === 'APTO'
-                                                ? isLight ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-emerald-600/60 bg-emerald-900/30 text-emerald-300'
-                                                : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-emerald-200' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-emerald-700/50'
+                                            decisionSeleccionada === 'APTO' ? btnAptoActive : btnAptoInactive
                                         } ${decisionBloqueada ? 'cursor-not-allowed opacity-60' : ''}`}
                                         disabled={loading || decisionBloqueada}
                                     >
@@ -424,9 +427,7 @@ export function ReubicacionesDetalleModal({ isOpen, onClose, row, token, auth, o
                                         type="button"
                                         onClick={() => { if (!decisionBloqueada) { setDecision('NO_APTO'); setError(''); } }}
                                         className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                                            decisionSeleccionada === 'NO_APTO'
-                                                ? isLight ? 'border-rose-400 bg-rose-100 text-rose-800 shadow-sm' : 'border-rose-600/60 bg-rose-900/30 text-rose-300'
-                                                : isLight ? 'border-slate-200 bg-white text-slate-700 hover:border-rose-300' : 'border-slate-700 bg-slate-800/70 text-slate-200 hover:border-rose-700/50'
+                                            decisionSeleccionada === 'NO_APTO' ? btnNoAptoActive : btnNoAptoInactive
                                         } ${decisionBloqueada ? 'cursor-not-allowed opacity-60' : ''}`}
                                         disabled={loading || decisionBloqueada}
                                     >

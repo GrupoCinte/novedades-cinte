@@ -16,49 +16,8 @@ class IdempotencyConflictError extends Error {
     }
 }
 
-/**
- * Registra un evento en el historial de reubicaciones.
- * 
- * @param {object} client - Cliente de PG dentro de una transacción.
- * @param {object} params - Parámetros del evento.
- * @param {string} params.caso_id - ID del caso en reubicaciones_pipeline.
- * @param {string} [params.consultor_id] - Cédula del consultor (opcional, se puede obtener del caso).
- * @param {string} params.tipo - Tipo de evento (ej: 'ficha_recibida', 'cambio_estado', 'observacion_ch', etc.).
- * @param {string} params.actor_nombre - Nombre de quien realiza la acción.
- * @param {string} params.actor_rol - Rol de quien realiza la acción.
- * @param {string} params.origen - Origen del evento ('MANUAL', 'SISTEMA', 'ZOHO', etc.).
- * @param {string} params.descripcion - Descripción legible del evento.
- * @param {object} [params.before_data] - Estado previo (opcional).
- * @param {object} [params.after_data] - Estado nuevo (opcional).
- * @param {string} params.source_event_id - Identificador único de origen para garantizar idempotencia.
- */
-async function registrarEventoHistorial(client, params) {
-    const {
-        caso_id,
-        consultor_id,
-        tipo,
-        actor_nombre,
-        actor_rol,
-        origen,
-        descripcion,
-        before_data = null,
-        after_data = null,
-        source_event_id
-    } = params;
-
-    if (!caso_id) throw new Error('registrarEventoHistorial: caso_id es obligatorio');
-    if (!tipo) throw new Error('registrarEventoHistorial: tipo es obligatorio');
-    if (!source_event_id) throw new Error('registrarEventoHistorial: source_event_id es obligatorio');
-
-    // Sanitización de before_data y after_data
-    const sanitizedBefore = sanitizarDatosHistorial(before_data);
-    const sanitizedAfter = sanitizarDatosHistorial(after_data);
-    
-    const safeBeforeData = sanitizedBefore ? JSON.stringify(sanitizedBefore) : null;
-    const safeAfterData = sanitizedAfter ? JSON.stringify(sanitizedAfter) : null;
-
-    // SAVEPOINT para evitar abortar la transacción principal si hay conflicto de unicidad
-    const savepointName = `sp_hist_${source_event_id.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+async function _executeInsertAndHandleConflicts(client, params, safeBeforeData, safeAfterData) {
+    const savepointName = `sp_hist_${params.source_event_id.replace(/[^a-zA-Z0-9_]/g, '_')}`;
     await client.query(`SAVEPOINT ${savepointName}`);
 
     try {
@@ -77,62 +36,62 @@ async function registrarEventoHistorial(client, params) {
                 fecha
             ) VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, NOW())`,
             [
-                caso_id,
-                consultor_id || null,
-                tipo,
-                actor_nombre || 'Sistema',
-                normalizeRoleOrNull(actor_rol) || 'sistema',
-                origen || 'SISTEMA',
-                descripcion || '',
+                params.caso_id,
+                params.consultor_id || null,
+                params.tipo,
+                params.actor_nombre || 'Sistema',
+                normalizeRoleOrNull(params.actor_rol) || 'sistema',
+                params.origen || 'SISTEMA',
+                params.descripcion || '',
                 safeBeforeData,
                 safeAfterData,
-                source_event_id
+                params.source_event_id
             ]
         );
-        // Insert exitoso, liberamos savepoint
         await client.query(`RELEASE SAVEPOINT ${savepointName}`);
+        return { idempotent: false, action: 'inserted' };
     } catch (e) {
         if (String(e?.code) === '23505') {
-            // Revertimos la falla del insert para continuar operando en la transacción
             await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
             
-            // Consultamos el evento existente
             const existingRes = await client.query(
                 `SELECT tipo, before_data, after_data FROM reubicaciones_historial WHERE caso_id = $1::uuid AND source_event_id = $2 LIMIT 1`,
-                [caso_id, source_event_id]
+                [params.caso_id, params.source_event_id]
             );
-            if (existingRes.rows.length === 0) {
-                // Raro: conflicto de unicidad pero no se encuentra la fila. Lanzamos error.
-                throw e;
-            }
+            if (existingRes.rows.length === 0) throw e;
             const existing = existingRes.rows[0];
             
-            // Normalize for comparison
             const existingBeforeStr = existing.before_data ? JSON.stringify(existing.before_data) : null;
             const existingAfterStr = existing.after_data ? JSON.stringify(existing.after_data) : null;
 
-            // Comparamos identidad del evento (Idempotencia A vs B)
-            const isSame = (
-                existing.tipo === tipo &&
-                existingBeforeStr === safeBeforeData &&
-                existingAfterStr === safeAfterData
-            );
-
-            if (isSame) {
-                // CASO A: Mismo evento + mismos datos -> Reintento válido, se omite.
-                return { idempotent: true, action: 'ignored' };
-            } else {
-                // CASO B: Mismo evento + datos diferentes -> Conflicto!
-                throw new IdempotencyConflictError(`Conflicto de Idempotencia: El source_event_id ${source_event_id} ya existe con datos diferentes.`);
-            }
+            const isSame = (existing.tipo === params.tipo && existingBeforeStr === safeBeforeData && existingAfterStr === safeAfterData);
+            if (isSame) return { idempotent: true, action: 'ignored' };
+            throw new IdempotencyConflictError(`Conflicto de Idempotencia: El source_event_id ${params.source_event_id} ya existe con datos diferentes.`);
         } else {
-            // Otro tipo de error, hacemos rollback y re-lanzamos
             await client.query(`ROLLBACK TO SAVEPOINT ${savepointName}`);
             throw e;
         }
     }
+}
+
+/**
+ * Registra un evento en el historial de reubicaciones.
+ * 
+ * @param {object} client - Cliente de PG dentro de una transacción.
+ * @param {object} params - Parámetros del evento.
+ */
+async function registrarEventoHistorial(client, params) {
+    if (!params.caso_id) throw new Error('registrarEventoHistorial: caso_id es obligatorio');
+    if (!params.tipo) throw new Error('registrarEventoHistorial: tipo es obligatorio');
+    if (!params.source_event_id) throw new Error('registrarEventoHistorial: source_event_id es obligatorio');
+
+    const sanitizedBefore = sanitizarDatosHistorial(params.before_data || null);
+    const sanitizedAfter = sanitizarDatosHistorial(params.after_data || null);
     
-    return { idempotent: false, action: 'inserted' };
+    const safeBeforeData = sanitizedBefore ? JSON.stringify(sanitizedBefore) : null;
+    const safeAfterData = sanitizedAfter ? JSON.stringify(sanitizedAfter) : null;
+
+    return await _executeInsertAndHandleConflicts(client, params, safeBeforeData, safeAfterData);
 }
 
 /**
