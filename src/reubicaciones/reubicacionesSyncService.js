@@ -104,6 +104,90 @@ function checkFaltantesYMotivo(colaboradorExiste, fecha_fin, causal, tipo_noveda
     return null;
 }
 
+async function upsertCasoExistente({
+    client, ced, fecha_fin, cliente_destino, causal, estado, motivo,
+    tipo_novedad, external_id, puesto, sueldo_nomina, auxilios_calculado, casoExistente
+}) {
+    let pipeline_id;
+    let esCasoExtension = false;
+    let fecha_anterior = null;
+    let fechaNuevaEfectiva = fecha_fin;
+
+    let tipoEventoHistorial = 'sincronizacion_actualizacion';
+
+    if (casoExistente.rows.length === 0) {
+        tipoEventoHistorial = 'ficha_recibida';
+        // CA-02: Nuevo Caso
+        fechaNuevaEfectiva = fecha_fin || new Date(); // fallback para CA-06 (Con novedad)
+        const insert = await client.query(
+            `INSERT INTO reubicaciones_pipeline (cedula, fecha_fin, cliente_destino, causal, estado, motivo_novedad, tipo_ficha, ultimo_evento_id, puesto, salario, auxilios)
+             VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+            [
+                ced, 
+                fechaNuevaEfectiva, 
+                cliente_destino || null, 
+                causal || null, 
+                estado, 
+                motivo, 
+                (tipo_novedad || '').toUpperCase(),
+                external_id,
+                puesto || null,
+                sueldo_nomina || null,
+                auxilios_calculado
+            ]
+        );
+        pipeline_id = insert.rows[0].id;
+    } else {
+        // CA-04: Extensión / Corrección
+        const existing = casoExistente.rows[0];
+        pipeline_id = existing.id;
+        fecha_anterior = existing.fecha_fin;
+        
+        // Evaluamos si verdaderamente es extensión
+        esCasoExtension = (tipo_novedad === 'extension' || tipo_novedad === 'salida') && esExtension(fecha_anterior, fecha_fin);
+        
+        if (tipo_novedad === 'salida') {
+            tipoEventoHistorial = 'salida';
+        } else if (tipo_novedad === 'reubicacion') {
+            tipoEventoHistorial = 'reubicacion';
+        } else {
+            tipoEventoHistorial = esCasoExtension ? 'sincronizacion_extension' : 'ficha_actualizada';
+        }
+        fechaNuevaEfectiva = fecha_fin || fecha_anterior;
+
+        await client.query(
+            `UPDATE reubicaciones_pipeline 
+             SET fecha_fin = $1::date, 
+                 cliente_destino = COALESCE($2, cliente_destino), 
+                 causal = COALESCE($3, causal), 
+                 estado = $4, 
+                 motivo_novedad = $5, 
+                 tipo_ficha = $6,
+                 ultimo_evento_id = $7,
+                 puesto = COALESCE(puesto, $9),
+                 salario = COALESCE(salario, $10),
+                 auxilios = COALESCE(auxilios, $11),
+                 updated_at = NOW() 
+             WHERE id = $8`,
+            [
+                fechaNuevaEfectiva, 
+                cliente_destino || null, 
+                causal || null, 
+                estado, 
+                motivo, 
+                (tipo_novedad || '').toUpperCase(),
+                external_id,
+                pipeline_id,
+                puesto || null,
+                sueldo_nomina || null,
+                auxilios_calculado
+            ]
+        );
+    }
+
+    return { pipeline_id, esCasoExtension, fecha_anterior, fechaNuevaEfectiva, tipoEventoHistorial };
+}
+
 async function sincronizarConPipeline({
     cedula,
     tipo_novedad,
