@@ -1046,6 +1046,69 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
+    function applyReubicacionesFilters(d, whereParts, whereParams, assigned, role) {
+        if (role === 'gp' && assigned.length > 0) {
+            const placeholders = assigned.map((_, i) => `$${whereParams.length + 1 + i}`);
+            whereParts.push(`c.cliente IN (${placeholders.join(', ')})`);
+            whereParams.push(...assigned);
+        }
+        
+        const search = textOrNull(d.q);
+        if (search) {
+            const i = whereParams.length + 1;
+            whereParts.push(`(
+                c.cedula ILIKE '%' || $${i} || '%'
+                OR c.nombre ILIKE '%' || $${i} || '%'
+                OR COALESCE(rp.cliente_destino, '') ILIKE '%' || $${i} || '%'
+            )`);
+            whereParams.push(search);
+        }
+
+        const fd = textOrNull(d.fecha_fin_desde);
+        const fh = textOrNull(d.fecha_fin_hasta);
+        if (fd) {
+            whereParts.push(`rp.fecha_fin >= $${whereParams.length + 1}::date`);
+            whereParams.push(fd);
+        }
+        if (fh) {
+            whereParts.push(`rp.fecha_fin <= $${whereParams.length + 1}::date`);
+            whereParams.push(fh);
+        }
+
+        if (d.estado && d.estado.length > 0) {
+            const arr = Array.isArray(d.estado) ? d.estado : String(d.estado).split(',');
+            const placeholders = arr.map((_, i) => `$${whereParams.length + 1 + i}`);
+            whereParts.push(`rp.estado IN (${placeholders.join(', ')})`);
+            whereParams.push(...arr);
+        }
+
+        const tipoFicha = textOrNull(d.tipo_ficha);
+        if (tipoFicha) {
+            whereParts.push(`rp.tipo_ficha = $${whereParams.length + 1}`);
+            whereParams.push(tipoFicha);
+        }
+
+        const cliente = textOrNull(d.cliente);
+        if (cliente) {
+            whereParts.push(`lower(btrim(c.cliente)) = lower(btrim($${whereParams.length + 1}))`);
+            whereParams.push(cliente);
+        }
+
+        const gp = textOrNull(d.gp);
+        if (gp) {
+            whereParts.push(`EXISTS (
+                SELECT 1
+                FROM clientes_lideres cl
+                WHERE cl.activo = TRUE
+                  AND lower(btrim(cl.cliente)) = lower(btrim(c.cliente))
+                  AND cl.gp_user_id = $${whereParams.length + 1}::uuid
+            )`);
+            whereParams.push(gp);
+        }
+
+        whereParts.push(`rp.estado IS DISTINCT FROM 'Cerrado'`);
+    }
+
     app.get('/api/directorio/reubicaciones-pipeline', ...reubReadGuard, async (req, res) => {
         try {
             const parsed = reubicacionesPipelineListSchema.safeParse(req.query);
