@@ -518,10 +518,10 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                                     items.map((row) => (
                                         <tr key={row.id} className={`${dash.trHover} cursor-pointer`} onClick={() => openDetail(row)}>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cedula}</td>
-                                            <td className={dash.tdName}>{row.consultor || '—'}</td>
-                                            <td className={dash.tdCell}>{row.tipo_contrato || '—'}</td>
-                                            <td className={dash.tdCell}>{row.cliente_actual || '—'}</td>
-                                            <td className={dash.tdCell}>{row.cliente_destino || '—'}</td>
+                                            <td className={`${dash.tdName} whitespace-nowrap`}>{row.consultor || '—'}</td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.tipo_contrato || '—'}</td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cliente_actual || '—'}</td>
+                                            <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cliente_destino || '—'}</td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
                                                 {String(row.fecha_fin || '').slice(0, 10)}
                                             </td>
