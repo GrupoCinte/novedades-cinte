@@ -1,4 +1,4 @@
-require('dotenv').config({ override: true });
+require('dotenv').config();
 const express = require('express');
 const { logger } = require('./src/logger');
 
