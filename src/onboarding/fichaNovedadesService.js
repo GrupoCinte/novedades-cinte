@@ -1212,13 +1212,21 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             // CA-05: Si falta el cliente o la fecha, no intentamos cerrar el contrato aún.
             // Se cerrará cuando resuelvan la novedad en Reubicaciones.
             if (clienteFicha && hasFecha) {
-                await applyRegistroBajaColaborador(pool, cedula, {
-                    fecha_termino: patch.fecha_termino || normalized.fecha_termino,
-                    termino: patch.termino || normalized.termino,
-                    cliente: clienteFicha,
-                    actor,
-                    origen: origenZoho
-                });
+                try {
+                    await applyRegistroBajaColaborador(pool, cedula, {
+                        fecha_termino: patch.fecha_termino || normalized.fecha_termino,
+                        termino: patch.termino || normalized.termino,
+                        cliente: clienteFicha,
+                        actor,
+                        origen: origenZoho
+                    });
+                } catch (err) {
+                    if (err.message === 'No hay contrato vigente para ese cliente') {
+                        log.warn({ cedula, cliente: clienteFicha }, 'Salida aprobada sin contrato vigente. Continuando hacia Reubicaciones.');
+                    } else {
+                        throw err;
+                    }
+                }
             }
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
@@ -1259,22 +1267,30 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 }
                 const vigenteExt = await findVigenteByClienteLoose(pool, cedula, clienteFicha);
                 if (!vigenteExt) {
-                    throw Object.assign(new Error('No hay contrato vigente para ese cliente'), {
-                        status: 400
-                    });
+                    log.warn({ cedula, cliente: clienteFicha }, 'Extensión aprobada sin contrato vigente. Continuando hacia Reubicaciones.');
                 }
             }
-            const contract = await applyContractEvent(pool, {
-                cedula,
-                cliente: clienteNuevo || clienteActual,
-                tipoContrato: normalized.tipo_contrato || patch.tipo_contrato,
-                fechaInicio: normalized.fecha_ingreso || patch.fecha_ingreso,
-                fechaTermino: normalized.fecha_termino || patch.fecha_termino,
-                origen: origenZoho,
-                actor,
-                existed: current,
-                ...(tipo === 'extension' ? { action: 'extend' } : {})
-            });
+            let contract = {};
+            try {
+                contract = await applyContractEvent(pool, {
+                    cedula,
+                    cliente: clienteNuevo || clienteActual,
+                    tipoContrato: normalized.tipo_contrato || patch.tipo_contrato,
+                    fechaInicio: normalized.fecha_ingreso || patch.fecha_ingreso,
+                    fechaTermino: normalized.fecha_termino || patch.fecha_termino,
+                    origen: origenZoho,
+                    actor,
+                    existed: current,
+                    ...(tipo === 'extension' ? { action: 'extend' } : {})
+                });
+            } catch (err) {
+                if (err.message === 'No hay contrato vigente para ese cliente' || err.code === '23503') {
+                    log.warn({ cedula, error: err.message }, 'Ignorando error de contrato en EXTENSION. Continuando hacia Reubicaciones.');
+                } else {
+                    throw err;
+                }
+            }
+
             if (contract.action === 'new_client') {
                 delete patch.cliente;
                 delete patch.fecha_ingreso;
@@ -1342,8 +1358,17 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             delete patch.vigente_desde;
         }
 
-        if (Object.keys(patch).length > 0) {
-            await applyPatchToColaborador(cedula, patch);
+        const allowedPatch = buildPatchFromNormalized(tipo, normalized, Object.keys(patch));
+        if (Object.keys(allowedPatch).length > 0) {
+            try {
+                await applyPatchToColaborador(cedula, allowedPatch);
+            } catch (err) {
+                if (err.message === 'Colaborador no encontrado' && tipo === 'extension') {
+                    log.warn({ cedula }, 'Ignorando Colaborador no encontrado en EXTENSION. Continuando hacia Reubicaciones.');
+                } else {
+                    throw err;
+                }
+            }
         }
 
         // HU-02: Sincronizar extensiones y salidas
