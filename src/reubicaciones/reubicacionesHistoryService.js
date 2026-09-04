@@ -7,7 +7,7 @@
  */
 
 const { normalizeRoleOrNull } = require('../rbac');
-const crypto = require('crypto');
+const crypto = require('node:crypto');
 
 class IdempotencyConflictError extends Error {
     constructor(message) {
@@ -58,7 +58,7 @@ async function registrarEventoHistorial(client, params) {
     const safeAfterData = sanitizedAfter ? JSON.stringify(sanitizedAfter) : null;
 
     // SAVEPOINT para evitar abortar la transacción principal si hay conflicto de unicidad
-    const savepointName = `sp_hist_${source_event_id.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+    const savepointName = `sp_hist_${source_event_id.replace(/\W/g, '_')}`;
     await client.query(`SAVEPOINT ${savepointName}`);
 
     try {

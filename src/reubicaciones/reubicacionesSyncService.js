@@ -91,6 +91,103 @@ async function getGpUserInfo(client, cedula) {
     return { existe: true, gp_user_id, puesto, sueldo_nomina, auxilio_transporte_obligatorio, auxilios_no_prestacionales };
 }
 
+function checkFaltantesYMotivo(colaboradorExiste, fecha_fin, causal, tipo_novedad) {
+    let faltantes = [];
+    if (!fecha_fin) faltantes.push('Fecha de término');
+    if (tipo_novedad === 'salida' && !causal) faltantes.push('Causal de salida');
+    
+    if (!colaboradorExiste) {
+        return 'Colaborador no encontrado en base de datos';
+    } else if (faltantes.length > 0) {
+        return `Faltan datos obligatorios: ${faltantes.join(', ')}`;
+    }
+    return null;
+}
+
+async function upsertCasoExistente({
+    client, ced, fecha_fin, cliente_destino, causal, estado, motivo,
+    tipo_novedad, external_id, puesto, sueldo_nomina, auxilios_calculado, casoExistente
+}) {
+    let pipeline_id;
+    let esCasoExtension = false;
+    let fecha_anterior = null;
+    let fechaNuevaEfectiva = fecha_fin;
+
+    let tipoEventoHistorial;
+
+    if (casoExistente.rows.length === 0) {
+        tipoEventoHistorial = 'ficha_recibida';
+        // CA-02: Nuevo Caso
+        fechaNuevaEfectiva = fecha_fin || new Date(); // fallback para CA-06 (Con novedad)
+        const insert = await client.query(
+            `INSERT INTO reubicaciones_pipeline (cedula, fecha_fin, cliente_destino, causal, estado, motivo_novedad, tipo_ficha, ultimo_evento_id, puesto, salario, auxilios)
+             VALUES ($1, $2::date, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+            [
+                ced, 
+                fechaNuevaEfectiva, 
+                cliente_destino || null, 
+                causal || null, 
+                estado, 
+                motivo, 
+                (tipo_novedad || '').toUpperCase(),
+                external_id,
+                puesto || null,
+                sueldo_nomina || null,
+                auxilios_calculado
+            ]
+        );
+        pipeline_id = insert.rows[0].id;
+    } else {
+        // CA-04: Extensión / Corrección
+        const existing = casoExistente.rows[0];
+        pipeline_id = existing.id;
+        fecha_anterior = existing.fecha_fin;
+        
+        // Evaluamos si verdaderamente es extensión
+        esCasoExtension = (tipo_novedad === 'extension' || tipo_novedad === 'salida') && esExtension(fecha_anterior, fecha_fin);
+        
+        if (tipo_novedad === 'salida') {
+            tipoEventoHistorial = 'salida';
+        } else if (tipo_novedad === 'reubicacion') {
+            tipoEventoHistorial = 'reubicacion';
+        } else {
+            tipoEventoHistorial = esCasoExtension ? 'sincronizacion_extension' : 'ficha_actualizada';
+        }
+        fechaNuevaEfectiva = fecha_fin || fecha_anterior;
+
+        await client.query(
+            `UPDATE reubicaciones_pipeline 
+             SET fecha_fin = $1::date, 
+                 cliente_destino = COALESCE($2, cliente_destino), 
+                 causal = COALESCE($3, causal), 
+                 estado = $4, 
+                 motivo_novedad = $5, 
+                 tipo_ficha = $6,
+                 ultimo_evento_id = $7,
+                 puesto = COALESCE(puesto, $9),
+                 salario = COALESCE(salario, $10),
+                 auxilios = COALESCE(auxilios, $11),
+                 updated_at = NOW() 
+             WHERE id = $8`,
+            [
+                fechaNuevaEfectiva, 
+                cliente_destino || null, 
+                causal || null, 
+                estado, 
+                motivo, 
+                (tipo_novedad || '').toUpperCase(),
+                external_id,
+                pipeline_id,
+                puesto || null,
+                sueldo_nomina || null,
+                auxilios_calculado
+            ]
+        );
+    }
+
+    return { pipeline_id, esCasoExtension, fecha_anterior, fechaNuevaEfectiva, tipoEventoHistorial };
+}
+
 async function sincronizarConPipeline({
     cedula,
     tipo_novedad,
@@ -130,23 +227,13 @@ async function sincronizarConPipeline({
         const { existe: colaboradorExiste, gp_user_id, puesto, sueldo_nomina, auxilio_transporte_obligatorio, auxilios_no_prestacionales } = await getGpUserInfo(client, ced);
     
     // Calcular auxilios (sumando ambos si existen)
-    const aux_1 = parseFloat(auxilio_transporte_obligatorio) || 0;
-    const aux_2 = parseFloat(auxilios_no_prestacionales) || 0;
+    const aux_1 = Number.parseFloat(auxilio_transporte_obligatorio) || 0;
+    const aux_2 = Number.parseFloat(auxilios_no_prestacionales) || 0;
     const auxilios_calculado = (aux_1 + aux_2) > 0 ? (aux_1 + aux_2) : null;
 
         const { fecha_fin, cliente_destino, causal } = computeFields(normalized, patch);
         
-        // CA-06 / CA-05: Datos incompletos
-        let faltantes = [];
-        if (!fecha_fin) faltantes.push('Fecha de término');
-        if (tipo_novedad === 'salida' && !causal) faltantes.push('Causal de salida');
-        
-        let motivoNovedadForzada = null;
-        if (!colaboradorExiste) {
-            motivoNovedadForzada = 'Colaborador no encontrado en base de datos';
-        } else if (faltantes.length > 0) {
-            motivoNovedadForzada = `Faltan datos obligatorios: ${faltantes.join(', ')}`;
-        }
+        const motivoNovedadForzada = checkFaltantesYMotivo(colaboradorExiste, fecha_fin, causal, tipo_novedad);
 
         const { estado, motivo } = calcularEstado({ 
             fecha_fin, 

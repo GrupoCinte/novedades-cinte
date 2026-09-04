@@ -520,13 +520,20 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cliente_actual || '—'}</td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>{row.cliente_destino || '—'}</td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
-                                                {row.tipo_ficha
-                                                    ? <span className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${
-                                                        row.tipo_ficha === 'SALIDA'
-                                                            ? (isLight ? 'bg-red-100 text-red-800' : 'bg-red-900/40 text-red-200')
-                                                            : (isLight ? 'bg-blue-100 text-blue-800' : 'bg-blue-900/40 text-blue-200')
-                                                    }`}>{row.tipo_ficha}</span>
-                                                    : '—'}
+                                                {(() => {
+                                                    if (!row.tipo_ficha) return '—';
+                                                    let badgeClass = '';
+                                                    if (row.tipo_ficha === 'SALIDA') {
+                                                        badgeClass = isLight ? 'bg-red-100 text-red-800' : 'bg-red-900/40 text-red-200';
+                                                    } else {
+                                                        badgeClass = isLight ? 'bg-blue-100 text-blue-800' : 'bg-blue-900/40 text-blue-200';
+                                                    }
+                                                    return (
+                                                        <span className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${badgeClass}`}>
+                                                            {row.tipo_ficha}
+                                                        </span>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className={`${dash.tdCell} whitespace-nowrap`}>
                                                 {String(row.fecha_fin || '').slice(0, 10) || '—'}

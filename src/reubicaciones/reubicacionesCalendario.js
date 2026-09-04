@@ -3,7 +3,7 @@ function parseDateLocal(val) {
     const str = String(val).slice(0, 10);
     const parts = str.split('-');
     if (parts.length === 3) {
-        return new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        return new Date(Number.parseInt(parts[0], 10), Number.parseInt(parts[1], 10) - 1, Number.parseInt(parts[2], 10));
     }
     return new Date(val);
 }
