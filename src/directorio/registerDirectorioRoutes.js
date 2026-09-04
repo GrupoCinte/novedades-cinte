@@ -439,17 +439,29 @@ function registerDirectorioRoutes(deps) {
         return s ? s : null;
     }
 
-    function normalizePipelineRow(row) {
-        let fechaFin = row.fecha_fin;
-        if (fechaFin instanceof Date) fechaFin = fechaFin.toISOString().slice(0, 10);
-        else if (typeof fechaFin === 'string') fechaFin = fechaFin.slice(0, 10);
-
+    function extractMonedas(row) {
         let monedaSalario = undefined;
         let monedaAuxilios = undefined;
         if (row.montos_divisa && typeof row.montos_divisa === 'object') {
             if (row.montos_divisa.sueldo_nomina) monedaSalario = row.montos_divisa.sueldo_nomina;
             if (row.montos_divisa.otros_ingresos) monedaAuxilios = row.montos_divisa.otros_ingresos;
         }
+        return { monedaSalario, monedaAuxilios };
+    }
+
+    function extractAuxilios(row) {
+        if (row.auxilios != null) return Number(row.auxilios);
+        if (row.auxilio != null) return Number(row.auxilio);
+        return null;
+    }
+
+    function normalizePipelineRow(row) {
+        let fechaFin = row.fecha_fin;
+        if (fechaFin instanceof Date) fechaFin = fechaFin.toISOString().slice(0, 10);
+        else if (typeof fechaFin === 'string') fechaFin = fechaFin.slice(0, 10);
+
+        const { monedaSalario, monedaAuxilios } = extractMonedas(row);
+        const auxiliosVal = extractAuxilios(row);
 
         return {
             id: row.id,
@@ -463,8 +475,8 @@ function registerDirectorioRoutes(deps) {
             puesto: row.puesto,
             salario: row.salario != null ? Number(row.salario) : null,
             moneda_salario: monedaSalario,
-            auxilios: row.auxilios != null ? Number(row.auxilios) : row.auxilio != null ? Number(row.auxilio) : null,
-            auxilio: row.auxilios != null ? Number(row.auxilios) : row.auxilio != null ? Number(row.auxilio) : null,
+            auxilios: auxiliosVal,
+            auxilio: auxiliosVal,
             moneda_auxilios: monedaAuxilios,
             tipo_ficha: row.tipo_ficha,
             tarifa_cliente: row.tarifa_cliente != null ? Number(row.tarifa_cliente) : null,
@@ -1068,84 +1080,19 @@ function registerDirectorioRoutes(deps) {
             const whereParams = [];
 
             const role = normalizeRoleOrNull(req.user?.role);
+            const assigned = [];
             if (role === 'gp') {
                 const gpEmail = String(req.user?.email || '').trim().toLowerCase();
                 const gpUserId = parseUuidActor(req.user?.sub);
                 const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
-                const assigned = await listAssignedClientesForGpUserId(gpId);
-                if (assigned.length === 0) {
+                const gpAssigned = await listAssignedClientesForGpUserId(gpId);
+                if (gpAssigned.length === 0) {
                     return res.json({ ok: true, items: [], total: 0, limit, offset });
                 }
-                const placeholders = assigned.map((_, i) => `$${whereParams.length + 1 + i}`);
-                whereParts.push(`c.cliente IN (${placeholders.join(', ')})`);
-                whereParams.push(...assigned);
+                assigned.push(...gpAssigned);
             }
 
-            const search = textOrNull(d.q);
-            if (search) {
-                const i = whereParams.length + 1;
-                whereParts.push(`(
-                    c.cedula ILIKE '%' || $${i} || '%'
-                    OR c.nombre ILIKE '%' || $${i} || '%'
-                    OR COALESCE(rp.cliente_destino, '') ILIKE '%' || $${i} || '%'
-                    OR COALESCE(rp.causal, '') ILIKE '%' || $${i} || '%'
-                )`);
-                whereParams.push(search);
-            }
-
-            const fd = textOrNull(d.fecha_fin_desde);
-            const fh = textOrNull(d.fecha_fin_hasta);
-            if (fd) {
-                whereParts.push(`rp.fecha_fin >= $${whereParams.length + 1}::date`);
-                whereParams.push(fd);
-            }
-            if (fh) {
-                whereParts.push(`rp.fecha_fin <= $${whereParams.length + 1}::date`);
-                whereParams.push(fh);
-            }
-            if (d.estado && d.estado.length > 0) {
-                const estadoConds = [];
-                if (d.estado.includes('Con novedad')) {
-                    estadoConds.push(`COALESCE(rp.motivo_novedad, '') <> ''`);
-                }
-                if (d.estado.includes('Pendiente')) {
-                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin > (timezone('America/Bogota', now()))::date)`);
-                }
-                if (d.estado.includes('En proceso')) {
-                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin <= (timezone('America/Bogota', now()))::date)`);
-                }
-                if (estadoConds.length) {
-                    whereParts.push(`(${estadoConds.join(' OR ')})`);
-                }
-            }
-
-            appendAptitudFilter(whereParts, whereParams, d.apto_no_apto);
-
-            const tipoFicha = textOrNull(d.tipo_ficha);
-            if (tipoFicha) {
-                whereParts.push(`rp.tipo_ficha = $${whereParams.length + 1}`);
-                whereParams.push(tipoFicha);
-            }
-
-            const cliente = textOrNull(d.cliente);
-            if (cliente) {
-                whereParts.push(`lower(btrim(c.cliente)) = lower(btrim($${whereParams.length + 1}))`);
-                whereParams.push(cliente);
-            }
-
-            const gp = textOrNull(d.gp);
-            if (gp) {
-                whereParts.push(`EXISTS (
-                    SELECT 1
-                    FROM clientes_lideres cl
-                    WHERE cl.activo = TRUE
-                      AND lower(btrim(cl.cliente)) = lower(btrim(c.cliente))
-                      AND cl.gp_user_id = $${whereParams.length + 1}::uuid
-                )`);
-                whereParams.push(gp);
-            }
-
-            whereParts.push(`rp.estado IS DISTINCT FROM 'Cerrado'`);
+            applyReubicacionesFilters(d, whereParts, whereParams, assigned, role);
 
             const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
@@ -1357,6 +1304,54 @@ function registerDirectorioRoutes(deps) {
         }
     });
 
+    function preparePipelinePatchQuery(d, current, n = 1) {
+        const sets = [];
+        const vals = [];
+        
+        const beforeData = {
+            fecha_fin: current.fecha_fin,
+            cliente_destino: current.cliente_destino,
+            causal: current.causal,
+            estado: current.estado
+        };
+        const afterData = { ...beforeData };
+
+        if (d.fecha_fin !== undefined) {
+            sets.push(`fecha_fin = $${n}::date`);
+            vals.push(d.fecha_fin);
+            afterData.fecha_fin = d.fecha_fin;
+            n += 1;
+        }
+        if (d.cliente_destino !== undefined) {
+            sets.push(`cliente_destino = $${n}`);
+            vals.push(textOrNull(d.cliente_destino));
+            afterData.cliente_destino = textOrNull(d.cliente_destino);
+            n += 1;
+        }
+        if (d.causal !== undefined) {
+            sets.push(`causal = $${n}`);
+            vals.push(textOrNull(d.causal));
+            afterData.causal = textOrNull(d.causal);
+            n += 1;
+        }
+        
+        const fechaFinEfectiva = d.fecha_fin !== undefined ? d.fecha_fin : current.fecha_fin;
+        const causalEfectiva = d.causal !== undefined ? textOrNull(d.causal) : current.causal;
+        const esSalida = String(current.tipo_ficha || '').toUpperCase() === 'SALIDA';
+        const motivoEsDatosFaltantes = String(current.motivo_novedad || '').startsWith('Faltan datos obligatorios:');
+        
+        if (motivoEsDatosFaltantes && fechaFinEfectiva && (!esSalida || causalEfectiva)) {
+            const estadoRecalculado = calcularEstado({ fecha_fin: fechaFinEfectiva }).estado;
+            sets.push('motivo_novedad = NULL');
+            sets.push(`estado = $${n}`);
+            vals.push(estadoRecalculado);
+            afterData.estado = estadoRecalculado;
+            n += 1;
+        }
+
+        return { sets, vals, beforeData, afterData, nextIndex: n };
+    }
+
     app.patch('/api/directorio/reubicaciones-pipeline/:id', ...reubWriteGuard, async (req, res) => {
         const { registrarEventoHistorial } = require('../reubicaciones/reubicacionesHistoryService');
         let client;
@@ -1394,49 +1389,9 @@ function registerDirectorioRoutes(deps) {
             }
             const d = parsed.data;
             const current = q.rows[0];
-            const sets = [];
-            const vals = [];
-            let n = 1;
-            
-            const beforeData = {
-                fecha_fin: current.fecha_fin,
-                cliente_destino: current.cliente_destino,
-                causal: current.causal,
-                estado: current.estado
-            };
-            const afterData = { ...beforeData };
 
-            if (d.fecha_fin !== undefined) {
-                sets.push(`fecha_fin = $${n}::date`);
-                vals.push(d.fecha_fin);
-                afterData.fecha_fin = d.fecha_fin;
-                n += 1;
-            }
-            if (d.cliente_destino !== undefined) {
-                sets.push(`cliente_destino = $${n}`);
-                vals.push(textOrNull(d.cliente_destino));
-                afterData.cliente_destino = textOrNull(d.cliente_destino);
-                n += 1;
-            }
-            if (d.causal !== undefined) {
-                sets.push(`causal = $${n}`);
-                vals.push(textOrNull(d.causal));
-                afterData.causal = textOrNull(d.causal);
-                n += 1;
-            }
-            const fechaFinEfectiva = d.fecha_fin !== undefined ? d.fecha_fin : current.fecha_fin;
-            const causalEfectiva = d.causal !== undefined ? textOrNull(d.causal) : current.causal;
-            const esSalida = String(current.tipo_ficha || '').toUpperCase() === 'SALIDA';
-            const motivoEsDatosFaltantes = String(current.motivo_novedad || '').startsWith('Faltan datos obligatorios:');
-            
-            if (motivoEsDatosFaltantes && fechaFinEfectiva && (!esSalida || causalEfectiva)) {
-                const estadoRecalculado = calcularEstado({ fecha_fin: fechaFinEfectiva }).estado;
-                sets.push('motivo_novedad = NULL');
-                sets.push(`estado = $${n}`);
-                vals.push(estadoRecalculado);
-                afterData.estado = estadoRecalculado;
-                n += 1;
-            }
+            const { sets, vals, beforeData, afterData, nextIndex } = preparePipelinePatchQuery(d, current, 1);
+            let n = nextIndex;
             
             if (sets.length === 0) {
                 await client.query('ROLLBACK');
@@ -1644,71 +1599,19 @@ function registerDirectorioRoutes(deps) {
 
             // CA-07: Verificación GP (global)
             const role = normalizeRoleOrNull(req.user?.role);
+            const assigned = [];
             if (role === 'gp') {
                 const gpEmail = String(req.user?.email || '').trim().toLowerCase();
                 const gpUserId = parseUuidActor(req.user?.sub);
                 const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
-                const assigned = await listAssignedClientesForGpUserId(gpId);
-                if (assigned.length === 0) {
+                const gpAssigned = await listAssignedClientesForGpUserId(gpId);
+                if (gpAssigned.length === 0) {
                     return res.json({ ok: true, data: { historial: [], next_cursor: null } });
                 }
-                const placeholders = assigned.map((_, i) => `$${params.length + 1 + i}`);
-                whereParts.push(`c.cliente IN (${placeholders.join(', ')})`);
-                params.push(...assigned);
+                assigned.push(...gpAssigned);
             }
 
-            const search = textOrNull(req.query.q);
-            if (search) {
-                const i = params.length + 1;
-                whereParts.push(`(
-                    c.cedula ILIKE '%' || $${i} || '%'
-                    OR c.nombre ILIKE '%' || $${i} || '%'
-                )`);
-                params.push(search);
-            }
-
-            const fd = textOrNull(req.query.fecha_fin_desde);
-            const fh = textOrNull(req.query.fecha_fin_hasta);
-            if (fd) {
-                whereParts.push(`rh.fecha >= ${params.length + 1}::timestamptz`);
-                params.push(fd + 'T00:00:00-05:00');
-            }
-            if (fh) {
-                whereParts.push(`rh.fecha <= ${params.length + 1}::timestamptz`);
-                params.push(fh + 'T23:59:59.999-05:00');
-            }
-            
-            if (req.query.estado) {
-                const arr = String(req.query.estado).split(',');
-                const estadoConds = [];
-                if (arr.includes('Con novedad')) {
-                    estadoConds.push(`COALESCE(rp.motivo_novedad, '') <> ''`);
-                }
-                if (arr.includes('Pendiente')) {
-                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin > (timezone('America/Bogota', now()))::date)`);
-                }
-                if (arr.includes('En proceso')) {
-                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin <= (timezone('America/Bogota', now()))::date)`);
-                }
-                if (estadoConds.length) {
-                    whereParts.push(`(${estadoConds.join(' OR ')})`);
-                }
-            }
-
-            appendAptitudFilter(whereParts, params, req.query.apto_no_apto);
-
-            if (req.query.tipo) {
-                const arr = String(req.query.tipo).split(',');
-                const placeholders = arr.map((_, i) => `$${params.length + 1 + i}`);
-                whereParts.push(`rh.tipo IN (${placeholders.join(', ')})`);
-                params.push(...arr);
-            }
-
-            if (req.query.actor) {
-                const i = params.length + 1;
-                whereParts.push(`rh.actor_nombre ILIKE '%' || $${i} || '%'`);
-                params.push(req.query.actor);
-            }
+            applyReubicacionesHistorialFilters(req.query, whereParts, params, assigned, role);
 
             if (cursorFecha && cursorId) {
                 const i = params.length + 1;

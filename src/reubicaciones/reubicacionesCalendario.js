@@ -47,7 +47,11 @@ function diasHabilesTranscurridos(fechaFin, fechaActual, festivosSet) {
     // El conteo inicia desde el día siguiente a fechaFin
     const firstDay = new Date(start);
     firstDay.setDate(firstDay.getDate() + 1);
-    for (const current = firstDay; current <= end; current.setDate(current.getDate() + 1)) {
+    
+    let current = new Date(firstDay);
+    const endMs = end.getTime();
+    
+    while (current.getTime() <= endMs) {
         const dia = current.getDay(); // 0=domingo, 6=sábado
         const ymd = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`;
 
@@ -56,6 +60,7 @@ function diasHabilesTranscurridos(fechaFin, fechaActual, festivosSet) {
             count++;
         }
         
+        current.setDate(current.getDate() + 1);
     }
 
     return count;
