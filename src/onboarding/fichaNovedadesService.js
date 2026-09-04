@@ -234,11 +234,13 @@ function buildDiff(currentRow, proposed, opts = {}) { // nosonar
     return diff;
 }
 
-function buildPatchFromNormalized(tipoNovedad, normalized) {
+function buildPatchFromNormalized(tipoNovedad, normalized, allowedKeys = null) {
     const whitelist = getAllowedFieldsForTipo(tipoNovedad);
     const patch = {};
+    const keys = allowedKeys ? new Set(allowedKeys) : null;
     for (const [key, val] of Object.entries(normalized || {})) {
         if (key.startsWith('_')) continue;
+        if (keys && !keys.has(key)) continue;
         if (val === undefined || val === null || val === '') continue;
         if (whitelist && !whitelist.includes(key)) continue;
         patch[key] = val;
