@@ -1456,18 +1456,17 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             delete patch.vigente_desde;
         }
 
-        const allowedPatch = buildPatchFromNormalized(tipo, normalized, Object.keys(patch));
-        if (Object.keys(allowedPatch).length > 0) {
+        if (Object.keys(patch).length > 0) {
             const beforePatch = await loadColaboradorFullSafe(pool, cedula, current);
             try {
-                await applyPatchToColaborador(cedula, allowedPatch);
+                await applyPatchToColaborador(cedula, patch);
                 await recordFichaDiff(pool, {
                     cedula,
                     before: beforePatch || current || {},
-                    after: { ...(beforePatch || current || {}), ...allowedPatch },
+                    after: { ...(beforePatch || current || {}), ...patch },
                     actor,
                     origen: origenZoho,
-                    onlyKeys: Object.keys(allowedPatch)
+                    onlyKeys: Object.keys(patch)
                 });
             } catch (err) {
                 if (err.message === 'Colaborador no encontrado' && tipo === 'extension') {
