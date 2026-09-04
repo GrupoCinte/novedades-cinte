@@ -590,15 +590,31 @@ CREATE TABLE IF NOT EXISTS reubicaciones_decisiones (
 
 CREATE TABLE IF NOT EXISTS reubicaciones_historial (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    caso_id UUID NOT NULL REFERENCES reubicaciones_pipeline(id) ON DELETE CASCADE,
+    caso_id UUID NOT NULL,
     consultor_id TEXT REFERENCES colaboradores(cedula) ON DELETE SET NULL,
     tipo TEXT NOT NULL,
-    actor_nombre TEXT,
-    actor_rol TEXT,
-    descripcion TEXT,
+    actor_nombre TEXT NOT NULL,
+    actor_rol TEXT NOT NULL,
+    descripcion TEXT NOT NULL,
     before_data JSONB,
     after_data JSONB,
-    origen TEXT,
-    source_event_id TEXT,
-    fecha TIMESTAMPTZ DEFAULT NOW()
+    origen TEXT NOT NULL,
+    source_event_id TEXT NOT NULL,
+    fecha TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT uq_reub_hist_source_event UNIQUE (caso_id, source_event_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_reub_historial_caso ON reubicaciones_historial(caso_id, fecha DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_reub_historial_consultor ON reubicaciones_historial(consultor_id);
+
+CREATE OR REPLACE FUNCTION prevent_update_delete_reub_historial()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'reubicaciones_historial es una tabla append-only. No se permiten UPDATE ni DELETE.';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_reub_hist_append_only ON reubicaciones_historial;
+CREATE TRIGGER trg_reub_hist_append_only
+BEFORE UPDATE OR DELETE ON reubicaciones_historial
+FOR EACH ROW EXECUTE FUNCTION prevent_update_delete_reub_historial();

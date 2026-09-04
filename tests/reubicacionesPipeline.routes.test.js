@@ -83,6 +83,12 @@ function buildPoolListNoSearch() {
                 return { rows: [] };
             }
             return { rows: [] };
+        },
+        connect: async function () {
+            return {
+                query: this.query,
+                release: () => {}
+            };
         }
     };
 }

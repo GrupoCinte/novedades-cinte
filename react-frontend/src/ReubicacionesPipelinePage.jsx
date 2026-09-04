@@ -12,6 +12,7 @@ import { nativeCalendarOnlyInputProps } from './nativeCalendarOnlyInputProps.js'
 import { currencyNarrowSymbol, formatMoneyAmountOnly } from './multiCurrencyMoney.js';
 import { canEditReubicaciones } from './reubicacionesAccess.js';
 import { ReubicacionesDetalleModal } from './ReubicacionesDetalleModal.jsx';
+import ReubicacionesHistorialGlobal from './ReubicacionesHistorialGlobal.jsx';
 
 function readCookie(name) {
     const raw = typeof document !== 'undefined' ? String(document.cookie || '') : '';
@@ -147,6 +148,16 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
     const [fechaFinDesde, setFechaFinDesde] = useState('');
     const [fechaFinHasta, setFechaFinHasta] = useState('');
     const [estadoFiltro, setEstadoFiltro] = useState('');
+    const [viewMode, setViewMode] = useState('reubicados');
+    const [aptoFiltro, setAptoFiltro] = useState('');
+    const [tipoEventoFiltro, setTipoEventoFiltro] = useState('');
+    const [actorFiltro, setActorFiltro] = useState('');
+    const [appliedFechaFinDesde, setAppliedFechaFinDesde] = useState('');
+    const [appliedFechaFinHasta, setAppliedFechaFinHasta] = useState('');
+    const [appliedEstadoFiltro, setAppliedEstadoFiltro] = useState('');
+    const [appliedAptoFiltro, setAppliedAptoFiltro] = useState('');
+    const [appliedTipoEventoFiltro, setAppliedTipoEventoFiltro] = useState('');
+    const [appliedActorFiltro, setAppliedActorFiltro] = useState('');
 
     const [sort, setSort] = useState({ key: null, dir: 'asc' });
 
@@ -211,9 +222,12 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                 fechaFinDesde,
                 fechaFinHasta,
                 estado: estadoFiltro,
+                aptoNoApto: aptoFiltro,
+                tipoEvento: tipoEventoFiltro,
+                actor: actorFiltro,
                 pageSize
             }),
-        [appliedQ, fechaFinDesde, fechaFinHasta, estadoFiltro, pageSize]
+        [appliedQ, fechaFinDesde, fechaFinHasta, estadoFiltro, aptoFiltro, tipoEventoFiltro, actorFiltro, pageSize]
     );
 
     const clearFilters = useCallback(() => {
@@ -222,15 +236,30 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         setFechaFinDesde(REUBICACIONES_FILTER_DEFAULTS.fechaFinDesde);
         setFechaFinHasta(REUBICACIONES_FILTER_DEFAULTS.fechaFinHasta);
         setEstadoFiltro(REUBICACIONES_FILTER_DEFAULTS.estado);
+        setAppliedFechaFinDesde(REUBICACIONES_FILTER_DEFAULTS.fechaFinDesde);
+        setAppliedFechaFinHasta(REUBICACIONES_FILTER_DEFAULTS.fechaFinHasta);
+        setAppliedEstadoFiltro(REUBICACIONES_FILTER_DEFAULTS.estado);
+        setAptoFiltro('');
+        setAppliedAptoFiltro('');
+        setTipoEventoFiltro('');
+        setAppliedTipoEventoFiltro('');
+        setActorFiltro('');
+        setAppliedActorFiltro('');
         setPageSize(REUBICACIONES_FILTER_DEFAULTS.pageSize);
         setPage(1);
     }, []);
 
     const applyDrawerFilters = useCallback(() => {
         setAppliedQ(q);
+        setAppliedFechaFinDesde(fechaFinDesde);
+        setAppliedFechaFinHasta(fechaFinHasta);
+        setAppliedEstadoFiltro(estadoFiltro);
+        setAppliedAptoFiltro(aptoFiltro);
+        setAppliedTipoEventoFiltro(tipoEventoFiltro);
+        setAppliedActorFiltro(actorFiltro);
         setPage(1);
         setFiltersPanelOpen(false);
-    }, [q]);
+    }, [q, fechaFinDesde, fechaFinHasta, estadoFiltro, aptoFiltro, tipoEventoFiltro, actorFiltro]);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -241,9 +270,10 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
             });
             const qq = String(appliedQ || '').trim();
             if (qq) u.set('q', qq);
-            if (fechaFinDesde) u.set('fecha_fin_desde', fechaFinDesde);
-            if (fechaFinHasta) u.set('fecha_fin_hasta', fechaFinHasta);
-            if (estadoFiltro) u.set('estado', estadoFiltro);
+            if (appliedFechaFinDesde) u.set('fecha_fin_desde', appliedFechaFinDesde);
+            if (appliedFechaFinHasta) u.set('fecha_fin_hasta', appliedFechaFinHasta);
+            if (appliedEstadoFiltro) u.set('estado', appliedEstadoFiltro);
+            if (appliedAptoFiltro) u.set('apto_no_apto', appliedAptoFiltro);
             if (sort.key) {
                 u.set('sort', sort.key);
                 u.set('dir', sort.dir);
@@ -263,10 +293,10 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         } finally {
             setLoading(false);
         }
-    }, [token, pageSize, offset, appliedQ, fechaFinDesde, fechaFinHasta, estadoFiltro, sort]);
+    }, [token, pageSize, offset, appliedQ, appliedFechaFinDesde, appliedFechaFinHasta, appliedEstadoFiltro, sort, viewMode]);
 
     useEffect(() => {
-        load();
+        if (viewMode === 'reubicados') load();
     }, [load]);
 
     /** Aplicar filtros enviados desde el dashboard (u otro módulo) al cambiar `seq`. */
@@ -285,6 +315,9 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
         setFechaFinDesde(navIntent?.fechaFinDesde != null ? String(navIntent.fechaFinDesde) : '');
         setFechaFinHasta(navIntent?.fechaFinHasta != null ? String(navIntent.fechaFinHasta) : '');
         setEstadoFiltro(navIntent?.estado != null ? String(navIntent.estado) : '');
+        setAppliedFechaFinDesde(navIntent?.fechaFinDesde != null ? String(navIntent.fechaFinDesde) : '');
+        setAppliedFechaFinHasta(navIntent?.fechaFinHasta != null ? String(navIntent.fechaFinHasta) : '');
+        setAppliedEstadoFiltro(navIntent?.estado != null ? String(navIntent.estado) : '');
         setPage(1);
     }, [navIntent?.seq]);
 
@@ -418,9 +451,39 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                 panelId="reubicaciones-filtros-panel"
                 dash={dash}
             >
-
+                <div className="flex items-center gap-1 rounded-md border border-slate-200 p-1 dark:border-slate-700">
+                    <button
+                        type="button"
+                        onClick={() => { setViewMode('reubicados'); setPage(1); }}
+                        className={`rounded px-3 py-1.5 text-xs font-semibold ${viewMode === 'reubicados' ? 'bg-[#2F7BB8] text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                    >
+                        Reubicados
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => { setViewMode('historico'); setPage(1); }}
+                        className={`rounded px-3 py-1.5 text-xs font-semibold ${viewMode === 'historico' ? 'bg-[#2F7BB8] text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+                    >
+                        Histórico
+                    </button>
+                </div>
             </ModuleFiltersToolbar>
 
+            {viewMode === 'historico' ? (
+                <div className={`${dash.cardFlex} min-h-0 flex-1`}>
+                    <ReubicacionesHistorialGlobal
+                        token={token}
+                        auth={auth}
+                        searchQuery={appliedQ}
+                        filterApto={appliedAptoFiltro}
+                        estadoFiltro={appliedEstadoFiltro}
+                        fechaFinDesde={appliedFechaFinDesde}
+                        fechaFinHasta={appliedFechaFinHasta}
+                        tipoEvento={appliedTipoEventoFiltro}
+                        actor={appliedActorFiltro}
+                    />
+                </div>
+            ) : (
             <div className={`${dash.cardFlex} min-h-0 flex-1`}>
                 <div className={dash.tableWrap}>
                     <div className="min-h-0 flex-1 overflow-x-auto overflow-y-auto">
@@ -504,6 +567,7 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                     ) : null}
                 </div>
             </div>
+            )}
 
             <ModuleFiltersDrawer
                 open={filtersPanelOpen}
@@ -570,6 +634,60 @@ function ReubicacionesPipelinePageInner({ token, auth, navIntent }) { // nosonar
                         ))}
                     </select>
                 </div>
+                <div className="flex flex-col gap-1.5">
+                    <label htmlFor="reubicaciones-drawer-apto" className={dash.filtrosDrawerLabel}>
+                        Decisión
+                    </label>
+                    <select
+                        id="reubicaciones-drawer-apto"
+                        className={`${field} w-full text-sm`}
+                        value={aptoFiltro}
+                        onChange={(e) => setAptoFiltro(e.target.value)}
+                    >
+                        <option value="">Todas</option>
+                        <option value="APTO">APTO</option>
+                        <option value="NO_APTO">NO APTO</option>
+                        <option value="SIN_DECISION">SIN DECISIÓN</option>
+                    </select>
+                </div>
+                {viewMode === 'historico' ? (
+                    <>
+                        <div className="flex flex-col gap-1.5">
+                            <label htmlFor="reubicaciones-drawer-tipo-evento" className={dash.filtrosDrawerLabel}>
+                                Tipo de evento
+                            </label>
+                            <select
+                                id="reubicaciones-drawer-tipo-evento"
+                                className={`${field} w-full text-sm`}
+                                value={tipoEventoFiltro}
+                                onChange={(e) => setTipoEventoFiltro(e.target.value)}
+                            >
+                                <option value="">Todos</option>
+                                <option value="ficha_recibida">Ficha recibida</option>
+                                <option value="ficha_actualizada">Ficha actualizada</option>
+                                <option value="cambio_estado">Cambio de estado</option>
+                                <option value="modificacion_manual">Edición manual</option>
+                                <option value="observacion_agregada">Observación</option>
+                                <option value="decision_agregada">Decisión</option>
+                                <option value="reubicacion">Reubicación</option>
+                                <option value="salida">Salida</option>
+                                <option value="transicion_automatica">Transición automática</option>
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                            <label htmlFor="reubicaciones-drawer-actor" className={dash.filtrosDrawerLabel}>
+                                Actor
+                            </label>
+                            <input
+                                id="reubicaciones-drawer-actor"
+                                className={`${field} w-full text-sm`}
+                                value={actorFiltro}
+                                onChange={(e) => setActorFiltro(e.target.value)}
+                                placeholder="Nombre del actor"
+                            />
+                        </div>
+                    </>
+                ) : null}
                 <div className="flex flex-col gap-1.5">
                     <label htmlFor="reubicaciones-drawer-pagesize" className={dash.filtrosDrawerLabel}>
                         Mostrar por página

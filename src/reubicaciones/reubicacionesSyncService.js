@@ -1,5 +1,6 @@
 const { normalizeCedula } = require('../utils');
 const { calcularEstado } = require('./reubicacionesEstados');
+const { registrarEventoHistorial } = require('./reubicacionesHistoryService');
 
 function computeFields(normalized, patch) {
     const fecha_fin = normalized?.fecha_termino || patch?.fecha_termino;
@@ -158,7 +159,10 @@ async function sincronizarConPipeline({
         let fecha_anterior = null;
         let fechaNuevaEfectiva = fecha_fin;
 
+        let tipoEventoHistorial = 'sincronizacion_actualizacion';
+
         if (casoExistente.rows.length === 0) {
+            tipoEventoHistorial = 'ficha_recibida';
             // CA-02: Nuevo Caso
             fechaNuevaEfectiva = fecha_fin || new Date(); // fallback para CA-06 (Con novedad)
             const insert = await client.query(
@@ -184,6 +188,14 @@ async function sincronizarConPipeline({
             
             // Evaluamos si verdaderamente es extensión
             esCasoExtension = (tipo_novedad === 'extension' || tipo_novedad === 'salida') && esExtension(fecha_anterior, fecha_fin);
+            
+            if (tipo_novedad === 'salida') {
+                tipoEventoHistorial = 'salida';
+            } else if (tipo_novedad === 'reubicacion') {
+                tipoEventoHistorial = 'reubicacion';
+            } else {
+                tipoEventoHistorial = esCasoExtension ? 'sincronizacion_extension' : 'ficha_actualizada';
+            }
             fechaNuevaEfectiva = fecha_fin || fecha_anterior;
 
             await client.query(
@@ -222,6 +234,20 @@ async function sincronizarConPipeline({
                 fechaNuevaEfectiva
             ]
         );
+
+        // HU-06 "historial integral": Registrar el evento detallado y seguro
+        await registrarEventoHistorial(client, {
+            caso_id: pipeline_id,
+            consultor_id: ced,
+            tipo: tipoEventoHistorial,
+            actor_nombre: 'Sistema Integración',
+            actor_rol: 'sistema',
+            origen: 'ZOHO',
+            descripcion: `Sincronización automática de evento ${tipo_novedad || 'nuevo'} desde Zoho`,
+            before_data: casoExistente.rows.length ? casoExistente.rows[0] : null,
+            after_data: { fecha_fin: fechaNuevaEfectiva, estado, motivo, tipo_ficha: tipo_novedad, causal: causal || null, cliente_destino: cliente_destino || null },
+            source_event_id: external_id
+        });
 
         if (staging_id) {
             await client.query(`UPDATE ficha_novedades_staging SET sincronizado_pipeline = TRUE WHERE id = $1::uuid`, [staging_id]);

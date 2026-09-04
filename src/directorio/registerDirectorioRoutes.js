@@ -65,6 +65,17 @@ function parseUuidActor(sub) {
     return null;
 }
 
+function appendAptitudFilter(whereParts, params, decision, pipelineAlias = 'rp') {
+    const normalized = String(decision || '').toUpperCase();
+    if (normalized === 'APTO' || normalized === 'NO_APTO') {
+        const index = params.length + 1;
+        whereParts.push(`EXISTS (SELECT 1 FROM reubicaciones_decisiones rd WHERE rd.pipeline_id = ${pipelineAlias}.id AND rd.decision = $${index})`);
+        params.push(normalized);
+    } else if (normalized === 'SIN_DECISION') {
+        whereParts.push(`NOT EXISTS (SELECT 1 FROM reubicaciones_decisiones rd WHERE rd.pipeline_id = ${pipelineAlias}.id)`);
+    }
+}
+
 async function assertColaboradorCatalogPair(getLideresByCliente, cliente, lider) {
     const c = normalizeCatalogValue(cliente);
     const l = normalizeCatalogValue(lider);
@@ -382,6 +393,7 @@ function registerDirectorioRoutes(deps) {
         offset: z.coerce.number().int().min(0).optional(),
         fecha_fin_desde: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
         fecha_fin_hasta: z.preprocess((v) => (v === '' || v == null ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()),
+        apto_no_apto: z.enum(['APTO', 'NO_APTO', 'SIN_DECISION']).optional(),
         estado: z.preprocess((val) => {
             if (val == null || val === '') return undefined;
             const arr = Array.isArray(val) ? val : String(val).split(',');
@@ -502,12 +514,14 @@ function registerDirectorioRoutes(deps) {
             pool.query(
                 `SELECT COUNT(*)::int AS total
                  FROM reubicaciones_pipeline rp
-                 INNER JOIN colaboradores c ON c.cedula = rp.cedula`
+                 INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 WHERE rp.estado IS DISTINCT FROM 'Cerrado'`
             ),
             pool.query(
                 `SELECT ${semaforoSql} AS semaforo, COUNT(*)::int AS n
                  FROM reubicaciones_pipeline rp
                  INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                 WHERE rp.estado IS DISTINCT FROM 'Cerrado'
                  GROUP BY 1`
             ),
             pool.query(
@@ -524,7 +538,7 @@ function registerDirectorioRoutes(deps) {
                 `SELECT to_char(rp.fecha_fin, 'YYYY-MM') AS month, COUNT(*)::int AS count
                  FROM reubicaciones_pipeline rp
                  INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                 WHERE rp.fecha_fin IS NOT NULL
+                 WHERE rp.fecha_fin IS NOT NULL AND rp.estado IS DISTINCT FROM 'Cerrado'
                  GROUP BY 1 ORDER BY 1`
             ),
             pool.query(
@@ -1099,6 +1113,10 @@ function registerDirectorioRoutes(deps) {
                 }
             }
 
+            appendAptitudFilter(whereParts, whereParams, d.apto_no_apto);
+
+            whereParts.push(`rp.estado IS DISTINCT FROM 'Cerrado'`);
+
             const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
             const dir = d.dir === 'desc' ? 'DESC' : 'ASC';
@@ -1268,62 +1286,136 @@ function registerDirectorioRoutes(deps) {
     });
 
     app.patch('/api/directorio/reubicaciones-pipeline/:id', ...reubWriteGuard, async (req, res) => {
+        const { registrarEventoHistorial } = require('../reubicaciones/reubicacionesHistoryService');
+        let client;
         try {
             const id = String(req.params.id || '').trim();
             if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
                 return res.status(400).json({ ok: false, error: 'Id inválido' });
             }
-            const q = await pool.query(
-                `SELECT c.cliente, rp.fecha_fin, rp.causal, rp.tipo_ficha, rp.motivo_novedad
+            
+            client = await pool.connect();
+            await client.query('BEGIN');
+
+            const q = await client.query(
+                `SELECT c.cliente, rp.fecha_fin, rp.causal, rp.tipo_ficha, rp.motivo_novedad, rp.estado, rp.cliente_destino, rp.cedula
                  FROM reubicaciones_pipeline rp
                  INNER JOIN colaboradores c ON c.cedula = rp.cedula
-                 WHERE rp.id = $1::uuid`,
+                 WHERE rp.id = $1::uuid FOR UPDATE`,
                 [id]
             );
-            if (!q.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
-            await assertGpClienteAsignado(req, q.rows[0].cliente);
+            if (!q.rows.length) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+            }
+            try {
+                await assertGpClienteAsignado(req, q.rows[0].cliente);
+            } catch (e) {
+                await client.query('ROLLBACK');
+                throw e;
+            }
 
             const parsed = reubicacionesPipelinePatchSchema.safeParse(req.body || {});
-            if (!parsed.success) return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            if (!parsed.success) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ ok: false, error: 'Datos inválidos' });
+            }
             const d = parsed.data;
             const current = q.rows[0];
             const sets = [];
             const vals = [];
             let n = 1;
+            
+            const beforeData = {
+                fecha_fin: current.fecha_fin,
+                cliente_destino: current.cliente_destino,
+                causal: current.causal,
+                estado: current.estado
+            };
+            const afterData = { ...beforeData };
+
             if (d.fecha_fin !== undefined) {
                 sets.push(`fecha_fin = $${n}::date`);
                 vals.push(d.fecha_fin);
+                afterData.fecha_fin = d.fecha_fin;
                 n += 1;
             }
             if (d.cliente_destino !== undefined) {
                 sets.push(`cliente_destino = $${n}`);
                 vals.push(textOrNull(d.cliente_destino));
+                afterData.cliente_destino = textOrNull(d.cliente_destino);
                 n += 1;
             }
             if (d.causal !== undefined) {
                 sets.push(`causal = $${n}`);
                 vals.push(textOrNull(d.causal));
+                afterData.causal = textOrNull(d.causal);
                 n += 1;
             }
             const fechaFinEfectiva = d.fecha_fin !== undefined ? d.fecha_fin : current.fecha_fin;
             const causalEfectiva = d.causal !== undefined ? textOrNull(d.causal) : current.causal;
             const esSalida = String(current.tipo_ficha || '').toUpperCase() === 'SALIDA';
             const motivoEsDatosFaltantes = String(current.motivo_novedad || '').startsWith('Faltan datos obligatorios:');
+            
             if (motivoEsDatosFaltantes && fechaFinEfectiva && (!esSalida || causalEfectiva)) {
                 const estadoRecalculado = calcularEstado({ fecha_fin: fechaFinEfectiva }).estado;
                 sets.push('motivo_novedad = NULL');
                 sets.push(`estado = $${n}`);
                 vals.push(estadoRecalculado);
+                afterData.estado = estadoRecalculado;
                 n += 1;
             }
-            if (sets.length === 0) return res.status(400).json({ ok: false, error: 'Sin cambios' });
+            
+            if (sets.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ ok: false, error: 'Sin cambios' });
+            }
+            
             sets.push('updated_at = NOW()');
             vals.push(id);
-            const upd = await pool.query(
+            const upd = await client.query(
                 `UPDATE reubicaciones_pipeline SET ${sets.join(', ')} WHERE id = $${n}::uuid RETURNING id`,
                 vals
             );
-            if (!upd.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+            
+            if (!upd.rows.length) {
+                await client.query('ROLLBACK');
+                return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+            }
+            
+            // HU-06: Registrar el cambio manual de la ficha
+            const eventId = `patch_${id}_${Date.now()}`;
+            await registrarEventoHistorial(client, {
+                caso_id: id,
+                consultor_id: current.cedula,
+                tipo: 'modificacion_manual',
+                actor_nombre: req.user?.full_name || 'Usuario',
+                actor_rol: req.user?.role || 'admin',
+                origen: 'MANUAL',
+                descripcion: 'Actualización manual de la ficha',
+                before_data: beforeData,
+                after_data: afterData,
+                source_event_id: eventId
+            });
+            
+            // Si hubo cambio de estado, lanzar evento específico
+            if (beforeData.estado !== afterData.estado) {
+                await registrarEventoHistorial(client, {
+                    caso_id: id,
+                    consultor_id: current.cedula,
+                    tipo: 'transicion_automatica',
+                    actor_nombre: req.user?.full_name || 'Usuario',
+                    actor_rol: req.user?.role || 'admin',
+                    origen: 'SISTEMA',
+                    descripcion: `Estado recalculado a ${afterData.estado} por datos completos`,
+                    before_data: { estado: beforeData.estado },
+                    after_data: { estado: afterData.estado },
+                    source_event_id: `estado_${eventId}`
+                });
+            }
+
+            await client.query('COMMIT');
+
             const joined = await pool.query(
                 `SELECT
                     rp.id,
@@ -1355,35 +1447,264 @@ function registerDirectorioRoutes(deps) {
             });
             return res.json({ ok: true, item });
         } catch (e) {
-            console.error('PATCH directorio reubicaciones-pipeline:', e);
-            return res.status(500).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
+            if (client) await client.query('ROLLBACK');
+            const status = e.status || 500;
+            if (status >= 500) console.error('PATCH directorio reubicaciones-pipeline:', e);
+            return res.status(status).json({ ok: false, error: e.message || 'No se pudo actualizar.' });
+        } finally {
+            if (client) client.release();
         }
     });
 
-    app.delete('/api/directorio/reubicaciones-pipeline/:id', ...reubWriteGuard, async (req, res) => {
+    app.get('/api/directorio/reubicaciones/:id/historial', ...reubReadGuard, async (req, res) => {
         try {
-            const id = String(req.params.id || '').trim();
-            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+            const pipelineId = String(req.params.id || '').trim();
+            if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(pipelineId)) {
                 return res.status(400).json({ ok: false, error: 'Id inválido' });
             }
-            const q = await pool.query(`SELECT c.cliente FROM reubicaciones_pipeline rp INNER JOIN colaboradores c ON c.cedula = rp.cedula WHERE rp.id = $1::uuid`, [id]);
-            if (!q.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
+            // CA-07: Verificación GP
+            const q = await pool.query(`SELECT c.cliente FROM reubicaciones_pipeline rp INNER JOIN colaboradores c ON c.cedula = rp.cedula WHERE rp.id = $1::uuid`, [pipelineId]);
+            if (!q.rows.length) return res.status(404).json({ ok: false, error: 'Caso no encontrado' });
             await assertGpClienteAsignado(req, q.rows[0].cliente);
 
-            const del = await pool.query(`DELETE FROM reubicaciones_pipeline WHERE id = $1::uuid RETURNING id`, [id]);
-            if (!del.rows.length) return res.status(404).json({ ok: false, error: 'Registro no encontrado' });
-            await writeAudit(pool, {
-                actorUserId: parseUuidActor(req.user?.sub),
-                actorRole: normalizeRoleOrNull(req.user?.role),
-                action: 'reubicaciones_pipeline.delete',
-                entityType: 'reubicaciones_pipeline',
-                entityId: id,
-                metadata: {}
-            });
-            return res.json({ ok: true, deleted: id });
+            const cursor = req.query.cursor ? Buffer.from(req.query.cursor, 'base64').toString('utf8') : null;
+            let cursorFecha = null;
+            let cursorId = null;
+            if (cursor) {
+                const parts = cursor.split('|');
+                if (parts.length === 2) {
+                    cursorFecha = parts[0];
+                    cursorId = parts[1];
+                }
+            }
+
+            const limit = 20;
+            const params = [pipelineId];
+            let cursorSql = '';
+            if (cursorFecha && cursorId) {
+                cursorSql = ` AND (fecha, id) < ($2::timestamptz, $3::uuid) `;
+                params.push(cursorFecha, cursorId);
+            }
+
+            const sql = `
+                SELECT id, tipo, origen, actor_nombre, actor_rol, fecha, descripcion, before_data, after_data
+                FROM reubicaciones_historial
+                WHERE caso_id = $1::uuid ${cursorSql}
+                ORDER BY fecha DESC, id DESC
+                LIMIT ${limit + 1}
+            `;
+            
+            const result = await pool.query(sql, params);
+            const hasMore = result.rows.length > limit;
+            const items = hasMore ? result.rows.slice(0, limit) : result.rows;
+            
+            const historyMap = {
+                'ficha_recibida': 'Ficha Recibida',
+                'ficha_actualizada': 'Ficha Actualizada',
+                'cambio_estado': 'Cambio de Estado',
+                'modificacion_manual': 'Edición Manual',
+                'observacion_agregada': 'Observación',
+                'decision_agregada': 'Decisión',
+                'reubicacion': 'Reubicación',
+                'salida': 'Salida',
+                'sincronizacion_extension': 'Sincronización',
+                'transicion_automatica': 'Transición Automática'
+            };
+
+            const mapped = items.map(r => ({
+                id: r.id,
+                tipo_label: historyMap[r.tipo] || r.tipo,
+                origen: r.origen,
+                actor: r.actor_nombre,
+                rol: r.actor_rol,
+                fecha: r.fecha,
+                descripcion: r.descripcion,
+                before: r.before_data,
+                after: r.after_data
+            }));
+
+            let nextCursor = null;
+            if (hasMore) {
+                const lastItem = items[items.length - 1];
+                nextCursor = Buffer.from(`${lastItem.fecha.toISOString()}|${lastItem.id}`).toString('base64');
+            }
+
+            return res.json({ ok: true, data: { historial: mapped, next_cursor: nextCursor } });
         } catch (e) {
-            console.error('DELETE directorio reubicaciones-pipeline:', e);
-            return res.status(500).json({ ok: false, error: e.message || 'No se pudo eliminar.' });
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('GET historial:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'Error al obtener el historial' });
+        }
+    });
+
+    app.get('/api/directorio/clientes-destino', ...reubReadGuard, async (req, res) => {
+        try {
+            const sql = `
+                SELECT DISTINCT cliente
+                FROM clientes_lideres
+                WHERE activo = true
+                ORDER BY cliente ASC
+            `;
+            const result = await pool.query(sql);
+            return res.json({ ok: true, data: result.rows });
+        } catch (e) {
+            console.error('GET clientes-destino:', e);
+            return res.status(500).json({ ok: false, error: 'Error al obtener clientes destino' });
+        }
+    });
+
+    app.get('/api/directorio/reubicaciones-historial-global', ...reubReadGuard, async (req, res) => {
+        try {
+            const cursor = req.query.cursor ? Buffer.from(req.query.cursor, 'base64').toString('utf8') : null;
+            let cursorFecha = null;
+            let cursorId = null;
+            if (cursor) {
+                const parts = cursor.split('|');
+                if (parts.length === 2) {
+                    cursorFecha = parts[0];
+                    cursorId = parts[1];
+                }
+            }
+
+            const limit = 50;
+            const params = [];
+            const whereParts = [];
+
+            // CA-07: Verificación GP (global)
+            const role = normalizeRoleOrNull(req.user?.role);
+            if (role === 'gp') {
+                const gpEmail = String(req.user?.email || '').trim().toLowerCase();
+                const gpUserId = parseUuidActor(req.user?.sub);
+                const gpId = await resolveGpInternalUserIdForScope({ gpEmail, gpUserId });
+                const assigned = await listAssignedClientesForGpUserId(gpId);
+                if (assigned.length === 0) {
+                    return res.json({ ok: true, data: { historial: [], next_cursor: null } });
+                }
+                const placeholders = assigned.map((_, i) => `$${params.length + 1 + i}`);
+                whereParts.push(`c.cliente IN (${placeholders.join(', ')})`);
+                params.push(...assigned);
+            }
+
+            const search = textOrNull(req.query.q);
+            if (search) {
+                const i = params.length + 1;
+                whereParts.push(`(
+                    c.cedula ILIKE '%' || $${i} || '%'
+                    OR c.nombre ILIKE '%' || $${i} || '%'
+                )`);
+                params.push(search);
+            }
+
+            const fd = textOrNull(req.query.fecha_fin_desde);
+            const fh = textOrNull(req.query.fecha_fin_hasta);
+            if (fd) {
+                whereParts.push(`rh.fecha >= ${params.length + 1}::timestamptz`);
+                params.push(fd + 'T00:00:00-05:00');
+            }
+            if (fh) {
+                whereParts.push(`rh.fecha <= ${params.length + 1}::timestamptz`);
+                params.push(fh + 'T23:59:59.999-05:00');
+            }
+            
+            if (req.query.estado) {
+                const arr = String(req.query.estado).split(',');
+                const estadoConds = [];
+                if (arr.includes('Con novedad')) {
+                    estadoConds.push(`COALESCE(rp.motivo_novedad, '') <> ''`);
+                }
+                if (arr.includes('Pendiente')) {
+                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin > (timezone('America/Bogota', now()))::date)`);
+                }
+                if (arr.includes('En proceso')) {
+                    estadoConds.push(`(COALESCE(rp.motivo_novedad, '') = '' AND rp.fecha_fin <= (timezone('America/Bogota', now()))::date)`);
+                }
+                if (estadoConds.length) {
+                    whereParts.push(`(${estadoConds.join(' OR ')})`);
+                }
+            }
+
+            appendAptitudFilter(whereParts, params, req.query.apto_no_apto);
+
+            if (req.query.tipo) {
+                const arr = String(req.query.tipo).split(',');
+                const placeholders = arr.map((_, i) => `$${params.length + 1 + i}`);
+                whereParts.push(`rh.tipo IN (${placeholders.join(', ')})`);
+                params.push(...arr);
+            }
+
+            if (req.query.actor) {
+                const i = params.length + 1;
+                whereParts.push(`rh.actor_nombre ILIKE '%' || $${i} || '%'`);
+                params.push(req.query.actor);
+            }
+
+            if (cursorFecha && cursorId) {
+                const i = params.length + 1;
+                whereParts.push(`(rh.fecha, rh.id) < ($${i}::timestamptz, $${i+1}::uuid)`);
+                params.push(cursorFecha, cursorId);
+            }
+
+            const whereSql = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+            const sql = `
+                SELECT 
+                    rh.id, rh.tipo, rh.origen, rh.actor_nombre, rh.actor_rol, rh.fecha, rh.descripcion, rh.before_data, rh.after_data,
+                    rp.id as caso_id, rp.fecha_fin, rp.cliente_destino, rp.causal, rp.tipo_ficha,
+                    c.cedula, c.nombre as consultor, c.cliente as cliente_actual
+                FROM reubicaciones_historial rh
+                INNER JOIN reubicaciones_pipeline rp ON rp.id = rh.caso_id
+                INNER JOIN colaboradores c ON c.cedula = rp.cedula
+                ${whereSql}
+                ORDER BY rh.fecha DESC, rh.id DESC
+                LIMIT ${limit + 1}
+            `;
+            
+            const result = await pool.query(sql, params);
+            const hasMore = result.rows.length > limit;
+            const items = hasMore ? result.rows.slice(0, limit) : result.rows;
+            
+            const historyMap = {
+                'ficha_recibida': 'Ficha Recibida',
+                'ficha_actualizada': 'Ficha Actualizada',
+                'cambio_estado': 'Cambio de Estado',
+                'modificacion_manual': 'Edición Manual',
+                'observacion_agregada': 'Observación',
+                'decision_agregada': 'Decisión',
+                'reubicacion': 'Reubicación',
+                'salida': 'Salida',
+                'sincronizacion_extension': 'Sincronización',
+                'transicion_automatica': 'Transición Automática'
+            };
+
+            const mapped = items.map(r => ({
+                id: r.id,
+                caso_id: r.caso_id,
+                consultor: r.consultor,
+                cedula: r.cedula,
+                cliente_actual: r.cliente_actual,
+                cliente_destino: r.cliente_destino,
+                tipo_ficha: r.tipo_ficha,
+                tipo_label: historyMap[r.tipo] || r.tipo,
+                origen: r.origen,
+                actor: r.actor_nombre,
+                rol: r.actor_rol,
+                fecha: r.fecha,
+                descripcion: r.descripcion,
+                before: r.before_data,
+                after: r.after_data
+            }));
+
+            let nextCursor = null;
+            if (hasMore) {
+                const lastItem = items[items.length - 1];
+                nextCursor = Buffer.from(`${lastItem.fecha.toISOString()}|${lastItem.id}`).toString('base64');
+            }
+
+            return res.json({ ok: true, data: { historial: mapped, next_cursor: nextCursor } });
+        } catch (e) {
+            const st = Number(e?.status) || 500;
+            if (st >= 500) console.error('GET historial-global:', e);
+            return res.status(st).json({ ok: false, error: e.message || 'Error al obtener el historial global' });
         }
     });
 

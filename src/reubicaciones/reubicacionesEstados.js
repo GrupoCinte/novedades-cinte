@@ -1,7 +1,8 @@
 const ESTADOS = {
     PENDIENTE: 'Pendiente',
     EN_PROCESO: 'En proceso',
-    CON_NOVEDAD: 'Con novedad'
+    CON_NOVEDAD: 'Con novedad',
+    CERRADO: 'Cerrado'
 };
 
 /**
