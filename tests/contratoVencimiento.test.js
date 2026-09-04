@@ -21,7 +21,7 @@ describe('contratoVencimiento AUT-319', () => {
         assert.equal(daysUntil(null, '2026-08-27'), null);
     });
 
-    it('ventana pinta 30/15/5 y deja fuera indefinido y vencidos', () => {
+    it('ventana pinta 30/15/5 y deja fuera vencidos y más de 30 días', () => {
         assert.equal(bandaVentana(30), 'T30');
         assert.equal(bandaVentana(16), 'T30');
         assert.equal(bandaVentana(15), 'T15');
@@ -40,14 +40,16 @@ describe('contratoVencimiento AUT-319', () => {
         assert.equal(bandaExacta(4), null);
     });
 
-    it('aplica a OPS, fijo y obra o labor; no a indefinido', () => {
+    it('aplica a OPS, fijo, obra o labor e indefinido', () => {
         assert.equal(tipoAplicaAlerta('Término fijo'), true);
         assert.equal(tipoAplicaAlerta('Obra o labor'), true);
         assert.equal(tipoAplicaAlerta('OPS'), true);
         assert.equal(tipoAplicaAlerta('Prestación de servicios'), true);
-        assert.equal(tipoAplicaAlerta('Indefinido'), false);
-        assert.equal(tipoAplicaAlerta('Término indefinido', 'OPS'), false);
+        assert.equal(tipoAplicaAlerta('Indefinido'), true);
+        assert.equal(tipoAplicaAlerta('Término indefinido', 'OPS'), true);
+        assert.equal(tipoAplicaAlerta('Contrato Indefinido'), true);
         assert.equal(tipoAplicaAlerta('', 'Cuenta propia'), true);
+        assert.equal(tipoAplicaAlerta('', 'Contrato Indefinido'), true);
         assert.equal(tipoAplicaAlerta('Consultoría'), false);
     });
 

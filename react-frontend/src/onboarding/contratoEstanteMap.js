@@ -101,18 +101,25 @@ export function pickLiderForCliente(actual, options, { loading = false } = {}) {
     return list[0] || '';
 }
 
-/** Una pastilla por cliente: vigente si existe; si no, el último histórico. */
+/**
+ * Pastillas del estante:
+ * - Persona activa (hay contratos vigentes): una pastilla por cliente vigente.
+ * - Persona en baja total (sin vigentes): una pastilla por contrato/período,
+ *   sin colapsar re-ingresos al mismo cliente, para no ocultar el historial.
+ */
 export function collapseContratosEstante(list) {
     const rows = Array.isArray(list) ? list.filter(Boolean) : [];
     const vigentes = rows.filter((c) => c.vigente);
-    const source = vigentes.length ? vigentes : rows;
-    const seen = new Map();
-    for (const c of source) {
-        const key = foldCliente(c.cliente);
-        if (!key || seen.has(key)) continue;
-        seen.set(key, c);
+    if (vigentes.length) {
+        const seen = new Map();
+        for (const c of vigentes) {
+            const key = foldCliente(c.cliente);
+            if (!key || seen.has(key)) continue;
+            seen.set(key, c);
+        }
+        return [...seen.values()];
     }
-    return [...seen.values()];
+    return rows;
 }
 
 /**
@@ -191,6 +198,56 @@ export function groupHistorialBloques(items) {
 function esOrigenFichaZoho(origen) {
     const o = String(origen || '');
     return o === 'ficha_zoho' || o.startsWith('novedad_');
+}
+
+function historialAccionLabel(antes, despues) {
+    const vacioAntes = antes == null || antes === '';
+    const vacioDespues = despues == null || despues === '';
+    if (vacioAntes && !vacioDespues) return 'Agregó';
+    if (!vacioAntes && vacioDespues) return 'Quitó';
+    return 'Cambió';
+}
+
+function valorCampo(cambios, campo) {
+    return (Array.isArray(cambios) ? cambios : []).find((c) => c && c.campo === campo) || null;
+}
+
+/** Título del bloque: ciclo de vida (baja, activación, prórroga) o Agregó/Cambió/Quitó. */
+export function historialBloqueTitulo(bloque) {
+    const cambios = Array.isArray(bloque?.cambios) ? bloque.cambios : [];
+    const origen = String(bloque?.origen || cambios[0]?.origen || '');
+    const activo = valorCampo(cambios, 'activo');
+    const vigente = valorCampo(cambios, 'vigente');
+
+    if (activo && (activo.valorDespues === 'No' || activo.valorDespues === 'false')) {
+        return origen === 'cancelado' ? 'Pasó a Cancelados' : 'Pasó a Bajas';
+    }
+    if (activo && (activo.valorDespues === 'Sí' || activo.valorDespues === 'true')) {
+        return origen === 'reingreso' ? 'Reingreso — activó a la persona' : 'Activó a la persona';
+    }
+    if (vigente && vigente.valorDespues === 'Cerrado') {
+        return 'Cerró contrato';
+    }
+    if (vigente && vigente.valorDespues === 'Vigente' && !vigente.valorAntes) {
+        return 'Activó contrato';
+    }
+    if (vigente && vigente.valorDespues === 'Vigente') {
+        return 'Reabrió contrato';
+    }
+    if (origen === 'extend') return 'Prórroga del contrato';
+    if (origen === 'historicize') return 'Cerró contratos anteriores';
+    if (origen === 'ficha_alta') return 'Alta de ficha';
+    if (origen === 'calculadora') return 'Ajuste de calculadora';
+
+    const n = cambios.length;
+    if (n === 1) {
+        const entry = cambios[0];
+        return `${historialAccionLabel(entry.valorAntes, entry.valorDespues)} ${entry.campoLabel || entry.campo}`;
+    }
+    if (n > 1 && (origen === 'ficha_zoho' || origen.startsWith('novedad_'))) {
+        return `Desde ficha Zoho · ${n} cambios`;
+    }
+    return n > 1 ? `Guardó ${n} cambios` : 'Cambio en la ficha';
 }
 
 /** Pie del bloque: quién guardó, o de dónde vino la ficha Zoho y quién la aprobó. */

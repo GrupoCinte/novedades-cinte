@@ -104,6 +104,52 @@ describe('contratosFromFicha AUT-312', () => {
         assert.equal(historialForContrato({}, 'c1').length, 0);
     });
 
+    it('títulos de ciclo: baja, activación y prórroga (AUT-317)', async () => {
+        const { historialBloqueTitulo } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
+        assert.equal(
+            historialBloqueTitulo({
+                origen: 'baja',
+                cambios: [{ campo: 'activo', campoLabel: 'Activo', valorAntes: 'Sí', valorDespues: 'No' }]
+            }),
+            'Pasó a Bajas'
+        );
+        assert.equal(
+            historialBloqueTitulo({
+                origen: 'reingreso',
+                cambios: [{ campo: 'activo', campoLabel: 'Activo', valorAntes: 'No', valorDespues: 'Sí' }]
+            }),
+            'Reingreso — activó a la persona'
+        );
+        assert.equal(
+            historialBloqueTitulo({
+                origen: 'baja',
+                cambios: [{ campo: 'vigente', campoLabel: 'Estado del contrato', valorAntes: 'Vigente', valorDespues: 'Cerrado' }]
+            }),
+            'Cerró contrato'
+        );
+        assert.equal(
+            historialBloqueTitulo({
+                origen: 'insert',
+                cambios: [{ campo: 'vigente', campoLabel: 'Estado del contrato', valorAntes: '', valorDespues: 'Vigente' }]
+            }),
+            'Activó contrato'
+        );
+        assert.equal(
+            historialBloqueTitulo({
+                origen: 'extend',
+                cambios: [{ campo: 'fecha_termino', campoLabel: 'Fecha de término', valorAntes: '2026-10-01', valorDespues: '2026-12-01' }]
+            }),
+            'Prórroga del contrato'
+        );
+        assert.equal(
+            historialBloqueTitulo({
+                origen: 'ficha_patch',
+                cambios: [{ campo: 'eps', campoLabel: 'EPS', valorAntes: 'SURA', valorDespues: 'NUEVA' }]
+            }),
+            'Cambió EPS'
+        );
+    });
+
     it('el pie de Zoho dice desde ficha Zoho y quién aprobó (AUT-317)', async () => {
         const { historialActorLine } = await import('../react-frontend/src/onboarding/contratoEstanteMap.js');
         assert.equal(

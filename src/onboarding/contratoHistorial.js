@@ -246,10 +246,12 @@ function toApiHistorial(row) {
 
 async function ensureColaboradorContratoHistorialTable(pool, logger) {
     try {
+        // contrato_id NULL: cambios de ficha (Guardar, baja, alta) no van atados a un contrato.
+        // lote_id va en el CREATE para que el INSERT no falle si el ALTER posterior no corre.
         await pool.query(`
             CREATE TABLE IF NOT EXISTS colaborador_contrato_historial (
                 id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                contrato_id     UUID NOT NULL REFERENCES colaborador_contratos(id) ON DELETE CASCADE,
+                contrato_id     UUID NULL REFERENCES colaborador_contratos(id) ON DELETE CASCADE,
                 cedula          TEXT NOT NULL,
                 campo           TEXT NOT NULL,
                 valor_antes     TEXT NULL,
@@ -259,6 +261,7 @@ async function ensureColaboradorContratoHistorialTable(pool, logger) {
                 actor_email     TEXT NULL,
                 actor_role      TEXT NULL,
                 origen          TEXT NULL,
+                lote_id         UUID NULL,
                 created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
             )
         `);
@@ -284,56 +287,69 @@ async function ensureColaboradorContratoHistorialTable(pool, logger) {
         `);
     } catch (error) {
         if (String(error?.code || '') === '42501') {
-            if (logger && typeof logger.warn === 'function') {
-                logger.warn('[Onboarding] Permisos insuficientes para colaborador_contrato_historial.');
-            }
+            const msg = '[Onboarding] Permisos insuficientes para colaborador_contrato_historial. El historial no se va a registrar.';
+            if (logger && typeof logger.error === 'function') logger.error(msg);
+            else console.error(msg, error.message);
             return;
         }
         throw error;
     }
 }
 
-async function insertHistorialRows(db, rows) {
+function isHistorialSchemaError(error) {
+    const code = String(error?.code || '');
+    return code === '42P01' || code === '42703';
+}
+
+async function insertHistorialRows(db, rows, { retried = false } = {}) {
     const list = Array.isArray(rows) ? rows : [];
     const loteId = randomUUID();
     const inClientTx = typeof db.release === 'function';
-    for (const row of list) {
-        if (inClientTx) {
-            await db.query('SAVEPOINT contrato_hist_w');
-        }
-        try {
-            await db.query(
-                `INSERT INTO colaborador_contrato_historial (
-                    contrato_id, cedula, campo, valor_antes, valor_despues,
-                    actor_user_id, actor_nombre, actor_email, actor_role, origen, lote_id
-                 ) VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7, $8, $9, $10, $11::uuid)`,
-                [
-                    row.contratoId || null,
-                    row.cedula,
-                    row.campo,
-                    row.valorAntes || null,
-                    row.valorDespues || null,
-                    asUuid(row.actor && row.actor.userId),
-                    (row.actor && row.actor.nombre) || 'Sistema',
-                    (row.actor && row.actor.email) || null,
-                    (row.actor && row.actor.role) || null,
-                    row.origen || null,
-                    loteId
-                ]
-            );
+    try {
+        for (const row of list) {
             if (inClientTx) {
-                await db.query('RELEASE SAVEPOINT contrato_hist_w');
+                await db.query('SAVEPOINT contrato_hist_w');
             }
-        } catch (error) {
-            if (inClientTx) {
-                try {
-                    await db.query('ROLLBACK TO SAVEPOINT contrato_hist_w');
-                } catch {
-                    /* la transacción padre sigue usable */
+            try {
+                await db.query(
+                    `INSERT INTO colaborador_contrato_historial (
+                        contrato_id, cedula, campo, valor_antes, valor_despues,
+                        actor_user_id, actor_nombre, actor_email, actor_role, origen, lote_id
+                     ) VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, $7, $8, $9, $10, $11::uuid)`,
+                    [
+                        row.contratoId || null,
+                        row.cedula,
+                        row.campo,
+                        row.valorAntes || null,
+                        row.valorDespues || null,
+                        asUuid(row.actor && row.actor.userId),
+                        (row.actor && row.actor.nombre) || 'Sistema',
+                        (row.actor && row.actor.email) || null,
+                        (row.actor && row.actor.role) || null,
+                        row.origen || null,
+                        loteId
+                    ]
+                );
+                if (inClientTx) {
+                    await db.query('RELEASE SAVEPOINT contrato_hist_w');
                 }
+            } catch (error) {
+                if (inClientTx) {
+                    try {
+                        await db.query('ROLLBACK TO SAVEPOINT contrato_hist_w');
+                    } catch {
+                        /* la transacción padre sigue usable */
+                    }
+                }
+                throw error;
             }
-            throw error;
         }
+    } catch (error) {
+        if (!retried && isHistorialSchemaError(error)) {
+            await ensureColaboradorContratoHistorialTable(db);
+            return insertHistorialRows(db, rows, { retried: true });
+        }
+        throw error;
     }
 }
 
@@ -362,8 +378,10 @@ async function recordContratoDiff(db, {
     try {
         await insertHistorialRows(db, rows);
     } catch (error) {
-        console.warn('[Onboarding] historial de contrato omitido:', error.message);
-        return [];
+        console.error('[Onboarding] historial de contrato no registrado:', error.message);
+        diffs.omitted = true;
+        diffs.omitReason = error.message;
+        return diffs;
     }
     return diffs;
 }
@@ -397,8 +415,10 @@ async function recordFichaDiff(db, { cedula, before, after, actor, origen, contr
     try {
         await insertHistorialRows(db, rows);
     } catch (error) {
-        console.warn('[Onboarding] historial de ficha omitido:', error.message);
-        return [];
+        console.error('[Onboarding] historial de ficha no registrado:', error.message);
+        diffs.omitted = true;
+        diffs.omitReason = error.message;
+        return diffs;
     }
     return diffs;
 }
@@ -428,7 +448,7 @@ async function listHistorialByCedula(db, cedula) {
             map.set(key, list);
         }
     } catch (error) {
-        console.warn('[Onboarding] no se pudo leer historial de contratos:', error.message);
+        console.error('[Onboarding] no se pudo leer historial de la ficha:', error.message);
     }
     return map;
 }

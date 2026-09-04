@@ -1,5 +1,5 @@
 import { Clock } from 'lucide-react';
-import { groupHistorialBloques, historialActorLine } from './contratoEstanteMap.js';
+import { groupHistorialBloques, historialActorLine, historialBloqueTitulo } from './contratoEstanteMap.js';
 
 function formatFecha(value) {
     if (!value) return '—';
@@ -42,12 +42,7 @@ function formatValor(campo, value) {
 }
 
 function tituloBloque(bloque) {
-    const n = bloque.cambios.length;
-    if (n === 1) {
-        const entry = bloque.cambios[0];
-        return `${accionLabel(entry.valorAntes, entry.valorDespues)} ${entry.campoLabel || entry.campo}`;
-    }
-    return `Guardó ${n} cambios`;
+    return historialBloqueTitulo(bloque);
 }
 
 export default function ContratoHistorialPanel({ items = [], isLight = false }) {

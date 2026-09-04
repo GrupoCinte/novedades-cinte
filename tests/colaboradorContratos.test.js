@@ -35,13 +35,26 @@ describe('decideContractAction AUT-313', () => {
         );
     });
 
-    it('otro cliente no pisa la cabecera: contrato nuevo vigente', () => {
+    it('otro cliente en la ficha renombra el vigente (no crea otro)', () => {
         assert.equal(
             decideContractAction({
                 exists: true,
                 activo: true,
                 clienteActual: 'EXPERIAN',
-                clienteNuevo: 'DAVIVIENDA'
+                clienteNuevo: 'CINTE'
+            }),
+            'rename_client'
+        );
+    });
+
+    it('contrato adicional solo con flag explícito', () => {
+        assert.equal(
+            decideContractAction({
+                exists: true,
+                activo: true,
+                clienteActual: 'EXPERIAN',
+                clienteNuevo: 'DAVIVIENDA',
+                nuevoContrato: true
             }),
             'new_client'
         );
@@ -305,6 +318,114 @@ describe('reopenContrato AUT-313', () => {
         const r = await reopenContrato(db, { cedula: '1', cliente: 'Colsubsidio' });
         assert.equal(r.action, 'noop_already_vigente');
         assert.equal(r.personActivo, true);
+    });
+});
+
+describe('guardar ficha no resucita contrato cerrado AUT-340', () => {
+    const { syncPersonContractsFromFicha } = require('../src/onboarding/colaboradorContratos');
+
+    it('cambiar cliente en la ficha renombra el vigente y no inserta', async () => {
+        const experian = {
+            id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            cedula: '1110563092',
+            cliente: 'EXPERIAN',
+            tipo_contrato: 'Indefinido',
+            vigente: true,
+            es_cabecera: true
+        };
+        const db = mockPool((sql) => {
+            if (sql.includes('vigente IS TRUE') && sql.includes('lower(btrim(cliente))')) {
+                if (String(sql).includes('$2') || true) {
+                    const last = db.calls[db.calls.length - 1];
+                    const cli = last && last.params && last.params[1];
+                    if (String(cli).toLowerCase() === 'cinte') return { rows: [], rowCount: 0 };
+                    return { rows: [experian], rowCount: 1 };
+                }
+            }
+            if (sql.includes('es_cabecera IS TRUE')) {
+                return { rows: [experian], rowCount: 1 };
+            }
+            if (/UPDATE colaborador_contratos/i.test(sql)) {
+                return { rows: [{ ...experian, cliente: 'CINTE' }], rowCount: 1 };
+            }
+            if (/SELECT id, cedula, cliente/i.test(sql) && sql.includes('WHERE id')) {
+                return { rows: [experian], rowCount: 1 };
+            }
+            return { rows: [], rowCount: 0 };
+        });
+        const r = await syncPersonContractsFromFicha(db, {
+            cedula: '1110563092',
+            existed: { activo: true, cliente: 'EXPERIAN' },
+            cliente: 'CINTE',
+            allowReingreso: false
+        });
+        assert.equal(r.action, 'rename_client');
+        assert.equal(db.calls.some((c) => /INSERT INTO colaborador_contratos/i.test(c.sql)), false);
+        assert.equal(db.calls.some((c) => /UPDATE colaborador_contratos/i.test(c.sql)), true);
+    });
+
+    it('Nuevo contrato con histórico cerrado no inserta un vigente', async () => {
+        const db = mockPool((sql) => {
+            if (sql.includes('vigente IS TRUE') && sql.includes('lower(btrim(cliente))')) {
+                return { rows: [], rowCount: 0 };
+            }
+            if (sql.includes('vigente IS FALSE') && sql.includes('lower(btrim(cliente))')) {
+                return {
+                    rows: [{
+                        id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+                        cedula: '1110563092',
+                        cliente: 'CINTE',
+                        tipo_contrato: 'Indefinido',
+                        vigente: false,
+                        es_cabecera: false
+                    }],
+                    rowCount: 1
+                };
+            }
+            return { rows: [], rowCount: 0 };
+        });
+        const r = await syncPersonContractsFromFicha(db, {
+            cedula: '1110563092',
+            existed: { activo: true, cliente: 'EXPERIAN' },
+            cliente: 'CINTE',
+            allowReingreso: false,
+            nuevoContrato: true
+        });
+        assert.equal(r.action, 'identity_only');
+        assert.equal(db.calls.some((c) => /INSERT INTO colaborador_contratos/i.test(c.sql)), false);
+    });
+
+    it('Nuevo contrato sin histórico sí crea vigente adicional', async () => {
+        const db = mockPool((sql) => {
+            if (sql.includes('vigente IS TRUE') && sql.includes('lower(btrim(cliente))')) {
+                return { rows: [], rowCount: 0 };
+            }
+            if (sql.includes('vigente IS FALSE') && sql.includes('lower(btrim(cliente))')) {
+                return { rows: [], rowCount: 0 };
+            }
+            if (/INSERT INTO colaborador_contratos/i.test(sql)) {
+                return {
+                    rows: [{
+                        id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+                        cedula: '1110563092',
+                        cliente: 'GOOGLE',
+                        vigente: true,
+                        es_cabecera: false
+                    }],
+                    rowCount: 1
+                };
+            }
+            return { rows: [], rowCount: 0 };
+        });
+        const r = await syncPersonContractsFromFicha(db, {
+            cedula: '1110563092',
+            existed: { activo: true, cliente: 'EXPERIAN' },
+            cliente: 'GOOGLE',
+            allowReingreso: false,
+            nuevoContrato: true
+        });
+        assert.equal(r.action, 'new_client');
+        assert.equal(db.calls.some((c) => /INSERT INTO colaborador_contratos/i.test(c.sql)), true);
     });
 });
 

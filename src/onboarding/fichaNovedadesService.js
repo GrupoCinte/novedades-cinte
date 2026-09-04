@@ -23,7 +23,7 @@ const {
     sameCliente,
     isoDate
 } = require('./colaboradorContratos');
-const { actorFromUser } = require('./contratoHistorial');
+const { actorFromUser, recordFichaDiff } = require('./contratoHistorial');
 
 const ZOHO_RECORD_TYPE = 'zoho_novedad';
 const DIFF_PREVIEW_LIMIT = 10;
@@ -71,6 +71,63 @@ function diffAllowlistForTipo(tipo) {
     if (t === 'extension') return EXTENSION_DIFF_FIELDS;
     if (t === 'salida') return new Set(WHITELIST_BY_TIPO.salida);
     return null;
+}
+
+/** Campos que disparan evento de contrato (no solo PATCH de ficha). */
+const CONTRACT_EVENT_FIELDS = new Set([
+    'cliente',
+    'tipo_contrato',
+    'fecha_ingreso',
+    'fecha_termino',
+    'fecha_notificacion_termino',
+    'esquema_contrato',
+    'vigente_desde'
+]);
+
+const APPLY_FIELD_ALIASES = {
+    fecha_ingreso: ['vigente_desde'],
+    vigente_desde: ['fecha_ingreso']
+};
+
+function parseApplyFields(raw) {
+    if (raw == null) return null;
+    if (!Array.isArray(raw)) {
+        throw Object.assign(new Error('apply_fields inválido'), { status: 400 });
+    }
+    const keys = [...new Set(raw.map((k) => String(k || '').trim()).filter(Boolean))];
+    if (keys.length === 0) {
+        throw Object.assign(new Error('Marque al menos un campo para aplicar'), { status: 400 });
+    }
+    if (keys.length > 80) {
+        throw Object.assign(new Error('Demasiados campos en apply_fields'), { status: 400 });
+    }
+    const expanded = new Set(keys);
+    for (const key of keys) {
+        const aliases = APPLY_FIELD_ALIASES[key];
+        if (aliases) aliases.forEach((a) => expanded.add(a));
+    }
+    return expanded;
+}
+
+/** Cliente identifica el contrato; no sale en el comparativo (salida/extensión/modificación). */
+const APPLY_CONTEXT_KEYS = new Set(['cliente']);
+
+function filterPayloadByApplyFields(payload, applyFields) {
+    if (!applyFields || !payload || typeof payload !== 'object') return payload;
+    const out = {};
+    for (const [key, val] of Object.entries(payload)) {
+        if (applyFields.has(key) || APPLY_CONTEXT_KEYS.has(key)) out[key] = val;
+    }
+    return out;
+}
+
+function applyFieldsTouchContract(applyFields, payload) {
+    if (!applyFields) return true;
+    const src = payload && typeof payload === 'object' ? payload : {};
+    for (const key of CONTRACT_EVENT_FIELDS) {
+        if (applyFields.has(key) && src[key] != null && src[key] !== '') return true;
+    }
+    return false;
 }
 
 function normalizeCedula(value) {
@@ -671,6 +728,15 @@ async function loadColaboradorFull(pool, cedula) {
     return q.rows[0] || null;
 }
 
+async function loadColaboradorFullSafe(pool, cedula, fallback = null) {
+    try {
+        return (await loadColaboradorFull(pool, cedula)) || fallback;
+    } catch (error) {
+        console.error('[Onboarding] no se pudo releer ficha para historial:', error.message);
+        return fallback;
+    }
+}
+
 /**
  * @param {import('pg').Pool} pool
  * @param {string[]} cedulas
@@ -1180,6 +1246,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
     async function approveNovedad(id, reviewer = {}, options = {}) { // nosonar
         const closeSiblings = options.closeSiblings === true;
+        const applyFields = parseApplyFields(options.applyFields);
         const actor = actorFromUser(reviewer);
         const origenZoho = 'ficha_zoho';
         const row = await getNovedadById(id);
@@ -1193,11 +1260,17 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         }
 
         const tipo = String(row.tipo_novedad || '').trim().toLowerCase();
-        const normalized = { ...row.payload_normalizado };
+        let normalized = { ...(row.payload_normalizado || {}) };
         if (normalized.cliente) {
             normalized.cliente = resolveClienteOnWrite(normalized.cliente);
         }
+        if (applyFields) {
+            normalized = filterPayloadByApplyFields(normalized, applyFields);
+        }
         const patch = buildPatchFromNormalized(row.tipo_novedad, normalized);
+        if (applyFields && !applyFields.has('cliente')) {
+            delete patch.cliente;
+        }
         if (Object.keys(patch).length === 0 && tipo !== 'salida' && tipo !== 'cancelacion_salida') {
             throw Object.assign(new Error('Payload sin campos aplicables'), { status: 400 });
         }
@@ -1207,7 +1280,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
         // }
 
         const current = await loadColaboradorFull(pool, cedula);
-        const clienteFicha = trimOrNull(normalized.cliente);
+        const clienteFicha = trimOrNull(normalized.cliente) || trimOrNull(current?.cliente);
 
         if (tipo === 'salida') {
             const hasFecha = patch.fecha_termino || normalized.fecha_termino;
@@ -1229,6 +1302,15 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                         throw err;
                     }
                 }
+                const afterBaja = await loadColaboradorFullSafe(pool, cedula, current);
+                await recordFichaDiff(pool, {
+                    cedula,
+                    before: current,
+                    after: afterBaja || {},
+                    actor,
+                    origen: origenZoho,
+                    onlyKeys: ['motivo_baja', 'activo', 'termino']
+                });
             }
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
@@ -1244,6 +1326,15 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 });
             }
             await reopenContrato(pool, { cedula, cliente: clienteFicha, actor, origen: origenZoho });
+            const afterReopen = await loadColaboradorFullSafe(pool, cedula, current);
+            await recordFichaDiff(pool, {
+                cedula,
+                before: current,
+                after: afterReopen || {},
+                actor,
+                origen: origenZoho,
+                onlyKeys: ['activo', 'motivo_baja', 'termino', 'cancelado']
+            });
             delete patch.fecha_termino;
             delete patch.fecha_notificacion_termino;
             delete patch.termino;
@@ -1259,7 +1350,11 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             foldForMatch(clienteNuevo) !== foldForMatch(clienteActual);
 
         const tiposContrato = tipo === 'integracion' || tipo === 'modificacion_id' || tipo === 'extension';
-        if (tiposContrato) {
+        const runContractEvent = tiposContrato && applyFieldsTouchContract(applyFields, {
+            ...normalized,
+            ...patch
+        });
+        if (runContractEvent) {
             if (tipo === 'extension') {
                 if (!clienteFicha) {
                     throw Object.assign(
@@ -1283,6 +1378,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                     origen: origenZoho,
                     actor,
                     existed: current,
+                    nuevoContrato: tipo !== 'extension',
                     ...(tipo === 'extension' ? { action: 'extend' } : {})
                 });
             } catch (err) {
@@ -1292,7 +1388,6 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                     throw err;
                 }
             }
-
             if (contract.action === 'new_client') {
                 delete patch.cliente;
                 delete patch.fecha_ingreso;
@@ -1327,11 +1422,14 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                 }
             }
             if (contract.action === 'reingreso') {
-                patch.activo = true;
+                delete patch.activo;
+                delete patch.motivo_baja;
+                delete patch.termino;
             }
         }
 
-        if (esClienteDistinto && (tipo === 'modificacion_id' || tipo === 'integracion')) {
+        const applyClienteChange = !applyFields || applyFields.has('cliente');
+        if (esClienteDistinto && applyClienteChange && (tipo === 'modificacion_id' || tipo === 'integracion')) {
             await upsertColaboradorAsignacion(pool, {
                 cedula,
                 cliente: clienteNuevo,
@@ -1343,7 +1441,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
             if (patch.tarifa_cliente != null) delete patch.tarifa_cliente;
         }
 
-        if (tipo === 'modificacion_id') {
+        if (tipo === 'modificacion_id' && (!applyFields || applyFields.has('tarifa_cliente'))) {
             const vigenteDesde = normalized.vigente_desde || patch.vigente_desde;
             const nuevaTarifa = normalized.tarifa_cliente ?? patch.tarifa_cliente;
             const clienteHist = esClienteDistinto ? clienteNuevo : clienteActual || clienteNuevo;
@@ -1362,6 +1460,7 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
 
         const allowedPatch = buildPatchFromNormalized(tipo, normalized, Object.keys(patch));
         if (Object.keys(allowedPatch).length > 0) {
+            const beforePatch = await loadColaboradorFullSafe(pool, cedula, current);
             try {
                 await applyPatchToColaborador(cedula, allowedPatch);
             } catch (err) {
@@ -1371,19 +1470,28 @@ function createFichaNovedadesService({ pool, logger, updateColaboradorByCedula }
                     throw err;
                 }
             }
+            const afterPatch = await loadColaboradorFullSafe(pool, cedula, beforePatch || current);
+            await recordFichaDiff(pool, {
+                cedula,
+                before: beforePatch || current || {},
+                after: afterPatch || { ...(beforePatch || current || {}), ...allowedPatch },
+                actor,
+                origen: origenZoho,
+                onlyKeys: Object.keys(allowedPatch)
+            });
         }
 
         // HU-02: Sincronizar extensiones y salidas
         if (tipo === 'extension' || tipo === 'salida') {
             try {
                 await sincronizarConPipeline({
-                    cedula: cedula,
+                    cedula,
                     tipo_novedad: tipo,
-                    normalized: row.payload_normalizado || {},
-                    patch: patch,
+                    normalized,
+                    patch,
                     staging_id: id,
                     external_id: row.external_id,
-                    pool: pool,
+                    pool,
                     notifyService: require('../notifications/emailNotificationsPublisher')
                 });
             } catch (error) {

@@ -47,7 +47,7 @@ export default function PorVencerView({ auth, isLight, onCount }) {
                 defaultSort={POR_VENCER_DEFAULT_SORT}
                 fetcher={(params) => onboardingApi.listPorVencer(token, params)}
                 searchPlaceholder="Buscar cédula, nombre o cliente…"
-                emptyText="No hay contratos OPS, fijo u obra o labor por vencer en los próximos 30 días."
+                emptyText="No hay contratos (OPS, fijo, obra o labor e indefinido) por vencer en los próximos 30 días."
                 onRowClick={(r) => setSelected({ cedula: r.cedula, contratoId: r.contrato_id })}
                 filtersConfig={[
                     {
@@ -88,7 +88,7 @@ export default function PorVencerView({ auth, isLight, onCount }) {
                     cedula={selected.cedula}
                     initialContratoId={selected.contratoId}
                     onClose={() => setSelected(null)}
-                    onSaved={() => setSelected(null)}
+                    onSaved={() => {}}
                 />
             ) : null}
         </>
