@@ -42,6 +42,7 @@ logs/sync-artifacts/
 # Archivos temporales
 *.tmp
 *.temp
+scratch/
 
 # Carpeta de uploads generados
 assets/uploads/
