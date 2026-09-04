@@ -1050,9 +1050,14 @@ function registerDirectorioRoutes(deps) {
                     c.nombre AS consultor,
                     c.tipo_contrato,
                     c.cliente AS cliente_actual,
-                    c.perfil_cargo AS puesto,
-                    c.sueldo_nomina AS salario,
-                    c.otros_ingresos AS auxilios,
+                    COALESCE(rp.puesto, c.puesto) AS puesto,
+                    COALESCE(rp.salario, c.sueldo_nomina) AS salario,
+                    COALESCE(rp.auxilios, 
+                        CASE 
+                            WHEN c.auxilio_transporte_obligatorio IS NULL AND c.auxilios_no_prestacionales IS NULL THEN NULL 
+                            ELSE (COALESCE(c.auxilio_transporte_obligatorio, 0) + COALESCE(c.auxilios_no_prestacionales, 0)) 
+                        END
+                    ) AS auxilios,
                     c.tarifa_cliente,
                     c.montos_divisa
                 FROM reubicaciones_pipeline rp
