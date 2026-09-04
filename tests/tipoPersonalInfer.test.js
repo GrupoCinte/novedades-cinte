@@ -9,8 +9,13 @@ const {
 describe('inferTipoPersonal', () => {
     it('CINTE gana sobre consultor ya guardado; SENA se queda', () => {
         assert.equal(inferTipoPersonal({ tipo_personal: 'consultor', cliente: 'CINTE' }), 'staff');
-        assert.equal(inferTipoPersonal({ tipo_personal: 'staff', cliente: 'PORVENIR' }), 'staff');
         assert.equal(inferTipoPersonal({ tipo_personal: 'sena', cliente: 'CINTE' }), 'sena');
+    });
+
+    it('viceversa: no CINTE es consultor aunque viniera de staff', () => {
+        assert.equal(inferTipoPersonal({ tipo_personal: 'staff', cliente: 'EXPERIAN' }), 'consultor');
+        assert.equal(inferTipoPersonal({ tipo_personal: 'staff', cliente: 'CH', tipo_contrato: 'Staff interno' }), 'consultor');
+        assert.equal(inferTipoPersonal({ tipo_personal: 'staff', cliente: 'PORVENIR' }), 'consultor');
     });
 
     it('Staff CINTE va a staff si no hay tipo', () => {

@@ -30,8 +30,8 @@ const RAW_FIELDS = [
     ['tarifa_cliente', 'Tarifa (cliente)', 'money'],
     ['utilidad', 'Utilidad', 'money'],
     ['rt_aprox', 'Rentabilidad', 'money'],
-    ['periodicidad_pago', 'Periodicidad de pago', 'text'],
-    ['moneda', 'Moneda', 'text'],
+    ['periodicidad_pago', 'Forma de pago', 'select'],
+    ['moneda', 'Moneda', 'select'],
     ['sueldo_nomina', 'Sueldo nómina', 'money'],
     ['auxilio_transporte_obligatorio', 'Auxilio transporte obligatorio', 'text'],
     ['auxilios_no_prestacionales', 'Auxilios no prestacionales', 'text'],
@@ -79,7 +79,7 @@ const RAW_FIELDS = [
     ['ficha_extension_proyecto', 'Ficha extensión de proyecto', 'textarea'],
     ['frente_proyecto', 'Frente y/o proyecto', 'text'],
     ['afiliado_foneh', 'Afiliado a FONEH', 'bool'],
-    ['teletrabajo', 'Teletrabajo', 'text'],
+    ['teletrabajo', 'Teletrabajo', 'select'],
     ['modalidad_adicional', 'Modalidad (adic.)', 'text'],
     ['anexo1', 'Anexo 1', 'text'],
     ['anexo2', 'Acuerdo / Anexo 2', 'text'],
@@ -87,9 +87,11 @@ const RAW_FIELDS = [
     ['reversibilidad', 'Reversibilidad', 'text'],
     ['dia_familia', 'Día familia', 'text'],
     ['fecha_tentativa_grado', 'Fecha tentativa de grado', 'date'],
-    ['iso_9001_contextualizacion', 'Contextualización ISO 9001', 'textarea'],
-    ['sgsti_descripcion', 'Sistema gestión seguridad de la información', 'textarea'],
-    ['iso_14001_ambiental', 'ISO 14001 ambiental', 'textarea'],
+    ['induccion', 'Inducción', 'select'],
+    ['reinduccion', 'Reinducción', 'select'],
+    ['iso_9001_contextualizacion', 'ISO 9001', 'select'],
+    ['sgsti_descripcion', 'SGSI / seguridad de la información', 'select'],
+    ['iso_14001_ambiental', 'ISO 14001 ambiental', 'select'],
     // --- Campos Agente Extractor Ficha (I–VIII), paridad Dynamo/modal ---
     ['tipo_servicio', 'Tipo de servicio', 'text'],
     ['tipo_ingreso', 'Tipo de ingreso', 'text'],
@@ -148,7 +150,7 @@ export const CO_EXTENDED_META = RAW_FIELDS.map(([key, label, kind]) => ({ key, l
 /** Claves extendidas con entrada monetaria + selector COP/CLP/USD (`montos_divisa` en BD). */
 export const MONEY_FIELD_KEYS = CO_EXTENDED_META.filter((m) => m.kind === 'money').map((m) => m.key);
 
-/** Secciones del modal de ficha (solo orden visual). */
+/** Secciones del modal de ficha (solo orden visual). AUT-337. */
 export const CO_CONSULTOR_SECTIONS = [
     {
         title: 'Identificación y nombre',
@@ -168,23 +170,29 @@ export const CO_CONSULTOR_SECTIONS = [
         ]
     },
     {
-        title: 'Datos del correo / servicio',
+        title: 'Datos del servicio',
         keys: ['tipo_servicio', 'tipo_ingreso', 'duracion_servicio', 'analista_at', 'frente_proyecto']
     },
     {
-        title: 'Contactos de emergencia',
+        title: 'Ubicación y contacto',
         keys: [
-            'emergencia_1_nombre',
-            'emergencia_1_parentesco',
-            'emergencia_1_telefono',
-            'emergencia_1_email',
-            'emergencia_2_nombre',
-            'emergencia_2_parentesco',
-            'emergencia_2_telefono',
-            'emergencia_2_email',
-            'primer_contacto_familiar',
-            'segundo_contacto_familiar'
+            'direccion_domicilio',
+            'ciudad',
+            'departamento',
+            'celular_personal',
+            'telefono_fijo',
+            'email_personal',
+            'profesion',
+            'datos_bancarios'
         ]
+    },
+    {
+        title: 'Puesto y ejecución del servicio',
+        keys: ['puesto', 'perfil_cargo', 'descriptivo_puesto_sig', 'funciones_puesto', 'horario_laboral']
+    },
+    {
+        title: 'Stakeholders del cliente',
+        keys: ['lider_catalogo']
     },
     {
         title: 'Contrato y fechas',
@@ -194,7 +202,6 @@ export const CO_CONSULTOR_SECTIONS = [
             'pais',
             'cliente_proyecto',
             'fecha_reclutamiento',
-            'comercial',
             'fecha_ingreso',
             'fecha_notificacion_termino',
             'fecha_termino',
@@ -203,17 +210,6 @@ export const CO_CONSULTOR_SECTIONS = [
             'modalidad_trabajo',
             'periodicidad_pago',
             'moneda'
-        ]
-    },
-    {
-        title: FICHA_SECCION_INDICADORES,
-        keys: [
-            'tarifa_promedio_mes',
-            'venta_total',
-            'costos_personal',
-            'otros_costos',
-            'facturar_servicio_a',
-            'consideraciones_financieras'
         ]
     },
     {
@@ -239,66 +235,58 @@ export const CO_CONSULTOR_SECTIONS = [
         ]
     },
     {
-        title: 'Puesto y ejecución del servicio',
+        title: 'Alivios tributarios',
         keys: [
-            'puesto',
-            'perfil_cargo',
-            'descriptivo_puesto_sig',
-            'funciones_puesto',
-            'horario_laboral',
-            'ejecucion_horario_no_habil',
-            'direccion_proyecto',
-            'politica_viaticos'
+            'medicina_prepagada',
+            'afc_voluntario',
+            'leasing_habitacional',
+            'tiene_dependientes',
+            'tiene_hijos',
+            'edades_hijos'
         ]
     },
     {
         title: 'Seguridad social',
-        keys: ['eps', 'afp', 'ccf', 'arl', 'cesantias', 'medicina_prepagada', 'afc_voluntario', 'leasing_habitacional']
+        keys: ['eps', 'afp', 'ccf', 'arl', 'cesantias', 'reporte_arl_teletrabajo']
     },
     {
-        title: 'Ubicación y contacto',
+        title: FICHA_SECCION_INDICADORES,
         keys: [
-            'direccion_domicilio',
-            'ciudad',
-            'departamento',
-            'celular_personal',
-            'telefono_fijo',
-            'email_personal',
-            'profesion',
-            'datos_bancarios'
+            'tarifa_promedio_mes',
+            'venta_total',
+            'costos_personal',
+            'otros_costos',
+            'facturar_servicio_a',
+            'consideraciones_financieras'
         ]
     },
     {
-        title: 'Stakeholders del cliente',
+        title: 'Contactos de emergencia',
         keys: [
-            'contacto_focal_1_nombre',
-            'contacto_focal_1_cargo',
-            'contacto_focal_1_movil',
-            'contacto_focal_1_email',
-            'contacto_focal_2_nombre',
-            'contacto_focal_2_cargo',
-            'contacto_focal_2_movil',
-            'contacto_focal_2_email',
-            'contacto_admin_nombre',
-            'contacto_admin_cargo',
-            'contacto_admin_movil',
-            'contacto_admin_email',
-            'gerente_servicio',
-            'controller_staff',
-            'email_gerente_servicio'
+            'emergencia_1_nombre',
+            'emergencia_1_parentesco',
+            'emergencia_1_telefono',
+            'emergencia_1_email',
+            'emergencia_2_nombre',
+            'emergencia_2_parentesco',
+            'emergencia_2_telefono',
+            'emergencia_2_email'
         ]
     },
     {
-        title: 'Gestión y seguimiento',
+        title: 'Formación',
         keys: [
-            'reporte_arl_teletrabajo',
-            'seguimiento_pp',
-            'desempeno_ed_servicio'
+            'induccion',
+            'reinduccion',
+            'iso_9001_contextualizacion',
+            'sgsti_descripcion',
+            'iso_14001_ambiental',
+            'fecha_tentativa_grado'
         ]
     },
     {
-        title: 'Familia',
-        keys: ['tiene_dependientes', 'tiene_hijos', 'edades_hijos']
+        title: 'Teletrabajo',
+        keys: ['teletrabajo', 'anexo1', 'anexo2', 'documentos_complementarios', 'reversibilidad']
     },
     {
         title: 'Consideraciones y dotación',
@@ -309,23 +297,7 @@ export const CO_CONSULTOR_SECTIONS = [
             'requiere_correo_corp',
             'requiere_antivirus',
             'requerimientos_dotacion',
-            'teletrabajo'
-        ]
-    },
-    {
-        title: 'Proyecto, anexos y normas',
-        keys: [
-            'ficha_extension_proyecto',
-            'afiliado_foneh',
-            'anexo1',
-            'anexo2',
-            'documentos_complementarios',
-            'reversibilidad',
-            'dia_familia',
-            'fecha_tentativa_grado',
-            'iso_9001_contextualizacion',
-            'sgsti_descripcion',
-            'iso_14001_ambiental'
+            'afiliado_foneh'
         ]
     }
 ];
@@ -349,39 +321,34 @@ export const CO_TABS = [
         title: 'Información General',
         shortTitle: 'General',
         masterFields: true,
-        sectionTitles: [
-            'Identificación y nombre',
-            'Datos del correo / servicio',
-            'Ubicación y contacto',
-            'Contactos de emergencia',
-            'Familia'
-        ]
+        sectionTitles: ['Identificación y nombre', 'Datos del servicio', 'Ubicación y contacto']
+    },
+    {
+        id: 'puesto',
+        title: 'Datos del puesto',
+        shortTitle: 'Datos del puesto',
+        masterFields: false,
+        sectionTitles: ['Puesto y ejecución del servicio', 'Stakeholders del cliente']
     },
     {
         id: 'financiera',
         title: 'Información Financiera y administrativa',
-        shortTitle: 'Financiera y admin.',
+        shortTitle: 'Financiera',
         masterFields: false,
         sectionTitles: [
             'Contrato y fechas',
-            FICHA_SECCION_INDICADORES,
             'Costos y remuneración',
-            'Seguridad social'
+            'Alivios tributarios',
+            'Seguridad social',
+            FICHA_SECCION_INDICADORES
         ]
-    },
-    {
-        id: 'candidato',
-        title: 'Información del candidato',
-        shortTitle: 'Candidato',
-        masterFields: false,
-        sectionTitles: ['Puesto y ejecución del servicio', 'Stakeholders del cliente', 'Gestión y seguimiento']
     },
     {
         id: 'complementaria',
         title: 'Información Complementaria del servicio',
-        shortTitle: 'Complementaria',
+        shortTitle: 'Complementario',
         masterFields: false,
-        sectionTitles: ['Consideraciones y dotación', 'Proyecto, anexos y normas']
+        sectionTitles: ['Contactos de emergencia', 'Formación', 'Teletrabajo', 'Consideraciones y dotación']
     }
 ];
 

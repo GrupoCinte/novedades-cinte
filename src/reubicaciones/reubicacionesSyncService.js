@@ -219,7 +219,7 @@ async function sincronizarConPipeline({
                      salario = COALESCE(salario, $9),
                      auxilios = COALESCE(auxilios, $10),
                      updated_at = NOW() 
-                 WHERE id = $11`,
+                 WHERE id = $8`,
                 [
                     fechaNuevaEfectiva, 
                     cliente_destino || null, 
@@ -228,10 +228,10 @@ async function sincronizarConPipeline({
                     motivo, 
                     (tipo_novedad || '').toUpperCase(),
                     external_id,
+                    pipeline_id,
                     puesto || null,
                     sueldo_nomina || null,
-                    auxilios_calculado,
-                    pipeline_id
+                    auxilios_calculado
                 ]
             );
         }
